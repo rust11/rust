@@ -1,0 +1,1237 @@
+.MACRO	$DRINI
+drovl.=0
+.ENDM
+.MACRO	BEGIN	LAB
+.if	nb lab
+	pop	lab
+.iff
+	.enabl	lsb
+	pop	9999$
+.endc
+.ENDM
+.MACRO	END	LAB
+.if	nb lab
+	jmp	@(pc)+
+lab:	.word	0
+.iff
+	jmp	@(pc)+
+9999$:	.word	0
+	.dsabl	lsb
+.endc
+.ENDM
+.MACRO	$DRSTD	CSR,VEC,PRI,RTY,NAM
+	xxcsr. = csr
+	xxvec. = vec
+	xxpri. = pri
+	xxrty. = rty
+	xxnam. = nam
+    xm <xxnam. = xxnam. + drsfx.>
+.ENDM
+.MACRO	$DRALN	RND
+	. = . + <<rnd-1> & ^c<rnd-1>>
+.ENDM
+.MACRO	$DRLOC	LOC BAS
+.if nb bas
+	bobas. = bas
+.endc
+	. = bobas. + loc
+.ENDM
+.MACRO 	$DRLIM LOC
+	.iif gt .-<loc>,.error
+.ENDM
+.MACRO	$DRFND	NAM
+dr$fnd:	mov	@#j$bsys,r2
+	psh	rm.sl2(r2)
+	psh	(sp)
+	stack	cnt,slc
+	add	rm.pnp(r2),r2
+10$:	sub	#2,(sp)
+	bmi	20$
+	cmp	(r2)+,NAM
+	bne	10$
+	tst	-(r2)
+	add	sp.slc(sp),r2
+	mov	(r2),r2
+	beq	20$
+	sub	#dr.lqe,r2
+	tst	(pc)+
+20$:	sec
+	bit	(sp)+,(sp)+
+	return
+.ENDM
+.MACRO	$DRINS NAME,SYSTEM,DATA,?dat
+	.drins	name
+	br	dat
+	$dri'system
+	return
+dat:	$dri'data
+	return
+.ENDM
+.MACRO	$DRINO
+	sec
+.ENDM
+.MACRO	$DRIOK
+	clc
+.ENDM
+.MACRO	$DRISJ	?tru
+	psh	@#^o54
+	add	#^o412,(sp)
+	cmp	@(sp)+,#22.
+	beq	tru
+	sec
+tru:
+.ENDM
+.MACRO	$DRPTR	
+.drptr	load=dr$loa,fetch=dr$fet,unload=dr$unl,release=dr$rel
+.ENDM
+.MACRO	$DRAST	PRI
+	jsr	r5,@$inptr
+	.word	^c<pri*40>&340
+.ENDM
+.MACRO	DRREP$ MSG
+.iif ndf rep$c, rep$c=0
+.if ne rep$c
+.if nb msg
+	jsr	r1,tt$typ
+	.asciz	~msg~
+	.even
+.iff
+	$tttyp
+	$ttput
+.endc
+.endc
+.ENDM
+.MACRO	TTPUT$	CHA
+.if nb cha
+	mov	cha,r0
+.endc
+	call	tt$put
+.ENDM
+.MACRO	TTDEC$	VAL
+.if nb VAL
+	mov VAL,r0
+.endc
+	call	tt$dec
+.ENDM
+.MACRO	TTOCT$	VAL,PAD
+.if nb VAL
+	mov VAL,r0
+.endc
+.if nb PAD
+	call	tt$pad
+.iff
+	call	tt$oct
+.endc
+.ENDM
+.MACRO	TTTYP$ MSG
+	jsr	r1,tt$typ
+	.asciz	~msg~
+	.even
+.ENDM
+.MACRO	TTPRT$ MSG
+	.iif ndf cr.,$aldef
+	jsr	r1,tt$typ
+	.ascii	~msg~
+	.byte	cr.,lf.,0
+	.even
+.ENDM
+.MACRO	TTNEW$
+	call	tt$new
+.ENDM
+.MACRO	$TTTYP
+tt$typ:	psh	r0
+10$:	movb	(r1)+,r0
+	beq	20$
+	ttput$
+	br	10$
+20$:	inc	r1
+	bic	#1,r1
+	pop	r0
+	rts	r1
+.ENDM
+.MACRO	TTUNP$	VAL
+.if nb VAL
+	mov VAL,r0
+.endc
+	call	tt$unp
+.ENDM
+.MACRO	TTSPC$	SPC
+.if nb SPC
+	mov SPC,r0
+.endc
+	call	tt$spc
+.ENDM
+.MACRO	$TTNEW
+	.iif ndf cr.,$aldef
+tt$new:	jsr	r1,tt$typ
+	.byte	cr.,lf.,0,0
+	return
+.ENDM
+.MACRO	$TTPUT SYNCH
+	.iif ndf j$bsys,$jbdef
+	.iif ndf rm.tps,$rmdef
+tt$put:	psh	r1
+	mov	@#j$bsys,r1
+10$:	bplb	@rm.tps(r1),10$
+	movb	r0,@rm.tpb(r1)
+.if nb SYNCH
+20$:	bplb	@rm.tps(r1),20$
+.endc
+	pop	r1
+	return
+.ENDM
+.MACRO	$TTNUM
+tt$pad:	mov	(pc)+,(pc)+
+tt$oct:	clr	(pc)+
+t$tpad:	.word	0
+	tst	(pc)+
+tt$dec:	sec
+	pshs	<r2,r1,r0>
+	jsr	r3,30$
+10$:	10000.,1000.,100.,10.,1,0
+20$:	100000,10000,1000,100,10,1,0
+30$:	bic	r2,r2
+	bcs	40$
+	add	#20$-10$,r3
+	beqw	t$tpad,40$
+	mov	#'0,r2
+40$:	mov	r0,r1
+50$:	mov	#-1,r0
+60$:	inc	r0
+	sub	(r3),r1
+	bcc	60$
+	add	(r3)+,r1
+	beqw	(r3),70$
+	bnew	r0,70$
+	beqw	r2,80$
+70$:	mov	#'0,r2
+	add	r2,r0
+	ttput$
+80$:	bnew	(r3),50$
+	pops	<r3,r0,r1,r2>
+	return
+.ENDM
+.MACRO	$TTSPC
+tt$spc:	pshs	<r1,r0>
+	mov	r0,r1
+	call	20$
+	ttput$	#':
+	beqw	-2(r1),10$
+	call	20$
+	call	20$
+	ttput$	#'.
+	call	20$
+10$:	pops	<r0,r1>
+	return
+20$:	mov	(r1)+,r0
+	callr	tt$unp
+.ENDM
+.MACRO	TTLOW$
+	mov	#'a-'A,t$tlow
+.ENDM
+.MACRO	$TTUNP
+	.enabl	lsb
+tt$unp:	pshs	<r5,r4>
+	mov	r0,r4
+	mova	100$,r5
+20$:	mov	#-1,r0
+	cmp	#174777,r4
+	blo	50$
+30$:	inc	r0
+	sub	(r5),r4
+	bcc	30$
+	add	(r5),r4
+	tst	r0
+	beq	90$
+	cmp	#33,r0
+	blo	70$
+	beq	80$
+	add	(pc)+,r0
+t$tlow:	.word	0
+50$:	add	#56,r0
+70$:	add	#11,r0
+80$:	add	#11,r0
+	ttput$
+90$:	tst	-(r5)
+	bne	20$
+95$:	pop	r4
+	pop	r5
+	return
+	.word	0,1,50
+100$:	.word	50*50
+	.dsabl	lsb
+.ENDM
+.MACRO	$DRCND
+.iif	ndf	mmg$t,	mmg$t=0
+.iif 	ndf	tim$it,	tim$it=mmg$t
+.iif	ndf	erl$g,	erl$g=0
+.if eq mmg$t
+	drum$=1
+	drxm$=0
+.iff
+	drum$=0
+	drxm$=1
+.endc
+	drtm$ = tim$it
+	.macro	drTST$ nam cnd
+	   meta <nam c d e f g h i j k><drIF$ cnd <c> <d> <e> f g h i j k>
+	.endm
+	drtst$ um drum$
+	drtst$ xm drxm$
+	drtst$ tm drtm$
+	.macro	drIF$ c d e f g h i j k
+	.if ne c
+	 .if nb <f>
+		d e,f g h i j k
+	 .iff
+		d	e
+	 .endc
+	.endc
+	.endm
+.ENDM
+.MACRO	$drMAP	loc, adr, blk, bas=xxboot
+	adr = <xxend-xxstrt> + <loc-bas> + 1000 
+	blk = adr / 1000
+.ENDM
+.MACRO	$DRMOV	VAL,ADR,UPD
+	$drrea	#adr/1000
+	mov	val,adr-<adr/1000*1000>+1000
+.if b upd
+	$drupd
+.endc
+.ENDM
+.MACRO	$drGET	adr,bas=xxboot,pre=xx
+	$drrea	#adr/1000
+	$ = <bas - 1000>
+.ENDM
+.MACRO	$drREA	blk
+.if NB <blk>
+	mov	blk,d$riob+io.blk
+.endc
+	call	dr$rea
+.ENDM	
+.MACRO	$drWRI	blk
+.if NB <blk>
+	mov	blk,d$riob+io.blk
+.endc
+	call	dr$wri
+.ENDM
+.MACRO	$drRES
+	call	dr$res
+.ENDM	
+.MACRO	$drUPD	
+	call	dr$upd
+.ENDM	
+.MACRO	$drLOA	adr
+	$drrea	adr/1000
+.ENDM
+.MACRO	$drCAL	adr loa=LOA res=RES REG=r2
+.if dif loa,NO
+	$drrea	#adr/1000
+.endc
+	call	adr-<adr/1000*1000>+1000
+.if dif res,NO
+	rol	REG
+	$drres
+	ror	REG
+.endc
+.ENDM
+.macro	$drOVL
+.if eq drovl.
+drovl.=1
+$iodef
+	.enabl	lsb
+dr$upd:	call	10$
+	bcs	40$
+dr$res:	mov	#1,d$riob+io.blk
+dr$rea:	movb	#iorea.,d$riob+1
+	br	20$
+10$:	call	(pc)
+dr$wri:	movb	#iowri.,d$riob+1
+20$:	jsr	r0,30$
+d$riob:	.byte	15.,iorea.
+	.word	1
+d$rbuf:	.word	0
+	.word	256.
+	.word	0
+30$:	mova	1000,d$rbuf
+	emt	375
+	mov	#0,d$rbuf
+	pop	r0
+	bcc	50$
+40$:	bit	(sp),(sp)+
+50$:	return
+	.dsabl	lsb
+.endc
+.ENDM
+.MACRO	DRSET$	OPTION,VAL,RTN,MOD,?l
+.if ndf s$tbas
+	s$tbas = 400
+	stOCT$ = 140
+	stNUM$ = 100
+	stHEX$ = 120
+	stNO$  = 200 
+.endc
+.if le .-s$tbas
+	. = s$tbas
+.iff
+	. = . - 2
+.endc
+l:	.word	val
+	.word	0,0
+	. = l + 2
+	.rad50	|option|
+	. = l + 6
+	.byte	<rtn-s$tbas>/2
+	$ = 0
+	.irp M, <mod>
+	$ = $ ! st'M'$
+	.endr
+	.byte	$
+	.word	0
+.ENDM
+.MACRO	$DRSEL lst,val
+.irp x,<lst>
+	x = val
+.endr
+.ENDM
+.MACRO	$DRDFT lst,val
+.irp x,<lst>
+.if ndf x
+	x = val
+.endc
+.endr
+.ENDM
+.MACRO	$DRSET TBL=1 COD=1 OVL=0
+$drdft <stcsr$,stvec$,strty$> 1
+$drdft <stnam$> 1
+$drdft <stabt$> 0
+$drdft <stwai$> 0
+$drdft <stcsb$> 0
+$drdft <stcsx$> 0
+$drdft <stflp$> 0
+$drdft <stcon$> 0
+$drdft <stuct$>	0
+$drdft <stodt$>	0
+$drdft <stpro$> 0
+$drdft <sttim$> 0
+$drdft <stboo$> 1
+map	st.nam,,0
+map	st.csr
+map	st.vec
+map	st.rty
+.if ne TBL
+$drlim	400
+.iif ne stcsr$,drset$	CSR,	160001,	st$csr,	oct
+.iif ne stvec$,drset$	VECTOR,	500,	st$vec,	oct
+.iif ne strty$,drset$	RETRY,	127.,	st$rty,	num
+.iif ne stnam$,drset$	NAME,	1,	st$nam,	oct
+.iif ne stabt$,drset$	ABORT,	100000,	st$abt,	no
+.iif ne stwai$,drset$	WAIT	100000,	st$wai, no
+.iif ne stflp$,drset$	FLIP	100000,	st$flp, no
+.iif ne stcon$,drset$	JOIN	100000,	st$con, no
+.iif ne stodt$,drset$	ODT	100000,	st$odt, no
+.iif ne stuct$,drset$	UNITS	xxumx.,	st$uct, num
+.iif ne sttim$,drset$	TIMER,	1,	st$tim,	num
+.endc
+.if ne COD
+.if ne stcsr$
+st$csr:	bitb	r3,r0
+	bne	st$fai
+	cmp	r0,r3
+	blos	st$fai
+	mov	r0,inscsr
+	mov	r0,discsr
+.if ne stboo$
+	$drget	b$ocsr
+.if ne stcsb$
+	bocsr$
+.iff
+	mov	r0,b$ocsr-$
+.endc
+	call	st$upd
+.endc
+.if ne stcsx$
+	xxcsr$
+.iff
+	mov	r0,x$xcsr
+.endc
+	br	st$suc
+.endc
+.if ne strty$
+st$rty:	cmp	r0,r3
+	bhi	st$fai
+	movb	r0,x$xrty
+	br	st$suc
+.endc
+.if ne sttim$
+st$tim:	swab	r0
+	asr	r0
+	asr	r0
+	mov	r0,x$xtmo
+	br	st$suc
+.endc
+.if ne stvec$
+.iif ndf dr.vec,$drdef
+st$vec:	cmp	r0,r3
+	bhis	st$fai
+	assume	dr.vec-dr.dri eq 0
+.if ndf xxvtb.
+	xxvtb. = 0
+.endc
+.if eq xxvtb.
+	mov	r0,xxstrt
+.iff
+	mov	r0,x$xvtb
+	add	#ve.bbs,r0
+	mov	r0,x$xvtb+dr.vbs
+.endc
+st$suc:	tst	(pc)+
+st$fai:	sec
+	return
+.endc
+.if ne stabt$
+st$abt:	mov	#1,r3
+	movb	r3,x$xabt
+	br	st$suc
+.endc
+.if ne stwai$
+st$wai:	mov	#1,r3
+	movb	r3,x$xwai
+	br	st$suc
+.endc
+.if ne stflp$
+st$flp:	mov	#1,r3
+	movb	r3,x$xflp
+	br	st$suc
+.endc
+.if ne stcon$
+st$con:	mov	#1,r3
+	movb	r3,x$xcon
+	br	st$suc
+.endc
+.if ne stodt$
+st$odt:	mov	#1,r3
+	movb	r3,x$xodt
+	br	st$suc
+.endc
+.if ne stuct$
+st$uct:	bhiw	r0,r3,st$fai
+	mov	r0,x$xuct
+	br	st$suc
+.endc
+.if ne stpro$
+st$uct:	mov	r0,x$xpro
+	br	st$suc
+.endc
+.if ne stnam$
+st$nam:	$drget	b$onam
+	mov	r0,b$onam-$
+	fall	st$upd
+.endc
+st$upd:	$drupd
+	br	st$suc
+.if ne OVL
+	$drovl
+.endc
+	$drlim	1000
+.endc
+.ENDM
+.MACRO	DRTIM$	VAL
+	mov	val,t$mtik
+.ENDM
+.MACRO	$DRTIM
+	.enabl	lsb
+tm$clk::vehoo$	t$mclk
+	tst	(pc)+
+t$mtik::.word	0
+	beq	20$
+	dec	t$mtik
+	bne	20$
+	$drast	7
+	call	tm$abt
+	bcs	20$
+	psh	#pr7
+     up	psh	#tm$ast
+20$:	sec
+	jmp	@t$mclk
+	.dsabl	lsb
+.ENDM
+.MACRO	$DRALC SIZ NAM1 NAM2 ?$10
+.iif ndf r$mmon, r$mmon=^o54
+.iif ndf rm.p1x, rm.p1x=^o432
+.iif ndf p1.xal, p1.xal=-6.
+.iif ndf p1.fgr, p1.fgr=-10.
+.iif ndf rrpvt$, rrpvt$=^o100000
+	stack	etc
+	mov	@#r$mmon,r4
+	mov	rm.p1x(r4),r4
+	clr	-(sp)
+	clr	-(sp)
+	stack	nm1 nm2 etc
+	mov	sp,r5
+	call	p1.fgr(r4)
+	bit	(sp)+,(sp)+
+	stack	etc
+	bcs	10$
+	mov	r1,r5
+	mov	SIZ,r2
+	call	p1.xal(r4)
+	bcs	$10
+	mov	r2,(r5)+
+	mov	r1,(r5)+
+	mov	#rrpvt$,(r5)+
+	mov	NAM1,(r5)+
+	mov	NAM2,(r5)+
+$10:	stack	etc
+.ENDM
+.MACRO	$DRCKP	BUF EXT
+	clr	-(sp)
+	psh	buf
+	call	dr$mkp
+	pop	buf
+	pop	ext
+.ENDM
+.MACRO	$DRGKP	BUF
+	clr	-(sp)
+.iif nb <BUF>	psh	buf
+	call	dr$mkp
+	stack	buf ext
+.ENDM
+.MACRO	$DRMKP	XLS=4 GBL
+.iif ndf m$kip0, $mmdef
+	stack	ret buf ext
+.if nb <GBL>
+dr$mkp::
+.iff
+dr$mkp:
+.endc
+.if ne mmg$t
+	pshs	<r1,r0>
+	stack	r0 r1 ret buf ext
+	mov	sp.buf(sp),r1
+	ash	#-<mmpav.-1>,r1
+	bic	#^c16,r1
+	clr	r0
+	mov	m$kip0(r1),r1
+	ashc	#mmvip.,r0
+	bic	#mmpa$p,sp.buf(sp)
+	add	r1,sp.buf(sp)
+	adc	r0
+.if ne <XLS>
+	ash	#XLS,r0
+.endc
+	mov	r0,sp.ext(sp)
+	pops	<r0,r1>
+	return
+.endc
+.ENDM
+.MACRO	$DRTKP	BUF EXT XLS=4 GBL
+.iif ndf m$kip0, $mmdef
+.if nb <GBL>
+dr$tkp::
+.iff
+dr$tkp:
+.endc
+.if ne mmg$t
+	pshs	<r1,r0>
+	stack	r0 r1
+	mov	BUF,r1
+	ash	#-<mmpav.-1>,r1
+	bic	#^c16,r1
+	clr	r0
+	mov	m$kip0(r1),r1
+	ashc	#mmvip.,r0
+	bic	#mmpa$p,BUF
+	add	r1,BUF
+	adc	r0
+.if ne <XLS>
+	ash	#XLS,r0
+.endc
+	mov	r0,EXT
+	pops	<r0,r1>
+	return
+.endc
+.ENDM
+.MACRO	$DR22B
+.if eq mmg$t
+	.error	;!$DR22B-E-MMG$T not enabled
+.iff
+.save
+.asect
+.=0
+	.rad50	"22b"
+.restor
+.endc
+.ENDM
+.MACRO	DUDEF$
+map	d$ucsr,,172150
+map	d$ufal,,176150
+map	d$uvec,,154
+map	durtc.,,8.
+map	duunc.,,8.
+map	duhto.,,60.*0
+map	dunam.,,<^rdu>
+map	durea.,,377
+map	duwri.,,376
+map	dusiz.,,373
+map	dutab.,,372
+map	dubyp.,,371
+map	duby2.,,360
+map	dugua$,,<^rDU >
+map	du.gua	word,0
+map	du.cnt	word
+map	du.hbs
+map	du.uni	word,0
+map	du.par	byte
+map	du.por	byte
+map	du.ubs
+map	du.sta	word,0
+map	du.buf
+map	dusuc$,,0
+map	duecc$,,1
+map	durty$,,2
+map	duoff$,,4
+map	ducal$,,10
+map	dubad$,,200
+map	dufat$,,77400
+map	dudat$,,40000
+map	duphy$,,100000
+.ENDM
+.MACRO	$ECDEF
+map	ecpor$,,200
+map	ecprm$,,201
+map	ecprt$,,202
+map	ecmul$,,203
+map	ecxmt$,,204
+map	ecrcv$,,205
+map	ecalc$,,1
+map	ecdlc$,,0
+map	ecenb$,,1
+map	ecdsb$,,0
+map	ec.sta	byte,0
+map	ec.rea	byte
+map	ec.val	null
+map	ec.rbc
+map	ec.pbs	null
+map	ec.dst	null
+map	ec.da0
+map	ec.da1
+map	ec.da2
+map	ec.src	null
+map	ec.sa0
+map	ec.sa1
+map	ec.sa2
+map	ec.prt
+map	ec.hbs	null
+map	ec.pws,,ec.pbs/2
+map	ec.hws,,ec.hbs/2
+map	ecsuc.,,0
+map	ecunk.,,1
+map	ecchn.,,2
+map	ecres.,,3
+map	ectru.,,4
+map	ecnon.,,5
+map	ecexc.,,6
+map	ecimp.,,7
+map	ecpro.,,10
+map	ecact.,,11
+map	ecinc.,,12
+map	ecxmt.,,13
+map	ecrln.,,14
+map	ecinv.,,15
+map	ecabo.,,16
+map	ecxfl.,,1
+map	ecxec.,,2
+map	ecxcc.,,3
+map	ecxsc.,,4
+map	ecxoc.,,5
+map	ecxrf.,,6
+map	ecrfl.,,1
+map	ecrbc.,,2
+map	ecrfe.,,3
+.ENDM
+.MACRO	MCDEF$
+map	mcco$p,,7
+map	mccl$p,,70
+map	mcimm$,,0
+map	mcseq$,,8.
+map	mcasy$,,16.
+map	mcmai$,,24.
+map	mcasb$,,32.
+map	mcty$p,,300
+map	mccom$,,0
+map	mcatt$,,64.
+map	mcend$,,128.
+map	mcabo.,,1
+map	mcgcs.,,2
+map	mcgus.,,3
+map	mcscc.,,4
+map	mcsex.,,7.
+map	mcavl.,,8.
+map	mconl.,,9.
+map	mcsuc.,,10.
+map	mcdap.,,11.
+map	mcacc.,,16.
+map	mcers.,,18.
+map	mcrpl.,,20.
+map	mcmre.,,24.
+map	mcmwr.,,25.
+map	mccmp.,,32.
+map	mcrea.,,33.
+map	mcwri.,,34.
+map	mcava.,,64.
+map	mcdup.,,65.
+map	mcacp.,,66.
+map	mcsex$,,mcend$!mcsex.
+map	mcspd$,,1
+map	mcall$,,2
+map	mcnxu$,,1
+map	mcrip$,,1
+map	mcimf$,,2
+map	mcpri$,,1
+map	mcser$,,<^o100>
+map	mcsec$,,<^o200>
+map	mcerr$,,<^o1000>
+map	mccmp$,,<^o40000>
+map	mcexp$,,<^o100000>
+map	mclog$,,<^o40>
+map	mcbbu$,,<^o100>
+map	mcbbr$,,<^o200>
+map	mcc57$,,1
+map	mcths$,,<^o20>
+map	mcoth$,,<^o40>
+map	mcmsc$,,<^o100>
+map	mcatn$,,<^o200>
+map	mccmr$,,1
+map	mccmw$,,2
+map	mcu57$,,4
+map	mcrmv$,,<^o200>
+map	mcwps$,,<^o10000>
+map	mcwph$,,<^o20000>
+.ENDM
+.MACRO	MPDEF$
+map	mp.cr0	word,0
+map	mp.cr1		;2		;
+map	mp.uni
+map	mp.seq
+map	mp.cod	byte
+map	mp.flg	byte
+map	mp.mod	null
+map	mp.sts
+map	mp.p1
+map	mp.p2
+map	mp.p3
+map	mp.p4
+map	mp.p5
+map	mp.p6
+map	mp.p7
+map	mp.p8
+map	mp.p9
+map	mp.p10
+map	mp.p11
+map	mp.p12
+map	mp.p13
+map	mp.p14
+map	mp.p15
+map	mp.p16
+map	mp.p17
+map	mp.p18
+map	mp.bbs	null	;48.	;p.csiz	;
+map	mp.bc0	word	mp.p1
+map	mp.bc1	word
+map	mp.buf	12.	mp.p3
+map	mp.bu0	word	mp.p3
+map	mp.bu1	word
+map	mp.lb0	word	mp.p9
+map	mp.lb1	word
+map	mp.fb0	word	mp.p9
+map	mp.fb1	word
+map	mp.or0	word	mp.p1
+map	mp.or1	word
+map	mp.muc	word	mp.p1
+map	mp.unf	word	mp.p2
+map	mp.ui0	quad	mp.p5
+map	mp.dv0	word	mp.p9
+map	mp.dv1	word
+map	mp.mt0	long	mp.p9
+map	mp.us0	word	mp.p13
+map	mp.us1	word
+map	mp.vs0	long	mp.p16
+map	mp.shu	word	mp.p11
+map	mp.trk	word	mp.p13
+map	mp.grp	word	mp.p14
+map	mp.cyl	word	mp.p15
+map	mp.rcs	word	mp.p17
+map	mp.rbs	byte	mp.p18
+map	mp.rcc	byte
+map	mp.rb0	word	mp.p1
+map	mp.rb1	word
+map	mp.vrs	word	mp.p1
+map	mp.cnf	word	mp.p2
+map	mp.hto	byte	mp.p3
+map	mp.cto	word	mp.p3
+map	mp.ti0	quad	mp.p5
+map	mp.ci0	quad	mp.p5
+.ENDM
+.MACRO	MSDEF$
+map	msco$p,,31.
+map	msco$n,,<^cmsco$p>
+map	mssu$p,,-32.
+map	mssu$n,,<^cmssu$p>
+map	mssu$r,,4
+map	mssuc.,,0
+map	mscmd.,,1
+map	msabo.,,2
+map	msofl.,,3
+map	msavl.,,4
+map	msmfe.,,5
+map	mswpr.,,6
+map	mscmp.,,7
+map	msdat.,,8.
+map	mshst.,,9.
+map	mscnt.,,10.
+map	msdrv.,,11.
+map	msdia.,,31.
+map	msnor$,,0
+map	msspi$,,32.
+map	mssco$,,64.
+map	msdun$,,128.
+map	msaol$,,256.
+map	mssol$,,512.
+map	msicl$,,1
+map	msunk$,,3.
+map	msnvm$,,35.
+map	msuio$,,67.
+map	msdup$,,131.
+map	msuds$,,259.
+map	msfce$,,37.
+map	msfch$,,69.
+map	msfcd$,,101.
+map	msdis$,,165.
+map	msdif$,,197.
+map	msfcu$,,229.
+map	mshwp$,,8198.
+map	msswp$,,4102.
+map	msfer$,,8.
+map	mshce$,,72.
+map	msdse$,,104.
+map	msuee$,,232.
+map	ms1ee$,,264.
+map	ms2ee$,,296.
+map	ms3ee$,,328.
+map	ms4ee$,,360.
+map	ms5ee$,,392.
+map	ms6ee$,,324.
+map	ms7ee$,,456.
+map	ms8ee$,,488.
+map	msota$,,41.
+map	msobc$,,73.
+map	msnme$,,105.
+map	mshmp$,,137.
+map	mscto$,,10.
+map	mssoe$,,42.
+map	msede$,,74.
+map	msids$,,106.
+map	mssto$,,43.
+map	mscdt$,,75.
+map	mspos$,,107.
+map	mslos$,,139.
+map	msdcd$,,171.
+map	mslrr$,,203.
+map	msdde$,,235.
+map	mscdp$,,267.
+.ENDM
+.macro	$SHNUM
+sh$dec:	tst	(pc)+
+sh$oct:	sec
+	pshs	<r2,r1,r0>
+	jsr	r3,30$
+10$:	10000.,1000.,100.,10.,1,0
+20$:	100000,10000,1000,100,10,1,0
+30$:	bcc	40$
+	add	#20$-10$,r3
+40$:	mov	r0,r1
+	clr	r2
+50$:	mov	#-1,r0
+60$:	inc	r0
+	sub	(r3),r1
+	bcc	60$
+	add	(r3)+,r1
+	beqw	(r3),70$
+	bnew	r0,70$
+	beqw	r2,80$
+70$:	mov	#'0,r2
+	add	r2,r0
+	.ttyout
+80$:	bnew	(r3),50$
+	pops	<r3,r0,r1,r2>
+	return
+.ENDM
+.MACRO	$SHUNP
+sh$unp::pshs	<r2,r1,r0>
+	mova	70$,r2
+	mov	r0,r1
+10$:	mov	#-1,r0
+20$:	inc	r0
+	sub	(r2),r1
+	bcc	20$
+	add	(r2),r1
+	beqw	r0,60$
+	sub	#27.,r0
+	bmi	30$
+	bhiw	r0,#2,40$
+	mov	#'?-<46.+18.+27.>,r0
+30$:	add	#46.,r0
+40$:	add	#18.+27.,r0
+50$:	.ttyout
+60$:	bnew	-(r2),10$
+	pops	<r0,r1,r2>
+	return
+	.word	0,1,40.
+70$:	.word	40.*40.
+.ENDM
+.MACRO	UDDEF$
+map	ud.ipr	word,0
+map	ud.sar	word
+map	udpri.,,5
+map	udst$p,,3777
+map	udst1$,,4000
+map	udst2$,,10000
+map	udst3$,,20000
+map	udst4$,,40000
+map	uderr$,,100000
+map	ud1di$,,400
+map	ud1qb$,,1000
+map	ud1nv$,,2000
+map	ud1v$p,,177
+map	ud1vd.,,4
+map	ud1ie$,,200
+map	ud1r$p,,3400
+map	ud1rlm.,,512.
+map	ud1c$p,,34000
+map	ud1clm.,,2048.
+map	ud1wr$,,40000
+map	ud1gu$,,100000
+map	ud2r$p,,7
+map	ud2c$p,,70
+map	ud2wr$,,100
+map	ud2gu$,,200
+map	ud2p$p,,3400
+map	ud2pi$,,1
+map	ud2l$p,,177776
+map	ud3v$p,,177
+map	ud3ie$,,200
+map	ud3r$p,,77777
+map	ud3pp$,,100000
+map	ud4c$p,,377
+map	ud4go$,,1
+map	ud4lf$,,2
+map	ud4b$p,,374
+map	udmsc.,,0
+map	uddup.,,1
+map	udmai.,,255
+map	udeg0.,,0
+map	ederg.,,1
+map	ederu.,,100.
+map	udusp.,,0
+map	ud.f00	word,-8.
+map	ud.f01	byte,-6
+map	ud.apr	byte,-5
+map	ud.cif	word,-4
+map	ud.rif	word,-2
+map	ud.hbs,,8.
+map	ud.rd0	word,0
+map	ud.rd1	word
+map	ud.cd0	word
+map	ud.cd1	word
+map	ud.rbs	null
+map	ud.ds0	word,0
+map	ud.ds1	word
+map	udha$p,,77
+map	udint$,,40000
+map	uddon$,,40000
+map	udown$,,100000
+map	ud.mbc	word,-4
+map	ud.cam	byte,-2
+map	ud.cid	byte,-1
+map	ud.pbs,,4
+map	ud.txt,60.,0
+map	ud.bbs	null
+map	ud.ebs,,ud.pbs+ud.bbs
+map	udcr$p,,17
+map	udmt$p,,340
+map	udmsq.,,0
+map	udmdg.,,1
+map	udmcr.,,2
+map	udmmn.,,15.
+.ENDM
+.MACRO	UPINI$
+	upctr. = 0
+.ENDM
+.MACRO	U0 A B C
+	up a b c off=0
+.ENDM
+.MACRO	UP A B C OFF=2
+	.irp upx.,<\upctr.>
+	up'upx. = .+OFF
+	.endr
+	upctr. = upctr. + 1
+	.if nb c
+	a	b,c
+	.iff
+	a	b
+	.endc
+.ENDM
+.MACRO	UPLST$ LST
+	.irp	upz.,<lst>
+     up	.word	upz. OFF=0
+	.endr
+	.word	0
+.ENDM
+.MACRO	UPREL$	
+.iif ndf dr.lqe,$drdef
+up$rel:	psh	r2
+	mova	50$,r0
+	mov	(r5),r1
+	sub	#dr.lqe,r1
+30$:	mov	(r0)+,r2
+	beq	40$
+	add	r1,r2
+	add	r1,(r2)
+	br	30$
+40$:	pop	r2
+	return
+50$:	upx. = 0
+	.rept upctr.
+	.irp	upy.,<\upx.>
+	.word	up'upy.
+	.endr
+	upx. = upx. + 1
+	.endr
+	.word	0
+.ENDM
+.MACRO	VEHGH$	NAM
+.iif ndf hkSIG.,$hkdef
+	assume	BIT+^o2707 eq hkHGH.
+	.word	hkHGH.
+nam::	.word	0
+.ENDM
+.MACRO	VEHOO$	NAM,PRI=0
+.iif ndf hkSIG.,$hkdef
+	assume	BIT+^o0727 eq hkSIG.
+	.word	hkSIG.
+nam::	.word	0
+.ENDM
+.MACRO	VECAP$	VEC, ADR, BAS
+	veCAP. = 1
+.if nb VEC
+	mov	VEC,r0
+.endc
+.if nb BAS
+	mov	ADR,R1
+	add	BAS,r1
+.iff
+.if nb ADR
+	mov	ADR,r1
+.endc
+.endc
+	call	ve$cap
+.ENDM
+.MACRO	$VECAP
+.iif ndf hkSIG.,$hkdef
+ve$cap:	call	hk$pr7
+10$:	beqw	(r1),#hkHGH.,20$
+	bnew	@0(r0),#hkHGH.,20$
+	mov	(r0),r0
+	tst	(r0)+
+	br	10$
+20$:	mov	(r0),hk.suc(r1)
+	mov	r1,(r0)
+	jmp	@(sp)+
+.if ne 0
+ve$hgh:	call	hk$pr7
+	mov	(r0),hk.suc(r1)
+	mov	r1,(r0)
+	jmp	@(sp)+
+.endc
+.ENDM
+.MACRO	VEREL$	VEC, ADR, BAS
+	veREL. = 1
+.if nb VEC
+	mov	VEC,r0
+.endc
+.if nb BAS
+	mov	ADR,R1
+	add	BAS,r1
+.iff
+.if nb ADR
+	mov	ADR,r1
+.endc
+.endc
+	call	ve$rel
+.ENDM
+.MACRO	$VEREL
+.iif ndf hkSIG.,$hkdef
+ve$rel:	call	hk$pr7
+	beqw	(r0),r1,20$
+	tst	-(r0)
+10$:	mov	hk.suc(r0),r0
+	beqw	(r0),#hkHGH.,15$
+	bnew	(r0),#hkSIG.,30$
+15$:	bnew	hk.suc(r0),r1,10$
+	tst	(r0)+
+20$:	mov	hk.suc(r1),(r0)
+30$:	jmp	@(sp)+
+.ENDM
+.MACRO	VEFND$	VEC, ADR, BAS
+	veFND. = 1
+.if nb VEC
+	mov	VEC,r0
+.endc
+.if nb BAS
+	mov	ADR,R1
+	add	BAS,r1
+.iff
+.if nb ADR
+	mov	ADR,r1
+.endc
+.endc
+	call	ve$fnd
+.ENDM
+.MACRO	$VEFND
+.iif ndf hkSIG.,$hkdef
+ve$fnd:	call	hk$pr7
+	psh	r0
+	beqw	(r0),r1,20$
+	tst	-(r0)
+10$:	mov	hk.suc(r0),r0
+	beqw	(r0),#hkHGH.,15$:
+	bnew	(r0),#hkSIG.,20$
+15$:	bnew	hk.suc(r0),r1,10$
+	mov	r0,(sp)
+20$:	tst	(pc)+
+30$:	sec
+	pop	r0
+	jmp	@(sp)+
+.ENDM
+.MACRO	$HKPR7
+hk$pr7:	.mfps
+	stack	ps,cor,ret
+	.mtps	#340
+	call	@sp.cor(sp)
+	asl	sp.cor(sp)
+	.mtps
+	stack	cor,ret
+	asr	(sp)+
+	return
+.ENDM
+.MACRO	$VEPKG
+.iif df veCAP., $vecap
+.iif df veREL., $verel
+.iif df veFND., $vefnd
+.ENDM
+.MACRO	$HKPKG
+	$hkpr7
+.ENDM
+                                                                                                                                                                
