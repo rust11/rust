@@ -1,0 +1,83 @@
+.title	ddboot
+.include "lib:rust.mac"
+	csr = 176500
+
+;	%build
+;	macro drs:ddboot/obj:drb:
+;	link drb:ddboot/exe:drb:
+;	%end
+
+	csr = 176500
+	buf = csr + 2
+
+	mov	#340,@#ps
+start:	.mtps	#340
+	mov	#10000,sp
+	clr	r0
+10$:	tstb	@#csr
+	bpl	10$
+	movb	@#buf,(r0)+
+	cmp	r0,#1000
+	bne	10$
+	clr	pc
+
+.end	start
+
+
+
+d$dblk:	.blkw	1000
+d$dstk:	
+start:	reset
+	mov	#d$dstk,sp
+dd$boo:	mov	#176500,r0
+	mov	#csr,r1
+	mov	r1,r2
+	add	#4,r2
+;	mov	r1,r0
+	inc	(r2)
+10$:	tstb	(r2)
+	bpl	10$
+	asl	r0
+	bne	20$
+	clr	(r2)
+	inc	r0
+	tst	2(r1)
+20$:	bic	#20,r0
+	mov	r0,2(r2)
+	bne	10$
+	clr	r3
+;mov	#4000,r3
+30$:	tstb	(r1)
+	bpl	30$
+	movb	2(r1),(r3)+
+;psh r0
+;.ttyout #'.
+;pop r0
+	cmp	#1000,r3
+	bhi	30$
+;halt
+	clr	pc
+
+.end	start
+dd$boo:	mov	#176500,r1
+	mov	#176504,r2
+	mov	r1,r0
+	inc	(r2)
+10$:	tstb	(r2)
+	bpl	10$
+	asl	r0
+	bne	20$
+	clr	(r2)
+	inc	r0
+	tst	2(r1)
+20$:	bic	#20,r0
+	mov	r0,2(r2)
+	bne	10$
+	clr	r3
+30$:	tstb	(r1)
+	bpl	30$
+	movb	2(r1),(r3)+
+	cmp	#1000,r3
+	bhi	30$
+	clr	pc
+

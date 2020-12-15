@@ -1,0 +1,145 @@
+.title	vu
+.mcall	.drdef
+.drdef	vu,vvdec.,filst$!spfun$!varsz$,0,0,0
+.include "lib:rust.mac"
+$vvdef		;vv
+
+.asect
+.=600
+$imgdef	VU 1 1
+$imginf	fun=han cre=hammo aut=ijh use=<Virtual volume unit>
+$imgham	yrs=<1985> oth=<>
+$imgham	yrs=<1985> oth=<>
+;	%date
+$imgdat	<03-Jun-1986 16:55:18.37>
+;	%edit
+;	<3    >
+
+.csect
+
+;	Virtual volume unit handler
+;
+;	%build
+;	macro		drs:vu		/object=drb:vu
+;	link/nobitmap	drb:vu		/execute=drb:vu.sys
+;	delete		drb:vu.obj
+;	macro		drs:mmgt+drs:vu	/object=drb:vux
+;	delete		drb:vux.obj
+;	link/nobitmap	drb:vux		/execute=drb:vux.sys
+;	set error none
+;	copy drb:vu.sys sy:vu.sys
+;	copy drb:vux.sys sy:vux.sys
+;	%end
+;
+;	This driver contains a subset of the VV: functionality.
+;	VU: locates and calls VV: to complete an operation.
+;	This technique permits multiple VU: drivers to share the
+;	code of a VV: driver which saves valuable kernel space.
+;
+;	VU: refuses to work with external drivers.
+
+sysptr	=	54
+ qcomp	=	270
+ $mtps	=	360
+ $mfps	=	362
+ pnptr	=	404
+hderr$	=	1
+unit$n	=	177770
+pr7	=	340
+
+.macro	meta	m n o p
+.macro m
+n
+o
+p
+.endm
+.endm
+.sbttl	entry point, once-only
+
+;	Entry point followed by unit table.
+;	First time executes once-only code.
+
+	.drbeg	vu
+vv$beg:	br	10$		;skip the guard word
+	.word	vvgua$		;guard word
+10$:	jsr	r5,vv$sta	;start i/o
+v$vtab:
+;[sic]	.blkb	vvtbs.		;unit table
+vv$onc:	mov	#5726,vv$sta	;replace branch with tst (sp)+
+	mov	@#sysptr,r0	;get the system
+	mov	qcomp(r0),v$vqco;point at qcomp
+	add	pnptr(r0),r0	;get the permanent name table
+	mov	r0,v$vpn1	;point at it
+	mov	r0,v$vpn2	;twice
+	psh	r0		;save it
+10$:	cmp	(r0)+,#-1	;find the end
+	bne	10$		;must be found
+	tst	-(r0)		;back one
+	sub	(sp),r0		;back off it it
+	asr	r0		;get the halfway mark
+	mov	r0,v$vslc	;save the slot count
+	add	(sp)+,r0	;entry point table
+	mov	r0,v$vent	;save this guy
+
+	.assume	vv$onc-vv$beg eq 10 ;adjacent
+	mov	r5,r0		;r5 -> vv$onc
+	mov	#40$-vv$onc/2,r1;count it
+	br	30$		;
+	.assume	.-vv$onc le vvtbs.-6 ;make sure we have the space
+	.=vv$onc+vvtbs.-6	;position at the end of the table
+
+;	The clear loop occupies the last three words of the last entry.
+
+30$:	clr	(r0)+		;clear it out
+40$:	dec	r1		;count them
+	bne	30$		;more
+	.assume	.-vv$onc eq vvtbs.
+.sbttl	start i/o
+
+;	Start I/O
+;
+;	Look for the real VV: device and pass it the request.
+;	It refers back to us with r5.
+
+.enabl	lsb
+vv$sta:	br	vv$onc		;[sic] do the once-only
+;[sic]	tst	(sp)+		;pop the stack
+	mov	vucqe,r4	;r4 -> queue element
+	beq	vv$nop		;oops - we lost it
+	br	vv$map		;go find the device
+10$:	clrb	v$vslo		;lost the device - try again
+vv$map:	mov	#^rvv,r2	;get the name
+	movb	(pc)+,r3	;get the slot
+v$vslo:	.word	0		;
+	bne	40$		;got one - check it
+	clr	r3		;search for the target
+v$vpn1=.+2			;relocated to $pname table
+20$:	cmp	0(r3),r2	;this our device?
+	beq	30$		;yep
+	tst	(r3)+		;nope - look at another slot
+v$vslc=.+2			;slot count (*2)
+	cmp	r3,#0		;too many slots?
+	blo	20$		;nope - look at the next
+	br	vv$err		;no device
+30$:	movb	r3,v$vslo	;store the slot number
+v$vpn2=.+2			;points to $pname base
+40$:	cmp	0(r3),r2	;still the right device
+	bne	10$		;we lost it - search again
+v$vent=.+2			;points $entry table
+	mov	0(r3),r3	;r3 -> ha.lqe
+	beq	vv$err		;unloaded
+	cmp	vv.gua-vv.lqe(r3),#vvgua$ ;this really VV?
+	bne	vv$err		;no - probably external
+	clr	-(sp)		;fudge the pushed stack
+	jmp	vv.sta-vv.lqe(r3) ;call the VV driver
+.dsabl	lsb
+vv$nop:	return			;nop and abort code
+vuint:				;dummy interrupt for RT-11 logic
+vv$err:	bis	#hderr$,@-(r4)	;we have an error
+vv$fin:	mov	r5,r4		;r5 -> vv.tab
+	add	#vv.cqe,r4	;point at cqe
+v$vqco=.+2			;point at monitor qcomp routine
+	jmp	@#0		;call the monitor
+	.drend	vu
+.end
+

@@ -1,0 +1,59 @@
+.title	lsz - dummy LS: driver
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+$dcdef
+$dsdef
+$drdef
+$jbdef
+$iqdef
+$chdef
+$rmdef
+
+;	%build
+;	macro	drs:lsz/object:drb:
+;	link	drb:lsz/execute:drb:lsz.sys/nobitmap
+;	%end
+
+.macro	drinf$
+$imgdef	LS 1 1
+$imginf fun=drv cre=hammo aut=ijh use=<RUST dummy LS: driver>
+$imgham	yrs=<2004> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:47:53.22>
+;	%edit
+$imgedt <13   >
+.endm
+	.drins
+	clc			;kmon
+	clc			;boot
+	return
+
+$csr=0
+	.drest	class=delpt.
+	.drptr
+	.drdef	ls,delsc.,dswon$,0,0,0,dma=NO
+;	.drdef	lp,delpc.,dswon$,0,,,dma=NO
+	.drest	class=delpt.
+	.drptr
+	.drest	class=delpt.
+	.drptr
+
+	.drbeg	ls
+     	mov	lscqe,r1
+	mov	iq.buf(r1),r2
+	mov	iq.wct(r1),r3
+	bge	30$
+	neg	r3
+	asl	r3
+10$:	movb	(r2)+,r0	
+	beq	20$
+	bneb	r0,#33,15$
+	movb	#'$,r0
+15$:	.ttyout
+20$:	sobw	r3,10$
+30$:	.drfin	ls
+	.drast	ls,0
+	return
+	.drend	ls
+	drinf$
+.end

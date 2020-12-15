@@ -1,0 +1,1202 @@
+;	density and unit number
+;	does device go "not ready" after media change?
+;	error check manual transfer
+;	xx$del check
+;
+.title	DYP - RUST DX:/DY: driver
+.include "lib:rust.mac"
+flp$c=1		; flip-side support
+con$c=1		; concatenated-side support
+
+;	RUST DX:/DY: driver
+;
+;	%build
+;	goto 'p1'
+;	macro	drs:dyp/object:drb:dyv
+;	macro	drs:drmmgt+drs:dyp/object:drb:dyp
+;	link:
+;	link	drb:dyv/execute:drb:dyv.sys/map:drb:dyv/nobitmap/bound:1000
+;	xxboot
+;	link	drb:dyp/execute:drb:dyp.sys/map:drb:dyp/nobitmap/bound:1000
+;	xxboot
+;	!link	drb:dyp,lib:rust/execute:drb:dyp.sys/map:drb:dyp/nobitmap
+;	driver:
+;	@drs:check capture DYV
+;	driver
+;	set drb:dyv name=DY
+;	set drb:dyv csr=177170
+;	set drb:dyv vector=264
+;	set drb:dyv retry=8
+;	set drb:dyv noflip
+;	set drb:dyv nojoin
+;	exit
+;	@drs:check compare DYV
+;	@drs:check capture DYP
+;	driver
+;	set drb:dyp name=DYX
+;	set drb:dyp csr=177170
+;	set drb:dyp vector=264
+;	set drb:dyp retry=8
+;	set drb:dyp noflip
+;	set drb:dyp nojoin
+;	exit
+;	@drs:check compare DYP
+;	%end
+
+.macro	drinf$
+$imgdef	DY 1 0
+$imginf fun=han cre=hammo aut=ijh use=<RUST DS/DD RX01/RX02 floppy driver DY:>
+$imgham	yrs=<2004> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:29:28.41>
+;	%edit
+$imgedt <57   >
+.endm
+
+$brdef		;RT-11 bootstrap
+$chdef		;channel
+$dcdef		;device codes
+$dedef		;device
+$dcdef		;devices
+$fkdef		;fork
+$hadef		;handler
+$iqdef		;i/o queue
+$jbdef		;job
+$mmdef		;memory management
+$prdef		;pcr
+$psdef		;psw
+$rmdef		;resident monitor
+$sfdef		;special functions
+.library "lib:drvmac.mlb"
+$drini
+$drcnd
+
+.macro	xxopr$	cod
+	mov	cod,r0
+	call	xx$opr
+.endm
+.macro	xxfun$	cod
+	movb	cod,r0
+	call	xx$fun
+.endm
+
+.sbttl	installation
+
+;	Installation check
+;
+;	Must be RUST/XM with same STB date
+;
+;	Force /22bit
+;	May not be /external unless /par6
+;
+;	r2 ->	device record
+;	r3 =	stb date
+;	r4 =	^rstb
+
+	.drins	xx			;XX: installation
+	nop				;data
+;sic]	nop				;boot
+	cmp	r4,#^rshp		;this RUST/XM?
+	bne	10$			;no
+	mov	r4,r0			;handshake
+	mov	r4,r1			;reply with reason
+	.if ne mmg$t
+;;;	cmp	r3,#stbdat		;using the same stb?
+;;;	bne	10$			;no
+;	bis	#de22b$,de.con(r2)	;force /22bit
+	bis	#deabo$,de.typ(r2)	;force /abort
+	.endc
+10$:	clc
+	return
+
+;	Flag RUST/XM 22-bit handler
+
+;.save
+;.asect
+;.=0
+;	.rad50	/22b/
+;.restore
+.sbttl	device information
+
+;	blocks	density	sides
+;	500	single	one
+;	1001	double	one
+;	1000	single	two
+;	2002	double	two
+;	
+;	 sectors/side	2002
+;	
+;	 bytes/sector	128	single density
+;			256	double density
+;	 sectors/track	26	1..26
+;	 tracks/side	77	0..76
+;	 sides		2	0..1
+;	
+;		1.	2.	3.
+;	 fill	wct 	adr	int
+;	 emp	wct	adr	int
+;	 write	sec	trk	int
+;	 read	sec	trk	int
+;		adr
+;
+; PORT 1:
+;
+;	177170	264
+;
+; PORT 2:
+;
+;	DX		DY
+; V3	177150	270	177150	270
+; V5	177174	270	177150	270
+;
+; DX: INIT
+;
+;	This is the correct protocol:
+;
+;	mov	#dyini$,(r5)
+; 10$:	bitb	#dyrdy$,(r5)
+;	beq	10$
+;	bic	#dyini$,(r5)
+;
+;	The init is applied to the last unit addressed.
+;
+;	To initiate an interrupt:
+;
+;	mov	#dyini$,(r5)
+;	mov	#dyenb$,(r5)
+;
+;	...
+;
+;	bic	#dyini$!dyenb$,(r5)
+;
+.sbttl	driver information
+
+; RX01/RX02 SUPPORT
+;
+;	The driver and bootstrap support RX01 and RX02 hardware
+;	The driver should probably be split into separate DX/DY.
+;
+; DEVICE SIZE FUNCTION
+;
+;	Sides	Density	Blocks
+;	1	Single	494.
+;		Double	988.	
+;	2	Single	988.
+;		Double	1976.
+;
+; PHYSICAL I/O
+;
+;	Read or write a single sector of 64 or 128 words.
+;	Sector number instead of block number.
+;	The driver maps the sector for interleave/skew/offset.
+;
+;	Buffer begins with status word which is initially cleared.
+;	Physical read function sets word to #1 if deleted data seen.
+;
+;	buffer:	.word	0	; returns 1 if deleted data seen.
+;		.blkw	128.	; sector data
+;
+;	Request word count is ignored by driver and RUST/XM.
+;	RUST/XM translates spfuns internally before dispatch.
+;
+; EXTERNAL DRIVER
+;
+;	The driver can be loaded /EXTERNAL under RUST/XM.
+;
+; ERROR CHECKING
+;
+;	Checks only transfer start for 22-bit space (typical for
+;	all RT-11 drivers).
+;
+; DEC DRIVER NOTES
+;
+;	Start I/O does a polled init if unit not ready.
+;
+;	Bootstrap has no retry capability except for density correction.
+;
+;	Double-sided operation was desupported.
+.sbttl	double sided operation
+
+; DOUBLE-SIDED OPERATION
+;
+;	The RT-11 V3.0 driver had conditional support for double-
+;	sided operation. By 5.0 (or earlier) the functionality had 
+;	been removed.
+;
+;	Each side is formatted as separate single-sided volumes.
+;	Logical sectors roll-over from side one to side two.
+;	The sides have identical interleave, skew and offset patterns.
+;
+;	Both sides must have the same density for unambiguous mapping
+;	of sector number to side number. This has two implications:
+;
+;	1) Volumes with unmatched densities are deemed single sided.
+;	2) Only a single density indicator per volume is required.
+;
+;	Note, a double-sided single-density volume and a single-sided 
+;	double-density volume have the same reported size. Application
+;	software cannot determine the difference.
+;
+;	The primary responsibility for volume size rests with the
+;	formatter and initialisation applications (FORMAT and DUP).
+;	For this reason the driver assumes that double-sided media
+;	has the same format on both sides of a volume.
+;
+; RT-11 FORMAT & INIT
+;
+;	RT-11 V5.5 FORMAT does not support double-sided operation.
+;	It's unclear what DUP does for INIT.
+;
+; DECUS DOUBLE-SIDED DRIVER
+;
+;	Chester Wilson's driver essentially puts the V3.0 source
+;	code back in place. It checks both sides for the device size
+;	special function.
+.sbttl	flip-side operation
+
+;	Double-sided operation really didn't catch on, mostly because 
+;	the standard RT-11 driver didn't support it.
+;
+;	An alternative is to map the reverse sides as independent units.
+;
+;	A "even" mapping which leaves DY0: and DY1: in place is:
+;
+;	DY0:	0  top
+;	DY2:	0  flip
+;
+;	DY1:	1  top
+;	DY3:	1  flip
+;
+;	SET DY [NO]FLIP		flip-side operation
+;	SET DY [NO]JOIN		concatenated operation
+;
+;	The driver default is FLIP/NOJOIN.
+;	FLIP takes priority over JOIN.
+;
+;	Flip-side operation applies to both units. You can't select 
+;	one unit to be flip-side and the other to be concatenated.
+;
+;	Both sides are assumed to be formatted to the same density.
+;	Operations may (will) fail if one side is double-density
+;	and the other is single-density.
+;
+;	The get device size request operates on each side separately
+;	but that's so that device errors may be detected.
+;
+;	You can't boot from a flip-side at present although its not
+;	impossible. The primary boot would have to translate head detect
+;	into a flipped unit number, and the head setting would need to be
+;	retained.
+;
+;	RUST/XM needs to detect flip-side operation and auto-load
+;	DY2:/DY3: appropriately.
+;
+;	Some RT-11 utilities might refuse to accept DY2:/DY3: although 
+;	you'd think that the multi-port driver would require that support.
+;
+;	RUST FORMAT.SAV needs specific support.
+;
+;	And thus the RX04 flip-floppy is born.
+.sbttl	restrictions
+
+; 22-BIT ADDRESSING
+;
+;	Not supported by standard DEC driver.
+;
+; 	Some manufacturers supplied 22-bit enabled RX02 cards.
+;	No standard protocol was developed.
+;	No equipment is available for testing.
+;	RUST/XM supports 22-bit access to 18-bit devices.
+;	Thus, no support is provided for 22-bit operation.
+;
+;	Were 22-bit operation required the best solution
+;	would be to use an internal 128 byte transfer buffer.
+;
+;	RX01 operations are non-DMA and thus 22-bit capable.
+;
+; DUAL PORT
+;
+;	Not supported.
+;	
+;	Copy the driver and use SET CSR & VECTOR.
+;
+; UNIBUS MAPPING REGISTERS
+;
+;	Not supported.
+;
+;	RT-11 V5.5 has support for these.
+;
+; SET DY [NO]WRITE
+;
+;	Not supported. 
+;
+;	Attempts to modify in-memory copy of handler.
+;
+;	Use SET DEVICE DYx: NOWRITE under RUST/XM.
+.sbttl	future stuff
+
+;	The only sensible option below is error logging.
+;
+; ERROR LOGGING
+;
+;	Should do some form of RUST/XM error logging so that
+;	maintenance becomes at least feasible.
+;
+;	Maintain an accumulated mask of error flags.
+;	RUST/XM driver interface copies this to unit record.
+;	DCL reports (and clears) from there.
+;	The WATCH command can actively monitor errors in real-time.
+;	Drivers contain translation table from flags to text.
+;
+; SET DYx: NOWRITE
+;
+;	Implement with special function.
+;
+; SET DYx: FORMAT
+;
+;	Implement with special function.
+;	RT-11 has future space for this option however a standard
+;	special function code has not been located.
+;
+;	FORMAT utility handles formatting.
+;
+; SET DYx: [NO]DOUBLESIDED
+;	
+;	Reports media as single-sided.
+;
+; SET DYx: [NO]WRAP
+;
+;	Unix adds an additional track by wrapping to track zero.
+;	I don't think Unix supports double-sided media.
+;
+; SET DY: [NO]22BIT
+;
+;	Reconfigure driver to use buffering to support 22-bit I/O.
+;
+; SET DYx: [NO]INTERLEAVE
+;
+;	Don't peform any sector mapping.
+;	Useful for dealing with foreign media.
+.sbttl	device
+
+map	dycsr.,,177170	; csr
+ map	dy.csr,,0	; csr
+ map	dy.buf		; buffer
+map	dyvec.,,264	; vector
+map	dycs2.,,177150	; secondary
+map	dyvc2.,,270	;
+map	dysiz.,,494.	; single-sided, single-density size
+map	dymax.,,494.*4	; maximum logical sector number
+map	dypri.,,5	; interrupt priority
+map	dyunc.,,2	; units per 
+	.if ne flp$c
+map	dyflp.,,2	; flip factor
+	.iff
+map	dyflp.,,1	;
+	.endc
+map	dycod.,,6	; RT-11 device code
+map	dyrty.,,8.	; retry count
+map	dynam.,,<^rdy>	; name
+
+;	CSR definitions
+
+map	dygo$,,1	; DX DY W/O - start operation
+map	dyfun$,,7*2	; DX DY W/O - function
+map	dyuni$,,20	; DX DY R/W - unit (W/O for RX01)
+map	dyrdy$,,40	; DX DY R/O - function done
+map	dyenb$,,100	; DX DY R/W - interrupt enable
+map	dystp$,,200	; DX DY R/O - step completed
+			;
+map	dyden$,,400	;    DY R/W - density
+map	dyhea$,,1000	;    DY R/W - head select
+;		2000	;    
+map	dyrx2$,,4000	;    DY R/O - RX02 flag
+map	dyext$,,30000	;    DY W/O - extended address (18-bit)
+map	dyini$,,40000	; DX DY ?/W - init controller 
+map	dyerr$,,100000	; DX DY R/O - error seen
+
+map	dyfil.,,0*2	; DX DY W/O - fill, word count, address
+map	dyemp.,,1*2	; DX DY W/O - empty, word count, address
+map	dywri.,,2*2	; DX DY W/O - write, sector, track
+map	dyrea.,,3*2	; DX DY W/O - read, sector, track
+map	dyfmt.,,4*2	;    DY W/O - format, #7
+map	dysta.,,5*2	; DX DY W/O - read status
+map	dywdd.,,6*2	; DX DY W/O - write with deleted data, count, address
+map	dyerr.,,7*2	; DX DY W/O - read error, address
+	
+;	Status definitions
+;
+;	Available after each operation in dy.buf
+
+map	dscrc$,,1	; DX DY R/O CRC error
+map	dspar$,,2	; DX    R/O parity error (conflicts with RX02 dshea$)
+map	dshea$,,2	;    DY R/O double-sided media loaded
+map	dsini$,,4	; DX DY R/O init done
+map	dsder$,,20	;    DY R/O density error detected
+map	dsden$,,40	;    DY R/O double-density media loaded
+map	dsdel$,,100	; DX DY R/O deleted data mark seen
+map	dsrdy$,,200	; DX DY R/O drive ready
+map	dsuni$,,400	;    DY R/O unit selected by previous operation
+map	dswct$,,2000	;    DY R/O word count overflow detected
+map	dsnxm$,,4000	;    DY R/O bus error
+			;
+map	dsrx1$,,3	; DX    R/O RX01 error mask
+map	dsrx2$,,6001	;    DY R/O RX02 error mask
+.sbttl	I/O packet
+
+;	All data associated with request
+
+map	ip.tmp,,0	; temp
+map	ip.trn,byte	; transfer function
+set	ipphy$ 200	; physical function mask
+map	ip.sil,byte	; silo function
+map	ip.rty		; retry count
+map	ip.csr		; csr address
+			;
+map	ip.uni		; unit number
+map	ip.med		; media pointer
+map	ip.sen,byte	; sensing media flag
+map	ip.suc,byte	; successful transfer seen
+map	ip.lb0		; logical block
+map	ip.log		; logical sector
+map	ip.phy		; physical sector
+map	ip.trk		; track
+map	ip.hea		; head flag
+map	ip.bu0		; buffer address
+map	ip.bu1		; extended address
+map	ip.rwc		; request word count
+map	ip.twc		; transfer word count 
+map	ip.swc		; sector word count
+			;
+map	ip.buf		; saved iq.buf
+map	ip.par		; saved iq.par
+map	ip.r1		; saved r1
+map	ip.r2		; 
+map	ip.bbs		;
+.sbttl	driver definition
+
+;	RT11A, special functions, variable size
+
+;	.drspf	spdpr.		;physical read
+;	.drspf	spdpw.		;physical write
+;	.drspf	dysiz.		;get volume size
+;	.drspf	dytab.		;get XX tables
+
+	$drovl			; driver overlay support
+	$drcnd			; driver conditionals
+	$drstd	dycsr.,dyvec.,dypri.,dyrty.,dynam.
+     um	<.drdef	xx,dycod.,derta$!defun$!devar$,0,xxCSR.,xxVEC.,dma=no>
+     xm	<.drdef	xx,dycod.,derta$!defun$!devar$,0,xxCSR.,xxVEC.,dma=yes>
+	.drptr	
+	.drest	class=dedkt.	; disk class
+	$drsel	<stflp$> 1	; include set [no]flip
+	$drsel	<stcon$> 1	; include set [no]join
+	$drset			; standard set items
+	$drlim	1000		; check space
+.sbttl	begin I/O entry, data
+
+	.drbeg	xx
+	br	xx$sta			; start I/O
+x$xsta:	.word	0			; standard RT-11 error cell
+x$xrty:	.word	xxrty.			; retry count
+x$xcsr:	.word	xxcsr.			; csr address
+x$xabt:	.word	0			; abort flag
+x$xfrk:	.blkb	fk.bbs			; fork block
+x$xmed:	.blkw	dyunc.*dyflp.		; unit media map (density)
+x$xpkt:	.blkb	ip.bbs			; i/o packet
+	.if ne flp$c
+x$xflp:	.word	0			; flip-side operation
+	.endc
+	.if ne con$c
+x$xcon:	.word	0			; concatenated
+	.endc
+;		ip.trn		ip.sil	; ip.sil eq 0 for reads
+x$xfun:	.byte	dyrea.,		dyemp.	; 0 	logical read
+	.byte	dywri.,		dyfil.	; 1 	logical write
+	.byte	dywdd.!ipphy$,	dyfil.	; 2 375	write with deleted data
+	.byte	dywri.!ipphy$,	dyfil.	; 3 376	physical write
+	.byte	dyrea.!ipphy$,	dyemp.	; 4 377	physical read
+.sbttl	start I/O
+
+xx$sta:	mova	x$xpkt,r3		;
+	mov	x$xcsr,ip.csr(r3)	;
+	mov	xxcqe,r4		;
+	mov	iq.buf(r4),ip.buf(r3)	; save buffer address
+     xm	mov	iq.par(r4),ip.par(r3)	; and xm par1
+	mov	x$xrty,ip.rty(r3)	; retry count
+	clr	ip.sen(r3)		; clear sensing & success flags
+					;
+	mov	iq.csw(r4),r0		; get the CSW
+	movzbw	ch.uni(r0),r1		; get the unit number
+	.if ne flp$c
+	clr	ip.hea(r3)		; assume head zero
+	cmp	r1,#dyunc.		; standard unit
+	blo	10$			; yep
+	beqw	x$xflp,xx$der		; no flips
+	cmp	r1,#dyunc.*dyflp.	; flip unit
+	bhis	xx$der			; yep
+	inc	ip.hea(r3)		;
+	.iff
+	cmp	r1,#dyunc.		; unit too high?
+	bhis	xx$der			; yes
+	.endc
+10$:	mov	r1,ip.uni(r3)		; unit
+	asl	r1			; one word per unit
+	adda	x$xmed,r1		; point to media map
+	mov	r1,ip.med(r3)		; remember it
+	fall	xx$dis			; dispatch request
+
+;	xx$dis - dispatch request
+;
+;	Repeats from here for media conflict
+
+xx$dis:	call	xx$pnt			; setup pointers
+	tstb	ip.suc(r3)		; had one successful transfer?
+	bne	50$			; yep - repeat from sector loop
+	mov	ip.buf(r3),iq.buf(r4)	; restore these
+     xm	mov	ip.par(r3),iq.par(r4)	;
+	assume	iq.blk eq 0		;
+	mov	(r4),ip.lb0(r3)		; setup logical block number
+	mov	iq.wct(r4),r1		; transfer word count
+	movzbw	iq.fun(r4),r2		; get the function
+	bne	10$			; special function
+	tst	r1			; logical read?
+	bpl	30$			; yep
+	neg	r1			; logical write
+	inc	r2			;
+	br	30$			; adjust for write function
+
+10$:	sub	#374,r2			; check function code
+	beq	xx$der			; read bad blocks is invalid
+	inc	r2			; check 373
+	beq	60$			; get device size
+	bmi	xx$der			; still bad
+	clr	r0			; 
+	call	xx$pw0			; clear first word of buffer
+30$:	asl	r2			; one word per function
+	adda	x$xfun,r2		; relocate
+	mov	(r2),ip.trn(r3)		; setup the function
+	beq	xx$der			; invalid (read bad block table)
+					;
+	mov	r1,ip.rwc(r3)		; setup request word count
+					;
+     um	mov	iq.buf(r4),r0		; buffer address
+;    um	clr	r1			; no high part for unmapped handler
+     xm	psh	r5			;
+     xm	movi	iq.buf,r4,r5		; r5 -> buffer address
+     xm	call	@$mpptr			; convert to physical address
+     xm	pop	r0			; r0 = low order address
+     xm	pop	r1			; r1 = high order address * 16
+     xm	pop	r5			;
+     xm	asr	r1			; make it sensible
+     xm	asr	r1			; 
+     xm	asr	r1			; 
+     xm	asr	r1			; 
+     xm	bit	#^c3,r1			; outside 18-bit space?
+     xm	bne	xx$der			; yep
+	mov	r0,ip.bu0(r3)		; save low order
+     xm	mov	r1,ip.bu1(r3)		; high order
+					;
+	call	xx$rdy			; make sure it's ready
+					;
+	mov	ip.lb0(r3),r0		; map block to logical sector
+	mov	#128.,ip.swc(r3)	; sector word count
+	asl	r0			; assume double - two sectors per block
+	tst	@ip.med(r3)		; double density?
+	bne	40$			; yep
+	asr	ip.swc(r3)		;
+	asl	r0			; single - four sectors per block
+40$:	mov	r0,ip.log(r3)		; first logical sector
+50$:	br	xx$loo			;
+60$:	jmp	xx$siz			;
+xx$der:	jmp	xx$her			;
+.sbttl	logical & physical I/O sector loop
+
+;	r2 ->	command packet
+;	r3 ->	response packet
+;	r4 ->	queue element
+
+xx$loo:	assume	dyfil. eq 0		; fill => write
+	tstb	ip.sil(r3)		; read or write?
+	beq	30$			; write
+	call	xx$trn			; read
+	call	xx$sil			;
+;	call	xx$del			; check deleted data mark
+	br	40$			;
+30$:	call	xx$sil			; write
+	call	xx$trn			;
+40$:	incb	ip.suc(r3)		; flag sucess for retries
+	tstb	ip.trn(r3)		; physical?
+	bmi	xx$don			; yes -- all done
+	mov	ip.twc(r3),r0		; get word count
+	sub	r0,ip.rwc(r3)		; adjust requested word count
+	beq	xx$don			; all done
+	inc	ip.log(r3)		; next logical sector
+	asl	r0			; make byte count
+	add	r0,ip.bu0(r3)		; adjust address
+	adc	ip.bu1(r3)		; extended address
+	br	xx$loo			; do another sector
+
+;	1.	2.	3.
+; fill	wct 	adr	int
+; emp	wct	adr	int
+; write	sec	trk	int
+; read	sec	trk	int
+
+	.enabl	lsb
+xx$sil:	bit	#dyrx2$,(r5)		; rx01?
+	beq	40$			; yep - do it manually
+	pop	30$			; return
+	xxfun$	ip.sil(r3)		; transfer function
+	mov	ip.swc(r3),r0		; sector word count
+	cmp	r0,ip.rwc(r3)		; got a full sector?
+	blos	10$			; yep
+	mov	ip.rwc(r3),r0		; nope - get remainder
+10$:	mov	r0,ip.twc(r3)		; remember it
+	mov	ip.bu0(r3),r1		; get address
+	br	20$			; do common
+
+xx$trn:	pop	30$			; return
+	xxfun$	ip.trn(r3)		; read/write function
+	call	xx$sec			; get sector/track in r0/r1
+20$:	call	xx$stp			; wait for step
+	mov	r0,dy.buf(r5)		; word count or sector
+	call	xx$stp			;
+	mov	r1,dy.buf(r5)		; buffer address or track
+	call	xx$wai			; wait for interrupt
+	jmp	@(pc)+			; back to caller
+30$:	.word	0			;
+40$:	jmp	xx$man			; manual silo operation
+	.dsabl	lsb
+.sbttl	update density
+
+;	volume size 
+
+xx$siz:	call	xx$sen			; sense media
+	mov	#dysiz.,r0		; construct the size
+	bit	#dyrx2$,(r5)		; RX02?
+	beq	20$			; nope
+	tst	@ip.med(r3)		; double-density? 
+	beq	10$			; nope
+	asl	r0			; yep
+10$:	.if ne flp$c
+	beqw	x$xflp,15$		; not flipped
+	beqw	ip.hea(r3),20$		; ordinary
+	bit	#dshea$,dy.buf(r5)	; double-sided?
+	bne	20$			; yep
+	jmp	xx$her			; hard error
+	.endc
+15$:	.if ne con$c
+	beqw	x$xcon,20$		; not concatenated
+	bit	#dshea$,dy.buf(r5)	; double-sided?
+	beq	20$			; nope
+	asl	r0			; yep
+	.endc
+20$:	call	xx$pw0			; return size
+xx$don:	jmp	xx$fin			;
+
+xx$rdy:	bit	#dyrdy$,(r5)		; device ready?
+	bne	xx$upd			; yup
+	fall	xx$ini			; nope - slam it	
+xx$ini:	pop	10$			; save return
+	xxopr$	#dyini$			; init controller
+	psh	(pc)+			; restore return
+10$:	.word	0			;
+
+xx$upd:	bit	#dyrx2$,(r5)		; this an RX02?
+	beq	10$			; nope
+	bit	#dyrdy$,(r5)		; is information stable?
+	beq	10$			; nope
+	psh	dy.buf(r5)		; get the status
+	bic	#^cdsden$,(sp)		; isolate density
+	pop	@ip.med(r3)		; setup the density
+10$:	return
+	
+;	sense density
+
+xx$sen:	pop	20$			;
+	bit	#dyrx2$,(r5)		; this an RX02?
+	beq	10$			; nope
+	mov	#dysta.,r0		; assume read status
+	movb	r0,ip.sen(r3)		; flag sensing (with non-zero value)
+	call	xx$rdy			; make sure it's ready
+	mov	#dysta.,r0		; get device status
+	call	xx$opr			; check the device
+	clrb	ip.sen(r3)		; clear sensing
+	call	xx$upd			; update it
+10$:	jmp	@(pc)+			; 
+20$:	.word	0			;
+.sbttl	interrupt and errors
+
+;	Setup function and request interrupt
+;
+;	r0	function code
+
+xx$opr:	pop	x$xctn			; continue after interrupt
+xx$fun:	mov	r1,ip.r1(r3)		; save stuff
+	mov	r2,ip.r2(r3)		;
+	bic	#ipphy$,r0		; remove physical flag
+	tstb	ip.uni(r3)		; unit 1?
+	beq	10$			; nope
+	bis	#dyuni$,r0		;
+10$:	bit	#dsden$,@ip.med(r3)	; double density?
+	beq	20$			; nope
+	bis	#dyden$,r0		; yup
+20$:	bit	#dyini$,r0		; init function?
+	bne	50$			; yep - skip the rest
+	bis	#dyenb$!dygo$,r0	; setup enable and go
+	tstb	ip.sen(r3)		; sensing?
+	bne	40$			; yep - head is manual
+	tstb	ip.hea(r3)		; side two?
+	beq	30$			; nope
+	bis	#dyhea$,r0		; yup
+30$: xm	bit	#dyrx2$,(r5)		; rx02?
+     xm	beq	40$			; nope
+     xm	mov	ip.bu1(r3),r1		; get extended address
+     xm	asl	r1			; and shift into place
+     xm	asl	r1			;
+     xm	asl	r1			;
+     xm	asl	r1			;
+     xm	swab	r1			;
+     xm	bis	r1,r0			;
+40$:	mov	r0,(r5)			; issue function
+	br	xx$ret			;
+					;
+50$:	mov	r0,(r5)			; init needs function first
+	mov	#dyenb$,(r5)		; and enable second
+xx$ret:	return
+
+xx$wai:	pop	x$xctn			; setup continuation
+	return
+
+;	Interrupt entry point
+
+	.drast	xx,dypri.,xx$abt	; INTERRUPT
+	.fork	x$xfrk			; fork
+	call	xx$pnt			; setup usual pointers
+	beq	xx$ret			; no queue element
+	bic	#dyenb$!dyini$,(r5)	; disable interrupt and init
+	tstb	ip.sen(r3)		; sensing?
+	bne	10$			; yep - no checks
+	call	xx$chk			; check errors
+10$:	mov	(r5),r0			; get csr
+	asl	r0			; set c bit if error
+	jmp	@(pc)+			; continue request
+x$xctn:	.word	0			; interrupt continue routine
+
+xx$abt:	call	xx$pnt			; ABORT
+	mov	#dyini$,(r5)		; bang the RX02
+	beqw	r4,xx$ret		; no queue element
+	br	xx$fin			; force completion of queue element
+
+;	xx$stp - handle step 
+;
+;	Operation triggers interrupt when it goes dyrdy$
+;	Premature dyrdy$ is handled by exiting to the system.
+;	The driver ast picks up the error.
+
+	.enabl	lsb
+xx$stp:	bitb	#dystp$!dyrdy$,(r5)	; already done?
+	beq	xx$stp			; nothing happening
+	bmi	10$			; what we expected
+	tst	(sp)+			; ouch - premature end, get out
+10$:	return				;
+
+	assume	dyerr$ eq 100000	;
+xx$chk:	tst	(r5)			; got an error?
+	bpl	10$			; nope
+	tst	(sp)+			; 
+xx$err:	call	xx$ini			; init the device
+	dec	ip.rty(r3)		; final retry attempt?
+	bmi	xx$her			; all over
+	jmp	xx$dis			; dispatch retry
+	.dsabl	lsb			;
+
+;	I/O done - handle errors
+;
+;	r3 ->	response packet
+;	r4 ->	I/O queue element
+
+xx$her:	bis	#csher$,@iq.csw(r4)	;sic] set the error flag
+xx$fin:	.drfin	xx			;finish up
+.sbttl	utilities
+
+; ???	Report deleted data and other single word transfers
+
+	.enabl	lsb
+xx$del:	tstb	ip.trn(r3)		; physical request?
+	bpl	10$			; nope
+	bit	#dsdel$,(r5)		; deleted data mark?
+	beq	10$			; nope
+	mov	#1,r0			; report deleted data
+xx$pw0:	mov	ip.buf(r3),iq.buf(r4)	; restore original address
+     xm	mov	ip.par(r3),iq.par(r4)	;
+xx$pwd:	psh	r0			; position data
+     um	pop	@iq.buf(r4)		; put word
+     um	add	#2,iq.buf(r4)		;
+     xm	call	@$ptwrd			;
+10$:	return
+	.dsabl	lsb
+
+;	xx$man - manual RX01 silo operation
+;
+;	Interrupts are off
+
+xx$man:	mov	ip.twc(r3),r0		; get counter
+	assume	dyfil. eq 0		;
+	assume	dyemp. eq 2		;
+	movb	ip.sil(r3),r1		; write=0, read=4
+     um	mov	ip.buf(r3),r2		; unmapped buffer address
+	mov	r5,r4			;
+	tst	(r4)+			; r4 points to dy buffer
+10$:	tstb	(r5)			; settling time
+	dec	r0			; count it
+	bmi	70$			; all done
+20$:	tstb	(r5)			; wait for next step
+	beq	20$			;
+	bpl	xx$err			; shouldn't go ready yet
+	tst	r1			; function?
+	beq	30$			; write
+     um	mov	(r4),(r2)+		; read - transfer word
+     xm	psh	(r4)			; get value
+     xm	call	@$ptwrd			;
+	br	20$			;
+30$: um	mov	(r2)+,(r4)		; write
+     xm	call	@$gtbyt			; low byte
+     xm	call	@$gtbyt			; high byte
+     xm	movb	(sp)+,1(sp)		; merge
+     xm	pop	(r4)			; store
+	br	20$			;
+
+50$:	tst	r1			; write?
+	beq	60$			; yep
+	tst	(r4)			; read - empty silo
+	br	70$			;
+60$:	mov	r1,(r4)			; write - pad with zeroes
+70$:	bit	#dyrea$!dystp$,(r5)	; ready
+	bmi	50$			; another step
+	beq	70$			; wait for it
+	fall	xx$pnt			; restore registers
+
+;	Setup various pointers
+
+xx$pnt:	mova	x$xpkt,r3		; r3 -> packet
+	mov	ip.r1(r3),r1		;
+	mov	ip.r2(r3),r2		;
+	mov	ip.csr(r3),r5		; r5 -> csr
+	mov	xxcqe,r4		; r4 -> queue element
+	return				; z=1 => no queue element
+.sbttl	xx$sec - get sector and track
+
+;block.	0     1     2     3     4     5     6
+;raw  .	0  1  2  3  4  5  6  7  8  9  10 11 12 
+;inter	0  2  4  6  10 12 14 16 20 22 24 26 30 
+;off	1  3  5  7  11 13 15 17 21 23 25 27 31 
+;
+;block.	   7     8     9     10    11    12    
+;raw  .	13 14 15 16 17 18 19 20 21 22 23 24 25
+;inter	1  3  5  7  11 13 15 17 21 23 25 27 31 
+;off	2  4  6  10 12 14 16 20 22 24 26 30 32 
+;
+;	26 = 32
+;
+;	26 = 1..26 tracks
+;	77 = 0..76 tracks (1..76 logical, track 0 not used)
+;
+;	sec = blk / 26
+;	trk = blk % 26
+;	sec = sec * 2
+;	sec -= 25 if sec ge 26
+;	sec = ((sec + (trk*6)) % 26) + 1
+;	trk += 1
+;
+;	DEC don't use track zero.
+;	Unix start at track 1 and wrap to track 0.
+;	DEC do this for RX33s apparently.
+;
+;	r0	physical sector
+;	r1	track
+
+xx$sec:	mov	ip.log(r3),r0	; get logical sector
+	.if ne con$c
+	.if ne flp$c
+	bnew	x$xflp,5$	; flip sided
+	.endc
+	beqw	x$xcon,5$	; not concatenated
+	clr	ip.hea(r3)	; assume side one
+	cmp	r0,#dymax.	; past side one
+	blo	5$		; nope
+	sub	#dymax.,r0	; adjust it
+	inc	ip.hea(r3)	; need side two
+	.endc
+				;
+5$:	psh	#26.*512.	; get divisor
+	clr	r1		; init track result
+10$:	asl	r1		; next power
+	cmp	(sp),r0		; got a binary factor?
+	bhi	20$		; nope
+	sub	(sp),r0		; take out factor
+	inc	r1		; count it 
+20$:	asr	(sp)		;
+	cmp	(sp),#26.	; more?
+	bhis	10$		; yes
+				; r0=sector, r1=track
+	asl	r0		; sec = sec * 2
+	cmp	r0,#26.		; sec -= 25 if sec ge 26
+	blo	30$		;
+	sub	#25.,r0		;
+30$:	mov	r1,(sp)		; save track
+	asl	r1		; sec = sec + (trk*6)
+	add	r1,r0		;
+	add	r1,r0		;
+	add	r1,r0		;
+40$:	sub	#26.,r0		; sec = (sec % 26.) + 1
+	bpl	40$		; (average two iterations)
+	add	#26.+1,r0	; result sector
+	pop	r1		; result track
+	inc	r1		; DEC track offset
+50$:	return
+.sbttl	bootstrap
+
+;	RX01/RX02 bootstrap
+
+	meta	<boloc$ adr><.=xxboot+adr>
+	.drbot	xx,bo$jmp,bo$rea
+boloc$	40
+bo$jmp:	jmp	@#bo$boo-xxboot
+
+;	Boot read routine
+;
+;	r0	block
+;	r1	word count
+;	r2	buffer address
+;
+;	r5	csr
+
+map	bo.bps,,0
+map	bo.fun
+map	bo.bbs
+
+boloc$ 	14
+b$odbl:	.word	128.			; bytes per sector and density flag
+	.word	dyrea.!dygo$!dyden$	;
+b$osin:	.word	64.			; single density
+	.word	dyrea.!dygo$		;
+
+boloc$	120
+bo$rea:	mov	@#b$rdvu,(pc)+		; get the soft unit number
+b$ouni:	.word	0			;
+					; primary boot entry point
+bo$loa:	mov	(pc)+,r5		; r5 -> csr
+b$ocsr:	.word	dycsr.			;
+	mov	r5,r4			;
+	tst	(r4)+			; r4 -> buffer
+	mov	#xxrty.,(pc)+		; boot retry count
+b$orty:	.word	xxrty.			; retry counter
+	mov	r0,(pc)+		; logical block
+b$oblk:	.word	0			;
+	mov	r1,(pc)+		; word count
+b$ocnt:	.word	0			; 
+	mov	r2,(pc)+		; buffer
+b$obuf:	.word	0			;
+	fall	bo$agn			;
+					;
+bo$agn:	mov	#bo$agn-xxboot,b$oagn	; setup repeat point
+	mov	b$oblk,r0		; get block
+	asl	r0			; assume two sectors per block
+	mov	#b$odbl-xxboot,r2	; assume double density
+	bit	#dsden$,(r4)		; check density
+	bne	10$			; it's double density
+	assume	bo.bbs eq 4		;
+	cmp	(r2)+,(r2)+		;
+	asl	r0			; four sectors per block
+10$:	mov	r0,(pc)+		; logical sector
+b$olog:	.word	0			;
+
+bo$sec:	mov	bo.fun(r2),r3		; start function
+	tstb	b$ouni			; unit one?
+	beq	10$			; nope
+	bis	#dyuni$,r3		; add unit
+10$:	call	bo$dsk			; do the read
+					;
+	mov	b$ocnt,r0		; get the remainder
+	beq	bo$ret			; a seek
+	cmp	(r2),r0			; silo word size
+	bhis	20$			;
+	mov	(r2),r0			; r0 = words
+20$:	mov	b$obuf,r1		; r1 = buffer
+	map	dyrea$,,4		; read flag 
+	assume	dyrea.-dyemp. eq dyrea$	;
+	bic	#dyrea$,r3		; make an empty command
+	call	bo$fun			;
+	mov	#bo$sec-xxboot,b$oagn	; success - repeat from here now
+	inc	b$olog			; next logical sector
+	sub	r0,b$ocnt		; down total
+	beq	bo$ret			; all done
+	asl	r0			; make byte count
+	add	r0,b$obuf		; up that
+	br	bo$sec			; do another sector
+
+bo$stp:	bitb	#dystp$!dyrdy$,(r5)	; do the step
+	beq	bo$stp			; wait
+	bgt	bo$rty			; oops - retry
+bo$ret:	return				;
+.sbttl	get disk address
+
+bo$dsk:	mov	b$olog,r0	; get logical sector
+	cmp	r0,#dymax.	; past side one
+	blo	5$		; nope
+	sub	#dymax.,r0	; adjust it
+	bis	#dyhea$,r3	; set head mask
+				;
+5$:	psh	#26.*512.	; get divisor
+	clr	r1		; init track result
+10$:	asl	r1		; next power
+	cmp	(sp),r0		; got a binary factor?
+	bhi	20$		; nope
+	sub	(sp),r0		; take out factor
+	inc	r1		; count it 
+20$:	asr	(sp)		;
+	cmp	(sp),#26.	; more?
+	bhis	10$		; yes
+				; r0=sector, r1=track
+	asl	r0		; sec = sec * 2
+	cmp	r0,#26.		; sec -= 25 if sec ge 26
+	blo	30$		;
+	sub	#25.,r0		;
+30$:	mov	r1,(sp)		; save track
+	asl	r1		; sec = sec + (trk*6)
+	add	r1,r0		;
+	add	r1,r0		;
+	add	r1,r0		;
+40$:	sub	#26.,r0		; sec = (sec % 26.) + 1
+	bpl	40$		; (average two iterations)
+	add	#26.+1,r0	; result sector
+	pop	r1		; result track
+	inc	r1		; DEC track offset
+50$:	fall	bo$fun		;
+
+bo$fun:;bit	#dyrdy$,(r5)	; wait for ready
+;	beq	bo$fun		; keep waiting
+	mov	r3,(r5)		; issue function
+	bit	#dyrea$,r3	; is this a read?
+	bne	10$		; yep - not an empty
+	bit	#dyrx2$,(r5)	; this an RX01?
+	beq	20$		; yep - empty it manually
+10$:	call	bo$stp		; step
+	mov	r0,(r4)		; sector or count
+	call	bo$stp		; step
+	mov	r1,(r4)		; track or address
+	br	30$		; finish up
+
+20$:	tstb	(r5)		; empty silo manually
+	beq	20$		; snoozing
+	bgt	bo$rty		; flucked
+	mov	(r4),(r1)+	; store it
+	dec	r0		; count it
+	bne	20$		; more
+				;
+30$:	tst	(r4)		; read it (redundant for dyrea.)
+	bit	#dyrdy$,(r5)	; empty out the rest
+	beq	30$		; wait for ready
+	tst	(r5)		; some error?
+	bpl	bo$ret		; nop
+	fall	bo$rty		;
+
+bo$rty:	tst	(sp)+		; bummer
+	dec	b$orty		; retries done?
+	bmi	bo$err		; yep - boot i/o error
+	mov	#dyini$,(r5)	; init the mother
+10$:	bit	#dyrdy$,(r5)	; wait for done
+	beq	10$		;
+	bic	#dyini$,(r5)	; undo init
+	jmp	@(pc)+		; go again
+b$oagn:	.word	0		;
+bo$err:	br	br$ioe+xxboot	; i/o error
+.sbttl	primary boot
+
+;	r0	unit number in low order 3 bits
+
+bo$boo:	mov	#b$rksp,sp		;setup the stack
+	bic	#^c7,r0			;isolate unit number
+	mov	r0,b$ouni		;setup the unit number
+	mov	#brsbn.,r0		;r0 = block
+	mov	#brswc.,r1		;r1 = word count
+	mov	#br$sec,r2		;r2 = buffer address
+	call	bo$loa			;load secondary boot
+	mov	#bo$rea-xxboot,@#b$rrea	;fill in address of read routine
+	b$onam = .+2			;for SET
+	mov	#xxnam.,@#b$rdvn	;fill in device name
+	mov	b$ouni,@#b$rdvu		;setup unit number
+	br	br$sec+xxboot		;start secondary boot
+	assume	. le b$rtop+xxboot	;check space for bioerr etc
+
+	.drend	xx
+	drinf$				; driver information block
+.end
+.end
+.sbttl	format 
+.include "fms:fmtmac.mac"
+map	fmDBL$,,1
+map	fmTWO$,,2
+map	fmSID$,,4
+map	fmVER$,,10
+
+;	r4 ->	control packet
+;	r5 	CSR
+
+	$drfmt	DENSIT
+
+xx$fmt:	br		;	
+	.rad50	/densit/
+	.word	
+
+map	fm.csr,,0
+
+xx$fmt:	mov	fm.csr(r4),r5		; r5 -> CSR
+	blos	#1,fm.uni(r4),10$	; valid unit
+	mov	#fmUNI.,fm.err(r4)	; unit error
+	br	40$			;
+10$:	mov	#dyGO$,r0		; construct function
+	bpsw	(r4),#fmSIN$,20$	; want single density
+	bis	#dyDEN$,r0		;
+20$:	mov	r0,fm.fun(r4)		; save function
+	call	fm$sid			; do one side
+	bcs	40$			; failed
+	bpcw	#fmDBL$,(r4),		; don't want double sided
+	bis	#dySID$,fm.fun(r4)	; setup other side
+	call	fm$sid			;
+30$:	tst	(pc)+			;
+40$:	sec
+	return
+
+fm$sid:	call	fm$fun	#dySTA.		; get the status
+	call	fm$rdy			; wait for it
+	bplw	r0,			; fine
+	mov	#fmDEV.,r2		;
+	bpsw	#dsrx2$,r1,20$		; some error
+	mov	#fmRDY.,r2		;
+	bpcw	#dsrdy$,r1,		; drive not ready
+	call	fm$fun	#dyFMT.		; setup format
+	call	fm$stp			; wait for it
+	mov	#^o111,dy.buf(r5)	; DY magic
+	call	fm$rdy			; wait for format to complete
+	mov	#fmDEV.,r2		;
+	bmiw	r0,			;
+	clr	r2			; no error
+10$:	return
+
+	stack	ret,fun
+fm$fun:	mov	fm.fun(r4),r0		;
+	bis	fun(sp),r0		;
+	mov	r0,(r5)			;
+	return
+
+fm$rdy:	bpcw	#dyRDY$,(r5),fm$rdy	; wait for it
+fm$sts:	mov	dy.buf(r3),r1		; get status
+	mov	(r3),r0			;
+	return
+
+fm$stp:	bpcw	#dySTP$,(r5),fm$stp	; wait for step
+	return
+

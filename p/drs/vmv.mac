@@ -1,0 +1,405 @@
+boo$c=1	; new boot protocol to get memory size
+sav$c=1	; save/restore user pars and exception
+stk$c=1	; protect mfpi/mtpi stack against kernel interrupts
+.title	vmv - RUST/SJ VM: driver
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+$brdef
+$dcdef
+$drdef
+$hadef
+$iqdef
+$jbdef
+$mmdef
+$rmdef
+$psdef
+$vedef
+
+;	%build
+;	macro drs:vmv/object:drb:vmv
+;	link drb:vmv/execute:drb:vmv.sys/nobitmap/boundary=1000
+;	vmboot
+;	@drs:check capture VMV
+;	driver
+;	set drb:vmv base=1600
+;	set drb:vmv size=-1
+;	exit
+;	@drs:check compare VMV
+;	%end
+
+.macro	drinf$
+$imgdef	VM 1 0
+$imginf fun=drv cre=hammo aut=ijh use=<RUST/SJ virtual memory driver VM:>
+;	%date	
+$imgdat <29-Oct-2008 13:27:59.27>
+;	%edit
+$imgedt <55   >
+.endm
+
+	$drini
+	.drdef	xx,devmc.,filst$,177777,177572,250,dma=NO
+	.drest	class=dvc.dk
+	.drptr	load=dr$loa, fetch=dr$fet
+	map	xxnam.,,<^rvm>
+
+	.drins	xx
+	.enabl	lsb
+	nop				; data
+;sic]	nop				; system
+	nop	
+	bnew	r4,#^rrst,20$		; not rust
+.if ne boo$c
+;	r1 = memory size in pages
+.iff
+	mov	@#j$bsys,r0		; get the system
+	add	rm.mpt(r0),r0		; memory pointer
+	mov	-(r0),r1		; get total memory pages
+.endc
+	cmp	r1,#1600		; got extended memory
+	blos	20$			; nope
+	clc				; true paranoia
+	ror	r1			; convert to block size
+	asr	r1			;
+	asr	r1			;
+	sub	v$mbas,r1		;
+	bcs	20$			; ugly
+	blow	r1,v$msiz,10$		; lower than specified
+	mov	v$msiz,r1		; truncate it
+	beq	20$			;
+10$:	mov	r1,dr.dsz		; store it
+	tst	(pc)+			; yep
+20$:	sec
+	return
+	.dsabl	lsb
+.sbttl	notes
+
+;	IOPAGE remapping approach (not used here):
+;
+;	Map user space to kernel space, with MMU switched off.
+;	Point the IOPAGE to point at the VM data area.
+;	Switch on MMU and do the transfer in user mode.
+;	Use some interrupt to return to kernel mode.
+;	Exception interrupts also return to kernel mode.
+;
+;	MFPI/MTPI approach (used here):
+;
+;	Use stack as transfer buffer. Slightly slower than above.
+;	Ensure kernel mode stack is below user mode stack transfer buffer.
+
+.sbttl	set routines
+
+	.drset	base,1600,st$bas,oct
+	.drset	size,17777,st$siz,num
+	.drset	show,1,st$sho
+
+st$siz:	blow	r0,r3,st$fai		; too low
+	mov	r0,v$msiz		; driver
+	mov	r0,dr.dsz		; install
+	br	st$fin			;
+
+;	b$obas is in block 1
+
+st$bas:	blow	r0,r3,st$fai		; too high
+	clc				; true paranoia
+	ror	r0			; convert to block size
+	asr	r0			;
+	asr	r0			;
+	mov	r0,b$obas		; boot copy
+	mov	r0,v$mbas		; driver copy
+st$fin:	tst	(pc)+			; fine
+st$fai:	sec				; fail
+	return
+
+st$sho:	mov	v$mbas,r1		;
+	mov	v$msiz,r2		;
+	$drget	vm$sho			; show settings
+	call	vm$sho-$		; call show routine
+	$drres				; restore block 1
+	br	st$fin			;
+
+	$drovl				; read/write package
+	assume	. le 1000		;check space
+.sbttl	driver
+
+	.drbeg	xx
+.dsabl lsb
+.if ne sav$c				; save user context
+	psh	@#v$emmu		;
+	psh	@#ps			;
+	psh	@#m$msr0		;
+v$m22s:	psh	@#m$msr3		;
+	mov	#m$uip0,r0		; user pars
+	mov	#8.,r1			; eight of them
+10$:	psh	(r0)+			; save them
+	sob	r1,10$			;
+	mov	sp,v$mstk		; save exception stack
+v$mexc:	mov	#0,@#v$emmu		; exceptions come to us
+.endc
+	mov	xxcqe,r4		; get the element
+	mov	iq.wct(r4),r3		; get the word count
+	mov	r3,r5			; remember function
+	bpl	20$			; a read
+	neg	r3			; make it positive
+20$:	mov	r3,r0			; word count
+	add	#377,r0			; round it up
+	clrb	r0			; get the block count
+	swab	r0			; get it low
+
+	assume	iq.blk eq 0		;
+	mov	(r4),r1			; add block number
+	add	(pc)+,r1		; add in base
+v$mbas:	.word	mmp18./mmpib.		; expressed as block
+	bcs	vm$err			; miserable
+	add	r1,r0			; end of transfer block
+	bcs	vm$err			; tragic
+	cmp	r0,(pc)+		; is this too big?
+v$msiz:	.word	-1			;
+	bhi	vm$err			; yes - hard error
+	assume	mmpib. eq 8.		;
+	asl	r1			; get the page address
+	asl	r1			; (11/40's don't have EIS)
+	asl	r1			; (so we can't use ASH)
+
+;	Map user mode to 32kw of extended memory beginning
+;	with the first transfer block.
+
+	.enabl	lsb
+vm$map:	clr	r0			; the mapping offset
+	mov	#m$kip0,r2		;
+	$ =	m$kip0			;
+10$:	mov	#mmd4k.,m$uid0-$(r2)	; page size
+	mov	#mmd4k.,m$kid0-$(r2)	;
+;	psh	m$uip0-$(r2)		; save user par
+	mov	r1,m$uip0-$(r2)		; user par
+	mov	r0,(r2)+		; kernel par
+	add	#mmpis.,r1		; next data segment
+	add	#mmpis.,r0		; next kernel segment
+	cmp	r0,#mmpis.*8.		; done them all?
+	bne	10$			; nope
+v$m22i:	mov	#mmi22.,-(r2)		;~setup i/o page
+v$m22b:	bis	#mm22b$,@#m$msr3	;~enable 22-bit
+;	tst	-(sp)
+	inc	@#m$msr0		; enable management
+	bis	#mmpum$,@#ps		; setup mode
+;	tst	(sp)+
+	fall	vm$trn			;
+	.dsabl	lsb			;
+
+;	r1	block
+;	r3	word count 
+;	r5	word count raw
+
+	.enabl	lsb			;
+vm$trn:	mov	iq.buf(r4),r0		; memory buffer
+	assume	m$mpa0 eq 0		;
+	clr	r1			; vm buffer
+	tst	r5			; read or write?
+	bmi	20$			; write
+10$:	mfpi	(r1)+			; read - fetch vm
+	pop	(r0)+			; store user
+	sob	r3,10$			;
+	br	vm$exi			;\
+.if eq sav$c
+xxint:	psh	@#v$ebus		;/
+	jmp	@(sp)+			; treat as bus error
+.endc
+20$:	psh	(r0)+			; write - fetch user
+	mtpi	(r1)+			; store vm
+	sob	r3,20$			;
+	tstb	r5			; end of block?
+30$:	beq	vm$exi			; yep
+	clr	-(sp)			; pad another
+	mtpi	(r1)+			;
+	decb	r5			;
+	br	30$			;
+	.dsabl	lsb			;
+
+.if ne sav$c
+	br	vm$abt			;\mmu abort - not called
+xxint:	psh	@#v$ebus		;/
+	jmp	@(sp)+			; treat as bus error
+
+vm$exc:	mov	(pc)+,sp		; restore stack
+v$mstk:	.word	0			;
+.endc
+vm$err:	bis	#hderr$,@iq.csw(r4)	; set the error
+.if ne sav$c
+vm$exi:	mov	#m$uip7+2,r0		; user pars
+	mov	#8.,r1			;
+10$:	pop	-(r0)			; restore them
+	sobw	r1,10$			;
+v$m22r:	pop	@#m$msr3		;~restore 22bit
+	pop	@#m$msr0		;
+	pop	@#ps			;
+	pop	@#v$emmu		; restore vector
+.iff
+vm$exi:	clr	@#ps			; clear previous user
+v$m22c:	clr	@#m$msr3		;~clear 22-bit
+	clr	@#m$msr0		; disable management
+.endc
+vm$fin:
+vm$abt:	mov	#xxcqe,r4		;~
+v$mfin:;jmp	@#rm.qco		;~sic] overwrite inten/fork
+;	RUST/RT-11 supplies the jump above when the driver is fetched.
+.sbttl	boot
+.psect	vmboot
+
+$draln	16
+.drbot	xx,bo$jmp,bo$rea
+meta	<origin o><.=xxboot + o>
+
+$drloc	40 bas=xxboot
+bo$jmp:	jmp	@#bo$boo-xxboot
+
+;	The VM: boot assumes that a disk-like system has been
+;	built starting at block 56. of physical memory.
+;
+;	The boot can be entered in two ways:
+;
+;	Hardware boot: the unit number is in R0 or a device register.
+;	Software boot: the unit number is at @#b$runi
+;
+;	bo$rea	Called here from software boot.
+;	bo$loa	Called here once from hardware boot.
+;
+;	r3=uni, r2=buf, r1=cnt, r0=blk
+;
+;	Note: for all that, the unit number is ignored.
+
+$drloc	120
+bo$rea:	.enabl	lsb
+bo$loa:	assume	mmpib. eq 8.		; eight pages per block
+	add	(pc)+,r0		; add in base block
+b$obas:	.word	mmp18./mmpib.		; end of 16-bit space
+	asl	r0			; get the page address
+	asl	r0			;
+	asl	r0			;
+	jsr	r1,10$			; setup & save count
+b$obus:	.word	0			; their bus vector
+	bis	#vbit,ve.ps(sp)		; our bus routine
+	rti				;
+10$:	mov	@#v$ebus,(r1)+		; save their bus vector
+	mov	r1,@#v$ebus		;
+	clr	r3			; the mapping offset
+	mov	#m$kip0,r4		;
+	mov	#8.,r5			;
+	$=m$kip0			; origin
+20$:	mov	#mmd4k.,m$uid0-$(r4)	; kernel page size
+	bvs	80$			; no MMU
+	mov	#mmd4k.,m$kid0-$(r4)	; user page size
+	mov	r3,m$uip0-$(r4)		; user par
+	mov	r3,(r4)+		; kernel par
+	add	#mmpis.,r3		; the next segment
+	sob	r5,20$			; c=0
+	mov	#mmi22.,r3		; assume 22-bit I/O page
+	bis	#mm22b$,@#m$msr3	; enable 22-bit
+	bvc	30$			; is 22-bit
+	mov	#mmi18.,r3		; v=1 => 18-bit I/O page
+30$:	mov	r3,-(r4)		; setup I/O page
+	inc	@#m$msr0		; enable memory management
+	bis	#mmpum$,@#ps		; setup mode
+
+	mov	r0,@#m$uip1		; page address
+	mov	r2,r0			; memory buffer
+	pop	r3			;
+40$:	mov	#m$mpa1,r1		; vm buffer
+	mov	r3,r2			; remaining count
+	beq	70$			; all over
+	cmp	r2,#2048.		; in window?
+	blo	50$			; yep
+	mov	#2048.,r2		; truncate
+50$:	sub	r2,r3			; adjust 
+60$:	mfpi	(r1)+			; read - fetch vm
+	bvs	80$			; oops
+	pop	(r0)+			; store user
+	sob	r2,60$			;
+	add	#2048./mmwip.,@#m$uip1	;
+	br	40$
+70$:	clr	@#ps			; not previous user
+	clr	@#m$msr3		; clear 22-bit
+	clr	@#m$msr0		; disable management
+	mov	b$obus,@#v$ebus		; restore bus
+	return				;
+80$:	jmp	bioerr			; boot i/o error
+	.dsabl	lsb
+
+$drloc	574
+bo$boo:	mov	#b$rksp,sp		; setup the stack
+	bic	#^c7,r0			; isolate unit number
+	mov	r0,r3			; setup the unit number
+	psh	r3			; save it
+	mov	#brSBN.,r0		; r0 = block
+	mov	#brSWC.,r1		; r1 = word count
+	mov	#br$sec,r2		; r2 = buffer address
+	call	bo$loa			; load secondary boot
+	mov	#bo$rea-xxboot,@#b$rrea	; fill in address of read routine
+	mov	#xxnam.,@#b$rdvn	; fill in device name
+	pop	@#b$rdvu		; setup unit number
+	br	br$sec+xxboot		; I'MMMM BBBAAAAACCCKKKK!
+	assume	. le b$rtop+xxboot	; check space for bioerr etc
+	.drend	xx
+.sbttl	show
+.psect	xxboot
+
+;	?VM-I-Base=nnn, Size=nnn.
+
+meta	<print adr><mova adr,r0><.print>
+vm$sho:	print	10$
+	mov	r1,r0		; base block
+	asl	r0		; convert to page
+	asl	r0	
+	asl	r0
+	call	sh$oct		; base=nnn
+	print	20$
+	mov	r2,r0
+	call	sh$dec		; size=nnn.
+	print	30$
+	return
+
+10$:	.ascii	/?VM-I-Base=/<200>
+20$:	.ascii	/, Size=/<200>
+30$:	.asciz	/./
+
+	$shnum
+.sbttl	load/fetch
+
+dr$loa:
+dr$fet:	mov	(r5),r2			; r5 -> hentry
+	sub	#dr.lqe,r2		; r2 -> base of driver file
+	mov	@#j$bsys,r0		; get system
+
+	mov	#xxcqe,vm$fin+2(r2)	;
+	add	r2,vm$fin+2(r2)		;
+	mov	#137,v$mfin(r2)		;
+	mov	rm.qco(r0),v$mfin+2(r2)	; fixup .drfin
+					;
+.if ne sav$c
+	mov	#vm$exc,v$mexc+2(r2)	; relocate exception address
+	add	r2,v$mexc+2(r2)		;
+.endc
+	add	rm.mpt(r0),r0		;
+	mov	-(r0),r1		; get total memory pages
+	cmp	r1,#1600		; got extended memory
+	blos	20$			; nope
+	cmp	r1,#mmp22.		; got 22-bit?
+	bhis	10$			; yep
+	mov	#mmi18.,v$m22i+2(r2)	; no - modify code for 18-bit
+	mov	#022727,v$m22b(r2)	; bis (pc)+,@# to cmp (pc)+,(pc)+
+.if ne sav$c
+	mov	#5727,v$m22s(r2)	; patch save
+	mov	#5727,v$m22i(r2)	; patch restore
+.iff
+	mov	#5727,v$m22c(r2)	; clr @# to tst (pc)+
+.endc
+10$:	clc				; true paranoia
+	ror	r1			;
+	asr	r1			;
+	asr	r1			;
+	mov	r1,v$msiz(r2)		; vm size in blocks
+	tst	(pc)+			;
+20$:	sec				; no memory management
+	return				;
+
+drinf$					; image information block
+.end
+

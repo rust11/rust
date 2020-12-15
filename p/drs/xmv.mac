@@ -1,0 +1,507 @@
+stk$c=1
+.title	vmv - RUST VM: driver
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+$brdef
+$dcdef
+$drdef
+$hadef
+$iqdef
+$jbdef
+$mmdef
+$rmdef
+$psdef
+$vedef
+
+;	%build
+;	goto 'p1'
+;	macro	drs:xmv/object:drb:xmv
+;	link:
+;	link	drb:xmv/execute:drb:xmv.sys/nobitmap/boundary=1000
+;	xmboot
+;	%end
+
+.macro	drinf$
+$imgdef	VM 1 0
+$imginf fun=drv cre=hammo aut=ijh use=<RUST/SJ virtual memory driver XM:>
+;	%date	
+$imgdat <12-Feb-2005 03:02:31.00>
+;	%edit
+$imgedt <42   >
+.endm
+
+	.drdef	vm,47,filst$,0,177572,250,dma=NO ;define it
+	.drest	class=dvc.dk
+	.drptr	load=dr$loa, fetch=dr$fet
+	map	xxnam.,,<^rxm>
+
+	.drins	vm
+	nop				; data
+;sic]	nop				; system
+	bnew	r4,#^rrst,10$		; not rust
+	mov	@#j$bsys,r0		; get the system
+	cmp	(r0),#137		; this RUST?
+	bne	10$			; nope
+	add	rm.mpt(r0),r0		;
+	mov	-(r0),r1		; get total memory pages
+	cmp	r1,#1600		; got extended memory
+	blos	10$			; nope
+	clc				; true paranoia
+	ror	r1			;
+	asr	r1			;
+	asr	r1			;
+	sub	v$mbas,r1		;
+	mov	r1,dr.dsz		; store it
+	tst	(pc)+			; yep
+10$:	sec
+	return
+	.dsabl	lsb
+.sbttl	driver
+
+	.drbeg	vm
+	mov	vmcqe,r4		; get the element
+	mov	iq.wct(r4),r3		; get the word count
+	mov	r3,r5			; remember function
+	bpl	5$			; a read
+	neg	r3			; make it positive
+5$:	mov	r3,r0			; word count
+	add	#377,r0			; round it up
+	clrb	r0			; get the block count
+	swab	r0			; get it low
+
+	assume	iq.blk eq 0		;
+	mov	(r4),r1			; add block number
+	add	(pc)+,r1		; add in base
+v$mbas:	.word	mmp18./mmpib.		;
+	bcs	vm$err			; miserable
+	add	r1,r0			; end of transfer block
+	bcs	vm$err			; tragic
+	cmp	r0,(pc)+		; is this too big?
+v$msiz:	.word	-1			;
+	bhi	vm$err			; yes - hard error
+	assume	mmpib. eq 8.		;
+	asl	r1			; get the page address
+	asl	r1			;
+	asl	r1			;
+					;
+	mov	#8.,r0			;
+	mov	#m$uip0,r2		;
+	spl	7			;
+10$:	mov	r1,(r2)+		;
+	add	#mmpis.,r1		;
+	sob	r0,10$			;
+	spl	0			;
+	bis	#mmpum$,@#ps		; setup mode
+v$mbis:	bis	#mm22b$,@#m$msr3	;~enable 22-bit
+.if ne stk$c
+	tst	-(sp)			; reserve user mode buffer
+	inc	@#m$msr0		; enable management
+	tst	(sp)+			; ready for push
+.iff
+	inc	@#m$msr0		; enable management
+.endc
+
+;	r1	block
+;	r3	word count 
+;	r5	word count raw
+
+	.enabl	lsb			;
+vm$trn:	mov	iq.buf(r4),r0		; memory buffer
+	assume	m$mpa0 eq 0		;
+	clr	r1			; vm buffer
+	tst	r5			; read or write?
+	bmi	20$			; write
+10$:	mfpi	(r1)+			; read - fetch vm
+	pop	(r0)+			; store user
+	sob	r3,10$			;
+	br	vm$fin			;\abort routine
+vmint:	psh	@#v$ebus		;/mmu error
+	jmp	@(sp)+			; treat as bus error
+					;
+20$:	psh	(r0)+			; write - fetch user
+	mtpi	(r1)+			; store vm
+	sob	r3,20$			;
+	tstb	r5			; end of block?
+30$:	beq	vm$fin			; yep
+	clr	-(sp)			; pad another
+	mtpi	(r1)+			;
+	decb	r5			;
+	br	30$			;
+	.dsabl	lsb			;
+
+vm$err:	bis	#hderr$,@iq.csw(r4)	; set the error
+vm$fin:	mov	#vmcqe,r4		;
+.if ne stk$c
+	clr	@#m$msr0		;
+	tst	(sp)+			;
+.endc
+v$mfin:;jmp	@#rm.qco		;sic] overwrite inten/fork
+.sbttl	boot
+
+$draln	16
+.drbot	vm,bo$jmp,bo$rea
+meta	<origin o><.=vmboot + o>
+
+$drloc	40 bas=vmboot
+bo$jmp:	jmp	@#bo$boo-vmboot
+
+;	The boot can be entered in two ways:
+;
+;	Unit number is ignored.
+;
+;	Hardware boot: the unit number is in R0 or a device register.
+;	Software boot: the unit number is at @#b$runi
+;
+;	bo$rea	Called here from software boot.
+;	bo$loa	Called here once from hardware boot.
+;
+;	r3=uni, r2=buf, r1=cnt, r0=blk
+
+$drloc	210
+bo$rea:	.enabl	lsb
+bo$loa:	assume	mmpib. eq 8.		; eight pages per block
+	add	(pc)+,r0		; add in base block
+b$obas:	.word	mmp18./mmpib.		; end of 16-bit space
+	asl	r0			; get the page address
+	asl	r0			;
+	asl	r0			;
+	jsr	r1,10$			; setup & save count
+b$obus:	.word	0			; their bus vector
+	bis	#vbit,ve.ps(sp)		; our bus routine
+	rti				;
+10$:	mov	@#v$ebus,(r1)+		; save their bus vector
+	mov	r1,@#v$ebus		;
+	clr	r3			; the mapping offset
+	mov	#m$kip0,r4		;
+	mov	#8.,r5			;
+	$=m$kip0			; origin
+20$:	mov	#mmd4k.,m$uid0-$(r4)	; kernel page size
+	bvs	80$			; no MMU
+	mov	#mmd4k.,m$kid0-$(r4)	; user page size
+	mov	r3,m$uip0-$(r4)		; user par
+	mov	r3,(r4)+		; kernel par
+	add	#mmpis.,r3		; the next segment
+	sob	r5,20$			; c=0
+	mov	#mmi22.,r3		; assume 22-bit I/O page
+	bis	#mm22b$,@#m$msr3	; enable 22-bit
+	bvc	30$			; is 22-bit
+	mov	#mmi18.,r3		; v=1 => 18-bit I/O page
+30$:	mov	r3,-(r4)		; setup I/O page
+	inc	@#m$msr0		; enable memory management
+	bis	#mmpum$,@#ps		; setup mode
+
+	mov	r0,@#m$uip1		; page address
+	mov	r2,r0			; memory buffer
+	pop	r3			;
+40$:	mov	#m$mpa1,r1		; vm buffer
+	mov	r3,r2			; remaining count
+	beq	70$			; all over
+	cmp	r2,#2048.		; in window?
+	blo	50$			; yep
+	mov	#2048.,r2		; truncate
+50$:	sub	r2,r3			; adjust 
+60$:	mfpi	(r1)+			; read - fetch vm
+	bvs	80$			; oops
+	pop	(r0)+			; store user
+	sob	r2,60$			;
+	add	#2048./mmwip.,@#m$uip1	;
+	br	40$
+70$:	clr	@#ps			; not previous user
+	clr	@#m$msr3		; clear 22-bit
+	clr	@#m$msr0		; disable management
+	mov	b$obus,@#v$ebus		; restore bus
+	return				;
+80$:	jmp	bioerr			; boot i/o error
+	.dsabl	lsb
+
+$drloc	574
+bo$boo:	mov	#b$rksp,sp		; setup the stack
+	bic	#^c7,r0			; isolate unit number
+	mov	r0,r3			; setup the unit number
+	psh	r3			; save it
+	mov	#brSBN.,r0		; r0 = block
+	mov	#brSWC.,r1		; r1 = word count
+	mov	#br$sec,r2		; r2 = buffer address
+	call	bo$loa			; load secondary boot
+	mov	#bo$rea-vmboot,@#b$rrea	; fill in address of read routine
+	mov	#xxnam.,@#b$rdvn	; fill in device name
+	pop	@#b$rdvu		; setup unit number
+	br	br$sec+vmboot		; I'MMMM BBBAAAAACCCKKKK!
+	assume	. le b$rtop+vmboot	; check space for bioerr etc
+	.drend	vm
+.sbttl	load/fetch
+
+dr$loa:
+dr$fet:	mov	(r5),r2			; r5 -> hentry
+	sub	#1000+ha.lqe,r2		; r2 -> base of driver file
+	mov	@#j$bsys,r0		; get system
+
+	mov	#vmcqe,vm$fin+2(r2)	;
+	add	r2,vm$fin+2(r2)		;
+	mov	#137,v$mfin(r2)		;
+	mov	rm.qco(r0),v$mfin+2(r2)	; fixup .drfin
+					;
+	add	rm.mpt(r0),r0		;
+	mov	-(r0),r1		; get total memory pages
+	cmp	r1,#1600		; got extended memory
+	blos	20$			; nope
+	cmp	r1,#mmp22.		; got 22-bit?
+	bhis	10$			; yep
+	mov	#mmi18.,x$mi22+2	; no - modify code for 18-bit
+	mov	#022727,v$mbis		; bis (pc)+,@# to cmp (pc)+,(pc)+
+	mov	#022727,x$mbis		; bis (pc)+,@# to cmp (pc)+,(pc)+
+10$:	clc				; true paranoia
+	ror	r1			;
+	asr	r1			;
+	asr	r1			;
+	mov	r1,v$msiz(r2)		; vm size in blocks
+	call	xm$map			; map memory
+	tst	(pc)+			;
+20$:	sec				; no memory management
+	return				;
+					;
+xm$map:	clr	r0			; the mapping offset
+	mov	#m$kip0,r2		;
+	$ =	m$kip0			;
+10$:	mov	#mmd4k.,m$uid0-$(r2)	; page size
+	mov	#mmd4k.,m$kid0-$(r2)	;
+	mov	r0,m$uip0-$(r2)		; user par
+	mov	r0,(r2)+		; kernel par
+	add	#mmpis.,r0		; next kernel segment
+	cmp	r0,#mmpis.*8.		; done them all?
+	bne	10$			; nope
+x$mi22:	mov	#mmi22.,-(r2)		;~setup i/o page
+x$mbis:	bis	#mm22b$,@#m$msr3	; enable 22-bit
+	inc	@#m$msr0		;~enable management
+	bis	#mmpum$,@#ps		; setup mode
+	return
+
+	drinf$				; image information block
+	.end
+.sbttl	driver
+
+;	Help fixup aborted transfers by always clearing
+;	memory management on exit.
+
+	.drbeg	vm
+	mov	vmcqe,r4		; get the element
+	mov	iq.wct(r4),r3		; get the word count
+	mov	r3,r5			; remember function
+	bpl	5$			; a read
+	neg	r3			; make it positive
+5$:	mov	r3,r0			; word count
+	add	#377,r0			; round it up
+	clrb	r0			; get the block count
+	swab	r0			; get it low
+
+	assume	iq.blk eq 0		;
+	mov	(r4),r1			; add block number
+	add	(pc)+,r1		; add in base
+v$mbas:	.word	mmp18./mmpib.		;
+	bcs	vm$err			; miserable
+	add	r1,r0			; end of transfer block
+	bcs	vm$err			; tragic
+	cmp	r0,(pc)+		; is this too big?
+v$msiz:	.word	-1			;
+	bhi	vm$err			; yes - hard error
+	assume	mmpib. eq 8.		;
+	asl	r1			; get the page address
+	asl	r1			;
+	asl	r1			;
+					;
+	.enabl	lsb
+vm$map:	clr	r0			; the mapping offset
+	mov	#m$kip0,r2		;
+	$ =	m$kip0			;
+10$:	mov	#mmd4k.,m$uid0-$(r2)	; page size
+	mov	#mmd4k.,m$kid0-$(r2)	;
+	mov	r1,m$uip0-$(r2)		; user par
+	mov	r0,(r2)+		; kernel par
+	add	#mmpis.,r1		; next data segment
+	add	#mmpis.,r0		; next kernel segment
+	cmp	r0,#mmpis.*8.		; done them all?
+	bne	10$			; nope
+v$mi22:	mov	#mmi22.,-(r2)		;~setup i/o page
+v$mbis:	bis	#mm22b$,@#m$msr3	; enable 22-bit
+	inc	@#m$msr0		;~enable management
+	bis	#mmpum$,@#ps		; setup mode
+	.dsabl	lsb			;
+
+;	r1	block
+;	r3	word count 
+;	r5	word count raw
+
+	.enabl	lsb			;
+vm$trn:	mov	iq.buf(r4),r0		; memory buffer
+	assume	m$mpa0 eq 0		;
+	clr	r1			; vm buffer
+	tst	r5			; read or write?
+	bmi	20$			; write
+10$:	mfpi	(r1)+			; read - fetch vm
+	pop	(r0)+			; store user
+	sob	r3,10$			;
+	br	vm$exi			;\
+vmint:;sic]				;/no ast - setup abort routine
+20$:	psh	(r0)+			; write - fetch user
+	mtpi	(r1)+			; store vm
+	sob	r3,20$			;
+	tstb	r5			; end of block?
+30$:	beq	vm$exi			; yep
+	clr	-(sp)			; pad another
+	mtpi	(r1)+			;
+	decb	r5			;
+	br	30$			;
+	.dsabl	lsb			;
+
+vm$err:	bis	#hderr$,@iq.csw(r4)	; set the error
+					; always clear mmu on exit
+					; 'cos abort may leave it on
+vm$exi:	clr	@#ps			; clear previous user
+v$mclr:	clr	@#m$msr3		;~clear 22-bit
+	clr	@#m$msr0		; disable management
+vm$fin:	mov	#vmcqe,r4		;~
+v$mfin:;jmp	@#rm.qco		;~sic] overwrite inten/fork
+.sbttl	boot
+.psect	xmboot
+
+$draln	16
+.drbot	vm,bo$jmp,bo$rea
+meta	<origin o><.=vmboot + o>
+
+$drloc	40 bas=vmboot
+bo$jmp:	jmp	@#bo$boo-vmboot
+
+;	The boot can be entered in two ways:
+;
+;	Unit number is ignored.
+;
+;	Hardware boot: the unit number is in R0 or a device register.
+;	Software boot: the unit number is at @#b$runi
+;
+;	bo$rea	Called here from software boot.
+;	bo$loa	Called here once from hardware boot.
+;
+;	r3=uni, r2=buf, r1=cnt, r0=blk
+
+$drloc	210
+bo$rea:	.enabl	lsb
+bo$loa:	assume	mmpib. eq 8.		; eight pages per block
+	add	(pc)+,r0		; add in base block
+b$obas:	.word	mmp18./mmpib.		; end of 16-bit space
+	asl	r0			; get the page address
+	asl	r0			;
+	asl	r0			;
+	jsr	r1,10$			; setup & save count
+b$obus:	.word	0			; their bus vector
+	bis	#vbit,ve.ps(sp)		; our bus routine
+	rti				;
+10$:	mov	@#v$ebus,(r1)+		; save their bus vector
+	mov	r1,@#v$ebus		;
+	clr	r3			; the mapping offset
+	mov	#m$kip0,r4		;
+	mov	#8.,r5			;
+	$=m$kip0			; origin
+20$:	mov	#mmd4k.,m$uid0-$(r4)	; kernel page size
+	bvs	80$			; no MMU
+	mov	#mmd4k.,m$kid0-$(r4)	; user page size
+	mov	r3,m$uip0-$(r4)		; user par
+	mov	r3,(r4)+		; kernel par
+	add	#mmpis.,r3		; the next segment
+	sob	r5,20$			; c=0
+	mov	#mmi22.,r3		; assume 22-bit I/O page
+	bis	#mm22b$,@#m$msr3	; enable 22-bit
+	bvc	30$			; is 22-bit
+	mov	#mmi18.,r3		; v=1 => 18-bit I/O page
+30$:	mov	r3,-(r4)		; setup I/O page
+	inc	@#m$msr0		; enable memory management
+	bis	#mmpum$,@#ps		; setup mode
+
+	mov	r0,@#m$uip1		; page address
+	mov	r2,r0			; memory buffer
+	pop	r3			;
+40$:	mov	#m$mpa1,r1		; vm buffer
+	mov	r3,r2			; remaining count
+	beq	70$			; all over
+	cmp	r2,#2048.		; in window?
+	blo	50$			; yep
+	mov	#2048.,r2		; truncate
+50$:	sub	r2,r3			; adjust 
+60$:	mfpi	(r1)+			; read - fetch vm
+	bvs	80$			; oops
+	pop	(r0)+			; store user
+	sob	r2,60$			;
+	add	#2048./mmwip.,@#m$uip1	;
+	br	40$
+70$:	clr	@#ps			; not previous user
+	clr	@#m$msr3		; clear 22-bit
+	clr	@#m$msr0		; disable management
+	mov	b$obus,@#v$ebus		; restore bus
+	return				;
+80$:	jmp	bioerr			; boot i/o error
+	.dsabl	lsb
+
+$drloc	574
+bo$boo:	mov	#b$rksp,sp		; setup the stack
+	bic	#^c7,r0			; isolate unit number
+	mov	r0,r3			; setup the unit number
+	psh	r3			; save it
+	mov	#brSBN.,r0		; r0 = block
+	mov	#brSWC.,r1		; r1 = word count
+	mov	#br$sec,r2		; r2 = buffer address
+	call	bo$loa			; load secondary boot
+	mov	#bo$rea-vmboot,@#b$rrea	; fill in address of read routine
+	mov	#xxnam.,@#b$rdvn	; fill in device name
+	pop	@#b$rdvu		; setup unit number
+	br	br$sec+vmboot		; I'MMMM BBBAAAAACCCKKKK!
+	assume	. le b$rtop+vmboot	; check space for bioerr etc
+	.drend	vm
+.sbttl	load/fetch
+
+vm$loa:
+vm$fet:	mov	(r5),r2			; r5 -> hentry
+	sub	#1000+ha.lqe,r2		; r2 -> base of driver file
+	mov	@#j$bsys,r0		; get system
+
+	mov	#vmcqe,vm$fin+2(r2)	;
+	add	r2,vm$fin+2(r2)		;
+	mov	#137,v$mfin(r2)		;
+	mov	rm.qco(r0),v$mfin+2(r2)	; fixup .drfin
+					;
+	add	rm.mpt(r0),r0		;
+	mov	-(r0),r1		; get total memory pages
+	cmp	r1,#1600		; got extended memory
+	blos	20$			; nope
+	cmp	r1,#mmp22.		; got 22-bit?
+	bhis	10$			; yep
+	mov	#mmi18.,v$mi22+2(r2)	; no - modify code for 18-bit
+	mov	#022727,v$mbis(r2)	; bis (pc)+,@# to cmp (pc)+,(pc)+
+	mov	#5727,v$mclr(r2)	; clr @# to tst (pc)+
+10$:	clc				; true paranoia
+	ror	r1			;
+	asr	r1			;
+	asr	r1			;
+	mov	r1,v$msiz(r2)		; vm size in blocks
+	tst	(pc)+			;
+20$:	sec				; no memory management
+	return				;
+					;
+	drinf$				; image information block
+	.end
+.sbttl	show
+
+meta	<print adr><mova adr,r0><.print>
+vm$sho:	print	10$
+	mov	r2,r1
+	call	sh$dec
+	print	20$
+	mov	r3,r1
+	call	sh$oct
+	print	30$
+	return
+
+10$:	.ascii	/?VM-I-Base=/<200>
+20$:	.ascii	/, Size=/<200>
+30$:	.word	0
+
+$drnum
+.end

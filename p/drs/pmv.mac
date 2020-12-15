@@ -1,0 +1,356 @@
+.title	pmv - RUST/SJ performance monitor
+.enabl	lc
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+$aldef
+$drdef
+$hkdef
+$jbdef
+$rmdef
+$psdef
+$vedef
+$hadef
+upini$
+meta <$drlim c><.iif gt .-c,.error ;;roof>
+
+;	%build
+;	goto 'p1'
+;	macro drs:pmv.mac/object:drb:
+;	link drb:pmv/execute:drb:pmv.sys/nobitmap/boundary:1000
+;	pmload
+;	!copy drb:pmv.sys sy:/sys
+;	end:
+;	%end
+
+.macro	drinf$
+$imgdef	PM 1 0
+$imginf fun=drv cre=hammo aut=ijh use=<RUST/SJ performance monitor driver PM:>
+$imgham	yrs=<2004> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:21:30.17>
+;	%edit
+$imgedt <28   >
+.endm
+
+;	^[	start
+;	^]	stop
+;	^x	show
+
+	.drdef	pm,377,ronly$!wonly$,0,0,0
+	.drest	class=dvc.ps
+	$drptr
+	$drins	pm system=no,data=sj
+
+	$drlim	400		; check that we fit
+.sbttl	set, run
+
+;	Each line has 64 cells representing 64 words each, i.e. 4kw per line.
+;	A pair of lines is required to count to 64k
+;	Thus, 7*2=14 lines for 28kw of memory.
+;	Histogram storage is 7*64=448 words
+;
+;	r2	address
+;	r3	upper/lower flag
+;	r4	base address
+
+	.drset	show,-1,st$sho
+
+;	R0..R3 available
+
+st$sho:	call	dr$fnd			; find driver
+	bcs	st$err			;
+	call	pm$sho(r2)		; call them
+	tst	(pc)+			;
+st$err:	sec
+	return
+
+	$drfnd	<#^rpm>
+	$drlim	1000			; check that we fit
+	.drbeg	pm			; dummy handler
+	.drfin	pm			;
+.sbttl	performance monitor server
+
+	pmsta. = 28.
+	pmsto. = 29.
+
+;	start		continue
+;	start,start	clear, continue
+;	stop		stop
+;	stop,start	continue
+
+	.enabl	lsb
+pm$kbd:	vehoo$	p$mkbd			; keyboard hook
+	bis	#200,p$mcnt		; don't break through keyboard
+	psh	@(pc)+			; get the character
+p$mtkb:	.word	0			;
+	beqb	(sp),#esc.,pm$jmp	; deal with escape quickly
+	asl	(sp)			; clean it up
+	beqb	(sp),#pmsta.*2,10$	; clear & start
+	beqb	(sp),#pmsto.*2,30$	; stop
+pm$jmp:	tst	(sp)+			;
+	jmp	@p$mkbd			; got to mumma
+
+10$:	beqw	p$mact,25$		; stopped, continue
+	pshs	<r0,r1>			; save some
+	mova	p$mhis,r0		; get histogram
+	mov	#512.,r1		; length of it
+20$:	clr	(r0)+			; clear it
+	sobw	r1,20$			;
+	pops	<r0,r1>			; restore
+25$:	mov	sp,p$mact		; start collecting
+	br	40$			; and go away
+
+30$:	clr	(pc)+			; start/stop flag
+p$mact:	.word	1			;
+40$:	tst	(sp)+			;
+	rti
+	.dsabl	lsb
+
+	.enabl	lsb			
+p$mbot:
+pm$srv:
+pm$clk:	vehoo$	p$mclk			; clock hook
+	pshs	<r1,r0>			;
+	stack	r0,r1,pc,ps		;
+	mov	sp.pc(sp),r0		; get the location
+	asr	r0			;
+	asr	r0			;
+	asr	r0			;
+	asr	r0			;
+	asr	r0			;
+	asr	r0			;
+	bic	#176001,r0		; mask it
+	add	(pc)+,r0		;
+p$mptr:	.word	0			;
+	inc	(r0)			; count it
+	bne	10$			; fine
+	dec	(r0)			; maintain overflow
+10$:	beqw	p$mact,20$		; not showing
+	dec	(pc)+			; count down
+p$mcnt:	.word	200.			; four seconds
+	bne	20$			; not yet
+	stack	<r0,r1,pc,ps>
+	mov	sp.ps(sp),r0		; get previous priority
+	.mtps	r0			; and set it
+	call	pm$sho			; display it
+	mov	#200.,p$mcnt		;
+20$:	pops	<r0,r1>			;
+	sec				;
+	jmp	@p$mclk			;
+	.dsabl	lsb			;
+
+pm$sho:	pshs	<r3,r2>
+	ttnew$				;
+	mov	p$mptr,r2		;
+	clr	r1			;
+10$:	mov	r2,r0			;
+	mov	#64.,r3			;
+20$:	dec	r3			; all done?
+	bmi	30$			; yep - empty line
+	beqw	(r0)+,20$		; non-empty
+
+	ttoct$	r1,pad			; octal address
+;	.ttyou	#32.			;
+	call	pm$lin			; do the line
+30$:	add	#64.*2,r2		;
+	add	#4096.*2,r1		; up the address
+	bne	10$			;
+	clc				;
+pm$ret:	pops	<r2,r3>
+	return
+
+pm$lin:	pshs	<r2,r1>			;
+	psh	#4096./64.		; counter
+10$:	bpsw	#7,(sp),20$		;
+	ttput$	<#'|>			;
+20$:	dec	(sp)			;
+	bmi	50$			;
+	mov	(r2)+,r1		; get the next
+	mov	#'@,r0			; assume overflow
+	beqw	r1,#-1,40$		; overflow
+	mov	#32.,r0			;
+	beqw	r1,40$			; nothing
+	mova	p$mval-1,r0		;
+30$:	inc	r0			;
+	asl	r1			; done?
+	bcc	30$			;
+	movb	(r0),r0
+40$:	ttput$
+	br	10$			;
+50$:	ttnew$
+	tst	(sp)+			;
+	pops	<r1,r2>
+	return
+p$mval:	.ascii	/FEDCBA98765^=-._/
+
+
+p$mhis:	.blkw	512.			; the histogram
+
+	$tttyp
+	$ttput
+	$ttnum
+	$ttnew
+p$mtop:
+
+pmint:	.drend	pm
+.sbttl	load/unload
+.psect	pmload
+
+;	r3 =	service call code
+;	r4 ->	read routine (r0=blk,r1=buf,r2=wct)
+;	r5 ->	hentry for driver
+
+dr$fet:
+dr$loa:	call	up$rel			; relocate the driver
+	mov	(r5),r4			;
+	sub	#dr.lqe,r4		;
+	movi	p$mhis,r4,p$mptr(r4)	; setup histogram pointer
+					;
+	mov	@#j$bsys,r0		;
+	mov	rm.tkb(r0),p$mtkb(r4)	;
+	vecap$	#v$ekbd,#pm$kbd,r4	; capture keyboard
+	vecap$	#v$eclk,#pm$clk,r4	; capture clock
+	clc				;
+	return
+
+dr$rel:
+dr$unl:	mov	(r5),r4			;
+	sub	#dr.lqe,r4		;
+	verel$	#v$ekbd,#pm$kbd,r4	; release keyboard
+	verel$	#v$eclk,#pm$clk,r4	; release clock
+	clc
+	return
+
+$vepkg
+$hkpkg
+drinf$
+uprel$
+.end
+
+;	Each line has 64 cells representing 64 words each, i.e. 4kw per line.
+;	A pair of lines is required to count to 64k
+;	Thus, 7*2=14 lines for 28kw of memory.
+;	Histogram storage is 7*64=448 words
+;
+;	r2	address
+;	r3	upper/lower flag
+;
+;	Focus	addr
+;	Clear
+;	Go
+;	Stop
+;	Display
+;	Proceed
+
+pm$dis:;mov	p$mbas,r2	;
+	clr	r2		;
+10$:	clr	r3		; top line
+	.ttyou	#ht.		;
+	call	pm$lin		; display a line
+	inc	r3		; bottom line
+	mov	r2,r0		; get the address
+	call	sh$oct		; octal address
+	.ttyou	#ht.		;
+	call	pm$lin		; do the line
+	add	#4096.,r2	; up the address
+	bnew	r3,#160000,10$	; do another
+	return
+
+pm$lin:	psh	r2		;
+	psh	#4096./64.	; counter
+10$:	mov	(r2)+,r1	; get the next
+	mov	#'@,r0		; assume nothing
+	beqw	r0,#-1,40$	; overflow
+	mov	#'@,r0		; assume nothing
+	swab	r1		;
+	beqw	r3,20$		; check high byte
+	bneb	r1,30$		; high byte has something
+	swab	r1		; get low byte again
+20$:	beqb	r1,40$		; nothing
+	clr	r0		; search for it
+30$:	mova	p$mval,r0	;
+	aslb	r1		; done?
+	bcs	40$		;
+	inc	r0		;
+	br	30$		;
+40$:	.ttyou	(r0)		;
+	sobw	(sp),10$	;
+	tst	(sp)+		;
+	pop	r2
+	return
+
+;	_.-~ ="^#@
+;	#
+
+p$mval:	.ascii	/#^"=~-._/	; in reverse order
+
+sh$dec:	tst	(pc)+		;
+sh$oct:	sec			;
+	pshs	<r2,r1,r0>	; save them
+	jsr	r3,30$		; assume decimal
+10$:	10000.,1000.,100.,10.,1,0
+20$:	100000,10000,1000,100,10,1,0
+30$:	bic	r2,r2		; no digits seen yet
+	bcc	40$		; is decimal
+	add	#20$-10$,r3	;
+	mov	#'0,r2		; show all digits
+40$:	mov	r0,r1		;
+50$:	mov	#-1,r0		; look for a digit
+60$:	inc	r0		; step up dividend
+	sub	(r3),r1		; subtract
+	bcc	60$		; go again
+	add	(r3)+,r1	; bumb it back to positive
+	beqw	(r3),70$	; final digit
+	bnew	r0,70$		; got something
+	beqw	r2,80$		;
+70$:	mov	#'0,r2		;
+	add	r2,r0		;
+	.ttyout			;
+80$:	bnew	(r3),50$	;any more to do ?
+	pops	<r3,r0,r1,r2>
+	return
+
+.end
+st$drv:	mov	r4,r2		; find driver in memory
+	add	rm.pnp(r4),r2	; point to pnames
+	mov	r2,r1		; r1 -> start of pnames
+10$:	cmp	(r2)+,#-1	; walk through pnames and hentries
+	bne	10$		; end must be found
+	tst	-(r2)		; back off one
+	sub	r1,r2		; adjust it
+	asr	r2		; that's the end of them
+	mov	r2,r0		; r0 = table length
+	add	r1,r2		; r2 -> end of pnames
+20$:	cmp	-(r2),#^rpm	; this us?
+	beq	30$		; yes
+	cmp	r2,r1		; more permanent names?
+	bne	20$		; yep, keep looking
+	br	40$		; nope, not installed.
+30$:	add	r0,r2		; offset to entry point table
+	mov	(r2),r2		; get the entry point
+	beq	40$		; oops, not loaded
+	tst	(pc)+		;
+40$:	sec			;
+	return
+
+sh$oct:	pshs	<r2,r1,r0>	; save them
+	jsr	r3,30$		; assume decimal
+20$:	100000,10000,1000,100,10,1,0
+30$:	bic	r2,r2		; no digits seen yet
+	mov	#'0,r2		; show all digits
+40$:	mov	r0,r1		;
+50$:	mov	#-1,r0		; look for a digit
+60$:	inc	r0		; step up dividend
+	sub	(r3),r1		; subtract
+	bcc	60$		; go again
+	add	(r3)+,r1	; bumb it back to positive
+	beqw	(r3),70$	; final digit
+	bnew	r0,70$		; got something
+	beqw	r2,80$		;
+70$:	mov	#'0,r2		;
+	add	r2,r0		;
+	.ttyout			;
+80$:	bnew	(r3),50$	;any more to do ?
+	jmp	sh$ret
+
+	

@@ -1,0 +1,104 @@
+.title	ddboot
+.include "lib:rust.mac"
+	csr = 176500
+
+;	%build
+;	macro drs:ddloop/obj:drb:
+;	link drb:ddloop/exe:drb:
+;	%end
+
+start:	mov	#csr,r5
+	mov	#31.,r0
+	call	putbyt
+10$:	call	getbyt
+	call	getbyt
+	call	getbyt
+	mov	r0,r2
+	clr	r3
+20$:	bneb	r2,30$
+	.ttyout	#'.
+30$:	inc	r2
+	inc	r3
+	call	getbyt
+	cmpb	r0,r2
+	beq	20$
+	mov	r0,r4
+	.print	#hdr
+	mov	r3,r1
+	call	number
+	.print	#exp
+	mov	r2,r1
+	call	octal
+	.print	#rcv
+	mov	r4,r1
+	call	octal
+	.print	#new
+	br	10$
+
+hdr:	.ascii	/?DDLOOP-I-Count=/<200>
+exp:	.ascii	/ expected=/<200>
+rcv:	.ascii	/ received=/<200>
+new:	.asciz	//
+	.even
+
+getbyt:	bplb	(r5),getbyt
+	mov	2(r5),r0
+	return
+
+putbyt:	bplb	4(r5),putbyt
+	mov	r0,6(r5)
+	return
+.sbttl	number
+
+;	r1 = number
+
+decimal:mov	#deci,radix
+	br	number
+octal:	mov	#octa,radix
+	fall	number
+
+number:	psh	r0
+	psh	r1
+	psh	r2
+	psh	r3
+	psh	r4
+	clr	r0		;set number flag
+	mov	radix,r4	;get the exponent
+	mov	#num.a,r3	;set up destination
+3$:	mov	#-1,r2		;look for a digit
+4$:	inc	r2		;step up dividend
+	sub	(r4),r1		;subtract
+	bcc	4$		;go again
+	add	(r4)+,r1	;bumb it back to positive
+	tst	r2		;now look at format
+	bne	5$		;something to do
+	mov	r0,r2		;leading blanks ?
+	beq	7$		;nope nothing
+	br	6$		;put in output stream
+5$:	mov	#'0,r0		;no more blanks
+	add	r0,r2
+6$:	movb	r2,(r3)+	;output it
+7$:	tst	(r4)		;any more to do ?
+	bne	3$		;yes
+	add	#'0,r1		;generate last digit
+	movb	r1,(r3)+	;do the last digit
+	movb	#200,(r3)
+	mov	#num.a,r1	;output
+8$:	movb	(r1)+,r0
+	bmi	9$
+	.ttyout
+	br	8$
+9$:	pop	r4
+	pop	r3
+	pop	r2
+	pop	r1
+	pop	r0
+	return
+radix:	deci
+deci:	10000.,1000.,100.,10.,0
+octa:	100000,10000,1000,100,10,0
+num.a:	.byte	0,0,0,0,0,0
+
+
+.end start
+

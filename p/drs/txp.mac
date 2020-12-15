@@ -1,0 +1,614 @@
+;	SPL 7		Use IE synch instead
+;
+;	[NO]BLOCK=N	block oriented
+;	[NO]BYTE	Byte size
+;	[NO]BURST=n	Burst timeout
+;	[NO]LINE=CR|LF	Line terminators
+;	[NO]TIMER=n	Timeout
+;	[NO]ERROR=n	Replacement character
+;	[NO]NULLS	
+;	[NO]FORMAT	Formatted records (byte count, data)
+;	[NO]EIGHT	7/8-bit
+;	DUMP/STREAM	Dump byte stream
+;
+tim$c=0
+etx$c=1
+abt$c=1
+csr=176500
+vec=300
+;csr=176550
+;vec=350
+expire=60.
+.title	txv - RUST/SJ STX/ETX driver
+.include "lib:rust.mac"
+.enabl	mcl, lc
+.iif ndf csr, csr=176000
+.iif ndf vec, vec=300
+.drdef	cn,377,0,0,csr,vec
+
+;	%build
+;	goto 'p1'
+;	macro drs:txp.mac/object:drb:txv
+;	link drb:txv/execute:drb:txv.sys/nobitmap
+;	!copy drb:txv.sys sy:/sys
+;	end:
+;	%end
+
+.macro	drinf$
+$imgdef	TX 1 0
+$imginf fun=drv cre=hammo aut=ijh use=<RUST STX/ETX serial line driver TX:>
+$imgham	yrs=<2004> oth=<>
+;	%date	
+$imgdat <01-Oct-2004 21:06:37.00>
+;	%edit
+$imgedt <4    >
+.endm
+;	This driver transmits and receives using an stx/etx protocol.
+; 
+;	Write data is simply sent to the destination.
+;	Read data requests terminate when the byte count overflows,
+;	or when the ETX character is received.
+;	Direct time-out is supported.
+; 
+;	Write request. Clear input. Trigger input. Send output.
+;	Read request. Unload input buffer. Accept following data.
+
+.macro	meta m n o p
+.macro	m
+n
+o
+p
+.endm
+.endm
+
+meta	<psh c><mov c,-(sp)>
+meta	<pop c><mov (sp)+,c>
+meta	<mova c,d><psh pc><add c-.,(sp)><pop d>
+meta	<movi c,d,e><mov #c,e><add d,e>
+meta	<$inten d=5><jsr r5,@$inptr><.word ^c<d*40>&340>
+meta	<bump c><inc c>
+meta	<spl c><movb #c*40,@#ps>
+
+	sysptr	=	54	;
+	ie	=	100	;
+
+	rsr	==	csr
+	rbu	==	rsr+2
+	xsr	==	rsr+4
+	xbu	==	rsr+6
+	invec	==	vec
+	outvec	==	vec+4
+	v$eclk	=	100
+	cr	=	15
+	lf	=	12
+	tab	=	11
+	space	=	40
+	pnptr	=	404
+	pr4	=	200
+	stx	=	2
+	etx	=	3
+	ps	=	177776
+
+meta <fall c><.iif ne .-c,.error ;;fall>
+meta <roof c><.iif gt .-c,.error ;;roof>
+.sbttl	show
+
+.asect
+.=100
+
+s.show:	jsr	r4,slot		;setup and save r4
+	psh	r5		;save this guy
+	mova	#list,r4	;get the lists
+20$:	mov	r2,r1		;get the base
+	add	(r4)+,r1	;add in the offset
+	mov	2(r1),r3	;in case its double precision
+	mov	(r1),r1		;get the value
+
+30$:	movb	(r4)+,r0	;get the next
+	beq	40$		;no more
+	.ttyout
+	br	30$
+40$:	.ttyout	#tab
+	call	number		;print the number
+	.ttyout	#cr
+	br	50$
+roof	176
+.=202
+
+50$:	.ttyout	#lf
+	inc	r4
+	bic	#1,r4
+	tst	(r4)		;got another?
+	bne	20$		;yes
+	pop	r5		;restore this guy
+	return
+
+number:	mova	#digits,r3	;get the digits
+	psh	r4
+	clr	r4
+10$:	mov	#'0,r0
+20$:	cmp	r1,(r3)
+	blo	30$
+	sub	(r3),r1
+	inc	r0
+	inc	r4
+	br	20$
+30$:	tst	-(r3)
+	beq	50$
+	tst	r4
+	beq	10$
+	.ttyout	r0
+	br	10$
+50$:	.ttyout	r0
+	pop	r4
+	return
+	.word	0,1,10.,100.,1000.
+digits:	.word	10000.
+
+s.clear:
+	jsr	r4,slot		;get the address
+	add	#quecnt-zero,r2	;point to the first
+	mov	#5,r4		;r3 = count
+10$:	clr	(r2)+
+	dec	r4
+	bne	10$
+	return
+
+s.csr:	add	pc,r3		;point R3 to the CSR area
+s$tcsr:	mov	r0,176		;reset the CSR address
+	mov	#4,r1		;count the next
+10$:	mov	r0,(r3)+	;store the next address
+	add	#2,r0		;point to the next
+	dec	r1		;count it
+	bne	10$		;more
+	return
+
+roof	400			;check the limit
+.=376
+.sbttl	set, run
+
+.drset	SHOW,1,b.show		;SHOW the counts
+.drset	ETX,100000,s.etx		;[NO]ETX
+.drset	CLEAR,1,b.clear		;CLEAR the error counts
+.drset	TIMER,-1,s.timer,NUM	;set RETRY count
+.drset	CSR,c$nrsr-s$tcsr,b.csr,OCT ;SET CSR=address
+.drset	VECTOR,177003,s.vec,OCT	;SET VEC=address
+
+b.show:	jmp	s.show		;go backwards
+b.clear:br	s.clear		;go backwards
+
+s.etx:	movb	#1,r3		;SET ETX
+	movb	r3,c$netx	;SET NOETX
+	br	s.good
+
+b.csr:	bit	#3,r0		;is this valid?
+	bne	s.bad		;nope
+	cmp	r0,#160000	;is this in the i/o page?
+	bhis	s.csr		;yes
+	br	s.bad		;nope
+
+s.vec:	bit	r3,r0		;r3=177003, is this mostly valid?
+	bne	s.bad		;nope
+	mov	r0,c$nin	;setup the input vector
+	cmp	(r0)+,(r0)+	;point to the output vector
+	mov	r0,c$nout	;the output vector
+s.good:	tst	(pc)+		;c=0
+s.bad:	sec			;c=1
+	return
+
+s.time:
+	mov	r0,timcnt	;remember it in seconds
+	asl	r0		;*2
+	psh	r0		;save this
+	asl	r0		;*4
+	asl	r0		;*8
+	asl	r0		;*16
+	add	r0,(sp)		;=*18
+	asl	r0		;*32
+	add	(sp)+,r0	;=*50.
+	mov	r0,c$ntim	;reset the permanent count
+	jsr	r4,slot		;get setup or out
+	mov	c$ntim,c$ntim-zero(r2) ;set the retry count
+	return
+
+meta	<entry c d><.word d-zero><.asciz _c_><.even>
+
+list:	entry	queued	quecnt
+	entry	writes	wricnt
+	entry	reads	reacnt
+	entry	errors	errcnt
+	entry	expired	expcnt
+	entry	timer	timcnt
+	.word	0
+
+slot:				;jsr r4,slot; save RT's r4
+	psh	r4		; (sp) = return address
+	mov	@#sysptr,r2	;point at the monitor
+	add	pnptr(r2),r2	;point at names
+	mov	r2,r4		;save it again
+10$:	cmp	(r2)+,#-1	;look for end of entries
+	bne	10$		;more
+	tst	-(r2)		;back off one
+	sub	r4,r2		;adjust it
+	asr	r2		;thats the end of them
+	mov	r2,r0		;r0 = table_length
+	add	r4,r2		;get us again
+20$:	cmp	-(r2),#^rtx	;this us?
+	beq	30$		;fine
+	cmp	r2,r4		;more permanent names?
+	bne	20$		;yep, keep looking
+	br	40$		;nope, not installed.
+30$:	add	r0,r2		;c=0> offset to entry point table
+	mov	(r2),r2		;c=0> get the entry point
+	beq	40$		;c=0> oops, not loaded
+	bit	(r2)+,(r2)+	;c=0> >> r2 -> zero
+	call	@(sp)+		;call co-routine back
+	tst	(pc)+		;c=0> skip abort and set c=0
+40$:	com	(sp)+		;c=1> skip return; Illegal command
+	pop	r4		;c=?> restore RT-11's r4
+	return			;c=?> back to kmon
+
+roof	1000
+.sbttl	start
+
+	.drbeg	cn			;go
+zero:
+	jmp	start			;startup
+c$nrsr:	.word	rsr
+c$nrbu:	.word	rsr+2
+c$nxsr:	.word	rsr+4
+c$nxbu:	.word	rsr+6
+timcnt:	.word	expire			;second time out
+c$netx:	.word	1			;
+;;;c$ntim:	.word	1
+c$nabt:	.word	0
+
+c$ntim:	.word	expire*50.		;one minute timeout
+c$nin:	.drvtb	cn,vec,cnint
+c$nout=.-2
+	.drvtb	,vec+4,coint		;output vector
+errors:	.word	0			;records errors
+done:	.word	0			;interactive operation done
+limbo:	.word	0			;request is active
+writing:.word	0			;write is active
+active:	.word	0			;read is active
+reading:.word	0			;read request is present
+icount:	.word	ilength			;check for overflow
+ibytes:	.word	0			;number of bytes in ibuff
+put:	.word	0			;points into ibuff
+get:	.word	0			;same to get them out
+	ilength = 128.			;128 byte read-ahead buffer
+rbuff:	.blkb	ilength			;input buffer
+
+;iwcnt:	.word	0			;input wcnt
+;ibuff:	.word	0			;input buffer
+
+owcnt:	.word	0			;output wordcount
+obuff:	.word	0			;output buffer
+
+quecnt:	.word	0			;packages
+wricnt:	.word	0			;sends
+reacnt:	.word	0			;recieves
+errcnt:	.word	0			;input errors
+expcnt:	.word	0			;timed
+.sbttl	request, finish, write
+
+;	We cannot be reading or writing
+
+start:	bump	quecnt			;count this
+	clr	reading
+	clr	writing
+	clr	limbo			;stop aborts
+	clr	done			;
+	mov	cncqe,r4		;get the queue element
+	mov	@#sysptr,r5		;point to the system
+	cmp	(r5),#137		;is this rust?
+	beq	10$			;yes
+	bis	#hderr$,@q$csw(r4)	;set the error
+	br	finish			;and quit
+10$:	asl	q$wcnt(r4)		;what is it?
+	bmi	write			;its a write
+	bne	read			;its a read
+	call	stop			;stop it all
+	clr	errors			;reset the errors
+	clr	active			;
+
+.if ne  tim$c
+	mov	q$blkn(r4),r5		;get the block number
+	bne	15$			;we got one
+.endc
+	mov	#30.,r5			;default to 30-seconds.
+15$:	mov	r5,timcnt		;remember it for displays
+	asl	r5			;*2
+	psh	r5			;=*2
+	asl	r5			;*4
+	asl	r5			;*8
+	asl	r5			;*16
+	add	r5,(sp)			;=*18
+	asl	r5			;*32
+	add	(sp)+,r5		;=*50
+	mov	r5,c$ntim		;and remember it
+20$:	br	finish			;and quit
+
+over:	psh	@#ps			;save this
+	spl	7			;
+	tst	done			;already done?
+	bne	5$			;yes
+	inc	done			;set it up
+	tst	limbo			;are we in limbo?
+	bne	10$			;yes - finish up
+5$:	movb	@(sp)+,@#ps		;nope
+	return
+10$:	clr	 limbo			;
+	movb	(sp)+,@#ps		;get this back
+	br	finish			;and quit
+
+;	Any error stops the whole thing
+
+finish:	inc	done			;we are done
+	mov	cncqe,r4		;yes
+	beq	20$			;we have been aborted
+.if ne abt$c
+	tst	c$nabt			;abort on error?
+	beq	10$			;nope
+.endc
+	mov	errors,r5		;did we get any errors?
+	beq	10$			;nope
+	bis	r5,@q$csw(r4)		;set the error
+	clr	errors			;and reset it
+	call	stopall			;and clean up
+10$:	.drfin	cn			;and finish
+20$:	return
+
+pause:	psh	@#ps			;synchronise with aborts
+	spl	7			;
+	tst	errors			;do we have a problem?
+	bne	10$			;yes
+	tst	done			;is the operation already over?
+	bne	10$			;yes
+	inc	limbo			;we can be aborted
+	movb	(sp)+,@#ps		;reset this
+	return
+10$:	movb	(sp)+,@#ps		;reset it
+	br	finish			;and quit
+
+;	A write cleans up everything
+
+write:	bump	wricnt			;count this
+	call	stopall			;stop everything
+	clr	errors			;clearup any errors
+	inc	writing			;we are writing
+	mov	q$wcnt(r4),owcnt	;remember this
+	mov	q$buff(r4),obuff	;and this
+	call	startclock		;start the clock
+	call	startin			;start input
+	call	startout		;
+	br	pause			;go pause
+.sbttl	read
+
+;	Read fails on errors. Checks read-ahead buffer.
+
+read:	bump	reacnt			;count this
+	tst	errors			;got any errors to report?
+	bne	finish			;yes - forget this
+	mov	q$buff(r4),r0		;get the buffer address
+	mov	q$wcnt(r4),r1		;get the byte count
+	dec	q$wcnt(r4)		;read one less than specified
+5$:	clrb	(r0)+			;clean it up
+	dec	r1			;count it
+	bne	5$			;more
+	tst	active			;is input active?
+	bne	10$			;yes - see if we have anything
+	call	stopall			;no clean up
+	inc	reading			;start now
+	call	startclock		;start the clock
+	call	startin			;start input
+	jmp	pause			;and setup
+
+; empty read-ahead buffer 
+
+10$:	tst	errors			;got an error
+	bne	finish			;yes - quit
+	call	getbyt			;go get one
+	bcs	20$			;no more
+.if ne etx$c
+	beqw	c$netx,10$		;
+.endc
+	cmpb	r5,#etx			;is this the end?
+	bne	10$			;nope
+	call	stopall			;yes - stop everything
+	br	finish			;yes - we are done
+
+; interlock with read isr 
+
+20$:	spl	7			;go up
+	tst	ibytes			;anymore there?
+	bne	30$			;yes - one just slipped in
+	inc	reading			;nope - let them finish it
+	spl	0			;come back down
+	jmp	pause			;and quit
+
+; one more slipped in 
+
+30$:	spl	0			;come back
+	br	10$			;and get the next
+
+getbyt:	tst	ibytes			;got any?
+	beq	20$			;nope
+	dec	ibytes			;yes
+	movb	@get,r5			;get it
+	inc	get
+	movb	r5,@q$buff(r4)		;store it
+	inc	q$buff(r4)		;count it
+	dec	q$wcnt(r4)		;nope - count it
+	beq	30$			;eof
+	tst	(pc)+
+20$:	sec
+	return
+30$:	tst	(sp)+			;forget it
+	call	hard			;set the error
+	bump	errcnt			;count it
+	jmp	finish			;and quit
+.sbttl	start & stop
+
+startin:
+	call	stopin			;stop it first
+	clr	ibytes			;forget them
+	mov	#ilength,icount		;count out read-ahead
+	mova	#rbuff,get		;get pointer
+	mov	get,put			;put pointer
+	inc	active			;we are active
+	tst	@c$nrbu			;get anything pending
+	bis	#ie,@c$nrsr		;start it
+	return
+
+startout:
+	call	stopout
+	bis	#ie,@c$nxsr
+	return
+
+stopall:
+	clr	active			;
+stop:					;stop everything
+	psh	@#ps			;save this
+	spl	7			;go up
+	bic	#ie,@c$nxsr		;stop output
+	bic	#ie,@c$nrsr		;stop input
+	clr	ticks			;stop the clock
+	movb	(sp)+,@#ps		;come back
+	call	stopclock		;stopclock
+	return
+
+stopin:					;stop input
+	bic	#ie,@c$nrsr		;stop it
+	return
+
+stopout:
+	bic	#ie,@c$nxsr
+	return
+
+abort:	mov	cncqe,r4		;get the element
+	beq	10$			;crazy
+	bis	#hderr$,errors		;
+abort2=.
+	clr	reading
+	clr	writing
+	call	stopall			;stop everything
+	jmp	over
+10$:	return
+.sbttl	write & read
+
+	.drast	co,4,abort		;write service routine
+	mov	cncqe,r4		;get the next
+	beq	20$			;forget it
+	movb	@obuff,@c$nxbu		;send it
+	inc	obuff			;step it up
+	inc	owcnt			;count it
+	bmi	20$			;more to go
+	bic	#ie,@c$nxsr		;turn us off
+	clr	writing			;
+	jmp	over			;and quit
+20$:	return
+
+	.drast	cn,4,abort		;read service routine
+.if ne abt$c
+	tst	c$nabt			;abort enabled?
+	beq	10$			;nope
+.endc
+	tst	errors			;do we have problems?
+	bne	70$			;yes
+10$:	mov	cncqe,r4		;get the element
+	beq	70$			;forget it
+	mov	@c$nrbu,r5		;get the character
+	bmi	50$			;oops - input error
+	bic	#177400,r5		;clean it up
+	tst	reading			;are we doing it or are they?
+	bne	30$			;we are
+
+; fill read-ahead buffer 
+
+20$:	tst	icount			;any space?
+	ble	40$			;nope
+	dec	icount			;any more?
+	movb	r5,@put			;store it
+	inc	put
+	inc	ibytes			;nope
+	br	35$			;and check for end
+25$:	return				;and quit
+
+; fill user buffer 
+
+30$:	tst	q$wcnt(r4)		;got space?
+	ble	40$			;nope
+	dec	q$wcnt			;yes - put it in
+	movb	r5,@q$buff(r4)		;store it
+	inc	q$buff(r4)		;count it
+
+35$:	tst	c$netx			;doing etx?
+	beq	70$			;nope
+	cmpb	r5,#etx			;was this the last?
+	bne	70$			;nope
+	br	60$			;
+
+40$:	call	hard			;stop us
+	br	55$			;
+
+50$:	call	hard
+55$:	bump	errcnt
+
+60$:	call	stopin			;stop input
+	tst	writing			;are we waiting for output?
+	beq	65$			;nope
+	call	stopclock		;yes
+65$:	tst	reading			;are we reading?
+	beq	70$			;nope - dont complete
+	jmp	over			;and finish up
+70$:	return
+
+eof:	bis	#eof$,errors		;set eof
+	return
+hard:	bis	#hderr$,errors		;set hard error
+	return
+.sbttl	stop & start clock
+
+startclock:			;startup
+	mov	c$ntim,ticks	;count this many
+	mova	#ourclock,-(sp)	;get ours
+	cmp	@#v$eclk,(sp)	;do we already have it?
+	beq	20$		;yes - must have been interrupted
+	mov	@#v$eclk,rtclock ;get the ticker
+	mov	(sp),@#v$eclk	;reset theirs
+20$:	tst	(sp)+		;
+	return
+
+stopclock:
+	clr	ticks		;stop the clock
+	tst	rtclock		;do we have the rtclock?
+	beq	10$		;nope
+	mov	rtclock,@#v$eclk ;restore their clock
+10$:	return
+
+ourclock:
+	dec	(pc)+		;are we waiting?
+ticks:	.word	0		;tick
+	bne	gort		;forget it
+	$inten	6		;come down
+	psh	@#ps		;setup the ps
+	movb	#340,(sp)	;put in the pr7
+	sec			;set this for the clock isr
+	call	@rtclock	;call rt-11's clock
+	mov	cncqe,r4	;get the queue element
+	beq	10$		;forget it
+	call	eof		;set the eof error
+;	.fork	fkblk		;fork
+	bump	expcnt		;remember this insult forever
+	jmp	abort2		;and abort us
+10$:	return
+fkblk:	.blkw	4		;
+
+gort:	jmp	@(pc)+		;nope - go to the usual
+rtclock:.word	0		;rt-11's routine
+.drend	cn
+drinf$
+.end
+

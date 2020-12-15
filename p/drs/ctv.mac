@@ -1,0 +1,348 @@
+.title	CTV - RUST [ctrl/t] driver
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+$aldef
+$cndef
+$ehdef
+$emdef
+$hkdef
+$jbdef
+$rmdef
+$psdef
+$vedef
+$hadef
+upini$
+
+;	CTV.SYS: [ctrl/t] displays system status
+;
+;	%build
+;	goto 'p1'
+;	macro drs:ctv.mac/object:drb:
+;	link drb:ctv/execute:drb:ctv.sys/nobitmap/boundary:1000
+;	ctload
+;	@drs:check capture CTV
+;	driver set drb:ctv key=24
+;	@drs:check compare CTV
+;	!copy drb:ctv.sys sy:/sys
+;	end:
+;	%end
+
+.macro	drinf$
+$imgdef	CT 1 0
+$imginf fun=drv cre=hammo aut=ijh use=<RUST/SJ CTRL/T driver CT:>
+$imgham	yrs=<2004> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:19:28.16>
+;	%edit
+$imgedt <35   >
+.endm
+
+;	RUST/SJ 22:13:36 (DCL) Cpu=00.00.02.54 I/O=185 Mem=24
+
+	.drdef	ct,377,ronly$!wonly$,0,0,0
+	.drest	class=dvc.ps
+	$drptr
+	$drins	ct system=no, data=sj
+
+;???	check for EIS
+
+	.drset	KEY,1,st$key,oct	; set driver key
+
+st$key:	asl	r0			; we use it shifted
+	mov	r0,c$tkey		; set it up
+	clc				;
+	return
+
+	.drbeg	ct			; dummy handler in case
+.sbttl	intercept
+
+	ctKEY. = 'T-64.			; ^o24 ^d20
+
+	.enabl	lsb
+ct$kbd:	vehoo$	c$tkbd			; keyboard vector hook
+	psh	@(pc)+			; get the character
+c$ttkb:	.word	0			;
+	asl	(sp)			; clean it up
+	cmpb	(sp)+,(pc)+		; this our key?
+c$tkey:	.word	ctKEY.*2		;
+	beq	ct$srv			; yep
+ct$con:	jmp	@c$tkbd
+
+	.enabl	lsb
+	stack	r1,pc,ps
+ct$emt:	vehoo$	c$temt			; EMT hook
+	psh	r1			;
+	mov	sp.pc(sp),r1		;
+	bnew	-(r1),#emt+375,20$	; not a new guy
+	movb	1(r0),r1		; get the code
+	beqb	r1,#emSPF.,10$		; spfun
+	bhiw	r1,#emWRI.,20$		;
+     up	tstb	c$t375(r1)		; this an I/O operation?
+	beq	20$			; nope
+10$:	beqw	c$tioc,#177777,20$	; already maxed out
+	inc	(pc)+			; count I/O operation
+c$tioc:	.word	0			;
+20$:	pop	r1			;
+	jmp	@c$temt			;
+	.dsabl	lsb
+c$t375:	.byte	1,1,1,0,1,0,0,1,1,1
+
+
+ct$clk:	vehoo$	c$tclk			; clock vector hook
+	add	#1,c$tcpu+2		; count ticks
+	adc	c$tcpu			;
+	sec				;
+	jmp	@c$tclk			;
+c$tcpu:	.word	0,0			;
+c$ttim:	.word	0			;
+
+	.enabl	lsb
+ct$srv:	pshs	<r3,r2,r1,r0>		;
+	ttnew$				;
+	tttyp$	<RUST/SJ >		;
+	call	ct$tim			; show that
+	tttyp$	< >			;
+
+	mov	@#j$bsys,r0		; r4 -> rmon
+	mov	rm.syn(r0),r0		; .synch
+	mov	-(r0),r1		; r1 -> net
+	beqw	eh.kma(r1),10$		; DCL not in
+	tttyp$	<(DCL)>			;
+	br	20$			;
+10$:	mov	(pc)+,r1		;
+c$timg:	.word	0
+	tst	(r1)+
+	ttunp$	(r1)+			; current image
+	ttunp$	(r1)+			; current image
+
+20$:	tttyp$	< Cpu=>			;
+	call	ct$cpu			;
+					;
+	tttyp$	< I/O=>			;
+	mov	c$tioc,r0		;
+	ttdec$				;
+					;
+	tttyp$	< [>			;
+	mov	(pc)+,r0		;
+c$tfil:	.word	0			;
+	ttspc$				;
+					;
+	tttyp$	<] Mem=>		;
+	mov	@#j$btop,r0		;
+	add	#2,r0			;
+	clrb	r0			;
+	swab	r0			;
+	asr	r0			;
+	asr	r0			;
+	asr	r0			;
+	ttdec$				;
+
+	ttnew$
+	pops	<r0,r1,r2,r3>
+	rti
+	.dsabl	lsb
+
+$ttspc
+$ttunp
+$tttyp
+$ttput
+$ttnew
+$ttnum
+ctint:					; dummy interrupt
+.sbttl	time
+
+;	Time display
+;
+;	r0,r1	time in ticks (50 or 60 herz)
+;
+;	First divide must extract seconds since word quotient required
+
+
+ct$cpu:	.enabl	lsb		;cpu time
+	psh	r2		;save it
+	psh	#-1		;display the ticks
+     up	mov	#c$tcpu,r2	;point to cpu time
+	br	10$		;join the common stuff
+ct$tim:				;report the time
+	psh	r2		;save it
+     	mov	c$ttim,r2	;point to the time
+	clr	-(sp)		;forget the ticks
+10$:	mov	(r2)+,r0	;high order
+	mov	(r2),r1		;low order
+
+	mov	(pc)+,r3	;compute second factor
+c$tfre:	.word	50.		;
+	mul	#60.,r3		;r3 = seconds factor
+
+	div	r3,r0		;extract seconds
+	mov	r0,r2		;r2 = minutes/hours
+	clr	r0		;
+	div	c$tfre,r0	;get ticks & seconds
+	psh	r1		;ticks
+	psh	r0		;seconds
+	clr	r0		;
+	mov	r2,r1		;minutes/hours
+	div	#60.,r0		;
+	psh	r1		;minutes
+	psh	r0		;hours
+	mov	#3,r2		;count again
+	br	30$		;do another
+20$:	tttyp$	<:>		;separator
+30$:	pop	r1		;
+;	mov	#1.,ep.fil(r4)	;fill below 99.
+	call	ct$dig		;display it
+	sob	r2,20$		;count them
+	pop	r1		;get the ticks
+	tst	(sp)+		;should we display them?
+	beq	50$		;no
+	tttyp$	<.>		;yes
+
+	mul	#100.,r1	;*100
+	clr	r0		;clear the high order
+	div	c$tfre,r0	;/frequency
+	asl	r1		;round it up
+	cmp	r1,c$tfre	;this a half a point?
+	blo	40$		;no
+	inc	r0		;yes
+40$:	mov	r0,r1		;get the quotient
+	call	ct$dig		;and display them
+50$:;	clr	ep.fil(r4)	;remove the fill
+	pop	r2		;
+	return
+	.dsabl	lsb
+
+ct$dig:	psh	r1		;
+	bhisw	r1,#10.,10$	;
+	tttyp$	<0>		;
+10$:	mov	r1,r0		;
+	ttdec$
+	pop	r1
+	return
+
+	.drend	ct
+.sbttl	load/unload
+.psect	ctload
+
+;	r3 =	service call code
+;	r4 ->	read routine (r0=blk,r1=buf,r2=wct)
+;	r5 ->	hentry for driver
+
+dr$fet:
+dr$loa:	call	up$rel			; relocate the driver
+	mov	(r5),r4			;
+	sub	#dr.lqe,r4		;
+					;
+	vecap$	#v$ekbd,#ct$kbd,r4	; capture keyboard
+	vecap$	#v$eclk,#ct$clk,r4	; capture clock
+	mov	@#v$eemt,r0		; EMT is special
+	add	#hkEMT.,r0		;
+	vecap$	r0,#ct$emt,r4		; capture EMTs
+					;
+	mov	@#j$bsys,r0		;
+	bpsw	#cn50h$,rm.cfg(r0),10$	; is 50 hertz
+	mov	#60.,c$tfre(r4)		; 
+					;
+10$:	mov	@#j$bsys,r0		; r4 -> rmon
+	mov	r0,c$ttim(r4)		;
+	add	#rm.tim,c$ttim(r4)	; time
+	mov	rm.syn(r0),r0		; .synch
+	mov	-(r0),r1		; r1 -> net
+	movi	eh.img,r1,c$timg(r4)	; current image pointer
+	movi	eh.fil,r1,c$tfil(r4)	; current file pointer
+					;
+	mov	@#j$bsys,r0		;
+	mov	rm.tkb(r0),c$ttkb(r4)	;
+	clc				;
+	return
+
+dr$rel:
+dr$unl:	mov	(r5),r4			;
+	sub	#dr.lqe,r4		;
+50$:	verel$	#v$ekbd,#ct$kbd,r4	;
+	verel$	#v$eclk,#ct$clk,r4	;
+	mov	@#v$eemt,r0		; EMT is special
+	add	#hkEMT.,r0		;
+	verel$	r0,#ct$emt,r4		;
+	clc
+	return
+
+$vepkg
+$hkpkg
+uprel$
+drinf$
+.end
+.end
+
+map	ef.jsr,,0	; jsr instruction
+map	ef.fst		; first in chain
+map	ef.nop		; nop
+
+map	hk.ept,,0	; entry point
+map	hk.suc		; next in chain
+
+
+;	r5 ->	hentry
+;	r4 ->	driver 
+;	r0 =	 0  => unload
+;	         1  => load first
+;		-1  => load last
+
+em$cap:	pshs	<r3,r2,r1,r0>	
+	stack	r0,r1,r2,r3
+	assume	sp.r0 eq 0	;
+	mov	@#v$eemt,r0	; r0 -> ef.jsr
+				; r1 -> found element
+	movi	em$ept,r4,r2	; r2 -> hk.ept
+	.mtps	#340		; block everything
+	beqw	(sp),40$	; unload
+
+10$:	beqw	(r0),#4737,20$	; already got a link
+	mov	r0,hk.suc(r2)	; the first - plug us in
+	mov	#4737,(r0)	; ef.jsr
+	mov	r2,(r0)+	; ef.fst
+	mov	#nop,(r0)+	; ef.nop
+	br	50$		;
+20$:	call	em$fnd		; see we're already there
+	bcc	50$		; we are
+	bplw	(sp),30$	; load first
+	mov	r1,r0		; load last
+30$:	mov	ef.fst(r0),hk.suc(r2) ; hk.suc -> *ef.fst
+	mov	r2,ef.fst(r0)	; ef.fst -> us 
+	br	50$		;
+
+40$:	bnew	(r0),#4737	; there are no links
+	call	em$fnd		; find us
+	bcs	50$		; not found
+				; r1 -> predecessor
+	mov	hk.suc(r2),hk.suc(r1) ; link us out
+	bnew	r1,r0,50$	; not the first
+	mov	#042766,(r0)+	; we're the last out
+	mov	#1,(r0)+	;
+	mov	#2,(r0)+	;
+50$:	.mtps	#0		;
+	pops			;
+	return
+
+em$fnd:	mov	r0,r1		;
+10$:	beqw	hk.suc(r1),r2,30$; this is the predecessor
+	beqw	hk.suc(r1),r0,20$ ; this is the last
+	mov	hk.suc(r1),r1	; get next
+	br	10$		;
+20$:	sec			; not found
+30$:	return
+
+
+;	Unload all drivers loaded below BO:
+
+ct$unl:	mov	@#j%bsys,r0		; system
+	mov	rm.slt(r0),r1		; slots*2
+	add	rm.pnp(r0),r0		; pname
+	add	r1,r0			; r0 -> hentry
+	asr	r1			;
+     up	mov	1000,r2			; don't remove us
+10$:	bhiw	(r0),r2,20$		; it stays safe
+	clr	(r0)			; zap it
+20$:	tst	(r0)+			;
+	sobw	r1,10$			;
+	return
+

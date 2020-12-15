@@ -1,0 +1,711 @@
+;	side 1/side 2 media density
+;	RLV12 22-BIT BAE support
+boo$c=1	; new boot code
+uni$c=1	; 4-unit default
+.title	dlp - RUST DL: driver
+.include "lib:rust.mac"
+
+;	RUST DL: driver
+;
+;	Single port 
+;	No bad block replacement
+;
+;	%build
+;	goto 'p1'
+;	macro	drs:dlp/object:drb:dlv
+;	macro	drs:drmmgt+drs:dlp/object:drb:dlp
+;	link:
+;	link	drb:dlv/execute:drb:dlv.sys/map:drb:dlv/nobitmap/bound:1000
+;	xxboot
+;	link	drb:dlp/execute:drb:dlp.sys/map:drb:dlp/nobitmap/bound:1000
+;	xxboot
+;	driver:
+;	@drs:check capture DLV
+;	driver
+;	set drb:dlv name=DL
+;	set drb:dlv csr=174400
+;	set drb:dlv vector=160
+;	set drb:dlv retry=8
+;	set drb:dlv units=4
+;	exit
+;	@drs:check compare DLV
+;	@drs:check capture DLP
+;	driver
+;	set drb:dlp name=DLX
+;	set drb:dlp csr=174400
+;	set drb:dlp vector=160
+;	set drb:dlp retry=8
+;	set drb:dlp units=4
+;	exit
+;	@drs:check compare DLP
+;	end:
+;	%end
+;
+.macro	drinf$
+$imgdef	DLP 1 0
+$imginf fun=drv cre=hammo aut=ijh use=<RUST RL01/RL02 disk driver DL:>
+$imgham	yrs=<2004> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:28:47.07>
+;	%edit
+$imgedt <48   >
+.endm
+
+$brdef		;RT-11 bootstrap
+$chdef		;channel
+$dcdef		;device codes
+$dedef		;device
+$fkdef		;fork
+$hadef		;handler
+$iqdef		;i/o queue
+$jbdef		;job
+$mmdef		;memory management
+$prdef		;pcr
+$psdef		;psw
+$rmdef		;resident monitor
+$sfdef		;special functions
+$vedef		;vectors
+.library "lib:drvmac.mlb"
+$drini
+$drcnd
+
+;	Installation check
+;
+;	May not be /external unless /par6
+;
+;	r2 ->	device record
+;	r3 =	stb date
+;	r4 =	^rstb
+
+	.drins	xx			; system device
+	nop				; data device
+;sic]	nop				; system
+	cmp	r4,#^rshp		; this SHAREplus?
+	bne	30$			; no
+	mov	r4,r0			; handshake
+	mov	r4,r1			; reply with reason
+	.if ne mmg$t			; check RLV12
+;	cmp	r3,#stbdat		; using the same stb?
+;	bne	30$			; no
+	bis	#deabo$,de.typ(r2)	; force /abort
+	mov	inscsr,r4		; r4 -> csr
+	mov	#v$ebus,r3		; r3 -> bus vector
+	psh	(r3)			; catch a falling star
+	.mtps	#340			; block interrupts
+	mova	10$,(r3)		; trap routine
+	tst	dl.ext(r4)		; traps to 10$ if not rlv12
+	bis	#de22b$,de.con(r2)	; force /22bit
+	br	20$			;
+10$:	bit	(sp)+,(sp)+		; pop interrupt
+20$:	pop	(r3)			; restore vector
+	.mtps	#0			; unblock interrupts
+	.endc				; mmg$t
+30$:	clc				; installation succeeded
+	return
+
+;	Flag SHAREplus 22-bit handler
+;.if ne mmg$t
+;.save
+;.asect
+;.=0
+;	.rad50	/22b/
+;.restore
+;.endc
+.sbttl	driver notes
+
+; RLV12
+;
+;	Both drivers support the 22-bit RLV12 extended address.
+;
+;	DLP additionally checks during installation so that it can
+;	set the RUST/XM device 22bit flag.
+;
+;	Both only check the start location of a transfer for a 22-bit
+;	boundary on a non-RLV12..
+;
+; POLLED SEEKS ETC
+;
+;	The DEC driver has always performed seeks as polled I/O in 
+;	fork state, blocking systems for incredible periods. Device
+;	size and internal get-status operations are also polled.
+;
+;	The problem may originate from the original driver. It was
+;	written at a time when driver construction hadn't evolved
+;	to handle internal operations well (thus the pseudo queue
+;	element to read the bad block replacement table).
+;
+;	One Unix driver has the same behaviour as the DEC driver.
+;	It's either a clone or there actually is some wierd problem
+;	with the DL hardware.
+;
+; BOOT RETRIES
+;
+;	The DEC driver doesn't implement retries in the bootstrap.
+;	The algorithm doesn't permit backup after a failed operation.
+;	This driver supports boot retries.
+;
+; BAD BLOCK REPLACEMENT TABLE;
+;
+;	DLP does not support bad block replacement.
+;
+;	Only one other RT-11 driver supports bad block replacement.
+;	The table has no signature which caused crashes early on.
+;
+;	The driver relies on DUP to fill the table in. I had always
+;	supposed that it did this using the manufacturers badblock
+;	information stored on the last track of a volume. Instead it
+;	seems that all DUP does is place the result of a bad block
+;	scan in the table.
+.sbttl	future stuff
+
+;	SET DLx: [NO]BBR
+;
+;	RUST/XM MOUNT should test DL: for a valid BBR table.
+
+.sbttl	driver definitions
+
+map	dlcsr.,,174400		; csr
+   map	dl.csr,,0	; 00 	; csr
+   map	dl.buf		; 02 	; buffer
+   map	dl.adr		; 04 	; track/sector
+   map	dl.wct,0	; 06 	; word count (write)
+   map	dl.dat		; 06 	; data value (read)
+xm map	dl.ext		; 10? 	; extended memory (rlv12)
+map	dlvec.,,160		; vector
+map	dlpri.,,5		; interrupt priority
+.if ne uni$c
+map	dluct.,,4		; units per controller 
+.iff
+map	dluct.,,2		; units per controller 
+.endc
+map	dlumx.,,4		; maximum units
+map	dlcod.,,5		; RT-11 device code
+map	dlrty.,,8.		; retry count
+map	dlnam.,,<^rdl>
+
+;	geometry
+				;
+map	dlcyl.,,256.		; cylinders
+map	dlrl2.,,2		; RL02 cylinder factor
+map	dlhds.,,2		; heads
+map	dlbpt.,,20.		; blocks per track
+map	dltrk.,,64.		; track 
+map	dl1sz.,,10240.		; blocks per RL01
+map	dl2sz.,,20480.		; blocks per RL02
+map	dlsiz.,,dl1sz.		;
+
+;	CSR definitions.
+
+map	dlrdy$,,1		; operation complete
+;				; actually "drive ready"
+map	dlfun$,,7*2		; function
+map	dlext$,,60		; 18-bit extended address
+map	dlenb$,,100		; interrupt enable
+map	dlgo$,,200		; clear to start operation
+;				; actually "controller ready"
+map	dluni$,,1400		; unit number (0..3)
+map	dlerr$,,100000		; error seen
+
+map	dlNOP.,,0*2	; 00	; nop
+map	dlWTC.,,1*2	; 02	; write check
+map	dlSTA.,,2*2	; 04	; get status
+map	dlSEE.,,3*2	; 06	; seek
+map	dlRHD.,,4*2	; 10	; read header
+map	dlWRI.,,5*2	; 12	; write data
+map	dlREA.,,6*2	; 14	; read data
+map	dlRDX.,,7*2	; 16	; read with no header check
+;map	dlBH.,,010
+
+;	Seek
+
+map	dlsee$,,1	;dl.adr	; seek activate
+map	dldir$,,4		; seek direction
+map	dlhea$,,20		; head select
+
+map	dltrk$,,177600	;dl.dat	; track mask (RL02)
+
+;	Get device status/size
+
+map	dlmrk$,,1	;dl.adr; marker
+map	dlsts$,,2		; get status
+map	dlrst$,,10		; reset errors
+map	dlrep$,,13		; get device size (rst,sts,mrk)
+
+map	dlrl2$,,200	;dl.dat	; RL02 
+.sbttl	i/o packet
+
+;	All data associated with request
+
+	map	ip.tmp,,0	; temp
+	map	ip.trn		; transfer function
+	set	ipphy$ 100	; physical function mask
+	map	ip.rty		; retry count
+	map	ip.csr		; csr address
+				;
+	map	ip.uni		; unit number
+	map	ip.lb0		; logical block
+	map	ip.trk		; track
+	map	ip.loc		; current disk location (pointer)
+	map	ip.see		; seek value
+	map	ip.adr		; disk address
+				;
+	map	ip.bu0		; buffer address
+     xm	map	ip.bu1		; extended address
+	map	ip.rwc		; request word count
+	map	ip.twc		; transfer word count 
+				;
+	map	ip.buf		; saved iq.buf
+     xm	map	ip.par		; saved iq.par
+	map	ip.r1		; saved r1
+	map	ip.r2		; 
+	map	ip.bbs		;
+.sbttl	driver definition
+
+;	RT11A, special functions, variable size
+;
+;	.drspf	spdpr.		;physical read
+;	.drspf	spdpw.		;physical write
+;	.drspf	dysiz.		;get volume size
+;	.drspf	dytab.		;get XX tables
+
+	$drcnd			; driver conditionals
+	$drstd	dlcsr.,dlvec.,dlpri.,dlrty.,dlnam.
+     um	<.drdef	xx,dlcod.,derta$!defun$!devar$,0,xxCSR.,xxVEC.,dma=NO>
+     xm	<.drdef	xx,dlcod.,derta$!defun$!devar$,0,xxCSR.,xxVEC.,dma=YES>
+     xm <.drptr	fetch=dr$fet, load=dr$loa>	
+	.drest	class=dedkt.	; disk class
+
+	xxumx. = dlumx.		; maximum units
+	$drsel	<stuct$> 1	; set units=n
+	$drsel	<stcsb$> 1	; boot csr
+	.macro	bocsr$		; boot is first
+	mov	r0,b$ocsr-$	;
+	add	#dl.dat,b$ocsr-$; boot points to status 
+	.endm			;
+				;
+	$drset			; standard SET items
+	$drovl			; set overlay routines
+	$drlim 1000		; check space
+.sbttl	begin I/O entry, data
+
+	.drbeg	xx
+	jmp	xx$sta			; start I/O
+x$xsta:	.word	0			; standard RT-11 error cell
+x$xrty:	.word	xxrty.			; retry count
+x$xcsr:	.word	xxcsr.			; csr address
+x$xabt:	.word	0			; abort flag
+x$xuct:	.word	dluct.			; unit count
+x$xfrk:	.blkb	fk.bbs			; fork block
+x$xloc:	.rept	dlumx.			; current location map
+	.word	-1			; invalid
+	.endr				;
+x$xpkt:	.blkb	ip.bbs			; i/o packet
+	.if ne mmg$t			;
+x$x18b:	.word	^c3			; 22bit address mask
+	.endc				;
+
+;		ip.trn			;
+x$xfun:	.byte	dlrea.			; 0 	logical read
+	.byte	dlwri.			; 1 	logical write
+	.byte	1			; 2 373	get device size
+	.byte	0			; 3 374	read badblock table (invalid)
+	.byte	0			; 4 375	write with deleted data (dy)
+	.byte	dlwri.!ipphy$		; 5 376	physical write
+	.byte	dlrea.!ipphy$		; 6 377	physical read
+	.even
+.sbttl	start I/O
+
+;	Start I/O operation
+
+xx$sta:	mova	x$xpkt,r3		; r3 -> x$xpkt
+	mov	x$xcsr,ip.csr(r3)	;
+	mov	xxcqe,r4		; r4 -> driver i/o queue
+	mov	iq.buf(r4),ip.buf(r3)	; save buffer address
+     xm	mov	iq.par(r4),ip.par(r3)	; and xm par1
+	mov	x$xrty,ip.rty(r3)	; retry count
+					;
+	movb	iq.uni(4),r1		; get and
+	bic	#^c7,r1			; isolate unit
+;	mov	iq.csw(r4),r0		; get the CSW
+;	movzbw	ch.uni(r0),r1		; get the unit number
+	cmp	r1,x$xuct		; above unit count?
+	bhis	xx$der			; yes--we're dead
+	mov	r1,ip.uni(r3)		; unit
+	asl	r1			; one word per unit
+	adda	x$xloc,r1		; point to location map
+	mov	r1,ip.loc(r3)		; setup pointer
+	fall	xx$ini			; dispatch request
+
+;	Init request
+;
+;	Repeats from here for media conflict
+
+	assume	iq.blk eq 0		;
+xx$ini:	call	xx$pnt			; setup pointers
+	mov	ip.buf(r3),iq.buf(r4)	; restore these
+     xm	mov	ip.par(r3),iq.par(r4)	;
+	mov	(r4),ip.lb0(r3)		; setup logical block number
+	mov	iq.wct(r4),r1		; transfer word count
+	movzbw	iq.fun(r4),r2		; get the function
+	bne	10$			; special function
+	tst	r1			; logical read?
+	bpl	30$			; yep
+	neg	r1			; logical write
+	inc	r2			; adjust for write function
+	br	30$			; 
+
+10$:	cmp	r2,#373			; check function code
+	blo	xx$der			; invalid
+	bne	20$			; not the size function
+	jmp	xx$siz			; do the size function
+20$:	cmp	r2,#376			; physical read/write?
+	blo	xx$der			; nope
+	sub	#371,r2			; map code
+30$:	adda	x$xfun,r2		; relocate
+	movb	(r2),ip.trn(r3)		; setup the function
+	beq	xx$der			; invalid
+					;
+	mov	r1,ip.rwc(r3)		; setup request word count
+					;
+     um	mov	iq.buf(r4),r0		; buffer address
+     um	clr	r1			; no high part for unmapped handler
+     xm	psh	r5			;
+     xm	movi	iq.buf,r4,r5		; r5 -> buffer address
+     xm	call	@$mpptr			; convert to physical address
+     xm	pop	r0			; r0 = low order address
+     xm	pop	r1			; r1 = high order address * 16
+     xm	pop	r5			;
+     xm	asr	r1			; make it sensible
+     xm	asr	r1			; 
+     xm	asr	r1			; 
+     xm	asr	r1			; 
+     xm	bpsw	x$x18b,r1,xx$der	; check unibus 18 bit limit (see dr$loa)
+	mov	r0,ip.bu0(r3)		; save low order
+     xm	mov	r1,ip.bu1(r3)		; high order
+	br	xx$iop			;
+xx$der:	jmp	xx$her			;
+.sbttl	logical & physical I/O
+
+;	r2 ->	command packet
+;	r3 ->	response packet
+;	r4 ->	queue element
+
+.macro	xxfun$	cod
+	movb	cod,r0
+	call	xx$fun
+.endm
+
+xx$iop:	call	xx$agn			; setup retry point
+10$:	call	xx$loc			; ensure current location known
+	call	xx$geo			; do the geometry
+;	call	xx$bbr			; check bad block replacement
+	call	xx$see			; seek to it
+	call	xx$trn			;
+	mov	ip.twc(r3),r0		; get transfer word count
+	sub	r0,ip.rwc(r3)		; adjust requested word count
+	beq	xx$fin			; all done
+	asl	r0			; make byte count
+	add	r0,ip.bu0(r3)		; adjust address
+     xm	adc	ip.bu1(r3)		; extended address
+	asr	r0			; back to words (sic)
+	clrb	r0			;
+	swab	r0			; block
+	add	r0,ip.lb0(r3)		; update block number
+	br	10$			;
+.sbttl	interrupt, done, online
+
+;	Setup function and request interrupt
+;
+;	r0	function code
+
+xx$fun:	begin	x$xctn			; continue after interrupt
+	mov	r1,ip.r1(r3)		; save stuff
+	mov	r2,ip.r2(r3)		;
+	bic	#ipphy$,r0		; remove physical flag
+	mov	ip.uni(r3),r1		; get unit
+	swab	r1			;
+	bis	r1,r0			;
+     xm	mov	ip.bu1(r3),r1		; get extended address
+x$x22b:;mov	r1,dl.ext(r5)		; patched by dr$loa
+     xm	asl	r1			; shift into place
+     xm	asl	r1			;
+     xm	asl	r1			;
+     xm	asl	r1			;
+     xm	bis	r1,r0			;
+	xx22b.=.-x$x22b
+20$:	bis	#dlenb$,r0		; interrupt enable
+	mov	r0,(r5)			; issue function
+xx$ret:	return
+
+;	Interrupt entry point
+
+	.drast	xx,dlpri.,xx$abt	; INTERRUPT
+	.fork	x$xfrk			; fork
+	call	xx$pnt			; setup usual pointers
+	beq	xx$ret			; no queue element
+	assume	dlerr$ eq 100000	;
+	mov	(r5),r0			; get status
+	bmi	xx$err			; error detected
+	end	x$xctn			;
+					;
+xx$err:	mov	r0,@ip.loc(r3)		; force location check (r0 is negative)
+	dec	ip.rty(r3)		; final retry attempt?
+	bmi	xx$her			; all over
+	end	x$xagn			; retry from restart point
+
+xx$abt:	call	xx$pnt			; abort
+	beq	xx$ret			; nothing happening
+	br	xx$fin			; and out of here
+
+;	I/O done - handle errors
+;
+;	r3 ->	response packet
+;	r4 ->	I/O queue element
+
+xx$her:	bis	#csher$,@iq.csw(r4)	;sic] set the error flag
+xx$fin:	.drfin	xx			;finish up
+.sbttl	utilities
+
+xx$loc:	begin				; get unit disk location
+					; DEC drive setup code would go here
+	bplw	@ip.loc(r3),10$,	; already set 
+	xxfun$	#dlrhd.			; read header
+	psh	dl.dat(r5)		; get the header
+	bic	#^cdltrk$,(sp)		; isolate track
+	pop	@ip.loc(r3)		; save current location
+10$:	end
+
+xx$see:	begin				; seek
+	mov	ip.see(r3),dl.adr(r5)	; setup the seek
+	xxfun$	#dlsee.			; do the seek
+	mov	ip.trk(r3),@ip.loc(r3)	; assume seek successful
+	end				;
+
+xx$trn:	begin				; transfer - read or write
+	mov	ip.adr(r3),dl.adr(r5)	; disk address
+	mov	ip.bu0(r3),dl.buf(r5)	; buffer
+	mov	ip.twc(r3),r0		; word count
+	neg	r0			;
+	mov	r0,dl.wct(r5)		;
+	xxfun$	ip.trn(r3)		; issue transfer function
+	end				;
+
+xx$siz:	call	xx$agn			; get unit size
+	mov	#dlrep$,dl.adr(r5)	; report size/status
+	xxfun$	#dlsta.			; get the status
+	mov	#dl1sz.,r0		; assume an RL01
+	mov	dl.dat(r5),r1		; get response
+	assume	dlrl2$ eq 200		;
+	bplb	r1,10$			; RLO1
+	assume dl2sz. eq dl1sz.*2	;
+	asl	r0			; RL02
+10$:	call	xx$pw0			; return the value
+xx$don:	jmp	xx$fin			;
+
+xx$pw0:	mov	ip.buf(r3),iq.buf(r4)	; restore original address
+     xm	mov	ip.par(r3),iq.par(r4)	;
+xx$pwd:					; put word
+     um	mov	r0,@iq.buf(r4)		; store
+     um	add	#2,iq.buf(r4)		; and increment
+     xm	psh	r0			; position data
+     xm	call	@$ptwrd			; store and increment
+10$:	return
+	.dsabl	lsb
+
+xx$pnt:	mova	x$xpkt,r3		; r3 -> packet
+	mov	ip.r1(r3),r1		;
+	mov	ip.r2(r3),r2		;
+	mov	ip.csr(r3),r5		; r5 -> csr
+	mov	xxcqe,r4		; r4 -> queue element
+	return				; z=1 => no queue element
+
+xx$agn:	mov	(sp),x$xagn		; setup retry point
+	return
+.sbttl	disk geometry
+
+xx$geo:	mov	ip.lb0(r3),r0		; get logical block
+	psh	#20.*512.		; get divisor
+	clr	r1			; init track result
+5$:	asl	r1			;
+10$:	bhiw	(sp),r0,20$		; no binary factor here
+	sub	(sp),r0			; take out factor
+	add	#dltrk.,r1		; up the track count
+	br	10$			;
+20$:	asr	(sp)			; shift divisor
+	bhisw	(sp),#20.,5$		; got more
+					;
+	mov	r1,ip.trk(r3)		; track (cylinder|head)
+					;
+	psh	r0			;
+	asl	(sp)			; rotate sector into place
+	bis	r1,(sp)			; select cylinder
+	pop	ip.adr(r3)		; remember it
+					;
+	mov	@ip.loc(r3),r2		; form seek difference 
+	bic	#^cdltrk$,r1		; isolate the cylinder
+	bic	#^cdltrk$,r2		;
+	sub	r1,r2			; get the difference
+	bcc	40$			; direction is right
+	neg	r2			;
+	bis	#dldir$,r2		; set the direction
+40$:	bpcw	#dltrk.,ip.trk(r3),50$	; head 1
+	bis	#dlhea$,r2		; set that
+50$:	bis	#dlsee$,r2		; RL02 magic
+60$:	mov	r2,ip.see(r3)		; setup seek value
+					;
+	mov	#20.,r1			; form transfer word count
+	sub	r0,r1			; r1 = blocks remaining
+	swab	r1			; r1 = words remaining
+	bhisw	ip.rwc(r3),r1,70$	; requested above remainder
+	mov	ip.rwc(r3),r1		; below - use that
+70$:	mov	r1,ip.twc(r3)		; setup transfer word count
+	tst	(sp)+			;
+	return
+.sbttl	bootstrap
+
+;	Bootstrap
+
+	meta	<boloc$ adr><.=xxboot+adr>
+	.drbot	xx,bo$jmp,bo$rea,control=<umscp,qmscp>
+boloc$	40
+bo$jmp:	jmp	@#bo$boo-xxboot
+
+;	Boot read routine
+;
+;	r0	block
+;	r1	word count
+;	r2	buffer address
+
+	meta	<bofun$ fun><jsr r4,bo$fun><.word fun>
+
+boloc$	120
+bo$rea:	mov	@#b$rdvu,(pc)+		; get the unit number
+b$ouni:	.word	0			;
+					; primary boot entry point
+bo$loa:	mov	(pc)+,(pc)+		; setup retry count
+b$orty:	.word	dlrty.			; retries
+b$ortc:	.word	0			; retry counter
+
+bo$agn:	bofun$	dlrhd.			; read header
+	mov	@(pc)+,r5		; get location
+b$ocsr:
+b$ddat:	.word	dlcsr.+dl.dat		;
+	bic	#^cdltrk$,r5		; r5 = current track
+					;
+	clr	r3			; r3 = track
+	mov	r0,r4			; r4 = block -> sector
+10$:	blow	r4,#dlbpt.,20$		;
+	sub	#dlbpt.,r4		;
+	add	#dltrk.,r3		;
+	br	10$			;
+					;
+20$:	psh	r3			; isolate track
+	bic	#^cdltrk$,(sp)		;
+	sub	(sp)+,r5		; r5 = track difference
+	bcc	30$			; positive
+	neg	r5			; correct for negative
+	bis	#dldir$,r5		; set direction
+	assume	dlsee$ eq 1		;
+30$:	inc	r5			; enable seek
+	bpcw	#dltrk.,r3,40$		; check head required
+	bis	#dlhea$,r5		; up head
+40$:	mov	r5,@b$dadr		; setup for seek
+	bofun$	dlsee.			; 
+					;
+	mov	#dlbpt.,r5		; max blocks per track
+	sub	r4,r5			; blocks remaining in track
+	swab	r5			; words remaining
+					;
+	bhisw	r1,r5,50$		; want more than that
+	mov	r1,r5			; last section
+50$:	neg	r5			; word count negated
+	mov	r5,@(pc)+		; word count
+b$dwct:	.word	dlcsr.+dl.wct		;
+	asl	r4			; two sectors per block 
+	bis	r3,r4			; r4 = track/sector for read
+	mov	r4,@(pc)+		; disk address
+b$dadr:	.word	dlcsr.+dl.adr		;
+	mov	r2,@(pc)+		; buffer address
+b$dbuf:	.word	dlcsr.+dl.buf		;
+	bofun$	dlrea.			; read
+	neg	r5			; get back positive count
+	sub	r5,r1			; subtract words just transferred
+	beq	60$			; all done
+	add	r5,r2			; increment buffer address
+	add	r5,r2			; byte-wise
+	swab	r5			; make block number
+	add	r5,r0			; up the block number
+	br	bo$agn			; and repeat
+60$:	return
+
+bo$fun:	mov	(r4)+,-(sp)		; get the function
+	bisb	b$ouni,1(sp)		; plug in unit number
+	mov	(sp)+,@(pc)+		; initiate function
+b$dcsr:	.word	dlcsr.			;
+10$:	bpcw	#dlerr$!dlrdy$,@b$dcsr,10$ ; wait for completion
+	bmi	20$			; some error
+	rts	r4			;
+20$:	tst	(sp)+			; skip return
+	dec	b$ortc			;
+	bpl	bo$agn			;
+	jmp	br$ioe+xxboot		; i/o error
+.sbttl	hardware boot
+
+;	r0	unit number in low order 3 bits
+
+bo$boo:	mov	#b$rksp,sp		; setup the stack
+	mov	@b$dcsr,r0		; get the unit number
+	bic	#^cdluni$,r0		; isolate it
+	swab	r0			; position in low byte
+	mov	r0,b$ouni		; save it
+					;
+	mov	#brsbn.,r0		; r0 = block
+	mov	#brswc.,r1		; r1 = word count
+	mov	#br$sec,r2		; r2 = buffer address
+	call	bo$loa			; load secondary boot
+	mov	#bo$rea-xxboot,@#b$rrea	; fill in address of read routine
+	b$onam = . + 2			; for SET
+	mov	#xxnam.,@#b$rdvn	; fill in device name
+	mov	b$ouni,@#b$rdvu		; setup unit number
+	jmp	br$sec+xxboot		; start secondary boot
+
+	assume	. le b$rtop+xxboot	; check space for bioerr
+	.drend	xx
+	drinf$
+.sbttl	load service routine
+.if ne mmg$t
+
+;	RLV12 detection and setup
+
+dr$fet:
+dr$loa:	mov	(r5),r5			; the driver
+	sub	#dr.lqe,r5		; r5 -> driver base
+	mov	x$xcsr(r5),r4		; r4 -> csr
+	mov	#v$ebus,r3		; r3 -> bus vector
+	psh	(r3)			; catch a falling star
+	.mtps	#340			; block interrupts
+	mova	10$,(r3)		; set bus vector
+	tst	dl.ext(r4)		; check for RLV12
+					; traps to 10$ if not present
+	pop	(r3)			; restore vector
+	.mtps	#0			; unblock interrupts
+	clr	x$x18b(r5)		; clear unibus 18 bit mask
+	mova	30$,r0			; r0 -> patch source
+	movi	x$x22b,r5,r1		; r1 -> x$x22b patch target
+	.rept	xx22b./2		; patch count
+	mov	(r0)+,(r1)+		; patch the code
+	.endr				;
+	br	20$			;
+10$:	cmp	(sp)+,(sp)+		; not RXV12 - pop interrupt
+	pop	(r3)			; restore vector
+	.mtps	#0			; unblock interrupts
+20$:	clc				;
+	return				;
+
+30$:	mov	r1,dl.ext(r5)		; rlv12 patch
+	nop				;
+	nop				;
+	nop				;
+	assume	.-30$ eq xx22b.		; check patch size
+.endc	; mmg$t
+.end

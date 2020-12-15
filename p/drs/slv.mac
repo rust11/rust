@@ -1,0 +1,527 @@
+rtx$c=1		;rtx
+pau$c=1		; emulator pause
+.title	slv - single line editor
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+$cndef
+$dcdef
+$drdef
+$dsdef
+$hkdef
+$ehdef
+$jbdef
+$jsdef
+$rmdef
+$rxapi
+$txdef
+$vrdef
+upini$
+
+;	%build
+;	goto 'p1'
+;	macro/object:drb:slv drs:slv 
+;	link/nobitmap/execute:drb:slv.sys drb:slv/boundary=1000
+;	slload
+;	copy:
+;	!copy drb:slv.sys hd1:/sys
+;	end:
+;	%end
+
+.macro	drinf$
+$imgdef	SL 2 1
+$imginf fun=drv cre=hammo aut=ijh use=<RUST/SJ single-line editor SL:>
+$imgham	yrs=<1986,2004> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:21:41.17>
+;	%edit
+$imgedt <47   >
+.endm
+
+	meta	<edput$ c><.iif nb <c>,movb c,r0><call ed$put>
+	meta	<edwri$ c,d=200><jsr r1,ed$wri><.byte c,d>
+
+	edLIN.	= 82.	; line buffer
+	edBUF. = 160.	; history buffer
+
+	$csr=0
+	.drdef	sl,deslc.,dsron$!dswon$!dsfun$,0,0,0	
+	.drest	class=dvc.ps
+	.drptr	fetch=*NO*, load=dr$loa, unload=dr$unl
+	$drins	sl system=no,data=sj
+
+	.drbeg	sl
+	.drast	sl,7
+	.drfin	sl
+.sbttl	input
+
+;	called here to deliver a character to the job
+;
+;	cr	inserted
+;	lf	ends line
+;	^Z	ends line
+;	^C	ends line
+;
+;	rubout	scope rubout performed
+;	^U	usual ctrl/u performed
+
+ed$ipt::bcc	ed$get		; want a character
+	cmp	@(sp),#104350	; this the exit in RTTER.MAC
+	beq	10$		; yes - zap them
+	cmpb	r0,#ctrlc	; this a ctrlc?
+	bne	ed$zap		; nope
+10$:	jsr	r1,ed$ini	; get setup
+	jsr	r1,ed$ctl	; ^c[newline]
+	.byte	'C,0		;
+ed$zap:	clr	(pc)+		; rewind input
+e$dipx:	.word	0		; input index
+	clr	(pc)+		; return to column zero
+e$dopx:	.word	0		; output index
+	clrb	e$dlin		; first char of line
+	mov	e$dfin,e$dlst	; reset last pointer
+	return
+
+ed$get:	mov	(sp),e$dtti	; get character (save ttyin address)
+	jsr	r1,ed$ini	; setup
+ed$agn:	call	ed$inc		; returns r1 pointing to the next
+	beq	ed$gln		; nope - get another line
+	tstb	1(r1)		; is the next the end?
+	bne	ed$hit		; nope
+	call	ed$zap		; yes - terminate it now (for debug)
+ed$hit:	tst	(pc)+		; we got one
+ed$mis:	sec			; we didnt get one
+	return			; character, if any, in r0
+
+	.enabl	lsb
+ed$gln:	call	ed$zap		; kill it
+	bit	#jstts$,@#j$bjsw; special mode active?
+	bne	ed$mis		; yes - ignore this
+10$:	call	ed$edt		; check for edit character
+	bcs	ed$mis		; up/down/left/right
+	bneb	r0,#rubout,20$	; not delete
+	call	ed$rub		; delete character
+	br	10$		;
+20$:	bneb	r0,#ctrlu,40$	; not ctrl/u
+30$:	call	ed$rub		; delete one
+	bcc	30$		; more to go
+	br	10$		;
+40$:	bhiw	(r5),#edLIN.,10$; no more space
+	psh	r0		; save this a second
+	call	ed$ins		; insert character
+	pop	r0		; and check for eol
+	call	ed$eol		; check for end-of-line
+	bcs	10$		; get another
+	clr	(r5)		; start over
+	call	ln$sav		; save line 
+	br	ed$agn		; try again
+	.dsabl	lsb
+
+	.enabl	lsb
+ed$ter:	cmpb	r0,#cr		; this CR?
+	beq	10$		; yes
+ed$eol:	cmpb	r0,#ctrlc	; this ctrl/c?
+	beq	10$		; yes
+	cmpb	r0,#lf		; this line feed?
+	beq	10$		; yes
+	cmpb	r0,#ctrlz	; this ctrlz?
+	bne	20$		; nope
+10$:	tst	(pc)+		; eol
+20$:	sec
+	return
+	.dsabl	lsb
+
+;	entry	ctrlc,ed$yep
+;	entry
+
+ed$ini:	pshs	<r2,r3,r4,r5>	;
+     up	mov	#e$dipx,r5	; input index
+	call	(r1)		; call them back
+	pops	<r5,r4,r3,r2,r1>	
+	return
+
+ed$pau:
+.if ne pau$c
+10$:	br	ed$gch		;*patched to NOP if V11
+	psh	#vrPAU.		;
+	iot			;
+	.word	vrSIG.		;
+	tst	(sp)+		;
+	edPAU. = .-10$		; length of patch
+	assume	edPAU. eq 6*2	;
+.endc
+ed$gch:	clr	r1		; stop this
+	sec			; force a character back
+	call	@(pc)+		; get another
+e$dtti:	.word	0		; deliver a character
+	bcc	10$		;*fine - got one
+	bit	#jsttr$,@#j$bjsw;*do they want this?
+	beq	ed$pau		;*nope - pause 
+	bit	(r5),(r5)	;*do we have anything already?
+	bne	ed$gch		;*yes - collect full line
+				;*c=1
+10$:	return			;*c=?
+
+ed$pnt:	tst	(pc)+		;*c=0
+ed$inc:	sec			;*c=1
+	mov	(r5),r1		;*point to the next byte
+	adc	(r5)		;*increment or not
+     up	add	#e$dlin,r1	; get the line
+	movb	(r1),r0		; do we have one?
+	return			; and quit
+
+ed$put:	psh	r0		;
+	cmpb	r0,#esc		; is this an escape?
+	bne	10$		; nope
+	movb	#'$,r0		; yes - replace it
+10$:	cmpb	r0,#ht		; this a tab?
+	bne	20$		; nope
+	movb	#space,r0	; yes - replace it
+20$:	call	ed$cla		; simple or control character?
+	bcc	30$		; simple
+	edwri$	hat
+	movb	(sp),r0		; get the character again
+	add	#100,r0		; make it printable
+30$:	.ttyout			; and type it
+ed$p0r:	pop	r0		;
+	clc
+	return
+
+ed$cla:	tstb	r0		; this a null?
+	beq	10$		; yes - this is not a control character
+	cmpb	r0,#40		; this a control character?
+	bhis	10$		; nope
+	cmpb	r0,#10		; under a tab?
+	blo	20$		; yes - its a control character
+	cmpb	r0,#15		; higher than cr?
+	bhi	20$		; its a control character
+10$:	tst	(pc)+
+20$:	sec			; a control character
+	return
+
+ed$top:	pshs	<r0,r1>		; go to end of line
+	call	ed$pnt		; go point to it
+10$:	tstb	(r1)		; at the end?
+	beq	20$		; yes
+	edput$	(r1)+		; type the next
+	inc	(r5)		; and step it up
+	br	10$		;
+20$:	pop	r1		;
+ed$b0r:	br	ed$p0r		; pop r0, return
+.sbttl	edit
+
+;	^	getpre
+;	V	getsav
+;	<	left
+;	>	right
+;
+;	backsp		swplft	swprt
+;	return		endlin	endlin & truncate
+;
+;	^R		redisplay line
+;	^U		delete line
+
+	.enabl	lsb
+ed$edt:	call	ed$gch			; get another
+	bcs	ed$ret			; oops
+	call	ed$ter			; end of line?
+	bcc	ed$top			; yes
+	cmpb	r0,#esc			; this an escape?
+	bne	ed$clc			; nope - get out of here
+	call	ed$gch			; get some more
+	cmpb	r0,#'O			; this redundant?
+	beq	10$			; yes
+	cmpb	r0,#'0			; this redundant?
+	beq	10$			; yes
+	cmpb	r0,#'[			; this redundant?
+	bne	20$			; nope
+10$:	call	ed$gch			; get it this time
+20$:	sub	#'A,r0			; get the character
+	cmp	r0,#'D-'A		; bigger than a three?
+	bhi	ed$edt			; nope - ignore it
+     up	psh	#ed$edt			; 
+	asl	r0			; nope
+	add	r0,pc
+	br	ed$up
+	br	ed$dwn
+	br	ed$rgt
+	br	ed$lft
+
+ed$rgt:	call	ed$end 			; are we at eol?
+	bcs	ed$ret			; yes ignore it
+	inc	(r5)			; skip it
+	edput$	(r1)			; jump over it
+ed$clc:	clc				;
+ed$ret:	return				;
+	.dsabl	lsb
+
+ed$lft:	tstb	(r5)			; at end of line?
+	beq	ed$sec			; yes - c=1
+	dec	(r5)			; reverse
+	call	ed$pnt			; nope - backup one
+ed$rev:	call	ed$cla			; what do we have?
+	bcc	10$			; simple
+	call	(pc)			; two bs's
+10$:	edwri$	bs			; 
+	return				;
+
+	.enabl	lsb
+ed$ins:	psh	r0			; save the new guy
+	call	ed$ful			; are we full?
+	pop	r0			; get back our character
+	bcs	ed$ret			; yes - ignore it
+	mov	r1,r2			; get another copy
+10$:	tstb	(r2)+			; get to the end
+	bne	10$			; more to go
+
+	psh	r2			; get it again
+	sub	r1,(sp)			; check for space
+	add	(r5),(sp)		; get the sum
+	cmp	(sp)+,#edLIN.-3		; got enough room?
+	bhis	ed$ret			; nope
+
+20$:	movb	-(r2),1(r2)		; move them up
+	cmp	r2,r1			; was this the last
+	bne	20$			; nope
+	movb	r0,(r2)			; replace with insert
+30$:	edput$	(r2)+			; type the next
+	tstb	(r2)			; till the end
+	bne	30$			; 
+	inc	r1			; end one later
+	inc	(r5)			; and advance ibyte
+ed$bck:					; back off
+40$:	cmp	r2,r1			; all done?
+	beq	ed$ret			; yes
+	movb	-(r2),r0		; get the next to rubout
+	call	ed$rev			; and reverse over it
+	br	40$			; nope
+	.dsabl	lsb
+
+ed$rub:	call	ed$lft			; try to get another
+	bcs	ed$ret			; no more
+	psh	r0			; save the character for later
+	mov	r1,r2			; point again
+	inc	r2
+10$:	movb	(r2),-1(r2)		; move them back into place
+	beq	20$			; that was all
+	edput$	(r2)+
+	br	10$
+20$:	edwri$	space			; put the space out
+	pop	r0			; perhaps a control character
+	call	ed$cla			; what is it?
+	bcc	30$			; its simple
+	edwri$	space			; 
+	edwri$	bs			; 
+30$:	br	ed$bck			; and backoff
+
+ed$up:	br	ln$up
+ed$dwn:	br	ln$dwn
+
+ed$end:	call	ed$pnt			; point at the next
+	tstb	(r1)			; is this the end?
+	beq	ed$sec			; yes - ignore it
+ed$ful:	call	ed$pnt			; point at the next
+	cmp	(r5),#edLIN.-3		; are we at the end?
+	blo	ed$clc			; no
+ed$sec:	sec
+	return
+
+ed$ctl:	call	ed$top			; do it at end of line
+	edwri$	hat
+ed$wri:	psh	r0			;
+	.print	r1			; display this
+	tst	(r1)+			; skip it
+	pop	r0			; restore this
+	rts	r1			;
+.sbttl	get/put line
+
+;	o  lst -> the guard before the current item (or is null)
+;	o  After save it points at the guard before the E-o-E (the current)
+;
+;	line -1 line -1 line -1
+;	      ^	      ^
+;
+;	up/down
+;
+;	r1 ->	new line, or null line
+
+	.enabl	lsb
+ln$dwn:	call	ln$pnt		; get pointers
+	beq	ln$rst		; no last - restore null line
+	inc	r0		; skip -1 guard to next line
+	tstb	(r0)		; and end of ends?
+	beq	ln$rst		; yep
+10$:	cmpb	(r0)+,#-1	; this the end of it
+	bne	10$		; must be found
+	mov	r0,r1		; the result
+	dec	r0		;
+	br	40$			
+
+ln$up:	call	ln$pnt		; setup
+	beq	ln$ret		; ain't no last (was ln$rst)
+	cmp	r0,r4		; at beginning?
+	blos	ln$ret		; yep (was ln$rst)
+20$:	cmpb	-(r0),#-1	; go back to start of it
+	bne	20$		;
+	mov	r0,r1		;
+	inc	r1		;
+40$:	mov	r0,e$dlst	;
+	.dsabl	lsb
+
+	.enabl	lsb
+ln$rst:	tstb	(r3)		; restore line
+	beq	10$		; not in edit
+	edwri$	0		; a newline
+	mov	@(pc)+,r0	; get the prompt
+l$nprm:	.word	eh.prm
+	beq	10$		; is none
+	.print			; display prompt
+10$:	clr	(r5)		; init the counter
+20$:	movb	(r1)+,r0	; get the next
+	cmpb	r0,#-1		; terminal?
+	bne	30$		; nope
+	inc	r0		; yep
+30$:	movb	r0,(r3)		; tentative store
+	beq	ln$ret		; that was the last
+	call	ed$ter		; this ignorable?
+	bcc	20$		; yes - ignore it
+	inc	(r5)		; count it
+	edput$	(r3)+		; and display it
+	br	20$		; do the next
+ln$ret:	return
+	.dsabl	lsb
+
+;	append line to store
+
+	.enabl	lsb
+ln$sav:	call	ln$acc		; setup lots of things
+	cmpb	(r3),#cr	; empty line?
+	beq	60$		; yep - nothing to store
+	tstb	(r4)		; anything in buffer?
+	beq	40$		; nope - just store it
+	dec	r0		; r0 -> end of last line
+10$:	cmpb	-(r0),-(r2)	; compare line and last line
+	bne	15$		; not the same
+	cmpb	(r0),#-1	; dead match?
+	bne	10$		; not yet
+	br	60$		; yep - don't store duplicate last line
+
+15$:	call	ln$acc		; setup again
+	cmp	r1,#edBUF.-1	; got the space?
+	blo	45$		; yep
+	mov	r4,r0		; delete first in list
+	mov	r0,r1		; to squeeze first out
+20$:	cmpb	(r0)+,#-1	; this the end of it
+	bne	20$		; must be found
+30$:	movb	(r0)+,(r1)+	; squeeze it
+	bne	30$		;
+	br	15$		; try again
+				;
+40$:	mov	r4,r0		; buffer
+45$:	mov	r3,r1		; line
+50$:	movb	(r1)+,(r0)+	; append it
+	bne	50$		;
+	clrb	(r0)		; end of ends
+	movb	#-1,-(r0)	; end of this one
+	mov	r0,(pc)+	; and last
+e$dlst:	.word	0		; last line in store
+	mov	r0,(pc)+	; final
+e$dfin:	.word	0		; final
+60$:	return
+	.dsabl	lsb
+
+;	r0 ->	last byte of buffer
+;	r1 =	line size + used buffer size	
+;	r2 ->	last byte of line
+;	r3 ->	line
+;	r4 ->	buffer
+
+ln$acc:	call	ln$pnt		; get pointers
+	clr	r1		; count in r1
+	mov	r3,r0		;
+	call	10$		;
+	mov	r0,r2		; r2 -> end of line
+	mov	r4,r0		; r0 -> end of buffer
+10$:	inc	r1		; everything counts
+	tstb	(r0)+		;
+	bne	10$		;
+	dec	r0		; point at last
+	return
+
+ln$pnt:
+     up	mov	#e$dnix,r1	; r1 -> null line
+     up	mov	#e$dlin,r3	; r3 -> line
+     up	mov	#e$dbuf,r4	; r4 -> buffer
+	mov	e$dlst,r0	; r0 -> last, if any
+	return			;*z=?
+
+e$dled:	.word	0		; saved monitor link
+
+	.byte	0,-1		; guard
+e$dlin:	.blkb	edLIN.+2	; current line
+
+e$dnix:	.word	0,-1		; guard
+e$dbuf:	.byte	0,0		;
+	.blkb	edBUF.		; saved lines
+
+	.drend	sl
+.sbttl	load/unload
+.psect	slload
+
+;	r3 =	service call code
+;	r4 ->	read routine (r0=blk,r1=buf,r2=wct)
+;	r5 ->	hentry for driver
+
+dr$fet:	.enabl	lsb
+dr$loa:	call	up$rel			;
+	mov	(r5),r4			;
+	sub	#dr.lqe,r4		;
+	mov	@#j$bsys,r3		;
+	bis	#c2lds$,rm.cf2(r3)	; set SL flag
+	mov	rm.syn(r3),r3		;
+	mov	-(r3),r0		;
+.if ne rtx$c
+	rxdet$				; RTX detect
+	bne	10$			; not RTX
+	mova	30$,r2
+	mov	#ed$pau,r3		;
+	add	r4,r3			;
+	.rept	edPAU./2
+	mov	(r2)+,(r3)+
+	.endr
+	br	20$			; skip V11 patch
+.endc
+.if ne pau$c
+10$:	beqw	(r0),20$		; not V11
+	mov	#NOP,ed$pau(r4)		; turn on V11 pause
+.endc
+20$:	mov	eh.led(r0),e$dled(r4)	; save the previous
+	mov	#ed$ipt,r3		; setup $lined
+	add	r4,r3			; point to it
+	mov	r3,eh.led(r0)		; and plug us in
+	mov	#eh.prm,l$nprm(r4)	; get the prompt address
+	add	r0,l$nprm(r4)		; relocate it
+	.rctrlo				; reset the jsw
+	clc				;
+	return
+
+30$:	psh	r0			;
+	mov	@#j$brtx,r0		; RTX patch
+	call	@rx.wsg(r0)		; wait for significant event
+	pop	r0			;
+	assume	.-30$ eq edPAU.		;
+dr$rel:
+dr$unl:	mov	(r5),r4			;
+	sub	#dr.lqe,r4		;
+	mov	@#j$bsys,r3		;
+	bic	#c2lds$,rm.cf2(r3)	; clear SL flag
+	mov	rm.syn(r3),r3		;
+	mov	-(r3),r0		;
+	mov	e$dled(r4),eh.led(r0)	; put rt-11 back
+50$:	clc
+	return
+	.dsabl	lsb
+
+	uprel$
+	drinf$
+
+.end
+

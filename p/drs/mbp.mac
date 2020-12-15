@@ -1,0 +1,349 @@
+v3que=1
+.title	mb - mailbox
+.include "lib:rust.mac"
+mmg$t=1		;mapped handler
+.drdef	mb,377,specl$!spfun$,0,0,0
+$asdef		;address space
+$chdef		;channel
+$dedef		;device
+$fedef		;features
+$mmdef		;mmu
+$prdef		;process record
+$rsdef		;rt11s
+$tcdef		;terminal configuration
+$tedef		;terminal map
+$tpdef		;transaction packet
+$ttdef		;terminal types
+$txdef		;text
+.qeldf		;rt-11 i/o queue
+.library "lib:drvmac.mlb"
+
+.asect	
+.=600
+$imgdef	MB 2 1
+$imginf	fun=han cre=hammo aut=ijh use=<SHAREplus MB: handler>
+$imgham	yrs=<1989> oth=<>
+;	%date
+$imgdat	<07-Apr-1989 08:05:29.02>
+;	%edit
+;	<27   >
+.csect
+;$imgham yrs=<1984,1985,1986> oth=<>
+
+;
+;	SHAREplus MB: handler
+;
+;	NOTE:	This handler requires only one block of external memory.
+;		Any changes should try to stay within the block limit.
+;		The handler could omit the MMG$T transfer vectors for space.
+;
+;	%build
+;	!if "'p1'" goto 'p1'
+;	macro:
+;	macro drs:mbp/object:drb:
+;	link:
+;	link/nobitmap drb:mbp,lib:share/exe:drb:mbp.sys
+;	driver	set drb:mbp/22bit/single/abort
+;	!if "'p1'" goto end
+;	set error none
+;	!copy drb:mbp.sys sy:mbp.sys
+;	set error error
+;	end:
+;	%end
+;
+;	MTT	may not crap out if its not there
+;		must return r0 unchanged for invalid unit
+;		what does RT-11 do?
+;
+;	RP is still available in P$HCRP.
+;
+;	lookup	attach the unit
+;	enter	attach the unit
+;	read	mtin from the unit
+;	write	mtout to the unit
+;	close	detach the unit
+;	purge	detach the unit
+;	rename	ignore
+;	delete	ignore
+;
+;	This is not really a handler. It is part of the calling process.
+;	Does not have an I/O queue (although it has an I/O count).
+;	Passed the address of the queue element in r4.
+;	Handles multiple simultaneous requests.
+;	Complete with a return.
+;
+;	The terminal can be aborted by other routines. This can screw up
+;	the I/O counters. We solve this partially by decrementing them
+;	before an I/O operation and resetting them afterward.
+;
+;	Abort everthing if the process aborts.
+.sbttl	installation
+
+;	Install the device
+;
+;	Must be SHAREplus with same STB date
+;
+;	Force /single/per_process
+;	Force 22-bit operation
+;
+;	r2 ->	device record
+;	r3 =	stb date
+;	r4 =	^rstb
+
+	$dr22b			;setup 22-bit flag
+	.drins	mb		;install handler
+	nop			;kmon
+;sic]	nop			;boot
+	cmp	r4,#^rshp	;this SHAREplus?
+	bne	10$		;no
+	mov	r4,r0		;handshake
+	mov	r4,r1		;reply with reason
+	cmp	r3,#stbdat	;using the same stb?
+	bne	10$		;no
+	locon$=deprc$		;/per_process
+	locon$=locon$!desin$	;/single
+	bis	#locon$,de.con(r2) ;device control
+	tst	(pc)+		;fine
+10$:	sec			;forget it
+	return
+.sbttl	dispatch
+
+;	Dispatch function
+;
+;	r2 ->	csw area
+;	r3 ->	unit record
+;	r4 ->	queue element (q$blkn)
+;	r5 ->	tp
+;
+;	Stack used for parameter block
+
+stack	sub adr uni buf bf1 bf2 bf3 ret
+	sp.cod = sp.sub+1
+	sp.cnt = sp.uni+1
+
+	.drbeg	mb		;
+mb$sta::			;multi-terminal driver
+	.rept	sp.ret/word	;clean it up
+	clr	-(sp)		;
+	.endr			;
+	mov	q$csw(r4),r2	;get the csw
+	movb	ch.sbl(r2),sp.uni(sp) ;get the mapped unit number
+.if eq v3que
+	decb	ch.ioc(r2)	;turn it off
+	dec	@#p$hioc	;and this too
+.endc
+				;
+	tst	@#f$emap+<femtt.*word> ;mailer feature loaded?
+	beq	mb$exc		;no - hard i/o error
+				;
+	movb	q$func(r4),r0	;got a directory request?
+	bne	mb$acp		;yes
+				;
+	mov	sp,sp.adr(sp)	;point to our buffer
+	add	#sp.buf,sp.adr(sp) ;relocate it
+	movb	#1,sp.cnt(sp)	;setup the count
+				;
+	mov	q$wcnt(r4),r5	;get the count
+	asl	r5		;make a byte count
+	beq	mb$exi		;its a seek
+	bcs	mb$wri		;its a write
+	fall	mb$rea		;its a read
+.sbttl	transfer functions, exit
+
+;	Read
+;
+;	r2 ->	csw
+;	r3<>0	reading
+;	r3=0	padding
+;	r4 ->	iq.blk
+;	r5	word count
+;
+;	EOF is delayed till the following request. We store
+;	a bit in the low byte of CH.USE for this purpose.
+;	high byte sign bit indicates pass-all mode
+
+mb$rea:	asrb	ch.use(r2)	;got end of file last time?
+	bcs	mb$eof		;yes - go set it and exit
+	mov	sp,r3		;not padding first time
+10$:	tst	r3		;
+	beq	20$		;yes
+	.mtin	sp		;get another
+	movb	sp.buf(sp),r0	;get the character
+	tst	@#p$hsta	;have we aborted?
+	bmi	mb$eof		;yes
+;	bit	#prabt$!prexi$,@#p$hsta ;abort or forced exit?
+;	bne	mb$eof		;yes
+	tst	ch.use(r2)   	;this pass-all mode?
+	bmi	20$		;yes
+	cmpb	r0,#ctrlz	;eof ?
+	bne	20$		;no
+	incb	ch.use(r2)	;yes - remember it for next time
+	clr	r0		;now pad the buffer
+	clr	r3		;signal padding
+
+20$:	psh	r0		;put it in place for io$ptb
+	call	@#io$ptb	;move in next byte
+	sob	r5,10$		;count them
+	br	mb$exi		;and quit
+
+;	Write
+;
+;	r2 ->	csw
+;	r4 ->	iq.blk
+;	r5	word count
+
+mb$wri:	neg	r5		;convert to positive count
+40$:	call	@#io$gtb	;get the next byte
+	movb	(sp)+,sp.buf(sp);put it place for mtout
+	bne	45$		;not a null
+	tst	ch.use(r2)	;in pass-all mode?
+	bpl	50$		;no - drop the null
+45$:	.mtout	sp		;put the character
+	bcs	mb$exc		;mtt error
+50$:	tst	@#p$hsta	;have we aborted?
+	bmi	mb$eof		;yes - report eof
+	sob	r5,40$		;count it
+	br	mb$exi		;
+
+mb$exc:	bis	#csher$,@q$csw(r4)  ;set hard error
+	br	mb$exi		    ;
+mb$eof:	bis	#cseof$,@q$csw(r4)  ;set end of file
+mb$exi:
+.if eq v3que
+	incb	ch.ioc(r2)	;put it back
+	inc	@#p$hioc	;and this too
+.endc
+	add	#sp.ret,sp	;cleanup the stack
+	return			;
+.sbttl	acp functions
+
+;	MB: ACP functions
+;
+;	mb:		process terminal
+;	mb0:		process terminal
+;	mb1: mb7:	t01: to t07:
+;
+;	mb:t%%		t%%:
+;	mb:t%%.ser	t%%: as server
+;
+;	lookup, enter and close
+;
+;	1	file not found
+;	2	shared device already in use
+;
+;	r0 =	acp code
+;	r1 =	acp status
+;	r2 ->	csw area - used and restored
+;	r3 ->	unit record - burnt
+;	r4 ->	queue element (q$blkn)
+;	r5 ->	tp
+;
+;stack	sub adr uni buf bf1 bf2 bf3 ret
+;	sp.cod = sp.sub+1
+;	sp.cnt = sp.uni+1
+
+mb$acp:	clr	r1			;r1 = spusr status
+	cmpb	r0,#rsren.		;is this valid?
+	bhis	mb$acx			;no - ignore it
+	asl	r0			;get word offset
+	add	r0,pc			;dispatch it
+	br	mb$acx			;transfer does not get here
+	br	mb$clo			;close
+	br	mb$acx			;delete
+	br	mb$loo			;lookup
+	fall	mb$ent			;enter
+
+;	Lookup
+;	Enter
+;
+;	Non-existant unit maps to file-not-found
+;	Owned by another job maps to unit owned
+
+mb$ent:
+mb$loo:	mov	#-1,q$wcnt(r4)		;file size is maximum
+	mov	#-1,ch.len(r2)		;and there too
+	clr	ch.use(r2)		;clear out passall & eof
+	movb	ch.uni(r2),sp.uni(sp) 	;get the requested unit number
+	psh	@#m$kip1		;save par1
+	mov	q$par(r4),@#m$kip1	;
+	mov	q$buff(r4),r0		;get the filename
+					;
+	map	lo.fil,,0		;fil
+	map	lo.nam,,2		;nam
+	map	lo.typ,,4		;typ
+					;
+	mov	(r0)+,r3		;fil - get the potential name
+	beq	20$			;not a terminal name
+	tst	(r0)+			;nam - this a terminal name?
+	bne	20$			;no
+	cmp	r3,#^rt99		;too high?
+	bhi	20$			;yes
+	sub	#^rt00,r3		;derive a unit number
+	bmi	20$			;not a terminal name
+	clr	r2			;setup for divide
+	div	#40.,r2			;r2=10's, r3=1's
+	cmp	r2,#9.			;too high?
+	bhi	10$			;yes - not a terminal name
+	cmp	r3,#9.			;too high for us?
+	bhi	10$			;yes - not a terminal name
+	psh	r3			;save ones
+	mul	#10.,r2			;get 10's
+	add	(sp)+,r3		;r3 is the unit number
+	movb	r3,sp.uni+word(sp)	;set it up
+10$:	cmp	(r0),#^rser		;typ - this a .ser file?
+	bne	20$			;no
+	bisb	#200,sp.uni+word(sp)	;yes - set in server flag
+
+;	sp.uni	unit number
+
+20$:	pop	@#m$kip1		;
+	mov	q$csw(r4),r2		;get it back again
+	.mtatch	sp			;attach it
+	bcs	40$			;oops
+	mov	sp.uni(sp),ch.sbl(r2) 	;remember the unit number
+	mov	sp,sp.adr(sp)		;do get & set
+	add	#sp.buf,sp.adr(sp)
+	.mtget	sp			;get them
+	bis	#tc0sm$,sp.buf(sp) 	;character mode
+	bic	#tc0rm$,sp.buf(sp)	;but we wait for them
+					;
+	movb	sp.uni(sp),r3		;get unit number
+	bic	#^c177,r3		;isolate unit number
+	asl	r3			;r3 = unit number
+	mov	t$emap(r3),r3		;get address of terminal map
+	bne	25$			;we have got one
+	mov	@#p$hter,r3		;get our terminal
+	beq	30$			;none - can't check passall
+	assume	te.tc0 eq 0		;
+	assume	tt.pas eq 0		;
+25$:	bit	#ttpas$,(r3)		;passall set?
+	beq	30$			;nope
+	bis	#100000,ch.use(r2)	;flag passall
+	bis	#tc1ra$!tc1wa$,sp.buf+2(sp) ;setup read/write all
+
+30$:	.mtset	sp			;set it up
+	br	mb$acx			;and quit
+40$:	inc	r1			;assume file not found
+	cmp	r0,sp			;was it invalid unit?
+	beq	mb$acx			;yes
+	inc	r1			;no - assume shared device
+	br	mb$acx			;
+
+mb$clo:	.mtdtch	sp			;detach it
+	fall	mb$acx			;
+
+;	Exit ACP function and report status
+;
+;	A virtual handler does not use the usual path that copies
+;	the SPUSR error code back to the user. Therefore we have
+;	to put it directly in the TP. This in fact makes more sense.
+
+	assume	q$blkn eq 0		;(r4) -> tp.qbl
+mb$acx:	mov	r1,tp.spu-tp.qbl(r4) 	;return the status
+	jmp	mb$exi			;and forget it
+
+.drast	mb	0
+.drfin	mb
+.drend	mb
+.end
+

@@ -1,0 +1,1446 @@
+;	SET BREAK H	; Ctrl-H is break key
+;	B$GDUM
+;	BG$DST
+;	B$GREC
+;	Byte relocation at 2340
+;
+v11$c=1		; command compatibility
+key$c=1		; set (break)key=octal
+; Add observation history and arrow keys
+; Stack monitor
+; Location zero watch
+;
+.title	dbv - debugger as driver
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+$chdef
+$drdef
+$emdef
+$hkdef
+$iodef
+$jbdef
+$rmdef
+$psdef
+$vedef
+$hadef
+$txdef
+upini$
+.iif ndf rev$c,rev$c=0
+dbg$c=rev$c
+fst$c=1
+dbrev.=1
+$dbdef
+
+;	This driver supports unmapped RT-11 (rename to DB.SYS)
+;
+;	%build
+;	goto 'p1'
+;	dbv:
+;	display/out:drb:rev$c.mac "rev$c=1"
+;	display/out:drb:rst$c.mac "rst$c=1"
+;	macro drb:rev$c+drs:dbv /object:drb:dbv
+;	macro drb:rst$c+sus:revers /object:drb:revers
+;	link:
+;	link drb:(dbv,revers) /exe:drb:dbv.sys/nobit/map:drb:dbv/bound=1000
+;	dbload
+;	!copy drb:dbv.sys sy:/sys
+;	if/not/blank='p1' goto end
+;	!
+;	bgv:
+;	display/out:drb:rev$c.mac "rev$c=0"
+;	macro drb:rev$c+drs:dbv.mac/object:drb:bgv
+;	link drb:bgv/execute:drb:bgv.sys/nobitmap/boundary=1000
+;	dbload
+;	!copy drb:bgv.sys sy:/sys
+;	goto end
+;	!
+;	end:
+;	%end
+
+.macro	drinf$
+.if ne dbg$c
+$imgdef	DB 2 0
+$imginf fun=drv cre=hammo aut=ijh use=<RUST/SJ debugger driver DB:>
+.iff
+$imgdef	BG 2 0
+$imginf fun=drv cre=hammo aut=ijh use=<RUST/SJ debugger driver BG:>
+.endc
+$imgham	yrs=<1986,2004> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:26:28.01>
+;	%edit
+$imgedt <93   >
+.endm
+
+meta <set c d e f g h i j k l><c=d><.iif nb <e>,set e f g h i j k l>
+meta <psh c><mov c,-(sp)>
+meta <pop c><mov (sp)+,c>
+meta <save><.irpc x,<543210>><psh r'x><.endr>
+meta <restore><.irpc x,<012345>><pop r'x><.endr>
+meta <mova c,d><mov pc,d><add #c-.,d>	;move immediate only
+meta <on c d><.iif ne <c>,d>
+meta <no c d><.iif eq <c>,d>
+meta <fall c><.iif ne .-c,.error ;;fall>
+meta <$drlim c><.iif gt .-c,.error ;;roof>
+meta <bgtyp$ c><jsr r1,bg$typ><.asciz &c&><.even>
+meta <bgoct$ val><mov val,r0><call bg$oct>
+meta <bgrel$ c,d=-2><c = . - b$gbas + d>
+meta <bgnew$><call bg$new>
+
+;jsw	=	44
+; ovly$	=	1000
+; rstrt$	=	20000	
+; chnif$	=	4000
+;usertop	=	50
+;errbyt	=	52
+;sysptr	=	54
+; usrlc$	=	266
+; config	=	300
+;  fbmon$=	1
+; ttkb	=	306
+; jobnum	=	322
+; syindx	=	364
+; $mtps	=	360
+; pnptr	=	404
+; ha.lqe	=	6
+
+set	bs 10, ru 177
+set	cr 15, lf 12, ht 11, space 40
+set	ctrlc 3
+set	br7 340, br0 0
+set	m.trace 20
+.sbttl	trace and bpt
+
+;	An interrupt through @#14 may be caused by either a trace
+;	trap, BPT instruction or fake interrupt. We need to determine 
+;	the cause.
+;
+;	Not_Trace:
+;	In this mode it's reasonable to assume that the instruction 
+;	causing the trap was a BPT instruction. The assumption is 
+;	checked by looking at the word at stacked PC - 2.
+;
+;	Trace:
+;	We can't just up back the stacked PC by two because
+;	we don't know where the instruction started.
+;	  However, if we assume that we're in control of trace
+;	then we can record the location of an instruction before
+;	it's executed and where we predict it will end.
+;	  Since we're only interested in BPT all we need to do
+;	is check the instruction to be executed and enter it in
+;	the breakpoint map as a one-off if it's a BPT.
+;
+;	Debugger code & trace:
+;	In recording mode we need to avoid recording the debugger
+;	itself. Clearly, the first instruction of each of the
+;	vector hooks will be subject to tracing. 
+;	   The problem is solved by excluding any address within
+;	the bounds of the debugger (b$gbeg to b$gend).
+;
+;	Interrupts:
+;	Interrupts wipe out the trace record of a BPT but its
+;	reestablished by the ISR RTI.
+;
+;	RTI/RTT
+;	The only software which should issue RTT is the debugger
+;	and then only when it's tracking the next instruction.
+;
+;	1000	inc	r0	; recorded
+;				; interrupt to 2000 here
+;	1002	inc	r1	; recorded
+;
+;	2000	dec	r0	; invisible
+;				; next we see is 2002
+;	2002	dec	r1	; recorded
+;		rti		;
+;
+;	The first instruction of an interrupt service routine is
+;	delivered by RTT, however the trace flag won't be set in
+;	its stacked PS which comes from the vector.
+;	  We end up with the only first instruction of the ISR in the
+;	history unless we propagate the tbit in the stacked PS.
+;
+;	Clock interrupts:
+;	With all the above in place all we ever see in recording mode
+;	is the clock ISR since they're blocked and waiting. We 
+;	lower priority just before the RTT rather than with the RTT.
+;	That lets interrupts through before the RTT.
+;
+;	There's a lot of ugliness here. Most of it is caused by the
+;	BPT vector serving as the trace vector as well.
+;
+;	Note:
+;	o PDP-11/20s aren't supported.
+;
+;	o We lose some breaks if the break location is modified
+;	  outside our control (e.g. overlays).
+.sbttl	set, run
+
+;	R0..R3 available
+
+	.drdef	bg,377,ronly$!wonly$,0,0,14 ;bpt.vec
+	.drest	class=dvc.ps
+	$drptr
+	$drins	bg system=no,data=ok	; supports RUST and RT-11 unmapped
+	.drset	BOOT,-1,bo$set,OCT	; set [NO]BOOT
+	.drset	BPT,-1,bo$bpt		; set BPT
+.if ne key$c
+	.drset	KEY,-1,bo$key,OCT	; set BREAK octal
+
+bo$key:	cmp	r0,#127			; valid character?
+	bhi	10$			; nope
+	asl	r0			; stored * 2
+	mov	r0,b$okey		;
+	tst	(pc)+			;
+10$:	sec				;
+	return
+.endc 
+
+bo$bpt:	.word	3			; BPT instruction
+	return
+
+;	SET BOOT	Setup to debug boot block
+;
+;	Modify boot block to use DB. DB must already be loaded
+;	and safely placed for the operation.
+;	The driver may not use locations 6..16.
+
+bo$set:;nop				; BOOT
+;	mov	(pc)+,(pc)+		;
+;	clr	(pc)+			; NOBOOT
+;b$oset:.word	0			; 0=>clear
+	mova	b$odev,r1		;
+	mov	r0,(r1)			; device name
+	mova	b$oloo,r0		;
+	mov	r1,2(r0)		;
+	emt	375			; look it up
+	bcs	30$			;
+	mova	1000,r1			; the block buffer
+	mov	r1,b$obuf		; for read/write
+	mova	b$otrn,r3		; get the transfer block
+	mov	r3,r0			;
+	mov	#<emrea.*256.>+14.,(r0)	; read device block 0
+	clr	b$oblk			;
+	emt	375			; read it
+	bcs	30$			; oops
+	mov	#v$ebus,r0		; local vectors
+;	bnew	b$oset,10$		; SET BOOT
+;	mova	b$oclr,r0		; SET NOBOOT
+10$:	cmp	(r1)+,(r1)+		; r1 = 4 = v$ebus
+	mov	#6.,r2			; count
+20$:	mov	(r0)+,(r1)+		;
+	sobw	r2,20$			;
+	mov	r3,r0			;
+	mov	#<emwri.*256.>+14.,(r0)	; write boot block
+	emt	375			;
+	bcs	30$			;
+	mov	r3,r0			; get IOB back
+	mov	#<emrea.*256.>+15.,(r0)	; reread driver block 1
+	inc	b$oblk			; (was zero)
+	emt	375			;
+30$:	return				; c=1 => some error
+
+b$otrn:	.word	<emrea.*256.>+15.	; read/write block
+b$oblk:	.word	0			; block 
+b$obuf:	.word	0			; buffer address
+	.word	256.			; word count
+	.word	iowai.			; wait i/o
+;$oclr:	.blkw	6			; dummies
+b$oloo:	.word	<emloo.*256.>+14.	;
+	.word	0			;
+b$odev:	.rad50	/sy          /		;
+					;
+	$drlim	1000			; check that we fit
+	.drbeg	bg			; dummy handler in case
+	.drfin	bg			; someone tries to read/write
+	.drast	bg,br7
+b$gbas:
+b$gsts:	.word	-1			; not loaded
+.sbttl	structures and data
+
+map	fp.ret,,-2		; r5 frame
+map	fp.r0,,0
+map	fp.sp,,6*2
+map	fp.pc
+map	fp.ps
+map	fp.pcx			; see bg$set
+map	fp.psx			;
+
+				; break table
+map	bp.adr,,0		; address
+map	bp.val			; saved value
+map	bp.flg			; entry flags
+map	bp.bbs			;
+				; break flags
+map	bpPRM$,,200		; prompt
+map	bpRET$,,200		; clear anything else
+map	bpBAK$,,100000		; backup PC
+map	bpNRC$,,1		; don't record entry
+map	bpMOR$,,100000		; more entries
+
+b$gdum:						;\ break table
+.if ne rev$c
+b$gbrk: u0 <<.word b$gdum,0,bpBAK$!bpMOR$!bpPRM$!bpRET$!bpNRC$>>
+b$govr:	u0 <<.word b$gdum,0,bpBAK$!bpMOR$>>	;|step-over address & value
+b$gonc:	u0 <<.word b$gdum,BPT,bpPRM$>>	  	;/trace once-only - must be last
+.iff
+b$gbrk:	.word	-1,0		; break address and value
+.endc
+	.blkw	32.		;\stack underflow stack
+b$gstk:				;/top of stack
+
+map	bgbpt$,,1		; entry point masks
+map	bgbus$,,2
+map	bgkbd$,,4
+map	bgcpu$,,10
+
+meta	<bgflt$ flg lab><bit flg,b$genb><beq lab>
+meta	<bgent$ rea><jsr r5,bg$ent><.asciz /rea/>
+meta	<bgint$ flg lab rea><bgflt$ flg,lab><bgent$ rea>
+.sbttl	interrupt hooks
+
+b$gbeg:				; start of driver
+bg$kbd:	vehoo$	b$gkbd		; keyboard hook
+	psh	@b$gtkb		; get the character
+	asl	(sp)		; clean it up
+.if ne key$c 
+	cmpb	(sp)+,(pc)+	; this out break key?
+b$okey:	.word	bs*2		;
+	bne	10$		;
+.iff
+	bneb	(sp)+,#bs*2,10$	; this our lead in?
+.endc
+	bgint$	#bgkbd$,10$,KBD	; yep
+10$:	jmp	@b$gkbd		; else goto RT-11
+
+;	Bus errors may be caused by stack underflow
+
+	.enabl	lsb		;
+bg$bus:	vehoo$	b$gbus		; bus hook
+
+	cmp	sp,b$gund	; stack underflow?
+	bhis	10$		; nope
+	mov	(sp),b$gstk-6	; save stack
+	mov	2(sp),b$gstk-4	; without using stack
+	mov	sp,b$gstk-2	;
+	mova	b$gstk-6,sp	;
+	bgint$	#bgbus$,30$,STK	; tell them (@sp = real sp)
+
+10$: up	cmp	(sp),#bg$prb	; are we probing?
+	bne	20$		; nope
+	bis	#1,2(sp)	; yes, set the carry bit
+bg$spl:	rti			; and return
+				;
+20$:	bgint$	#bgbus$,20$,ADR	;
+30$:	clc			; bus traps have c=0
+	jmp	@b$gbus		; else go to RT-11
+	.dsabl	lsb		;
+				;
+bg$cpu:	vehoo$	b$gcpu		; cpu hook
+	bgint$	#bgcpu$,10$,INS	; breakpoint or trace trap
+10$:	jmp	@b$gcpu		;
+				;
+bg$bpt:	vehoo$	b$gbpt		; bpt hook
+.if eq rev$c
+50$:	bgint$	#bgbpt$,60$,BPT	; breakpoint or trace trap
+60$:	jmp	@b$gbpt		;
+.iff				; optimise record mode
+	stack	pc,ps		;
+     up	cmp	(sp),#b$gbeg	; inside driver?
+	blo	10$		; nope
+     up	cmp	(sp),#b$gend	; really
+	blo	110$		; yes - ignore this
+10$:	beqw	b$grec,50$	;
+	beqw	w$aact,30$	;
+	bnew	@w$aloc,w$aval,50$
+30$:	bnew	b$gstp,50$	;
+	psh	r0		;
+	psh	2(sp)		;
+	sub	#2,(sp)		;
+	beqw	(sp),b$gbrk,40$	;
+	beqw	(sp),b$govr,40$	;
+	bnew	(sp),b$gonc,70$	;
+40$:	cmp	(sp)+,(sp)+	;
+50$:	bgint$	#bgbpt$,60$,BPT	; breakpoint or trace trap
+60$:	jmp	@b$gbpt		;
+
+70$:	add	#2,(sp)		; look at next instruction
+	psh	(sp)		;
+	bnew	@(sp)+,#BPT,80$	;
+	mov	(sp),b$gonc	;
+80$:	mov	#2,r0		; record this instruction
+	call	hi$idx		; get index
+	pop	(r0)		; save instruction address
+	pop	r0		;
+	beqw	(sp),@#v$eclk,100$
+	bplb	b$grec,90$	; not propagated
+85$:	bis	#tbit,sp.ps(sp)	; propagate
+90$:	rtt			; do one more
+.endc
+100$:	bic	#tbit,sp.ps(sp)	; let clock isr slip through
+110$:	rti			; disappear silently
+.sbttl	entry point
+
+;	r5 = return, sp=r5,(*sp),pc,ps
+
+bg$ent:	psh	#340		;
+	call	bg$spl		; set priority level
+	psh	(sp)		; move r5 down
+	mov	#10,2(sp)	; calculate entry sp
+	add	sp,2(sp)	;
+	pshs	<r4,r3,r2,r1,r0>;
+	psh	r5		; save reason
+	mov	sp,r5		;
+	tst	(r5)+		; point to r0
+	mov	fp.pc(r5),r3	; r3 -> address 
+.if eq rev$c
+     up	mov	#b$gbrk,r0	; breakpoint control
+	cmp	(r0),#-1	; disabled?
+	beq	10$		; yep
+	mov	(r0)+,r1	; get the address
+	cmp	(r1),#bpt	; volatile?
+	bne	10$		; yep
+	mov	(r0),(r1)	; restore it
+	br	20$		; should force reason
+10$:	cmpb	@0(sp),#'B	; this bpt/trace?
+	bne	30$		; nope
+	bit	#tbit,fp.ps(r5)	; was it a trace trap?
+	bne	20$		; yep - must be step
+;;;	bnew	b$grec,20$	; trace ISR?
+	sub	#2,r3		; supposedly
+	call	bg$gwd		; get the instruction
+	add	#2,r3		; (note - we don't trust r3)
+	cmp	b$gval,#bpt	; was this a breakpoint?
+20$:	bne	50$		; nope - must be a trace trap
+30$:	call	bg$gwd		; get first word
+
+.iff
+	call	bg$rst		; restore & check breaks
+				; r2 -> relevant BPT entry or zero
+	cmpb	@0(sp),#'B	; this bpt/trace?
+	bne	40$		; nope - reason is known
+	bnew	fp.pc(r5),@#v$eclk,3$
+3$:	bnew	b$gstp,4$	; always record step
+	bpsw	#bpNRC$,r2,5$	; don't record this one
+4$:	call	hi$rec		; record history
+5$:	bnew	r2,30$		; already have reason
+	bit	#tbit,fp.ps(r5)	; was it a trace trap?
+	bne	10$		; yep  - in RUN mode
+	bnew	b$grec,10$	; trace ISR run on
+	sub	#2,r3		; supposedly
+	call	bg$gwd		; get the instruction
+	add	#2,r3		; (note - we don't trust r3)
+	cmp	b$gval,#bpt	; was this a breakpoint?
+	beq	40$		; yes - BPT is reason
+
+;	We have no obvious reason
+
+10$:	bnew	b$gstp,50$	; we're stepping
+	beqw	w$aact,15$	; not watch
+	bnew	@w$aloc,w$aval,50$ ; watch trigger
+				; must be run
+15$:	bplb	b$grec,20$	; don't propagate
+	bis	#tbit,fp.ps(r5)	; propagate trace into isrs
+20$:	clc			; in run/skip mode or user tracing
+	br	bg$fin		; so just exit
+
+;	Decode break table behaviour
+
+30$:	bplw	r2,35$		; no backup
+	sub	#2,r3		; backup pc
+	mov	r3,fp.pc(r5)	; backup pc
+35$:	bplb	r2,50$		; mute - no prompt
+	fall	40$		;
+.endc				;
+				;
+40$:	bgnew$			;
+	.if ne dbg$c		;
+	bgtyp$	<?DB-I->	;
+	.iff			;
+	bgtyp$	<?BG-I->	;
+	.endc			;
+	mov	(sp),r1		; the reason
+	call	bg$pst		; show that
+	bgtyp$	< trap >	;
+	bgoct$	r3		; where
+	bgnew$			;
+50$:	.if ne rev$c		; STEP entry
+;	clr	b$grun		; run is over
+	clr	b$gstp		; step is over
+	call	wa$han		; watch handler
+	.endc			;
+	bic	#tbit,fp.ps(r5)	; clear trace flag
+	call	bg$gwd		; get the value
+	call	bg$cmd		; do commands
+.if ne rev$c			;
+	beqw	b$grec,bg$fin	;
+	bis	#tbit,fp.ps(r5)	;
+.endc				;
+
+;	Exit path
+
+bg$fin:	rol	r2		; save c-bit
+	mov	r5,sp		; restore the pointer
+.if ne rev$c
+	call	bg$set		; set breaks 
+.iff
+     up	mov	#b$gbrk,r0	; breakpoint control
+	cmp	(r0),#-1	; disabled?
+	beq	10$		; yep
+	mov	(r0)+,r1	; get the address
+	mov	(r1),(r0)	; save contents
+	mov	#bpt,(r1)	; and set a breakpoint
+.endc
+10$:
+15$:	ror	r2		; check reason
+	pops	<r0,r1,r2,r3,r4>
+	bcc	20$		; back to code
+	pop	r5		; transfer trap
+	add	#2,(sp)		; skip reason
+	return			; back to intercept
+
+;	We need to let pending interrupts through before we trace
+;	otherwise all we see in step mode is the clock routine.
+
+20$:	stack	r5,spx,pc,ps	;
+	psh	sp.ps(sp)	; restore priority
+	bic	#tbit,(sp)	; without trace
+	call	bg$spl		; spl
+	pop	r5		;
+	tst	(sp)+		; skip stack address
+	rtt			; and do one more
+
+.if ne rev$c
+
+;	set breaks
+
+bg$set:	mov	fp.pc(r5),r3	; next instruction
+	call	bg$gwd		; get the instruction
+	bcs	10$		;
+	bnew	r1,#BPT,10$	; not about to do a BPT
+	mov	r3,b$gonc	; set the once-only trap
+10$:	bplb	b$grec,15$	; not propagating
+	bnew	r2,#RTI,15$	; not RTI
+	bis	#tbit,fp.psx(r5); make sure tbit survives RTI
+15$: up	mov	#b$gbrk,r0	;
+				;
+	bnew	(r0),r3,20$	; not about to execute break
+	bis	#tbit,fp.ps(r5)	; skip in progress
+	add	#bp.bbs,r0	; skip first entry
+				;
+20$:	mov	(r0)+,r1	; get the address
+     up	cmp	r1,#b$gdum	; enabled?
+	beq	30$		; nope
+	mov	(r1),(r0)	; save contents
+	mov	#bpt,(r1)	; and set a breakpoint
+30$:	tst	(r0)+		; skip it
+	assume	bp.bbs eq 6	;
+	assume	bpMOR$ eq 100000;
+	bmiw	(r0)+,20$	; got more
+	return			;
+
+;	restore breaks
+;
+; out	r2 ->	accumulated bp.flgs 
+
+bg$rst:	
+     up	mov	#b$gbrk,r0	;
+	clr	r2		;
+	assume	bp.adr eq 0	;
+10$:	mov	(r0)+,r1	; get address
+     up	cmp	r1,#b$gdum	; enabled?
+	beq	20$		; nope
+	cmp	(r1),#bpt	; volatile?
+	bne	20$		; yep
+	assume	bp.val eq 2	;
+	mov	(r0)+,(r1)	; restore it
+	add	#2,r1		; see if we caused the interrupt
+	bnew	r1,fp.pc(r5),30$; wasn't this guy
+	assume	bp.flg eq 4	;
+	bis	(r0),r2		; accumulate flags
+	assume	bpRET$ eq 200	;
+	bmib	(r0),30$	; retain entry
+     up	mov	#b$gdum,bp.adr-bp.flg(r0) ; clear address
+	br	30$		;
+20$:	tst	(r0)+		; skip value
+	assume	bp.bbs eq 6	;
+	assume	bpMOR$ eq 100000;
+30$:	bmiw	(r0)+,10$	; got more
+     up	mov	#b$gdum,b$gonc	; cancel once-only BPT
+	return
+.endc
+.sbttl	command loop
+
+;	r5 ->	stack frame
+;	r4 ->	terminal input
+;	r3 ->	current address
+;	r2	!= => have value
+;	r1 =	value
+
+;	Test below has holes
+
+bg$adv:	bne	bg$nxt		; nope
+	mov	r3,r0		; check for PS to R0 wrap
+	sub	r5,r0		;
+	add	#2,r3		; assume plain advance
+	cmp	r0,#fp.ps	; at last register?
+.if ne rev$c
+	bhi	10$		; not in register area
+.endc
+	bne	20$		; nope
+	mov	r5,r3		; yes - wrap
+	add	#fp.r0,r3	;
+.if ne rev$c
+	br	20$		
+10$:	beqw	b$gins,20$
+	mov	b$gpkt+db.vpc,r3
+	add	#2,r3
+.endc
+20$:	call	bg$gwd		;
+	br	bg$cmd		;
+
+.if ne dbg$c
+bg$err:	bgtyp$	<?DB-E-Invalid command>
+.iff
+bg$err:	bgtyp$	<?BG-E-Invalid command>
+.endc
+	bgnew$	
+
+bg$cmd:
+.if ne rev$c
+	call	wa$han		; call the watch handler
+.endc
+	call	bg$prm		; prompt
+	call	bg$gln		; get a command
+bg$rpt:	tstb	(r4)		; null command?
+	beq	bg$adv		; yep just advance
+bg$nxt:	call	bg$gwd		; get new value
+	clr	r2		; next command
+	call	bg$num		; try for a number
+	bcs	10$		; no number
+	mov	r1,r3		; use it as address
+	br	bg$nxt		; go again
+10$:	movb	(r4)+,r0	; get next command
+	beq	bg$cmd		; done
+	cmpb	r0,#32.		; got a space
+	beq	20$		; yes
+	cmpb	r0,#';		; repeat last command?
+	bne	30$		; nope
+	call	bg$swi		; yep - switch buffers
+	br	bg$rpt		; repeat command
+20$:	inc	r4		;
+	br	bg$nxt		; get next command
+30$:	cmpb	r0,#'!		; got a comment
+	beq	bg$cmd		; yes - skip the rest
+	jsr	r2,40$		;
+	meta	<cmd c,l,v=0><.byte l-<b$gbra+2>/2><.ascii |c|><.byte v>
+	cmd <RB> bg$rem	nop	; RB	Remove user BPT
+	cmd <R*> bg$reg	fp.r0	; R0...R7
+	cmd <PC> bg$pcs fp.pc	; PC
+	cmd <PS> bg$pcs fp.ps	; PS
+	cmd <SP> bg$pcs fp.sp	; SP
+	cmd <SU> bg$und		; SU	Set Underflow
+.if ne rev$c
+	cmd <ER> bg$rec 1	; ER	Enable recording
+	cmd <DR> bg$rec 0	; DR	Disable recording
+	cmd <EP> bg$per -1	; EP	Enable pervasive trace
+	cmd <DP> bg$rec 0	; DP	Disable pervasive trace
+	cmd <O*> bg$ovr		; O	Step Over
+	cmd <H*> bg$her		; H	Step To (Here)
+	cmd <I*> bg$int		; I	Step Into
+	cmd <\*> bg$ins 	; \	Flip instruction mode
+	cmd </*> bg$rad 	; /	Flip display radix
+;	cmd <]*> bg$byt 	; ]	Flip byte/word mode
+	cmd <N*> bg$mem 2	; N	Next in history
+	cmd <L*> bg$mem	-2	; L	Last in history
+	cmd <W*> bg$wat 1	; W	Watch location
+	cmd <CW> bg$wat 0	; CW	Clear watch
+.endc
+	cmd <B*> bg$brk		; B	Set break
+	cmd <S*> bg$stp		; S	Step (into, but over jsr xx,yy)
+	cmd <P*> bg$pro		; P	Proceed
+	cmd <G*> bg$got		; G	Goto
+	cmd <X*> bg$exi	0	; X	Exit program
+	cmd <-*> bg$sub		; -	Subtract from PC
+	cmd <+*> bg$add		; +	Add to PC
+.if eq rev$c
+	cmd <_*> bg$rel		; _	Open relative address
+	cmd <%*> bg$bra		; %	Open branch
+.endc
+	cmd <.*> bg$loc		; .	Open instruction
+	cmd <@*> bg$ind		; @	Indirect
+	cmd <=*> bg$dep		; =	Deposit
+	cmd <CB> bg$cbp	-1	; CB	Clear breakpoint
+	cmd <EA> bg$enb bgbus$	; EA	Enable address traps
+	cmd <EB> bg$enb bgbpt$	; EB	Enable BPT traps
+	cmd <EI> bg$enb bgcpu$	; EI	Enable instruction traps
+	cmd <EK> bg$enb bgkbd$	; EK	Enable keyboard ^H traps
+	cmd <DA> bg$dsb bgbus$	; DA	Disable (as above)
+	cmd <DB> bg$dsb bgbpt$	; DB	Disable BPT traps
+	cmd <DI> bg$dsb bgcpu$	; DI	Disable CPU traps
+	cmd <DK> bg$dsb bgkbd$	; DK	Disable keyboard traps
+.if ne rev$c
+.if ne v11$c
+	cmd ^|]*| bg$dst	; DV	Use destination as value
+.endc
+.endc
+	cmd <TT> bg$trn		; TT	Transfer trap
+	.word	0		;
+40$:	tst	(sp)+		;
+50$:	movb	(r2)+,b$gbra	; get branch
+	beq	bg$erj		; command not found
+	cmpb	(r2)+,r0	; got first?
+	bne	60$		; nope
+	cmpb	(r2),#'*	; one character command?
+	beq	70$		; yep - we have it
+	cmpb	(r2),(r4)+	; second coming?
+	beq	70$		; yep
+	dec	r4		;
+60$:	cmpb	(r2)+,(r2)+	; skip remainder
+	br	50$		; look again
+70$:	movb	1(r2),r0	; r0 = parameter (byte)
+	mov	b$gval,r2	; r2 = value at pc
+	clr	r1		; r1 = 0
+				; c  = 0
+	tst	(r1)+		; r1 = #2
+b$gbra:	br	.		; filled in to dispatch
+				; must separate b$gbra and first task
+				; to avoid a zero offset
+
+b$genb:	.word	bgkbd$!bgbpt$!bgbus$!bgcpu$ ; enabled traps
+bg$exi:	.exit			;
+bg$rem:	mov	fp.pc(r5),r1	; get the PC
+	mov	r0,-(r1)	; wipe out user BPT
+	br	bg$nxj		;
+
+.if ne rev$c
+bg$per:	mov	#tbit,r1	; invade monitor
+bg$rec:	mov	r1,@#v$eemt+2	; set/reset pervasive
+	movb	r0,(pc)+	; enable/disable history
+b$grec:	.word	0		; history off default
+	br	bg$nxj		;
+bg$rad:	com	(pc)+		; flip radix
+b$grad:	.word	0		; octal default
+	br	bg$nxj		;
+bg$ins:	com	(pc)+		; flip instruction mode
+b$gins:	.word	177777		; instruction default
+	br	bg$nxj		;
+;bg$byt$:com	(pc)+		; flip byte/word mode
+;b$gbyt:.word	0		;
+;	br	bg$nxj		;
+bg$dst:	mov	b$gpkt+db.dst,r3; destination
+	br	bg$nxj		;
+bg$mem:	call	hi$idx		;
+	mov	(r0),r3		;
+	br	bg$nxj		;
+bg$erj:	jmp	bg$err		;
+				;
+bg$wat:	bmiw	b$ginv,bg$erj	; cant watch invalid location
+bg$clw:	mov	r0,(pc)+	; set or clear watching
+w$aact:	.word	0		; 
+	mov	r3,(pc)+	;
+w$aloc:	.word	0		; watch location
+	mov	b$gval,(pc)+	;
+w$aval:	.word	0		; watch value
+	br	bg$nxj		;
+.iff
+bg$erj:	jmp	bg$err		;
+.endc
+
+;	r0 =	dispatch macro value
+;	r1 =	#2
+;	r3 ->	current address
+;	c  =	0
+
+bg$enb:	bis	r0,b$genb	; enable traps
+	br	bg$nxj		;
+bg$dsb:	bic	r0,b$genb	;
+	br	bg$nxj		;
+
+bg$ind:	mov	r2,r3		; indirect
+	br	bg$nxj		;
+bg$sub:	call	bg$num		; get explicit number
+	sub	r1,r3		; subtract
+	br	bg$nxj		;
+bg$add:	call	bg$num		; get explicit
+bg$adj:	add	r1,r3		; add
+bg$nxj:	jmp	bg$nxt		;
+.if eq rev$c
+bg$bra:	movb	r2,r2		; sign extend
+	asl	r2		; make words
+bg$rel:	add	r2,r1		;
+	br	bg$adj		; add and jump
+.endc
+
+bg$reg:	call	bg$dig		; get a digit
+	bcc	10$		;
+	clr	r0		;
+10$:	asl	r0		;
+	add	#fp.r0,r0	;
+bg$pcs:	add	r5,r0		;
+	mov	r0,r3		;
+	br	bg$nxj		;
+bg$loc:	mov	fp.pc(r5),r3	;
+	br	bg$nxj		;
+bg$got:	mov	r3,fp.pc(r5)	;  reset exit pc
+	tst	(pc)+		;*
+bg$trn:	sec			;* transfer trap
+bg$pro:	return			;* c=0/1 (1=>TT)
+bg$stp:
+.if ne rev$c
+	mov	fp.pc(r5),r3	; next instruction
+	call	bg$gwd		; get the opcode
+	bic	#70,r1		; isolate opcode
+	beqw	r1,#4707,bg$ovr	; call defaults to over
+.endc
+bg$int:	inc	(pc)+		;* step into
+b$gstp:	.word	0		;*
+bg$stx:	bis	#tbit,fp.ps(r5)	;* set trace flag
+	tstb	(r4)		;* more coming?
+	bne	bg$nxj		;* yes - probably goto
+	return			;* c=0
+.if ne rev$c
+bg$ovr:	beqw	b$gins,bg$nxj	; must be instruction mode
+	mov	b$gpkt+db.vpc,r3; get next location
+	add	#2,r3		; adjust it
+bg$her:	mov	r3,b$govr	; and set catcher
+	clc			; c=0 - not TT
+	return
+.endc
+
+bg$und:	call	bg$num		; set stack underflow
+	bcc	10$		; got a value
+	clr	r0		; defaults to zilch
+10$:	mov	r0,(pc)+	; save it
+b$gund:	.word	400		; default red stack
+	return
+				
+bg$dep:	call	bg$num		; get value
+	bcs	10$		; no value
+	call	bg$pwd		;*store it
+	add	#2,r3		; skip the address
+	br	bg$nxj		;
+10$:	jmp	bg$err		;
+
+bg$cbp:	.enabl	lsb
+     up	mov	#b$gdum,r0	;
+	br	10$		;
+bg$brk:	mov	r3,r0		; set break
+10$:	mov	r0,b$gbrk	; clear break
+	br	bg$nxj		;
+	.dsabl	lsb		;
+
+;	get/put word
+; in	r3 =	address
+;	c=0	bg$pwd
+; out	r1 =	value
+;	c=1 => invalid address
+
+	.enabl	lsb		;c=0
+bg$pwd:	mov	#010110,40$	;*mov r1,(r0)
+	br	20$		;
+bg$gwd:	mov	#011001,40$	; mov (r0),r1
+	clr	r1		;*default value
+20$:	mov	r3,r0		;*get the address
+	bic	#1,r0		;*always even
+30$:	psh	@#v$ebus+2	;*save bus vector
+	psh	@#v$ebus	;*
+	bpcw	#^c7,r0,40$	;*but not for bus vector itself (c=0)
+     up	mov	#bg$bus,@#v$ebus;*force ours
+	mov	#341,@#v$ebus+2	;*
+40$:	mov	(r0),r1		;*or mov r1,(r0)
+bg$prb:	mov	r1,(pc)+	;*save current memory value
+b$gval:	.word	0		;*
+	pop	@#v$ebus	;*restore bus vector
+	pop	@#v$ebus+2	;*
+	ror	(pc)+		;*save adress valid
+b$ginv:	.word	0		; mi => invalid
+	return			;
+	.dsabl	lsb		;
+
+;	001000	012706	| ...
+;	177775	??????	| ...	for invalid addresses
+;	R0	123456	| ...	for registers
+;	SP	000766	| ...
+;	PC	001000	| ...	
+;	PS=ZNVC	000341	| ...	for the PSW
+
+bg$prm:	mov	r3,r0		;get the address
+	sub	r5,r0		;this in our range?
+	asr	r0		;
+	cmp	r0,#fp.ps/2	;really one of ours?
+	bhi	20$		;its an address
+	bne	10$		;its R0 thru R7
+	bgtyp$	<PS>		;
+	br	40$		;
+10$:	bgtyp$	<R>		;put out the register sign
+	call	bg$pdg		;put digit
+	br	40$		;
+
+20$:	bgoct$	r3		; address
+	bplw	b$ginv,30$	; not invalid
+	bgtyp$	<	??????>	;
+	br	50$		;
+30$:
+.if ne rev$c			;
+	beqw	b$gins,40$	; data mode
+	bgtyp$	<	>	;
+	bgoct$	b$gval		; show value
+	call	bg$rev		; reverse assemble
+	br	50$		;
+.endc
+40$:	bgtyp$	<	>	;
+.if eq rev$c
+	bgoct$	b$gval		; show value
+.iff
+	mov	b$gval,r0
+	call	sh$val		; oct/dec word
+	bgtyp$	<	>	;
+	psh	r0		;
+	clrb	r0		;
+	swab	r0		;
+	call	sh$byt		; oct/dec low byte
+	bgtyp$	< >		;
+	clr	r0		;
+	bisb	(sp),r0		;
+	call	sh$byt		; oct/dec high byte
+	bgtyp$	<	>	;
+	pop	r1		;
+	call	db$r50		; rad50 word
+	bgtyp$	< [>		;
+	mov	r1,r0		; [
+	call	db$cha		; low char
+	swab	r0		;
+	call	db$cha		; high char
+	bgtyp$	<]>		; ]
+.endc
+50$:	bgtyp$	<	 | >	; type a tab
+	return
+.sbttl	utilities
+
+map	bgbuf.,,16.
+
+	.enabl	lsb
+bg$gln:	call	bg$swi		; switch buffers - r4->buf
+	clr	r1		; count characters
+20$:	tstb	@(pc)+		; wait for character
+b$gtks:	.word	0		; tks
+	bpl	20$		; keep waiting
+	mov	@(pc)+,r0	; get character
+b$gtkb:	.word	0		;
+	bic	#177600,r0	; clean it up
+	beq	20$		; nulls
+	cmpb	r0,#cr		; terminate on cr
+	beq	60$		; 
+	cmpb	r0,#ru		; this a rubout?
+	bne	30$		; no
+	tst	r1		; at start of line?
+	beq	20$		;
+	cmpb	-(r1),-(r4)	; yes - backup
+	jsr	r1,bg$typ	;
+	.byte	bs,space,bs,0	;
+	br	20$		; rub it out
+30$:	cmp	r1,#bgbuf.-2	; too many?
+	bhis	20$		; yep
+	call	bg$pch		; store it
+	cmpb	r0,#'a		; this lowercase?
+	blo	40$		; no
+	cmpb	r0,#'z		; really?
+	bhi	40$		; no
+	sub	#'a-'A,r0	; yes
+40$:	movb	r0,(r4)+	; store it
+	inc	r1		; count it
+.if ne rev$c
+	beqb	r0,#'/,60$	; immediate
+	beqb	r0,#'\,60$	; immediate
+;	beqb	r0,#'],60$	; immediate
+.endc
+	br	20$		;
+60$:	bgnew$			;
+	clrb	(r4)		; terminate it
+	sub	r1,r4		; position at start
+	return
+	.dsabl	lsb
+
+bg$new:	jsr	r1,bg$typ	;
+	.byte	cr,lf,0,0	
+	return
+
+db$typ::
+bg$typ:	call	bg$pst		; put string
+	inc	r1		;
+	bic	#1,r1		;
+	rts	r1		;
+
+bg$pst:	psh	r0		; save this guy
+10$:	movb	(r1)+,r0	;
+	beq	bg$r0r		;
+.if ne rev$c
+	beqb	r0,#200,bg$r0r	;
+.endc
+	call	bg$pch		;
+	br	10$		;
+
+bg$pdg:	add	#'0,r0		; make it a digit
+db$out::
+bg$pch:	tstb	@(pc)+		; ready yet?
+b$gtps:	.word	0		;
+	bpl	bg$pch		; no
+	movb	r0,@(pc)+	; move it in
+b$gtpb:	.word	0		;
+.if ne rev$c			;
+	psh	b$gpkt+db.loc	; manage column
+	bneb	r0,#ht,10$	;
+	add	#8.,(sp)	;	
+	bic	#7,(sp)		;
+	br	30$		;
+10$:	bhisb	r0,#32.,20$	;
+	mov	#-1,(sp)	;
+20$:	inc	(sp)		;
+30$:	pop	b$gpkt+db.loc	;
+.endc				;
+	return			;
+
+bg$num:	call	bg$dig		; this a digit?
+	bcs	30$		; nope
+	mov	r0,r1		; yes - start number
+10$:	call	bg$dig		;
+	bcs	20$		; all done
+	asl	r1		;
+	asl	r1		;
+	asl	r1		;
+	add	r0,r1		;
+	br	10$		;
+20$:	clc			;
+30$:	return
+
+bg$dig:	movb	(r4),r0		; get one
+	sub	#'0,r0		; deascify it
+	cmp	#7,r0		; too high or low?
+	bcs	10$		;
+	inc	r4		; skip it
+10$:	return			; c=1 => not a digit
+
+db$oct::
+bg$oct:	tst	(pc)+		;
+bg$ocb:	sec			;
+	pshs	<r2,r1,r0>	
+	mov	r0,r1		;
+	mov	#111111,r2 	; loop control
+	bcc	1$		; words
+	swab	r1		; bytes
+	swab	r2		;
+	clrb	r2		;
+1$:	clr	r0		; who fancied the occassional fidget
+2$:	asl	r1		; well, its fetch a bit here
+	rol	r0		; and fudge a bit there
+3$:	asl	r2		; when it itches, ya just find ya digit
+	bcc	2$		; keep fiddling
+	beq	4$		; must print the final digit
+4$:	call	bg$pdg		;
+	tst	r2		; done all digits ?
+	bne	1$		; nope, go scritch it
+	pops	<r1,r2>		;
+bg$r0r:	pop	r0		;
+	return
+
+bg$swi:	jsr	r0,10$		; switch buffers
+	.byte	2.,bgbuf.+2	; buffer locators
+	.blkb	bgbuf.*2	; buffers
+10$:	swab	(r0)		; switch buffers
+	movb	(r0),r4		; get current
+	add	r0,r4		; add base
+	br	bg$r0r		; pop r0 and return
+.sbttl	additional BG features
+.if ne rev$c
+
+b$gpkt:	.blkb	db.bbs			; reverse compile packet
+
+bg$rev:	pshs	<r5,r4,r3,r2,r1,r0>
+     up	mov	#b$gpkt,r4		;
+	bis	#dbrev$,(r4)		;
+	mov	r3,db.adr(r4)		;
+	mov	r3,db.vpc(r4)		;
+	mov	b$gval,db.val(r4)	;
+	movi	db.r0,r4,r1
+	mov	r5,r0
+	mov	#10.,r2
+10$:	mov	(r0)+,(r1)+
+	sobw	r2,10$
+	mov	r4,r5			; where rv$dis wants it
+	call	rv$dis
+	pops	<r0,r1,r2,r3,r4,r5>
+	return
+
+db$nxt::mov	db.vpc(r5),r0	;point to it
+	add	#2,r0		;point past it
+	fall	db$prb
+
+;	rv$dis probe routine
+;
+;	r0 ->	location
+;
+;	r0 ->	location
+;	r1 =	value
+;	db.adr	location
+;	db.val	value
+
+db$prb::psh	r3		;save that
+	mov	r0,r3		;where we want it
+	call	bg$gwd		;get the value
+;sic]	bcs			;
+	mov	r3,db.adr(r5)	;save the new address
+	mov	r3,db.vpc(r5)	;twice
+	mov	r1,db.val(r5)	;the value
+	pop	r3		;
+	return
+
+sh$byt:	bnew	b$grad,sh$dec	; decimal byte
+	jmp	bg$ocb		; octal byte
+sh$val:	beqw	b$grad,sh$oct	; octal word
+	bplw	r0,sh$dec	; positive
+	bgtyp$	<->		; negative
+	neg	r0		;
+	call	sh$dec		; value
+	neg	r0		;
+	return
+
+sh$dec:	tst	(pc)+		;
+sh$oct:	sec			; r0 = value
+	pshs	<r2,r1,r0>	; save them
+	jsr	r3,30$		; assume decimal
+10$:	10000.,1000.,100.,10.,1,0
+20$:	100000,10000,1000,100,10,1,0
+30$:	bic	r2,r2		; no digits seen yet
+	bcc	40$		; is decimal
+	add	#20$-10$,r3	;
+	mov	#'0,r2		; show all digits
+40$:	mov	r0,r1		;
+50$:	mov	#-1,r0		; look for a digit
+60$:	inc	r0		; step up dividend
+	sub	(r3),r1		; subtract
+	bcc	60$		; go again
+	add	(r3)+,r1	; bumb it back to positive
+	beqw	(r3),70$	; final digit
+	bnew	r0,70$		; got something
+	beqw	r2,80$		;
+70$:	mov	#'0,r2		;
+	add	r2,r0		;
+	call	bg$pch		;
+80$:	bnew	(r3),50$	;any more to do ?
+	pops	<r3,r0,r1,r2>
+	return
+
+;	Rad50
+;
+;	r1 =	value
+
+db$r50::pshs	<r2,r1,r0>	;save them all
+     up	mov	#100$,r2	;get the divisors
+20$:	mov	#-1,r0		;init the result
+	cmp	#174777,r1	;is it an *
+	blo	50$		;yep
+30$:	inc	r0		;next character
+	sub	(r2),r1		;this it?
+	bcc	30$		;nope
+	add	(r2),r1		;bump back
+	tst	r0		;a null?
+	beq	60$		;yep, forget it
+	cmp	#33,r0		;nah?
+	blo	70$		;
+	beq	80$		;
+	add	#40,r0		;alphabetic
+50$:	add	#40,r0		;
+60$:	add	#16,r0		;space
+70$:	add	#11,r0		;
+80$:	add	#11,r0		;
+	call	db$out		;display it
+90$:	tst	-(r2)		;any more?
+	bne	20$		;yep
+95$:	pops	<r0,r1,r2>	;restore it
+	return			;
+	.word	0,1,50		;
+100$:	.word	50*50		;
+
+db$cha:	psh	r0		; display character
+	blob	r0,#32.,10$	;
+	blob	r0,#127.,20$	;
+10$:	movb	#'.,r0		;
+20$:	call	db$out		;
+	pop	r0
+	return
+
+;	instruction history
+
+h$idat:	.blkw	64.			;
+h$iidx:	.word	0			;
+
+;	r3 ->	next location
+
+hi$rec:	mov	#2,r0			; save in history
+	call	hi$idx			;
+	mov	r3,(r0)			;
+10$:	return				;
+
+hi$idx:	add	h$iidx,r0		; get history value
+	bpl	10$			; not backwards wrap
+	mov	#63*2,r0		;
+10$:	bnew	r0,#64*2.,20$		;
+	clr	r0			;
+20$:	mov	r0,h$iidx		; save it
+     up	add	#h$idat,r0		; relocate it
+	return
+
+;	watch handler
+
+wa$han:	beqw	w$aact,10$		; not active
+	beqw	@w$aloc,w$aval,10$	; no change
+	bgtyp$	<?DB-I-Watch >		;
+	bgoct$	w$aloc			; location
+	bgtyp$	<: Old=>		;
+	bgoct$	w$aval			; old
+	bgtyp$	< New=>			;
+	bgoct$	@w$aloc			; new
+	mov	@w$aloc,w$aval		; replace value
+	bgnew$				;
+10$:	return
+
+.endc
+
+b$gend:	.drend	bg,,bgdvrx		; end of driver
+.sbttl	load/unload
+.psect	dbload
+
+dr$fet:	.enabl	lsb
+dr$loa:	call	up$rel			; relocate driver
+	.mtps	#200			; block keyboard
+	mov	(r5),r4			; r4 -> driver lqe
+	sub	#dr.lqe,r4		; r4 -> driver location zero
+
+	vecap$	#v$ekbd,#bg$kbd,r4	; capture keyboard
+	vecap$	#v$ebus,#bg$bus,r4	; capture bus
+	vecap$	#v$ecpu,#bg$cpu,r4	; capture cpu
+	vecap$	#v$ebpt,#bg$bpt,r4	; capture bpt
+					;
+	mov	#br7,@#v$ebpt+2		; block BPT interrupts
+					;
+	mov	@#j$bsys,r0		; rmon
+	add	#rm.tks,r0		;
+	mov	(r0)+,b$gtks(r4)	; map terminal accesses
+	mov	(r0)+,b$gtkb(r4)	;
+	mov	(r0)+,b$gtps(r4)	;
+	mov	(r0)+,b$gtpb(r4)	;
+.if ne 0
+	mov	@#j$bsys,r0		;
+	add	#rm.mtp,r0		; .mtps
+	mov	r0,b$gmt0(r4)		; .mtps 0
+	mov	r0,b$gmt1(r4)		; .mtps 1
+.endc
+	br	20$			; quit
+
+dr$rel:
+dr$unl:	clr	@#v$eemt+2		; undo pervasive
+	.mtps	#200			; block keyboard
+	mov	(r5),r4			;
+	sub	#dr.lqe,r4		; r4 -> driver location zero
+	verel$	#v$ekbd,#bg$kbd,r4	; release things
+	verel$	#v$ebus,#bg$bus,r4	; 
+	verel$	#v$ecpu,#bg$cpu,r4	; 
+	verel$	#v$ebpt,#bg$bpt,r4	; bpt vector is left stranded because
+20$:	.mtps	#0			; LOAD DB: captured the vector -- it's
+	clc				; cleared by the next image start
+	return
+	.dsabl	lsb
+
+$vepkg
+$hkpkg
+uprel$
+drinf$
+.end
+	u n u s e d
+
+.sbttl	load/unload
+.psect	load
+
+bg$loa:	mov	#1,r3
+	br	bg$ser
+bg$unl:	mov	#-1,r3
+bg$ser:	mov	@#j$bsys,r4		; r4 -> rmon throughout
+	mov	(r5),r2			;
+	add	#b$gbas-bgstrt-ha.lqe,r2; r2 -> b$gbas
+
+	psh	#br7			; .mtps #br7
+	call	rm.mtp(r4)		; call them
+	cmp	r3,(r2)			; test init/exit = load/unload
+	beq	30$			; oops, already done
+	neg	(r2)			; reverse the state
+	bmi	10$			; it's exit time
+	jsr	r1,sv$vec		; setup the vectors
+	.word	bg.kbd,v$ekbd,bgkbd.	;
+	.word	bg.bus,v$ebus,bgbus.	;
+	.word	bg.cpu,v$ecpu,bgcpu.	;
+	.word	bg.bpt,v$ebpt,bgbpt.	;
+	.word	0			;
+	mov	#br7,@#v$ebpt+2		; block interrupts
+	mov	#bgprb.,bg.prb(r2)	; relocate the probe address
+	add	r2,bg.prb(r2)		;
+	mov	r4,r0			;
+	add	#rm.tks,r0		;
+	mov	(r0)+,bgtks.(r2)	; map terminal accesses
+	mov	(r0)+,bgtkb.(r2)	;
+	mov	(r0)+,bgtps.(r2)	;
+	mov	(r0)+,bgtpb.(r2)	;
+	br	20$			;
+10$:	mov	bg.kbd(r2),@#v$ekbd	; restore them
+	mov	bg.bus(r2),@#v$ebus	;
+	mov	bg.cpu(r2),@#v$ecpu	;
+20$:	clr	-(sp)			; restore ps
+	call	rm.mtp(r4)		; thuswise
+30$:	clc
+sv$ret:	return
+
+sv$vec:	mov	(r1)+,r0		; save slot
+	beq	10$			; all done
+	add	r2,r0			; base
+	mov	@(r1)+,(r0)		;
+	mov	(r1),r0			; offset
+	add	r2,r0			;
+	mov	r0,@-(r1)		;
+	cmp	(r1)+,(r1)+		;
+	br	sv$vec			;
+10$:	rts	r1			;
+
+	drinf$
+.end
+	u n u s e d
+
+.sbttl	debug bootstrap
+
+;	rx = value
+st$boo::clr	-(sp)
+	mova	#b$odev,r1
+	mov	rx,(r1)
+	mova	b$oloo,r0		;
+	psh	r0
+	psh	#emloo.*256.+0
+	emt	375			; look it up
+	bit	(sp)+,(sp)+		;
+	inc	(sp)+			;
+	bcs				; can't open it
+
+	mov	@#j$bsys,r1		; get the system
+	clr	rm.blk(r0)		; clear cache
+	mov	x(r1),r1		; get USR buffer
+
+	mov	#v$ebus,r0		;
+	mov	#6.,r2			;
+10$:	mov	(r0)+,(r1)+		;
+	sobw	r2,10$			;
+	mov	#emwri.,(r3)		; setup to write it
+	mov	r3,r0			;
+	emt	375			;
+	bcs				; oops
+	.purge	#0			;
+	tst	(pc)+			;
+20$:	sec				; some error
+	return
+
+b$oloo:	.word	emloo.*256.		;
+	.word	0			;
+b$odev:	.rad50	/sy       /		;
+b$otrn:	.word	emrea.*256.		;
+	.word	0			; block
+b$obuf:	.word	0			; buffer
+	.word	256.			; wordcount
+	.word	0			; wait I/O
+
+.end
+.if ne 0
+	.drset	run,-1,run,NO		;RUN after LOAD; NORUN before REMOVE
+
+	meta <bgcon$ mem><bg'mem'.=bg$'mem-b$gbas><bg.'mem=b$g'mem-b$gbas>
+	bgcon$	kbd			; connect keyboard etc
+	bgcon$	bus
+	bgcon$	bpt
+	bgcon$	cpu
+	bgcon$	prb
+
+run:	neg	r3			; r3 = 1
+	nop				; 
+norun:	psh	r4			; save that
+	mov	@#j$bsys,r4		; r4 -> rmon throughout
+	call	st$drv			; r2 -> b$gbas - get driver
+
+	psh	#br7			; .mtps #br7
+	call	rm.mtp(r4)		; call them
+	cmp	r3,(r2)			; test init/exit = load/unload
+	beq	30$			; oops, already done
+	neg	(r2)			; reverse the state
+	bmi	10$			; it's exit time
+	jsr	r1,st$vec		; setup the vectors
+	.word	bg.kbd,v$ekbd,bgkbd.	;
+	.word	bg.bus,v$ebus,bgbus.	;
+	.word	bg.cpu,v$ecpu,bgcpu.	;
+	.word	bg.bpt,v$ebpt,bgbpt.	;
+	.word	0			;
+	mov	#br7,@#v$ebpt+2		; block interrupts
+	mov	#bgprb.,bg.prb(r2)	; relocate the probe address
+	add	r2,bg.prb(r2)		;
+	mov	r4,r0			;
+	add	#rm.tks,r0		;
+	mov	(r0)+,bgtks.(r2)	; map terminal accesses
+	mov	(r0)+,bgtkb.(r2)	;
+	mov	(r0)+,bgtps.(r2)	;
+	mov	(r0)+,bgtpb.(r2)	;
+	br	20$			;
+10$:	mov	bg.kbd(r2),@#v$ekbd	; restore them
+	mov	bg.bus(r2),@#v$ebus	;
+	mov	bg.cpu(r2),@#v$ecpu	;
+20$:	clr	-(sp)			; restore ps
+	call	rm.mtp(r4)		; thuswise
+30$:	clc
+st$ret:	pop	r4			; c=?
+	return
+
+st$vec:	mov	(r1)+,r0		; save slot
+	beq	10$			; all done
+	add	r2,r0			; base
+	mov	@(r1)+,(r0)		;
+	mov	(r1),r0			; offset
+	add	r2,r0			;
+	mov	r0,@-(r1)		;
+	cmp	(r1)+,(r1)+		;
+	br	st$vec			;
+10$:	rts	r1			;
+
+st$drv:	mov	r4,r2			; find driver in memory
+	add	rm.pnp(r4),r2		; point to pnames
+	mov	r2,r1			; r1 -> start of pnames
+10$:	cmp	(r2)+,#-1		; walk through pnames and hentries
+	bne	10$			; end must be found
+	tst	-(r2)			; back off one
+	sub	r1,r2			; adjust it
+	asr	r2			; that's the end of them
+	mov	r2,r0			; r0 = table length
+	add	r1,r2			; r2 -> end of pnames
+20$:	cmp	-(r2),#^rbg		; this us?
+	beq	30$			; yes
+	cmp	r2,r1			; more permanent names?
+	bne	20$			; yep, keep looking
+	br	40$			; nope, not installed.
+30$:	add	r0,r2			; offset to entry point table
+	mov	(r2),r2			; get the entry point
+	beq	40$			; oops, not loaded
+	add	#b$gbas-bgstrt-ha.lqe,r2; >> r2 -> b$gbas
+	return				;
+40$:	com	(sp)+			; c=1> skip return; Illegal command
+	br	st$ret			;
+.endc
+
+	$drlim	1000			; check that we fit
+	.drbeg	bg			; dummy handler in case
+	.drfin	bg			; someone tries to read/write
+	.drast	bg,br7
+b$gbas:
+b$gsts:	.word	-1			; not loaded
+

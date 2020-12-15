@@ -1,0 +1,1213 @@
+;	%build
+;	macro drs:fpp/obj:drb:fpp
+;	link drb:fpx/nobitmap/exe:drb:fpx.sys/map:drb:
+;	%end
+mmg$t=1
+rst$c=1
+;
+;	.TITLE FPU-EMULATOR
+;
+;	EMULATOR FOR FPU INSTRUCTONS ON PDP-11
+;
+;       PIECES TAKEN FROM EI.SYS BY DR P.C.WAGGETT,
+;
+;	WRITTEN 26-MAR-86 BY:
+;		PAUL LUSTGRAAF
+;		32 CARVER HALL
+;		IOWA STATE UNIVERSITY
+;		AMES, IA 50011
+;		515-294-1832
+;
+;	LAST REVISION: 22-APR-86
+;
+; METHOD OF OPERATION:
+;   LOAD FP:
+;   SET FP ON
+;   UNLOAD FP:
+;   LOAD FP:
+;       STEALS VECTOR 10 (ILLEGAL INSTRUCTION TRAP) FROM THE MONITOR.
+;       WHEN AN EMULATED INSTRUCTION IS ATTEMPTED, THIS PSEUDO-HANDLER GETS
+;	CONTROL.  IF THE INSTRUCTION CAUSING THE TRAP IS NOT ONE OF THE
+;	EMULATED INSTRUCTIONS OR IS ILLEGAL FOR SOME OTHER REASON, THIS
+;	ROUTINE PASSES IT ALONG TO THE PREVIOUS TRAP ROUTINE.  THUS, IT IS
+;	POSSIBLE TO HAVE MORE THAN ONE HANDLER CONNECTED TO VECTOR 10.
+;	THE UNLOAD AND LOAD SEQUENCE MUST BE DONE IN RT-11 BECAUSE RT-11
+;	DOES NOT MODIFY THE HANDLER IMAGE IN MEMORY LIKE TSX+ DOES.
+;   SET FP OFF
+;	RESTORES VECTOR 10 TO THE ORIGINAL CONTENTS.  THIS
+;	*MUST* BE DONE BEFORE UNLOADING THIS HANDLER OR YOU MAY
+;	CRASH THE SYSTEM.
+;
+;  KNOWN ERRORS:
+;     INTERRUPT ON UNDEFINED VARIABLE (-0) IS NOT IMPLEMENTED.
+; INITIALIZATION CODE
+
+	.MCALL .DRDEF,.DSTATUS
+	FPCODE=373
+	.DRDEF	FP,FPCODE,0,0,0,0	;THIS IS A PSEUDO-HANDLER
+	TRAPPC=10
+	TRAPPS=12
+	RMON=54
+	CONFIG=300
+	.DRSET	ON,1,ONTRN		;OPTION FOR TURN-ON
+	.DRSET	OFF,1,OFFRTN		;OPTION FOR TURN-OFF
+
+;	42 222
+
+ONTRN:
+bpt
+	MOV	PC,R2		;R2=ACTUAL ADDRESS
+	ADD	#DBLK0-.,R2	;R2=ACTUAL ADDRESS OF DBLK0
+	MOV	PC,R1		;R1=ACTUAL ADDRESS
+	ADD	#ENAM-.,R1	;R1=ACTUAL ADDRESS OF ENAM
+;	.DSTATUS R2,R1		;GET STATUS OF THIS HANDLER
+;	BCS	BAD		;IF NOT INSTALLED, BRANCH
+	CMPB	DBLK0,#FPCODE	;RIGHT DRIVER ?
+	BNE	BAD		;NO !
+	TST	DBLK0+4		;TEST TO SEE IF LOADED
+	BEQ	BAD		;NO.EXIT
+	ADD	#4,DBLK0+4	;OUR STARTING ADDRESS 4 BYTES LATER
+	CMP	@#TRAPPC,DBLK0+4	;SET FP ON ALREADY DONE?
+	BEQ	GOOD			;IF SO, BRANCH
+	MOV	@#TRAPPC,SAVEPC		;SAVE OLD CONTENTS OF LOCATION 10
+	MOV	@#TRAPPS,SAVEPS		;SAVE OLD CONTENTS OF LOC 12
+	MOV	DBLK0+4,@#TRAPPC	;STORE OUR ROUTINE ADDRESS IN LOC 10
+	MOV	@#RMON,R0		;GET ADDRESS OF RMON
+	BIS	#100,CONFIG(R0)		;INDICATE FPU IN CONFIGURATION WORD
+.IF EQ, MMG$T
+	CLR	@#TRAPPS		;RUN AT PRIORITY 0
+.ENDC
+GOOD:	CLC
+	RETURN
+BAD:	SEC			;ERROR EXIT..CARRY SET !
+	RETURN
+OFFRTN:	MOV	SAVEPS,@#TRAPPS	;RESTORE LOC 12
+	MOV	SAVEPC,@#TRAPPC	;RESTORE LOCATION 10
+	MOV	@#RMON,R0		;GET ADDRESS OF RMON
+	BIC	#100,CONFIG(R0)		;CLEAR FPU BIT IN CONFIGURATION WORD
+	BR	GOOD
+DBLK0:	.BLKW 4			;DSTATUS DATA BLOCK
+ENAM:	.RAD50	/FP/		;NAME OF DRIVER IN RAD50
+;  DRIVER CODE FOR DEALING WITH INSTRUCTIONS
+
+	.DRBEG	FP		;DRIVER CODE  OLD PSW,PC ON STACK
+.IF EQ,MMG$T
+	TST	-(SP)		;SPACE FOR OLD SP
+	MOV	SP,(SP)		;STORE SP
+	ADD	#6,(SP)		;ADJUST TO GET USER SP
+.IFF
+	MFPI	SP		;GET SP FROM USER SPACE
+.ENDC
+	CLR	-(SP)		;EFFECTIVE ADDRESS
+	CLR	-(SP)		;RESERVE SPACE FOR TRAPPED$INSTRUCTION
+	CLR	-(SP)		;ACCUMULATOR ADDRESS
+	MOV	12(SP),-(SP)	;PSW TO RETURN
+	MOV	12(SP),-(SP)	;PC TO RETURN ON STACK
+	MOV	12(SP),-(SP)	;SP TO RETURN
+	MOV	R5,-(SP)	;SAVE OLD REGISTER VALUES
+	MOV	R4,-(SP)
+	MOV	R3,-(SP)
+	MOV	R2,-(SP)
+	MOV	R1,-(SP)
+	MOV	R0,-(SP)
+	OLDPSW=28.		;OFFSET OF USER PSW
+	OLDPC=26.		;OFFSET OF USER PC
+	OLDSP=24.		;OFFSET OF USER SP
+	DSTEA=22.		;OFFSET OF EFFECTIVE ADDRESS FOR DESTINATION
+	WHAT=20.		;OFFSET OF TRAPPED INSTRUCTION
+	ACADD=18.		;OFFSET OF ADDRESS OF ACCUMULATOR
+	NEWPSW=16.		;OFFSET OF PSW TO RETURN
+	NEWPC=14.		;OFFSET OF USER PC TO RETURN
+	NEWSP=12.		;OFFSET OF NEW SP
+	MOV	NEWPC(SP),R1	;PUT NEWPC INTO R1
+	SUB	#2,R1		;R1->TRAPPED INSTRUCTION
+	CALL	GETWRD		;GET TRAPPED INSTRUCTION
+	MOV	R0,WHAT(SP)	;STORE TRAPPED INSTRUCTION ON STACK
+;DECODE THE INSTRUCTION
+	CMP	R0,#170000	;IS THIS AN FPU INSTRUCTION?
+	BLO	1$
+	JMP	VALID		;IF SO, BRANCH TO PROCESSING ROUTINE
+1$:	MOV	(SP)+,R0	;RESTORE R0
+	MOV	(SP)+,R1	;RESTORE R1
+	ADD	#DSTEA,SP	;RESTORE STACK.POINTER
+	MOV	(PC)+,-(SP)	;STACK OLD PSW FOR LOC 12
+SAVEPS:	.WORD	0		;OLD PSW FROM LOC 12
+	MOV	(PC)+,-(SP)	;STACK OLD PC FOR LOC 10
+SAVEPC:	.WORD	0		;OLD PC FROM LOC 10
+	RTI			;JUMP TO THE PREVIOUS TRAP HANDLER
+;GET A WORD FROM THE USER'S SPACE IN EITHER MAPPED OR NON-MAPPED SYSTEMS.
+
+GETWRD:	
+.IF EQ,MMG$T
+	MOV	(R1),R0		;GET THE WORD DIRECTLY
+.IFF
+	MFPI	(R1)		;PUSH THE WORD ON THE STACK
+	MOV	(SP)+,R0	;POP TO R0
+.ENDC
+	RETURN
+
+;STORE A WORD INTO THE USER'S SPACE IN EITHER MAPPED OR NON-MAPPED SYSTEMS.
+
+PUTWRD:
+.IF EQ,MMG$T
+	MOV	R0,(R1)		;STORE THE WORD DIRECTLY
+.IFF
+	MOV	R0,-(SP)	;PUSH RESULT ON STACK FOR MTPI
+	MTPI	(R1)		;MOVE TO USER SPACE
+.ENDC
+	RETURN
+
+; SET FLOATING POINT CONDITION CODES
+
+SFCC:	TST	R0		;test the result
+	BPL	1$		;if positive, branch
+	BIS	#$FN,$FPSR	;set n bit
+	BR	9$
+1$:	BNE	9$		;if > 0, branch
+	BIS	#$FZ,$FPSR	;set z bit
+9$:	RETURN	
+;ROUTINE TO RETURN THE RESULT, THEN EXIT.
+
+PUTX:	MOV	$FPSR,R5	;load floating point status
+PUTX2:	CALL	SFCC		;set floating condition codes
+	MOV	WHAT(SP),R4	;load instruction
+	BIC	#177707,R4	;get addressing mode
+	BNE	1$		;if not mode 0, branch
+	MOV	DSTEA(SP),R4	;load AC address
+	MOV	R0,(R4)+	;store the result
+	MOV	R1,(R4)+
+	MOV	R2,(R4)+
+	MOV	R3,(R4)+
+	BR	DOEXIT
+1$:	MOV	R1,R4		;save R1
+	MOV	DSTEA(SP),R1	;get effective address
+	CALL	PUTWRD		;store first word (in R0)
+	MOV	WHAT(SP),R0	;load instruction
+	BIC	#177700,R0	;get addressing mode and register
+	CMP	R0,#27		;is it immediate addressing?
+	BEQ	DOEXIT		;if so, we are done
+	ADD	#2,R1		;point to next word
+	MOV	R4,R0		;get second word of result
+	CALL	PUTWRD
+	BIT	#$FD,R5		;real*8 mode?
+	BEQ	DOEXIT		;if not, branch
+	ADD	#2,R1		;point to next word
+	MOV	R2,R0		;load next word
+	CALL	PUTWRD
+	ADD	#2,R1		;point to next word
+	MOV	R3,R0		;load next word
+	CALL	PUTWRD
+; RETURN TO USER
+
+DOEXIT:	CMP	NEWSP(SP),OLDSP(SP)	;CHANGE SP?
+	BEQ	2$			;IF NOT, BRANCH
+.IF EQ,MMG$T
+	BLO	2$			;IF LOWER, ALREADY DONE SO BRANCH
+	MOV	NEWSP(SP),R0		;load new sp
+	MOV	OLDSP(SP),R1		;load old sp
+1$:	MOV	-(R1),-(R0)		;move stuff up on stack
+	CMP	R1,SP			;done yet?
+	BHI	1$			;if not, loop
+	MOV	R0,SP			;fix the sp
+.IFF
+	MOV	(SP),-(SP)		;STACK USER SP FOR MTPI
+	MTPI	SP			;CHANGE USER SP
+.ENDC
+2$:	MOV	(SP)+,R0	;RESTORE REGISTERS 0-5
+	MOV	(SP)+,R1
+	MOV	(SP)+,R2
+	MOV	(SP)+,R3
+	MOV	(SP)+,R4
+	MOV	(SP)+,R5
+	TST	(SP)+			;DELETE NEW SP
+	MOV	(SP)+,OLDPC-16.(SP)	;UPDATE USER PC
+	MOV	(SP)+,OLDPSW-18.(SP)	;UPDATE USER PSW
+	ADD	#OLDSP-NEWPSW,SP	;POINT STACK TO PC,PSW
+	RTI
+;ROUTINES TO HANDLE ERRORS
+
+UNDER:	BIT	#$FIU,$FPSR	;is fp underflow interrupt enabled?
+	BEQ	PUTZER		;if not, return 0
+	ADD	#200,R4		;adjust exponent for return
+	MOV	#$FUNDER,$FEC	;set error code
+	BR	FPEXC
+OVER:	BIS	#$FV,$FPSR	;set v-bit (fp overflow)
+	BIT	#$FIV,$FPSR	;is fp overflow interrupt enabled?
+	BEQ	PUTZER		;if not, return 0
+	SUB	#200,R4		;adjust exponent for return
+	MOV	#$FOVER,$FEC	;set error code
+	BR	FPEXC
+DIVZER:	MOV	#$FDIVZ,$FEC	;set error code (divide by zero)
+	BR	FPEXC		;set other stuff
+PUTZER:	CALL	ZEROIT		;return 0
+	CALL	PUTAC		;store the result
+	BR	DOEXIT
+
+BADFP:	MOV	#$FOP,$FEC	;store error code
+
+; SIMULATE A HARDWARE TRAP ON ERRORS
+
+FPEXC:	MOV	OLDPC(SP),$FEA	;save exception address
+	BIS	#$FER,$FPSR	;set error bit in fp status
+	BIT	#$FID,$FPSR	;fp interrupts disabled?
+	BNE	DOEXIT		;if not, branch
+FPTRAP:	MOV	(SP)+,R0	;RESTORE REGISTERS 0-5
+	MOV	(SP)+,R1
+	MOV	(SP)+,R2
+	MOV	(SP)+,R3
+	MOV	(SP)+,R4
+	MOV	(SP)+,R5
+	TST	(SP)+			;DELETE NEW SP
+	MOV	(SP)+,OLDPC-16.(SP)	;UPDATE USER PC
+	MOV	(SP)+,OLDPSW-18.(SP)	;UPDATE USER PSW
+	ADD	#OLDSP-NEWPSW,SP	;POINT STACK TO PC,PSW
+	MOV	@#246,-(SP)		;SIMULATES AN ERROR TRAP
+	MOV	@#244,-(SP)		;OUT OF THE FPU HARDWARE
+	RTI
+;WE HAVE A VALID INSTRUCTION (IN R0), NOW EMULATE IT.
+
+VALID:	BIC	#170000,R0	;clear high order bits
+	BIT	#7000,R0	;class 2 instruction?
+	BEQ	CLASS1		;if not, branch
+CLASS2:	BIC	#17,$FPSR	;Clear out old floating cond codes
+	MOV	R0,R1		;save r0
+	BIC	#177477,R1	;isolate accumulator
+	ASR	R1		;compute offset
+	ASR	R1
+	ASR	R1
+	ADD	PC,R1		;add pc for pic
+	ADD	#$AC0-.,R1	;add offset to get accumulator address
+	MOV	R1,ACADD(SP)	;save the address
+	CLRB	R0		;compute offset for jump table
+	SWAB	R0
+	ASL	R0
+	ASL	R0
+	ADD	R0,PC		;jump thru table
+; Jump table for class 2 fpu instructions (2 operand)
+	JMP	BADFP		; 1700XX
+	JMP	BADFP		; 1704XX
+	JMP	I.MULX		; 1710XX
+	JMP	I.MODX		; 1714XX
+	JMP	I.ADDX		; 1720XX
+	JMP	I.LDX		; 1724XX
+	JMP	I.SUBX		; 1730XX
+	JMP	I.CMPX		; 1734XX
+	JMP	I.STX		; 1740XX
+	JMP	I.DIVX		; 1744XX
+	JMP	I.STEXP		; 1750XX
+	JMP	I.STCJ		; 1754XX
+	JMP	I.STCY		; 1760XX
+	JMP	I.LDEXP		; 1764XX
+	JMP	I.LDCJX		; 1770XX
+	JMP	I.LDCYX		; 1774XX
+CLASS1:	BIT	#700,R0		;class 1 instruction?
+	BEQ	CLASS0		;if so, branch
+	ASL	R0		;compute offset for jump table
+	ASL	R0
+	CLRB	R0
+	SWAB	R0
+	ASL	R0
+	ADD	R0,PC		;jump thru table
+; jump table for class 1 fpu instructions (1 operand)
+	BR	BADFP		; 1700XX
+	BR	I.LDFPS		; 1701XX
+	BR	I.STFPS		; 1702XX
+	BR	I.STST		; 1703XX
+	BR	I.CLRX		; 1704XX
+	BR	I.TSTX		; 1705XX
+	BR	I.ABSX		; 1706XX
+	BR	I.NEGX		; 1707XX
+; class 0 instructions
+
+CLASS0:	CMP	R0,#12		;> 170012 ?
+	BHI	BADFP		;if so, branch
+	ASL	R0		;*2 for jump table
+	ADD	R0,PC		;jump thru the table
+;jump table for class 0 fpu instructions (no operands)
+	BR	I.CFCC		; 170000
+	BR	I.SETF		; 170001
+	BR	I.SETI		; 170002
+	BR	BADFP
+	BR	BADFP
+	BR	BADFP
+	BR	BADFP
+	BR	BADFP
+	BR	BADFP
+	BR	I.SETD		; 170011
+	BR	I.SETL		; 170012
+
+I.CFCC:	CALL	CFCC		;copy floating cc to PSW
+	BR	GOEXIT
+CFCC:	MOV	$FPSR,R5	;load fp status
+	BIC	#177760,R5	;clear all but condition codes
+	BIC	#17,NEWPSW+2(SP) ;Clear out old psw cond codes
+	BIS	R5,NEWPSW+2(SP)	;set condition codes
+	RETURN
+I.SETF:	BIC	#$FD,$FPSR	;set real*4 mode
+	BR	GOEXIT
+I.SETI:	BIC	#$FL,$FPSR	;set int*2 mode
+	BR	GOEXIT
+I.SETD:	BIS	#$FD,$FPSR	;set real*8 mode
+	BR	GOEXIT
+I.SETL:	BIS	#$FL,$FPSR	;set int*4 mode
+GOEXIT:	JMP	DOEXIT
+; Class 1 instructions
+
+I.LDFPS: CALL	GETI		;get floating point status
+	MOV	R0,$FPSR	;load floating point status register
+	BR	GOEXIT
+
+I.STFPS: MOV	$FPSR,R0	;store floating point status register
+	BIC	#30010,R0	;clear reserved bits
+	JMP	PUTI
+
+I.STST:	MOV	$FEC,R0		;return floating error code
+	MOV	$FEA,R1		;return floating error address
+	JMP	PUTL
+
+I.CLRX:	BIC	#17,$FPSR	;Clear out old floating cond codes
+	CALL	GETX		;do addressing
+	CALL	ZEROIT		;clear the result
+	JMP	PUTX
+
+I.TSTX:	BIC	#17,$FPSR	;Clear out old floating cond codes
+	CALL	GETX		;get the value
+	CALL	SFCC
+	BR	GOEXIT
+
+I.ABSX:	BIC	#17,$FPSR	;Clear out old floating cond codes
+	CALL	GETX		;get the value
+	BIC	#100000,R0	;make value absolute
+	JMP	PUTX
+
+I.NEGX:	BIC	#17,$FPSR	;Clear out old floating cond codes
+	CALL	GETX		;get the value
+	TST	R0		;zero?
+	BEQ	9$		;if so, branch
+	ADD	#100000,R0	;negate the value
+9$:	JMP	PUTX
+I.LDEXP: CALL	GETI		;get new exponent
+	MOV	R0,R4		;save new exponent
+	CALL	GETAC		;get value from accumulator
+	MOV	R4,-(SP)	;save new exponent
+	CALL	UNPACK		;unpack the value
+	MOV	(SP)+,R4	;replace the exponent
+	CALL	PACK		;re-pack the value
+	CALL	PUTAC		;store it
+	JMP	DOEXIT
+
+I.STEXP: CALL	GETAC		;get value from accumulator
+	CALL	UNPACK		;unpack the value
+	MOV	R4,R0		;move exponent to destination
+	CALL	SFCC		;set floating condition codes
+	CALL	CFCC		;copy fcc to PSW
+	JMP	PUTI		;return an integer
+
+I.LDX:	CALL	GETX		;get source value
+	CALL	PUTAC		;store in accumulator
+	JMP	DOEXIT
+
+I.STX:	CALL	GETX		;do addressing
+	CALL	GETAC		;get value from accumulator
+	JMP	PUTX		;return it
+
+I.CMPX:	BIC	#17,$FPSR	;clear fp condition codes
+	CALL	GETX		;get source
+	MOV	ACADD(SP),R5	;get address of accumulator
+	CMP	R0,(R5)+	;compare AC:src
+	BNE	8$
+	CMP	R1,(R5)+
+	BNE	8$
+	BIT	#$FD,$FPSR	;real*8 mode?
+	BEQ	2$		;if not, branch
+	CMP	R2,(R5)+
+	BNE	8$
+	CMP	R3,(R5)+
+	BNE	8$
+2$:	BIS	#$FZ,$FPSR	;set fp z bit
+	BR	9$
+8$:	BHI	9$		;if ac > src, branch
+	BIS	#$FN,$FPSR	;set fp n bit
+9$:	JMP	DOEXIT
+I.LDCYX: BIT	#$FD,$FPSR	;is current mode real*8?
+	BNE	2$		;if so, branch
+	BIS	#$FD,$FPSR	;source is real*8
+	CALL	GETX		;get source value
+	BIC	#$FD,$FPSR	;restore floating status
+	CALL	UNPACK		;unpack the value
+	CALL	PACK		;repack the value w/optional round
+	BR	9$
+2$:	BIC	#$FD,$FPSR	;source is real*4
+	CALL	GETX		;get source value
+	BIS	#$FD,$FPSR	;restore floating status
+9$:	CALL	PUTAC		;store in accumulator
+	JMP	DOEXIT
+
+I.STCY:	CALL	GETAC		;get value from accumulator
+	MOV	$FPSR,R5	;load floating point status
+	BIT	#$FD,R5		;real*8?
+	BNE	5$		;if so, branch
+	BIS	#$FD,R5		;tell putx to store a real*8
+	BR	9$
+5$:	BIC	#$FD,R5		;tell putx to store a real*4
+	BIT	#$FT,R5		;floating chop mode?
+	BNE	8$		;if so, branch
+	ROL	R2		;put rounding bit in carry
+	ADC	R1
+	ADC	R0
+	BVS	101$
+	BCS	101$
+8$:	CLR	R2		;clear lower half to convert
+	CLR	R3
+9$:	JMP	PUTX2
+101$:	JMP	OVER
+I.LDCJX: CALL	GETSRC		;get an integer source
+	CLR	R2		;pad with zeroes
+	CLR	R3
+	CLR	R5		;sign is positive
+	MOV	#26.,R4		;exp=25
+	BIT	#$FL,$FPSR	;int*4?
+	BNE	1$		;if so, branch
+	MOV	#10.,R4		;exp=9
+1$:	JMP	SARET
+
+I.STCJ:	CALL	GETAC		;get value from accumulator
+	CALL	UNPACK		;unpack the value
+1$:	CMP	R4,#42.		;right justify the mantissa
+	BGE	2$		;if done, branch
+	CLC			;clear carry bit for rotate
+	ROR	R0
+	ROR	R1
+	ROR	R2
+	INC	R4		;adjust exponent
+	BR	1$
+2$:	BGT	99$		;if exponent is too high, we have overflow
+	TST	R0		;test high order word
+	BNE	99$		;if too many digits in mantissa, overflow
+	MOV	R1,R0		;move result to R0,R1
+	MOV	R2,R1
+	TST	R5		;test the sign
+	BEQ	9$		;if positive, branch
+	NEG	R1		;make the value negative
+	ADC	R0
+	NEG	R0
+9$:	CALL	SFCC		;set fcc
+	CALL	CFCC		;copy fcc
+	JMP	PUTDST
+99$:	CLR	R0
+	CLR	R1
+	CALL	SFCC		;set floating cc
+	BIS	#$FC,$FPSR	;set fixed overflow (carry)
+	CALL	CFCC		;copy floating cc to PSW
+	BIT	#$FIC,$FPSR	;fp to int conv. interrupt enabled?
+	BEQ	9$		;if not, branch
+	MOV	#$FINT,$FEC	;set error code
+	JMP	FPEXC
+I.ADDX:	CALL	GETX		;get fsrc
+	BR	$1F
+
+I.SUBX:	CALL	GETX		;get fsrc
+	TST	R0		;zero?
+	BEQ	$1F		;if so, branch
+	ADD	#100000,R0	;negate the value for subtract
+$1F:	TST	R0		;fsrc = 0?
+	BEQ	100$		;if so, branch
+	MOV	ACADD(SP),R5	;load address of ac
+	TST	(R5)		;test ac
+	BEQ	900$		;if 0, branch
+	CALL	UNPACK		;unpack fsrc
+	MOV	R0,-(SP)	;stack fsrc
+	MOV	R1,-(SP)
+	MOV	R2,-(SP)
+	MOV	R3,-(SP)
+	MOV	R4,-(SP)
+	MOV	R5,-(SP)
+	MOV	ACADD+12.(SP),R5 ;load AC address
+	MOV	(R5)+,R0	;load the value
+	MOV	(R5)+,R1
+	MOV	(R5)+,R2
+	MOV	(R5)+,R3
+	CALL	UNPACK		;unpack AC
+	MOV	R4,-(SP)	;save ac exponent
+	SUB	4(SP),R4	;r4=exp(ac)-exp(fsrc)
+	BLT	1$		;if minus, branch
+	BEQ	2$		;if equal, branch
+	CMP	R4,#58.		;more than 58 bits different?
+	BGT	99$		;if so, branch
+20$:	CLC			;clear carry for rotate
+	ROR	12.(SP)		;rotate fsrc to match ac
+	ROR	10.(SP)
+	ROR	8.(SP)
+	ROR	6(SP)
+	DEC	R4		;count
+	BGT	20$		;loop
+	BR	2$
+1$:	NEG	R4		;R4=-R4
+	CMP	R4,#58.		;more than 58 bits different?
+	BGT	101$		;if so, branch
+	MOV	4(SP),(SP)	;adjust exp(ac)
+5$:	CLC			;clear carry for rotate
+	ROR	R0		;rotate ac to match fsrc
+	ROR	R1
+	ROR	R2
+	ROR	R3
+	DEC	R4		;count
+	BGT	5$		;loop
+2$:	MOV	(SP)+,R4	;unstack exp(ac)
+	CMP	R5,(SP)		;compare signs
+	BNE	9$		;if not equal, branch
+	ADD	4(SP),R3	;add the fractions
+	ADC	R2
+	ADC	R1
+	ADC	R0
+	ADD	6(SP),R2
+	ADC	R1
+	ADC	R0
+	ADD	8.(SP),R1
+	ADC	R0
+	ADD	10.(SP),R0
+	BR	98$
+9$:	SUB	4(SP),R3	;subtract fsrc from ac
+	SBC	R2
+	SBC	R1
+	SBC	R0
+	SUB	6(SP),R2
+	SBC	R1
+	SBC	R0
+	SUB	8.(SP),R1
+	SBC	R0
+	SUB	10.(SP),R0
+98$:	ADD	#12.,SP		;clean up the stack
+	BR	SARET
+99$:	ADD	#14.,SP		;clean up the stack
+100$:	CALL	GETAC		;load ac
+	CALL	SFCC		;set fcc
+	BR	999$
+101$:	TST	(SP)+		;delete exp(ac)
+	MOV	(SP)+,R5	;unstack fsrc
+	MOV	(SP)+,R4
+	MOV	(SP)+,R3
+	MOV	(SP)+,R2
+	MOV	(SP)+,R1
+	MOV	(SP)+,R0
+	CALL	PACK		;pack fsrc
+900$:	CALL	PUTAC		;return fsrc
+999$:	JMP	DOEXIT
+I.MULX:	CALL	GETX		;get fsrc
+	CALL	I.MUL		;do the multiply
+
+SARET:	TST	R0		;test high order word
+	BGE	3$		;if positive, branch
+	NEG	R3		;negate result
+	ADC	R2
+	ADC	R1
+	ADC	R0
+	NEG	R2
+	ADC	R1
+	ADC	R0
+	NEG	R1
+	ADC	R0
+	NEG	R0
+	COM	R5		;negate the sign
+3$:	CALL	NORM		;normalize the number
+	CALL	PACK		;pack the result
+	CALL	PUTAC		;return the result in ac
+	JMP	DOEXIT
+I.MODX:	CALL	GETX		;get fsrc
+	CALL	I.MUL		;do the multiply
+	CALL	NORM		;normalize the result
+	MOV	R5,-(SP)	;stack result
+	MOV	R4,-(SP)
+	MOV	R3,-(SP)	;this will be the integer
+	MOV	R2,-(SP)
+	MOV	R1,-(SP)
+	MOV	R0,-(SP)
+	MOV	R3,-(SP)	;this will be the fraction
+	MOV	R2,-(SP)
+	MOV	R1,-(SP)
+	MOV	R0,-(SP)
+	CLR	R0		;bit count
+	MOV	#1000,R1	;bit to be used in BIC
+	MOV	SP,R2		;addressing register
+	MOV	#4,R3		;4 words
+15$:	CMP	R0,R4		;integerize
+	BLT	2$		;if R0 > aexp, do it in the integer
+	BIC	R1,8.(R2)	;clear a bit in the integer
+	BR	3$
+2$:	BIC	R1,(R2)		;clear a bit in the fraction
+3$:	INC	R0		;next bit
+	CLC			;clear carry for rotate
+	ROR	R1		;rotate the clear bit
+	BNE	15$		;loop until done with a word
+	MOV	#100000,R1	;reload the clear bit
+	ADD	#2,R2		;next word
+	DEC	R3		;count
+	BNE	15$		;loop
+	MOV	(SP)+,R0	;load fraction
+	MOV	(SP)+,R1
+	MOV	(SP)+,R2
+	MOV	(SP)+,R3
+	CALL	NORM		;normalize the fraction
+	CALL	PACK6		;pack the fraction
+	CALL	SFCC		;set floating condition codes
+	MOV	ACADD+12.(SP),R5 ;load AC address
+	MOV	R0,(R5)+	;store the fraction
+	MOV	R1,(R5)+
+	MOV	R2,(R5)+
+	MOV	R3,(R5)+
+	MOV	(SP)+,R0	;load integer
+	MOV	(SP)+,R1
+	MOV	(SP)+,R2
+	MOV	(SP)+,R3
+	MOV	(SP)+,R4
+	MOV	(SP)+,R5
+	BIT	#100,WHAT(SP)	;check for odd accumulator #
+	BNE	10$		;if odd, branch
+	CALL	NORM		;normalize the integer
+	CALL	PACK		;pack the integer
+	MOV	ACADD(SP),R5	;load AC address
+	ADD	#8.,R5		;point to AC+1
+	MOV	R0,(R5)+	;store the integer
+	MOV	R1,(R5)+
+	MOV	R2,(R5)+
+	MOV	R3,(R5)+
+10$:	JMP	DOEXIT
+I.DIVX: CALL	GETX		;get fsrc
+	TST	R0		;fsrc = 0?
+	BNE	10$		;if not, branch
+	JMP	DIVZER		;divide by zero interrupt
+10$:	MOV	ACADD(SP),R5	;load address of ac
+	TST	(R5)		;test ac
+	BEQ	100$		;if 0, branch
+	CALL	UNPACK		;unpack fsrc
+	MOV	R0,-(SP)	;stack fsrc
+	MOV	R1,-(SP)
+	MOV	R2,-(SP)
+	MOV	R3,-(SP)
+	MOV	R4,-(SP)
+	MOV	R5,-(SP)
+	MOV	ACADD+12.(SP),R5 ;load AC address
+	MOV	(R5)+,R0	;load the value
+	MOV	(R5)+,R1
+	MOV	(R5)+,R2
+	MOV	(R5)+,R3
+	CALL	UNPACK		;unpack AC
+	INC	R4		;adjust exponent
+	SUB	2(SP),R4	;compute new exponent
+	MOV	R4,2(SP)	;save till later
+	CALL	XORSIGN		;match the signs
+	MOV	R5,(SP)		;save sign
+	CLR	-(SP)		;clear working space
+	MOV	SP,R5		;r5->work space
+	CLR	-(SP)
+	CLR	-(SP)
+	CLR	-(SP)
+	MOV	#1000,R4	;this is a revolving bit
+1$:	CMP	18.(SP),R0	;compare for trial subtraction
+	BLO	2$
+	BHI	3$
+	CMP	16.(SP),R1
+	BLO	2$
+	BHI	3$
+	CMP	14.(SP),R2
+	BLO	2$
+	BHI	3$
+	CMP	12.(SP),R3
+	BHI	3$
+2$:	SUB	12.(SP),R3	;do trial subtraction
+	SBC	R2
+	SBC	R1
+	SBC	R0
+	SUB	14.(SP),R2
+	SBC	R1
+	SBC	R0
+	SUB	16.(SP),R1
+	SBC	R0
+	SUB	18.(SP),R0
+	BIS	R4,(R5)		;use revolving bit
+3$:	ASL	R3		;*2
+	ROL	R2
+	ROL	R1
+	ROL	R0
+	CLC			;clear carry for rotate
+	ROR	R4		;revolve the bit
+	BNE	1$		;if not zero, loop
+	MOV	#100000,R4	;reset the bit
+	TST	-(R5)		;point to next word in quotient
+	CMP	R5,SP		;done?
+	BHIS	1$		;if not, loop
+	MOV	(SP)+,R3	;load result
+	MOV	(SP)+,R2
+	MOV	(SP)+,R1
+	MOV	(SP)+,R0
+	MOV	(SP)+,R5	;restore sign
+	MOV	(SP)+,R4	;restore exponent
+	ADD	#8.,SP		;clean up stack
+	JMP	SARET
+100$:	CALL	GETAC		;load ac
+	CALL	SFCC		;set fcc
+	JMP	DOEXIT
+I.MUL:	TST	R0		;is fsrc 0?
+	BEQ	ZEROIT		;if so, branch
+	TST	@ACADD+2(SP)	;is ac 0?
+	BEQ	ZEROIT		;if so, branch
+	CALL	UNPACK		;unpack fsrc
+	MOV	R0,-(SP)	;stack fsrc
+	MOV	R1,-(SP)
+	MOV	R2,-(SP)
+	MOV	R3,-(SP)
+	MOV	R4,-(SP)
+	MOV	R5,-(SP)
+	MOV	ACADD+14.(SP),R5 ;load AC address
+	MOV	(R5)+,R0	;load the value
+	MOV	(R5)+,R1
+	MOV	(R5)+,R2
+	MOV	(R5)+,R3
+	CALL	UNPACK		;unpack AC
+	DEC	R4		;adjust exponent
+	ADD	R4,2(SP)	;compute new exponent
+	CALL	XORSIGN		;match the signs
+	MOV	R5,(SP)		;save sign
+	MOV	SP,R5		;R5->work space
+	TST	(R5)+		;R5->working value
+	MOV	R0,-(SP)	;stack ac value
+	MOV	R1,-(SP)
+	MOV	R2,-(SP)
+	MOV	R3,-(SP)
+	MOV	R5,-(SP)	;save address
+	ADD	#8.,(SP)	;point to end of value
+	CLR	R0		;clear the result
+	CLR	R1
+	CLR	R2
+	CLR	R3
+	CLR	R4
+10$:	ASL	R4		;revolve the bit
+	BNE	2$		;if not zero, branch
+	INC	R4		;r4=1
+	TST	(R5)+		;point to next word
+2$:	CMP	R4,#2000	;done?
+	BNE	3$		;if not, branch
+	CMP	R5,(SP)		;done?
+	BHIS	99$		;if so, branch
+3$:	CLC			;clear carry for rotates
+	ROR	R0		;/2
+	ROR	R1
+	ROR	R2
+	ROR	R3
+	BIT	R4,(R5)		;0 or 1?
+	BEQ	10$		;if 0, done with this bit
+	ADD	2(SP),R3	;if 1, add
+	ADC	R2
+	ADC	R1
+	ADC	R0
+	ADD	4(SP),R2
+	ADC	R1
+	ADC	R0
+	ADD	6(SP),R1
+	ADC	R0
+	ADD	8.(SP),R0
+	BR	10$
+99$:	ADD	#10.,SP		;clean up stack
+	MOV	(SP)+,R5	;get sign
+	MOV	(SP)+,R4	;get exponent
+	ADD	#8.,SP		;clean up stack
+	RETURN
+NORM:	MOV	R0,-(SP)	;save R0
+	BIS	R1,(SP)		;test for zero
+	BIS	R2,(SP)
+	BIS	R3,(SP)+
+	BNE	1$		;if not zero, branch
+	CLR	R4		;clear the exponent
+	CLR	R5		;clear the sign
+	BR	9$
+1$:	BIT	#176000,R0	;clear high order bits
+	BEQ	2$		;if zero, branch
+	CLC			;clear carry for rotates
+	ROR	R0
+	ROR	R1
+	ROR	R2
+	ROR	R3
+	INC	R4		;adjust exponent
+	BR	1$
+2$:	BIT	#1000,R0	;high order bit set?
+	BNE	9$		;if so, branch
+	ASL	R3
+	ROL	R2
+	ROL	R1
+	ROL	R0
+	DEC	R4		;adjust exponent
+	BR	2$
+9$:	RETURN
+
+ZEROIT:	CLR	R0		;return a true zero
+	CLR	R1
+	CLR	R2
+	CLR	R3
+	RETURN
+
+GETAC:	MOV	ACADD+2(SP),R5	;load AC address
+	MOV	(R5)+,R0	;load the value
+	MOV	(R5)+,R1
+	MOV	(R5)+,R2
+	MOV	(R5)+,R3
+	RETURN
+
+PUTAC:	CALL	SFCC		;set fcc
+	MOV	ACADD+2(SP),R5	;load AC address
+	MOV	R0,(R5)+	;store the result
+	MOV	R1,(R5)+
+	MOV	R2,(R5)+
+	MOV	R3,(R5)+
+	RETURN
+
+XORSIGN: CMP	2(SP),R5	;compare the signs
+	BEQ	1$		;if equal, branch
+	MOV	#-1,R5		;new sign is minus
+	RETURN
+1$:	CLR	R5		;new sign is positive
+	RETURN
+UNPACK:	CLR	R5		;r5=sign
+	ASL	R3		;shift value left
+	ROL	R2
+	ROL	R1
+	ROL	R0		;sign is now in carry
+	ROL	R5		;capture the sign
+	MOV	R0,R4		;get the exponent
+	BEQ	9$		;if value is zero, branch
+	CLRB	R4		;clear mantissa
+	SWAB	R4		;get exponent in lower byte
+	SUB	#200,R4		;remove excess 128
+	BIC	#177400,R0	;get mantissa
+	BIS	#400,R0		;set hidden bit
+	ASL	R3		;shift again to provide 2 guard bits
+	ROL	R2
+	ROL	R1
+	ROL	R0
+9$:	RETURN
+PACK6:	MOV	#14.,-(SP)	;stack # of bytes on the stack
+	BR	PACKIT
+PACK:	MOV	#2,-(SP)	;stack # of bytes on the stack
+PACKIT:	TST	R0		;zero?
+	BEQ	10$		;if zero, branch
+	ADD	#200,R4		;make it excess 128
+	BLE	100$		;if underflow, branch
+	SWAB	R4		;put exponent in high byte
+	BNE	101$		;if overflow, branch
+	ROR	R0		;delete extra guard bit
+	ROR	R1
+	ROR	R2
+	ROR	R3
+	BIC	#177400,R0	;hidden bit disappears
+	BIS	R4,R0		;insert exponent into R0
+	ROR	R5		;put sign in carry bit
+	ROR	R0		;rotate sign in with exponent
+	ROR	R1		;ripple to lower orders
+	BIT	#$FD,$FPSR	;real*8?
+	BNE	8$		;if so, branch
+	BIT	#$FT,$FPSR	;floating chop mode?
+	BNE	5$		;if so, branch
+	ADC	R1
+	ADC	R0
+	BVS	101$
+	BCS	101$
+5$:	CLR	R2		;clear low order bits
+	CLR	R3
+	BR	9$
+8$:	ROR	R2
+	ROR	R3
+	BIT	#$FT,$FPSR	;floating chop mode?
+	BNE	9$		;if so, branch
+	ADC	R3		;round the result
+	ADC	R2
+	ADC	R1
+	ADC	R0
+	BVS	101$
+	BCS	101$
+9$:	TST	(SP)+		;delete # of bytes on the stack
+	RETURN
+10$:	CALL	ZEROIT		;return 0
+	BR	9$
+100$:	ADD	(SP)+,SP	;clean up stack for interrupt
+	JMP	UNDER
+101$:	ADD	(SP)+,SP	;clean up stack for interrupt
+	JMP	OVER
+PUTDST:	BIT	#$FL,$FPSR	;is it int*4?
+	BNE	PUTL		;if so, branch
+	MOV	R1,R0		;use the low order word
+PUTI:	MOV	#2,R5		;return an integer*2
+	BR	PUTINT
+PUTL:	MOV	#4,R5		;assume int*4
+PUTINT:	MOV	R1,-(SP)	;save the result
+	MOV	R0,-(SP)
+	MOV	R5,R0		;r0=amount to change register
+	MOV	WHAT+4(SP),R3	;get fp instruction
+	BIC	#177770,R3	;get register #
+	MOV	R3,R2		;save register number
+	ASL	R3		;*2 for table offset
+	ADD	SP,R3		;add offset to get register address
+	CMP	(R3)+,(R3)+	;allow for stuff on stack
+	MOV	WHAT+4(SP),R4	;get fp instruction
+	BIC	#177707,R4	;get mode
+	BNE	17$		;if not mode 0, branch
+	MOV	(SP)+,R0	;unstack result
+	MOV	(SP)+,R1
+	MOV	R0,(R3)		;return the high order word
+	BR	99$
+17$:	MOV	(R3),R1		;r1=effective address
+	CMP	R4,#10		;mode 1?
+	BEQ	90$		;if so, branch
+	CMP	R4,#20		;mode 2?
+	BNE	20$		;if not, branch
+	CMP	R2,#7		;register 7?
+	BNE	20$		;if not, branch
+	MOV	#2,R5		;use high order only
+	MOV	R5,R0		;update R0
+20$:	BIT	#10,R4		;deferred addressing?
+	BEQ	27$		;if not, branch
+	MOV	#2,R0		;modes 3 or 5 increment(decrement) by 2
+27$:	CMP	R4,#40		;mode 2 or 3?
+	BGE	47$		;if not, branch
+	ADD	R0,(R3)		;increment register contents
+	BR	70$
+47$:	CMP	R4,#60		;mode 4 or 5?
+	BGE	67$		;if not, branch
+	SUB	R0,(R3)		;decrement register contents
+	MOV	(R3),R1		;r1=new EA
+.IF EQ,MMG$T
+	CMP	R2,#6		;changing the SP?
+	BNE	70$		;if not, branch
+	MOV	SP,R2		;save old sp
+	SUB	R0,SP		;set up new sp
+	MOV	SP,R3		;save new sp
+	MOV	#OLDPSW/2+4,R0	;r0=# of words to move
+45$:	MOV	(R2)+,(R3)+	;move words down on stack
+	DEC	R0		;count loop
+	BGT	45$
+.ENDC	
+	BR	70$
+67$:	MOV	R1,-(SP)	;save r1
+	MOV	NEWPC+6(SP),R1	;get address of word following the instruction
+	CALL	GETWRD		;get x
+	MOV	(SP)+,R1	;restore r1
+	ADD	R0,R1		;EA=(r)+x
+	ADD	#2,NEWPC+4(SP)	;pc=pc+2
+70$:	BIT	#10,R4		;deferred addressing?
+	BEQ	90$		;if not, branch
+	CALL	GETWRD		;get word pointed to
+	MOV	R0,R1		;use it as EA
+90$:	BIT	#1,R1		;is the address odd?
+	BEQ	91$		;if not, branch
+	ADD	#4,SP		;clean up the stack
+	JMP	BADFP		;handle illegal instruction
+91$:	MOV	(SP)+,R0	;get high order result
+	CALL	PUTWRD		;return high-order word
+	MOV	(SP)+,R0	;get low order result
+	CMP	R5,#4		;do we want an int*4?
+	BNE	99$		;if not, branch
+	ADD	#2,R1		;point to next word
+	CALL	PUTWRD		;return low-order word
+99$:	JMP	DOEXIT
+GETSRC:	MOV	#4,R5		;assume int*4
+	BIT	#$FL,$FPSR	;is it int*4?
+	BNE	GETINT
+GETI:	MOV	#2,R5		;get an integer*2
+GETINT:	MOV	R5,R0		;r0=amount to change register
+	MOV	WHAT+2(SP),R3	;get fp instruction
+	BIC	#177770,R3	;get register #
+	MOV	R3,R2		;save register number
+	ASL	R3		;*2 for table offset
+	ADD	SP,R3		;add offset to get register address
+	TST	(R3)+		;ALLOW FOR CALL
+	MOV	WHAT+2(SP),R4	;get fp instruction
+	BIC	#177707,R4	;get mode
+	BNE	17$		;if not mode 0, branch
+	MOV	(R3),R0		;get high-order word
+	CLR	R1		;clear low-order word
+	RETURN
+17$:	MOV	(R3),R1		;r1=effective address
+	CMP	R4,#10		;mode 1?
+	BEQ	90$		;if so, branch
+	CMP	R4,#20		;mode 2?
+	BNE	20$		;if not, branch
+	CMP	R2,#7		;register 7?
+	BNE	20$		;if not, branch
+	CMP	R5,#4		;int*4?
+	BNE	20$		;if not, branch
+	ADD	#2,(R3)		;increment PC for immediate mode
+	CALL	GETWRD		;get high-order word in R0
+	CLR	R1		;clear low-order word
+	RETURN
+20$:	BIT	#10,R4		;deferred addressing?
+	BEQ	27$		;if not, branch
+	MOV	#2,R0		;modes 3 or 5 increment(decrement) by 2
+27$:	CMP	R4,#40		;mode 2 or 3?
+	BGE	47$		;if not, branch
+	ADD	R0,(R3)		;increment register contents
+	BR	70$
+47$:	CMP	R4,#60		;mode 4 or 5?
+	BGE	67$		;if not, branch
+	SUB	R0,(R3)		;decrement register contents
+	MOV	(R3),R1		;r1=new EA
+.IF EQ,MMG$T
+	CMP	R2,#6		;changing the SP?
+	BNE	70$		;if not, branch
+	MOV	SP,R2		;save old sp
+	SUB	R0,SP		;set up new sp
+	MOV	SP,R3		;save new sp
+	MOV	#OLDPSW/2+2,R0	;r0=# of words to move
+45$:	MOV	(R2)+,(R3)+	;move words down on stack
+	DEC	R0		;count loop
+	BGT	45$
+.ENDC	
+	BR	70$
+67$:	MOV	R1,-(SP)	;save r1
+	MOV	NEWPC+4(SP),R1	;get address of word following the instruction
+	CALL	GETWRD		;get x
+	MOV	(SP)+,R1	;restore r1
+	ADD	R0,R1		;EA=(r)+x
+	ADD	#2,NEWPC+2(SP)	;pc=pc+2
+70$:	BIT	#10,R4		;deferred addressing?
+	BEQ	90$		;if not, branch
+	CALL	GETWRD		;get word pointed to
+	MOV	R0,R1		;use it as EA
+90$:	BIT	#1,R1		;is the address odd?
+	BNE	BADI1		;if so, invalid instruction
+	CALL	GETWRD		;get high-order word
+	MOV	R0,R4		;save r0
+	CLR	R0		;in case we want int*2
+	CMP	R5,#4		;do we want an int*4?
+	BNE	92$		;if not, branch
+	ADD	#2,R1		;point to next word
+	CALL	GETWRD		;get low-order word
+92$:	MOV	R0,R1		;r1=low-order word
+	MOV	R4,R0		;r0=high-order word
+	RETURN
+	
+BADI1:	TST	(SP)+		;DELETE RETURN ADDRESS
+	JMP	BADFP
+GETX:	MOV	#4,R5		;assume real*4
+	BIT	#$FD,$FPSR	;is it real*8
+	BEQ	1$		;if not, branch
+	MOV	#8.,R5		;real*8
+1$:	MOV	WHAT+2(SP),R1	;get fp instruction
+	BIC	#177770,R1	;get register #
+	MOV	R1,R2		;save register number
+	ASL	R1		;*2 for table offset
+	MOV	R1,R3		;save register offset
+	ADD	SP,R3		;add offset to get register address
+	TST	(R3)+		;ALLOW FOR CALL
+	MOV	WHAT+2(SP),R4	;get fp instruction
+	BIC	#177707,R4	;get mode
+	BNE	17$		;if not mode 0, branch
+	CMP	R2,#6		;accumulator 6 or 7?
+	BHIS	BADI1		;if so, invalid instruction
+	ASL	R1		;compute accumulator offset
+	ASL	R1
+	ADD	PC,R1		;add pc for pic
+	ADD	#$AC0-.,R1	;add offset for accumulator address
+	MOV	R1,DSTEA+2(SP)	;save the effective address
+	MOV	R1,R4
+	MOV	(R4)+,R0	;get the value
+	MOV	(R4)+,R1
+	MOV	(R4)+,R2
+	MOV	(R4)+,R3
+	RETURN
+17$:	MOV	(R3),R1		;r1=effective address
+	CMP	R4,#10		;mode 1?
+	BEQ	90$		;if so, branch
+	CMP	R4,#20		;mode 2?
+	BNE	20$		;if not, branch
+	CMP	R2,#7		;register 7?
+	BNE	20$		;if not, branch
+	ADD	#2,(R3)		;increment PC for immediate mode
+	CALL	GETWRD		;get high-order word in R0
+	CLR	R1		;clear low-order words
+	CLR	R2
+	CLR	R3
+	RETURN
+20$:	BIT	#10,R4		;deferred addressing?
+	BEQ	27$		;if not, branch
+	MOV	#2,R5		;modes 3 or 5 increment(decrement) by 2
+27$:	CMP	R4,#40		;mode 2 or 3?
+	BGE	47$		;if not, branch
+	ADD	R5,(R3)		;increment register contents
+	BR	70$
+47$:	CMP	R4,#60		;mode 4 or 5?
+	BGE	67$		;if not, branch
+	SUB	R5,(R3)		;decrement register contents
+	MOV	(R3),R1		;r1=new EA
+.IF EQ,MMG$T
+	CMP	R2,#6		;changing the SP?
+	BNE	70$		;if not, branch
+	MOV	SP,R2		;save old sp
+	SUB	R5,SP		;set up new sp
+	MOV	SP,R3		;save new sp
+	MOV	#OLDPSW/2+2,R0	;r0=# of words to move
+45$:	MOV	(R2)+,(R3)+	;move words down on stack
+	DEC	R0		;count loop
+	BGT	45$
+.ENDC	
+	BR	70$
+67$:	MOV	NEWPC+2(SP),R1	;get address of word following the instruction
+	CALL	GETWRD		;get x
+	ADD	#2,NEWPC+2(SP)	;pc=pc+2
+	MOV	(R3),R1		;R1=(r)
+	ADD	R0,R1		;EA=(r)+x
+70$:	BIT	#10,R4		;deferred addressing?
+	BEQ	90$		;if not, branch
+	CALL	GETWRD		;get word pointed to
+	MOV	R0,R1		;use it as EA
+90$:	BIT	#1,R1		;is the address odd?
+	BNE	BADI1		;if so, invalid instruction
+	MOV	R1,DSTEA+2(SP)	;save the effective address
+	CALL	GETWRD		;get first word (in R0)
+	MOV	R0,R4		;save till later
+	ADD	#2,R1		;point to next word
+	CALL	GETWRD
+	MOV	R0,R5		;save till later
+	CLR	R2		;in case of real*4
+	CLR	R3
+	BIT	#$FD,$FPSR	;real*8 mode?
+	BEQ	8$		;if not, branch
+	ADD	#2,R1		;point to next word
+	CALL	GETWRD
+	MOV	R0,R2		;get third word
+	ADD	#2,R1		;point to next word
+	CALL	GETWRD
+	MOV	R0,R3		;load fourth word
+8$:	MOV	R4,R0		;get first word
+	MOV	R5,R1		;get second word
+	RETURN
+; DATA AREA
+
+$FPSR:	.WORD	0	;Floating Point Status Register
+	$FER=100000	;Floating ERror
+	$FID=40000	;Interrupt Disable
+	$FPRES=30020	;reserved bits
+	$FIUV=4000	;Interrupt on Undefined Variable
+	$FIU=2000	;Interrupt on Underflow
+	$FIV=1000	;Interrupt on oVerflow
+	$FIC=400	;Interrupt on integer Conversion error
+	$FD=200		;floating Double precision mode
+	$FL=100		;floating Long integer mode
+	$FT=40		;floating chop mode
+	$FN=10		;floating Negative
+	$FZ=4		;floating Zero
+	$FV=2		;floating oVerflow
+	$FC=1		;floating Carry
+$FEC:	.WORD	0	;Floating Exception Code register
+	$FOP=2		;floating opcode error
+	$FDIVZ=4	;floating divide by 0
+	$FINT=6		;floating to integer conversion error
+	$FOVER=8.	;floating overflow
+	$FUNDER=10.	;floating underflow
+	$FUNDF=12.	;floating undefined variable
+$FEA:	.WORD	0	;Floating Exception Address register
+$AC0:	.BLKW	24.	;storage for floating ACcumulators
+
+; END OF HANDLER
+
+	.DRAST	FP,7
+	.DRFIN	FP		;DUMMY INTERRUPT ROUTINE AS NEVER INTERRUPTED
+	.DREND	FP		;DRIVER END
+	.END

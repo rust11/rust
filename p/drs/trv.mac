@@ -1,0 +1,1283 @@
+run$c=0
+rst$c=1
+chg$c=0
+sho$c=0
+set$c=0
+.title	tr - program request trace
+.enabl	lc
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+$drdef
+$hkdef
+$jbdef
+$rmdef
+share = 1
+
+;	%build
+;	goto 'p1'
+;	macro/object:drb:trv drs:trv 
+;	link/nobitmap/execute:drb:trv.sys drb:trv/boundary=1000
+;	trload
+;	goto end
+;
+;	driver:
+;	@drs:check capture TRV
+;	driver
+;	set drb:trv emt
+;	set drb:trv noprint
+;	goto end
+;	@drs:check compare TRV
+;	end:
+;	%end
+
+.macro	drinf$
+$imgdef	TR 4 0
+$imginf fun=drv cre=hammo aut=ijh use=<RUST/SJ EMT trace driver TR:>
+$imgham	yrs=<1979,2004> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:25:00.28>
+;	%edit
+$imgedt <135  >
+.endm
+
+	$csr=0
+	.drdef	tr,377,ronly$!wonly$,0,0,0
+	.drest	class=dvc.ps
+	$drptr
+	$drins	system=no,data=sj
+
+
+;added V5 EMT stuff JFW 14-Apr-82
+;$LINK TR/Execute:TR.SYS/NoBitMap ! else SET TR SHOW crumps
+;Added HardIO conditional and provision to output to another term
+;
+;fixup .error emts for SHARE	
+;supply more information on SHARE emts
+;add support for changes in system variables	
+;cosmetic changes to display formats	
+;widen SET TR SHOW to stop screen overflow
+;TR is growing very large
+;SHARE only conditional for bounded version on kits.
+;INBFPT is not updated for V5
+
+w.pars	=	1
+par	=	1
+
+.macro	meta	m n o p
+.macro	m
+n
+o
+p
+.endm
+.endm
+
+meta <set c d e f g h i j k l><c=d><.iif nb <e>,set e f g h i j k l>
+meta <psh c><mov c,-(sp)>
+meta <pop c><mov (sp)+,c>
+meta <save><.irpc x,<543210>><psh r'x><.endr>
+meta <restore><.irpc x,<012345>><pop r'x><.endr>
+meta <movp c,d><mov pc,d><add c-.,d>	;move immediate only
+meta <on c d><.iif ne <c>,d>
+meta <no c d><.iif eq <c>,d>
+meta <fall c><.iif ne .-c,.error ;fall>
+meta <roof c><.iif gt .-c,.error ;roof>
+
+v.emt	=	30
+userpc	=	40
+usersp	=	42
+jsw	=	44
+ gtlin$	=	10
+ edit$	=	20
+ spxit$	=	40
+ tcbit$	=	100
+ chain$	=	400
+ ovly$	=	1000
+ virt$	=	2000
+ chnif$	=	4000
+ ttspc$	=	10000
+ rstrt$	=	20000	
+ ttlc$	=	40000
+ uswap$	=	100000
+usertop	=	50
+errbyt	=	52
+userrb	=	53
+ succ$	=	1
+ warn$	=	2
+ error$	=	4
+ sever$	=	10
+ fatal$	=	20
+sysptr	=	54
+ dlfg	=	264
+ usrlc$	=	266
+ spusr	=	272
+ sysver =	276
+ config	=	300
+  fbmon$=	1
+  slkmo$=	2
+  batch$=	10
+  sledi$=	20
+  fjob$	=	200
+  gtlnk$=	400
+  queue$=	2000
+ ttks	=	304
+ ttkb	=	306
+ ttps	=	310
+ ttpb	=	312
+ e16lst	=	316
+ usrloc	=	352
+ jobnum	=	322
+ syindx	=	364
+ statwd	=	366
+  ifind	=	4
+  ifactv=	400
+  ifeko$=	2000
+  ifinp	=	100000
+ confg2	=	370
+  ldrel$=	20
+  xitsw$=	40
+ errlev	=	376
+ decnet	=	414
+ extind	=	416
+ indsta	=	417
+  cc$ind= 	4
+  cc$gbl=	10
+  ln$ind=	40
+  in$run=	100
+  in$ind=	200
+ pnptr	=	404
+ $tcfig	=	424
+o.ttyin	=	340	
+o.ttyout=	341
+o.rctrlo=	355
+o.print	=	emt+351
+errpc	=	20
+
+set	cr 15, lf 12, tab 11, space 40
+set	ctrlc 3
+set	br7 340, br0 0
+ $mtps	=	360
+ ha.lqe	=	6
+
+; calculate offset to inbfpt - this is RT-11 version dependent
+
+		 sj.off	=	46		;inbfpt-putpsw
+		 fb.off	=	64		;inbfpt-putpsw
+
+		 sj.inb	=	$mtps+2+sj.off
+.if ne erl$g
+on erl$sj	<sj.inb	=	sj.inb+2>
+.endc
+		 fb.inb	=	fb.off-sj.off
+on erl$g	<fb.inb	=	fb.inb+2>
+on tim$it	<fb.inb	=	fb.inb+2>
+on mmg$t	<fb.inb	=	fb.inb+12>
+.sbttl	show
+
+.asect
+.=176-26
+
+roof	176
+.=200
+nop
+return
+.=212
+
+.if ne sho$c
+.enabl	lsb
+format:	dec	(pc)+
+10$:	.word	5
+	bne	20$	
+newlist:call	newline-zero(r2)
+	mov	#5,10$
+	return
+20$:	.ttyout	#tab
+	return
+.dsabl	lsb
+
+number:	movp	#digits,r3	;get the digits
+	psh	r4
+	clr	r4
+10$:	mov	#'0,r0
+20$:	cmp	r1,(r3)
+	blo	30$
+	sub	(r3),r1
+	inc	r0
+	inc	r4
+	br	20$
+30$:	tst	-(r3)
+	beq	50$
+	tst	r4
+	beq	10$
+	.ttyout	r0
+	br	10$
+50$:	.ttyout	r0
+	pop	r4
+	return
+.endc
+.if ne set$c
+
+$noset:	mov	#-1,r1		;r1=-1=disable
+$set:	psh	r1
+	call	st$drv
+	add	r2,r3		;get the address
+	pop	(r3)		;and set it up
+	return
+.endc
+roof	400			;check the limit
+.=376
+.sbttl	set, run
+
+.if ne set$c
+.if ne run$c
+.drset	RUN,	-1,	run,	NO	;RUN after LOAD; NORUN before REMOVE
+.endc
+.drset	SHOW,	+1,	show		;SHOW the EMT Profile
+.drset	EMT,	$emt-zero, set,	NO	;Report EMTs
+.drset	PRINT,	$prin-zero, set, NO	;Ignore noisy EMTs
+;.drset	query,	$query-zero, set, NO	;Single Step EMTs
+
+show:	jmp	s.show		;goto it
+
+set:	clr	r1		;3 r1=0=enable
+	br	$set		;3 go set it
+
+noset:	br	$noset		;3
+
+.if ne run$c
+run:	neg	r3		;3 r3 = 1
+	nop			;3
+norun:	call	st$drv		;3 r3 = -1
+	psh	#br7		;.mtps #br7
+	call	$mtps(r4)	;call them
+	mov	@#v.emt,r1	; r1 -> emts
+	mov	#tr$pro-t$rbas,r4 ; r4 -> us
+	add	r2,r4		;and relocate it
+	cmp	r3,(r2)		;test init/exit = load/unload
+	beq	50$		;oops, already done
+				;
+	mov	r1,r3		;
+	tst	(r3)+		; r3 -> 2(emt)
+	neg	(r2)		;reverse the state
+	bmi	30$		;its exit
+10$:	cmp	(r1),#4737	;already got a link
+	bne	20$		;nope
+	mov	(r3),-2(r4)	;put us in first
+	mov	r4,(r3)		;
+	br	22$		;easy
+20$:	mov	#4737,(r1)+	;move the call in
+	mov	r4,(r1)+
+	mov	#nop,(r1)+
+
+22$:	br	50$
+	
+30$:	cmp	(r3),r4		;coming to us?
+	beq	40$		;yes
+35$:	mov	(r3),r3		;link forward
+	cmp	-(r3),r4	;is this us?
+	bne	35$		;nope
+	mov	-(r4),(r3)	;move our link in
+	br	44$		;clean up
+
+40$:	tst	-(r4)		;are we the last out?
+	beq	45$		;yep
+	mov	(r4),(r3)	;nope
+44$:	clr	(r4)
+	br	50$
+
+45$:	mov	#042766,(r1)+	;we're the last out
+	mov	#1,(r1)+
+	mov	#2,(r1)+
+50$:	clr	-(sp)		;restore ps
+	mov	@#j$bsys,r4	;
+	call	$mtps(r4)	;thuswise
+60$:	clc
+.endc
+st$ret:	return
+
+st$drv:	mov	@#j$bsys,r4		;
+	mov	r4,r2			; find driver in memory
+	add	rm.pnp(r4),r2		; point to pnames
+	mov	r2,r1			; r1 -> start of pnames
+10$:	cmp	(r2)+,#-1		; walk through pnames and hentries
+	bne	10$			; end must be found
+	tst	-(r2)			; back off one
+	sub	r1,r2			; adjust it
+	asr	r2			; that's the end of them
+	mov	r2,r0			; r0 = table length
+	add	r1,r2			; r2 -> end of pnames
+20$:	cmp	-(r2),#^rtr		; this us?
+	beq	30$			; yes
+	cmp	r2,r1			; more permanent names?
+	bne	20$			; yep, keep looking
+	br	40$			; nope, not installed.
+30$:	add	r0,r2			; offset to entry point table
+	mov	(r2),r2			; get the entry point
+	beq	40$			; oops, not loaded
+	add	#t$rbas-trstrt-ha.lqe,r2; >> r2 -> d$bbas
+	return				;
+40$:	com	(sp)+			; c=1> skip return; Illegal command
+	br	st$ret			;
+.endc
+
+roof	1000
+
+.drbeg	tr
+zero:
+t$rbas:
+loaded:	.word	-1
+t$rmsk:	.word	0		; bic #msk,2(sp)
+.drast	tr,br7
+.drfin	tr
+.sbttl	catch emts
+
+set $pc 5+2*2, $ps $pc+2, $old1 $ps+2
+set $r0 0, chan -2, subcode -3
+set arg5 -4, arg4 -6, arg3 -10, arg2 -12
+set arg1 -14, arg0 -16
+meta <type c><jsr r1,type><.ascii /c/<200>><.even>
+
+link:	.word	0		;emt link chain
+tr$pro:	save			;look at the request
+	br	code		;
+
+.if ne sho$c
+.enabl	lsb
+s.show:	call	st$drv		;get the slot
+	psh	r5		;save this guy
+	movp	#lists,r5	;get the lists
+10$:	call	newlist		;got a new one
+	mov	(r5)+,r4	;get the next
+	beq	60$		;
+	add	r2,r4		;get the real address
+20$:	mov	(r4)+,r1	;get the number
+.if ne w.pars			;				w.pars
+	tst	(r4)+		;skip the goto
+.endc				;				end
+30$:	movb	(r4)+,r0	;print the title
+	beq	40$		;no more
+	.ttyout
+	br	30$
+40$:	.ttyout	#tab
+	call	number		;print the number
+;	.ttyout	#tab		;put a tab out
+	inc	r4
+	bic	#1,r4
+	tst	2(r4)		;end of them all?
+	beq	10$		;yep, do the next list
+	call	format
+	br	20$
+60$:	pop	r5		;restore this guy
+	return
+.dsable	lsb
+.endc
+
+code:	mov	sp,r5		;this stays here
+on par	<sub	#-arg0,sp>	;push down
+on par	<mov	sp,r1>		;to collect args
+5$:	bic	#1,$ps(r5)	;clear the c-bit
+	mov	$pc(r5),r3	;point to the emt
+	mov	-(r3),r2	;get the emt
+	cmpb	r2,#o.ttyin	;is this a ttyin?
+	beq	$ttyin		;yep, ignore it
+	cmpb	r2,#o.ttyout	;a ttyout?
+	beq	$ttyout		;these two are ignored
+	bit	#1,@#v.emt+2	;VL inhibiting report?
+	bne	rt.go2		;yep. get out
+	tst	(pc)+		;ignoring print?
+$prin:	.word	-1		;default is NOPRINT
+	bpl	6$		;nope
+	cmpb	r2,#o.print	;print?
+	beq	rt.go2
+	cmpb	r2,#o.rctrlo	;rctrlo?
+	beq	rt.go2
+
+	psh	@#sysptr	;is this share?
+	cmp	@(sp)+,#137	;?
+	bne	6$		;nope
+	cmpb	r2,#365		;this print,ttin,ttou?
+	blo	6$		;nope
+	cmpb	r2,#370		;really?
+	blos	rt.go2		;yes
+6$:	cmpb	r2,#374		;new style?
+	bhis	new374		;yep
+	mov	r2,r3		;copy for the channel
+	bic	#17,r2		; r2 = code
+on par	<bic	r2,r3>		; r3 = channel
+on par	<mov	r3,chan(r5)>	;save it
+	cmpb	r2,#340		;emt 16 list?
+	beq	old340		;yep, get this list
+	tst	ignore		;skipping errors?
+	beq	10$		;nope
+	cmpb	r2,#360		;internal errors?
+	beq	rt.go2		;yep, ignore these
+10$:	asr	r2
+	asr	r2
+	asr	r2
+	asr	r2
+	bic	#^c17,r2	;get the code
+	br	old375		;join the common stuff
+
+lists:	.word	e340l-zero,e374l-zero,e375l-zero			;JFW
+	.word	tgval-zero,tplas-zero,tmtt-zero,e376l-zero,0		;JFW
+	.word	1,10.,100.,1000.	; this shares 0 of prev list	;JFW
+digits:	.word	10000.
+
+old340:	mov	r3,r2		;get the code
+	bic	#^c17,r2
+	movp	#e340l,r4
+	br	oldcom
+
+new374:	bhi	new375
+on par	<mov	r0,chan(r5)>	;save it
+	swab	r0		;get the code
+	movb	r0,r2		;get the subcode
+	movp	#e374l,r4	;and the list
+	br	 count		;go count it
+
+new375:	sub	#emt+376,r2	;make emt376/emt377 codes
+	bhis	new376		;its 376/377
+	movp	#e375l,r4
+on par	<mov	(r0),chan(r5)>	;save it
+	tstb	(r0)+		;skip the channel
+	movb	(r0)+,r2	;get the code
+on par	<mov	(r0)+,(r1)+>	;save arg0
+	br	com375
+old375:	movp	#e375l,r4
+oldcom:
+on par	<mov	r0,(r1)+>	;save arg0
+on par	<mov	r5,r0>		;point to the stack
+on par	<add	#$old1,r0>	;point to old arg1
+com375:
+on par	<mov	(r0)+,(r1)+>	;
+on par	<mov	(r0)+,(r1)+>	;
+on par	<mov	(r0)+,(r1)+>	;
+on par	<mov	(r0)+,(r1)+>	;
+on par	<mov	(r0)+,(r1)+>	;
+	br	count
+
+$ttyout:mov	sp,column
+$ttyin:	mov	sp,(pc)+	;remember what we're doing
+ignore:	.word	0
+rt.go2:	br	rt.go3
+
+new376:	movp	#e376l,r4
+	fall	count
+.sbttl	report
+
+count:
+	dec	r2		;count the entry
+	bmi	20$		;its this one
+	tst	(r4)+		;skip the count
+on par	<tst	(r4)+>		;skip the goto
+10$:	tstb	(r4)+
+	bne	10$
+	inc	r4
+	bic	#1,r4
+	tst	2(r4)		;end of them?
+	bne	count		;nope
+15$:	movp	#illemt,r4	;it was illegal
+20$:	inc	(r4)+		;step up the count
+on par	<bit	#1,@r4>		;is the chan a subsubcode?		;JFW+
+on par	<beq	21$>		; no, continue as before
+on par	<mov	@r4,r4>		; get table address (offset)
+on par	<add	pc,r4>		; make pic
+subase=.
+	dec	r4		; account for +1 in entry
+on par	<movb	chan(r5),r2>	; new index value
+on par	<br	count>		; redispatch
+21$:									;JFW-
+on par	<mov	(r4)+,r3>	;save the goto
+
+	tst	(pc)+		;we printing?
+$emt=.
+	.word	0
+	bmi	50$		;nope
+	tst	column		;do we need a new line?
+	beq	25$		;nope
+	call	newline		;get a newline
+25$:
+.if ne chg$c
+	call	change		;check for changes first
+.endc
+	mov	$pc(r5),r1	;get the pc
+	call	octal		;print it
+	type	<	.>	;start off the emt
+30$:	movb	(r4)+,r0	;get the next
+	beq	40$		;it was the last
+	.ttyout
+	br	30$
+40$:
+on par	<call	pars>		;go get the rest
+	tst	(pc)+		;should we query?
+$query=.
+	.word	-1
+	bmi	45$		;nope
+	type	< ?>		;type a question mark
+44$:	.ttyin			;get anything
+	sub	#lf,r0		;is it lf?
+	bne	44$
+	clr	column		;
+	br	46$		;skip the newline
+45$:	call	newline
+46$:	mov	$pc(r5),r4	;get it
+	cmp	-(r4),#o.print	;was it a print?
+	bne	50$		;nope
+	mov	sp,column	;yep
+50$:
+rt.go:	clr	ignore		;we catch the next error
+rt.go3:	mov	r5,sp		;restore the stack
+	restore
+	psh	link		;got another
+	bne	10$		;yep
+	tst	(sp)+		;nope
+10$:	return
+
+newline:.ttyout	#cr
+	.ttyout	#lf
+	clr	(pc)+
+column:	.word	0
+	return
+
+; number, octal,  r1 = number, r2,r5,r4 safe
+
+octal:	psh	r4	;save it
+	psh	r3
+	psh	r1
+	mov	#111111,r3 ;loop control.
+	clr	r4	;their once was a glichette named brigette
+1$:	clr	r0	;who fancied the occassional fidget
+2$:	asl	r1	;well, its fetch a bit here
+	rol	r0	;and fudge a bit there
+3$:	asl	r3	;when it itches, ya just find ya digit
+	bcc	2$	;keep fiddling
+	beq	4$	;must print the final digit
+	bis	r0,r4	;set the print flag
+	beq	1$	;nothing to print so far
+4$:	add	#60,r0	;start or continue printing
+	.ttyout		;print the digit
+	tst	r3	;done all digits ?
+	bne	1$	;nope, go scritch it
+	pop	r1
+	pop	r3
+	pop	r4
+	return
+.sbttl	emt lists
+
+.if eq w.pars
+meta <enter c><.word 0><.asciz /c/><.even>
+.iff
+meta <enter c><.word 0,c-jump><.asciz /c/><.even>
+.endc
+meta <entry c d e f g h i j k l><enter c><.iif nb <d>,entry d e f g h i j k l>
+
+e340l:
+entry	ttyin,ttyout,dstat,fetch,csigen,csispc,lock,unlock
+.if ne rst$c
+entry	exit,print,sreset,qset,settop,rctrlo,world,hreset
+.iff
+entry	exit,print,sreset,qset,settop,rctrlo,astx,hreset
+.endc
+	.word	0,0
+
+e374l:
+entry	wait,spnd,rsum,purge,serr,herr,close,tlock,chain,mwait
+entry	date,abtio							;JFW
+	.word	0,0
+
+e375l:
+entry	delete,lookup,enter,trpset,rename,savest,reopen,close,read,writ
+entry	wait,chcopy,device,cdfn,e16lis,error,gtjb,gtim,mrkt,cmkt
+entry	twait,sdat,rcvd,cstat,sfpa,protec,spfun,cntxsw,getput,scca	;JFW
+entry	plas,mtty,sdttm,spcps,sfdat,fprot,sfinf,closz			;JFW
+	.word	0,0
+tgval:									;JFW+
+entry	gval,peek,pval,poke
+	.word	0,0
+tplas:
+entry	crrg,elrg,craw,elaw,map,unmap,gmcx
+	.word	0,0
+tmtt:
+entry	mtset,mtget,mtin,mtout,mtrcto,mtatch,mtdtch,mtprnt,mtstat
+	.word	0,0							;JFW-
+e376l:
+entry	emt376,emt377
+illemt:
+entry	bademt
+	.word	0,0
+.word 0
+.sbttl	parameter support
+.if ne w.pars
+
+meta <usual c,d><.nchr $,c><.word d+<$-1/3>>
+meta <octal c,d><jsr r3,$octal><usual c,d><.rad50 /c/>
+meta <octab c,d><jsr r3,$octat><usual c,d><.rad50 /c/>
+meta <octav c,d><jsr r3,$octav><usual c,d><.rad50 /c/>
+meta <devnam c,d><jsr r3,$devnam><usual c,d><.rad50 /c/>
+meta <filnam c,d><jsr r3,$filnam><usual c,d><.rad50 /c/>
+
+pars:	add	r3,pc		;continue the call
+jump:
+getput=tgval+1+jump-subase						;JFW+
+plas=tplas+1+jump-subase
+mtty=tmtt+1+jump-subase							;JFW-
+
+$octat:	type	<	>
+$octal:	call	$usual		;do the general stuff
+	br	retspc		;
+$octav:	call	$usual
+	rts	r3
+$devnam:call	devcom
+	br	retspc
+devcom:	call	$usual		
+	.ttyout	#'=
+	bic	#1,r1		;get the filename
+	call	unpr1
+	.ttyout	#':
+	return
+$filnam:call	devcom
+	tst	(r1)		;non-file structured?
+	beq	10$		;yep
+	call	unpr1
+	call	unpr1
+	.ttyout	#'.
+	call	unpr1
+10$:
+retspc:	.ttyout	#space
+	rts	r3
+
+$usual:	psh	(r3)+		;save the offset
+;	.ttyout	#space		;put a space in
+	call	unpack		;unpack one
+	bit	#1,(sp)		;got two?
+	beq	10$		;nope
+	call	unpack
+	bic	#1,(sp)
+10$:	.ttyout	#'=
+	pop	r1
+	add	r5,r1		;get the actual address
+	mov	(r1),r1		;get the actual value
+	call	octal
+	return
+
+type:	.ttyout	(r1)+
+	tstb	(r1)
+	bpl	type
+	cmpb	(r1)+,(r1)+
+	bic	#1,r1
+	rts	r1
+
+unpr1:	psh	r5
+	psh	r4
+	mov	(r1)+,r4
+	br	unpcom
+
+unpack:	psh	r5
+	psh	r4
+	mov	(r3)+,r4	;get the word
+unpcom:	movp	#100$,r5	;get the divisors
+20$:	mov	#-1,r0		;init the result
+	cmp	#174777,r4	;is it an *
+	blo	50$		;yep
+30$:	inc	r0		;next character
+	sub	(r5),r4		;this it?
+	bcc	30$		;nope
+	add	(r5),r4		;bump back
+	tst	r0		;a null?
+	beq	90$		;yep, forget it
+	cmp	#33,r0		;nah?
+	blo	70$
+	beq	80$
+	add	#'a-'A,r0	;get lower case
+50$:	add	#56,r0
+70$:	add	#11,r0
+80$:	add	#11,r0
+	.ttyout			;type it
+90$:	tst	-(r5)		;any more?
+	bne	20$		;yep
+95$:	pop	r4
+	pop	r5
+	return
+	.word	0,1,50
+100$:	.word	50*50
+.endc				;				w.pars
+.sbttl	emt driver routines
+.if ne w.pars			;				w.pars
+
+error:	psh	@#sysptr	;get the system
+	cmp	@(sp)+,#137	;is this RUST?
+	beq	20$		;yes - do RUST emt's
+10$:	type	<	code=>
+	movb	chan(r5),r1
+	call	octal		;print it
+	type < at >
+	mov	$pc+errpc(r5),r1;and the location
+	jmp	octal
+
+20$:	movb	chan(r5),r1	;get the subcode
+	cmpb	r1,#5		;this one of ours?
+	bhis	10$		;nope
+	asl	r1		;nope get an offset
+	jsr	r1,30$		;relocate
+	.rad50	/treset/
+	.rad50	/idle/
+	.rad50	/feed/
+	.rad50	/abort/
+	.rad50	/fatal/
+30$:	type	<	rust=>
+	add	(sp)+,r1	;point to it
+	call	unpr1		;unpack the first
+	jmp	unpr1		;and the second
+
+emt376:	mov	@$pc(r5),r1	;get the error code
+	clrb	r1		;forget the low byte
+	swab	r1		;get the high one
+	bpl	10$		;its already positive
+	comb	r1		;make it positive
+10$:	incb	r1		;plus one
+	type	< herr code=->	;a negative number
+	jmp	octal		;and print it
+ttyin:
+ttyout:
+e16lis:
+emt377:
+
+world:
+lock:
+unlock:
+sreset:
+rctrlo:
+astx:
+hreset:
+spnd:
+rsum:
+herr:
+serr:
+tlock:
+mwait:
+date:	return
+
+;	ours		old		375		374
+;	chan(r5)	subcode+chan	(r0)		r0
+; addr	arg0(r5)	r0		2(r0)		-
+;	arg1(r5)	(sp)		4(r0)		-
+;	arg2(r5)	2(sp)		6(r0)		-
+;	arg3(r5)	4(sp)		10(r0)		-
+;	arg4(r5)	6(sp)		12(r0)		-
+
+bademt:	mov	$pc(r5),r2
+	mov	-(r2),r1
+	type	<	emt=>
+	call	octal
+	type	< >
+	octal	<r0>,$r0
+	mov	$r0(r5),r1
+	bit	#1,r1		;odd?
+	bne	10$		;yes, ignore it
+	cmp	r1,pc		;too high?
+	bhi	10$		;yep
+	type	<(r0)=>
+	mov	(r1),r1
+	call	octal
+10$:	return
+
+;	opr: 0=get, 1=bic, 2=bis, 3=mov
+
+sfinf:	call	dircom
+	octal	<value>,arg1
+	psh	arg2(r5)
+	bic	#^c377,arg2(r5)
+	octav	<opr>,arg2
+	type	<=>
+	movb	(sp),r0
+	cmp	r0,#4
+	blo	10$
+	mov	#4,r0
+10$:	asl	r0
+	mova	20$,r3
+	add	r0,r3
+	call	unpack
+	type	< >
+	clrb	(sp)
+	swab	(sp)
+	pop	arg2(r5)
+	octal	<off>,arg2
+	return
+
+20$:	.rad50	/getbicbismovbad/
+
+fprot:	call	dircom							;JFW+
+	octal	<prot>,arg1
+	return
+
+sfdat:	call	dircom
+	octal	<date>,arg1
+	return								;JFW-
+lookup:
+delete:	call	dircom
+	octal	<seq>,arg1	;
+	br	collect
+
+enter:	call	dircom		;chan, dblk
+	octal	<len>,arg1	;
+	octal	<seq>,arg2	;
+	br	collect
+
+rename:	call	p.chan
+	filnam	<from>,arg0
+	add	#10,arg0(r5)	;point to the next
+	filnam	<to>,arg0	;
+collect:bit	#1,arg0(r5)	;usr collect?
+	beq	10$		;nope
+	octal	<extra>,arg3	;yep
+10$:	return
+
+dircom:	call	p.chan
+	filnam	<dblk>,arg0
+	return
+
+dstat:	call	p.dnam
+	octal	<retspc>,arg1
+	return
+
+fetch:	octab	<addr>,arg1
+	br	p.dnm2
+releas:
+p.dnam:	type	<	>
+p.dnm2:	devnam	<dnam>,arg0
+	return
+
+csispc:	cmp	arg3(r5),#1	;this a gtlin?
+	beq	gtlin		;yes
+	cmp	arg3(r5),#3	;this a gtlin
+	beq	gtlin		;
+	octab	<outspc>,arg3
+	br	csicom
+
+gtlin:	type	<	(gtlin>
+	cmp	arg3(r5),#3	;this a term gtlin?
+	bne	10$		;no
+	type	<=term>		;yes
+10$:	type	<) >		;a gtlin
+	octal	<linbuf>,arg4
+	octal	<prompt>,arg2
+	mov	arg2(r5),r1	;get the prompt (if any)
+	br	csigln		;do the common stuff
+
+csigen:	octab	<devspc>,arg3
+csicom:	octal	<defext>,arg2	;1=gtlin for csispc=345
+	octal	<cstrng>,arg1
+	bit	#1,arg3(r5)	;linbuf?
+	beq	1$		;nope
+	octal	<linbuf>,arg4	;yep
+1$:	mov	arg1(r5),r1	;get the string
+csigln:	beq	10$		;oops, no string
+	mov	r1,r0		;find the end of it
+	mov	#16.,r2		;space remaining on line
+2$:	tstb	(r0)+		;find the end of it
+	ble	5$		;end of it - room on this line
+	dec	r2		;any more room?
+	bpl	2$		;yes
+	call	newline		;print a line
+	type	<	>	;type a tab
+5$:	movb	(r1)+,r0	;get the next
+	ble	10$		;thats all
+	cmpb	r0,#cr		;this a return?
+	bne	6$		;nope
+	type	<[cr]>
+	br	5$		;
+6$:	cmpb	r0,#lf
+	bne	7$
+	type	<[lf]>
+	br	5$		;
+7$:	.ttyout			;type it
+	br	5$		;and do the rest
+
+10$:	return
+
+sdat:
+rcvd:	movb	#'w,r0		;assume wait
+	cmp	arg3(r5),#1	;what is it?
+	beq	10$		;.read
+	blo	5$		;.readw
+	movb	#'c,r0		;.readc
+5$:	.ttyout			;put it out
+10$:	call	p.chan
+	octal	<buf>,arg1
+	octal	<wcnt>,arg2
+	octal	<crtn>,arg3
+	return
+
+	.enabl	lsb
+closz:	call	p.chan
+	br	10$
+writ:	tst	arg3(r5)	;this a plain write?
+	bne	read		;nope
+	type	<e>		;yes
+read:	call	rcvd
+10$:	octal	<blk>,arg0
+	return
+	.dsabl	lsb
+
+spfun:	call	p.chan
+	octal	<func>,arg3
+	octal	<buf>,arg1
+	octal	<wcnt>,arg2
+	octal	<blk>,arg0
+	octal	<crtn>,arg4						;JFW
+	return
+
+abtio:									;JFW
+close:
+purge:
+wait:
+p.chan:	type	<	chan=>
+	clr	r1			;clear the register
+	bisb	chan(r5),r1		;avoid sign extension
+;	movb	chan(r5),r1
+	call	octal
+	type	< >
+	return
+
+scca:	call	p.addr
+	tstb	chan(r5)
+	beq	10$
+	type	<global >
+10$:	return
+
+cstat:	call	p.chan
+	octal	<addr>,arg0
+	return
+
+print:
+mtt:
+cntxsw:
+gtim:
+sdttm:
+settop:
+sfpa:
+spcps:
+trpset:
+craw:
+crrg:
+elaw:
+elrg:
+map:
+gmcx:
+unmap:
+peek:
+mtstat:
+p.addr:	octab	<addr>,arg0
+	return
+
+cdfn:	call	p.addr
+	octal	<num>,arg1
+	return
+
+chain:	mov	#500,arg0(r5)	;fudge the address
+	type	<	>
+	filnam	<file>,arg0
+	br	exit		;and report the exit
+
+cmkt:	octab	<id>,arg0
+	octal	<time>,arg1
+	return
+
+chcopy:	call	p.chan
+	octal	<ochan>,arg0
+	br	jbcom
+
+gtjb:	octab	<addr>,arg0
+jbcom:	tstb	subcode(r5)	;V4 style?
+	beq	10$		;nope
+	octal	<jobblk>,arg1	;-1=ME, -3=none, else address
+10$:	return
+
+device:	call	p.addr
+	tstb	subcode(r5)
+	beq	10$
+	type	<link>
+10$:	return
+
+exit:	octab	<R0>,$r0
+	return			;
+
+gval:
+p.ofst:	octab	<offset>,arg0
+	return
+
+pval:	call	p.ofst							;JFW+
+	br	value
+
+poke:	call	p.addr
+value:	octal	<value>,arg1
+	return
+
+mtatch:
+mtget:
+mtprnt:
+mtset:	call	p.addr
+	br	mtcom
+mtrcto:
+mtdtch:	type	<	>
+mtcom:	psh	arg1(r5)
+	bic	#^c377,arg1(r5)
+	octal	<unit>,arg1
+	swab	@sp
+	pop	arg1(r5)
+	return
+
+mtin:
+mtout:	call	mtset
+	bic	#^c377,arg1(r5)
+	octal	<count>,arg1
+	return								;jfw-
+
+mrkt:	call	twait
+	octal	<crtn>,arg1
+	octal	<id>,arg2
+	return
+
+twait:	octab	<time>,arg0
+	return
+
+protec:	call	p.addr
+	tstb	subcode(r5)
+	beq	10$
+	type	<unprotect>
+10$:	return
+
+qset:	octab	<addr>,arg1
+	octal	<len>,arg0
+	return
+
+savestatus:
+reopen:	call	p.chan
+	octal	<cblk>,arg0
+	return
+
+.endc				;				end
+.if ne chg$c
+.sbttl	changes
+
+; report changes in system variables
+;
+;	mov	addr,r2		;r2 = address
+;	jsr	r1,change
+; 00	.word	state		;previous state
+; 02	.rad50	/state/		;name of the state
+;
+; 06	.word	mask
+; 10	.word	bit,^rvar,^rnam
+;
+.macro	CHANGE	a,t,name,v=0
+	mov	a,r2
+	jsr	r1,cha't
+	.word	v
+	.rad50	/name/
+.endm
+
+.macro	BITS	d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s
+	.word	^c<d+e+f+g+h+i+j+k+l+m+n+o+p+q+r+s+0>
+.irp	x,<d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s>
+.if nb <x>
+	.word	x
+	.rad50	/x/
+.endc
+.endr
+	.word	-1
+.endm
+.macro	word	d
+	.word	0		;mask is zero
+	.word	-1		;no options
+.endm
+
+change:	mov	@#sysptr,r0		;get the system
+	bit	#fbmon$,config(r0)	;is this FB?
+	beq	10$			;nope - do all changes
+	tst	jobnum(r0)		;is this the BG?
+	bne	20$			;nope - ignore syscom
+10$:	change	#userpc,abs,<userpc>,v=-1
+	word
+	change	#usersp,abs,<usersp>
+	word
+
+	change	#jsw,abs,<jsw   >
+bits	ttlc$,rstrt$,ttspc$,chnif$,virt$,ovly$,chain$,tcbit$,spxit$,edit$,gtlin$
+
+	change	#userto,abs,<userto>
+	word
+
+fatal$=fatal$*400
+sever$=sever$*400
+error$=error$*400
+warn$=warn$*400
+succ$=succ$*400
+
+	change	#userrb-1,abs,<userrb>
+	bits	fatal$,sever$,error$,warn$,succ$
+	
+20$:	change	#dlfg,sys,<dflg>
+	word	
+
+	change	#spusr,sys,<spusr>
+	word
+
+	change	#config,sys,<config>
+	bits	queue$,gtlnk$,fjob$,sledi$,batch$,slkmo$
+
+	change	#ttks,sys,<ttks>,v=177560
+	word
+	change	#ttkb,sys,<ttkb>,v=177562
+	word
+	change	#ttps,sys,<ttps>,v=177564
+	word
+	change	#ttpb,sys,<ttpb>,v=177566
+	word
+
+;	change	#usrloc,sys,<usrloc>
+;	word
+
+	change	#statwd,sys,<statwd>
+	bits	ifinp,ifeko$,ifactv,ifind
+
+	change	#confg2,sys,<confg2>
+	bits	xitsw$,ldrel$
+
+fatal$=fatal$/400&377
+sever$=sever$/400&377
+error$=error$/400&377
+warn$=warn$/400&377
+succ$=succ$/400&377
+	change	#errlev,sys,<errlev>v=fatal$!sever$!error$
+	bits	fatal$,sever$,error$,warn$,succ$
+
+cc$ind=cc$ind*400
+cc$gbl=cc$ind*400
+in$ind=in$ind*400
+in$run=in$run*400
+ln$ind=ln$ind*400
+	mov	@#sysptr,r0	;get it again
+	cmpb	sysver(r0),#5	;this five or later?
+	blo	30$		;nope
+	change	#indsta-1,sys,<indsta>
+	bits	in$ind,in$run,ln$ind,cc$ind,cc$gbl
+30$:	return
+
+chasys:	add	@#sysptr,r2	;offset to system table
+chaabs:	psh	r1		;4(sp)	calling r1
+	mov	(r2),-(sp)	;2(sp)	current value
+	bic	6(r1),(sp)	;clean it up
+	cmp	(sp),(r1)	;any change
+	beq	400$		;nope
+	psh	(r1)+		;0(sp)	yes - get a copy
+	psh	r1		;save this
+	mov	r2,r1		;display the location
+	call	octal		;show it
+	type	<	 >	;tab in & space
+	pop	r1		;get r1 back
+
+	call	unpr1		;type the name
+	call	unpr1		;
+	type	<	>	;
+	tst	(r1)+		;skip the mask
+	bne	10$		;its a bitmap
+	psh	r1		;save this
+	mov	4(sp),r1	;get the new value
+	call	octal		;type it
+	pop	r1		;get r1 back
+	br	380$		;
+
+10$:	clr	r0		;
+	bit	(r1),(sp)	;was this already set?
+	beq	20$		;nope
+	tst	(r0)+		;r0=2
+20$:	bit	(r1)+,2(sp)	;just been set?
+	beq	30$		;nope
+	cmp	(r0)+,(r0)+
+30$:	add	r0,pc		;dispatch it
+	br	300$		;wasn't set and isn't set
+	br	110$		;was set and isnt set
+	br	120$		;wasn't set and is set
+	br	200$		;was set and is set
+110$:	type	<->		;this just went on
+	br	200$		;join the common
+120$:	type	<+>		;
+200$:	call	unpr1		;type it
+	call	unpr1		;
+	type	< >		;put in a space
+	cmp	-(r1),-(r1)	;backup
+300$:	cmp	(r1)+,(r1)+	;skip forward
+	cmp	(r1),#-1	;got anymore?
+	bne	10$		;yep
+
+380$:	call	newline		;get a new line
+	tst	(sp)+		;pop the compare
+400$:	cmp	(r1)+,#-1	;look for the end
+	bne	400$		;
+500$:	mov	(sp)+,@(sp)+	;change the old value
+	rts	r1
+.endc
+
+	.blkw	20		;needed for sysgen
+.drend	tr
+.sbttl	load/unload
+.psect	trload
+
+dr$fet:
+dr$loa:	mov	#1,r3
+	br	tr$ser
+dr$rel:
+dr$unl:	mov	#-1,r3
+tr$ser:	mov	@#j$bsys,r4	;
+	mov	(r5),r2		;
+	add	#zero-trstrt-ha.lqe,r2
+
+	psh	#br7		;.mtps #br7
+	call	$mtps(r4)	;call them
+	mov	@#v.emt,r1	; r1 -> emts
+	mov	#tr$pro-t$rbas,r4 ; r4 -> us
+	add	r2,r4		;and relocate it
+	cmp	r3,(r2)		;test init/exit = load/unload
+	beq	50$		;oops, already done
+				;
+	mov	r1,r3		;
+	tst	(r3)+		; r3 -> 2(emt)
+	neg	(r2)		;reverse the state
+	bmi	30$		;its exit
+10$:	cmp	(r1),#4737	;already got a link
+	bne	20$		;nope
+	mov	(r3),-2(r4)	;put us in first
+	mov	r4,(r3)		;
+	br	22$		;easy
+20$:	mov	#4737,(r1)+	;move the call in
+	mov	r4,(r1)+
+	mov	#nop,(r1)+
+
+22$:	br	50$
+	
+30$:	cmp	(r3),r4		;coming to us?
+	beq	40$		;yes
+35$:	mov	(r3),r3		;link forward
+	cmp	-(r3),r4	;is this us?
+	bne	35$		;nope
+	mov	-(r4),(r3)	;move our link in
+	br	44$		;clean up
+
+40$:	tst	-(r4)		;are we the last out?
+	beq	45$		;yep
+	mov	(r4),(r3)	;nope
+44$:	clr	(r4)
+	br	50$
+
+45$:	mov	#042766,(r1)+	;we're the last out
+	mov	#1,(r1)+
+	mov	#2,(r1)+
+50$:	clr	-(sp)		;restore ps
+	mov	@#j$bsys,r4	;
+	call	$mtps(r4)	;thuswise
+60$:	clc
+	return
+
+drinf$
+.end
+

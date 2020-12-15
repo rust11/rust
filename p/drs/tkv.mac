@@ -1,0 +1,192 @@
+.title	tkv - terminal-as-clock driver
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+$cndef		;config
+$dcdef		;device codes
+$dedef		;device
+$drdef		;driver
+$dsdef		;driver status
+$emdef		;emts
+$jbdef		;job
+$rmdef		;rmon
+$psdef		;psw
+$vedef		;vectors
+tkvec.=304	;default csr
+tkcsr.=176504	;default vector
+
+;	TK: - terminal clock
+;
+;	%build
+;	macro drs:tkv/object:drb:tkv
+;	link drb:tkv/execute:drb:tkv.sys/nobitmap/map=drb:tkv
+;	!set driver drb:tkp/22bit
+;	!set driver drb:tkv csr=176504,vector=304,speed=9600
+;	@drs:check capture TKV
+;	driver
+;	set drb:tkv csr=176504
+;	set drb:tkv vector=304
+;	set drb:tkv speed=9600
+;	exit
+;	@drs:check compare TKV
+;	%end
+
+.macro	drinf$
+$imgdef	TK 1 0
+$imginf fun=han cre=hammo aut=ijh use=<RUST terminal clock driver TK:>
+$imgham	yrs=<1985,2004> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:21:54.02>
+;	%edit
+$imgedt <29   >
+.endm
+
+	$csr=0
+	.drdef	tk,377,dswon$!dsron$,0,tkcsr.,tkvec.
+	.drest	class=dvc.ps.
+	$drptr
+	$drins	tk system=no,data=sj
+
+;	Tick component is computed as follows (using 50 hertz):
+;
+;	9600 / ( (1000/50)/(1000/(baud/10)) )
+;
+;		50	60
+;	300	16000	19200
+;	600	8000	9600
+;	1200	4000	4800
+;	2400	2000	2400
+;	1200	1000	1200
+;	9600	500	600
+;	19200	250	300
+;	38400	125	150
+;	baud	increment
+;
+;	300 baud requires multiple clock ticks per terminal interrupt.
+
+	tkspd. = 9600.		;default speed
+	tkinc. = 500.		;default increment (9600 at 50h)
+	tklim. = 9600.		;accumulator limit
+	ie = 100		;interrupt enable
+.sbttl	setup
+
+.drset	RUN,200,tk$run,NO		;SET [NO]RUN
+.drset	CSR,160000,tk$csa,OCT		;SET CSR=address
+.drset	VECTOR,177003,tk$vca,OCT	;SET VECTOR=address
+;.drset	SHOW,1,tk$sho			;SET SHOW
+.drset	SPEED,j$bsys,tk$spd,NUM		;SET SPEED=baud_rate
+.drset	SYSGEN,j$bsys,tk$syg		;SET SYSGEN
+
+tk$run:	mov	#ie,r3			;setup to run
+tk$nru:	mov	r3,t$kval		;setup the value
+	mova	t$kpok,r0		;setup to poke
+	emt	375			;poke it
+	br	tk$goo			;and quit
+t$kpok:	.word	empok$			;poke
+t$kcsr:	.word	tkcsr.			;csr address
+t$kval:	.word	0			;value
+
+tk$csa:	bit	#3,r0			;a valid CSR address?
+	bne	tk$bad			;no
+	cmp	r0,r3			;this in i/o-page
+	blo	tk$bad			;no
+	mov	r0,j$bcsr		;reset csr address
+	mov	r0,t$kcsr		;reset csr address
+	add	#word,r0		;compute buffer address
+	mov	r0,t$kbuf		;store buffer address
+	br	tk$goo			;
+					;
+tk$vca:	bit	r3,r0			;a valid VECTOR address?
+	bne	tk$bad			;invalid vector
+	mov	r0,dr.vec		;setup the vector
+tk$goo:	tst	(pc)+			;fine
+tk$bad:	sec				;fail
+	return				;
+
+;	SET TK SYSGEN	
+;
+;	Setup SYSGEN options 
+;	Fall thru to reset speed for local hertz
+
+tk$syg:	mov	(r3),r0			;get RMON impure
+	movb	rm.syg(r0),dr.syg 	;set the SYSGEN options
+	mov	(pc)+,r0		;reset the speed
+t$kspd:	.word	tkspd.			;default speed
+	fall	tk$spd			;reset the speed
+.sbttl	set speed
+
+;	SET TK SPEED
+;
+;	r0 =	baud rate
+;	r3 =	j$bsys
+;
+;	300 baud requires special handling because it generates more than
+;	one clock interrupt per terminal interrupt.
+
+tk$spd:	mov	r0,t$kspd		;remember speed for sysgen
+	mov	#300.,r1		;compare speed
+	movb	#br/256.,t$ktwo+byte	;assume not 300 baud
+	cmp	r0,r1			;is it 300 baud?
+	bhi	10$			;no
+	movb	#bpl/256.,t$ktwo+byte	;yes
+					;
+10$:	mov	#16000.,r2		;assume 50 hertz
+	mov	(r3),r3			;r3 -> RMON impure
+	bit	#cn50h$,rm.cfg(r3) 	;is it 50 hertz?
+	bne	20$			;yes
+	mov	#19200.,r2		;no - setup for 60 hertz
+
+;	r0 =	baud rate
+;	r1 =	300.
+;	r2 =	16000. or 19200.
+
+20$:	cmp	r0,r1			;this the value?
+	beq	tk$inc			;yes
+	asr	r2			;halve ticks
+	asl	r1			;double speed
+	bcc	20$			;do another
+	br	tk$bad			;higher than 38400 baud
+tk$inc:	mov	r2,t$kinc		;setup the increment
+	clr	t$kacc			;reset the accumulator
+	br	tk$goo			;fine
+
+;	load/unload
+
+dr$fet:
+dr$loa:	mov	t$kcsr,r0		;get the CSR address
+	bic	#ie,(r0)		;stop it
+	bis	#ie,(r0)+		;start it
+	clr	(r0)			;send one
+	return
+
+dr$rel:
+dr$unl:	clr	@t$kcsr			;stop it
+	return
+
+	.iif gt .-776,	.error		;;roof
+.sbttl	handler
+
+	.drbeg	tk		;start I/O
+	.drfin	tk		;end I/O
+	return			;\device abort
+tkint:	clr	@(pc)+		;/start the next
+t$kbuf:	.word	tkcsr.+word	;buffer address
+	sub	(pc)+,(pc)+	;compute the next component
+t$kinc:	.word	tkinc.		;tick increment
+t$kacc:	.word	0		;accumulator
+	bmi	10$		;do another tick
+	rti			;ignore it
+
+10$:	add	#tklim.,t$kacc	;reset the accumulator
+t$ktwo:	br	20$		;sic] BPL for 300 baud
+	add	#tklim.,t$kacc	;loop paranoia
+	psh	@#ps		;setup for a second one
+	call	(pc)		;do two
+20$:	mov	@#v$eclk,-(sp)	;get the real routine
+	sec			;set the c-bit for the clock ast
+	jmp	@(sp)+		;and go to it
+
+	.blkw	10		;all options may be set for sysgen	
+	.drend	tk		;
+	drinf$			;image information
+.end
+

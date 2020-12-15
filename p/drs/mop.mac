@@ -1,0 +1,792 @@
+;	NODZ
+;
+;	Record overruns
+;	Runts are protocol errors
+;
+dzc$c=1	; DZV CSR 
+dzv$c=1	; DZV code
+prb$c=0	; probe (doesn't and can't work)
+put$c=1	; debug PUT
+.title	mop - RUST mouse driver MO:
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+;$aldef
+$chdef
+$dedef
+$dzdef
+$ehdef
+$fkdef
+$iqdef
+$jbdef
+$rmdef
+$rsdef
+$vedef
+$hadef
+upini$
+$drcnd
+
+;	%build
+;	goto 'p1'
+;	macro drs:mop.mac/object:drb:mov
+;	link drb:mov/execute:drb:mov.sys/nobitmap
+;	macro drs:drmmgt+drs:mop.mac/object:drb:mop
+;	link drb:mop/execute:drb:mop.sys/nobitmap
+;	driver:
+;	@drs:check capture MOV
+;	driver
+;	!set drb:mov csr=160100
+;	!set drb:mov vector=310
+;	set drb:mov csr=176500
+;	set drb:mov vector=300
+;	set drb:mov auto
+;	set drb:mov right
+;	set drb:mov port=0
+;	exit
+;	@drs:check compare MOV
+;	@drs:check capture MOP
+;	driver
+;	!set drb:mop csr=160100
+;	!set drb:mop vector=310
+;	set drb:mop csr=176500
+;	set drb:mop vector=300
+;	set drb:mop auto
+;	set drb:mop right
+;	set drb:mop port=0
+;	exit
+;	@drs:check compare MOP
+;	%end
+
+.macro	drinf$
+$imgdef	MO 1 0
+$imginf fun=drv cre=hammo aut=ijh use=<RUST mouse driver MO:>
+$imgham	yrs=<2005> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:30:48.39>
+;	%edit
+$imgedt <22   >
+.endm
+
+.macro	aslw	cnt,dst
+	.rept	cnt
+	asl	dst
+	.endr
+.endm
+.macro	PUT cha
+	.if ne put$c
+	jsr	r0,mo$put
+	.word	''cha
+	.endc
+.endm
+.sbttl	installation check
+
+;	Force /22bit
+;
+;	r2 ->	device record
+;	r3 =	stb date
+;	r4 =	^rstb
+
+	.drins	mo			;XX: installation
+	nop				;data
+;sic]	nop				;boot
+	cmp	r4,#^rshp		;this RUST/XM?
+	bne	10$			;no
+	mov	r4,r0			;handshake
+	mov	r4,r1			;reply with reason
+	bis	#de22b$,de.con(r2)	;force /22bit
+	bis	#deabo$,de.typ(r2)	;force /abort
+10$:
+.if ne prb$c
+	bnew	r5,<#^rprb>,30$		;not probing
+	clr	r0			;assume fail
+	mov	inscsr,r1		;it's been address checked
+	mov	#17,dz.tsr(r1)		;DTR=0
+	mov	#dzcse$,(r1)		;check dzv
+	bpcw	#dzcse$,(r1),25$	;not a dzv
+	mov	#dzpre$!dz12h.!dzpl7.,dz.par(r1)  ; P0 baud etc
+	mov	#dzpre$!dz12h.!dzpl7.!3,dz.par(r1) ; P3 baud etc
+	mov	#7417,dz.tsr(r1)	;DTR=1, enable transmit
+	mov	#4,r2
+20$:	bplw	(r1),20$		;wait for output
+	clr	dz.tbu(r1)		;send one
+	sobw	r2,20$			;wait for it
+	bplb	(r1),25$		;no input - forget it
+	movb	dz.rbu(r1),r0		;get it
+25$:	clr	(r1)			;disable ports
+	bneb	r0,<#'M>,40$		;not a mouse
+.endc
+30$:	tst	(pc)+			;
+40$:	sec
+	return
+
+	$drlim	400		; check that we fit
+.sbttl	mouse protocols
+
+;	Mouse protocols
+;
+;	7  6  5  4  3  2  1  0		Microsoft/Logitech
+;    0	-  1  L  R  Y7 Y6 X7 X6
+;    1	-  0  X5 .  .  .  .  X0
+;    2	-  0  Y5 .  .  .  .  Y0		MS
+;    3	-  0  M  0  0  0  0  0	  3	M3 middle
+;    3	-  0  0  M  Z3 .  .  Z0	  4	MZ middle/wheel
+;	
+;   MS	If L/R buttons are unchanged and X/Y are zero (i.e. a redundant packet),
+;	then complement the middle button state. Operation is reportedly buggy.
+;   M3	Fourth byte reports middle button down (repeats) and up (once)
+;   MZ	All packets have fourth byte with middle button and wheel status
+;
+;	7  6  5  4  3  2  1  0		Mouse Systems Mouse
+;    0	1  0  0  0  0  L  M  R
+;    1	X7 .  .  .  .  .  .  X0
+;    2	Y7 .  .  .  .  .  .  Y0		Pre-button X/Y
+;    3	X7 .  .  .  .  .  .  X0
+;    4	Y7 .  .  .  .  .  .  Y0		Post-button X/Y
+;
+;	X/Y data may look like initial signature 
+;
+;	L=Left M=Middle R=Right
+;
+;	I assume that the initial X/Y values in each packet take
+;	place before button transitions.
+.sbttl	notes
+
+;	RUST MOUSE DRIVER
+;
+;	HARDWARE
+;	--------
+;	Supports a single serial-line mouse or DZV11 (port 0 or port 3).
+;	Recognises standard mouse types on-the-fly.
+;
+;	Mice use PC 3v switching rather than the 9/10v DEC. Most mice
+;	don't function without assistance. In particular, idents fail.
+;
+;
+;	IDENTIFICATION
+;	--------------
+;	Mice respond to a DTR/ transition with device information.
+;
+;	"M"	Microsoft/Logitech 2-button mouse
+;	"M3"	3-Button mouse
+;	"MZ"	Microsoft/Logitech with wheel
+;	"MM"	Mouse Systems Mouse
+;	"(..)"	Plug'n'Play descriptor (short or long)
+;
+;	Note: characters may be in 4-bit format.
+;
+;	The PDP-11 DLx11 serial line device does not support these
+;	signals, so the driver has to do detection on the fly working
+;	from the data patterns. See MO$DET.
+;
+;	MOUSE SPEED
+;	-----------
+;	A mouse usually operates at 1200 baud, i.e. 120 cps.
+;	Packets are at least 3 bytes, thus max 40 packets per second.
+;	Thus, rather than use a ring buffer stores events into an internal
+;	buffer that is copied and reset by .READx requests.
+;	Interrupt enable synchronises access to the buffer.
+;
+;	MO	External
+;	MI	Internal
+;	MS	Microsoft/Logitech
+;	MM	Mouse Systems Mouse
+;
+;	MOUSE DATA
+;	----------
+;
+;	7  6  5  4  3  2  1  0
+;	count
+;	type
+;	status
+;	unused
+;
+;	7  6  5  4  3  2  1  0
+;    0	E  0  0  0  0  R  M  L		Buttons and error indicator
+;    1	X7 .  .  .  .  .  .  X0
+;    2	Y7 .  .  .  .  .  .  Y0
+;    3	Z7 .  .  .  .  .  .  Z0
+;
+;	Microsoft mouse
+;	We have an event when we timeout or reach maximum size
+;
+;	state	event	op	new state
+;		error	discard	waiting
+;	>=max		discard	waiting
+;	>=min	timeout	store	waiting
+;	>=min	FST$	store	FST$
+;	<min	timeout	wait 
+;	<min	FST$	discard	FST$
+;
+;	type
+;	3	clear middle if left/right button state changes
+;		only if SET MO SAFE
+;
+;	timeout is five output character times (settable)
+;	average input record sizes to detect interface
+;	survey 4th entry to detect Ms Mz Logitech
+;
+;	Need to detect baud rate errors, faulty mice
+;
+;	READ REQUEST
+;	------------
+;	o Fixed size buffer moBSZ., 32 words.
+;	o Read returns count in first byte
+;	o Data starts in 4th byte
+;	o Buffer past counted area is undefined (not zeroed)
+;
+;	.readw	#area, #0, #buffer, #32., #0
+;
+;	buffer:	.byte	cnt,sta,0,0
+;		.byte	but,x,y,w
+;		.byte	but,x,y,w
+;		.byte	but,x,y,w
+;		...
+;
+;	Maximum is 14 events except where Logitech middle-button
+;	creates an additional packet.
+.sbttl	definitions
+
+;.if ne dzc$c
+;map	mocsr.,,160100		;
+;map	movec.,,310		;
+;.iff
+map	mocsr.,,176500		;
+map	movec.,,300		;
+;.endc
+
+map	mopri.,,4		; device priority
+map	ie,,100
+map	moDZI$,,dzpre$!dz12h.!dzpl7. ; 1200 baud, 7 data, 1 stop
+
+;	Mouse driver software event
+
+map	mo.but	1,0		; buttons/status
+map	mo.x	1		; X movement - signed byte
+map	mo.y	1		; Y movement
+map	mo.z	1		; wheel movement
+map	moESZ.			; packet size
+map	moRGT$,,1		; right button (same as Mouse Systems Mouse)
+map	moMID$,,2		; middle
+map	moLFT$,,4		; left
+map	moERR$,,200		; error seen
+
+;	Event buffer
+
+map	moEMX.,,14.		; maximum sent
+map	mo.cnt	1,0		; packets in ring
+map	mo.typ	1		; mouse type
+map	mo.err	1		; terminal errors
+map	mo.run	1		; runts
+map	mo.dat	moESZ.*15.	; data
+map	moBSZ.			; buffer size
+
+;	Microsoft/Logitech mouse hardware packet
+
+map	ms.but	1,0
+map	ms.x	1
+map	ms.y	1
+map	ms.z	1
+map	msPSZ.			; packet storage area size
+
+map	msLFT$,,40		; left button down
+map	msRGT$,,20		; right button down
+map	msHOY$,,14		; hi-order Y
+map	msHOX$,,3		; hi-order X
+map	msLOW$,,77		; low order
+map	msFST$,,100		; first byte
+map	msMID$,,60		; combined middle buttons
+
+;	Mouse Systems Mouse hardware packet
+
+map	mm.but	1,0
+map	mm.rx	1
+map	mm.ry	1
+map	mm.px	1
+map	mm.py	1
+map	mmPSZ.
+map	mmRGT$,,1		; right button
+map	mmMID$,,2		; middle
+map	mmLFT$,,4		; left
+assume	mmRGT$ eq moRGT$	; same as exported
+assume	mmMID$ eq moMID$
+assume	mmLFT$ eq moLFT$
+
+assume	msPSZ. lt 6
+assume	mmPSZ. lt 6
+map	moPSZ.,,4
+.sbttl	SET operations
+
+;	SET MO: CSR, VECTOR, NAME
+; ???	SET MO: PORT, SPEED
+;	SET MO: AUTO, M2, M3, MZ, MM
+;	SET MO: LEFT/RIGHT
+;	SET MO: SHOW
+;
+;	SET MO: SCALE=n
+; ???	SET MO: [NO]STICKY
+
+.drset	CSR,160003,st$csr,oct	;set csr
+.drset	VECTOR,500,st$vec,oct	;set vector
+.drset	PORT,3,st$prt,num
+.drset	AUTO,400,st$typ
+.drset	MS,3,st$typ
+.drset	M3,3,st$typ
+.drset	MZ,4,st$typ
+.drset	MM,5,st$typ
+.drset	RAW,6,st$typ
+.drset	LEFT,moRGT$*400!moLFT$,st$but
+.drset	RIGHT,moLFT$*400!moRGT$,st$but
+
+;	Set CSR
+;
+;	r3 =	160003
+;	r0 =	new csr address
+
+st$csr:	bitb	r3,r0			;invalid address?
+	bne	st$fai			;yes
+	cmp	r0,r3			;too low?
+	blo	st$fai			;yes
+	mov	r0,inscsr		;
+	mov	r0,discsr		;
+	mov	r0,m$otks
+	add	#2,r0
+	mov	r0,m$otkb
+	br	st$suc			;o.k.
+
+;	Set vector
+;
+;	r3	500
+;	r0	new vector
+
+st$vec:	cmp	r0,r3			;too high?
+	bhis	st$fai			;yes
+	mov	r0,mostrt+ha.vec	;driver vector
+st$suc:	tst	(pc)+			;fine
+st$fai:	sec				;not o.k.
+	return				;
+st$typ:	movb	r3,m$otyp		;type
+	br	st$suc			;
+st$but:	mov	r3,m$orgt		;left/right
+	br	st$suc			;
+
+st$prt:	bhiw	r0,r3,st$fai		; gt 3
+	bicb	r3,m$odzi		;
+	bisb	r0,m$odzi		;
+	br	st$suc
+
+	$drlim	1000
+.sbttl	driver definition, entry point, data
+
+	.drdef	mo,377,ronly$!spfun$,0,mocsr.,movec.dma=NO
+	.drest	class=dvc.si	; serialised input
+	$drptr	
+
+	.drbeg	mo		; driver entry point
+	jmp	mo$beg		; skip data
+m$otks:	.word	mocsr.		;
+m$otkb:	.word	mocsr.+2	;
+m$oenb:	.word	0		; mouse enabled
+m$ordy:	.word	0		; data ready
+m$orea:	.word	0		; read pending
+m$odzi:	.word	moDZI$		; dz in enable (for load/fetch)
+
+m$orgt:	.byte	moRGT$		;\swapped by SET LEFT/RIGHT
+m$olft:	.byte	moLFT$		;/used for left/right hand
+m$osta:	.byte	0		; input state
+	.even			;
+
+m$omid:	.byte	0		;\state of middle button
+m$oprv:	.byte	0		;|previous button state
+m$opkt:				;| packet
+m$obut:	.byte	0		;/left/right buttons
+m$ox:	.byte	0		; X
+m$oy:	.byte	0		; Y
+m$oz:	.byte	0		; Z
+	assume .-m$opkt eq moPSZ.
+
+m$obuf:	assume	m$obuf eq m$opkt+moESZ.
+m$ocnt:	.byte	0		; event count
+m$otyp:	.byte	0		; mouse type (auto)
+m$oerr:	.byte	0		; terminal errors
+m$orun:	.byte	0		; protocol errors
+	assume	.-m$obuf eq moESZ.
+m$odat:	.blkb	moESZ.*15.	;
+
+m$ofrk:	.blkb	fk.bbs		; fork block
+.sbttl	driver start
+
+;	wcnt	0	disable mouse
+;		moBSZ.	read mouse events
+; ???		other	good question (DUMP etc)
+
+mo$beg:	mov	mocqe,r4		; get queue element
+	beq	mo$clo			; driver aborted
+;	movb	iq.fun(r4),r0		; got function?
+;	bne	mo$acp			; yep
+	mov	iq.wct(r4),r0		; read on/off
+	blow	r0,#moBSZ./2,mo$eof	; error for others
+	call	mo$dsb			; disable mouse interrupt (race)
+	mov	r0,m$orea		; read pending
+	mov	r0,m$oenb		; mouse enabled
+	br	mo$trn			; do transaction
+
+.if ne 0
+mo$acp:	clr	iq.wct(r4)		; do not confuse with transfer
+	mov	@#j$bsys,r1		; get the system
+	clr	rm.spu(r1)		; assume no errors
+	bneb	r0,#rsclo.,mo$fin	; this a close?
+.endc
+mo$clo:	call	mo$abt			; close channel
+	br	mo$fin			; finish 
+
+.if ne 0
+mo$acp:	clr	iq.wct(r4)		; do not confuse with transfer
+	mov	@#j$bsys,r0		; get the system
+	clr	rm.spu(r0)		; assume no errors
+	cmp	r1,#rsclo.		; this a close?
+	beq	mo$clo			; yes
+	cmp	r1,#rsloo.		; this a lookup?
+	beq	mo$opn			; yes
+	cmp	r1,#rsent.		; this an enter?
+	bne	mo$ign			; ignore it
+mo$opn:
+     xm	beqb	m$oown,10$		; currently owned?
+     xm	mov	#rsdiu.,rm.spu(r0)	; report the error
+     xm	br	mo$fin			; all over
+10$: xm	bpsw	#mosha$,s$tflg,20$	; shared
+     xm	incb	m$oown			; noshare - grab the printer
+20$:	call	mo$enb			;
+	br	mo$fin			;
+.endc
+.sbttl	interrupts, init, clear
+
+;	Driver may operate without queue element
+
+	.drast	mo,mopri.,mo$abt
+mo$ast:	mov	@m$otkb,r5	; get character
+	call	mo$dsb		; disable device
+	.fork	m$ofrk		; fork
+				;
+10$:	mov	r5,r0		; get character
+.if ne dzv$c
+	bpcw	#070000,r0,20$	; so it works with DZs
+.iff
+	bpcw	#170000,r0,20$	; so it works with DZs
+.endc
+	call	mo$err		; error
+	br	mo$enb		;
+				;
+20$:	movb	m$osta,r2	; get state
+	movb	m$otyp,r3	; get type
+	bne	30$		;
+	call	mo$det		; detect
+	bcs	40$		; more required
+30$:	call	mo$inp		; handle input
+40$:	movb	r2,m$osta	; reset state
+	bplb	@m$otks,mo$trn	; no more input
+	mov	@m$otkb,r0	; get next
+	br	10$		; (buffer overflow unlikely at 1200 baud)
+
+mo$trn:	call	mo$rea		; send any results
+	call	mo$enb		; enable
+	bcc	mo$fin		; read success
+mo$ret:	return			;
+
+mo$eof:	mov	mocqe,r4	; EOF for read
+	bis	#cseof$,@iq.csw(r4) ; set the error flag
+mo$fin:	.drfin	mo		; errors and count in event buffer
+
+mo$enb:	bpcw	#-1,m$oenb,mo$ret; disabled (can't modify c-bit)
+	bis	#ie,@m$otks	; go again
+mo$ign:	return
+
+mo$rst:	call	mo$abt		; .exit reset
+	jmp	@(pc)+		; chain
+m$orst:	.word	0		;
+
+mo$abt:				; called by RUST/XM
+	call	mo$dsb		; called by SJ .exit
+	call	mo$clr		; no data
+	movb	#-1,m$osta	; waiting
+mo$dsb:	bic	#ie,@m$otks	; turn it off
+	return
+
+mo$err:	incb	m$oerr
+PUT $
+	call	mo$clr		; hardware error
+	dec	r2		; waiting
+	return
+mo$clr:	clr	r2		; live status
+	clrb	m$osta		; stored status
+mo$zer:	clr	m$opkt		; clear packet
+	clr	m$opkt+2	;
+	return
+.sbttl	detection
+
+; ???	Not tested with an MM mouse yet.
+;
+;	The detection algorithm looks for a regular pattern
+;	of device signatures (and also synchronises input).
+;
+;	1         2	    3	      4         5
+;	1 . . 1 . . 1 . . 1 . . 1 . . 1 		M3
+;	1 . . . 1 . . . 1 . . . 1 . . . 1 . . . 1 	M4/MZ
+;	2 - - - - 2 - - - - 2 - - - - 2 - - - - 2	M5
+;
+;	1 = x1.xxx.xxx	MS signature
+;	. = x0.xxx.xxx 	MS data(MS/M3, MZ)
+;	2 = 10.000.xxx	MM signature
+;	- = xx.xxx.xxx	MM data
+;
+;	"1" and "2" are mutually exclusive signatures.
+;	We never get more than 4 out of 5 chance matches.
+;	Thus we insist on 6 in a row to decide on a model.
+;
+;	The mouse will not operate until the type is detected.
+;	In most cases users will move the mouse as an initial act.
+;	The typical response to a non-responding mouse is to
+;	move it. In either case we get sufficient data.
+
+m$ommd:	.word	0		; MM data
+	.byte	6,6,6,6,6,0	;
+m$omsd:	.word	0		; MS data
+	.byte	3,6		; MS/M3
+	.byte	4,6		; MZ
+	.byte	0,0		;
+
+mo$det:
+PUT .
+     up	mov	#m$ommd,r3	; MM detection data
+	inc	(r3)		; up index
+	blow	(r3),#5,10$	; not time to wrap
+	clr	(r3)		; wrap
+10$:	add	(r3),r3		; point to array cell
+	mov	r0,r1		; get character
+	bic	#7,r1		; clean out buttons
+	bneb	r1,#200,20$	; not a signature
+	decb	(r3)		; count down
+	bne	20$		; more to go
+	mov	#5,r1		; we have a match
+	br	60$		;
+20$:	movb	#6,(r3)		; reset counter
+
+
+30$: up	mov	#m$omsd,r3	; microsoft detection data
+	inc	(r3)		; next next time
+	mov	(r3),r1		; get count since last signature
+	bpcb	#msFST$,r0,70$	; not MS signature
+PUT +
+	clrb	(r3)+		; reset index
+50$:	inc	r3		; skip end of previous data
+	beqb	(r3),80$	; end of data
+	beqb	(r3)+,r1,60$	; right count
+	movb	#6,(r3)		; start over
+	br	50$		;
+60$:	decb	(r3)		; count down
+	bne	50$		; more to go
+	movb	-(r3),m$otyp	; got a match
+PUT S
+70$:	tst	(pc)+		; found first byte of message
+80$:	sec			; need more
+	return
+.sbttl	mouse systems mouse input engine
+
+	.enabl	lsb
+mo$inp:	bneb	r3,#6,20$	; not raw
+	bic	#^c3,r2		;
+     up	movb	r0,m$obut(r2)	; save byte
+	blow	r2,#3,320$	; more to come
+	clr	r2		; wrap around
+	jmp	mo$sto		; store and return
+
+20$:	bneb	r3,#5,mo$mic	; microsoft/logitech
+				; mouse systems
+mo$mou:	movb	r2,r1		; copy state
+	bmi	100$		; waiting
+	asl	r1		; dispatch it
+	add	r1,pc		;
+	br	100$		;
+	br	200$		;
+	br	300$		;
+	br	400$		;
+	br	500$		; 
+
+100$:	movb	r0,r1		; get character
+	bicb	#7,r1		; clean up
+	bneb	r1,#200,mo$err	; not the first
+	call	mo$clr		; clears r2
+	bic	#370,r0		; buttons
+	movb	r0,m$obut	;
+	br	320$		;
+400$:	movb	m$oprv,m$obut	; propagate buttons
+200$:	movb	r0,m$ox		;
+	br	320$
+500$:	mov	#-2,r2		; waiting next time (gets incremented)
+300$:	movb	r0,m$oy		;
+	call	mo$sto		;
+320$:	inc	r2		; next state
+330$:	return
+	.dsabl	lsb
+.sbttl	microsoft/logitech mouse input engine
+
+mo$mic:	bic	#^c177,r0	; clean up character
+	bpcb	#msFST$,r0,20$	; not the first
+	bleb	r2,10$		; waiting - just store it
+	bhisw	r2,r3,10$	; not runt
+	incb	m$orun		; count runt
+10$:	call	mo$clr		; clear packet and r2
+	br	30$		;
+				;
+20$:	beqb	r2,510$		; out of order
+30$:	movb	r2,r3		;
+	bmi	510$		; in error recovery
+	asl	r3		;
+	add	r3,pc		;
+	br	100$		;
+	br	200$		;
+	br	300$		;
+	br	400$		;
+	br	500$		; should never happen
+
+100$:up	mov	#m$obut,r1	;
+	bpcb	#msFST$,r0,500$ ; error
+				;
+	bpcw	#msLFT$,r0,110$	; translate buttons
+	bisb	m$olft,(r1)
+110$:	bpcw	#msRGT$,r0,120$	;
+	bisb	m$orgt,(r1)
+120$:	bneb	(r1),125$	; either is down
+	beqb	-(r1),125$	; neither was up previously
+	clrb	-(r1)		; assume middle up
+125$:	mov	r0,r1		; high order x/y
+	aslw	4,r1		;
+	movb	r1,m$oy		;
+	bic	#77,m$oy	;
+	aslw	2,r1		;
+	movb	r1,m$ox		;
+	br	440$		;
+				;
+200$:	bicb	#300,r0		; clean up
+	bisb	r0,m$ox		; low order X
+210$:	br	440$		; 
+				;
+300$:	bicb	#300,r0		;
+	bisb	r0,m$oy		; low order Y
+	bneb	m$otyp,#3,440$	; not 3-byte model
+	movb	m$oy,r0		; any movement?
+	bisb	m$ox,r0		;
+	bne	430$		; yes - not redundant
+	bneb	m$obut,m$oprv,430$ ; buttons changed
+	comb	m$omid		; redundant packet - middle button change
+	bicb	#^cmoMID$,m$omid; isolate it
+	br	430$		; store it
+				;
+400$:	clrb	m$omid		;
+	bpcb	#msMID$,r0,410$	;
+	movb	#moMID$,m$omid	;
+410$:	bicb	#360,r0		; cleanup wheel
+	bpcb	#10,r0,430$	; positive
+	bisb	#360,r0		; sign extend
+420$:	movb	r0,m$oz		; setup wheel
+430$:	call	mo$sto		; store event
+440$:	inc	r2		;
+	return
+
+500$:	jmp	mo$err		;
+510$:	return
+.sbttl	store and read
+
+mo$sto:
+     up	mov	#m$opkt,r0	; packet
+     up	mov	#m$obuf,r3	; buffer
+	bhisb	(r3),#moEMX.,10$; overrun
+	incb	(r3)		; count packet
+	movb	(r3),r1		; get offset
+	asl	r1		; * 4
+	asl	r1		;
+	add	r3,r1		; r1 -> event
+	movb	(r0)+,(r1)	; buttons
+	bisb	m$omid,(r1)	; middle button
+	movb	(r1)+,m$oprv	; save for MS null packets
+	movb	(r0)+,(r1)+	; X
+	mov	(r0)+,(r1)+	; Y and Z
+	mov	sp,m$ordy	; data is ready
+10$:	call	mo$zer		; zero data, not state
+	return
+
+;	Satisfy read request
+
+mo$rea:	beqw	m$ordy,20$	; nothing available
+	beqw	m$orea,20$	; nothing requested
+	clr	m$orea		; once only
+	mov	mocqe,r4	; get a request
+	beq	20$		; nothing pending
+	clr	m$ordy		; not ready anymore
+				;
+     up	mov	#m$obuf,r0	; get buffer
+     um	mov	iq.buf(r4),r1	; destination
+	assume	mo.cnt eq 0 	;
+	movb	(r0),r2		; event count
+	inc	r2		; include header
+	assume	moPSZ. eq 4	; 4 bytes, 2 words per
+	asl	r2		; words
+10$: um	mov	(r0)+,(r1)+	; move data
+     xm	psh	(r0)+		; get word	
+     xm	call	@$ptwrd		; store it (r4 -> ioq)
+	sobw	r2,10$		; count
+	clrb	m$ocnt		; no count
+	clr	m$oerr		; errors and runts
+	tst	(pc)+		; done
+20$:	sec			; no read done
+	return
+
+.if ne put$c
+mo$put:	tstb	@#177564	; debug put 
+	bpl	mo$put
+	movb	(r0),@#177566
+	tst	(r0)+
+	rts	r0
+.endc
+	.drend	mo
+.sbttl	driver service routines
+.psect	moload
+
+dr$fet:
+dr$loa:	call	up$rel			; relocate driver first
+	mov	(r5),r5			; get the driver
+	sub	#dr.lqe,r5		; r5 -> driver base
+	mov	@#j$bsys,r4		; r4 -> rmon
+	mov	rm.syn(r4),r0		; .synch
+	mov	-(r0),r3		; r3 -> net
+					;
+	mov	eh.rst(r3),m$orst(r5)	; forward address
+	mov	#mo$rst,r0		;
+	add	r5,r0			;
+	mov	r0,eh.rst(r3)		; plug us in
+
+.if ne dzv$c
+	mov	#dzcse$,@m$otks(r5)	; DZV master scan enable
+	bpcw	#dzcse$,@m$otks(r5),10$	; not a DZV
+	mov	m$odzi(r5),@m$otkb(r5)	; setup line parameters
+	mov	m$otks(r5),r0
+	mov	#7417,4(r0)		;
+;	mov	#7400,6(r0)
+.endc
+10$:	return
+
+dr$rel:
+dr$unl:	mov	(r5),r5			; get the driver
+	sub	#dr.lqe,r5		; r5 -> driver base
+	mov	@#j$bsys,r4		; r4 -> rmon
+	mov	rm.syn(r4),r0		; .synch
+	mov	-(r0),r3		; r3 -> net
+					;
+	mov	m$orst(r5),eh.rst(r3)	; reset reset hook
+	callr	mo$dsb			; switch off
+
+;$vepkg
+;$hkpkg
+drinf$
+uprel$	
+
+.end
+

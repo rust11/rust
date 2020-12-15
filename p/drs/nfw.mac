@@ -1,0 +1,251 @@
+;$WARN$-Temporary fix for TP:/NF:
+.title	nfw - RUST/SJ NF: driver for Windows
+.include "lib:rust.mac"
+com$c=1		; compatibility with something (long forgotten)
+$brdef
+$chdef
+$cndef
+$dcdef
+$ehdef
+$dedef
+$drdef
+$hkdef
+$iqdef
+$jbdef
+$rmdef
+$vadef
+$vvdef
+.library "lib:drvmac.mlb"
+$drini
+$drcnd
+;upini$
+
+;	See also RTS:RTNFW.MAC
+;
+;	%build
+;	macro	drs:(rsj+nfw)/object:drb:
+;	link	drb:nfw/execute:drb:nfw.sys/map:drb:nfw/nobitmap
+;	macro	drs:(rxm+nfw)/object:drb:tp
+;	link	drb:tp/execute:drb:tp.sys/map:drb:tp/nobitmap
+;	%end
+
+.if eq rtx$c
+.macro	drinf$
+$imgdef	NF 1 0
+$imginf fun=drv cre=hammo aut=ijh use=<RUST Windows network file driver NF:>
+$imgham	yrs=<2004> oth=<>
+;	%date	
+$imgdat < No date  00:00:00.00  >
+;	%edit
+$imgedt <45   >
+.endm
+	.drins
+	clc			;kmon
+	clc			;boot
+	return
+.iff
+	nf$vec	= 0
+	mmg$t	= 0
+	erl$g	= 0
+	tim$it	= 0
+	nfsts	= despc$!defun$!dehab$!degab$
+	nfdsiz	= 177777
+	rte$m	= 0
+.endc
+
+	viSYS. = 110706
+	viNFD. = 4
+	ntCOD. = 205
+	$csr=0
+
+	vxini$ = <vaini$/256.>&255.
+	vxinp$ = <vainp$/256.>&255.
+	vxdsk$ = <vadsk$/256.>&255.
+	vxwlk$ = <vawlk$/256.>&255.
+	vxsub$ = <vasub$/256.>&255.
+
+.if eq rtx$c
+	lotyp$ = despc$!defun$!dehab$!degab$
+	.drdef	nf,ntcod.,lotyp$,0,0,0
+	.drptr	LOAD=nf$loa,FETCH=nf$loa,RELEASE=nf$unl,UNLOAD=nf$unl
+.endc
+.sbttl	NF: driver
+
+	.drbeg	nf
+	jmp	nf$iop			;
+	.if ne com$c
+	.blkw	32.			; compatibility with something
+	.endc
+	.enabl	lsb			;
+nf$iop:	psh	(pc)+			; flags
+n$fini:	.word	vxINI$			; init node
+	stack	flg			;
+	clr	n$fini			; once-only
+					;
+	mov	nfcqe,r4		;
+	mov	iq.csw(r4),r3		;
+					;
+	bpcw	#csWLK$,(r3),10$	; not a directory walk
+	bis	#vxWLK$,(sp)		; record the matter
+10$:	bpcw	#csSUB$,(r3),20$	; not a sub-directory
+	bis	#vxSUB$,(sp)		;
+					;
+20$:
+	mov	ch.sbl(r3),r2		; r2 = cid
+	mov	(r3),r3			; get csw
+	bic	#csin$n,r3		; isolate slot
+;	.if ne rxm$c
+	asr	#1			; first time?
+	bcc	25$			; nope
+	mov	r3,n$fslt		;
+;	.endc
+25$:	cmp	r3,(pc)+		; our slot?
+n$fslt:	.word	2			; our slot (default is for RTX)
+	beq	30$			; yes
+					; queue element came from LD:
+					; can only be read/write
+	mov	iq.fun(r4),r3		; get LD: unit record
+	clrb	iq.fun(r4)		; clean that up
+	movb	vv.uni(r3),iq.uni(r4)	; get the translated unit
+	mov	vv.off(r3),r2		; get the channel id
+					;
+30$:	psh	r2			; channel id
+	psh	r4			; i/o queue element
+	stack	qel cid flg		;
+	sub	#i.qblk,(sp)		; adjust for offset
+	psh	#viNFD.			; NF: driver
+	stack	fun qel cid flg		;
+	iot				; 
+	.word	viSYS.			; V11 API
+	add	#8.,sp			;
+	.drfin	nf			;
+	.drast	nf,0			;
+	return				;
+	.dsabl	lsb			;
+
+;	Called for every .SRESET/.HRESET
+
+	.if ne rsj$c
+nf$rst::vehoo$	n$frst			; reset hook
+	mov	#vxINP$,n$fini		; reset process
+	jmp	@n$frst			; chain
+	.endc
+.sbttl	NF: boot
+.if eq rtx$c
+
+$draln	16
+.drbot	nf,bo$jmp,bo$rea
+	xxboot = nfboot			; for some $dr... calls
+	$ = nfboot			; base throughout boot
+$drloc	0 bas=xxboot			; setup psect base
+					; RT-11 entry points
+$drloc	40				; standard RT-11 boot 
+bo$jmp:	jmp	@#bo$boo-$		; secondary boot 
+
+;	bo$rea	Called here from software boot.
+;	bo$loa	Called here once from hardware boot.
+;
+;	r0=blk, r1=wct, r2=buf
+;	r5 -> csr
+;	r3/r4 free
+
+$drloc	110
+bo$rea:					; boot read routine
+bo$loa:	mova	b$oque,r4		; get the queue element
+	mov	r0,i.qblk(r4)		;
+	mov	r1,i.qwct(r4)		;
+	mov	r2,i.qbuf(r4)		;
+
+	psh	(pc)+			;
+b$oini:	.word	vxINI$			; init node
+	clr	b$oini			;
+	bis	#vxdsk$,(sp)		; boot disk read
+	psh	#vaBOO.			; BOOT channel
+	psh	r4			; i/o queue element
+	psh	#viNFD.			; NF: driver interconnect code
+	iot				; 
+	.word	viSYS.			; V11 interconnect
+	add	#8.,sp			;
+	beqw	r0,10$			; oops
+	return				;
+10$:	jmp	bioerr
+
+b$oque:	.blkb	i.qbbs			; queue element
+
+bo$boo:	mov	#b$rksp,sp		; setup the stack
+	mov	#brSBN.,r0		; r0 = block
+	mov	#brSWC.,r1		; r1 = word count
+	mov	#br$sec,r2		; r2 = buffer address
+	call	bo$loa			; load secondary boot
+	mov	#bo$rea-xxboot,@#b$rrea	; fill in address of read routine
+	b$onam==.+2 			; for set
+;	mov	#nhnam$,@#b$rdvn	; fill in device name
+;	mov	b$ouni,@#b$rdvu		; setup unit number
+	mov	#^rnf,@#b$rdvn		;
+	mov	#1,@#b$rdvu		; setup unit number
+	jmp	br$sec+xxboot		; Now, where were we?
+	assume	.  le b$rtop+xxboot	; check space for bioerr etc
+
+.endc
+
+	.drend	nf
+.sbttl	NF: load/unload
+.if eq rtx$c
+$drloc	1000
+
+nf$loa::
+.if ne rsj$c
+	mov	r5,r0			; -> our slot
+10$:	tst	-(r2)			; slots = slots-2
+	tst	(r0)+			; skip a slot
+	bnew	(r0),#-1,10$		; not at end
+					; r2 = our slot number
+	mov	(r5),r5			; get the driver
+	sub	#dr.lqe,r5		; r5 -> driver base
+	mov	r2,n$fslt(r5)		; save our slot #
+					;
+	mov	@#j$bsys,r4		; undo stuff
+	mov	rm.syn(r4),r3		; .synch
+	mov	-(r3),r0		; r3 -> net
+	add	#eh.rst,r0		;
+	vecap$	r0,#nf$rst,r5		; capture .sreset
+.endc
+	mov	@#j$bsys,r4		; make us the catch-all device
+	bnew	rm.cal(r4),30$		; already got one
+.if ne rsj$c
+	mov	#^rnf,rm.cal(r4)	; me, me
+.iff
+	mov	#^rtp,rm.cal(r4)	; me, me
+.endc
+
+30$:	clc
+	return
+
+nf$unl:
+.if ne rsj$c
+	mov	(r5),r5			; get the driver
+	sub	#dr.lqe,r5		; r5 -> driver base
+					;
+	mov	@#j$bsys,r4		; undo stuff
+	mov	rm.syn(r4),r3		; .synch
+	mov	-(r3),r0		; r3 -> net
+	add	#eh.rst,r0		; reset vector
+	verel$	r0, #nf$rst,r5		; release reset hook
+.endc
+	mov	@#j$bsys,r4		; undo stuff
+	add	#rm.cal,r4		; unmake us catch-all device
+	beqw	(r4),<#^rNF>,10$	;
+	bnew	(r4),<#^rNF0>,20$	;
+10$:	clr	(r4)			; undefine us
+20$:	clc				;
+30$:	return
+
+.if ne rsj$c
+$vepkg
+$hkpkg
+.endc
+
+drinf$
+.endc
+
+.end

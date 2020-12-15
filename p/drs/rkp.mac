@@ -1,0 +1,323 @@
+rk6$c=0		;rk06 support from DosBatch bootstrap
+.title	rkp - RK: driver
+.include "lib:rust.mac"
+$brdef		;RT-11 bootstrap
+$chdef		;channel
+$dcdef		;device codes
+$dedef		;device
+$drdef		;driver
+$fkdef		;fork
+$hadef		;handler
+$iqdef		;i/o queue
+$iodef		;i/o queue
+$sfdef		;special functions
+.library "lib:drvmac.mlb"
+$drini
+$drcnd
+upini$
+
+;	RUST RK: RK05 driver
+;
+;	%build
+;	goto 'p1'
+;	macro	drs:rkp/object:drb:rkv
+;	macro	drs:drmmgt+drs:rkp/object:drb:rkp
+;	link:
+;	link	drb:rkv,lib:share/exe:drb:rkv.sys/nobit/map:drb:rkv/bound:1000
+;	xxboot
+;	link	drb:rkp,lib:share/exe:drb:rkp.sys/nobit/map:drb:rkp/bound:1000
+;	xxboot
+;	driver:
+;	@drs:check capture RKV
+;	driver
+;	set drb:rkv name=RK
+;	set drb:rkv csr=177400
+;	set drb:rkv vector=220
+;	set drb:rkv retry=8
+;	set drb:rkv nowait
+;	exit
+;	@drs:check compare RKV
+;	@drs:check capture RKP
+;	driver
+;	set drb:rkp name=RKX
+;	set drb:rkp csr=177400
+;	set drb:rkp vector=220
+;	set drb:rkp retry=8
+;	set drb:rkp nowait
+;	exit
+;	@drs:check compare RKP
+;	end:
+;	%end
+
+.macro	drinf$
+$imgdef	RK 1 0
+$imginf fun=drv cre=hammo aut=ijh use=<RUST RK05 disk driver RK:>
+$imgham	yrs=<1985,2004> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:32:58.27>
+;	%edit
+$imgedt <58   >
+.endm
+
+	.drins	xx
+	clc		;kmon
+	clc		;boot
+	return
+. = 272
+	.rad50	/rk /
+.sbttl	device definitions
+
+.macro	rkdef$
+map	rkCSR.,,177400		; csr base address
+map	rkVEC.,,220		;
+map	rkPRI.,,340		;
+map	rkSIZ.,,4800.		;
+map	rkCOD.,,0		; generic disk, no functions 
+map	rkRTY.,,8.		; retry count
+map	rknam.,,<^rRK>		; driver name
+
+map	rkcyl.,,203.		; cylinders
+map	rkcyl$,,16.		; cylinder in address
+map	rkspc.,,12.		; sectors per cylinder
+				;
+map	rk.sta,,-4		; status
+map	rk.err,,-2		; note: a *BYTE* count
+map	rkcso.,,4		; csr offset
+map	rk.csr,,0		; csr
+map	rk.cnt			; word count
+map	rk.buf			; buffer
+map	rk.adr			; disk address
+map	rk.dat			; data buffer
+				; sta
+map	rkRK5$,,4000		; RK05 (i.e. not RK06)
+				; csr
+map	rkERR$,,100000		; error
+map	rkRDY$,,200		; disk ready
+map	rkENB$,,100		; interrupt enabled
+map	rkEXT$,,60		; extended address (qbus only)
+map	rkFUN$,,16		; 8 function codes
+map	rkACT$,,1		; go
+
+map	rkCTL.,,0*2!rkACT$	; controller reset (no interrupt)
+map	rkWRI.,,1*2!rkACT$!rkENB$; write
+map	rkREA.,,2*2!rkACT$!rkENB$; read
+map	rkSEE.,,4*2!rkACT$!rkENB$; seek (from hardware)
+map	rkDRV.,,6*2!rkACT$!rkENB$; drive reset
+
+map	boCTL.,,0*2!rkACT$	; boot controller reset
+map	boREA.,,2*2!rkACT$	; boot read
+map	boDRV.,,6*2!rkACT$	; boot drive reset
+
+;ap	rkdrv$,,110000		; drive/seek error
+.endm	
+.sbttl	driver definition
+
+	$drcnd			; driver conditionals
+	rkdef$			; RK: definitions
+	$drstd	rkcsr.,rkvec.,rkpri.,rkrty.,rknam.
+     um	<.drdef	xx,rkcod.,derta$,rksiz.,xxCSR.,xxVEC.,dma=no>
+     xm	<.drdef	xx,rkcod.,derta$,rksiz.,xxCSR.,xxVEC.,dma=yes>
+	.drptr	
+	.drest	class=dedkt.	; disk class
+	$drsel	<stwai$> 1	; include set [no]wait
+	$drsel	<stcsx$> 1
+
+	.macro	xxcsr$		;
+	mov	r0,x$xcsr	;
+	add	#rkcso.,x$xcsr	; add offset 
+	.endm			;
+	$drset			; standard set items
+	$drovl
+	assume	. le 1000	;
+.sbttl	driver
+
+	.drbeg	xx
+xx$sta:	br	xx$dis			; dispatch area
+x$xcsr:	.word	xxcsr.+rkcso.		;
+x$xvec:	.word	xxvec.			;
+x$xrty:	.word	xxrty.			;
+x$xabt:	.word	1			;
+x$xwai:	.word	0			; not wait
+x$xfrk:	.blkb	fk.bbs			; fork block
+
+xx$dis:	mov	x$xrty,(pc)+		; setup retries
+x$xrtc:	.word	0			;
+xx$agn:	mov	xxcqe,r4		; get the RT-11 queue element
+
+     xm	movi	iq.buf,r4,r5		; point to buffer
+     xm	call	@$mpptr			; map physical
+	mov	x$xcsr,r5		; get the hardware
+     xm	pop	rk.buf(r5)		;
+     xm	pop	r3			; r3 = extended address
+     um	mov	iq.buf(r4),rk.buf(r5)	; move the easy ones
+					;
+	assume	iq.blk eq 0		;
+	mov	(r4),r0			; get the block
+	mov	#rkspc.*512.,r2		; get divisor
+	clr	r1			; init track result
+	.if ne rk6$c			; RK06 support
+	bpsw	#rkRK5$,rk.sta(r5),10$	; this is an RK05
+	asl	r0			; mystery RK06 support
+	.endc				;
+10$:	asl	r1			;
+20$:	bhiw	r2,r0,30$		; no binary factor here
+	sub	r2,r0			; take out factor
+	add	#rkcyl$,r1		; up cylinder
+	br	20$			;
+30$:	asr	r2			; shift divisor
+	bhisw	r2,#rkspc.,10$		; got more
+	bis	r1,r0			; combine cylinder & sector
+					; r0 = disk address
+	mov	iq.fun(r4),r1		; get function/unit
+	bneb	r1,xx$err		; no functions permitted
+	bic	#^c<7*256.>,r1		; isolate unit in high byte
+	asr	r1			; shift down
+	asr	r1			;
+	asr	r1			;
+	swab	r1			; unit in high three bits
+	bis	r1,r0			; combine unit & address
+	mov	r0,x$xadr		; save for reset
+	mov	r0,rk.adr(r5)		; 
+					;
+	mov	#rkWRI.,r0		; assume read function
+	mov	iq.wct(r4),r1		; get the word count
+	bmi	40$			; a write operatio
+	neg	r1			; make it positive
+	mov	#rkREA.,r0		;
+40$:	mov	r1,rk.cnt(r5)		; set counter
+	bis	r3,r0			; or in 18-bit extended address
+	call	xx$act			; activate
+	bplw	(r5),xx$don		; fantastic
+					; error recovery
+	dec	x$xrtc			; any more retries left?
+	beq	xx$err			; nope
+	mov	#rkctl.,(r5)		; reset controller
+50$:	bplb	(r5),50$		; wait for it
+;	bpcw	#rkdrv$,rk.err(r5),20$	; no drive reset required
+	mov	(pc)+,rk.adr(r5)	; select drive
+x$xadr:	.word	0			;
+	mov	#rkdrv.,r0		; reset drive
+	call	xx$act			; do it
+	br	xx$agn			; try again
+					;
+xx$err:	bis	#csher$,@iq.csw(r4)	; yes, set the error flag
+xx$don:	.drfin	xx			; return to system
+
+;	activate
+
+xx$act:	bnew	x$xwai,xx$wai		; wait I/O version
+	pop	x$xctn			; store continue address
+	mov	r0,(r5)			; start the operation
+xx$ret:	return
+
+xx$wai:	bic	#rkenb$,r0		; wait I/O version
+	mov	r0,(r5)			; (used for debug)
+10$:	bplb	(r5),10$		;
+	return				;
+
+xx$abt:;bic	#rkENB$,@x$xcsr		; disable interrupts
+	return
+
+;	interrupt service routine
+;
+;	Setup r4/r5 to queue element and hardware
+;	Continue thread
+
+	.drast	xx,xxPRI.,xx$abt	; interrupt
+	mov	x$xcsr,r5		; get the csr
+	bmiw	rk.err(r5),10$		; get error status
+	beqw	(r5),#rkSEE.,xx$ret	; ignore seek asts
+10$:	.fork	x$xfrk			; fork
+	mov	x$xcsr,r5		; r5 -> csr
+	bic	#rkENB$,(r5)		; clear interrupt enable
+	mov	xxcqe,r4		; r4 -> rt-11 queue element
+	beq	xx$ret			; no queue element
+	jmp	@(pc)+			; continue operation
+x$xctn:	.word	0			;
+.sbttl	boot
+
+$draln	16
+.drbot	xx,bo$jmp,bo$rea
+
+$drloc	40 bas=xxboot
+bo$jmp:	jmp	@#bo$boo-xxboot
+
+;	The boot can be entered in two ways:
+;
+;	Hardware boot: the unit number is in R0 or a device register.
+;	Software boot: the unit number is at @#b$runi
+;
+;	bo$rea	Called here from software boot.
+;	bo$loa	Called here once from hardware boot.
+;
+;	r4=uni, r2=buf, r1=cnt, r0=blk
+
+$drloc	210
+bo$rea:	mov	@#b$rdvu,(pc)+		; get the unit
+b$ouni:	.word	0			; boot unit	
+					;
+bo$loa:	mov	(pc)+,(pc)+		; setup retry count
+b$orty:	.word	rkrty.			;
+b$ortc:	.word	0			;
+bo$agn:	mov	(pc)+,r5		; get the hardware
+b$ocsr::.word	xxCSR.			; standard address
+	add	#rkcso.,r5		; offset it
+					;
+	mov	r2,rk.buf(r5)		; the buffer
+	neg	r1			;
+	mov	r1,rk.cnt(r5)		; the count
+	neg	r1			; restore for retries
+	mov	r0,r3			; block
+	mov	#rkspc.,r4		; divide to get cylinder
+10$:	sub	#rkspc.,r3		;
+	bmi	20$			;
+	add	#rkcyl$.,r4		;
+	br	10$			;
+20$:	add	r4,r3			; r3 is cylinder/sector
+	mov	b$ouni,r4		; unit
+	asr	r4			; rotate unit to high three bits
+	ror	r4			;
+	ror	r4			;
+	ror	r4			; position unit
+	bis	r4,r3			; merge with cylinder/sector
+	mov	r3,rk.adr(r5)		; setup disk address
+	mov	#boREA.!rkACT$,(r5)	; set function and go
+30$:	bplb	(r5),30$		; wait for it
+	bmiw	(r5),40$		; some error
+	return				;
+					; error recovery
+40$:	dec	b$ortc			; got more?
+	bmi	70$			; nope
+	mov	#boctl.,(r5)		; reset controller
+50$:	bplb	(r5),50$		; wait for it
+	mov	r3,rk.adr(r5)		; select drive
+	mov	#bodrv.,(r5)		; reset drive
+60$:	bplb	(r5),60$		; wait for it
+	br	bo$agn			; try again
+70$:	jmp	bioerr			; boot i/o error
+
+$drloc	560
+bo$boo:	mov	#b$rksp,sp		; setup the stack
+	mov	b$ocsr,r5		; get the csr
+	add	#rkcso.,r5		; offset it
+	mov	rk.adr(r5),r0		; get address
+	asl	r0			; rotate unit to low three bits
+	rol	r0			;
+	rol	r0			;
+	rol	r0			;
+	bic	#^c7,r0			; isolate unit number
+	mov	r0,b$ouni		; save it
+	mov	#brSBN.,r0		; r0 = block
+	mov	#brSWC.,r1		; r1 = word count
+	mov	#br$sec,r2		; r2 = buffer address
+	call	bo$loa			; load secondary boot
+	mov	#bo$rea-xxboot,@#b$rrea	; fill in address of read routine
+	b$onam==.+2 			; for set
+	mov	#xxNAM.,@#b$rdvn	; fill in device name
+	mov	b$ouni,@#b$rdvu		; setup unit number
+	br	br$sec+xxboot		; Now, where were we?
+	assume	.  le b$rtop+xxboot	; check space for bioerr etc
+	.drend	xx
+	drinf$				; image information block
+	.end
+

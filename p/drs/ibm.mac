@@ -1,0 +1,1014 @@
+.title	ibm - RUST/XM IEEE bus driver IB:
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+$addef		;ast delivery
+$chdef		;channel
+$dedef		;devices
+$drdef		;driver
+$dsdef		;device status
+$fkdef		;fork
+$iqdef		;i/o queue
+$jbdef		;job
+$mmdef		;mmu
+$prdef		;pcr
+$psdef		;psw
+$rmdef		;rmon
+$rsdef		;rt11s
+$vedef		;vectors
+mmg$t=1		;memory management on
+$drcnd
+
+;	RUST/XM IB handler for IEEE bus
+;
+;	%build
+;	goto 'p1'
+;	macro:
+;	macro drs:ibm /object:drb:ibp
+;	link:
+;	link drb:ibp,lib:rustx/exe:drb:ibp.sys/nobitmap
+;	@drs:check 1 IBP
+;	driver
+;	set drb:ibp csr=160150
+;	set drb:ibp vector=420
+;	set drb:ibp unit=0
+;	exit
+;	@drs:check 2 IBP
+;	%end
+
+.macro	imginf$
+$imgdef	IBM 1 0
+$imginf	fun=HAN cre=hammo aut=ijh use=<RUST IEEE bus driver IB:>
+$imgham	yrs=<1987> oth=<>
+;	%date
+$imgdat	<29-Oct-2008 15:45:14.42>
+;	%edit
+$imgedt	<81   >
+.endm
+
+;	Compatible with DEC V1.n IB.SYS handler for FORTRAN routines.
+;	FORTRAN library expects three queue elements.
+;
+;	Not external handler - requires too many vectors.
+;	VX needs to use same vector protocol.
+;
+;	Single unit only support.
+;	Free transfer function requires I/O page mapping.
+;	Lookup/enter allocate device - close deallocates
+;	Spfun handles control functions
+.sbttl	special functions
+
+;	Spfun summary
+; 
+;	.spfun	area, chn, fun, buf, wct, blk, ast
+; 
+;	area	address of 5-word emt area
+;	chn	channel
+;	fun	ib control function
+;	buf	control buffer address
+;	wct	send/receive byte count
+;	blk	unused
+;	ast	monitor ast information
+; 
+;	SPFUN function codes:
+
+map	ibsf0.,,360	;first function code
+map	ibsf$n,,<^c17>	;special function negative
+map	ibrcv.,,360	;receive data
+map	ibsnd.,,361	;send data with EOI
+map	ibsnp.,,362	;send plain data - no EOI
+map	ibcom.,,363	;send command
+map	ibpol.,,364	;parallel poll
+map	ibclr.,,365	;clear interface
+map	ibini.,,366	;init interface
+map	ibrem.,,367	;enable remote
+map	ibloc.,,370	;disable remote
+map	ibsts.,,371	;get csr status
+map	ibsrq.,,372	;setup service request
+map	ibtrn.,,373	;setup uncontrolled transfer
+;
+;	SPFUN control buffer:
+; 
+map	ib.rbc	word,-6	;-6	receive byte count
+map	ib.f00	word	;-4	unused
+map	ib.f01	word	;-2	unused
+map	ib.bup	word,0	; 0	buffer pointer
+map	ib.uni	word	; 2	unit number
+map	ib.err	word	; 4	error status
+map	ib.tmo	word	; 6	timeout value
+map	ib.tep	word	;10	terminator list pointer
+; 
+;	Error status
+; 
+map	ibto$e,,1	;timeout
+map	ibad$e,,2	;invalid instrument address
+map	ibpa$e,,4	;invalid parameter
+map	ibtl$e,,10	;no default talker list 
+map	ibll$e,,20	;no default listener list
+map	ibis$e,,40	;no IFC or succ. serial poll in SRQ routine
+map	ibup$e,,100	;ibv-11a unit not physically present
+map	ibib$e,,200	;IB.SYS not loaded
+map	ibtv$e,,400	;default talker list overflow
+map	iblv$e,,1000	;default listener list overflow
+map	ibun$e,,2000	;invalid unit specified
+;	ibf0$e,,4000	;unused
+map	ibsi$e,,10000	;same instrument addressed for talk & listen
+map	ibbc$e,,20000	;bus control conflict (ER1)
+map	ibnl$e,,40000	;no valid listener on the bus (ER2)
+;	ibf1$e,,100000	;unused
+.sbttl	IBV hardware
+
+;	IBV hardware
+; 
+;	160150 standard
+;	registers
+; 
+map	ibcsr.,,160150	;csr address
+map	ibvec.,,420	;vector base address
+map	ibcod.,,375	;ibv v1 device code
+; 
+map	ib.csr	word,0	;csr 
+map	ib.dat		;data register
+; 
+;	CSR flags
+; 
+map	ibatt$,,1	;r/w - ATN - attention
+map	ibsyn$,,1	;r/w - TCS - synchronous control - clear attention
+map	ibend$,,2	;r/w - EOI - end of message
+map	ibidt$,,2	;r/w - EOI - identify - parallel poll
+map	ibrem$,,4	;r/w - REM - remote enable
+map	ibclr$,,10	;r/w - IFC - clear interface
+map	iblis$,,20	;r/w - LON - listener on
+map	ibtlk$,,40	;r/w - TON - talker on
+map	ibien$,,100	;r/w - IE  - interrupt enable
+map	ibacc$,,200	;r/w - ACC - accept data - clears LNR - cleared by CLR
+;			;
+map	iblnr$,,400	;r/o - listener ready
+map	ibtkr$,,1000	;r/o - talker ready
+map	ibcmd$,,2000	;r/o - command done
+map	ibf00$,,4000	;
+map	ibf01$,,10000	;
+map	iber1$,,20000	;r/o - ibbc$e - Conflict with ATN, CLR, REM bits.
+map	iber2$,,40000	;r/o - ibnl$e - DAC true in send. Clear TLK!SYN to reset
+map	iber$n,,117777	;    - error negative for ib.err 
+map	ibser$,,100000	;r/w - SRQ true.
+; 
+;	Data word flags
+; 
+map	ibda$p,,377	;r/w - IB data byte
+map	ibdac$,,400	;r/o - IB DAC line - data accepted
+map	ibdav$,,1000	;r/o - IB DAV line - data valid
+map	ibrfd$,,2000	;r/o - IB NRFD line - ready for data
+map	ibsrq$,,4000	;r/o - IB SRQ line - service request
+map	ibren$,,10000	;r/o - IB REN line - remote enable
+map	ibifc$,,20000	;r/o - IB IFC line - interface clear
+map	ibatn$,,40000	;r/o - IB ATN line - attention
+map	ibeoi$,,100000	;r/o - IB EOI line - end or identify
+; 
+;	IBV vectors
+; 
+;	300-760 range
+;	420 standard
+; 
+map	ib.erv	word*2,0;error vector - ER1, ER2
+map	ib.srv	word*2	;srq vector - SRQ
+map	ib.tkv	word*2	;talker vector - CMD, TKR
+map	ib.liv	word*2	;listener vector - LNR
+.sbttl	mapping
+
+;	Map pointer pair
+;
+;	Addresses are manipulated as a pair of values.
+
+map	ib.par	word,0	;par1 page number
+map	ib.ptr	word	;par1 buffer pointer
+
+;	ibmap$	map buffer into par1
+;
+;	ibmap$	ptr
+;
+;	ptr	address of pointer pair 
+;
+;	r5 ->	mapped buffer address
+
+.macro	ibmap$	ptr
+	jsr	r5,ib$map
+	.word	ptr-.
+.endm
+
+;	ibinc$	increment mapped address
+;
+;	ibinc$	ptr
+
+.macro	ibinc$	ptr
+	jsr	r5,ib$inc
+	.word	ptr-.
+.endm
+
+;	ibcvt$	convert virtual to mapped address
+;
+;	mov	vir,r0
+;	ibcvt$	ptr vir
+
+.macro	ibcvt$	ptr vir
+.if ne mmg$t
+.if nb <vir>
+	mov	vir,r0
+.endc
+	jsr	r5,ib$cvt
+	.word	ptr-.
+.endc
+.endm
+.sbttl	general macros
+
+;	Save/restore par1
+;
+;	Each entry point saves par1.
+;	Each exit point restores par1.
+;	The SRQ interrupt is the only exception.
+;
+;	Routines that 'BR IB$PAU' may not be used as subroutines
+;	since IB$PAU restores par1 before issuing a return.
+
+.macro	ibsav$
+     xm	psh	@#m$kip1		;save par1
+.endm
+
+.macro	ibres$
+     xm	pop	@#m$kip1
+.endm
+
+;	Set/clear IB CSR
+;
+;	Set is handled a subroutine to block interrupts.
+
+.macro	ibset$	val
+	jsr	r5,ib$set
+	.word	val
+.endm
+
+.macro	ibclr$	val
+	bicb	#val,@i$bcsr
+.endm
+
+;	Disable/enable interrupts
+
+.macro	ibdsb$
+	call	ib$dsb
+.endm
+
+.macro	ibenb$
+	tst	(sp)+
+	movb	(sp)+,@#ps
+.endm
+
+;	Interrupt entry point
+
+.macro	ibint$	pri=7
+	.inten	pri,pic
+.endm
+.sbttl	installation
+
+;	Define the IB handler installation defaults
+
+	.drdef	ib,ibcod.,dsspc$!spfun$!dsgab$,0,ibcsr.,ibvec.
+
+;	Installation check
+;
+;	Must be RUST/XM with same STB date
+;
+;	Force /single/22bit
+;
+;	r2 ->	device record
+;	r3 =	stb date
+;	r4 =	^rstb
+
+	.drins	ib
+	cmp	r4,#^rshp		;this RUST/XM?
+	bne	10$			;no
+	mov	r4,r0			;handshake
+	mov	r4,r1			;reply with reason
+	cmp	r3,#stbdat		;using the same stb?
+	bne	10$			;no
+	bis	#de22b$!desin$,de.con(r2) ;force /22bit/single
+	bis	#deabo$,de.typ(r2)	;force /abort
+	tst	(pc)+			;fine
+10$:	sec				;forget it
+	return
+
+;	Flag RUST/XM 22-bit handler
+
+.save
+.asect
+.=0
+     xm	.rad50	/22b/
+.restore
+.sbttl	SET routines
+
+;	SET IB CSR=n
+;	SET IB VECTOR=n
+;	SET IB UNIT=n
+
+.asect
+.=400				;set section
+.drset	CSR,160000,ib$scs,OCT	;SET CSR=address
+.drset	VECTOR,177003,ib$svc,OCT;SET VECTOR=address
+.drset	UNIT,177760,ib$sun,NUM	;SET UNIT=number
+
+;	SET IB UNIT=decimal
+;
+;	r0	unit number
+;	r3	177760
+
+ib$sun:	bit	r3,r0		;valid unit number
+	bne	ib$bad		;no
+	mov	r0,i$buni	;yes - store it
+	br	ib$goo		;good
+
+;	SET CSR=address
+;
+;	r0	address
+;	r3	160000
+
+ib$scs:	bitb	#3,r0		;this valid?
+	bne	ib$bad		;no
+	cmp	r0,r3		;this in i/o-page
+	blo	ib$bad		;no
+	mov	r0,inscsr	;installation CSR
+	mov	r0,discsr	;and display CSR
+	mov	r0,i$bcsr	;reset csr address
+	add	#word,r0	;next
+	mov	r0,i$bdat	;
+	br	ib$goo		;
+
+;	SET IB VECTOR=address
+;
+;	r0	address
+;	r3	177003
+
+ib$svc:	bit	r3,r0		;r3=177003
+	bne	ib$bad		;vector is no good
+	mova	i$bvtb,r1	;get the vector table
+	call	(pc)		;four of them
+	call	(pc)		;two of them
+	assume	dr.vvc eq 0	;
+	assume	dr.vbs eq 6	;
+	mov	r0,(r1)+	;store the vector
+	cmp	(r1)+,(r1)+	;next vector entry
+	assume	ve.bbs eq 4	;
+	cmp	(r0)+,(r0)+	;next vector
+ib$goo:	tst	(pc)+		;fine
+ib$bad:	sec			;fail
+	return
+
+;	Put image information here
+
+	imginf$			;image information from title page
+
+	assume	. le 1000	;check SET routine size
+.sbttl	start I/O
+
+;	Start I/O
+
+	.drbeg	ib
+	br	ib$beg			;startup
+i$bcsr:	.word	ib$csr			;csr address
+i$bdat:	.word	ib$csr+ib.dat		;data register address
+i$buni:	.word	0			;unit number
+i$bvtb:	.drvtb	ib,ib$vec,ib$esr	;error
+	.drvtb	  ,ib$vec+4,ib$ssr	;srq 
+	.drvtb	  ,ib$vec+10,ibint	;listener
+	.drvtb	  ,ib$vec+14,ibint	;talker
+ib$beg:	ibsav$				;save par1
+	mov	ibcqe,r4		;r4 -> queue element
+	movb	iq.fun(r4),r3		;r3 = function code
+	bpl	30$			;an ACP request
+	tst	i$bpcr			;device allocated?
+	beq	30$			;no - ACP will report error
+	bic	#ibsf$n,r3		;isolate function code
+	mov	iq.wct(r4),i$bbct	;store the byte count
+
+;	Push back control mapping to access error variable
+;	Setup control buffer pointer pair
+
+	mova	i$bctp,r0		;point to the control pair
+	mov	iq.par(r4),(r0)	;ib.par	;setup the par
+	dec	(r0)+			;previous page
+	mov	iq.buf(r4),(r0)	;ib.ptr	;setup the pointer
+	add	#mmbip.,(r0)		;adjust for page decrement
+					;
+	ibmap$	i$bctp			;r5 -> control area
+	ibcvt$	i$bbup,(r5)+	;ib.bup	;setup the buffer pointer
+	cmp	(r5)+,i$buni	;ib.uni	;right unit number?
+	bne	40$			;no - drop it on the floor
+	tst	(r5)+		;ib.err	;skip the error word
+	mov	(r5)+,r0	;ib.tmo	;save the tick count
+	beq	10$		;ib.tep	;expected by preprocessors
+	inc	r0			;at least one tick
+	cmp	r3,#ibclr.-ibsf0.	;does this function accept timeout?
+	blos	10$			;yes
+	clr	r0			;no
+10$:	mov	r0,i$btmo		;save the count
+	beq	20$			;no clock required
+	call	ib$cgo			;start the clock
+
+;	Dispatch to preprocessor
+;
+;	r3	function * 2
+;	r4 ->	queue element
+;	r5 ->	ib.ter in control buffer - mapped in par1
+
+20$:	asl	r3			;get a dispatch offset
+	mov	r3,i$bfun		;store the case selector
+	add	r3,pc			;call the routine
+	meta	<ibdis$ c,d,e><br c><br d><br e>
+	ibdis$	ib$rcv	ib$snd	ib$snp	;
+	ibdis$	ib$com	ib$pol	ib$clr	;
+	ibdis$	ib$ini	ib$rem	ib$loc	;
+	ibdis$	ib$sts	ib$srq	ib$trn	;
+30$:	jmp	ib$acp			;an ACP request
+40$:	bis	#ibun$e,i$berr		;invalid unit error
+	br	ib$don			;all over
+.sbttl	receive, send, command, init
+
+;	Receive
+;
+;	r5 ->	virtual address of terminator list
+
+ib$rcv:	ibcvt$	i$btep,(r5)		;convert terminator list address
+	clr	i$brbc			;clear receive byte count
+	ibmap$	i$bctp			;map control buffer
+	clr	ib.rbc(r5)		;clear receive byte count
+	ibset$	ibacc$!iblis$!ibien$	;setup for receive
+	br	ib$pau			;get an interrupt
+
+;	Send with end
+;	Send plain
+
+ib$snd:					;send with end
+ib$snp:	tst	i$bbct			;send plain - got a byte count?
+	bne	10$			;yes
+	ibmap$	i$bbup			;map the buffer
+	tstb	(r5)			;got any data?
+	beq	ib$don			;no - I/O done
+10$:	call	ib$pip			;pipeline first 
+	ibset$	ibtlk$!ibien$!ibacc$	;enable it
+	br	ib$pau			;get an interrupt
+
+;	Send command
+
+ib$com:	call	ib$pip			;pipeline first 
+	ibset$	ibsyn$!ibien$!ibacc$	;enable it
+	br	ib$pau			;get an interrupt
+
+;	Init 
+; 
+;	r5 ->	terminator list in control buffer
+;		returns listener priority
+
+ib$ini:	ibclr$	ibien$!iblis$!ibtlk$!ibend$!ibsyn$ ;clean up
+	clr	i$bsrq			;no service request
+	mov	#pr7,(r5)		;return vector priority
+	ibmap$	i$bbup			;map the buffer
+	mov	i$bcsr,(r5)		;return the CSR address
+	ibset$	ibien$!ibacc$		;enable interrupts & data
+	br	ib$don			;request is done
+.sbttl	other functions
+
+;	Parallel poll
+
+ib$pol:	ibset$	ibatt$!ibidt$!ibien$	;attention, identify & interrupt
+	br	ib$pau			;wait for interrupt
+
+;	Clear interface
+;
+;	Clear accumulated errors
+
+ib$clr:	ibdsb$				;block interrupts
+	movb	#ibclr$,@i$bcsr		;set clear
+	clr	i$berr			;no errors detected
+	bisb	#ibien$,@i$bcsr		;enable interrupts
+	ibenb$				;enable interrupts
+	br	ib$pau			;wait for interrupt
+
+;	Assert the remote line on the ieee-bus:
+
+ib$rem:	ibset$	ibrem$			;set remote
+	br	ib$don			;all over
+
+;	Disable remote line
+;
+;	Required 100 usec wait is handled by system overhead.
+
+ib$loc:	ibclr$	ibrem$			;disable remote
+	br	ib$don			;done
+
+;	Return CSR status
+
+ib$sts:	ibmap$	i$bbup			;map the buffer
+	mov	@i$bcsr,(r5)		;return the CSR
+	br	ib$don			;all over
+
+;	Setup service request
+
+ib$srq:	ibclr$	ibien$			;clear interrupt enable
+	ibmap$	i$bbup			;map the buffer
+	mov	(r5),i$bsrq		;store the routine address
+	ibset$	ibien$			;enable interrupts again
+	br	ib$don			;all over
+
+;	Uncontrolled data transfer
+;
+;	Non-interrupt transfers are setup by clearing the following:
+;
+;	ibacc$		not data accept
+;	iblis$		not a listener
+;	ibtlk$		not a talker
+;	ibsyn$		not attention getting
+
+ib$trn:	ibclr$	ibacc$			;clear accept
+	br	ib$don			;
+.sbttl	pause, abort, i/o done
+
+;	Pause for interrupt
+
+ib$pau:	tst	i$berr			;got any errors?
+	bne	ib$don			;yes
+	mov	i$btmo,i$btks		;setup the timeout count
+ib$ret:	ibres$				;restore par1
+ib$qui:	return				;wait for interrupt
+
+;	I/O abort
+;
+;	Abort current queue element
+;	This also aborts the SRQ AST address
+
+ib$abo:	ibsav$				;normalize entry point
+	clr	i$bsrq			;clear the SRQ AST address
+	fall	ib$don			;
+
+;	I/O done
+;
+;	This routine does not have r0/r3 available
+
+ib$don:	call	ib$cst			;stop the clock
+	tst	ibcqe			;been cancelled?
+	beq	ib$ret			;yes
+
+;	set ieee bus quiet
+;
+;	syn off		not attention
+;	lon off		not listener
+;	ton off		not talker
+;	acc on		conversations quiet
+
+	ibdsb$				;disable interrupts
+	mov	@i$bcsr,r4		;get the CSR
+	bic	#ibsyn$!iblis$!ibtlk$!ibend$,r4 ;clear the bits
+	bis	#ibacc$,r4		;set accept
+	mov	r4,@i$bcsr		;reset the result
+	ibenb$				;restore priority
+	clrb	@i$bdat			;sync with device
+	ibmap$	i$bctp			;get the control buffer
+	bis	i$berr,ib.err(r5)	;return error flags
+	clr	i$berr			;and clear them here
+ib$fin:	ibres$				;restore par1
+	.drfin	ib			;thats it
+.sbttl	communications interrupt
+
+;	Communications interrupt
+;
+;	Stop clock a ticking
+;	Ignore it if queue element gone
+;	Fork to system state
+;	Dispatch to appropriate service routine
+
+	.drast	ib,7,ib$abo		;take the interrupt
+	clr	i$btks			;clear timeout flag
+	tst	ibcqe			;got something to do?
+	beq	ib$qui			;no - quit
+	.fork	i$bfrk			;fork
+	ibsav$				;save the par1 value
+	add	i$bfun,pc		;dispatch it
+	br	ib$rci			;receive interrupt
+	br	ib$sni			;send interrupt
+	br	ib$spi			;send plain interrupt
+	br	ib$sci			;send command interrupt
+	br	ib$poi			;poll interrupt
+	fall	ib$cli			;clear interrupt
+
+;	Clear interrupt ISR
+
+ib$cli:	ibset$	ibrem$			;set remote
+	br	ib$don			;
+
+;	Poll ISR
+;
+;	Required 2 usec delay handled by system overhead
+
+ib$poi:	ibmap$	i$bbup			;map the buffer
+	movb	@i$bdat,(r5)		;return the character
+ib$doj:	br	ib$don			;done (done jump)
+.sbttl	send ISR
+
+;	Send ISR
+;
+;	Response times are optimised with a pipeline.
+;
+;	i$bsnd	n	next character to send
+;	i$bsta	0	more
+;		1	last
+;		-1	last sent
+;
+;	The routine IB$PIP is called to init the first character.
+
+ib$sni:
+ib$spi:
+ib$sci:	tst	i$bsta			;next state
+	beq	20$			;more to do
+	bmi	ib$don			;just did the last
+	com	i$bsta			;sending the last now
+
+;	Send the last datum
+
+	cmp	i$bfun,#ibsnd.-ibsf0.*word ;is this send with terminator?
+	bne	10$			;no - end flag not required
+	bisb	#ibend$,@i$bcsr		;set the end flag
+10$:	movb	i$bsnd,@i$bdat		;send the character
+	br	ib$pau			;wait for next interrupt
+
+;	Send the next datum
+;	Pipeline the next
+
+20$:	movb	i$bsnd,@i$bdat		;send it
+	call	ib$pip			;pipeline the next
+ib$paj:	br	ib$pau			;pause for next (pause jump)
+
+;	Pipeline next send datum
+
+ib$pip:	clr	i$bsta			;assume state zero
+	ibmap$	i$bbup			;map the buffer
+	movb	(r5)+,i$bsnd		;store the next character
+;	bvs				;invalid address
+	ibinc$	i$bbup			;increment the address
+	tst	i$bbct			;is this asciz?
+	beq	10$			;yes
+	dec	i$bbct			;counted
+	br	20$			;and test it
+10$:	tstb	(r5)			;is the next a zero?
+20$:	bne	30$			;no - get the next
+	inc	i$bsta			;next send state
+30$:	return				;no
+.sbttl	receive ISR
+
+;	Receive ISR
+;
+;	This routine executes in interrupt state.
+;
+;	r0:r2	free
+;	r2 =	terminator count
+;	r3 ->	terminator list
+;	r4 =	input value
+
+ib$rci:	mov	@i$bdat,r4		;get the character and flags
+	ibmap$	i$btep			;map the terminator buffer
+	mov	(r5)+,r3		;r3 = terminator count
+					;r5 -> terminators
+10$:	decb	r3			;any more to check?
+	ble	20$			;no
+	cmpb	r4,(r5)+		;is this a terminator?
+	beq	50$			;yes - done here
+	inc	r5			;skip to next integer
+	br	10$			;and look again
+
+;	Not a terminator
+
+20$:	ibmap$	i$bbup			;map the user buffer
+	bcs	30$			;no buffer specified
+	movb	r4,(r5)+		;store it
+;	bvs				;invalid buffer
+	ibinc$	i$bbup			;next byte
+30$:	inc	i$brbc			;count it
+					;
+	assume	ibeoi$ eq 100000	;end flag
+	tst	r4			;end of data?
+	bmi	50$			;yes
+					;
+	tst	i$bbct			;unlimited byte count?
+	beq	40$			;yes
+	dec	i$bbct			;done them all?
+	beq	50$			;yes
+40$:	clrb	@i$bdat			;trigger the next
+	br	ib$paj			;pause for interrupt
+
+;	Receive done
+;
+;	Return received byte count
+
+50$:	ibmap$	i$bctp			;map control buffer
+	mov	i$brbc,ib.rbc(r5)	;return the byte count
+	br	ib$doj			;all over
+.sbttl	error, srq ISRs
+
+;	Handle error interrupt
+;
+;	Copy error flags from CSR to error word
+;	Stray interrupts caught by I/O done
+
+ib$esr:	ibint$				;inten
+	clr	i$btks			;not performing timeout now
+	ibsav$				;save par1
+	bis	@i$bcsr,i$berr		;get the error code
+	bic	#iber$n,i$berr		;isolate the error flags
+	br	ib$doj			;we are done
+
+;	Service request service routine
+;
+;	Stray interrupts expected
+
+ib$ssr:	ibint$				;inten
+	tst	i$bsrq			;got a service request?
+	beq	20$			;no - restore p1 and quit
+	tst	i$bsra			;already processing one?
+	bne	20$			;yes
+	inc	i$bsra			;we are now
+	.fork	i$bsfk			;fork for it
+
+;	Post monitor AST
+
+	mov	#s$cp12,r3		;r3 -> scheduler queue
+	mov	i$bpcr,r4		;r4 -> pcr
+	mova	i$bsad,r5		;get the kernel AST block
+	mova	10$,ad.kpc(r5)		;setup the AST address
+	mov	#mmpum$,ad.kps(r5)	;setup previous user mode
+	callr	@#as$pma		;post monitor AST
+
+;	Post client AST
+
+10$:	clr	i$bsra			;let next one thru
+					;r0/r1 = user r0/r1
+	mov	i$bsrq,r2		;r2 = user pc
+	beq	20$			;was cancelled
+	mov	#mmdum$,r3		;r3 = user ps
+	callr	@#as$pca		;post client ast
+20$:	return				;done
+.sbttl	ACP requests
+
+;	ACP requests
+; 
+;	The handler is owned by a specific CSW and process.
+;	Lookup/enter allocate the device - close deallocates it
+;	Anything else returns EOF
+; 
+;	r3	function code
+;	r4 ->	queue element
+
+ib$acp:	mov	@#j$bsys,r0		;return ACP status
+	clr	rm.spu(r0) 		;always zero
+					;
+	movb	iq.job(r4),r0		;get the job number
+	bic	#iqjo$m,r0		;isolate job number
+	asr	r0			;get job*2
+	asr	r0			;
+	mov	p$rmap(r0),r0		;get the pcr
+	beq	ib$eof			;utterly insane
+					;
+	cmpb	r3,#rsclo.		;this a close
+	beq	ib$clo			;yes - handle that
+	cmp	r3,#rsloo.		;this a lookup?
+	beq	10$			;yes
+	cmp	r3,#rsent.		;or an enter?
+	bne	ib$eof			;no - an error
+10$:	cmp	r0,i$bpcr		;same process?
+	beq	20$			;yes
+	tst	i$bopc			;already open?
+	bne	ib$bus			;yes - device busy
+	mov	r0,i$bpcr		;save it
+20$:	inc	i$bopc			;remember how many open
+	mov	pr.phd(r0),i$bphp	;save the phd page
+	clr	iq.wct(r4)		;ACP file size
+	br	ib$exi			;
+
+;	Close processing
+; 
+;	This does not really need checking 
+
+ib$clo:;cmp	r0,i$bpcr		;same process?
+;	bne	ib$eof			;no - forget it
+	dec	i$bopc			;all closed?
+	bne	ib$exi			;no - catch it later
+	ibdsb$				;disable interrupts
+	bicb	#ibien$,@i$bcsr		;turn off interrupts
+	clr	i$bfrk+fk.kpc		;stop any forks
+	clr	i$btks			;no clock a ticking
+	clr	i$bsrq			;no service requests
+	clr	i$bsra			;no service request active
+	clr	i$bsfk+fk.kpc		;stop service request fork
+	ibenb$				;enable interrupts
+	call	ib$cst			;stop the clock
+	br	ib$exi			;finish up
+
+;	ACP error - report EOF flag
+
+ib$bus:	mov	@#j$bsys,r0		;return ACP status
+	mov	#2,rm.spu(r0) 		;device busy
+ib$eof:	bis	#cseof$,@iq.csw(r4)	;set the I/O error code
+ib$exi:	jmp	ib$fin			;do not use IB reset exit path
+.sbttl	buffer mapping
+
+;	Map buffer using pointer pair
+;
+;	jsr	r5,ib$map
+;	.word	ptr-.
+;
+;	r5 ->	mapped buffer
+
+ib$map:	mov	r5,(sp)			;setup return address
+	add	#word,(sp)		;skip pointer
+	add	(r5),r5			;r5 -> pointer pair
+     xm	mov	(r5)+,@#m$kip1		;setup par1
+     um	tst	(r5)+
+	mov	(r5),r5			;get the buffer address
+	return				;
+
+;	Increment address pointer
+;
+;	jsr	r5,ib$inc
+;	.word	ptr-.
+;
+;	r5	maintained
+
+ib$inc:	psh	r5			;setup return address
+	add	#word,(sp)		;skip pointer
+	add	(r5),r5			;r5 -> pointer pair
+	inc	ib.ptr(r5)		;next byte
+     xm	bit	#mmbip.-1,ib.ptr(r5)	;next page?
+     xm	bne	10$			;no
+     xm	inc	(r5)+			;yes	
+     xm	sub	#mmbip.,(r5)		;and advance the pointer
+10$:	pop	r5			;restore return address
+	rts	r5			;return
+
+.if ne mmg$t
+;	Convert virtual address to pointer pair
+;
+;	r0 =	virtual address
+;	jsr	r5,ib$cvt
+;	.word	ptr-.
+;
+;	r5	unchanged
+
+ib$cvt:	psh	r5			;setup return address
+	add	#word,(sp)		;skip pointer
+	psh	@#m$kip1		;save par1
+	stack	kp1 ret r5		;
+	add	(r5),r5			;r5 -> pointer pair
+					;r0 = virtual address
+	call	ib$cvm			;convert virtual to mapped
+	assume	ib.par eq 0		;
+	assume	ib.ptr eq 2		;
+	mov	r1,(r5)+	;ib.par	;store the page number
+	mov	r2,(r5)+	;ib.ptr	;store the buffer offset in par1
+	pop	@#m$kip1		;restore par1
+	pop	r5			;get return address
+	rts	r5			;restore callers r5
+
+ib$cvm:	mov	i$bphp,@#m$kip1		;map the phd in par1
+	psh	#p$huip-<m$mpa2-m$mpa1>	;supply par table
+	jmp	@#io$cvm		;convert the address
+.endc
+.sbttl	clock
+
+;	Clock go
+;
+;	Steal the clock vector
+
+ib$cgo:	pshs	<r1,r0>			;save this
+	mova	i$bclk,r0		;point to the link
+	clr	i$btks			;nothing doing yet
+	ibdsb$				;disable interrupts
+	tst	(r0)			;already got it?
+	bne	ib$cdn			;yes - forget this
+	mov	@#v$eclk,(r0)+		;steal the clock
+	assume	ib$clk-i$bclk eq word	;
+	mov	r0,@#v$eclk		;store it
+	br	ib$cdn			;done
+
+;	Clock interrupt
+;
+;	Timeout is processed with interrupts blocked
+
+i$bclk:	.word	0			;next clock owner
+ib$clk:	tst	i$btks			;are we using the clock?
+	beq	10$			;no
+	dec	i$btks			;any more?
+	bne	10$			;yes
+	ibint$	7			;an interrupt
+	mov	#ibto$e,i$berr		;set the timeout error
+	psh	#pr7			;fake an interrupt
+	pusha	ib$abo			;return to abort
+10$:	sec				;monitor needs this
+	jmp	@i$bclk			;call the next one
+
+;	Stop clock
+
+ib$cst:	pshs	<r1,r0>			;save these two
+	mova	i$bclk,r0		;r0 -> i$bclk
+	assume	ib$clk-i$bclk eq word	;
+	mov	#v$eclk,r1		;point to clock vector
+	ibdsb$				;yes - disable interrupts
+	tst	(r0)+			;do we have the clock?
+	beq	ib$cdn			;no - forget this
+	cmp	r0,(r1)+		;do we have the clock?
+	beq	10$			;yes
+	mov	-(r1),r1		;no - get next owner
+10$:	mov	-(r0),-(r1)		;fill in link or restore vector
+	clr	(r0)			;remember we do not have it
+
+;	Clock go/stop done
+
+ib$cdn:	ibenb$				;enable interrupts
+	pops	<r0,r1>			;restore these
+	return				;
+.sbttl	psw & csr set
+
+;	Disable and reenable interrupts
+;
+;	call	ib$dsb
+;
+;	Save priority and raise to PR7
+;	Calls caller back as co-routine.
+;	Reenable by returning or with IBENB$
+;
+;		tst	(sp)+
+;		movb	(sp)+,@#ps
+
+ib$dsb:	psh	(sp)			;move it down
+	stack	pc ps			;
+	mov	@#ps,sp.ps(sp)		;save the psw
+	movb	#pr7,@#ps		;block interrupts
+	call	@(sp)+			;call them back
+	movb	(sp)+,@#ps		;restore ps
+	return				;
+
+;	Set CSR
+;
+;	Set bits in low byte of CSR.
+;	Block interrupts to avoid flip/flops flapping.
+;
+;	jsr	r5,ib$set
+;	.word	bits
+
+ib$set:	psh	@#ps			;save the stack
+	movb	#pr7,@#ps		;block interrupts
+	bisb	(r5)+,@i$bcsr		;set the bits
+	movb	(sp)+,@#ps		;reset the ps
+	inc	r5			;skip to return
+	rts	r5			;
+.sbttl	data
+
+;	ACP			;
+				;
+i$bopc:	.word	0		;number of channels open for process
+i$bpcr:	.word	0		;owner process pcr address
+i$bphp:	.word	0		;owner process phd page
+				;
+;	pointer pairs		;
+				;
+i$bctp:	.word	0,0		;control pointer pair
+i$bbup:	.word	0,0		;buffer pointer pair
+i$btep:	.word	0,0		;terminator pointer pair
+				;
+;	request 		;
+				;
+i$bfun:	.word	0		;function * 2
+i$berr:	.word	0		;error flags
+i$bbct:	.word	0		;iq.wct from request
+				;0 => no limit - zero terminated
+;	communication		;
+				;
+i$bfrk:	.blkb	fk.bbs		;fork block
+				;
+;	receive			;
+				;
+i$brbc:	.word	0		;received byte count
+				;
+;	send			;
+				;
+i$bsnd:	.word	0		;next send character
+i$bsta:	.word	0		;send state
+				;
+;	service request		;
+				;
+i$bsrq:	.word	0		;address of user SRQ
+i$bsra:	.word	0		;SRQ delivery active
+i$bsfk:	.blkb	fk.bbs		;fork block
+i$bsad:	.blkb	ad.bbs		;kernel ast block
+				;
+;	clock			;
+				;
+i$btmo:	.word	0		;request tick count (plus one)
+i$btks:	.word	0		;current ticks count down
+
+	.drend	ib
+.end
+

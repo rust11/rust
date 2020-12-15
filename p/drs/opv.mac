@@ -1,0 +1,234 @@
+.title	opv - RUST/SJ output logger
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+$ehdef
+$drdef
+$hkdef
+$jbdef
+$rmdef
+$txdef
+$vedef
+upini$
+
+;	load op
+;	commmands
+;	unload op
+;	sy:oplog.txt
+;	set op alloc=100
+;
+;	%build
+;	goto 'p1'
+;	macro/object:drb:opv drs:opv 
+;	link/nobitmap/execute:drb:opv.sys drb:opv/boundary:1000
+;	opload
+;	copy:
+;	!copy drb:opv.sys sy:/sys
+;	end:
+;	%end
+
+.macro	drinf$
+$imgdef	OP 1 0
+$imginf fun=drv cre=hammo aut=ijh use=<RUST/SJ terminal output log driver OP:>
+$imgham	yrs=<2004> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:21:19.46>
+;	%edit
+$imgedt <18   >
+.endm
+
+	.drdef	op,377,ronly$!wonly$,0,0,0	
+	.drest	class=dvc.ps
+	$drptr
+	$drins	op system=no,data=sj
+
+	.drbeg	op
+	.drast	op,0
+	.drfin	op
+.sbttl	driver
+
+	opSUS$ = 100000		; suspend output
+
+;	catch ctrl/e
+
+	.enabl	lsb
+op$kbd:	vehoo$	o$pkbd		; keyboard hook
+	movb	@(pc)+,-(sp)	; ctrl/e check
+o$ptkb:	.word	0		; get character
+	aslb	(sp)		; make seven bit
+	bneb	(sp)+,#ctrle*2,10$ ; not ours
+	comb	(pc)+		; flip flag
+o$pctl:	.word	opSUS$		; echo flag
+	rti			; we did it
+10$:	jmp	@o$pkbd		; pass it to monitor
+	.dsabl	lsb
+
+op$rst:	mov	#-1,o$psem	; reset semaphore
+	jmp	@(pc)+		; forward call
+o$prst:	.word	0		;
+
+;	insert character
+
+	.enabl	lsb
+op$phy:	pshs	<r1,r0>		;
+	inc	(pc)+		; block recursion
+o$psem:	.word	-1		;
+	bne	20$		; forget it
+	bmiw	o$pctl,20$	; logging suspended
+	mov	(pc)+,r1	; current buffer index
+o$pidx:	.word	0		;
+	blow	r1,#512.,10$	; more room in buffer
+	call	op$wri		; write current buffer
+	bcs	20$		; yikes
+	inc	o$pblk		; next block
+	clr	r1		; reset index
+10$: up	movb	(sp),o$pbuf(r1)	; store it	
+	inc	r1		; next character
+	mov	r1,o$pidx	;
+20$:	pops	<r0,r1>		;
+	dec	o$psem		; reset semaphore
+	beqw	o$pctl,op$ret	; not echoing
+	jmp	@(pc)+		; echo
+o$pphy:	.word	0		; physical output
+	.dsabl	lsb		;
+
+op$wri:	movb	@#j$berr,-(sp)	; save error status
+     up	mov	#o$psav,r0	; save system channel
+	emt	375		; 
+;	bcs	20$		; oops
+     up	mov	#o$plog,r0	; restore log channel
+	emt	375		;
+;	bcs	20$		; in theory etc
+     up	mov	#o$pwri,r0	; write block
+	emt	375		;
+	rol	-(sp)		; save result
+	.purge	#15.		;
+     up	mov	#o$psys,r0	; restore system channel
+	emt	375		;
+	ror	(sp)+		; c=status
+20$:	movb	(sp)+,@#j$berr	; restore job status
+	bcc	30$		; fine
+	bis	#100000,o$pctl	; suspend and echo
+30$:	fall	op$clr		;
+
+op$clr:	rol	-(sp)		; save status
+     up	mov	#o$pbuf,r0	;
+10$:	clr	(r0)+		; clear the buffer
+     up	cmp	r0,#o$pbuf+512.	;
+	bne	10$		;
+	ror	(sp)+		;
+op$ret:	return			;
+
+o$psav:	.byte	15.,5.		; save overlay channel
+     u0	.word	o$psch		;
+o$plog:	.byte	15.,6		; restore log channel
+     u0	.word	o$plch		;
+o$psys:	.byte	15.,6		; restore overlay channel
+     u0	.word	o$psch		;
+
+o$pwri:	.byte	15.,11
+o$pblk:	.word	0
+     u0	.word	o$pbuf
+	.word	256.
+	.word	0
+
+o$plch:	.blkw	5		; log channel
+o$psch:	.blkw	5		; system channel
+o$pbuf:	.blkb	512.		; the buffer
+
+	.drend	op
+.sbttl	load/unload
+.psect	opload
+
+dr$fet:
+dr$loa:	call	up$rel			; relocate driver first
+	mov	(r5),r5			; get the driver
+	sub	#dr.lqe,r5		; r5 -> driver base
+					;
+	movi	o$psav,r5,r0		; save the system channel
+	emt	375			; ignore errors
+	clr	r1			; once only
+5$:	mova	l$oloo,r0		;
+	mova	l$ospc,2(r0)		;
+	emt	375			; does file exist?
+	bcc	10$			; yes
+	bnew	r1,30$			; can't create it
+	inc	r1			; once only
+					;
+	mova	l$oent,r0		; create log file
+	mova	l$ospc,2(r0)		;
+	emt	375			; create file
+	bcs	30$			; yikes
+	mova	l$oclz,r0		; fix the size
+	emt	375			;
+	bcc	5$			; try again
+	br	30$			;
+					;
+10$:	mov	r0,r1			; save file size
+	mova	l$osav,r0		; save log channel
+	movi	o$plch,r5,2(r0)		; setup pointer
+	emt	375			; save channel
+	movi	o$psys,r5,r0		; restore system channel
+	emt	375			;
+20$:	call	op$wri(r5)		; fill with zeroes
+	bcs	30$			;
+	inc	o$pblk(r5)		;
+	sobw	r1,20$			;
+	clr	o$pblk(r5)		; c=0
+					;		
+30$:	bcs	50$			; no hope
+	mov	@#j$bsys,r4		; r4 -> rmon
+	mov	rm.syn(r4),r0		; .synch
+	mov	-(r0),r3		; r3 -> net
+					;
+;	bis	#cnvts$,rm.cfg(r4)	; flag VT11 present
+					;
+	mov	rm.tkb(r4),o$ptkb(r5)	; tkb pointer
+	vecap$	#v$ekbd,#op$kbd,r5	; hook keyboard
+					;
+	mov	eh.phy(r3),o$pphy(r5)	; physical terminal output
+	movi	op$phy,r5,eh.phy(r3)	;
+					;
+	mov	eh.rst(r3),o$prst(r5)	; soft reset
+	movi	op$rst,r5,eh.rst(r3)	;
+					;
+	bic	#opSUS$,o$pctl(r5)	; begin operations
+	tst	(pc)+			;
+50$:	sec				;
+	return
+
+dr$rel:
+dr$unl:	mov	(r5),r5			; get the driver
+	sub	#dr.lqe,r5		; r5 -> driver base
+					;
+	bis	#opSUS$,o$pctl(r5)	; suspend output
+	beqw	o$pidx(r5),10$		; nothing pending
+	call	op$wri(r5)		; write the last buffer
+					;
+10$:	mov	@#j$bsys,r4		; r4 -> rmon
+	mov	rm.syn(r4),r0		; .synch
+	mov	-(r0),r3		; r3 -> net
+					;
+;	bic	#cnvts$,rm.cfg(r4)	; remove VT11 from config
+					;
+	verel$	#v$ekbd,#op$kbd,r5	; hook keyboard
+	mov	o$prst(r5),eh.rst(r3)	; reset reset hook
+	mov	o$pphy(r5),eh.phy(r3)	; reset physical output
+	return
+
+l$oloo:	.byte	15.,1
+	.word	0,0
+l$oent:	.byte	15.,2
+	.word	0,0
+l$oclz:	.byte	15.,45
+	.word	99.
+l$osav:	.byte	15.,5
+	.word	0
+
+l$ospc:	.rad50	/sy oplog txt/
+
+$vepkg
+$hkpkg
+drinf$
+uprel$	
+
+.end

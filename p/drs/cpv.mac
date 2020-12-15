@@ -1,0 +1,141 @@
+.title	cpv - RUST/SJ ctrl/p driver
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+$ehdef
+$hkdef
+$jbdef
+$rmdef
+$txdef
+$vedef
+upini$
+
+;	CPV.SYS: [ctrl/p] is used to pause terminal output
+;
+;	%build
+;	goto 'p1'
+;	macro/object:drb:cpv drs:cpv 
+;	link/nobitmap/execute:drb:cpv.sys drb:cpv/boundary:1000
+;	cpload
+;	end:
+;	%end
+;
+;	No SET items
+
+.macro	drinf$
+$imgdef	CP 1 0
+$imginf fun=drv cre=hammo aut=ijh
+$imguse use=<RUST/SJ CTRL/P terminal pause driver CP:>
+$imgham	yrs=<2004> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:19:16.25>
+;	%edit
+$imgedt <27   >
+.endm
+
+.drdef	cp,377,ronly$!wonly$,0,0,0	
+.drest	class=dvc.ps
+$drptr	
+$drins	cp system=no, data=sj
+
+.drbeg	cp
+.drast	cp,0
+.drfin	cp
+.sbttl	driver
+
+;	catch ctrl/p
+
+	.enabl	lsb
+cp$kbd:	vehoo$	c$pkbd		; terminal hook
+	movb	@(pc)+,-(sp)	; ctrl/e check
+c$ptkb:	.word	0		; get character
+	aslb	(sp)		; make seven bit
+	cmpb	(sp)+,(pc)+	;
+c$pkey:	.word	ctrlp*2		;
+	bne	10$		;
+	mov	#24.,c$pcnt	; reset the count
+	com	(pc)+		; flip flag
+c$ppau:	.word	-1		; pause flag
+	rti			; we did it
+10$:	jmp	@c$pkbd		; pass it to monitor
+	.dsabl	lsb
+
+;	physical output
+
+	.enabl	lsb
+cp$phy:	beqw	c$ppau,10$	; not counting lines
+	bneb	r0,#lf,10$	; not a newline
+	dec	(pc)+		; count it
+c$pcnt:	.word	24.		;
+	beq	cp$pau		;
+10$:	jmp	@(pc)+		; echo
+c$pphy:	.word	0		; physical output
+
+cp$pau:	mov	#24.,c$pcnt	;
+	mova	c$pprm,r0	;
+	.print			;
+20$:	psh	r5		;
+	mov	@#j$bsys,r5	;
+30$:	clr	@rm.tks(r5)	;
+	beqw	c$ppau,40$	;
+	tstb	@rm.tks(r5)	;
+	bpl	30$		;
+	movb	@rm.tkb(r5),r0	;
+	beqb	r0,#cr,40$	;
+	pop	r5		;
+	psh	@#v$ekbd+2	;
+	psh	@#v$ekbd	;
+	beqb	r0,#ctrlc,35$	;
+	call	@(sp)+		;
+	br	20$		;
+35$:	call	@(sp)+		;
+	br	50$		;
+
+40$:	bis	#100,@rm.tks(r5);
+	pop	r5		;
+	.ttyout	#cr		;
+	.ttyout	#lf		;
+	mov	#24.,c$pcnt	;
+50$:	return
+	.dsabl	lsb		;
+
+c$pprm:	.ascii	<lf>/More? /<200>
+	.even
+
+	.drend	cp
+.sbttl	load/unload
+.psect	cpload
+
+dr$fet:
+dr$loa:	call	up$rel			; relocate driver first
+	mov	(r5),r4			; get the driver
+	sub	#dr.lqe,r4		; r4 -> driver base
+	mov	@#j$bsys,r3		; r3 -> rmon
+	mov	rm.syn(r3),r0		; .synch
+	mov	-(r0),r2		; r2 -> net
+					;
+	mov	rm.tkb(r3),c$ptkb(r4)	; copy tkb pointer
+	vecap$	#v$ekbd,#cp$kbd,r4	; capture keyboard
+					;
+	mov	eh.phy(r2),c$pphy(r4)	; capture physical terminal output
+	movi	cp$phy,r4,eh.phy(r2)	;
+					;
+	clc				;
+	return				;
+
+dr$rel:
+dr$unl:	mov	(r5),r4			; get the driver
+	sub	#dr.lqe,r4		; r4 -> driver base
+	mov	@#j$bsys,r3		; r3 -> rmon
+	mov	rm.syn(r3),r0		; .synch
+	mov	-(r0),r2		; r2 -> net
+					;
+	mov	c$pphy(r4),eh.phy(r2)	; reset physical output
+	verel$	#v$ekbd,#cp$kbd,r4	; release keyboard vector
+	clc				;
+	return
+
+$vepkg
+$hkpkg
+drinf$
+uprel$	
+.end

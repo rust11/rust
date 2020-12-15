@@ -1,0 +1,74 @@
+wee$c=0	; smaller driver - fails for program fetches
+.title	nlv - null device
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+$dcdef
+$drdef
+$jbdef
+$iqdef
+$chdef
+$rmdef
+upini$
+
+;	%build
+;	macro	drs:nlv/object:drb:
+;	link	drb:nlv/execute:drb:nlv.sys/nobitmap
+;	%end
+
+.macro	drinf$
+$imgdef	NL 1 1
+$imginf fun=drv cre=hammo aut=ijh use=<RUST/SJ null device driver NL:>
+$imgham	yrs=<2004> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:21:11.45>
+;	%edit
+$imgedt <27   >
+.endm
+
+
+	$csr=0
+	.drdef	nl,denlc.,0,0,0,0,dma=NO
+	.drest	class=denlt.
+.if ne wee$c
+	$drptr
+.endc
+	$drins	nl system=no,data=sj
+
+.if ne wee$c
+	.drbeg	nl
+     up	mov	#nlcqe,r4
+	mov	(r4),r0
+	tst	iq.wct(r0)
+	ble	10$
+	assume	iq.csw eq -2
+	bis	#csEOF$,@-(r0)
+10$:	jmp	@(pc)+
+	n$lqco=.+0
+	n$lret=.+2
+	nlint =.+4
+	.drend	nl
+
+dr$fet:
+dr$loa:	call	up$rel			; relocate the driver
+	mov	(r5),r4			;
+	sub	#dr.lqe,r4		;
+	mov	@#j$bsys,r3		; rmon
+	mov	rm.qco(r3),n$lqco(r4)	;
+	mov	#return,n$lret(r4)	;
+dr$rel:
+dr$unl:	clc
+	return
+	uprel$
+.iff
+	.drbeg	nl
+	mov	nlcqe,r4
+	tst	iq.wct(r4)
+	ble	10$
+	bis	#cseof$,@iq.csw(r4)
+10$:	.drfin	nl
+	.drast	nl,0
+	return
+	.drend	nl
+.endc
+	drinf$
+.end

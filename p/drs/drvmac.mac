@@ -1,0 +1,1962 @@
+;	------------------------------------------------------------------------
+;	DRVMAC - Driver MACRO library
+;	------------------------------------------------------------------------
+;
+;	%build
+;	run sy:strip drb:drvmac.mla=drs:drvmac.mac
+;	library/macro drb:drvmac.mlb drb:drvmac.mla
+;	copy drb:drvmac.mlb lib:drvmac.mlb
+;	!opy drb:drvmac.mlb lib:driver.mlb!	old name
+;	%end
+;	%date
+;	<28-Oct-2008 16:51:07.40>
+;	%edit
+;	<81   >
+;
+;	dudef$		DU: driver
+;	drxxx$		Driver overlays
+;	ecdef$		Ethernet class -- not used
+;	mcdef$		MSCP commands
+;	mpdef$		MSCP packet
+;	msdef$		MSCP status
+;	uddef$		UDA hardware
+
+.MACRO	$DRINI
+drovl.=0
+.ENDM
+;	------------------------------------------------------------------------
+;	Stackless Driver Support Model
+;	------------------------------------------------------------------------
+
+.MACRO	BEGIN	LAB
+.if	nb lab
+	pop	lab
+.iff
+	.enabl	lsb
+	pop	9999$
+.endc
+.ENDM
+
+.MACRO	END	LAB
+.if	nb lab
+	jmp	@(pc)+
+lab:	.word	0
+.iff
+	jmp	@(pc)+
+9999$:	.word	0
+	.dsabl	lsb
+.endc
+.ENDM
+;	------------------------------------------------------------------------
+;	Driver - Various
+;	------------------------------------------------------------------------
+;
+;	Standard setup
+;
+.MACRO	$DRSTD	CSR,VEC,PRI,RTY,NAM
+	xxcsr. = csr
+	xxvec. = vec
+	xxpri. = pri
+	xxrty. = rty
+	xxnam. = nam
+    xm <xxnam. = xxnam. + drsfx.>
+.ENDM
+;
+;	Align
+;
+.MACRO	$DRALN	RND
+	. = . + <<rnd-1> & ^c<rnd-1>>
+.ENDM
+;
+;	Set location
+;
+.MACRO	$DRLOC	LOC BAS
+.if nb bas
+	bobas. = bas
+.endc
+	. = bobas. + loc
+.ENDM
+;
+;	Check limit
+;
+.MACRO 	$DRLIM LOC
+	.iif gt .-<loc>,.error ;;Code exceeds limit
+.ENDM
+;
+;	Find driver in memory
+;
+;	NAM	xx
+;
+;	R2 ->	Driver base (i.e. hentry - dr.lqe) 
+;	C=1	Not found
+;
+.MACRO	$DRFND	NAM
+dr$fnd:	mov	@#j$bsys,r2	; 
+	psh	rm.sl2(r2)	; # slots * 2
+	psh	(sp)		;
+	stack	cnt,slc		;
+	add	rm.pnp(r2),r2	; point to pnames
+10$:	sub	#2,(sp)		; count them
+	bmi	20$		; no more
+	cmp	(r2)+,NAM	; correct name?
+	bne	10$		; nope
+	tst	-(r2)		; back up
+	add	sp.slc(sp),r2	; r2 -> hentry
+	mov	(r2),r2		; get the entry point
+	beq	20$		; not loaded
+	sub	#dr.lqe,r2	; r2 -> base address
+	tst	(pc)+		; fine
+20$:	sec			; fail
+	bit	(sp)+,(sp)+	; pop
+	return
+.ENDM
+;
+;	Install
+;
+.MACRO	$DRINS NAME,SYSTEM,DATA,?dat
+	.drins	name
+	br	dat
+	$dri'system
+	return
+dat:	$dri'data
+	return
+.ENDM
+
+.MACRO	$DRINO			; install=no
+	sec
+.ENDM
+
+.MACRO	$DRIOK
+	clc			; install=yes
+.ENDM
+
+.MACRO	$DRISJ	?tru		; Install=RUST/SJ
+	psh	@#^o54		; get RMON
+	add	#^o412,(sp)	; point at suffix
+	cmp	@(sp)+,#22.	; rad50 /  V/
+	beq	tru		; it's RUST/SJ
+	sec			; not RUST
+tru:
+.ENDM
+;
+;	Standard pointers
+;
+.MACRO	$DRPTR	
+.drptr	load=dr$loa,fetch=dr$fet,unload=dr$unl,release=dr$rel
+.ENDM
+;
+;	Interrupt
+;
+.MACRO	$DRAST	PRI
+	jsr	r5,@$inptr		; use driver hook
+	.word	^c<pri*40>&340		; priority mask
+.ENDM
+;	------------------------------------------------------------------------
+;	Driver Terminal Output
+;	------------------------------------------------------------------------
+;
+;	Report message
+;
+;	Nop if rep$c == 0
+
+.MACRO	DRREP$ MSG
+.iif ndf rep$c, rep$c=0
+.if ne rep$c
+.if nb msg
+	jsr	r1,tt$typ
+	.asciz	~msg~
+	.even
+.iff
+	$tttyp
+	$ttput
+.endc
+.endc
+.ENDM
+
+.MACRO	TTPUT$	CHA
+.if nb cha
+	mov	cha,r0
+.endc
+	call	tt$put
+.ENDM
+
+.MACRO	TTDEC$	VAL
+.if nb VAL
+	mov VAL,r0
+.endc
+	call	tt$dec
+.ENDM
+
+.MACRO	TTOCT$	VAL,PAD
+.if nb VAL
+	mov VAL,r0
+.endc
+.if nb PAD
+	call	tt$pad
+.iff
+	call	tt$oct
+.endc
+.ENDM
+
+.MACRO	TTTYP$ MSG
+	jsr	r1,tt$typ
+	.asciz	~msg~
+	.even
+.ENDM
+
+.MACRO	TTPRT$ MSG
+	.iif ndf cr.,$aldef
+	jsr	r1,tt$typ
+	.ascii	~msg~
+	.byte	cr.,lf.,0
+	.even
+.ENDM
+
+.MACRO	TTNEW$
+	call	tt$new
+.ENDM
+
+.MACRO	$TTTYP
+tt$typ:	psh	r0
+10$:	movb	(r1)+,r0		;
+	beq	20$			; all done
+	ttput$				; put character
+	br	10$			;
+20$:	inc	r1			;
+	bic	#1,r1
+	pop	r0
+	rts	r1
+.ENDM
+
+.MACRO	TTUNP$	VAL
+.if nb VAL
+	mov VAL,r0
+.endc
+	call	tt$unp
+.ENDM
+
+.MACRO	TTSPC$	SPC
+.if nb SPC
+	mov SPC,r0
+.endc
+	call	tt$spc
+.ENDM
+
+.MACRO	$TTNEW
+	.iif ndf cr.,$aldef
+tt$new:	jsr	r1,tt$typ
+	.byte	cr.,lf.,0,0
+	return
+.ENDM
+
+.MACRO	$TTPUT SYNCH
+	.iif ndf j$bsys,$jbdef
+	.iif ndf rm.tps,$rmdef
+tt$put:	psh	r1
+	mov	@#j$bsys,r1
+10$:	bplb	@rm.tps(r1),10$		; wait for it
+	movb	r0,@rm.tpb(r1)		;
+.if nb SYNCH
+20$:	bplb	@rm.tps(r1),20$		; wait for it
+.endc
+	pop	r1			;
+	return
+.ENDM
+
+.MACRO	$TTNUM
+tt$pad:	mov	(pc)+,(pc)+	; pad octal
+tt$oct:	clr	(pc)+		;
+t$tpad:	.word	0		; padding fla
+	tst	(pc)+		; flag octal
+tt$dec:	sec			;
+	pshs	<r2,r1,r0>	; save them
+	jsr	r3,30$		; assume decimal
+10$:	10000.,1000.,100.,10.,1,0
+20$:	100000,10000,1000,100,10,1,0
+30$:	bic	r2,r2		; no digits seen yet
+	bcs	40$		; is decimal
+	add	#20$-10$,r3	;
+	beqw	t$tpad,40$	; not padding
+	mov	#'0,r2		; show all digits
+40$:	mov	r0,r1		;
+50$:	mov	#-1,r0		; look for a digit
+60$:	inc	r0		; step up dividend
+	sub	(r3),r1		; subtract
+	bcc	60$		; go again
+	add	(r3)+,r1	; bumb it back to positive
+	beqw	(r3),70$	; final digit
+	bnew	r0,70$		; got something
+	beqw	r2,80$		;
+70$:	mov	#'0,r2		;
+	add	r2,r0		;
+	ttput$			; display character
+80$:	bnew	(r3),50$	;any more to do ?
+	pops	<r3,r0,r1,r2>
+	return
+.ENDM
+
+.MACRO	$TTSPC
+tt$spc:	pshs	<r1,r0>
+	mov	r0,r1
+	call	20$
+	ttput$	#':
+	beqw	-2(r1),10$
+	call	20$
+	call	20$
+	ttput$	#'.
+	call	20$
+10$:	pops	<r0,r1>
+	return
+20$:	mov	(r1)+,r0
+	callr	tt$unp
+.ENDM
+
+.MACRO	TTLOW$
+	mov	#'a-'A,t$tlow	;rad50 lowercase output
+.ENDM
+
+.MACRO	$TTUNP
+	.enabl	lsb
+tt$unp:	pshs	<r5,r4>
+	mov	r0,r4
+	mova	100$,r5		;get the divisors
+20$:	mov	#-1,r0		;init the result
+	cmp	#174777,r4	;is it an *
+	blo	50$		;yep
+30$:	inc	r0		;next character
+	sub	(r5),r4		;this it?
+	bcc	30$		;nope
+	add	(r5),r4		;bump back
+	tst	r0		;a null?
+	beq	90$		;yep, forget it
+	cmp	#33,r0		;nah?
+	blo	70$
+	beq	80$
+	add	(pc)+,r0	;get lower case
+t$tlow:	.word	0;'a-'A		;see ttlow$
+50$:	add	#56,r0
+70$:	add	#11,r0
+80$:	add	#11,r0
+	ttput$
+90$:	tst	-(r5)		;any more?
+	bne	20$		;yep
+95$:	pop	r4
+	pop	r5
+	return
+	.word	0,1,50
+100$:	.word	50*50
+	.dsabl	lsb
+.ENDM
+;	------------------------------------------------------------------------
+;	Driver Conditionals
+;	------------------------------------------------------------------------
+
+.MACRO	$DRCND
+.iif	ndf	mmg$t,	mmg$t=0		; unmapped by default
+.iif 	ndf	tim$it,	tim$it=mmg$t	; timeout defaults to mmgt setting
+.iif	ndf	erl$g,	erl$g=0		; error logging
+
+.if eq mmg$t				;
+	drum$=1				;
+	drxm$=0				;
+.iff					;
+	drum$=0				;
+	drxm$=1				;
+.endc					;
+	drtm$ = tim$it
+
+	.macro	drTST$ nam cnd
+	   meta <nam c d e f g h i j k><drIF$ cnd <c> <d> <e> f g h i j k>
+	.endm
+	drtst$ um drum$
+	drtst$ xm drxm$
+	drtst$ tm drtm$
+
+;	drIF$ macro must produce following code
+;
+;	sop	opr
+;	bop	src,dst
+;   cnd bop/sop	src dst
+
+	.macro	drIF$ c d e f g h i j k ;if macro
+	.if ne c		;may be blank
+	 .if nb <f>		;bop or macro
+		d e,f g h i j k	;
+	 .iff			;sop
+		d	e	;
+	 .endc			;
+	.endc			;
+	.endm			;
+.ENDM
+;	------------------------------------------------------------------------
+;	Driver Overlay Support
+;	------------------------------------------------------------------------
+;
+;
+;	$drupd	[err]	write then restore
+;	$drwri	blk	write block
+;	$drres		restore block zero
+;	$drovl		overlay routines
+;
+;	$drloa		load overlay routine
+;	$drcal		call overlay routine
+;
+;	Routines must be called the SET routine stack unchanged
+;	Errors are handled by popping the return to the SET routine
+;	and returning C=1 to the SET dispatcher.
+
+.MACRO	$drMAP	loc, adr, blk, bas=xxboot
+	adr = <xxend-xxstrt> + <loc-bas> + 1000 
+	blk = adr / 1000
+.ENDM
+
+;	1000	2000	3000
+;	0	-1000	-2000
+
+.MACRO	$DRMOV	VAL,ADR,UPD
+	$drrea	#adr/1000
+	mov	val,adr-<adr/1000*1000>+1000
+.if b upd
+	$drupd
+.endc
+.ENDM
+
+;	Following logic required because of linker
+
+.MACRO	$drGET	adr,bas=xxboot,pre=xx
+	$drrea	#adr/1000
+	$ = <bas - 1000>
+.ENDM
+
+.MACRO	$drREA	blk
+.if NB <blk>
+	mov	blk,d$riob+io.blk
+.endc
+	call	dr$rea
+.ENDM	
+
+.MACRO	$drWRI	blk
+.if NB <blk>
+	mov	blk,d$riob+io.blk
+.endc
+	call	dr$wri
+.ENDM
+
+.MACRO	$drRES
+	call	dr$res
+.ENDM	
+
+.MACRO	$drUPD	
+	call	dr$upd
+.ENDM	
+
+;	$drloa	#adr		; load the overlay
+;	$drcal	adr		; call the routine
+
+.MACRO	$drLOA	adr
+	$drrea	adr/1000
+.ENDM
+
+.MACRO	$drCAL	adr loa=LOA res=RES REG=r2
+.if dif loa,NO
+	$drrea	#adr/1000
+.endc
+	call	adr-<adr/1000*1000>+1000
+.if dif res,NO
+	rol	REG
+	$drres
+	ror	REG
+.endc
+.ENDM
+
+;	One level of return are popped on errors to return
+;	the error to the SET dispatcher. Thus, nothing may be
+;	on the stack except the returns.
+
+.macro	$drOVL
+.if eq drovl.
+drovl.=1				; is present
+$iodef
+
+;	r0	block number
+
+	.enabl	lsb
+dr$upd:	call	10$			; write first, then restore
+	bcs	40$			; propagate error
+dr$res:	mov	#1,d$riob+io.blk	; get back original block
+dr$rea:	movb	#iorea.,d$riob+1	; read
+	br	20$			;
+10$:	call	(pc)			;
+dr$wri:	movb	#iowri.,d$riob+1	; write
+20$:	jsr	r0,30$			; save r0, get I/O block
+d$riob:	.byte	15.,iorea.		; channel, code
+	.word	1			; block
+d$rbuf:	.word	0			; buff
+	.word	256.			; word count
+	.word	0			; wait i/o
+30$:	mova	1000,d$rbuf		; setup the buffer
+	emt	375			; read or write
+	mov	#0,d$rbuf		;*reset for DIFFER/BINARY
+	pop	r0			;*restore that
+	bcc	50$			;*fine
+40$:	bit	(sp),(sp)+		;*skip return and flag error
+50$:	return				;*
+	.dsabl	lsb
+.endc
+.ENDM
+;	------------------------------------------------------------------------
+;	DRSET$ - .DRSET extended with HEX
+;	------------------------------------------------------------------------
+;
+.MACRO	DRSET$	OPTION,VAL,RTN,MOD,?l
+.if ndf s$tbas
+	s$tbas = 400
+	stOCT$ = 140
+	stNUM$ = 100
+	stHEX$ = 120
+	stNO$  = 200 
+.endc
+.if le .-s$tbas
+	. = s$tbas
+.iff
+	. = . - 2
+.endc
+;
+l:	.word	val
+	.word	0,0
+	. = l + 2
+	.rad50	|option|
+	. = l + 6
+	.byte	<rtn-s$tbas>/2
+	$ = 0
+	.irp M, <mod>
+	$ = $ ! st'M'$
+	.endr
+	.byte	$
+	.word	0
+.ENDM
+;	------------------------------------------------------------------------
+;	Driver SET Routines
+;	------------------------------------------------------------------------
+;
+.MACRO	$DRSEL lst,val		; select set items
+.irp x,<lst>
+	x = val
+.endr
+.ENDM
+;
+.MACRO	$DRDFT lst,val		; default set items
+.irp x,<lst>
+.if ndf x
+	x = val
+.endc
+.endr
+.ENDM
+;
+.MACRO	$DRSET TBL=1 COD=1 OVL=0
+$drdft <stcsr$,stvec$,strty$> 1
+$drdft <stnam$> 1
+$drdft <stabt$> 0
+$drdft <stwai$> 0
+$drdft <stcsb$> 0
+$drdft <stcsx$> 0
+$drdft <stflp$> 0
+$drdft <stcon$> 0
+$drdft <stuct$>	0	; set units=n
+$drdft <stodt$>	0	; set [no]odt
+$drdft <stpro$> 0	; set prot=n
+$drdft <sttim$> 0	; set timer=n
+$drdft <stboo$> 1	; driver has bootstrap
+;
+map	st.nam,,0
+map	st.csr
+map	st.vec
+map	st.rty
+;
+;	R3 value must be non-zero
+;
+.if ne TBL
+$drlim	400
+.iif ne stcsr$,drset$	CSR,	160001,	st$csr,	oct	; set csr
+.iif ne stvec$,drset$	VECTOR,	500,	st$vec,	oct	; set vector
+.iif ne strty$,drset$	RETRY,	127.,	st$rty,	num	; set retry=n
+.iif ne stnam$,drset$	NAME,	1,	st$nam,	oct	; set driver name
+.iif ne stabt$,drset$	ABORT,	100000,	st$abt,	no	; set [no]abort
+.iif ne stwai$,drset$	WAIT	100000,	st$wai, no	; set [no]wait
+.iif ne stflp$,drset$	FLIP	100000,	st$flp, no	; set [no]flip
+.iif ne stcon$,drset$	JOIN	100000,	st$con, no	; set [no]join
+.iif ne stodt$,drset$	ODT	100000,	st$odt, no	; set [no]odt
+.iif ne stuct$,drset$	UNITS	xxumx.,	st$uct, num	; set units=n
+;iif ne stpro$,drset$	PROT,	1,	st$pro,	hex	; set prot=hex
+.iif ne sttim$,drset$	TIMER,	1,	st$tim,	num	; set timer=n
+.endc
+;
+;	r0		command input value
+;	r1		unit specified, or 100000
+;	r2		undefined
+;	r3		value from SET table
+;	r4		undefined - may not be modified
+;	r5 ->		command line in reverse - undocumented
+;			not supported by RUST
+;	cbit		clear
+;	entry+4		called for negated options
+;
+;	drget$/drrea$ etc must be called with the stack as it was
+;	on entry to the SET routine. The I/O routines pop the stack
+;	and return directly to the dispatcher with C=1 for I/O errors.
+;
+.if ne COD
+;	SET CSR=addr
+;
+;	r3 =	160003
+;	r0 =	new csr address
+;
+.if ne stcsr$
+st$csr:	bitb	r3,r0			; invalid address?
+	bne	st$fai			; yes
+	cmp	r0,r3			; too low?
+	blos	st$fai			; yes
+	mov	r0,inscsr		; installation csr
+	mov	r0,discsr		; display csr
+.if ne stboo$				; driver has bootstrap
+	$drget	b$ocsr			; read boot section
+.if ne stcsb$
+	bocsr$
+.iff
+	mov	r0,b$ocsr-$		; setup boot csr
+.endc
+	call	st$upd			; update boot, reread driver
+.endc
+.if ne stcsx$
+	xxcsr$
+.iff
+	mov	r0,x$xcsr		; set driver csr
+.endc
+	br	st$suc			;
+.endc
+;
+;	SET RETRY=n
+;
+;	r0 =	new retry count
+;	r3 =	127.
+;
+.if ne strty$
+st$rty:	cmp	r0,r3			;too high?
+	bhi	st$fai			;yes
+	movb	r0,x$xrty		;setup the retry count
+	br	st$suc			;o.k.
+.endc
+;
+;	SET TIMER=n
+;
+;	r0 =	new timeout count
+;
+.if ne sttim$
+st$tim:	swab	r0			;*256
+	asr	r0			;*128
+	asr	r0			;*64
+	mov	r0,x$xtmo		;setup the timeout period
+	br	st$suc			;o.k.
+.endc
+;
+;	SET VECTOR=addr
+;
+;	r0 =	new vector
+;	r3 =	500
+;
+.if ne stvec$
+.iif ndf dr.vec,$drdef
+st$vec:	cmp	r0,r3			;too high?
+	bhis	st$fai			;yes
+	assume	dr.vec-dr.dri eq 0	;
+.if ndf xxvtb.
+	xxvtb. = 0
+.endc
+.if eq xxvtb.
+	mov	r0,xxstrt		;setup the vector
+.iff
+	mov	r0,x$xvtb		;rt-11 magic
+	add	#ve.bbs,r0		;second vector
+	mov	r0,x$xvtb+dr.vbs	;second table element
+.endc
+st$suc:	tst	(pc)+			;fine
+st$fai:	sec				;not o.k.
+	return
+.endc
+;
+;	SET [NO]ABORT
+;
+;	r0 =	?
+;	r3 =	100000
+;	st$abt	NOABORT entry
+;	+4	ABORT entry
+;
+.if ne stabt$
+st$abt:	mov	#1,r3			; ABORT entry
+	movb	r3,x$xabt		; NOABORT entry
+	br	st$suc			;
+.endc
+;
+;	SET [NO]WAIT
+;
+;	r0 =	?
+;	r3 =	100000
+;	st$wai	NOWAIT entry
+;	+4	WAIT entry
+;
+.if ne stwai$
+st$wai:	mov	#1,r3			; WAIT entry
+	movb	r3,x$xwai		; NOWAIT entry
+	br	st$suc			;
+.endc
+;
+;	SET [NO]FLIP
+;
+.if ne stflp$
+st$flp:	mov	#1,r3			; FLIP entry
+	movb	r3,x$xflp		; NOFLIP entry
+	br	st$suc			;
+.endc
+;
+;	SET [NO]JOIN
+;
+.if ne stcon$
+st$con:	mov	#1,r3			; JOIN entry
+	movb	r3,x$xcon		; NOJOIN entry
+	br	st$suc			;
+.endc
+;
+;	SET [NO]ODT
+;
+.if ne stodt$
+st$odt:	mov	#1,r3			; ODT entry
+	movb	r3,x$xodt		; NOODT entry
+	br	st$suc			;
+.endc
+;
+;	SET UNITS=n
+;
+;	r0 =	units
+;	r3 =	max
+;
+.if ne stuct$				; SET UNITS=n
+st$uct:	bhiw	r0,r3,st$fai		; above maximum
+	mov	r0,x$xuct		; setup unit count
+	br	st$suc			;
+.endc
+;
+;	SET PROT=n
+;
+;	r0 =	prot
+;
+.if ne stpro$				; SET PROT=hex
+st$uct:	mov	r0,x$xpro		; setup protocol
+	br	st$suc			;
+.endc
+;
+;	Set NAME=rad50
+;
+;	r3 =	.rad50 <  X>
+;	r0 =	driver name
+;
+.if ne stnam$
+st$nam:	$drget	b$onam			; read boot section
+	mov	r0,b$onam-$		; setup bootstrap name
+	fall	st$upd			;
+.endc
+st$upd:	$drupd				; write boot and switch back
+	br	st$suc			; write out driver 
+;
+.if ne OVL
+	$drovl				; Driver overlay support
+.endc
+	$drlim	1000			; check space
+.endc
+.ENDM
+;	------------------------------------------------------------------------
+;	Driver Timeout Support
+;	------------------------------------------------------------------------
+;
+;	LOAD 	vecap$	#v$eclk,#tm$clk,rx
+;	UNLOAD	verel$	#v$eclk,#tm$clk,rx
+;
+;	DRTIM$	val
+;
+;	val=n	start timeout
+;	val=#0	stop timing
+;
+;	c=?	do not change the c-bit
+
+.MACRO	DRTIM$	VAL
+	mov	val,t$mtik
+.ENDM
+
+;	Clock interrupt
+;
+;	Timeout is processed with interrupts blocked
+;
+;	tm$abt	User routine to clear hardware
+;	  c=1	Don't call tm$ast
+;
+;	tm$ast	User timeout AST called in INTEN 7 state
+;		r4/r5 available.
+;		Exit with RETURN
+;		May call .DRFIN
+
+.MACRO	$DRTIM
+	.enabl	lsb			;
+tm$clk::vehoo$	t$mclk			;
+	tst	(pc)+			;are we using the clock?
+t$mtik::.word	0			;clock waiting flag
+	beq	20$			;no
+	dec	t$mtik			;any more?
+	bne	20$			;yes
+	$drast	7			;call inten
+	call	tm$abt			;stop the world
+	bcs	20$			;
+	psh	#pr7			;fake an interrupt
+     up	psh	#tm$ast			;hook and fork
+20$:	sec				;monitor needs this
+	jmp	@t$mclk			;call the next one
+	.dsabl	lsb			;
+.ENDM
+;	------------------------------------------------------------------------
+;	$DRALC - Allocate driver region
+;	------------------------------------------------------------------------
+;
+;	$DRALC	SIZ RN0 RN1
+;
+;	siz	region size in pages
+;	rn0	first word of region name
+;	rn1	second word of region name
+;
+;	c=0	fine
+;
+;	c=1	fail
+;	r0	reason
+;
+;	All registers are used.
+;	The stack is not used.
+;
+;	$dralc	#size, #<^rreg>, #<^rnam>
+;	bcs error
+;
+;MACRO	$DRALC SIZ NAM1 NAM2 ?$10 ?$20 ?$30 ?$40
+;$rmdef					;
+;$rrdef					;
+;					;
+;	mov	@#r$mmon,r4		;point to RMON
+;	mov	rm.mpt(r4),r0		;r0 = memptr(rmon)
+;	add	r4,r0			;r0 = memptr(rmon)+#rmon
+;					;r0 > memtab
+;	mov	rr.xfo(r0),r5		;r5 = corptx(memtab)
+;	add	r4,r5			;r5 = corptx(memtab)+#rmon
+;					;
+;$10:	cmp	#-1,(r5)+		;skip to end of first table
+;	bne	$10			;must be found
+;					;
+;;	Find free region		;
+;					;
+;$20:	mov	(r5),r0			;is this one free?
+;	beq	$30			;yes
+;	inc	r5			;is this the last one?
+;	beq	$40			;yes - no region available
+;	add	#rr.gbs,r5		;no - check next
+;	br	$20			;
+;					;
+;;	Found free control block	;
+;					;
+;$30:	mov	SIZ,r2			;r2 = page size
+;	mov	rm.p1x(r4),r0		;r0 = p1ext(rmon)
+;	cmp	#-1,(r5)+		;skip to end of first table
+;	call	p1.xal(r0)		;call xalloc
+;	bcs	$40			;no space
+;	mov	r2,(r5)+		;store page size
+;	mov	r1,(r5)+		;store page address
+;	mov	#rrpvt$,(r5)+		;setup status
+;	mov	NAM1,(r5)+		;setup name
+;	mov	NAM2,(r5)+		;
+;$40:					;
+;ENDM
+;	------------------------------------------------------------------------
+;	$DRALC - Allocate driver region
+;	------------------------------------------------------------------------
+;
+;	$DRALC	SIZ NAM1 NAM2
+;
+;	siz	region size in pages
+;	rn0	first word of region name
+;	rn1	second word of region name
+;
+;	All parameters may be passed on the stack
+;	No parameters may be passed in registers
+;
+;	c=0	fine
+;
+;	c=1	fail
+;	r0	reason
+;
+;	r0:r5	burnt
+;
+;	Examples:
+;
+;	alc:	$dralc	siz=#128. nam1=#<^rdd > nam2=#<^r$  >
+;		bcs	error
+;
+;	alc:	psh	#128.
+;		psh	#<^r$  >
+;		psh	#<^rdd >
+;		$dralc	4(sp), 2(sp), (sp)
+;
+.MACRO	$DRALC SIZ NAM1 NAM2 ?$10
+.iif ndf r$mmon, r$mmon=^o54		;sysptr
+.iif ndf rm.p1x, rm.p1x=^o432		;p1ext(rmon)
+.iif ndf p1.xal, p1.xal=-6.		;xalloc(p1ext(rmon))
+.iif ndf p1.fgr, p1.fgr=-10.		;findgr(p1ext(rmon))
+.iif ndf rrpvt$, rrpvt$=^o100000	;gr.pvt - private region
+	stack	etc			;
+	mov	@#r$mmon,r4		;point to RMON
+	mov	rm.p1x(r4),r4		;get the p1 area
+	clr	-(sp)			;get a blank name
+	clr	-(sp)			;for the search
+	stack	nm1 nm2 etc		;
+	mov	sp,r5			;point to them
+	call	p1.fgr(r4)		;find the region
+	bit	(sp)+,(sp)+		;cleanup the stack
+	stack	etc			;
+	bcs	10$			;no free regions
+	mov	r1,r5			;get the control block
+	mov	SIZ,r2			;r2 = page size
+	call	p1.xal(r4)		;call xalloc
+	bcs	$10			;no space
+	mov	r2,(r5)+		;rr.gsz - store page size
+	mov	r1,(r5)+		;rr.gsb - store page address
+	mov	#rrpvt$,(r5)+		;rr.gst - setup status
+	mov	NAM1,(r5)+		;rr.gn0 - move in the name
+	mov	NAM2,(r5)+		;rr.gn1
+$10:	stack	etc			;
+.ENDM
+;	------------------------------------------------------------------------
+;	$DRCKP	- Convert kernel to physical
+;	------------------------------------------------------------------------
+;
+;	$drckp	buf ext
+;
+;		buf		the address of the buffer address
+;		ext		the address of the external address
+;
+;	Sample	$drckp	bufadr,extadr
+;		$drckp	q$buff(r5),q$par(r5)
+;
+;	Note	.include "lib:rust.mac" must be used at the module start
+;		$DRMKP must be used to define the mapping subroutine
+;
+;	------------------------------------------------------------------------
+;
+.MACRO	$DRCKP	BUF EXT
+	clr	-(sp)
+	psh	buf
+	call	dr$mkp
+	pop	buf
+	pop	ext
+.ENDM
+;	------------------------------------------------------------------------
+;	$DRGKP - Get kernel to physical mapping
+;	------------------------------------------------------------------------
+;
+;	$drgkp	buf
+;
+;		buf		the address of the buffer address
+;
+;	result	0(sp)	sp.buf(sp)	the physical buffer address
+;		2(sp)	sp.ext(sp)	the physical extended address
+;
+;	Sample	$drgkp	bufadr
+;		pop	bufadr
+;		pop	extadr
+;
+;	Note	.include "lib:rust.mac" must be used at the module start
+;		$DRMKP must be used to define the mapping subroutine
+;
+;	------------------------------------------------------------------------
+;
+.MACRO	$DRGKP	BUF
+	clr	-(sp)
+.iif nb <BUF>	psh	buf
+	call	dr$mkp
+	stack	buf ext
+.ENDM
+;	------------------------------------------------------------------------
+;	$DRMKP	- Map kernel virtual to physical
+;	------------------------------------------------------------------------
+;
+;	Convert virtual kernel address to physical address
+;
+;	Call	clr	-(sp)		;external dummy
+;		psh	buf		;kernel virtual address
+;		call	dr$mkp
+;
+;	Result	2(sp)	ext		;sp.ext
+;		0(sp)	buf		;sp.buf	
+;
+;	Notes	Usually called with $drckp or $drgkp macros
+;
+;		This macro creates a short subroutine in the device handler.
+;		It should be placed between the .DRBEG and .DREND macro calls.
+;
+;	Macro	$drmkp	xls=4 gbl
+;
+;		xls=4	extended address left shift - usually four
+;		gbl	use gbl=yes to define DR$MKP as a global address
+;
+;	------------------------------------------------------------------------
+;
+.MACRO	$DRMKP	XLS=4 GBL
+.iif ndf m$kip0, $mmdef
+	stack	ret buf ext
+.if nb <GBL>
+dr$mkp::
+.iff
+dr$mkp:
+.endc
+.if ne mmg$t				;redundant on unmapped system
+	pshs	<r1,r0>			;yes
+	stack	r0 r1 ret buf ext	;
+	mov	sp.buf(sp),r1		;get the physical address
+	ash	#-<mmpav.-1>,r1		;isolate the par number
+	bic	#^c16,r1		;r2 = par offset
+	clr	r0			;clear high order
+	mov	m$kip0(r1),r1		;get the par value
+	ashc	#mmvip.,r0		;r1 = page number
+	bic	#mmpa$p,sp.buf(sp)	;remove par number
+	add	r1,sp.buf(sp)		;store the result buffer
+	adc	r0			;overflow to r0
+.if ne <XLS>
+	ash	#XLS,r0			;put high order in right place
+.endc
+	mov	r0,sp.ext(sp)		;send them back
+	pops	<r0,r1>			;restore these
+	return				;
+.endc
+.ENDM
+;	------------------------------------------------------------------------
+;	$DRTKP	- Translate kernel to physical
+;	------------------------------------------------------------------------
+;
+;	Convert virtual kernel address to physical address
+;	Use this simplified version to handle fixed addresses.
+;
+;	Call	call	dr$tkp		;call the routine
+;
+;	Result	buf,ext			converted
+;
+;	Macro	$drmkp	buf ext xls=4 gbl
+;
+;		buf	the address of the buffer address
+;		ext	the address of the extended address
+;		xls=4	extended address left shift - usually four
+;		gbl	use gbl=yes to define DR$MKP as a global address
+;
+;	Sample	call	dr$tkp
+;
+;		<...>
+;
+;		$drtkp	buf=oldba ext=extadr
+;
+;	Notes	This macro creates a short subroutine in the device handler.
+;		It should be placed between the .DRBEG and .DREND macro calls.
+;
+;	------------------------------------------------------------------------
+;
+.MACRO	$DRTKP	BUF EXT XLS=4 GBL
+.iif ndf m$kip0, $mmdef
+.if nb <GBL>
+dr$tkp::
+.iff
+dr$tkp:
+.endc
+.if ne mmg$t				;redundant on unmapped system
+	pshs	<r1,r0>			;yes
+	stack	r0 r1			;
+	mov	BUF,r1			;get the physical address
+	ash	#-<mmpav.-1>,r1		;isolate the par number
+	bic	#^c16,r1		;r2 = par offset
+	clr	r0			;clear high order
+	mov	m$kip0(r1),r1		;get the par value
+	ashc	#mmvip.,r0		;r1 = page number
+	bic	#mmpa$p,BUF		;remove par number
+	add	r1,BUF			;store the result buffer
+	adc	r0			;overflow to r0
+.if ne <XLS>
+	ash	#XLS,r0			;put high order in right place
+.endc
+	mov	r0,EXT			;send them back
+	pops	<r0,r1>			;restore these
+	return
+.endc
+.ENDM
+;	------------------------------------------------------------------------
+;	$DR22B	- Setup RUST/XM 22-bit flag
+;	------------------------------------------------------------------------
+;
+.MACRO	$DR22B
+.if eq mmg$t				;check for mmu enabled
+	.error	;!$DR22B-E-MMG$T not enabled
+.iff					;mmu enabled
+.save					;save psect
+.asect					;absolute section
+.=0					;location zero
+	.rad50	"22b"			;setup 22-bit flag
+.restor					;restore psect
+.endc					;
+.ENDM
+;	------------------------------------------------------------------------
+;	DUDEF$	DU: Driver
+;	------------------------------------------------------------------------
+;
+.MACRO	DUDEF$
+map	d$ucsr,,172150		;standard CSR
+map	d$ufal,,176150		;falcon CSR address
+map	d$uvec,,154		;standard vector
+map	durtc.,,8.		;standard retry count
+map	duunc.,,8.		;standard unit count
+map	duhto.,,60.*0		;host timeout in seconds
+map	dunam.,,<^rdu>		;device name
+;
+;	Special functions
+;
+map	durea.,,377		;physical read
+map	duwri.,,376		;physical write
+;		375		;
+;		374		;
+map	dusiz.,,373		;get volume size
+map	dutab.,,372		;read unit tables
+map	dubyp.,,371		;mscp bypass (old)
+map	duby2.,,360		;mscp bypass (new)
+;
+;	DU: unit table
+;
+map	dugua$,,<^rDU >		;
+map	du.gua	word,0		;guard word
+map	du.cnt	word		;unit count
+map	du.hbs			;header
+				;
+map	du.uni	word,0		;unit number
+map	du.par	byte		;partition
+map	du.por	byte		;port
+map	du.ubs			;
+;
+;	Physical I/O status
+;
+map	du.sta	word,0		;I/O status
+map	du.buf			;I/O buffer
+;				;
+;	du.sta	status
+;
+map	dusuc$,,0		;success
+map	duecc$,,1		;ECC error recovered
+map	durty$,,2		;error recovered by retry
+map	duoff$,,4		;recovered by offset
+map	ducal$,,10		;recovered by calibration
+map	dubad$,,200		;bad block error
+map	dufat$,,77400		;fatal error - not recovered
+map	dudat$,,40000		;MSCP dat error
+map	duphy$,,100000		;physical status
+;
+.ENDM
+;	------------------------------------------------------------------------
+;	ECDEF$	Ethernet Class Driver
+;	------------------------------------------------------------------------
+;
+.MACRO	$ECDEF
+;
+map	ecpor$,,200	;allocate/deallocate portal/unit
+map	ecprm$,,201	;enable/disable promiscuous mode
+map	ecprt$,,202	;enable/disable protocol type
+map	ecmul$,,203	;enable/disable multicast address
+map	ecxmt$,,204	;transmit frame
+map	ecrcv$,,205	;receive frame
+;
+;	Special function modifiers (block number parameter)
+;
+map	ecalc$,,1	;allocate portal
+map	ecdlc$,,0	;deallocate portal
+;
+map	ecenb$,,1	;enable protocol/promiscuous/multicast
+map	ecdsb$,,0	;disable protocol/promiscuous/multicast
+;
+;	ec: parameters
+;
+;map	ecmin.,,64.	;minimum byte count
+;map	ecmax.,,1518.	;maximum byte count
+;
+;	ec: receive/transmit packet preface
+;
+map	ec.sta	byte,0	;status
+map	ec.rea	byte	;reason
+map	ec.val	null	;value for 200/202/203
+map	ec.rbc		;receive byte count for 205
+map	ec.pbs	null	;preface byte size
+map	ec.dst	null	;destination address
+map	ec.da0		;
+map	ec.da1		;
+map	ec.da2		;
+map	ec.src	null	;source address
+map	ec.sa0		;
+map	ec.sa1		;
+map	ec.sa2		;
+map	ec.prt		;protocol
+map	ec.hbs	null	;header byte size
+;
+map	ec.pws,,ec.pbs/2;preface word size
+map	ec.hws,,ec.hbs/2;header word size
+;
+;	Error codes
+;
+map	ecsuc.,,0	;success
+map	ecunk.,,1	;unknown unit - unit not owned by job
+map	ecchn.,,2	;controller error initializing interface
+map	ecres.,,3	;no resources - protocol/address table full
+map	ectru.,,4	;receive was truncated
+map	ecnon.,,5
+map	ecexc.,,6	;excluded operation (promiscuous/protocol)
+map	ecimp.,,7
+map	ecpro.,,10	;protocol in use on another unit
+map	ecact.,,11	;protocol active in transmit list
+map	ecinc.,,12
+map	ecxmt.,,13	;transmit failed
+map	ecrln.,,14
+map	ecinv.,,15
+map	ecabo.,,16	;operation aborted
+;
+;	ecxmt. reasons
+;
+map	ecxfl.,,1	;invalid frame length (too small, too large)
+map	ecxec.,,2	;excessive collisions
+map	ecxcc.,,3	;carrier check failed
+map	ecxsc.,,4
+map	ecxoc.,,5
+map	ecxrf.,,6
+;
+;	ecabo. reasons
+;
+map	ecrfl.,,1
+map	ecrbc.,,2
+map	ecrfe.,,3
+;
+.ENDM
+;	------------------------------------------------------------------------
+;	MCDEF$	MSCP Command Codes
+;	------------------------------------------------------------------------
+;
+.MACRO	MCDEF$
+;				;
+;	mp.cod	command codes	;
+;				;
+map	mcco$p,,7		;command 
+;				;
+map	mccl$p,,70		;command class
+map	mcimm$,,0		;immediate class
+map	mcseq$,,8.		;sequential class
+map	mcasy$,,16.		;asynchronous - non-sequential class
+map	mcmai$,,24.		;maintenance class
+map	mcasb$,,32.		;asynchronous - requires buffer
+;				;
+map	mcty$p,,300		;command type
+map	mccom$,,0		;command
+map	mcatt$,,64.		;attention
+map	mcend$,,128.		;end
+;				;
+;	command codes		;
+;				;
+map	mcabo.,,1	;op.abo	;abort
+map	mcgcs.,,2	;op.gcs	;get command status
+map	mcgus.,,3	;op.gus	;get unit status
+map	mcscc.,,4	;op.scc	;set controller characteristics
+;				;
+map	mcsex.,,7.	;op.sex	;serious exception 
+;				;
+map	mcavl.,,8.	;op.avl	;available
+map	mconl.,,9.	;op.onl	;online
+map	mcsuc.,,10.	;op.suc	;set unit characteristics
+map	mcdap.,,11.	;op.dac	;determine access paths
+;				;
+map	mcacc.,,16.	;op.acc	;access
+;	mcccd.,,17.	;	;compare controller data
+map	mcers.,,18.	;op.ers	;erase
+;	mcflu.,,19.	;	;flush
+map	mcrpl.,,20.	;op.rpl	;replace
+;				;
+map	mcmre.,,24.	;	;maintenance read
+map	mcmwr.,,25.	;	;maintenance write
+;				;
+map	mccmp.,,32.	;op.cmp	;compare host data
+map	mcrea.,,33.	;op.rd	;read
+map	mcwri.,,34.	;op.wr	;write
+;				;
+;	mp.cod	attention messages
+;				;
+map	mcava.,,64.	;op.ava	;device available
+map	mcdup.,,65.	;op.dup	;duplicate unit number
+map	mcacp.,,66.	;op.acp	;access path
+;				;
+map	mcsex$,,mcend$!mcsex.	;serious exception end code
+;				;
+;	mp.mod command modifiers;
+;				;
+map	mcspd$,,1	;md.spd	;available	spin-down
+map	mcall$,,2	;md.all	;		all class drivers
+map	mcnxu$,,1 ;2000	;md.nxu	;get unit stat	next unit
+map	mcrip$,,1	;md.rip	;online		allow self destruct
+map	mcimf$,,2	;md.imf	;		ignore media format error
+map	mcpri$,,1	;md.pri	;replace	primary replacement block
+map	mcser$,,<^o100>	;etc	;generic	supress error recovery
+map	mcsec$,,<^o200>		;		supress error correction
+map	mcerr$,,<^o1000>	;		force error
+map	mccmp$,,<^o40000>	;generic	compare
+map	mcexp$,,<^o100000>	;		express request
+;				;
+;	mp.flg end message flags;
+;				;
+map	mclog$,,<^o40>	;ef.log	;error log generated
+map	mcbbu$,,<^o100>	;ef.bbu	;bad block unreported
+map	mcbbr$,,<^o200>	;ef.bbr	;bad block replaced
+;				;
+;	mp.cnf	controller flags;
+;				;
+map	mcc57$,,1	;cf.576	;576 byte sectors
+map	mcths$,,<^o20>	;cf.ths	;enable hosts error messages
+map	mcoth$,,<^o40>	;cf.oth	;enable other hosts error messages
+map	mcmsc$,,<^o100>	;cf.msc	;enable miscellaneous error messages
+map	mcatn$,,<^o200>	;cf.atn	;enable attention error messages
+;				;
+;	mp.unf	unit flags	;
+;				;
+map	mccmr$,,1	;uf.cmr	;compare reads
+map	mccmw$,,2	;uf.cmw	;compare writes
+map	mcu57$,,4	;uf.576	;576 byte sectors
+map	mcrmv$,,<^o200>	;etc	;removable volume
+map	mcwps$,,<^o10000>	;write protect - soft
+map	mcwph$,,<^o20000>	;write protect - hard
+.ENDM
+;	------------------------------------------------------------------------
+;	MPDEF$	MSCP Packet
+;	------------------------------------------------------------------------
+;
+.MACRO	MPDEF$
+;
+map	mp.cr0	word,0	;0	p.crf	;cr command reference
+map	mp.cr1		;2		;
+map	mp.uni		;4	p.unit	;cr unit
+map	mp.seq		;6		; e error log sequence
+map	mp.cod	byte	;8.	p.opcd	;cr opcode/endcode
+map	mp.flg	byte	;9.	p.flgs	; r flags
+map	mp.mod	null	;10.	p.mod	;c  modifiers
+map	mp.sts		;10.	p.sts	; r status
+map	mp.p1		;12.		;p1 - byte count
+map	mp.p2		;14.		;p2
+map	mp.p3		;16.		;p3 - buffer
+map	mp.p4		;18.		;p4
+map	mp.p5		;20.		;p5
+map	mp.p6		;22.		;p6
+map	mp.p7		;24.		;p7
+map	mp.p8		;26.		;p8
+map	mp.p9		;28.		;p9 - block
+map	mp.p10		;30.		;p10
+map	mp.p11		;32.		;p11
+map	mp.p12		;34.		;p12
+map	mp.p13		;36.		;p13
+map	mp.p14		;38.		;p14
+map	mp.p15		;40.		;p15
+map	mp.p16		;42.		;p16
+map	mp.p17		;44.		;p17
+map	mp.p18		;46.		;p18
+map	mp.bbs	null	;48.	;p.csiz	;
+;
+;	generic command/end message offsets
+;
+map	mp.bc0	word	mp.p1	;p.bcnt	;cr byte count
+map	mp.bc1	word			;
+map	mp.buf	12.	mp.p3	;p.buff	;c  buffer descriptor
+map	mp.bu0	word	mp.p3		;c  buffer low order
+map	mp.bu1	word			;
+map	mp.lb0	word	mp.p9	;p.lbn	;c  logical block number
+map	mp.lb1	word			;   (rt-11 partition)
+map	mp.fb0	word	mp.p9	;p.fbbk	; r first bad block
+map	mp.fb1	word			;
+;
+;	abort & get command status
+;
+map	mp.or0	word	mp.p1	;p.otrf	;cr outstanding reference number
+map	mp.or1	word			;
+;
+;	online & set unit characteristics
+;	get unit status
+;
+map	mp.muc	word	mp.p1	;p.mlun	; r multi-unit code
+map	mp.unf	word	mp.p2	;p.unfl	;cr unit flags
+map	mp.ui0	quad	mp.p5	;p.unti	; r unit id - quad
+map	mp.dv0	word	mp.p9	;p.dvpm	;c  device dependent
+map	mp.dv1	word			;
+map	mp.mt0	long	mp.p9	;p.medi	; r media type identifier
+;					;			online/set unit
+;		long	mp.p11		;
+map	mp.us0	word	mp.p13	;p.unsz	; r unit size low
+map	mp.us1	word			; r unit size high
+map	mp.vs0	long	mp.p16	;p.vser	; r volume serial number
+;					;			get unit
+map	mp.shu	word	mp.p11	;p.shun	;shadow unit
+;		word	mp.p12		;
+map	mp.trk	word	mp.p13	;p.trck	;track size
+map	mp.grp	word	mp.p14	;p.grp	;group size
+map	mp.cyl	word	mp.p15	;p.cyl	;cylinder size
+;		word	mp.p16		;
+map	mp.rcs	word	mp.p17	;p.rcts	;RCT table size
+map	mp.rbs	byte	mp.p18	;p.rbns	;RBNs/track
+map	mp.rcc	byte		;p.rctc	;RCT copies
+;
+;	replace
+;
+map	mp.rb0	word	mp.p1	;p.rbn	;replacement block
+map	mp.rb1	word			;
+;
+;	set controller characteristics
+;
+map	mp.vrs	word	mp.p1	;p.vrsn	;cr mscp version
+map	mp.cnf	word	mp.p2	;p.cntf	;cr controller flags
+map	mp.hto	byte	mp.p3	;p.htmo	;c  host timeout
+;		byte	mp.p3+1	;	;   host timeout high byte reserved
+map	mp.cto	word	mp.p3	;p.ctmo	; r controller timeout
+;		word	mp.p4		;
+map	mp.ti0	quad	mp.p5	;p.time	;c  quad word time/date
+map	mp.ci0	quad	mp.p5	;p.cnti	; r controller id
+.ENDM
+;	------------------------------------------------------------------------
+;	MSCP Status 
+;	------------------------------------------------------------------------
+;
+.MACRO	MSDEF$
+;				;
+;	mp.sts	status areas	;
+;				;
+map	msco$p,,31.	;37	;status code positive
+map	msco$n,,<^cmsco$p>	;
+map	mssu$p,,-32.		;subcode positive
+map	mssu$n,,<^cmssu$p>	;
+map	mssu$r,,4		;subcode right shift
+;				;
+;	mp.sts	status codes	;
+;				;
+map	mssuc.,,0		;success
+map	mscmd.,,1		;invalid command
+map	msabo.,,2		;command aborted
+map	msofl.,,3		;unit offline
+map	msavl.,,4		;unit available
+map	msmfe.,,5		;media format error
+map	mswpr.,,6		;write protected
+map	mscmp.,,7		;compare error
+map	msdat.,,8.		;data error
+map	mshst.,,9.		;host error
+map	mscnt.,,10.		;controller error
+map	msdrv.,,11.		;drive error
+map	msdia.,,31.		;diagnostic message
+;
+;	mssuc.	Success subcodes
+;
+map	msnor$,,0		;normal
+map	msspi$,,32.		;spin-down ignored
+map	mssco$,,64.		;still connected
+map	msdun$,,128.		;duplicate unit number
+map	msaol$,,256.		;already on-line
+map	mssol$,,512.		;still online
+;
+;	mscmd.	invalid command
+;
+map	msicl$,,1		;invalid command length
+;				;others have command offset in high byte
+;
+;	msabo.	command aborted - no subcodes
+;	msofl.	unit offline
+;
+map	msunk$,,3.		;unit unknown or online to another controller
+map	msnvm$,,35.		;no volume mounted or drive disabled
+map	msuio$,,67.		;unit is inoperative
+map	msdup$,,131.		;duplicate unit number
+map	msuds$,,259.		;unit disabled by field service or diagnostic
+;
+;	msavl.	unit available - no subcodes
+;	msmfe.	media format error - dependant
+;
+map	msfce$,,37.		;fct unreadable - edc error
+map	msfch$,,69.		;fct unreadable - invalid sector header
+map	msfcd$,,101.		;fct unreadable - data sync timeout
+map	msdis$,,165.		;disk isn't formatted with 512. byte sectors
+map	msdif$,,197.		;disk isnt formatted or fct corrupted
+map	msfcu$,,229.		;fct unreadable 
+;
+;	mswpr.	write protected
+;
+map	mshwp$,,8198.		;hardware write protect
+map	msswp$,,4102.		;software write protect
+;
+;	msdat.	data error - dependent
+;
+map	msfer$,,8.		;sector was written with force error (generic)
+map	mshce$,,72.		;header compare error - valid header not found
+map	msdse$,,104.		;data sync not found (timeout)
+map	msuee$,,232.		;uncorrectable eec error
+map	ms1ee$,,264.		;one symbol eec error
+map	ms2ee$,,296.		;
+map	ms3ee$,,328.		;
+map	ms4ee$,,360.		;
+map	ms5ee$,,392.		;
+map	ms6ee$,,324.		;
+map	ms7ee$,,456.		;
+map	ms8ee$,,488.		;
+;
+;	mshst.	host buffer  - dependent
+;
+map	msota$,,41.		;odd transfer address
+map	msobc$,,73.		;odd byte count
+map	msnme$,,105.		;non-existant memory error
+map	mshmp$,,137.		;host memory parity error
+;
+;	mscnt.	controller - dependent
+;
+map	mscto$,,10.		;controller timeout (generic)
+map	mssoe$,,42.		;serdes overrun error
+map	msede$,,74.		;edc error
+map	msids$,,106.		;inconsistant data structure
+;
+;	msdrv.	drive - dependent
+;
+map	mssto$,,43.		;sdi timeout - no response or seek timeout
+map	mscdt$,,75.		;controller detected transmission/protocol error
+map	mspos$,,107.		;positioner error - mis-seek
+map	mslos$,,139.		;lost read/write during/between transfers
+map	msdcd$,,171.		;drive clock dropout
+map	mslrr$,,203.		;lost receiver ready between sectors
+map	msdde$,,235.		;drive detected error
+map	mscdp$,,267.		;controller detected pulse or state parity error
+;
+;	diagnostic
+.ENDM
+;	------------------------------------------------------------------------
+;	$SHxxx - show number and rad50
+;	------------------------------------------------------------------------
+;
+;	r0	number
+
+.macro	$SHNUM
+sh$dec:	tst	(pc)+		;
+sh$oct:	sec			;
+	pshs	<r2,r1,r0>	; save them
+	jsr	r3,30$		; assume decimal
+10$:	10000.,1000.,100.,10.,1,0
+20$:	100000,10000,1000,100,10,1,0
+30$:	bcc	40$		; is decimal
+	add	#20$-10$,r3	;
+40$:	mov	r0,r1		;
+	clr	r2		; no digits seen yet
+50$:	mov	#-1,r0		; look for a digit
+60$:	inc	r0		; step up dividend
+	sub	(r3),r1		; subtract
+	bcc	60$		; go again
+	add	(r3)+,r1	; bumb it back to positive
+	beqw	(r3),70$	; final digit
+	bnew	r0,70$		; got something
+	beqw	r2,80$		;
+70$:	mov	#'0,r2		;
+	add	r2,r0		;
+	.ttyout			;
+80$:	bnew	(r3),50$	;any more to do ?
+	pops	<r3,r0,r1,r2>
+	return
+.ENDM
+
+;	r0 = word to unpack
+
+.MACRO	$SHUNP
+sh$unp::pshs	<r2,r1,r0>
+	mova	70$,r2		; get the divisors
+	mov	r0,r1		;
+10$:	mov	#-1,r0		; init the result
+20$:	inc	r0		; next character
+	sub	(r2),r1		; this it?
+	bcc	20$		; nope
+	add	(r2),r1		; bump back
+	beqw	r0,60$		; a null
+	sub	#27.,r0		; alpha?
+	bmi	30$		; yep
+	bhiw	r0,#2,40$	; numeric
+	mov	#'?-<46.+18.+27.>,r0
+30$:	add	#46.,r0		;
+40$:	add	#18.+27.,r0	;
+50$:	.ttyout			;
+60$:	bnew	-(r2),10$	; any more?
+	pops	<r0,r1,r2>	;
+	return			;
+	.word	0,1,40.		;
+70$:	.word	40.*40.		; divisors in reverse
+.ENDM
+;	------------------------------------------------------------------------
+;	UDDEF$	UDA port definitions
+;	------------------------------------------------------------------------
+
+.MACRO	UDDEF$
+map	ud.ipr	word,0		;init/poll register
+map	ud.sar	word		;status/address register
+map	udpri.,,5		;UDA interrupt priority
+;
+map	udst$p,,3777		;status positive
+map	udst1$,,4000		;step 1
+map	udst2$,,10000		;step 2
+map	udst3$,,20000		;step 3
+map	udst4$,,40000		;step 4
+map	uderr$,,100000		;error
+;				;
+;	Step 1			;
+;				;
+map	ud1di$,,400		;wrap diagnostics supported
+map	ud1qb$,,1000		;q-bus
+map	ud1nv$,,2000		;soft vector not supported
+;				;
+map	ud1v$p,,177		;vector positive
+map	ud1vd.,,4		;vector divisor
+map	ud1ie$,,200		;interrupts during steps
+map	ud1r$p,,3400		;response ring length - 2^n*(word*2)
+map	ud1rlm.,,512.		;multiplier
+map	ud1c$p,,34000		;command ring length
+map	ud1clm.,,2048.		;multiplier
+map	ud1wr$,,40000		;force wrap diagnostics
+map	ud1gu$,,100000		;guard bit
+;				;
+;	step 2			;
+;				;
+map	ud2r$p,,7		;response ring length - see above
+map	ud2c$p,,70		;command ring length 
+map	ud2wr$,,100		;wrap
+map	ud2gu$,,200		;guard
+map	ud2p$p,,3400		;port type
+;				;
+map	ud2pi$,,1		;request purge adapter interrupts
+map	ud2l$p,,177776		;ringbase low order address
+;				;
+;	step 3			;
+;				;
+map	ud3v$p,,177		;vector echo
+map	ud3ie$,,200		;interrupt enable echo
+;				;
+map	ud3r$p,,77777		;ring base high address
+map	ud3pp$,,100000		;request purge/poll tests
+;				;
+;	step 4			;
+;				;
+map	ud4c$p,,377		;controller ucode version
+;				;
+map	ud4go$,,1		;go - enable controller
+map	ud4lf$,,2		;last fail 
+map	ud4b$p,,374		;burst => longwords-1 in burst
+;				;
+;	Connection ids		;
+;				;
+map	udmsc.,,0		;disk mscp
+map	uddup.,,1		;DUP
+map	udmai.,,255		;maintenance protocol
+;				;
+;	Error groups		;
+;				;
+map	udeg0.,,0		;error zero - reserved
+map	ederg.,,1		;1-99 - generic
+map	ederu.,,100.		;100-199 - uda
+;				;
+;	port types		;
+;				;
+map	udusp.,,0		;unibus storage systems port
+;				;1:7 not assigned
+;				;
+;	UDA communication rings	;
+;				;
+map	ud.f00	word,-8.	;reserved
+map	ud.f01	byte,-6		;reserved
+map	ud.apr	byte,-5		;adaptor channel purge request from port if !0
+map	ud.cif	word,-4		;command interrupt flag (full to not-full)
+map	ud.rif	word,-2		;response interrupt flag  (empty to not-empty)
+				;ignored if controller internal error in ud.sar
+map	ud.hbs,,8.		;prefix byte size
+;				;
+map	ud.rd0	word,0		;response descriptor 0
+map	ud.rd1	word		;
+;		vary		;more response descriptors
+map	ud.cd0	word		;command descriptor 0
+map	ud.cd1	word		;
+;		vary		;more command descriptors
+map	ud.rbs	null		;minimum ring byte size
+;				;
+;	descriptors		;
+;				;
+map	ud.ds0	word,0		;low order descriptor
+map	ud.ds1	word		;high order descriptor
+;				;
+;	ud.ds1			;
+;				;
+map	udha$p,,77		;high order address
+map	udint$,,40000		;host sets this to request done interrupt
+map	uddon$,,40000		;port sets this when done with descriptor
+map	udown$,,100000		;0=>host owner, 1=>port owner
+;				;
+;	UDA/MSCP messages	;
+;				;
+map	ud.mbc	word,-4		;message byte count (of text area)
+;				;read/write by port for responses
+;				;long messages are continued in next
+;				;minimum size is 48. bytes
+map	ud.cam	byte,-2		;credits & message type - see below
+map	ud.cid	byte,-1		;connection id of source/destination
+;ap	ud.mps,,4		;message preface size
+map	ud.pbs,,4		;preface size
+				;
+map	ud.txt,60.,0		;message text - origin=0
+map	ud.bbs	null		;text/message size (60.)
+;ap	ud.mts,,ud.mps+ud.mbs	;total message size
+map	ud.ebs,,ud.pbs+ud.bbs	;envelope size
+;				;
+;	ud.cam			;
+;				;
+map	udcr$p,,17		;credits
+map	udmt$p,,340		;message type
+;				;
+;	message types		;
+;				;
+map	udmsq.,,0		;sequential
+map	udmdg.,,1		;datagram
+map	udmcr.,,2		;credits notification - ud.mbc=0
+map	udmmn.,,15.		;maintenance
+;				;
+;	credits			;
+;				;port reports credits+1 in first response
+.ENDM				;
+;	------------------------------------------------------------------------
+;	UPxxx$ - Driver Relocation
+;	------------------------------------------------------------------------
+;
+;    up	mov	#x$xrng,x$xpnt
+;    up	cmp	x$xpnt,#x$xrng off=4
+;
+;	uplst$	<x$x1, x$x2, x$x3>
+;
+;	xx$loa:	call	up$rel
+;		...
+;
+;	uprel$
+
+.MACRO	UPINI$
+	upctr. = 0
+.ENDM
+
+.MACRO	U0 A B C
+	up a b c off=0
+.ENDM
+
+.MACRO	UP A B C OFF=2
+	.irp upx.,<\upctr.>
+	up'upx. = .+OFF
+	.endr
+	upctr. = upctr. + 1
+	.if nb c
+	a	b,c
+	.iff
+	a	b
+	.endc
+.ENDM
+
+.MACRO	UPLST$ LST
+	.irp	upz.,<lst>
+     up	.word	upz. OFF=0
+	.endr
+	.word	0
+.ENDM
+
+.MACRO	UPREL$	
+.iif ndf dr.lqe,$drdef
+up$rel:	psh	r2			; r5 -> hentry
+	mova	50$,r0			; relocation list
+	mov	(r5),r1			;
+	sub	#dr.lqe,r1		; delta
+30$:	mov	(r0)+,r2		; get the next
+	beq	40$			; 
+	add	r1,r2			; relocate pointer
+	add	r1,(r2)			; relocate value
+	br	30$			;
+40$:	pop	r2			;
+	return
+
+50$:	upx. = 0
+	.rept upctr.
+	.irp	upy.,<\upx.>
+	.word	up'upy.
+	.endr
+	upx. = upx. + 1
+	.endr
+	.word	0
+.ENDM
+;	------------------------------------------------------------------------
+;	VExxx$ - Vector capture hooks
+;	HKxxx$ - Vector capture hooks
+;	------------------------------------------------------------------------
+;
+;	vecap$	capture vector
+;
+;	r0 =	vector
+;	r1 ->	hook
+
+.MACRO	VEHGH$	NAM		; vector hook
+.iif ndf hkSIG.,$hkdef
+	assume	BIT+^o2707 eq hkHGH.
+	.word	hkHGH.		; high priority (first)
+nam::	.word	0		; hook successor
+.ENDM
+
+.MACRO	VEHOO$	NAM,PRI=0	; vector hook
+.iif ndf hkSIG.,$hkdef
+	assume	BIT+^o0727 eq hkSIG.
+	.word	hkSIG.		; standard
+nam::	.word	0		; hook successor
+.ENDM
+
+;	vec	#100	clock interrupt
+;	adr	#my$clk	interrupt routine, hook routine
+
+.MACRO	VECAP$	VEC, ADR, BAS
+	veCAP. = 1
+.if nb VEC
+	mov	VEC,r0
+.endc
+.if nb BAS
+	mov	ADR,R1
+	add	BAS,r1
+.iff
+.if nb ADR
+	mov	ADR,r1
+.endc
+.endc
+	call	ve$cap
+.ENDM
+
+.MACRO	$VECAP
+.iif ndf hkSIG.,$hkdef
+ve$cap:	call	hk$pr7		; block interrupts
+10$:	beqw	(r1),#hkHGH.,20$; high goes in first
+	bnew	@0(r0),#hkHGH.,20$; not high
+	mov	(r0),r0		; skip high
+	tst	(r0)+		;
+	br	10$		; try again
+20$:	mov	(r0),hk.suc(r1)	;
+	mov	r1,(r0)		;
+	jmp	@(sp)+		;
+.if ne 0
+ve$hgh:	call	hk$pr7		; block interrupts
+	mov	(r0),hk.suc(r1)	; our successor
+	mov	r1,(r0)		; now we're first
+	jmp	@(sp)+		;
+.endc
+.ENDM
+
+;	r0=vec	#100	clock interrupt
+;	r1=adr	#my$clk	hook routine
+
+.MACRO	VEREL$	VEC, ADR, BAS
+	veREL. = 1
+.if nb VEC
+	mov	VEC,r0
+.endc
+.if nb BAS
+	mov	ADR,R1
+	add	BAS,r1
+.iff
+.if nb ADR
+	mov	ADR,r1
+.endc
+.endc
+	call	ve$rel
+.ENDM
+
+;	r0=vec	#100	clock interrupt
+;	r1=adr	#my$clk	hook routine
+
+.MACRO	$VEREL
+.iif ndf hkSIG.,$hkdef
+ve$rel:	call	hk$pr7
+	beqw	(r0),r1,20$	; vector is the link
+	tst	-(r0)		; make vector look like a hook
+10$:	mov	hk.suc(r0),r0	;
+	beqw	(r0),#hkHGH.,15$; high priority signature
+	bnew	(r0),#hkSIG.,30$; not the signature
+15$:	bnew	hk.suc(r0),r1,10$; this is not the girl
+	tst	(r0)+		; make hook look like a vector
+20$:	mov	hk.suc(r1),(r0)	; take us out
+30$:	jmp	@(sp)+		;
+.ENDM
+
+.MACRO	VEFND$	VEC, ADR, BAS
+	veFND. = 1
+.if nb VEC
+	mov	VEC,r0
+.endc
+.if nb BAS
+	mov	ADR,R1
+	add	BAS,r1
+.iff
+.if nb ADR
+	mov	ADR,r1
+.endc
+.endc
+	call	ve$fnd
+.ENDM
+
+;	find the vector
+;
+;	c=1	not found,
+;		r0 unchanged
+;	c=0	(r0) eq hkSIG. - this is a hook
+;		(r0) ne hkSIG. - this is the vector
+
+.MACRO	$VEFND
+.iif ndf hkSIG.,$hkdef
+ve$fnd:	call	hk$pr7		;
+	psh	r0		;
+	beqw	(r0),r1,20$	; this is the link
+	tst	-(r0)		; make vector look like a hook
+10$:	mov	hk.suc(r0),r0	;
+	beqw	(r0),#hkHGH.,15$:
+	bnew	(r0),#hkSIG.,20$; not the signature
+15$:	bnew	hk.suc(r0),r1,10$; this is our guy
+	mov	r0,(sp)		; replace r0
+20$:	tst	(pc)+		;
+30$:	sec			;
+	pop	r0		;
+	jmp	@(sp)+		;
+.ENDM
+
+.MACRO	$HKPR7
+hk$pr7:	.mfps			; get current priority
+	stack	ps,cor,ret	;
+	.mtps	#340		; replace it
+	call	@sp.cor(sp)	; call co-routine back
+	asl	sp.cor(sp)	; save c-bit
+	.mtps			; reset ps
+	stack	cor,ret		;
+	asr	(sp)+		; get c-bit, pop co-routine
+	return
+.ENDM
+
+.MACRO	$VEPKG
+.iif df veCAP., $vecap
+.iif df veREL., $verel
+.iif df veFND., $vefnd
+.ENDM
+
+.MACRO	$HKPKG
+	$hkpr7
+.ENDM
+

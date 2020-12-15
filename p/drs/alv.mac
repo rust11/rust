@@ -1,0 +1,677 @@
+;	use load/release to patch monitor
+ano$c=1		;anonymous (no named handler)
+.title	alv - alias driver
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+.drdef	al,0,0,0,0,0
+$chdef		; channel
+$hadef		; handlers
+$iqdef		; i/o queue
+$jbdef		; job
+$mmdef		; mmu
+$psdef		; psw
+$rmdef		; rmon
+$rsdef		; rt11s
+$tedef		; terminal definitions
+$txdef		; text
+
+;	%build
+;	macro/object:drb:alv drs:alv
+;	link/nobitmap/execute:drb:alv.sys drb:alv
+;	%end
+
+.macro	drinf$
+$imgdef	AL 2 1
+$imginf fun=drv cre=hammo aut=ijh use=<RUST alias driver AL:>
+$imgham	yrs=<1985,2004> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:18:50.22>
+;	%edit
+$imgedt <21   >
+.endm
+
+meta	<opprt$ c><jsr r1,op$prt><.asciz &c&><.even>
+meta	<optyp$ c><jsr r1,op$typ><.asciz &c&><.even>
+meta	<opnew$><call op$new>
+meta	<opoct$ c><.iif nb <c>,mov c,r1><call op$oct>
+meta	<opocs$ c><.iif nb <c>,mov c,r1><call op$ocs>
+;eta	<opocz$ c><.iif nb <c>,mov c,r1><call op$ocz>
+;eta	<input c><call co$ipt><.iif nb <c>,mov r0,c>
+meta	<opput$ c><.iif nb <c>,mov c,r0><call co$opt>
+
+;	Installation test
+
+	$csr=0			; for rt-11
+	.drins
+	br	10$		; data
+	br	20$		; system
+10$:;	$drisj			; RUST/SJ only
+	bcs	20$		;
+.if eq ano$c
+	tst	a$lnam		; got a name?
+	beq	20$		; no
+.endc
+	tst	(pc)+		; fine
+20$:	sec			; no go
+	return
+.sbttl	driver communication packet
+
+map	al.vec	0,word	;
+map	al.isr		;
+map	al.hol		;
+map	al.lqe		;
+map	al.cqe		;
+map	al.beg	word*2	;
+map	al.opt		; options
+map	al.22b		; 22-bit flag
+map	al.dsz		;
+map	al.sta
+map	al.syg		;
+map	al.nam		; who we really are
+map	al.fun	512.-al.fun ; the rest of the block
+map	al.bbs		;
+;
+map	altap$,,200	; this is a tape
+map	almmg$,,100000	; this is a mapped handler
+
+	.csect
+a$lvec:	.drbeg	al
+a$lhol= alcqe-<ha.hol-ha.cqe>
+a$lbeg:	jmp	start		; goto the start
+a$lopt:	.word	0		; AL options
+a$l22b:	.word	0		; 22bit
+a$ldsz:	.word	0		;
+a$lsta:	.word	0		;
+a$lsyg:	.word	0		;
+a$lnam:	.word	0		; permanent device name
+a$lfun:	.blkb	256.-al.fun	; spfun list
+
+a$ltar:	.word	0		; -> cqe of target driver
+a$lpsw:	.word	0		; saved PSW
+.sbttl	driver start
+
+start:	call	co$syn		; wait for the console
+	.mfps	a$lpsw		; save the psw
+	.mtps	#pr7		; reset it
+	call	al$sav		; save the registers
+	mov	alcqe,r4	; get the queue element
+
+	tst	(r2)+		; r2 -> registers
+	call	al$reg		; display registers
+	call	al$csw		; display the csw
+
+	optyp$	<iq.blk	>
+	opocs$	iq.blk(r4)
+	call	al$hld		; test for handler held
+	opnew$
+
+	optyp$	<iq.fun	>
+	movb	iq.fun(r4),r3	;
+	bic	#^c377,r3
+	opocs$	r3
+	optyp$	<	>
+	call	al$spf
+	opnew$
+
+	optyp$	<iq.uni	>
+	movb	iq.uni(r4),r1
+	bic	#^c7,r1
+	opocs$	r1	
+	opnew$
+
+	optyp$	<iq.job	>
+	movb	iq.job(r4),r1
+	clc
+	ror	r1
+	asr	r1
+	asr	r1
+	opocs$	r1
+	opnew$
+
+	optyp$	<iq.buf	>
+	opocs$	iq.buf(r4)
+	opnew$
+
+	optyp$	<iq.wct	>
+	opocs$	iq.wct(r4)
+	opnew$
+
+	optyp$	<iq.com	>
+	opocs$	iq.com(r4)
+	opnew$
+
+	tst	a$lopt		; mapped?
+	bpl	10$		; no
+	optyp$	<iq.par	>
+	opocs$	iq.par(r4)
+	opnew$
+10$:	call	al$fnd		; get the handler
+	bcc	20$		; fine
+	optyp$	<Unloaded; >
+20$:	jmp	al$cmd
+
+al$csw:	optyp$	<iq.csw	>	;
+	opocs$	iq.csw(r4)	; display it
+	optyp$	<	>	;
+	mov	iq.csw(r4),r3	;
+	optyp$	<csw=>
+	opoct$	(r3)+
+	optyp$	< sbl=>
+	opoct$	(r3)+
+	optyp$	< len=>
+	opoct$	(r3)+
+	optyp$	< use=>
+	opoct$	(r3)+
+	optyp$	< ioc=>
+	movb	(r3)+,r1
+	bic	#^c377,r1
+	opoct$
+	optyp$	< uni=>
+	movb	(r3)+,r1
+	bic	#^c377,r1
+	opoct$
+	opnew$
+	return
+
+;	Test handler held
+
+al$hld:	tst	a$lhol		; are we held?
+	bpl	20$		; no
+	optyp$	<		(handler held>
+	bit	#40000,a$lhol	;
+	beq	10$		; not completed (impossible anyway)
+	optyp$	<, completed>
+10$:	optyp$	<)>
+20$:	return
+
+;	special function interpretation
+
+al$spf:
+	pshs	<r3,r2,r1,r0>	;
+	movb	iq.fun(r4),r3	; get the function
+	beq	40$		; is none
+	mova	a$lfun,r1	; assume a directory function
+10$:	tstb	(r1)		; any more functions?
+	beq	70$		; no
+	cmpb	(r1)+,r3	; is this our function?
+	beq	30$		; yes
+20$:	tstb	(r1)+		; no
+	bne	20$		; 
+	br	10$		; look again
+30$:	call	op$str		; display the string
+	tstb	r3		; is this a filename?
+	bmi	70$		; no
+	cmpb	r3,#rsclo.	; this a close?
+	beq	70$		; yes
+	mov	iq.buf(r4),r1	; no
+	call	op$spc		; yes - display the name
+	br	70$		;
+
+40$:	tst	iq.wct(r4)	; read, write or seek?
+	bmi	60$		; write
+	bne	50$		; read
+	optyp$	<seek>		;
+	br	70$
+50$:	optyp$	<read>		;
+	br	70$
+60$:	optyp$	<write>
+70$:	pops	<r0,r1,r2,r3>	;
+	return
+.sbttl	command
+
+.macro alcmd$ c,r,?l
+	cmpb	r0,''c
+	bne	l
+	jmp	r
+l:
+.endm
+
+al$cmd:
+10$:	optyp$	<Continue? >	
+	call	co$ipt		; get character
+	call	co$opt		; echo
+	opnew$
+	cmpb	r0,#'A		; upper case?
+	blo	20$		; no
+	cmpb	r0,#'Z		
+	bhi	20$		;
+	add	#'a-'A,r0	
+
+20$:	alcmd$	a,al$abt	; abort
+	alcmd$	b,al$bpt
+	alcmd$	c,al$fin
+	alcmd$	e,al$eof
+	alcmd$	h,al$err
+	alcmd$	l,al$loo
+	alcmd$	w,al$wai
+	alcmd$	x,al$fin
+	alcmd$	0,al$sp0
+	tst	r5		; got a handler?
+	beq	al$fin		; no
+	br	al$trn		; transfer to alias
+
+al$bpt:	BPT
+	jmp	al$cmd
+al$sp0:	clr	a$lpsw
+	jmp	al$cmd
+
+al$loo:	opprt$	<Loop>
+	.mtps	a$lpsw
+10$:	br	10$
+
+al$wai:	opprt$	<Wait>
+	call	al$res
+	.mtps	a$lpsw
+	return
+
+al$eof:	optyp$	<EOF >
+	bis	#cseof$,@iq.csw(r4)
+	br	al$fin
+al$err:	optyp$	<Hard error >
+	bis	#csher$,@iq.csw(r4)
+al$fin:	opprt$	<Finish>
+	call	al$res
+	.mtps	a$lpsw		;
+	.drfin	al
+
+
+.sbttl	transfer the request to target driver
+
+al$trn:	opprt$	<Transfer>
+	mov	r4,r0		;
+	mov	iq.lnk(r0),alcqe; link forward
+	bne	10$		;
+	clr	allqe		; and the next one also
+10$:	clr	iq.lnk(r0)	; and clean us up
+
+	call	al$grb		; grab the completion routine
+	mov	2(r5),r4	; get cqe, is it empty?
+	bne	20$		; nope
+	mov	r0,(r5)+	; yes, the last queue entry
+	mov	r0,(r5)+	; plug the current queue entry
+	psh	a$lpsw		;
+	psh	r5		;
+	call	al$res		; restore the registers
+	rti			; and goto it
+
+20$:	tst	iq.lnk(r4)	; is this the last?
+	beq	30$		; yes, use it
+	mov	iq.lnk(r4),r4	; link to it
+	br	20$		; and look again
+30$:	mov	r0,iq.lnk(r4)	; point it to us
+	mov	r0,(r5)		; point symbiont lqe at it
+	call	al$res		; restore the registers
+	.mtps	a$lpsw		; reset it
+	return			; and exit
+
+;	Find the target driver
+
+al$fnd:	clr	r5		; assume not found
+	tst	a$lnam		;
+	beq	40$		; nothing to find
+	mov	@#j$bsys,r0	; get the system
+	add	rm.pnp(r0),r0	;
+	mov	r0,r1		; save it
+10$:	cmp	(r1)+,#-1	; get end of entries
+	bne	10$		;
+	sub	#2,r1		; back off
+	sub	r0,r1		; r1 = number of entries times two
+	asr	r1		;
+	add	r0,r1		; r1 = entry table
+	mov	r0,r2		; search for the name
+20$:	cmp	(r2)+,a$lnam	;
+	beq	30$		;
+	cmp	r2,r1		;
+	blo	20$		;
+	br	40$		; not installed
+30$:	sub	#2,r2		;
+	sub	r0,r2		;
+	add	r1,r2		;
+	mov	(r2),r5		; r5 -> cqe
+	mov	r5,a$ltar	; the other driver
+	beq	40$		; not loaded
+	tst	(pc)+		; fine
+40$:	sec
+	return
+.sbttl	handler completion
+
+a$lqco:	.word	0		; rt-11's qcomp
+a$lsem:.word	-1		; semaphore
+a$lent:	.word	0		; handler entry point
+a$lwct:	.word	0		; look for changes
+;$lfun:	.word	0		; interpret spfun returns
+
+al$grb:	tst	a$ltar		; got another driver
+	beq	10$		; no
+	inc	a$lsem		; nesting?
+	bne	10$		; yes - just count it
+	tst	a$lent		; are we already waiting?
+	bne	10$		; yes - dont nest
+	mov	r5,a$lent	; save ours
+	add	#2,a$lent	; point to cqe header
+	mov	iq.wct(r4),a$lwct; remember this
+	psh	r0		;
+	mov	@#j$bsys,r0	; no
+	mov	rm.qco(r0),a$lqco; save it
+	mova	al$qco,rm.qco(r0) ; and put in ours
+	pop	r0		;
+10$:	return
+
+;	Monitor I/O completion routine redirected here
+
+al$qco:	tst	r4		; paranoia
+	beq	80$		;
+	cmp	r4,a$lent	; is this our guy?
+	bne	80$		; no
+	call	co$syn		; wait for the terminal
+
+	.mfps			; save the psw
+	.mtps	#pr7		; go up
+	pshs	<r5,r4,r3,r2,r1,r0>
+	mov	@#j$bsys,r5	; r5 -> rmon
+	cmp	r4,a$lent	; this still our entry?
+	bne	70$		; no
+	mov	(r4),r4		; get the entry
+	bne	10$		;
+	optyp$	<Done		No queue element>
+	call	al$hld		; check handler held
+	opnew$
+	br	60$		;
+
+10$:	call	al$csw		; display the csw
+	tst	a$lhol		; are we held>
+	bmi	20$		; yes - show status
+	bit	#cseof$!csher$,@iq.csw(r4) ;got an error?
+	beq	50$		; no
+20$:	optyp$	<status		>
+	bit	#cseof$,@iq.csw(r4)
+	beq	30$		;
+	optyp$	<eof >
+30$:	bit	#csher$,@iq.csw(r4)
+	beq	40$
+	optyp$	<i/o error >
+40$:	call	al$hld		; check held
+	opnew$
+50$:	call	al$sfd		; check function completion
+	opnew$
+
+60$:	dec	a$lsem		; count remaining
+	bpl	70$		;
+	mov	#-1,a$lsem	;
+	clr	a$lent		;
+	mov	a$lqco,rm.qco(r5); restore rt-11
+
+70$:	pops	<r0,r1,r2,r3,r4,r5>
+	.mtps			; reset the ps
+80$:	jmp	@a$lqco		; go to RT-11's qcomp
+.sbttl	special function completion
+
+al$sfd:
+	mov	rm.spu(r5),r1	; got a special function error?
+	beq	10$		; no
+	optyp$	<rm.spu	>	; yes
+	opocs$	r1		;
+	opnew$
+
+10$:	tstb	iq.fun(r4)	; this an acp function?
+	ble	30$		; no
+	tst	a$lsem		; are we nested?
+	bgt	20$		; yes - report it always
+	cmp	iq.wct(r4),a$lwct ; wct changed?
+	beq	30$		; no
+20$:	optyp$	<io.sps	>	;
+	opocs$	iq.wct(r4)	;
+	opnew$
+30$:	tstb	a$lopt		; this a tape?
+	beq	40$		; no
+	tstb	iq.fun(r4)	; this a spfun
+	bpl	40$		; no
+	mov	iq.blk(r4),r3	; yes
+	beq	40$		; none defined
+	bit	#1,r3		; ignore odd addresses
+	bne	40$		; 
+	cmp	r3,#1000	; ignore those under 1000
+	blo	40$		; 
+	cmp	r3,#160000	; and above 160000
+	bhis	40$		; 
+	optyp$	<iq.erb	>
+	opoct$	r3		; location
+	optyp$	<	>
+	opoct$	(r3)+
+	optyp$	<, >
+	opoct$	(r3)+
+	opnew$
+40$:	return
+.sbttl	driver abort
+
+	.drast	al,4,al$abt
+	return
+
+al$abt:	pshs	<r5,r4,r3,r2,r1,r0>
+	call	co$syn
+	.mfps
+	.mtps	#pr7
+	opnew$
+	mov	sp,r2
+	tst	(sp)+
+	call	al$reg
+	optyp$	<abort with>
+	tst	alcqe
+	bne	10$		; we have one
+	optyp$	<out>
+10$:	optyp$	< queue element>
+	opoct$	r4
+	call	al$hld
+	opnew$
+	.mtps
+	pops	<r0,r1,r2,r3,r4,r5>
+	return
+.sbttl	output subroutines
+
+op$prt:	psh	(pc)+
+op$typ:	clr	-(sp)
+	call	op$str
+	inc	r1
+	bic	#1,r1
+	tst	(sp)+
+	beq	10$
+	opnew$
+10$:	rts	r1
+op$new:	optyp$	<&<cr><lf>&>
+	return
+
+op$str:	psh	r0		; r1 -> string
+10$:	movb	(r1)+,r0	; get the next
+	beq	20$		; all done
+	call	co$opt		;
+	br	10$		;
+20$:	pop	r0		;
+	return
+
+	stack	r0 r1 r2 fmt
+op$oct:	clr	-(sp)
+	br	op$ocg
+op$ocz:	psh	#'0
+	br	op$ocg
+op$ocs:	psh	#space
+op$ocg:	pshs	<r2,r1,r0>	
+	mov	#111111,r2	;loop control.
+10$:	clr	r0
+20$:	asl	r1
+	rol	r0
+30$:	asl	r2
+	bcc	20$
+	beq	40$		; must get last one
+	tst	r0
+	bne	40$		;
+	tst	sp.fmt(sp)	; already done one?
+	bmi	40$		;
+	beq	60$		; ignore it
+	movb	sp.fmt(sp),r0	; get the format character
+	br	50$		; 
+40$:	bis	#100000,sp.fmt(sp)
+	add	#60,r0
+50$:	call	co$opt
+60$:	tst	r2
+	bne	10$
+	pops	<r0,r1,r2>
+	tst	(sp)+
+	return
+
+;	r2 ->	registers
+
+al$reg:	optyp$	<R0:R7 >
+	clr	r3
+	mov	#8.,r3
+10$:	optyp$	< R>
+	opoct$	r3
+	optyp$	<=>
+	opoct$	(r2)+
+	dec	r3
+	bne	10$
+	opnew$
+	return
+.sbttl	rad50
+
+;	r1 ->	filename
+
+op$spc:	tst	a$lopt		; are we mapped?
+	bpl	10$		; no
+	psh	@#m$kip1	; save par1
+	mov	iq.par(r4),@#m$kip1
+10$:	tst	(r1)		; non-file structured?
+	beq	20$		; yep
+	call	op$unp
+	call	op$unp
+	optyp$	<.>
+	call	op$unp
+20$:
+	tst	a$lopt		; are we mapped?
+	bpl	30$		; no
+	pop	@#m$kip1
+30$:	return
+
+op$unp:	psh	r5
+	psh	r4
+	mov	(r1)+,r4	; get the word
+	mova	100$,r5		; get the divisors
+10$:	mov	#-1,r0		; init the result
+	cmp	#174777,r4	; is it an *
+	blo	30$		; yep
+20$:	inc	r0		; next character
+	sub	(r5),r4		; this it?
+	bcc	20$		; nope
+	add	(r5),r4		; bump back
+	tst	r0		; a null?
+	beq	60$		; yep, forget it
+	cmp	#33,r0		; nah?
+	blo	40$
+	beq	50$
+	add	#'a-'A,r0	; get lower case
+30$:	add	#56,r0
+40$:	add	#11,r0
+50$:	add	#11,r0
+	opput$
+60$:	tst	-(r5)		; any more?
+	bne	10$		; yep
+	pop	r4
+	pop	r5
+	return
+	.word	0,1,50
+100$:	.word	50*50
+
+.sbttl	save & restore
+
+al$sav:	psh	r5		;
+	mova	a$lreg,r5	;
+	mov	r0,(r5)+	;
+	mov	r1,(r5)+	;
+	mov	r2,(r5)+	;
+	mov	r3,(r5)+	;
+	mov	r4,(r5)+	;
+	pop	(r5)		; save r5
+	mov	(r5),r5		; but keep it
+	return
+
+al$res:	mova	a$lreg,r5	; get the registers
+	mov	(r5)+,r0	; restore them
+	mov	(r5)+,r1	;
+	mov	(r5)+,r2	;
+	mov	(r5)+,r3	;
+	mov	(r5)+,r4	;
+	mov	(r5),r5		;
+	return
+a$lreg:	.blkw	6		;
+.sbttl	terminal output
+
+;	Non-interrupt console I/O
+
+co$ipt:
+10$:	call	co$chk		; wait for it
+	bcs	10$		; nothing there
+	cmpb	r0,#ctrlq	; this a stray [ctrl/q]?
+	beq	10$		; yes
+	clc			; no
+	return			; character in r0
+
+co$opt:				; put to console
+	psh	r0		; save the output character
+10$:	call	co$chk		; handle ctrl/q & ctrl/s
+	tstb	@#tps		; ready yet?
+	bpl	10$		; no
+	pop	r0		; get the character back
+	movb	r0,@#tpb	; move it in
+	return			; c=0
+
+; Check for ctrl/q & ctrl/s
+
+co$chk:
+10$:	tstb	@#tks		; anything there?
+	bpl	40$		; no - exit
+	mov	@#tkb,r0	; yes - get it
+	bic	#^c177,r0	; clean it up
+	cmpb	r0,#ctrls	; this ctrl/s
+	bne	30$		; it aint
+20$:	tstb	@#tks		; wait for ctrl/q
+	bpl	20$		; perhaps a while
+	mov	@#tkb,r0	; get another
+	bic	#^c177,r0	; clean it up
+	cmpb	r0,#ctrlq	; this what we need
+	bne	20$		; not ctrlq
+	br	40$		; yes - return empty
+30$:	tst	(pc)+		; c=0 => r0 = input character		
+40$:	sec			; c=1 => no character
+	return
+
+co$syn:	.mfps			; get the psw
+	tstb	(sp)+		; are we at hardware priority?
+	bmi	30$		; yes - dont wait
+10$:	bit	#100,@#tps	; no - wait for output
+	bne	10$		;
+	clr	-(sp)		;
+20$:	dec	(sp)		;
+	bne	20$		;
+	tst	(sp)+		;
+30$:	return
+
+	.blkw	20.		; space for sysgen options
+.drend	al
+.end
+.sbttl	help
+
+;	mova	#help,r1
+;	call	al$hlp
+
+al$hlp:	
+
+;	start help
+
+a$lsta:	
+alhlp$	<A  Abort>
+alhlp$	<B  BPT>
+alhlp$	<C
+
+	.blkw	20.		; space for sysgen options
+.drend	al
+.end
+

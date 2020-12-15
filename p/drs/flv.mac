@@ -1,0 +1,422 @@
+.title	flv - Flak - RUST/SJ interrupt monitor
+.enabl	lc
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+$aldef
+$drdef
+$hkdef
+$jbdef
+$rmdef
+$psdef
+$vedef
+$hadef
+upini$
+;meta <$drlim c><.iif gt .-c,.error ;;roof>
+
+;	save/restore bitmap, set it up to catch stray interrupts
+;
+;	Display control:
+;
+;	^]	stop
+;	^]^\	continue
+;	^\^\	clear, continue
+;
+;	(Same keys as PM: -- last loaded wins)
+;
+;	SET FL SHOW
+;	SET FL SINGLE (default)
+;	SET FL MEAN
+;	SET FL TOTAL
+;	SET FL INTERVAL=2
+;
+;	Detect empty vectors for stray interrupts.
+;	Fill vector bitmap so all are protected.
+;
+;	%build
+;	goto 'p1'
+;	macro drs:flv.mac/object:drb:
+;	link drb:flv/execute:drb:flv.sys/nobitmap/boundary:1000
+;	flload
+;	end:
+;	%end
+
+.macro	drinf$
+$imgdef	FL 1 0
+$imginf fun=drv cre=hammo aut=ijh use=<RUST/SJ FLAK interrupt monitor FL:>
+$imgham	yrs=<2004> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:20:46.15>
+;	%edit
+$imgedt <12   >
+.endm
+
+	$csr=0
+	.drdef	fl,377,ronly$!wonly$,0,0,0
+	.drest	class=dvc.ps
+	$drptr
+	$drins	system=no, data=sj
+
+map	fl.jsr,,0
+map	fl.ast
+map	fl.vec
+map	fl.cnt
+map	fl.pc
+map	fl.ps
+map	fl.bbs
+
+	$drlim	400
+.sbttl	set, run
+
+	.drset	show,-1,st$sho
+	.drset	single,100000,st$mod
+	.drset	total,1,st$mod
+	.drset	mean,100200,st$mod
+
+;	R0..R3 available
+;
+;	R3	mode value
+
+st$sho:	call	dr$fnd			; find driver
+	bcs	st$err			;
+	call	fl$sho(r2)		; call them
+	br	st$fin			;
+
+st$mod:	call	dr$fnd			; get driver
+	bcs	st$err			;
+	psh	f$lact(r2)		; save the flag
+	clr	f$lact(r2)		; disable it
+	mov	r3,f$lmod(r2)		; set new mode
+	call	fl$clr(r2)		; clear it
+	pop	f$lact(r2)		; reset flag
+st$fin:	clc				; no error
+st$err:	return
+
+	$drfnd	<#^rfl>			; find driver
+	$drlim	1000			; check that we fit
+	.drbeg	fl			; dummy handler
+	.drfin	fl			;
+.sbttl	flak server
+
+	flsta. = 28.
+	flsto. = 29.
+
+;	start		continue
+;	start,start	clear, continue
+;	stop		stop
+;	stop,start	continue
+
+	.enabl	lsb
+fl$kbd:	vehoo$	f$lkbd			;
+	bis	#200,f$lcnt		; don't break through keyboard
+	psh	@(pc)+			; get the character
+f$ltkb:	.word	0			;
+	beqb	(sp),#esc.,fl$jmp	; deal with escape quickly
+	asl	(sp)			; clean it up
+	beqb	(sp),#flsta.*2,10$	; clear & start
+	beqb	(sp),#flsto.*2,30$	; stop
+fl$jmp:	tst	(sp)+			;
+	jmp	@f$lkbd			; got to mumma
+
+10$:	beqw	f$lact,25$		; stopped, continue
+	call	fl$clr			; clear it
+25$:	mov	sp,f$lact		; start collecting
+	br	40$			; and go away
+
+30$:	clr	(pc)+			; start/stop flag
+f$lact:	.word	1			;
+40$:	tst	(sp)+			;
+	rti
+	.dsabl	lsb
+
+;	jsr	r1,fl$cnt
+;	.word	vector
+;	.word	cnt
+;	.word	pc
+;	.word	ps
+
+;	fl$cnt - count interrupt
+
+	stack	r0,pc,ps
+fl$cnt:	beqw	f$lact,10$		; not active
+	$ = fl.vec			;
+	inc	fl.cnt-$(r0)		; count it
+	bne	10$			;
+	dec	fl.cnt-$(r0)		; overflow
+10$:	psh	(sp)
+	psh	(sp)
+	stack	r0,pc,ps,pcx,psx
+	mov	fl.pc-$(r0),sp.pc(sp)	; pc
+	mov	fl.ps-$(r0),sp.ps(sp)	; ps
+	pop	r0			;
+	rti
+
+	.enabl	lsb
+fl$clk:	vehoo$	f$lclk			; clock routine
+fl$srv:	beqw	f$lact,10$		; not displaying
+	dec	(pc)+			; count it
+f$lcnt:	.word	100.			; 100 ticks
+					; leave it zero to block
+	bne	10$			; forget it
+	pshs	<r1,r0>			; 
+	stack	<r0,r1,pc,ps>		;
+	mov	sp.ps(sp),r0		; get previous priority
+	.mtps	r0			; and set it
+	call	fl$sho			; show it
+	pops	<r0,r1>			;
+	mov	#100.,f$lcnt		; enable next
+10$:	sec				;
+	jmp	@f$lclk			;
+
+;	r0,r1	already saved
+;
+;	fl$mod	0	mean
+;		1	total
+;		200	mean
+
+	.enabl	lsb
+fl$sho:	ttnew$
+	ttprt$	<Vector	Count>
+	mov	(pc)+,r1		; list
+f$lptr:	.word	0			;
+10$:	beqw	fl.cnt(r1),40$		;
+	mov	fl.vec(r1),r0		; vector
+	ttoct$
+	ttput$	#ht.			; space
+	mov	fl.cnt(r1),r0		; count
+	tstb	(pc)+			;
+f$lmod:	.word	100000			;
+	bne	20$			; not average mode
+;sic]	clc				; rough average
+	ror	r0			;
+	mov	r0,fl.cnt(r1)		; store it
+	adc	r0			; round up for display
+20$:	bplb	f$lmod,30$		; not periodic
+	clr	fl.cnt(r1)		;
+30$:	ttdec$
+	ttnew$				;
+40$:	add	#fl.bbs,r1		;
+	bnew	(r1),#-1,10$		;
+	return
+	.dsabl	lsb
+
+fl$clr:	psh	r0			;
+	mov	f$lptr,r0		; get the list
+10$:	clr	fl.cnt(r0)		; clear it
+	add	#fl.bbs,r0		;
+	bnew	(r0),#-1,10$		;
+	pop	r0			;
+	return
+
+	$tttyp
+	$ttnew
+	$ttput
+	$ttnum
+
+f$lmap:
+.if ne 0
+	$ = 4
+	.rept	40-4/4		; 000-040
+	jsr	r0,fl$cnt	;
+	.word	$,0,0,0		;
+	$ = $ + 4
+	.endr			;
+.endc
+	$ = 60
+	.rept	<400-60>/4	; 060-400
+	jsr	r0,fl$cnt	;
+	.word	$,0,0,0		;
+	$ = $ + 4
+	.endr			;
+	$ = 440
+	.rept	<500-440>/4	; 440/500
+	jsr	r0,fl$cnt	;
+	.word	$,0,0,0		;
+	$ = $ + 4
+	.endr			;
+	.word	-1
+
+flint:	.drend	fl
+.sbttl	load/unload
+.psect	flload
+
+;	r3 =	service call code
+;	r4 ->	read routine (r0=blk,r1=buf,r2=wct)
+;	r5 ->	hentry for driver
+
+dr$fet:
+dr$loa:	call	up$rel			; relocate the driver
+	mov	(r5),r4			;
+	sub	#dr.lqe,r4		;
+	movi	f$lmap,r4,f$lptr(r4)	; setup histogram pointer
+					;
+	mov	@#j$bsys,r0		;
+	mov	rm.tkb(r0),f$ltkb(r4)	;
+	vecap$	#v$ekbd,#fl$kbd,r4	; capture keyboard
+	vecap$	#v$eclk,#fl$clk,r4	; capture clock
+
+	call	fl$sav			;
+	clc				;
+	return
+
+dr$rel:
+dr$unl:	mov	(r5),r4			;
+	sub	#dr.lqe,r4		;
+	clr	f$lact(r4)		; stop it doing things
+	call	fl$res			; restore vectors
+	verel$	#v$ekbd,#fl$kbd,r4	; capture keyboard
+	verel$	#v$eclk,#fl$clk,r4	; capture clock
+	clc
+	return
+
+fl$sav:	tst	(pc)+		; save
+fl$res:	sec			; restore
+	ror	-(sp)		; save flag
+	.mtps	#340		; go up
+	mov	f$lptr(r4),r0	; the list
+10$:	mov	fl.vec(r0),r1	;
+	bmiw	(sp),20$	; restore
+	mov	(r1)+,fl.pc(r0)	; save pc
+	mov	(r1)+,fl.ps(r0)	; ps
+	mov	#340,-(r1)	; set up call
+	mov	r0,-(r1)	;
+	br	30$		; 
+20$:	bnew	(r1),r0,30$	; skip it if it's changed
+	mov	fl.pc(r0),(r1)+	; restore pc
+	mov	fl.ps(r0),(r1)+	; ps
+30$:	add	#fl.bbs,r0	; next
+	bnew	(r0),#-1,10$	; more?
+	.mtps	#0		; go down
+	tst	(sp)+		;
+	return
+
+$vepkg
+$hkpkg
+drinf$
+uprel$
+.end
+
+
+.end
+;	Each line has 64 cells representing 64 words each, i.e. 4kw per line.
+;	A pair of lines is required to count to 64k
+;	Thus, 7*2=14 lines for 28kw of memory.
+;	Histogram storage is 7*64=448 words
+;
+;	r2	address
+;	r3	upper/lower flag
+;
+;	Focus	addr
+;	Clear
+;	Go
+;	Stop
+;	Display
+;	Proceed
+
+fl$dis:;mov	f$lbas,r2	;
+	clr	r2		;
+10$:	clr	r3		; top line
+	.ttyou	#ht.		;
+	call	fl$lin		; display a line
+	inc	r3		; bottom line
+	mov	r2,r0		; get the address
+	call	sh$oct		; octal address
+	.ttyou	#ht.		;
+	call	fl$lin		; do the line
+	add	#4096.,r2	; up the address
+	bnew	r3,#160000,10$	; do another
+	return
+
+fl$lin:	psh	r2		;
+	psh	#4096./64.	; counter
+10$:	mov	(r2)+,r1	; get the next
+	mov	#'@,r0		; assume nothing
+	beqw	r0,#-1,40$	; overflow
+	mov	#'@,r0		; assume nothing
+	swab	r1		;
+	beqw	r3,20$		; check high byte
+	bneb	r1,30$		; high byte has something
+	swab	r1		; get low byte again
+20$:	beqb	r1,40$		; nothing
+	clr	r0		; search for it
+30$:	mova	f$lval,r0	;
+	aslb	r1		; done?
+	bcs	40$		;
+	inc	r0		;
+	br	30$		;
+40$:	.ttyou	(r0)		;
+	sobw	(sp),10$	;
+	tst	(sp)+		;
+	pop	r2
+	return
+
+;	_.-~ ="^#@
+;	#
+
+f$lval:	.ascii	/#^"=~-._/	; in reverse order
+
+sh$dec:	tst	(pc)+		;
+sh$oct:	sec			;
+	pshs	<r2,r1,r0>	; save them
+	jsr	r3,30$		; assume decimal
+10$:	10000.,1000.,100.,10.,1,0
+20$:	100000,10000,1000,100,10,1,0
+30$:	bic	r2,r2		; no digits seen yet
+	bcc	40$		; is decimal
+	add	#20$-10$,r3	;
+	mov	#'0,r2		; show all digits
+40$:	mov	r0,r1		;
+50$:	mov	#-1,r0		; look for a digit
+60$:	inc	r0		; step up dividend
+	sub	(r3),r1		; subtract
+	bcc	60$		; go again
+	add	(r3)+,r1	; bumb it back to positive
+	beqw	(r3),70$	; final digit
+	bnew	r0,70$		; got something
+	beqw	r2,80$		;
+70$:	mov	#'0,r2		;
+	add	r2,r0		;
+	.ttyout			;
+80$:	bnew	(r3),50$	;any more to do ?
+	pops	<r3,r0,r1,r2>
+	return
+.sbttl	load/unload
+
+map	fl.jsr,4,0
+map	fl.vec
+map	fl.cnt
+map	fl.pc
+map	fl.ps
+map	fl.bbs
+
+;	Load 
+
+fl$loa:	uprel$
+	call	fl$sav		; save them
+	return
+
+fl$unl:	call	fl$unl
+	return
+
+
+.sbttl	error package
+
+print::	.print	r2		;print it
+	br	even
+error:	bcs	errorp
+even:	tstb	(r2)+		;skip it
+	bgt	even
+	inc	r2
+	bic	#1,r2
+	rts	r2		;its o.k.
+fatal:
+errorp:	type	<?FLAKSJ-F->	;display the header
+	.print	r2		;and the tail
+	jmp	start
+
+types:	.rad50	/savsavsavsav/
+files:	.blkw	3*5
+ifile:	.blkw	5*4
+area:	.blkw	5
+line:	.blkb	84.
+room:
+.end	start

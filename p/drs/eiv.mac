@@ -1,0 +1,890 @@
+.title	EI.SYS -EIS emulator driver
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+$cndef
+$drdef
+$hkdef
+$jbdef
+$rmdef
+$vedef
+
+;	%build
+;	macro/object:drb:eiv drs:eiv
+;	link/nobitmap/execute:drb:eiv.sys drb:eiv/map:drb:eiv/boundary:1000
+;	eiload
+;	%end
+
+.macro	drinf$
+$imgdef	EI 3 0
+$imginf fun=drv cre=hammo aut=ijh use=<RUST EIS emulator driver EI:>
+$imgham	yrs=<2004> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:20:35.48>
+;	%edit
+$imgedt <33   >
+.endm
+
+.macro	meta	m n o p
+.macro	m
+n
+o
+p
+.endm
+.endm
+
+meta <set c d e f g h i j k l><c=d><.iif nb <e>,set e f g h i j k l>
+meta <psh c><mov c,-(sp)>
+meta <pop c><mov (sp)+,c>
+meta <save><.irpc x,<543210>><psh r'x><.endr>
+meta <restore><.irpc x,<012345>><pop r'x><.endr>
+meta <movp c,d><mov pc,d><add c-.,d>	
+meta <on c d><.iif ne <c>,d>
+meta <no c d><.iif eq <c>,d>
+meta <fall c><.iif ne c-.,.error c-.>
+meta <roof c><.iif lt c-.,.error c-.>
+meta <assume c d e f><.iif d c-e,.mexit><.error f>
+
+v.bus	=	4
+v.cpu	=	10
+v.rt	=	54
+v.tt	=	60
+v.lk	=	100
+v.lkp	=	104
+br7	=	340
+br0	=	0
+ha.lqe  =	6
+
+sysptr	=	54
+ $mtps	=	360
+ pnptr	=	404
+
+set	nbit 10, zbit 4, vbit 2, cbit 1
+set	nzvc 17, nzv 16
+set	di 177300, ac 177302, mq 177304, mu 177306
+set	sc 177310, sr 177311, ls 177314, as 177316
+
+	.drdef	ei,377,ronly$!wonly$,0,0,0
+	.drest	class=dvc.ps
+	$drptr
+
+	.drins	ei
+	tst	(pc)+		   ;c=0	; data
+	br	10$		   ;c=0	; system=no
+	mov	@#j$bsys,r0	   ;c=0	; get the system
+	bit	#cneis$,rm.cf2(r0) ;c=0	; got eis?
+	beq	20$		   ;c=0	; nope - they need us
+10$:	sec				; c=1 => don't install
+20$:	return
+
+
+roof	1000
+.drbeg	ei
+.drast	ei,0
+.drfin	ei
+.sbttl	configuration variables
+
+;	EIS-eleven will be extended to a product called VP-eleven
+;	(Virtual Processor). That's what all these conditionals are for.
+;	They are mostly not implemented. The only conditionals that
+;	are supported with EIS-eleven are H.NHD and H.EAE.
+meta	<default c d e><.iif ndf c,c=d>
+
+default	h.nhd	1	;have No HarDware (arithmetic)
+default	h.eae	0	;have Extended Arithmetic Element
+assume	h.nhd+h.eae eq 1 <;Conflicting conditionals: h.nhd,h.eae>
+;
+;	The remaining conditionals may not be altered
+;
+default	h.eis	0	;have Extended Instruction Set
+default	h.fis	0	;have Floating Instruction Set
+default	h.fpp	0	;have Floating Point Processor
+default	h.cis	0	;have Commercial Instruction Set
+
+default	h.sob	0	;have SOB instruction
+default	h.sxt	0	;have SXT instruction
+default	h.mfps	0	;have MFPS instruction
+default	h.spl	0	;have SPL instruction
+default	h.psw	0	;have Processor Status Word
+
+default	w.nhd	0	;redundant
+default	w.eae	0	;redundant
+default	w.eis	1	;want mul div ash ashc xor
+default	w.fis	0	;want fadd fsub fmul fdiv
+default	w.fpp	0	;want fpp
+default	w.cis	0	;want cis
+
+default	w.sob	1	;want sob
+default	w.fsob	0	;want fast sob				
+default	w.spl	0	;want spl
+
+default	w.mark	0	;want mark (supported later)
+default	w.sxt	1	;want sxt
+w.xis=w.mark!w.sxt	
+
+default	w.mfps	0	;want mfps mtps
+w.mps=w.mfps		
+
+			
+w.cpu=w.eis!w.fis!w.fis!w.fpp!w.sob!w.spl!w.sxt!w.mps
+
+w.bus=0
+default	w.test	1	;want test mode
+default	w.micro	1	;want micro machine
+.sbttl	catch cpu traps
+.if ne w.cpu			
+
+set	$r0 0, $r1 2, $r2 4, $r3 6, $r4 10
+set	$r5 12, $sp 14, $pc 16, $ps 20
+set	$op -2, $osp -4
+
+catch:
+ei$cpu:	vehgh$	e$icpu			; cpu vector hook
+
+.if ne w.fsob			
+	mov	(sp),-(sp)	
+	sub	#2,(sp)		
+	mov	@(sp)+,-(sp)	
+.if ne w.test
+	bpl	4$		
+	cmp	(sp),#-1	
+	bne	6$		
+	tst	(sp)+		
+	add	#2,(sp)		
+	br	catch		
+.endc
+4$:	bmi	6$		
+	cmp	(sp),#sob	
+	blo	6$		
+	psh	(sp)		
+	bic	#^c700,(sp)	
+	asl	(sp)
+	asl	(sp)
+	swab	(sp)
+	add	#dec,(sp)	
+	pop	(pc)		
+	.word	0		
+	beq	5$		
+	bic	#^c77,(sp)	
+	asl	(sp)		
+	sub	(sp),2(sp)	
+5$:	tst	(sp)+		
+	rti			
+6$:	tst	(sp)+		
+.endc
+.if ne w.micro
+	psh	r5		
+	mov	sp,r5		
+	movp	#e$istk,sp	
+	mov	4(r5),-(sp)	
+	mov	2(r5),-(sp)	
+	mov	#6,-(sp)	
+	add	r5,(sp)		
+	mov	(r5),r5		
+.iff
+	psh	2(sp)		
+	call	@(pc)+		
+i.mtps:	.word	0		
+;i$mtps=i.mtps-zero		
+	mov	(sp),-(sp)	
+	mov	4(sp),2(sp)	
+	mov	#10,-(sp)	
+	add	sp,(sp)
+.endc
+	save			
+	mov	sp,r5		
+	mov	$pc(r5),r4	
+	mov	-(r4),-(sp)	
+.if ne w.test			
+	cmp	(sp),#-1	
+	bne	10$		
+	add	#2,$pc(r5)	
+	tst	(r4)+		
+	mov	(r4),(sp)	
+.endc 
+10$:
+	mov	$sp(r5),-(sp)	
+	
+	call	goto		
+return:
+.if ne w.micro
+	cmp	(sp)+,(sp)+
+	restore
+	mov	r5,-(sp)
+	mov	2(sp),r5
+	mov	6(sp),-(r5)
+	mov	4(sp),-(r5)
+	mov	(sp),-(r5)
+	mov	r5,sp
+	mov	(sp)+,r5
+	rti
+.iff
+	sub	(sp),$sp(r5)	
+	cmp	(sp)+,(sp)+	
+	restore			
+	add	#2,(sp)		
+	add	(sp)+,pc	
+	br	pushed		
+	br	unmoved		
+popped:	mov	2(sp),4(sp)	
+	mov	(sp)+,(sp)	
+unmoved:mov	2(sp),4(sp)	
+	mov	(sp)+,(sp)
+pushed:	rti
+.endc
+
+goto:	movp	#groups,r1	
+10$:	mov	$op(r5),r0	
+	bic	(r1)+,r0	
+	sub	(r1),r0		
+	bmi	20$		
+	cmp	2(r1),r0	
+	bhis	jump		
+20$:	add	#l.group-2,r1	
+	tst	(r1)		
+	bne	10$		
+
+bomb:
+	tst	(sp)+
+	cmp	(sp)+,(sp)+	
+	restore			
+.if ne w.micro
+	mov	(sp),sp		
+	sub	#4,sp		
+.iff
+	tst	(sp)+		
+	mov	2(sp),4(sp)	
+	mov	(sp)+,(sp)
+.endc
+	psh	#br7+cbit	
+	call	@i.mtps		
+
+.if ne 1
+	jmp	@e$icpu
+.iff
+	jmp	@(pc)+		
+rt11:	.word	0		
+;$rt11=rt11-zero
+.endc
+
+jump:	cmp	(r1)+,(r1)+	
+.if ne h.eis			
+	ash	(r1)+,r0	
+.iff				
+	add	(r1)+,pc	
+rotate:				
+meta <rot c d e><rot'c = .-rotate><d e>
+rot 2	asr	r0		
+	asr	r0
+	br	10$
+rot 6	asl	r0		
+	asl	r0		
+rot 8	swab	r0		
+rot 0
+meta rot
+.endc				
+10$:	mov	r5,r2		
+	add	#$ps,r2		
+	add	(r1),pc		
+	fall	groups		
+
+on h.eis <meta <entry c,d,e,f,g><.iif ne w.'g,.word c,d,e-d,-f.,d.'g-groups>>
+no h.eis <meta <entry c,d,e,f,g><.iif ne w.'g,.word c,d,e-d,rot'f,d.'g-groups>>
+set l.group 12
+
+groups:
+entry	77,006700,006700,0,sxt	
+entry	777,070000,074000,8,eis	
+entry	777,077000,077000,0,sob	
+entry	77,106400,106700,6,mps	
+entry	7,000230,000230,0,spl	
+.word	0
+.endc	
+.if ne w.micro
+	.blkw	40
+e$istk:
+i.mtps:	.word	0		
+;i$mtps=i.mtps-zero		
+.endc
+.sbttl	eis, mul, div
+.if ne w.eis
+
+d.eis:	add	r0,pc		
+	br	$mul
+	br	$div
+	br	$ash
+	br	$ashc
+	br	$xor
+
+$mul:
+	bic	#nzvc,(r2)	
+	call	eis.adr		
+	clr	r0		
+	mov	(r4),r1		
+	mov	(r3),r3		
+	psh	r4
+	call	mul$		
+	pop	r4
+	bit	#100,$op(r5)	
+	bne	10$		
+	mov	r0,(r4)+	
+10$:	mov	r1,(r4)		
+	tst	r0		
+	beq	20$		
+	bpl	15$		
+	bis	#nbit,(r2)	
+	tst	r1		
+	bpl	15$		
+	inc	r0		
+	beq	30$		
+15$:	inc	(r2)		
+	br	30$		
+20$:	tst	r1		
+	bmi	15$		
+	bne	30$		
+	bis	#zbit,(r2)	
+30$:	return
+
+$div:	bic	#nzvc,(r2)	
+	bit	#100,$op(r5)	
+	beq	10$		
+	jmp	bomb		
+10$:	call	eis.adr
+	mov	(r4),r0		
+	mov	2(r4),r1
+	mov	(r3),r3		
+	beq	20$		
+	psh	r4
+	call	div$		
+	pop	r4
+	bcs	30$		
+	mov	r1,2(r4)	
+	jmp	store		
+
+20$:	bis	#cbit,(r2)	
+30$:	bis	#vbit!zbit,(r2) 
+	clr	(r4)+
+	clr	(r4)
+	return
+.endc	
+.sbttl	ash, xor
+.if ne w.eis			
+
+$ash:	bic	#nzvc,(r2)	
+	call	eis.adr		
+.if ne h.nhd
+	mov	(r4),r0		
+	call	shift		
+	bmi	20$		
+10$:	dec	r3		
+	bmi	30$		
+	asl	r0		
+	bvc	10$		
+	bis	#vbit,(r2)	
+	br	10$
+20$:	asr	r0		
+	inc	r3		
+	bne	20$		
+30$:	br	storec		
+.endc 
+.if ne h.eae
+	mov	(r4),@#mq	
+	mov	(r3),@#as	
+	mov	@#mq,r0		
+	bitb	#2,@#sr		
+	beq	10$		
+	aslb	@#sr		
+	bvc	20$		
+10$:	bis	#vbit,(r2)	
+20$:	asrb	@#sr		
+	br	storec		
+.endc	
+$xor:	bic	#nzv,(r2)	
+	call	eis.adr		
+	mov	(r4),r0		
+	bic	(r3),r0		
+	bic	(r4),(r3)	
+	bis	r0,(r3)		
+	clc			
+	br	setnz
+.sbttl	ashc
+
+$ashc:	bic	#nzvc,(r2)	
+	call	eis.adr		
+	mov	(r4),r0		
+	mov	2(r4),r1	
+	bit	#100,$op(r5)	
+	beq	50$		
+	mov	r0,r1		
+.if ne h.nhd
+50$:	call	shift		
+	bmi 	70$		
+60$:	dec	r3		
+	bmi	80$		
+	asl	r1
+	rol	r0
+	bvc	60$		
+	bis	#vbit,(r2)	
+	br	60$
+70$:	asr	r0
+	ror	r1
+	inc	r3
+	bne	70$
+.endc 
+.if ne h.eae
+50$:	mov	r1,@#mq		
+	mov	r0,@#ac		
+	bit	#40,(r3)	
+	bne	60$		
+	mov	(r3),@#ls	
+	br	65$		
+60$:	mov	(r3),@#as	
+65$:	mov	@#ac,r0		
+	mov	@#mq,r1		
+	aslb	@#sr		
+	bvc	70$		
+	bis	#vbit,(r2)	
+70$:	asrb	@#sr		
+.endc 
+80$:	bit	#100,$op(r5)	
+	beq	stored		
+	mov	r1,(r4)		
+	br	setnz		
+	
+.enabl	lsb
+stored:	mov	r0,(r4)+	
+	bpl	10$		
+	bis	#nbit,(r2)	
+10$:	mov	r1,(r4)		
+	bis	r0,r1		
+	br	20$
+store:	clc			
+storec:	mov	r0,(r4)		
+setnz:	bpl	20$		
+	bis	#nbit,(r2)	
+20$:	bne	30$		
+	bis	#zbit,(r2)	
+30$:	bcc	40$		
+	bis	#cbit,(r2)
+40$:	return
+.dsabl	lsb
+
+shift:	mov	(r3),r3		
+	bic	#^c77,r3	
+	bit	#40,r3		
+	beq	10$		
+	bis	#^c77,r3	
+10$:	clc			
+	return			
+.endc	
+.sbttl	sob, sxt, mpts, mfps, spl
+
+.if ne w.sob			
+
+d.sob:
+$sob:	call	dst.reg		
+	dec	(r4)		
+	beq	10$		
+	mov	$op(r5),r0	
+	bic	#^c77,r0	
+	asl	r0		
+	sub	r0,$pc(r5)	
+10$:	return			
+.endc	
+
+.if ne	w.sxt			
+
+d.sxt:
+$sxt:	mov	(r2),r1		
+	bic	#nzv,(r2)	
+	call	src.adr		
+	clr	r0		
+	bit	#nbit,r1	
+	beq	10$		
+	dec	r0		
+10$:	jmp	store		
+.endc	
+
+.if ne	w.mps			
+d.mps:	add	r0,pc		
+	br	$mfps
+	br	$mfpd
+	br	$mtpd
+	fall	$mtps
+
+$mtps:	call	src.adr		
+	mov	(r4),(r2)	
+	return			
+
+$mfps:	call	src.adr		
+	mov	(r2),(r4)	
+	return
+
+$mfpd:
+$mtpd:	jmp	bomb		
+.endc	
+
+.if ne	w.spl			
+$spl:	mov	$op(r5),r0	
+	bic	#^c7,r0		
+.if ne h.eis			
+	ash	#6,r0		
+.iff				
+	swab	r0		
+	asr	r0		
+	asr	r0		
+.endc				
+	bic	#340,(r2)	
+	bis	r0,(r2)		
+	return
+.endc	
+.sbttl	address decoders
+.if ne w.cpu!w.bus		
+
+eis.adr:call	src.adr		
+	mov	r4,r3		
+dst.reg:mov	$op(r5),r4	
+.if ne h.eis			
+	ash	#-5,r4		
+.iff				
+	asl	r4		
+	asl	r4
+	asl	r4		
+	swab	r4		
+.endc				
+	br	gen.reg		
+src.reg:mov	$op(r5),r4	
+gen.reg:bic	#^c<7*2>,r4	
+	add	r5,r4		
+	return
+
+dst.adr:mov	$op(r5),r4	
+.if ne h.eis			
+	ash	#-6,r4		
+.iff				
+	asl	r4
+	asl	r4
+	swab	r4
+.endc
+	br	gen.adr		
+src.adr:mov	$op(r5),r4	
+gen.adr:psh	r3		
+	psh	r2
+	mov	r4,r2		
+	bic	#^c7,r4		
+	asl	r4		
+	add	r5,r4		
+	mov	r4,r3		
+	bic	#^c70,r2	
+	asr	r2
+	asr	r2
+	add	r2,pc
+	br	mode0
+	br	mode1
+	br	mode2
+	br	mode3
+	br	mode4
+	br	mode5
+	br	mode6
+	br	mode7
+
+mode3:	mov	(r4),r4		
+mode2:	mov	(r4),r4		
+	add	#2,(r3)		
+	br	mode0		
+mode4:	sub	#2,(r3)		
+	mov	(r3),r4		
+	br	mode0		
+mode5:	sub	#2,(r3)		
+	mov	@(r3),r4	
+	br	mode0
+mode6:	mov	@$pc(r5),r4	
+	add	#2,$pc(r5)	
+	add	(r3),r4		
+	br	mode0
+mode7:	mov	@$pc(r5),r4	
+	add	#2,$pc(r5)	
+	add	(r3),r4		
+mode1:	mov	(r4),r4		
+mode0:	pop	r2		
+	pop	r3		
+	return
+.endc	
+.sbttl	multiply routines
+.if ne w.eis			
+.if ne h.nhd			
+
+mul$:
+	mov	r2,-(sp)	
+2$:	mov	r1,-(sp)	
+	bpl	5$		
+	neg	r1		
+	bpl	5$		
+	mov	r3,r1		
+	pop	r3		
+	cmp	r1,#100000	
+	bne	2$		
+	mov	#040000,r0	
+	clr	r1		
+	br	40$		
+5$:	mov	r1,-(sp)	
+	clr	r0		
+	clr	r1
+	clr	r2		
+	tst	r3		
+	bpl	10$		
+	neg	2(sp)		
+	neg	r3		
+10$:	tst	(sp)		
+	beq	30$		
+	ror	(sp)
+	bcc	20$
+	add	r3,r1
+	adc	r0
+	add	r2,r0		
+20$:	asl	r3
+	rol	r2		
+	br	10$
+30$:	tst	(sp)+
+	tst	(sp)+		
+	bpl	40$		
+	neg	r0		
+	neg	r1		
+	sbc	r0		
+40$:	pop	r2
+	return
+.endc 
+.if ne h.eae
+mul$:
+	mov	r1,@#mq		
+	clr	@#ac		
+	mov	r3,@#mu		
+	mov	@#ac,r0		
+	mov	@#mq,r1		
+	return			
+.endc	
+.endc	
+.sbttl	divide routines
+.if ne w.eis
+.if ne h.nhd
+
+div$:	mov	#16.,-(sp)	
+	tst	r3		
+	bpl	10$		
+	neg	r3		
+	bis	#100000,(sp)	
+10$:	tst	r0		
+	bpl	20$		
+	bis	#40000,(sp)	
+	neg	r0
+	neg	r1
+	sbc	r0
+20$:	cmp	r3,r0		
+	bcs	70$		
+25$:	clr	-(sp)		
+30$:	asl	(sp)		
+	asl	r1		
+	rol	r0		
+	cmp	r0,r3		
+	blo	40$		
+	sub	r3,r0		
+	inc	(sp)		
+40$:	decb	2(sp)		
+	bne	30$
+	mov	r0,r1		
+	mov	(sp)+,r0	
+	asl	(sp)		
+	bvc	50$		
+	neg	r0		
+50$:	tst	(sp)+		
+	bpl	60$		
+	neg	r1		
+60$:	clc
+	return			
+70$:	inc	(sp)+		
+	return
+.endc 
+.if ne h.eae
+div$:
+	mov	r1,@#mq		
+	mov	r0,@#ac		
+	mov	r3,@#di		
+	mov	@#ac,r1		
+	mov	@#mq,r0		
+	aslb	@#sr		
+	bvs	10$		
+	clc			
+	return			
+10$:	sec			
+	return			
+.endc	
+.endc	
+.drend	ei
+.sbttl	load/unload
+.psect	eiload
+
+dr$fet:
+dr$loa:	mov	(r5),r4			;
+	sub	#dr.lqe,r4		;
+	mov	@#j$bsys,r1		;
+	add	#$mtps,r1		;
+	mov	r1,i.mtps(r4)		;
+	vecap$	#v$ecpu,#ei$cpu,r4	; capture  instruction traps
+	clc				;
+	return
+
+dr$rel:
+dr$unl:	mov	(r5),r4			;
+	sub	#dr.lqe,r4		;
+	verel$	#v$ecpu,#ei$cpu,r4	;
+	clc				;
+	return
+
+$vepkg
+$hkpkg
+drinf$
+.end
+.sbttl	load/unload
+
+ei$loa:	mov	#1,r3
+	br	ei$ser
+ei$unl:	mov	#-1,r3
+ei$ser:	mov	(r5),r2		;
+	add	#zero-eistrt-ha.lqe,r2
+	mov	@#j$bsys,r1	;
+	add	#$mtps,r1
+	mov	r1,i$mtps(r2)	
+	call	(r1)		
+	cmp	r3,(r2)		
+	beq	50$		
+	neg	(r2)		
+	bmi	30$		
+;on w.cpu <mov	@#v.cpu,$rt11(r2)> 
+10$:	mov	(r5),r4			;
+	sub	#dr.lqe,r4		;
+	vecap$	#v$ecpu,#ei$cpu,r4	; capture keyboard
+	br	50$
+
+30$:	mov	(r5),r4			;
+	sub	#dr.lqe,r4		;
+	verel$	#v$ecpu,#ei$cpu,r4	;
+
+50$:	clr	-(sp)		
+	call	@i$mtps(r2)	
+60$:	clc
+	return
+
+$vepkg
+$hkpkg
+drinf$
+.end
+.sbttl	load/unload
+
+ei$loa:	mov	#1,r3
+	br	ei$ser
+ei$unl:	mov	#-1,r3
+ei$ser:
+	mov	(r5),r2		;
+	add	#zero-eistrt-ha.lqe,r2
+	mova	e$itab,r0	
+	mov	@#j$bsys,r1	;
+	add	#$mtps,r1
+	mov	r1,i$mtps(r2)	
+	call	(r1)		
+	cmp	r3,(r2)		
+	beq	50$		
+	neg	(r2)		
+	bmi	30$		
+on w.cpu <mov	@#v.cpu,$rt11(r2)> 
+10$:	mov	(r0)+,r1	
+	beq	50$		
+	mov	(r1),(r0)+	
+	mov	(r0)+,(r1)	
+	add	r2,(r1)+	
+	mov	(r1),(r0)+	
+	mov	(r0)+,(r1)	
+	br	10$
+
+30$:	mov	(r0)+,r1	
+	beq	50$		
+	mov	(r0)+,(r1)+	
+	tst	(r0)+		
+	mov	(r0)+,(r1)+	
+	tst	(r0)+
+	br	30$
+50$:	clr	-(sp)		
+	call	@i$mtps(r2)	
+60$:	clc
+	return
+
+meta <entry c,d,e><.word c,0,d-zero,0,e>
+e$itab:
+on w.cpu <entry	v.cpu,catch,br7+cbit>
+	.word	0
+
+drinf$
+.end
+.drset	run,-1,run,NO
+
+run:	neg	r3		
+	nop			
+norun:	call	slot		
+	movp	#table,r0	
+	psh	#br7		
+	call	(r1)		
+	mov	r1,i$mtps(r2)	
+	cmp	r3,(r2)		
+	beq	50$		
+	neg	(r2)		
+	bmi	30$		
+on w.cpu <mov	@#v.cpu,$rt11(r2)> 
+10$:	mov	(r0)+,r1	
+	beq	50$		
+	mov	(r1),(r0)+	
+	mov	(r0)+,(r1)	
+	add	r2,(r1)+	
+	mov	(r1),(r0)+	
+	mov	(r0)+,(r1)	
+	br	10$
+
+30$:	mov	(r0)+,r1	
+	beq	50$		
+	mov	(r0)+,(r1)+	
+	tst	(r0)+		
+	mov	(r0)+,(r1)+	
+	tst	(r0)+
+	br	30$
+50$:	clr	-(sp)		
+	call	@i$mtps(r2)	
+60$:	return
+
+meta <entry c,d,e><.word c,0,d-zero,0,e>
+table:
+on w.cpu <entry	v.cpu,catch,br7+cbit>
+	.word	0
+
+slot:	mov	@#sysptr,r2	
+	mov	r2,r1		
+	add	#$mtps,r1	
+	add	pnptr(r2),r2	
+	mov	r2,r0		
+10$:	cmp	(r2)+,#-1	
+	bne	10$		
+	tst	-(r2)		
+	sub	r0,r2		
+	asr	r2		
+	psh	r2		
+	add	r0,r2		
+20$:	cmp	-(r2),#^rei	
+	beq	30$		
+	cmp	r2,r0		
+	bne	20$		
+	br	40$		
+30$:	add	(sp)+,r2	
+	mov	(r2),r2		
+	beq	50$		
+	add	#zero-eistrt-ha.lqe,r2
+;	bit	(r2)+,(r2)+	
+	return			
+40$:	tst	(sp)+		
+50$:	com	(sp)+		
+	return			

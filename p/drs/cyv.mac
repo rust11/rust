@@ -1,0 +1,195 @@
+zap=0
+.title	cyv - RUST ctrl/y driver
+.enabl	lc
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+$aldef
+$drdef
+$hkdef
+$jbdef
+$rmdef
+$psdef
+$vedef
+$hadef
+upini$
+
+;	CYV.SYS: [ctrl/y] menu supports boot, halt, reset etc
+; 
+;	%build
+;	goto 'p1'
+;	macro drs:cyv.mac/object:drb:
+;	link drb:cyv/execute:drb:cyv.sys/nobitmap/boundary:1000
+;	cyload
+;	@drs:check capture CYV
+;	driver set drb:cyv key=31
+;	@drs:check compare CYV
+;	end:
+;	%end
+
+.macro	drinf$
+$imgdef	CY 1 0
+$imginf fun=drv cre=hammo aut=ijh use=<RUST/SJ CTRL/Y driver CY:>
+$imgham	yrs=<2004> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:19:44.36>
+;	%edit
+$imgedt <19   >
+.endm
+
+;	^]^]^]
+;	?BO-Q-Exit, Abort, Reset, Boot [A]?
+;
+;	Boot
+;	Halt
+;	Reset
+;	eXit
+
+	$csr=0
+	.drdef	bo,377,ronly$!wonly$,0,0,0
+	.drest	class=dvc.ps
+	$drptr
+	$drins	bo system=no, data=sj
+
+	.drset	KEY,1,st$key,oct	; set driver key
+
+st$key:	asl	r0			; we use it shifted
+	mov	r0,b$okey		; set it up
+	clc				;
+	return
+
+	.drbeg	bo			; dummy handler in case
+;	.drfin	bo			; someone tries to read/write
+;	.drast	bo,0
+.sbttl	intercept
+
+	bokey. = 'Y-64.
+
+	.enabl	lsb
+bo$kbd:	vehoo$	b$okbd			; keyboard hook
+	psh	@(pc)+			; get the character
+b$otkb:	.word	0			;
+	asl	(sp)			; clean it up
+	cmpb	(sp)+,(pc)+		; this our key?
+b$okey:	.word	bokey.*2		;
+	beq	bo$srv			; yep
+	jmp	@b$okbd			; got to mumma
+
+bo$srv:	pshs	<r1,r0>			;
+bo$prm:	call	bo$new			;
+	mov	#"CY,r0			;
+	call	bo$put			;
+	mov	#"> ,r0			;
+bo$err:	call	bo$put			;
+bo$agn:	call	bo$get			; get a character
+     up	mov	#b$odis,r0		;
+10$:	movb	(r0)+,30$		;
+	beq	40$			; error
+20$:	cmpb	(r0)+,r1		; got a match?
+	bne	10$			; nop
+30$:	br	.			; yep
+40$:	mov	#'?,r0			;
+	call	bo$put			;
+	br	bo$prm			;
+	meta <bodis$ c,r><.byte r-40$/2,c>
+b$odis:	bodis$	cr.,bo$ctn		; 
+	bodis$	uprB.,bo$boo		; B Boot
+	bodis$	uprH.,bo$hlt		; H Halt
+	bodis$	uprR.,bo$res		; R Reset
+	bodis$	uprX.,bo$exi		; X Exit
+	bodis$	lowB.,bo$boo		; B Boot
+	bodis$	lowH.,bo$hlt		; H Halt
+	bodis$	lowR.,bo$res		; R Reset
+	bodis$	lowX.,bo$exi		;\X Exit
+bo$hlt:	HALT				;/  also terminates the table
+	br	bo$prm			;
+bo$ctn:	call	bo$new			;
+	pops	<r0,r1>			;
+bo$rti:	rti
+	.dsabl	lsb
+
+bo$res:	reset				; hardware reset
+	mov	@#j$bsys,r0		; get the system
+	clr	rm.chk(r0)		; clear directory segment
+	mov	#100,@rm.tks(r0)	; reenable keyboard
+	br	bo$prm
+
+bo$exi:	mov	#1000,sp
+	clr	r0
+	.exit
+
+bo$boo:	jmp	@#173000
+
+bo$get:	tstb	@(pc)+			; wait
+b$otks:	.word	0			;
+	bpl	bo$get			;
+	clr	r0			;
+	bisb	@b$otkb,r0		; get it
+	mov	r0,r1			;
+	blob	r0,#32.,bo$ret		;
+	br	bo$put			;
+bo$new:	mov	#lf.*256.+cr.,r0	;
+bo$put:	tstb	@(pc)+			; ready ready teddy
+b$otps:	.word	0			; to rock 'n' roll?
+	bpl	bo$put			;
+	movb	r0,@(pc)+		;
+b$otpb:	.word	0			;
+	clrb	r0			;
+	swab	r0			;
+	bne	bo$put			;
+bo$ret:	return
+boint:					; dummy interrupt
+	.drend	bo
+.sbttl	load/unload
+.psect	cyload
+
+;	r3 =	service call code
+;	r4 ->	read routine (r0=blk,r1=buf,r2=wct)
+;	r5 ->	hentry for driver
+
+dr$fet:
+dr$loa:	call	up$rel			; relocate the driver
+	mov	(r5),r4			;
+	sub	#dr.lqe,r4		;
+					;
+	vecap$	#v$ekbd,#bo$kbd,r4	; capture keyboard
+					;
+.if ne zap
+	mov	r4,r3			;
+	add	#b$odat,r3		; low memory table
+10$:	mov	(r3)+,r2		; get the next
+	mov	(r2),(r3)+		; save value
+	tst	(r3)			; any more?
+	bne	10$			; yep
+.endc
+	mov	@#j$bsys,r0		;
+	mov	rm.tks(r0),b$otks(r4)	;
+	mov	rm.tkb(r0),b$otkb(r4)	;
+	mov	rm.tps(r0),b$otps(r4)	;
+	mov	rm.tpb(r0),b$otpb(r4)	;
+	clc				;
+	return
+dr$rel:
+dr$unl:	mov	(r5),r4			;
+	sub	#dr.lqe,r4		;
+	verel$	#v$ekbd,#bo$kbd,r4	; release vector
+	clc
+	return
+$vepkg
+$hkpkg
+drinf$
+uprel$
+.end
+;	Unload all drivers loaded below BO:
+
+bo$unl:	mov	@#j%bsys,r0		; system
+	mov	rm.slt(r0),r1		; slots*2
+	add	rm.pnp(r0),r0		; pname
+	add	r1,r0			; r0 -> hentry
+	asr	r1			;
+     up	mov	1000,r2			; don't remove us
+10$:	bhiw	(r0),r2,20$		; it stays safe
+	clr	(r0)			; zap it
+20$:	tst	(r0)+			;
+	sobw	r1,10$			;
+	return
+

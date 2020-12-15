@@ -1,0 +1,328 @@
+.title	vv
+.include "lib:share.mac"
+$vvdef		;vv
+.asect
+.=600
+$imgdef	VV 1 1
+$imginf	fun=han cre=hammo aut=ijh use=<Virtual volumes>
+$imgham	yrs=<1985> oth=<>
+.csect
+
+;	VV: virtual volume handler
+;
+;	%build
+;	macro		drs:vv		/object:drb:vv
+;	link/nobitmap	drb:vv		/execute:drb:vv.sys
+;	macro		drs:drmmgt+drs:vv /object:drb:vvx
+;	link/nobitmap	drb:vvx		/execute:drb:vvx.sys
+;	set error none
+;	!copy drb:vv.sys sy:vv.sys
+;	!copy drb:vvx.sys sy:vvx.sys
+;	%end
+;
+;	Read/Writes to block -2 signals a set or get operation.
+;	Block -1 is not used for this purpose since some programs
+;	decrement the block count below zero by mistake.
+
+.if ne mmg$t
+	vvxm=1
+	vvsj=0
+	vvfb=0
+.iff
+	vvxm=0
+	vvfb=1
+	vvsj=1
+.endc
+	vvv4=1		;must be v4 at present
+	vvv5=0		;may not be v5 at present
+
+	.drdef	vv,vvdec.,filst$!spfun$!varsz$,0,0,0
+
+sysptr	=	54
+ qcomp	=	270
+ $mtps	=	360
+ $mfps	=	362
+ pnptr	=	404
+hderr$	=	1
+unit$n	=	177770
+unit$p	=	000007
+d.dvsz	=	54
+pr7	=	340
+varsz.	=	373
+
+.macro	meta	m n o p
+.macro m
+n
+o
+p
+.endm
+.endm
+
+meta	<sj c d e><if vvsj c d e>
+meta	<fb c d e><if vvfb c d e>
+meta	<xm c d e><if vvxm c d e>
+meta	<v4 c d e><if vvv4 c d e>
+meta	<v5 c d e><if vvv5 c d e>
+
+.macro	if c d e f
+.if ne c
+.if nb <f>
+	d	e,f
+.iff
+	d	e
+.endc
+.endc
+.endm
+.sbttl	entry point, once-only
+
+;	Entry point followed by unit table.
+;	First time executes once-only code.
+
+	.drbeg	vv		;
+vv$beg:	br	10$		;skip the guard word
+	.word	vvgua$		;guard word
+10$:	jsr	r5,vv$sta	;start i/o
+v$vtab:	.assume	v$vtab-vv$beg eq 10 ;see $vvdef
+;[sic]	.blkb	vvtbs.		;unit table
+vv$onc:	mov	#5726,vv$sta	;replace branch with tst (sp)+
+	mov	@#sysptr,r0	;get the system
+	add	r0,v$vmtp	;relocate mtps
+	add	r0,v$vmfp	;relocate mfps
+	add	pnptr(r0),r0	;get the permanent name table
+	mov	r0,v$vpn1	;point at it
+	mov	r0,v$vpn2	;twice
+	psh	r0		;save it
+10$:	cmp	(r0)+,#-1	;find the end
+	bne	10$		;must be found
+	tst	-(r0)		;back one
+	sub	(sp),r0		;back off it it
+	asr	r0		;get the halfway mark
+	mov	r0,v$vslc	;save the slot count
+	add	(sp)+,r0	;entry point table
+	mov	r0,v$vent	;save this guy
+				;
+	.assume	vv$onc-vv$beg eq 10 ;adjacent
+	mov	r5,r0		;r5 -> vv$onc
+	mov	#40$-vv$onc/2,r1;count it
+	br	30$		;
+	.assume	.-vv$onc le vvtbs.-6 ;make sure we have the space
+	.=vv$onc+vvtbs.-6	;position at the end of the table
+
+;	The clear loop occupies the last three words of the last entry.
+
+30$:	clr	(r0)+		;clear it out
+40$:	dec	r1		;count them
+	bne	30$		;more
+	.assume	.-vv$onc eq vvtbs.
+.sbttl	start i/o
+
+;	Start I/O
+;
+;	Dispatch control and functions
+;	Remap to target handler
+;	Requeue request to target handler
+;
+;	r0 ->	fb users buffer (control only)
+;	r1	general purpose
+;	r2 ->	target cqe - from vv$map
+;	r3 ->	unit record
+;	r4 ->	queue element
+;	r5 ->	callers v$vtab
+
+vv$sta:	br	vv$onc		;[sic] first time to once-only
+;[sic]	tst	(sp)+		;forget pushed r5 on subsequent entries
+	mov	r5,r3		;r5 -> start of table thruout
+	mov	vv.cqe(r5),r4	;get the queue element
+	beq	vv$nop		;oops - we lost it
+     fb	mov	q$buff(r4),r0	;r0 -> buffer for unmapped
+	movb	q$unit(r4),r1	;get the unit
+	bic	#unit$n,r1	;isolate it
+	.assume	vv.bbs eq 14.	;assume seven word entry
+	asl	r1		;*2
+	add	r1,r3		;add *2
+	asl	r1		;*4
+	add	r1,r3		;add *4
+	asl	r1		;*8
+	add	r1,r3		;add *8 = *14 - r3 -> unit record
+
+;	Check for control function
+
+	.assume	q$blkn eq 0	;
+	cmp	(r4),#-2	;this a function call?
+	beq	vv$set		;yes - check set & show
+	movb	q$func(r4),r1	;got a function?
+	bne	vv$fun		;yes - r1 = function
+				;
+	call	vv$map		;map the target device
+	bcs	vv$err		;oops - unloaded
+				;r2 -> target cqe
+;	Check transfer size
+
+	mov	q$wcnt(r4),r1	;r1 = word count
+	bpl	10$		;its a read
+	bit	#vvrdo$,(r3)	;this set read-only?
+	bne	vv$err		;yep - give them the i/o error
+	neg	r1		;nope - get positive wordcount
+10$:	add	#377,r1		;round up to a block
+	bcs	vv$err		;this is ridic
+	clrb	r1		;compute the number of blocks
+	swab	r1		;r1 = number of blocks
+	add	(r4),r1		;add in the start block
+	bcs	vv$err		;ridiculous
+	cmp	r1,vv.siz(r3)	;exceeds disk space available?
+	bhi	vv$err		;yes - this is a hard error
+	add	vv.off(r3),(r4)	;nope - add in offset to volume
+
+;	Setup the unit
+
+	movb	vv.uni(r3),r1	;get the target unit
+	bic	#unit$n,r1	;isolate the unit
+	bicb	#unit$p,q$unit(r4) ;clear out queue element unit number
+	bisb	r1,q$unit(r4)	;and set ours up
+	fall	vv$rqu		;go requeue the request
+.sbttl	requeue request
+
+;	Requeue I/O request
+;
+;	r2 ->	target handler cqe
+;	r3 ->	unit record
+;	r4 ->	queue element
+;	r5 ->	callers v$vtab
+
+v$vmfp=.+2			;relocated to rmon $mfps
+vv$rqu:	call	@#$mfps		;get the ps
+	psh	#pr7		;setup to block
+v$vmtp=.+2			;relocated to rmon $mtps
+	call	@#$mtps		;set the ps
+				;
+	mov	q$link(r4),vv.cqe(r5) ;pr7> link forward
+     sj	beq	20$		;pr7> its the last one
+     sj	clr	q$link(r4)	;pr7> clean us up
+     sj	pop	r1		;pr7> save ps a sec
+     sj	psh	r5		;pr7> save this
+     sj	add	#vv.beg,(sp)	;pr7> point back to start i/o routine
+     sj	psh	r1		;pr7> put it back
+     sj	br	30$		;pr7> queue and return to handler
+
+;	Requeue request
+
+20$:	clr	vv.lqe(r5)	;pr7> and the next one also
+30$: v5	call	@v$vmtp		;pr7> reset priority & return
+     v5	add	#2,(sp)		;skip ordinary return
+     v5	.assume	.=vv$nop	;i.e. return
+				;
+     v4	mov	2(r2),r0	;pr7> get cqe, is it empty?
+     v4	bne	50$		;pr7> nope
+     v4	mov	r4,(r2)+	;pr7> yes, plug last queue entry
+     v4	mov	r4,(r2)+	;pr7> plug the current queue entry
+				;pr7> ps already on the stack
+;    v4	mov	r2,-(sp)	;pr7> fake a call
+;    v4	rti			;pr7> and goto it
+     v4	call	@v$vmtp		;pr7> restore the stack
+     v4	jmp	(r2)		;pr7> and transfer control
+
+;	Link into target queue
+
+40$: v4	mov	q$link(r0),r0	;pr7> link to next
+50$: v4	tst	q$link(r0)	;pr7> is this the last?
+     v4	bne	40$		;pr7> no - look again
+     v4	mov	r4,q$link(r0)	;pr7> point it to us
+     v4	mov	r4,(r2)		;pr7> point symbiont lqe at it (for sj)
+     v4	call	@v$vmtp		;pr7> reset priority & return
+vv$nop:	return			;\ no queue element & abort
+vvint:				;/ no isr - abort returns
+vv$err:	bis	#hderr$,@-(r4)	;we have an error
+vv$fin:	mov	r5,r4		;r5 -> vv.tab
+	add	#vv.cqe,r4	;point at cqe
+	mov	@#sysptr,r5	;standard RT-11 drfin for external handlers
+	jmp	@qcomp(r5)	;finish i/o
+.sbttl	control functions
+
+;	Set unit, show unit & size
+;
+;	r0	fb user buffer
+;	r1	function code
+;	r2	wordcount
+;	r3	unit record
+;	r4	queue element
+;	r5	callers v$vtab
+
+vv$set:	mov	q$wcnt(r4),r2	;get word count
+	bpl	vv$sho		;its a show
+	cmp	r2,#-<vv.bbs/2+1>;this the magic number
+	bne	vv$err		;no - thats an error
+     fb	cmp	(r0)+,#^rvv	;this the guard word?
+     xm	call	@$gtbyt		;get the first byte
+     xm	call	@$gtbyt		;get the second byte
+     xm	movb	(sp)+,1(sp)	;construct the word
+     xm	cmp	(sp)+,#vvgua$	;this the magic number?
+	bne	vv$err		;no
+	inc	r2		;yes - decrement negative wordcount
+	asl	r2		;get a byte count
+10$: fb	movb	(r0)+,(r3)+	;store it
+     xm	call	@$gtbyt		;get the next byte
+     xm	movb	(sp)+,(r3)+	;store it
+	inc	r2		;count it
+	bne	10$		;more
+	br	vv$fin		;done
+
+.enabl	lsb
+vv$sho:	cmp	r2,#vv.bbs/2+1	;this the correct show wordcount?
+	bne	vv$err		;no
+	psh	#vvgua$		;yes - return guardword first
+	br	20$		;and get into the transfer loop
+vv$fun:	cmpb	r1,#varsz.	;this the variable size function?
+	bne	vv$fin		;no - ignore it
+	mov	#1,r2		;yes - set wordcount to one
+	.assume	vv.siz eq 4	;
+	cmp	(r3)+,(r3)+	;point at the size
+10$:	psh	(r3)+		;get the next
+20$: fb	pop	(r0)+		;send the next
+     xm	call	@$ptwrd		;send it
+30$:	dec	r2		;count
+	bne	10$		;more
+	br	vv$fin		;more
+	.dsabl	lsb		;
+.sbttl	locate target device
+
+;	Locate the target device
+;	Slot is saved in unit record.
+;	Clear it and search again if its lost.
+;
+;	r3 ->	unit record
+;	r4 ->	queue element
+;	r5 ->	callers v$vtab
+;
+;	r1 =	target generic name - internal
+;	r2 ->	target handler lqe
+;	c=1	invalid unit
+
+	.enabl	lsb		;
+10$:	clrb	(r3)		;lost the device - try again
+vv$map:	mov	vv.dev(r3),r1	;get the permanent name
+	beq	50$		;no name
+	movb	(r3),r2		;get the device slot
+	bne	40$		;got one - check it
+	clr	r2		;search for the target
+v$vpn1=.+word			;relocated to $pname table
+20$:	cmp	0(r2),r1	;this our device?
+	beq	30$		;yep
+	tst	(r2)+		;nope - look at another slot
+v$vslc=.+word			;slot count (*2)
+	cmp	r2,#0		;too many slots?
+	blo	20$		;nope - look at the next
+	br	50$		;no device
+30$:	movb	r2,(r3)		;store the slot number
+v$vpn2=.+word			;points to $pname base
+40$:	cmp	0(r2),r1	;still the right device
+	bne	10$		;we lost it - search again
+v$vent=.+word			;points $entry table
+	mov	0(r2),r2	;r2 -> ha.lqe
+	beq	50$		;oops - unloaded
+	tst	(pc)+		;fine
+50$:	sec			;bad news
+	return			;
+	.dsabl	lsb		;
+	.drend	vv		;
+.end
+

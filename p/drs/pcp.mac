@@ -1,0 +1,217 @@
+;	.drins
+.title	pcp - RUST PC:/PP: driver
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+$brdef
+$chdef
+$dedef
+$fkdef
+$iqdef
+$vedef
+$drcnd	; driver conditionals
+
+;	%build
+;	macro drs:pcp.mac/object:drb:pcv
+;	link drb:pcv/execute:drb:pcv.sys/nobitmap/boundary=1000
+;	pcboot
+;	macro drs:drmmgt+drs:pcp.mac/object:drb:pcp
+;	link drb:pcp/execute:drb:pcv.sys/nobitmap/boundary=1000
+;	pcboot
+;	%end
+
+.macro	drinf$
+$imgdef	PC 1 0
+$imginf fun=drv cre=hammo aut=ijh use=<RUST Papertape driver PC:>
+$imgham	yrs=<2008> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:32:51.04>
+;	%edit
+$imgedt <6    >
+.endm
+
+.sbttl	driver definition
+
+map	pr.csr,,0
+map	pr.buf
+map	pp.csr
+map	pp.buf
+map	prGO$,,1
+map	prACT$,,101
+map	ppACT$,,100
+
+map	pcCOD.,,7
+map	pcCSR.,,177550
+map	pcVEC.,,70
+map	pcPRI.,,4 ;???
+map	pcRTY.,,0
+map	pcNAM.,,<^rPC>
+
+	.drins	xx
+	nop				;kmon
+;sic]	nop				;boot
+     xm	cmp	r4,#^rshp		;this RUST/XM?
+     xm	bne	10$			;no - ignore it
+     xm	mov	r4,r0			;handshake
+     xm	mov	r4,r1			;reply with reason
+     xm	locon$=desin$!de22b$!deabt$	;/single/22bit
+     xm	bis	#locon$,de.con(r2) 	;device control
+10$:	tst	(pc)+			;fine
+20$:	sec				;forget it
+	return
+
+	$drovl
+	$drstd	pccsr.,pcvec.,pcpri.,pcrty.,pcnam.
+     um	<.drdef	xx,pccod.,0,0,xxCSR.,xxVEC.,dma=NO>
+     xm	<.drdef	xx,pccod.,0,0,xxCSR.,xxVEC.,dma=NO>
+	$drptr
+
+	$drsel	<stboo$> 0	; no bootstrap
+	$drsel	<stnam$> 0	; no name
+	$drsel	<strty$> 0	; no retries
+	$drsel	<sttim$> 0	; set timer=n (0 for no timeout)
+	xxvtb. = 1		; two vectors for set vector
+	$drset
+	$drlim	1000	
+.sbttl	driver
+
+	.drbeg	xx
+	br	pc$beg
+x$xcsr:	.word	xxcsr.
+x$xvtb:	.drvtb	pc,xxvec.,xxint	; output vector
+	.drvtb	,xxvec.+4,ppint	; output vector
+p$cfrk:	.blkb	fk.bbs		; fork block
+
+pc$beg:	call	pc$ini		; setup pointers
+	beq	pc$ret		; no queue element
+	asl	iq.wct(r4)	; read or write?
+	beq	pc$don		; seek is easy
+	bmi	pp$enb		; a write
+	br	pr$enb		; a read
+
+pr$ast:	.drast	xx,4,pc$fin
+	call	pc$ini		; setup
+	beq	pc$ret		; no queue element
+	assume	pr.csr eq 0	;
+	bmiw	(r5),pr$eof	; some error
+     um	movb	pr.buf(r5),@iq.buf(r4)
+     um	inc	pr.buf(r5)	;
+     xm	psh	@pr.buf(r4)	;
+     xm	call	@$ptbyt		; store and increment
+	dec	iq.wct(r4)	;
+	beq	pc$fin		; all done
+pr$enb:	mov	#prACT$,pr.csr(r5)
+	return
+
+pr$eof:	.fork	p$cfrk		; fork for this
+10$: um	clrb	@iq.buf(r4)	; clear the remainder
+     um inc	iq.buf(r4)	;
+     xm	clr	-(sp)		;
+     xm	call	@$ptbyt		;
+	dec	iq.wct(r4)	;
+	bne	10$		;
+	bis	#csEOF$,@iq.csw(r4)
+	br	pc$fin		;
+
+pp$ast:	.drast	pp,4,pc$don
+	call	pc$ini		; setup
+	beq	pc$ret		; no queue element
+	bmiw	pp.csr(r5),pc$err ; some error
+     um	movb	@iq.buf(r4),pp.buf(r5)
+     um	inc	iq.buf(r4)	;
+     xm	call	@$gtbyt		; get next
+     xm	movb	(sp)+,pp.buf(r5);
+	dec	iq.wct(r4)	; count them
+	beq	pc$fin		; finish up
+pp$enb:	bis	#ppACT$,pp.csr(r5)
+pc$ret:	return			;
+
+pc$err:	bis	#csHER$,@iq.csw(r4)
+pc$fin:	.fork	p$cfrk
+pc$don:	.drfin	xx
+
+pc$ini:	mov	x$xcsr,r5
+	bic	#prACT$ie,(r5)	; disable
+	bic	#ppACT$,pp.csr(r5)
+	mov	xxcqe,r4
+	return
+.sbttl	bootstrap
+.psect	pcboot
+
+;	Only /FOREIGN is supported
+
+	meta	<boloc$ adr><.=xxboot+adr>
+	meta	<bolim$ adr><assume . le <xxboot+adr>>
+	.drbot	xx,bo$jmp,bo$rea
+boloc$	40
+bo$jmp:	jmp	@#bo$boo-xxboot
+boloc$	120
+pr$boo:
+
+boloc$	120
+bo$rea:
+bo$loa:	br	bo$boo
+b$ocsr:	.word	xxcsr.			;
+b$onam:	.rad50	/pc /
+bo$rst:	jmp	bo$rea			;load tape
+
+;	r0	last input byte
+;	r1	last input word, or counter
+;	r2	buffer pointer
+
+bo$boo:	bo$hgh = 100000		; high address
+	mov	#bo$lda,r0	;
+	mov	#bo$hgh,r1
+	mov	r1,sp		; reset stack
+	mov	#bo$end-bo$lda,r2
+10$:	movb	(r0)+,(r1)+
+	dec	r2
+	bne	10$
+	jmp	@#bo$hgh	; go up and load
+
+bo$lda:	mov	b$ocsr,r5	; device
+10$:	call	bo$byt		; another absolute loader
+	dec	r0		; looking for "1"
+	bne	10$		; not found
+	call	bo$byt		; skip high byte
+	call	bo$wrd		; get the load address
+	mov	r1,r2		; r2 = address
+	call	bo$wrd		; get the byte count
+	sub	#4,r1		; subtract overhead
+	beq	30$		; done -- go start
+20$:	call	bo$byt		; get the next
+	movb	r0,(r2)+	;
+	dec	r1		; count it
+	bne	20$		; more
+	br	10$		;
+30$:	bit	#1,r2		; odd means stop
+	beq	40$		;
+	HALT			;
+40$:	jmp	(r2)		;
+
+bo$byt:	tstb	(r5)
+	bpl	bo$byt
+	clrb	r0
+	bisb	pr.buf(r5),r0
+	movb	#prGO$,(r5)
+	return
+
+bo$wrd:	call	bo$byt
+	mov	r0,r1
+	call	bo$byt
+	swab	r1
+	bis	r0,r1
+	return
+bo$end:
+
+	.drend	xx
+.sbttl	load/unload
+.psect	pcload
+
+dr$loa:
+dr$fet:
+dr$unl:
+dr$rel:	clc
+	return
+
+.end
+

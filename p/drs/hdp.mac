@@ -1,0 +1,255 @@
+.title	hdp - the russian disk 
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+$brdef		;RT-11 bootstrap
+$chdef		;channel
+$dcdef		;device codes
+$dedef		;device
+$drdef		;driver
+$fkdef		;fork
+$hadef		;handler
+$iqdef		;i/o queue
+$iodef		;i/o queue
+$sfdef		;special functions
+$drini
+
+;	%build
+;	goto 'p1'
+;	macro drs:hdp/object:drb:hdv/list:tmp:a.lst
+;	macro drs:drmmgt+drs:hdp/object:drb:hdp
+;	link drb:hdv/execute:drb:hdv.sys/map:drb:hdv/nobitmap/bound:1000
+;	xxboot
+;	link drb:hdp/execute:drb:hdp.sys/map:drb:hdp/nobitmap/bound:1000
+;	xxboot
+;	driver:
+;	@drs:check capture HDV
+;	driver
+;	set drb:hdv name=HD
+;	set drb:hdv csr=177110
+;	set drb:hdv vector=234
+;	set drb:hdv retry=8
+;	set drb:hdv nowait
+;	exit
+;	@drs:check compare HDV
+;	!
+;	@drs:check capture HDP
+;	driver
+;	set drb:hdp name=HDX
+;	set drb:hdp csr=177110
+;	set drb:hdp vector=234
+;	set drb:hdp retry=8
+;	set drb:hdp nowait
+;	exit
+;	@drs:check compare HDP
+;	end:
+;	%end
+
+.macro	drinf$
+$imgdef	HD 1 0
+$imginf fun=drv cre=hammo aut=ijh use=<RUST hypothetical disk driver HD:>
+$imgham	yrs=<2004> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:29:47.38>
+;	%edit
+$imgedt <84   >
+.endm
+
+	.drins	xx
+	clc		;data
+	clc		;system
+	return
+.sbttl	device definitions
+
+.macro	hddef$
+map	hdCSR.,,177110		; csr base address
+map	hdVEC.,,234		;
+map	hdPRI.,,340		;
+map	hdLEN.,,4800.		;
+map	hdCOD.,,deHDC.		; generic disk, no functions 
+map	hdRTY.,,8.		; retry count
+map	hdnam.,,<^rHD>		; driver name
+				;
+map	hd.csr,,0		; csr offsets
+map	hd.bct			; note: a *BYTE* count
+map	hd.lb0			; block
+map	hd.bu0			; buffer address
+map	hd.atn		;ignore	; attention registers
+map	hd.sta		;ignore	; status register
+map	hd.lb1		;clear	; block extension
+map	hd.bu1		;ignore	; address extension
+				;
+map	hdFAI$,,100000		; csr error flag (hderr$ used by RT-11)
+map	hdUNI$,,7000		; unit number
+map	hdRDY$,,200		; disk ready
+map	hdENB$,,100		; interrupt enabled
+map	hdEXT$,,60		; extended address
+map	hdFUN$,,16		; 8 function codes
+map	hdACT$,,1		; go
+
+map	hdRES.,,0*2!hdACT$!hdENB$; reset function
+map	hdREA.,,1*2!hdACT$!hdENB$; read
+map	hdWRI.,,2*2!hdACT$!hdENB$; write
+map	hdSIZ.,,3*2!hdACT$!hdENB$; size
+map	boREA.,,1*2!hdACT$	; boot read
+.endm	
+
+;	HD: definition
+;
+;	RT11A, special functions, variable size
+
+	$drcnd			; driver conditionals
+	hddef$			; HD: definitions
+	$drstd	hdcsr.,hdvec.,hdpri.,hdrty.,hdnam.
+     um	<.drdef	xx,dehdc.,derta$!defun$!devar$,0,xxCSR.,xxVEC.,dma=no>
+     xm	<.drdef	xx,dehdc.,derta$!defun$!devar$,0,xxCSR.,xxVEC.,dma=yes>
+	.drptr	
+	.drest	class=dedkt.	; disk class
+	.drspf	sfDGS.		; get device size
+	$drsel <stwai$> 1	; include set [no]wait
+	$drset			; standard set items
+	$drovl			; set i/o operations
+.sbttl	driver
+
+;	Hardware is accessed with move word, test byte
+;	and test word operations only.
+
+	.drbeg	xx
+xx$sta:	br	xx$dis			; dispatch area
+x$xcsr:	.word	xxcsr.			;
+x$xvec:	.word	xxvec.			;
+x$xrty:	.word	xxrty.			;
+x$xabt:	.word	1			;
+x$xfrk:	.blkb	fk.bbs			; fork block
+x$xwai:	.word	0			; not wait
+
+xx$dis:	mov	xxcqe,r4		; get the RT-11 queue element
+     xm	movi	iq.buf,r4,r5		; point to buffer
+     xm	call	@$mpptr			; map physical
+	mov	x$xcsr,r5		; get the hardware
+     xm	pop	hd.bu0(r5)		;
+     xm	pop	r3			; r3 = extended address
+     um	mov	iq.buf(r4),hd.bu0(r5)	; move the easy ones
+;sic]	clr	hd.bu1(r5)		; no 22-bit extended address
+	assume	iq.blk eq 0		;
+	mov	(r4),hd.lb0(r5)		; setup the block
+;sic]	clr	hd.lb1(r5)		; no extended block
+	mov	#hdREA.,r0		; assume read function
+	mov	iq.wct(r4),r1		; get the word count
+	bpl	10$			; a read operation
+	neg	r1			; make it positive
+	assume	hdREA.+2 eq hdWRI.	;
+	assume	hdREA. lt 1000		;
+	bitb	(r0)+,(r0)+		;
+10$:	movb	iq.fun(r4),r2		; got a special function?
+	beq	20$			; no function
+	cmpb	r2,#sfDGS.		; standard size function?
+	bne	xx$err			; nope - hard error
+	mov	#hdSIZ.,r0		; set size function
+	mov	#1,r1			; word count
+					;
+20$: xm	bis	r3,r0			; or in 18-bit extended address
+					; r0 = function
+	asl	r1			; make byte count
+	mov	r1,hd.bct(r5)		; set counter
+	movb	iq.uni(r4),r1		; translate unit
+	bic	#^c7,r1			; clean it up
+	swab	r1			; high word
+	asl	r1			; starts at bit 9
+	bis	r1,r0			; merge unit 
+	call	xx$act			; activate
+	tst	hd.csr(r5)		; got an error?
+	bpl	xx$don			; nope
+xx$err:	bis	#csher$,@iq.csw(r4)	; yes, set the error flag
+xx$don:	.drfin	xx			; return to system
+
+;	activate
+
+xx$act:	bnew	x$xwai,xx$wai		; wait I/O version
+	pop	x$xctn			; store continue address
+	mov	r0,(r5)			; start the operation
+xx$ret:	return
+
+xx$wai:	bic	#hdenb$,r0		; wait I/O version
+	mov	r0,(r5)			; (used for debug)
+10$:	bplb	(r5),10$		;
+	return				;
+
+;	interrupt service routine
+;
+;	Setup r4/r5 to queue element and hardware
+;	Continue thread
+
+	.drast	xx,xxPRI.,xx$abt	; interrupt
+	.fork	x$xfrk			; fork
+	mov	x$xcsr,r5		; r5 -> csr
+	bic	#hdENB$,(r5)		; clear interrupt enable
+	mov	xxcqe,r4		; r4 -> rt-11 queue element
+	beq	xx$ret			; no queue element
+	jmp	@(pc)+
+x$xctn:	.word	0			;
+
+xx$abt:	bic	#hdENB$,@x$xcsr		; disable interrupts
+	return
+.sbttl	boot
+
+$draln	16
+.drbot	xx,bo$jmp,bo$rea
+meta	<origin o><.=xxboot + o>
+
+$drloc	40 bas=xxboot
+bo$jmp:	jmp	@#bo$boo-xxboot
+
+;	The boot can be entered in two ways:
+;
+;	Hardware boot: the unit number is in R0 or a device register.
+;	Software boot: the unit number is at @#b$runi
+;
+;	bo$rea	Called here from software boot.
+;	bo$loa	Called here once from hardware boot.
+;
+;	r3=uni, r2=buf, r1=cnt, r0=blk
+
+$drloc	210
+bo$rea:	mov	@#b$rdvu,r3		; get the unit
+
+bo$loa:	mov	(pc)+,r5		; get the hardware
+b$ocsr:	.word	xxCSR.			; standard address
+
+	mov	r2,hd.bu0(r5)		; the buffer
+	asl	r1			; make a byte count
+	mov	r1,hd.bct(r5)		; the count
+	mov	r0,hd.lb0(r5)		; the block
+	bic	#^c7,r3			; clean it up
+	swab	r3			; high word
+	asl	r3			; starts at bit 9
+	bis	#boREA.,r3		; set function and go
+	mov	r3,(r5)			; the function
+
+20$:	tstb	(r5)			; wait for it
+	bpl	20$			; should be synchronous
+	tst	(r5)			; check status
+	bmi	30$			;
+	return				;
+30$:	jmp	bioerr			; boot i/o error
+
+$drloc	574
+bo$boo:	mov	#b$rksp,sp		;setup the stack
+	bic	#^c7,r0			;isolate unit number
+	mov	r0,r3			;setup the unit number
+	psh	r3			;save it
+	mov	#brSBN.,r0		;r0 = block
+	mov	#brSWC.,r1		;r1 = word count
+	mov	#br$sec,r2		;r2 = buffer address
+	call	bo$loa			;load secondary boot
+	mov	#bo$rea-xxboot,@#b$rrea	;fill in address of read routine
+	b$onam=.+2
+	mov	#xxNAM.,@#b$rdvn	;fill in device name
+	pop	@#b$rdvu		;setup unit number
+	br	br$sec+xxboot		; I'MMMM BBBAAAAACCCKKKK!
+	assume	. le b$rtop+xxboot	;check space for bioerr etc
+	$drmap	b$ocsr,b$vcsr,bvCSR.
+	$drmap	b$onam,b$vnam,bvNAM.
+	.drend	xx
+	drinf$				;image information block
+	.end
+

@@ -1,0 +1,1225 @@
+.title	dup
+.include "lib:rust.mac"
+bup$c=1	; boot unit/partition map
+def$c=1	; some defensive stuff
+tim$c=1	; host timeout
+fat$c=1	; falcon check
+fal$c=1	; falcon
+dbg$c=0	; debug
+
+;	RUST DU: handler
+;
+;	Single port 
+;	No bad block replacement
+;
+;	%build
+;	goto 'p1'
+;	macro	drs:dup/object:drb:duv
+;	macro	drs:drmmgt+drs:dup/object:drb:dup
+;	link:
+;	link	drb:duv/exe:drb:duv.sys/map:drb:duv/nobit/bound:1000
+;	duboot
+;	link	drb:dup,lib:share/execute:drb:dup.sys/nobitmap/bound:1000
+;	duboot
+;	driver:
+;	@drs:check capture DUV
+;	driver
+;	set drb:duv name=DU
+;	set drb:duv csr=172150
+;	set drb:duv vector=154
+;	set drb:duv retry=8
+;	set drb:duv/unit=0 unit=0,part=0
+;	set drb:duv/unit=1 unit=1,part=0
+;	set drb:duv/unit=2 unit=2,part=0
+;	set drb:duv/unit=3 unit=3,part=0
+;	set drb:duv/unit=4 unit=4,part=0
+;	set drb:duv/unit=5 unit=5,part=0
+;	set drb:duv/unit=6 unit=6,part=0
+;	set drb:duv/unit=7 unit=7,part=0
+;	exit
+;	@drs:check compare DUV
+;	@drs:check capture DUP
+;	driver
+;	set drb:dup name=DUX
+;	set drb:dup csr=172150
+;	set drb:dup vector=154
+;	set drb:dup retry=8
+;	set drb:dup/unit=0 unit=0,part=0
+;	set drb:dup/unit=1 unit=1,part=0
+;	set drb:dup/unit=2 unit=2,part=0
+;	set drb:dup/unit=3 unit=3,part=0
+;	set drb:dup/unit=4 unit=4,part=0
+;	set drb:dup/unit=5 unit=5,part=0
+;	set drb:dup/unit=6 unit=6,part=0
+;	set drb:dup/unit=7 unit=7,part=0
+;	exit
+;	@drs:check compare DUP
+;	end:
+;	%end
+
+.macro	drinf$
+$imgdef DU 1 0
+$imginf fun=drv cre=hammo aut=ijh use=<RUST MSCP/UDA disk driver DU:>
+$imgham	yrs=<1986,2004> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:29:05.19>
+;	%edit
+$imgedt <71   >
+.endm
+
+.macro	dupre$	cod
+	call	du$pre
+	.word	cod
+.endm
+
+;	Driver conditionals
+;
+;	mmg$t=0	Unmapped driver
+;	mmg$t=1	Mapped driver for RT-11/XM or RUST/XM
+
+.iif	ndf	mmg$t,	mmg$t=0	;unmapped by default
+.iif 	ndf	tim$it,	tim$it=mmg$t ;timeout flag
+.iif	ndf	erl$g,	erl$g=0	;
+				;
+.if eq mmg$t			;
+	drum$=1			;
+	drxm$=0			;
+.iff				;
+	drum$=0			;
+	drxm$=1			;
+	fat$c=0			; falcon check
+	fal$c=0			; falcon
+.endc				;
+
+meta	<um c d e f g h i j><drIF$ drum$ <c> <d> <e> f g h i j>
+meta	<xm c d e f g h i j><drIF$ drxm$ <c> <d> <e> f g h i j>
+
+;	drIF$ macro must produce following code
+;
+;	sop	opr
+;	bop	src,dst
+;   cnd bop/sop	src dst
+
+	.macro	drIF$ c d e f g h i j k ;if macro
+	.if ne c		;may be blank
+	.if nb <f>		;bop or macro
+		d e,f g h i j k	;
+	.iff			;sop
+		d	e	;
+	.endc			;
+	.endc			;
+	.endm			;
+.sbttl	notes
+
+;	XM version uses EIS instructions
+;	Needs abort routine
+;
+;	SPFUN 371 - return command packet
+;	RT-11 compatible UDA/MSCP device handler
+;	Single port driver
+;	All special functions
+;	Does not support soft bad block replacement
+
+;	MOUNT show analyse ports/partitions
+;	.SPFUN to get/set partition information
+;	PnP to decode changes to device heirarchy
+;	handler size, dstatu
+;	SMS sbs still wrong
+;	no bad block replacement
+;	RT-11 set functions
+;	old bypass code
+;	test physical and bypass
+;	add unit/port/partition stuff to HANDLR
+.sbttl	device information
+
+;	mp.uni	selects unit
+;	mp.lb1	selects partition for large disks
+;
+;	DUC.SYS - Chester Wilson
+;	o Additions to DEC driver
+;	o Internal *driver* queuing, but single-stream to xcontroller
+;
+; DEC HACKS
+;
+; BAD BLOCK REPLACEMENT
+;
+;	Not supported.
+;
+;	Where the original concept was that MSCP media were perfect
+;	and required no BBR, the resulting algortithm is a monster.
+;
+;	DUP bad block scans are sufficient.
+.sbttl	driver definitions
+$brdef		;RT-11 bootstrap
+$chdef		;channel
+$dcdef		;device codes
+$dedef		;device
+$drdef
+$dsdef		;device status
+$fkdef		;fork
+$hadef		;handler
+$iqdef		;i/o queue
+$jbdef		;job
+$mmdef		;memory management
+$prdef		;pcr
+$psdef		;psw
+$rmdef		;resident monitor
+$sfdef		;special functions
+$vedef		;vectors
+.library "lib:drvmac.mlb"
+$drini		;
+dudef$		;du handler
+mcdef$		;mscp commands
+mpdef$		;mscp packet
+msdef$		;mscp status
+uddef$		;uda
+
+.macro	duidt$ id
+.if ne dbg$c
+	jsr	r1,co$idt
+	.ascii	/id/
+.endc
+.endm
+
+.macro	dutst$ msk id
+.if nb msk
+	mov	msk,d$utst
+.endc
+	duidt$	id
+.endm
+
+set	erfun$,1
+set	eravl$,2
+set	erpre$,4
+set	erpos$,10
+set	erini$,20
+set	ertim$,40
+set	erstp$,100
+set	ersar$,200
+
+;	DU: definition
+;
+;	RT11A, special functions, variable size
+
+.drdef	du,deduc.,derta$!defun$!devar$,0,d$ucsr,d$uvec,dma=yes
+.drptr	load=du$loa, fetch=du$loa
+.drest	class=dedkt.	;disk class
+.drspf	durea.		;physical read
+.drspf	duwri.		;physical write
+.drspf	dusiz.		;get volume size
+;.drspf	dutab.		;get DU tables
+.drspf	dubyp.		;MSCP bypass
+.drspf	duby2.		;alternate bypass code
+.sbttl	installation
+
+;	Installation check
+;
+;	Force /22bit
+;	May not be /external unless /par6
+;
+;	r2 ->	device record
+;	r3 =	stb date
+;	r4 =	^rstb
+;
+;	On a Falcon the standard CSR address is in the memory range.
+;	The RT-11 driver simply assumes that one is present and
+;	remaps the CSR in the LOAD code. We repeat the test.
+
+	.drins	du			;DU: installation
+	nop				;data
+;sic]	nop				;system
+	.if ne fat$c
+	jsr	r1,in$fal		;check for falcon
+	.word	v$ecpu			;cpu trap routine
+	rti				;
+	bcs	30$			;falcon not installed
+	.endc				;					;
+	.if ne mmg$t			;
+	cmp	r4,#^rshp		;this RUST/XM?
+	bne	20$			;no
+	mov	r4,r0			;handshake
+	mov	r4,r1			;reply with reason
+     xm	bis	#de22b$,de.con(r2)	;force /22bit
+	bis	#deabo$,de.typ(r2)	;force /abort
+	.endc
+20$:	tst	(pc)+			;fine
+30$:	sec				;forget it
+	return
+
+	.if ne fat$c
+;	Falcon check
+;
+;	jsr	r1,in$fal
+;	.word	v$ecpu			; cpu vector
+;	rti				; trap routine
+;	assume	. lt 400		; for r0 byte compare
+
+in$fal:	mov	r1,r0			; two copies
+	psh	@(r0)+			; save cpu vector
+	mov	r0,@(r1)+		; setup rti trap routine
+	clr	r0			; r0 = 0
+	mfpt				; get processor type
+	pop	@-(r1)			; restore vector
+	cmp	(r1)+,(r1)+		; skip 
+	bneb	r0,#4,10$		; not a falcon
+	tst	@#d$ufal		; got DU:?
+	nop				; T11
+	bcs	20$			; (DCL provides trap catcher)
+10$:	clc				; fine
+20$:	rts	r1			; c=0/1
+	.endc
+.sbttl	set
+
+	$drovl				; set overlay routines
+	$drlim	400			;
+.drset	CSR,160003,du$csa,oct		;set csr
+.drset	VECTOR,500,du$vca,oct		;set vector
+.drset	RETRY,128.,du$rtr,num		;set retry
+.drset	PORT,du.por-byte,du$prt,num	;set port
+.drset	PART,du.par-byte,du$par,num	;set part
+.drset	UNIT,du.uni-byte,du$uni,num	;set unit
+.drset	NAME,1,xx$nam,oct		;set name
+
+;	Set CSR
+;
+;	r3 =	160003
+;	r0 =	new csr address
+
+du$csa:	bitb	r3,r0			;invalid address?
+	bne	du$fai			;yes
+	cmp	r0,r3			;too low?
+	blo	du$fai			;yes
+	assume	ud.ipr eq 0		;
+	mov	r0,inscsr		;
+	mov	r0,discsr		;
+	$drget	b$ocsr,duboot,du	;read boot section
+	mov	r0,b$ocsr-$		;setup boot CSR
+	call	dr$upd			;update and reread
+	mov	r0,d$uipr		;setup init/poll register
+	add	#ud.sar,r0		;
+	mov	r0,d$usar		;setup status/address
+	br	du$suc			;o.k.
+
+;	Set unit/partition
+;
+;	r0	unit/partition number
+;	r1 	DU: unit number or 100000
+;	r3	du.uni-byte or du.par-byte
+
+du$uni:	assume	du.uni-byte eq -1	;set unit
+du$par:	assume	du.par-byte eq 1	;set part
+	cmp	r0,#255.		;is this too high?
+	bhi	du$fai			;yes
+	$drget	b$ounm,duboot,du	;read boot section
+	movb	r1,r1			;isolate unit number
+	assume	du.uni eq 0		;r3 = du.uni-1 is mi
+	mova	b$ounm-$,r2		;yuk
+	add	r1,r2			;unit
+	bmiw	r3,10$			;partition
+	add	#b$opam-b$ounm,r2	;
+10$:	movb	r0,(r2)			;partition
+	call	dr$upd			;write boot, get block 1 back
+	assume	du.ubs eq 4		;
+	asl	r1			;
+	asl	r1			;
+	adda	d$utab,r1		;point to the table entry
+	add	r3,r1			;add in the offset
+	movb	r0,byte(r1)		;sic] store the unit or partition
+	br	du$suc			;
+
+;	Set retry
+;
+;	r0	new retry count
+;	r3	8
+
+du$rtr:	cmp	r0,r3			;too high?
+	bhi	du$fai			;yes
+	inc	r0			;one extra for internal use
+	movb	r0,d$urtc		;setup the retry count
+	br	du$suc			;o.k.
+
+xx$nam:	$drget	b$onam,duboot,du	;read boot section
+	mov	r0,b$onam-$		;setup bootstrap name
+	$drupd				;write boot and switch back
+	br	du$suc			;write out driver 
+
+;	Set vector
+;
+;	r0	new vector
+;	r3	500
+
+du$vca:	cmp	r0,r3			;too high?
+	bhis	du$fai			;yes
+	mov	r0,dustrt+ha.vec	;driver vector
+	assume	ud1vd. eq 4		;vector divisor
+	asr	r0			;divide by four
+	asr	r0			;
+	bicb	#ud1v$p,d$uivc		;clear previous
+	bisb	r0,d$uivc		;setup this one
+du$suc:	tst	(pc)+			;fine
+du$fai:	sec				;not o.k.
+	return				;
+du$prt:	bnew	r0,du$fai		;fail
+	br	du$suc			;no additional ports
+
+	$drlim	1000			;check space
+.sbttl	begin I/O entry, data
+
+;	Begin I/O entry, data
+
+	.drbeg	du
+	br	du$sio			;start I/O
+d$usta:	.word	0			;standard RT-11 error cell
+d$utst:	.word	0			;condition being tested
+d$ufai:	.word	0			;retry failure conditions
+d$uipr:	.word	du$csr+ud.ipr		;init/poll register address
+d$usar:	.word	du$csr+ud.sar		;status/address register address
+
+;	UDA init list
+;
+;	.word	ud1gu$!<du$vec/ud1vd.>	;guard, interrupts, vector
+;	.word	ud1gu$!ud1ie$!<du$vec/ud1vd.>;guard, interrupts, vector
+;	.word	ud1gu$!ud1ie$		;guard, interrupts
+
+d$uivc:	duud1$ = ud1gu$!<du$vec/ud1vd.>	;no interrupt value
+d$uudi:	.word	duud1$!ud1ie$		;guard + interrupt
+d$uur0:	.word	d$uucr			;uda ring lo address
+d$uur1:	.word	0			;uda ring hi address
+	.word	ud4go$			;go
+
+;	UDA communications ring
+
+	.word	0		;ud.f00	;reserved
+	.byte	0		;ud.f01	;reserved
+	.byte	0		;ud.apr	;adaptor purge request from port
+d$ucif:	.word	0		;ud.cif	;command interrupt flag
+d$urif:	.word	0		;ud.rif	;response interrupt flag
+d$uucr:					;uda communications ring origin
+d$urd0:	.word	d$urpk		;ud.rd0	;response descriptor low
+d$urd1:	.word	0		;ud.rd1	;response descriptor high
+d$ucd0:	.word	d$ucpk		;ud.cd0	;command descriptor low
+d$ucd1:	.word	0		;ud.cd1	;command descriptor high
+	assume	.-d$uucr eq ud.rbs	;minimum ring size
+
+;	UDA/MSCP response & command packets
+
+d$ures:	.word	ud.bbs		;ud.mbc	;response size - from port
+	.byte	0		;ud.cam	;credits & message type
+	.byte	0		;ud.cid	;connection id
+d$urpk:	.blkb	ud.bbs		;ud.txt	;response packet
+					;(command must follow response)
+d$ucmd:	.word	ud.bbs		;ud.mbc	;command size
+	.byte	0		;ud.cam	;credits & message type
+	.byte	0		;ud.cid	;connection id
+d$ucpk:	.blkb	ud.bbs		;ud.txt	;command packet
+
+;	Unit table - RT-11 compatible
+
+d$uutb:	.rad50	/du /			;table preface
+	.word	duunc.			;eight units
+	assume	du.uni eq 0		;
+	assume	du.ubs eq 4		;
+	ma$uni=0			;unit zero
+d$utab:	.rept	duunc.			;unit count
+	.word	ma$uni,0		;unit number, etc
+	ma$uni=ma$uni+1			;next unit
+	.endr				;
+
+;	Fork block
+
+d$ufrk:	.blkb	fk.bbs			;fork block
+
+;	Debug
+
+.if ne dbg$c
+tps = 177564
+tpb = 177566
+co$idt:	psh	<r0>
+	bic	#100,@#tps
+	call	10$
+	call	10$
+	movb	#32.,r0
+	call	20$
+	pop	<r0>
+	rts	r1
+
+10$:	movb	(r1)+,r0
+20$:	tstb	@#tps
+	bpl	20$
+	movb	r0,@#tpb
+	return
+.endc
+.sbttl	start I/O
+
+;	Setup unit and partition information
+;
+;	du$pnt sets up for the driver as follows:
+;
+;	r2 ->	d$ucpk	command packet
+;	r3 ->	d$urpk	response packet
+;	r4 ->	ducqe	i/o packet
+;	r5 ->	@d$usar	device status register
+
+du$sio:	clr	d$utst			;no test condition yet
+	clr	d$ufai			;no fail conditions either
+	clr	d$uphy			;sic] not physical yet
+	call	du$pnt			;get the pointers
+	mov	iq.csw(r4),r0		;get the CSW
+	movzbw	ch.uni(r0),r1		;get the unit number
+	cmp	r1,#duunc.		;unit too high?
+	bhis	du$der			;yes
+	assume	du.ubs eq 4		;unit map
+	asl	r1			;*2
+	asl	r1			;*4
+	adda	d$utab,r1		;r1 -> entry
+	assume	du.uni eq 0		;
+	mov	(r1)+,(pc)+		;store them
+d$uuni:.word	0			;current unit
+	assume	du.par eq 2		;
+	mov	(r1)+,(pc)+		;
+d$upar:	.word	0			;current partition
+	mov	(pc)+,(pc)+		;reset retry count
+d$urtc:	.word	durtc.+1		;retry count
+d$urty:	.word	0			;
+
+;	Dispatch request
+;
+;	Control passed here after errors or on-line requests
+;	All pointers must have been restored to original values
+;
+;	r4 ->	queue element
+
+du$agn:					;again for retry
+du$dis:	movb	iq.fun(r4),r0		;get the function
+	beq	du$lgx			;logical I/O
+					;
+	cmpb	r0,#duby2.		;this the new bypass code?
+	beq	du$byp			;yes
+	cmpb	r0,#dubyp.		;the old one?
+	beq	du$byp			;invalid code
+					;
+	cmpb	r0,#dutab.		;the table function?
+	beq	du$tab			;yes
+					;
+	cmpb	r0,#dusiz.		;volume size?
+	beq	du$siz			;yes
+					;
+	assume	duwri. eq 376		;
+	assume	durea. eq 377		;
+	cmpb	r0,#duwri.		;
+	beq	du$wri			;physical write
+	bhi	du$phy			;physical I/O
+du$der:	dutst$	#erfun$ FN		;
+	jmp	du$her			;invalid function
+
+;	Setup various pointers
+
+du$pnt:	mova	d$ucpk,r2		;r2 -> command packet
+	mova	d$urpk,r3		;r3 -> response packet
+	mov	d$usar,r5		;r5 -> status/address register
+	mov	ducqe,r4		;r4 -> queue element
+	return				;z=1 => no queue element
+
+du$lgx:	br	du$log			;logical I/O branch
+.sbttl	unit table, volume size, bypass
+
+;	Read/write unit table
+;
+;	Word count of 0/1 is treated as default (18).
+;	Larger-than-we-have word counts are truncated.
+;
+;	r4 ->	iq.blk
+
+du$tab:	mova	d$uutb,r0		;point to the table
+     um	mov	iq.buf(r4),r1		;their buffer
+	mov	#du.ubs/word*8.,r2	;get a counter
+	mov	iq.wct(r4),r3		;get their count
+	bpl	10$			;a read
+	neg	r3			;normalize
+10$:	bhiw	r3,#1,20$		;not default
+	mov	r2,r3			;use default size
+20$:	bhisw	r3,r2,30$		;too much happiness?
+	mov	r3,r2			;use their truncated size
+30$: xm	asl	r2			;byte transfer for xm
+40$:	bmiw	iq.wct(r4),50$		;a write
+     um	mov	(r0)+,(r1)+		;read
+     xm	movb	(r0)+,-(sp)		;get next
+     xm	call	@$ptbyt			;store it
+	br	60$			;
+					;
+50$: um	mov	(r1)+,(r0)+		;store
+     xm	call	@$gtbyt			;get next
+     xm	movb	(sp)+,(r1)+		;store it
+60$:	sobw	r2,40$			;
+	br	du$exi			;
+
+;	Volume size 
+;
+;	r3 ->	response packet
+;	r4 ->	iq.blk
+;
+;	Init the unit first to force a check for volume size.
+;	Perform on-line command to get volume size
+;	Return 2^16-1 if volume larger than 2^16 blocks
+;
+;	Extended volume size:
+;
+;	iq.blk = sf.s32 == 1
+;	iq.wct = 4
+;
+;	.word	partition
+;	.word	0
+;
+;	.word	partitions remaining 
+;	.word	size
+
+du$siz:	call	du$onl			;get the unit on-line
+	call	du$chk			;check the result
+	mov	#1,r0			;r0 = 1, assume single word result
+	mov	d$upar,r2		;r2 = partition
+	add	#mp.us1,r3		;r3 -> high order size
+	assume	iq.blk eq 0		;
+	bneb	(r4),#sfd32.,10$	;not the 32-bit function
+	mov	#4,r0			;four words
+	bnew	iq.wct(r4),r0,50$	;wordcount must match
+	psh	r2			;.word par
+	clr	-(sp)			;.word 0
+	psh	(r3)			;.word hi
+	sub	r2,(sp)			;      hi-par
+	assume	mp.us0 eq mp.us1-2	;
+	psh	-(r3)			;.word lo
+	br	30$			;
+					;
+10$:	psh	#-1			;(sp) = -1, assume full partition
+	blob	(r3),r2,30$		;lower partitions extend
+	assume	mp.us0 eq mp.us1-2	;
+	mov	-(r3),(sp)		;.word lo
+30$: um	mov	iq.buf(r4),r1		;r1 -> buffer
+40$: um	pop	(r1)+			;store data
+     xm	call	@$ptwrd			;move the next
+	sobw	r0,40$			;
+	br	du$exi			;
+50$:	bis	#cseof$,@iq.csw(r4)	;EOF
+	br	du$exi			;
+
+;	User MSCP packet bypass
+;
+;	Setup UDA descriptors
+;	Convert process virtual address
+;	Issue request & check UDA errors
+
+	cmd = ud.pbs+mp.bbs+ud.pbs
+
+du$byp:	dupre$	0			;get setup
+	.if eq mmg$t			;
+	mov	iq.buf(r4),r0		;get their uda envelope
+;	mov	#mp.bbs,ud.pbs+mp.bbs(r0) ;
+;	mov	#1,ud.pbs*2+mp.bbs(r0)	;command reference number
+	mov	iq.wct(r4),r1		;got a mappable address
+	beq	10$			;nope
+	mov	r1,cmd+mp.bu0(r0)	;identity in sj
+10$:   	call	du$dsc			;setup descriptors
+	.iff
+	mov	r4,r5			;r5 -> iq.blk
+	cmp	(r5)+,(r5)+		;r5 -> iq.buf
+     xm	call	@$mpptr			;get the physical address
+     xm	stack	low hgh			;
+     xm	pop	r0			;r0 = low order address
+     xm	pop	r1			;r1 = high order address
+     	call	du$dsc			;setup descriptors
+     xm	mov	(r5),r0			;word count = buffer address
+	beq	20$			;is none
+     xm	call	du$cvt			;convert virtual r0 to physical r1/r2
+     xm	psh	@#m$kip1		;save par1
+     xm	mov	iq.par(r4),@#m$kip1	;map the par
+	mov	iq.buf(r4),r0		;get the buffer
+	lo.cmd = ud.ebs+ud.pbs		;local offset to command packet
+	mov	r1,lo.cmd+mp.bu0(r0)	;low order
+	mov	r2,lo.cmd+mp.bu1(r0)	;high order
+     xm	pop	@#m$kip1		;restore that
+	.endc					;
+20$:	call	du$int			;get an interrupt
+	call	du$uda			;check uda errors - may retry
+du$exi:	br	du$don			;user checks mscp errors
+.sbttl	logical & physical I/O
+
+;	Setup the transfer
+;	Post process
+;
+;	r2 ->	command packet
+;	r3 ->	response packet
+;	r4 ->	queue element
+
+du$wri:	neg	iq.wct(r4)		;wct<0 => write operation
+du$phy:	mov	#duphy$,(pc)+		;flag physical
+d$uphy:	.word	0			;>=0 => logical
+du$log:	dupre$	mcrea.			;assume read command
+	assume	iq.blk eq 0		;
+	mov	(r4),mp.lb0(r2)		;setup logical block number
+	movb	d$upar,mp.lb1(r2)	;setup the high order partition
+					;
+     um	mov	iq.buf(r4),r0		;
+     um	clr	r1			;
+     xm	movi	iq.buf,r4,r5		;r5 -> buffer address
+     xm	call	@$mpptr			;convert to physical address
+     xm	pop	r0			;r0 = low order address
+     xm	pop	r1			;r1 = high order address * 16
+     xm	ash	#-4,r1			;r1 = high order address
+
+	tst	d$uphy			;this a physical request?
+	beq	10$			;no
+	add	#word,r0		;yes - skip status word
+     xm	adc	r1			;adjust high order
+10$:	mov	r0,mp.bu0(r2)		;setup the buffer pointer
+	mov	r1,mp.bu1(r2)		;setup high order address
+
+;	Check physical address
+;
+;	Setup byte count
+
+	mov	iq.wct(r4),r0		;get the word count
+	bpl	20$			;a read
+	neg	r0			;a write
+	assume	mcwri. eq mcrea.+1	;
+	inc	mp.cod(r2)		;change to write request
+
+;	Truncate word count
+;
+;	r0 = word count
+;
+;	Flag truncate with hard error code
+
+20$:	mov	r0,mp.bc0(r2)		;setup requested word count
+	add	#255.,r0		;get modulo count
+	clrb	r0			;
+	swab	r0			;r0 = block count
+	mov	(r4),r1			;get current block
+	add	r0,r1			;get remaining blocks
+	bhis	30$			;no overflow
+	sub	r1,r0			;get whats left
+	swab	r0			;make a word count
+	mov	r0,mp.bc0(r2)		;setup remainder byte count
+	bis	#csher$,@iq.csw(r1)	;set the error flag later
+30$:	asl	mp.bc0(r2)		;make a byte count
+	call	du$int			;process it
+	call	du$chk			;check it
+	br	du$don			;done
+.sbttl	interrupt, done, online
+
+;	Request interrupt
+;
+;	Called by standard, setup and bypass
+;
+;	mov's below become movb's to high byte when rings are mapped
+
+du$int:	pop	d$uint			;store continue address
+	mov	#udown$,d$ucd1		;give ring to port (no interrupt)
+	tst	@d$uipr			;init port poll
+	mov	#udown$!udint$,d$urd1	;get response with interrupt
+du$ret:	return
+
+du$stp:	pop	d$uint			;return address
+	mov	r0,@d$usar		;do next step
+;	.mtps	#0			;
+	return
+
+;	Interrupt entry point
+
+	.drast	du,udpri.		;interrupt
+	.fork	d$ufrk			;fork
+	call	du$pnt			;setup usual pointers
+	beq	du$ret			;no queue element - aborted
+	jmp	@(pc)+			;continue request
+d$uint:	.word	0			;interrupt continue routine
+
+;	I/O done - handle errors
+;
+;	r3 ->	response packet
+;	r4 ->	I/O queue element
+
+du$her:	duidt$	HR
+.if ne dbg$c
+	mov	d$utst,r0		;current condition
+	mov	d$ufai,r1		;
+.endc
+	bis	d$utst,d$usta		;save status
+	bis	#csher$,@iq.csw(r4)	;sic] set the error flag
+	tst	(pc)+			;c=0 => error
+du$don:	sec				;c=1 => fine
+	mov	d$uphy,r1		;r1 = physical status
+	bpl	80$			;not a physical request
+	bcs	70$			;no errors
+	bit	#mcbbr$,mp.flg(r3)	;bad block replaced?
+	beq	50$			;no
+	bis	#dubad$,r1		;yes - set that flag
+	br	70$			;skip other
+50$:	bic	#msco$n,mp.sts(r3)	;isolate error code
+	cmp	mp.sts(r3),#msdat.	;this a data error?
+	beq	60$			;yes - data error
+	bis	#dufat$,r1		;no - fatal error
+60$:	bis	#dudat$,r1		;data error
+70$: um	mov	r1,@iq.buf(r4)		;return it
+     xm	psh	r1			;setup to return it
+     xm	call	@$ptwrd			;return it (needs r4 -> iq.blk)
+80$:	.drfin	du			;finish up
+
+;	Set unit online
+;
+;	Must not call DU$CHK
+
+du$onl:	duidt$	OL
+	pop	d$uonl			;return address
+10$:	dupre$	mconl.			;setup online request
+	call	du$int			;process it
+	call	du$uda			;check uda errors
+	bit	#msco$p,mp.sts(r3)	;got an error?
+	beq	20$			;no
+	call	du$ini			;yes - init it again
+	.word	0			;
+	br	10$			;and repeat it
+20$:	jmp	@(pc)+			;return
+d$uonl:	.word	0			;return address
+.sbttl	packet & uda status
+
+;	Check MSCP packet status
+;
+;	Respond to AVAILABLE status with ONLINE request
+;	Not called for bypass requests
+;
+;	r3 ->	response packet
+
+	.enabl	lsb
+du$chk:	pop	d$uchk			;return there
+	duidt$	CH 
+	call	du$uda			;check uda status - aborts
+	mov	mp.sts(r3),r0		;r0 = status code
+	bic	#msco$n,r0		;isolate status code
+	beq	10$			;fine
+	dutst$	#eravl$ AV		;checking available
+	cmp	r0,#msavl.		;device available?
+	bne	du$her			;no - hard error
+	dutst$	#erpos$ PS		;checking postprocessing status
+	dec	d$urty			;got retries left?
+du$hrj:	bmi	du$her			;no
+	duidt$	c?
+	call	du$onl			;yes - get online
+	jmp	du$agn			;and try again
+10$:	jmp	@(pc)+			;call them back
+d$uchk:	.word	0			;
+	.dsabl	lsb			;
+
+;	Check UDA status
+
+du$uda:	duidt$	UD
+	bit	#uderr$!udst1$,@d$usar
+	beq	10$			;fine
+	tst	(sp)+			;do not return to caller
+	clr	d$uini			;force init
+	jmp	du$agn			;start again
+10$:	return
+.sbttl	prepare for I/O
+
+;	Prepare for I/O
+;
+;	Initializes port if necessary
+;	Build and return MSCP packet
+
+	.enabl	lsb			;
+du$ini:	clr	(pc)+			;force init
+d$uini:	.word	0			;init flag
+	fall	du$pre			;
+					;
+du$pre:	pop	d$upre			;setup return address
+	dutst$	#erini$	PR		;
+	tst	d$uini			;is it initialized?
+	bpl	10$			;no
+	bit	#uderr$!udst1$,@d$usar	;got a notable error?
+	beq	50$			;nope
+	dutst$	#ersar$	SA		;checking preprocessing status
+10$:	bis	d$utst,d$ufai		;
+	decb	d$urty			;recover
+	bmi	du$hrj			;retries exhausted
+
+;	Init port
+;
+;	Write anything to ud.ipr
+;	Read ud.sar until next step set
+;	Write next value to ud.sar
+;	Wait for interrupt - except step4
+;
+;	1.	NV=no soft vector, QB=Q-bus, DI=wrap diagnostics
+;		15 ! WR ! CRL ! RRL ! IE ! VEC/4
+;		15		    ! IE ! VEC/4
+;	2.	port type
+;		RLA
+;	3.	
+;		RHA
+;	4.	CUV
+;		LF ! GO
+
+20$:	mov	#0,@d$uipr		;sic] init controller
+	mov	#udst1$,d$uini		;setup init flag
+	mova	d$uucr,d$uur0		;setup UDR ring address
+	mova	d$uudi,(pc)+		;set the preparation list
+d$uinp:	.word	d$uudi			;init list pointer
+
+;	Come here on each step of initialization
+
+30$:	dutst$	#erstp$	ST		;
+35$:	mov	@d$usar,r0		;got an error?
+	bmi	10$			;yes - start again
+	bit	r0,d$uini		;done current step?
+	beq	35$			;no - wait a bit
+	mov	@d$uinp,r0		;next step
+	add	#word,d$uinp		;step up pointer
+	asl	d$uini			;done them all?
+	bmi	40$			;yes
+	call	du$stp			;no - get an interrupt
+	br	30$			;and do the next
+40$:	mov	r0,@d$usar		;do last step
+	.if ne def$c			;
+45$:	sub	#2048.,#0		;32 iterations
+	bne	45$			; should be 100usecs
+	.endc
+
+;	Setup host timeout 
+
+	.if ne tim$c
+	call	du$prp			;setup a timeout packet
+	.word	mcscc.			;
+	movb	#duhto.,mp.hto(r3)	;setup host timeout
+	call	du$int			;do it
+	dutst$	#ertim$ TM		;
+	tst	(r5)			;got an error?
+	bmi	10$			;yes - attempt retry
+	.endc
+
+;	Continue processing
+
+50$:	psh	(pc)+			;reset return address
+d$upre:	.word	0			;return address
+	fall	du$prp			;preprocess packet
+	.dsabl	lsb			;
+.sbttl	setup mscp packet
+
+;	Setup MSCP packet for caller
+;
+;	call	du$prp
+;	.word	mscp opcode
+;
+;	Setup command and response rings
+;	Clear command packet
+;	Clear response header
+;	Setup command reference, unit and command code
+;
+;	r2 ->	command buffer
+;	r3 ->	response buffer
+;
+;	See du$dsc for user bypass setup.
+
+du$prp:	call	du$pnt			;get the pointers
+	mov	r2,d$ucd0		;r2 -> command packet
+	mov	r3,d$urd0		;r3 -> response packet
+	mov	#ud.bbs/word,r1		;get a counter
+50$:	clr	(r2)+			;clear command buffer
+	sobw	r1,50$			;more 
+	clr	-(r3)			;clear response preface
+	clr	-(r3)			;
+					;
+	call	du$pnt			;get the pointers again
+	inc	mp.cr0(r2)		;command reference id = 1
+	mov	d$uuni,mp.uni(r2)	;setup the unit number
+					;
+	pop	r0			;point to the code
+	mov	(r0)+,mp.cod(r2)	;setup the command
+	jmp	(r0)			;and continue
+.sbttl	map addresses
+
+;	Setup UDA command/response descriptors
+;
+;	r0	low order address
+;	r1	high order * 32.
+;
+;	Response ring precedes command ring always
+;
+
+du$dsc:
+     xm	ash	#-4,r1			;get high order in place
+	add	#ud.pbs,r0		;add in packet preface
+     xm	adc	r1			;adjust high order address
+	mov	r0,d$urd0		;setup response descriptor
+     xm	mov	r1,d$urd1		;
+     um	clr	d$urd1			;
+	add	#ud.pbs+mp.bbs,r0	;compute command ring address
+     xm	adc	r1			;
+	mov	r0,d$ucd0		;setup command descriptor
+     xm	mov	r1,d$ucd1		;
+     um	clr	d$urd1			;
+	return
+
+;	Convert process virtual address to physical
+;
+;???	Use V5.5 monitor link
+;
+;	r0 =	virtual address
+;
+;	call	du$cvt
+;
+;	r1	low order
+;	r2	high order address
+
+	.if ne mmg$t
+du$cvt:	psh	@#m$kip1		;save par1
+	movb	iq.job(r4),r1		;get the job number
+	bic	#iqjo$m,r1		;isolate job number
+	asr	r1			;get job*2
+	asr	r1			;
+	mov	p$rmap(r1),r1		;get the pcr
+	mov	pr.phd(r1),@#m$kip1	;map phd page in par1
+	pusha	10$			;return here
+	psh	#p$huip-<m$mpa2-m$mpa1>	;supply par table address
+	jmp	@#io$cvm		;convert the address
+					;r2/r1 par/buffer
+10$:	call	@#io$cmp		;convert mapped to physical
+	ash	#-4,r2			;shift high order into place
+	pop	@#m$kip1		;restore par1
+	return				;
+	.endc
+.sbttl	bootstrap
+
+;	Link command puts this code on a 1000 byte boundary
+
+	meta	<boloc$ adr><.=duboot+adr>
+	.drbot	du,bo$jmp,bo$rea,control=<umscp,qmscp>
+	$  =	duboot
+boloc$	40
+bo$jmp:	jmp	@#bo$boo-$
+boloc$	70
+b$ounm:	.byte	0,1,2,3,4,5,6,7		;boot unit map
+boloc$	104
+b$opam:	.byte	0,0,0,0,0,0,0		;boot partition map
+
+.sbttl	boot read
+
+; in	r0	block
+;	r1	word count
+;	r2	buffer address
+;
+; local	r4 ->	mscp packet
+;	r5 ->	csr/data
+
+boloc$	120
+bo$rea:	movb	@#b$rdvu,(pc)+		;get the unit number
+b$ouni:	.word	0			;boot unit
+bo$loa:	asl	r1			;get byte count
+	mov	#durtc.,(pc)+		;boot retry count
+b$orty:	.word	durtc.			;retry counter
+	br	bo$trn			;do the transfer
+					;
+bo$rty:	dec	b$orty			;all done?
+	bmi	bo$err			;yes - boot I/O error
+bo$ini:	bofal. = br + 3			;overwrites jsr r1,...
+b$ofal:	.if	ne fal$c		;
+	jsr	r1,bo$fal		;check for falcon csr
+	.word	v$ebus,rti		;
+;	assume	. lt 400		;for r0 byte compare
+	.endc				;					;
+	mov	(pc)+,r5		;r5 -> csr
+b$ocsr:	.word	du$csr			;csr address
+	mov	#0,(r5)+		;sic] reset interface
+	mov	#b$ouid-$,r3		;r3 -> values
+	mov	#udst1$,r4		;r4 = uda step state
+10$:	tst	(r5)			;got an error?
+	bmi	bo$rty			;yes
+	.if ne def$c			;
+11$:	sub	#2048.,#0		;wait 100usec
+	bne	11$			;for dilog
+	.endc				;
+	bit	r4,(r5)			;got next step
+	beq	10$			;no
+	mov	(r3)+,(r5)		;yes - write it
+	asl	r4			;done all steps?
+	bpl	10$			;no
+	.if ne def$c
+15$:	sub	#2048.,#0		;wait 100usec
+	bne	15$			;(delete this one first)
+	.endc
+	mov	#b$opkt-duboot,b$orpt	;setup the rings
+	mov	#b$opkt-duboot,b$ocpt	;(cleared by init)
+bo$onl:	jsr	r5,bo$pre		;set unit on-line
+	.word	mconl.			;online request
+	mov	#1,(pc)+		;flag on-line request
+b$oonl:	.word	0			;
+	br	bo$opr			;go online
+
+bo$trn:	asr	(pc)+			;time to init?
+b$oini:	.word	1			;
+	bcs	bo$ini			;yes
+	jsr	r5,bo$pre		;setup for I/O
+	.word	mcrea.			;read request
+	.if ne bup$c
+	movb	b$opam-$(r3),mp.lb1(r4)	;partition
+	.endc
+	mov	r0,mp.lb0(r4)		;block
+	mov	r1,mp.bc0(r4)		;byte count
+	beq	bo$ret			;seek
+	mov	r2,mp.bu0(r4)		;buffer
+
+bo$opr:	mov	b$ocsr,r5		;point to csr
+	mov	#udown$,b$occt		;give the command to port
+	tst	(r5)+		;ud.ipr	;initiate port poll
+10$:	tst	(r5)		;ud.sar	;got an error?
+	bmi	bo$rty			;yes - retry
+	tst	b$occt			;is port done with command?
+	bmi	10$			;no
+	mov	#udown$,b$orct		;give response descriptor to port
+20$:	tst	(r5)		;ud.sar	;got an error?
+	bmi	bo$rty			;yes - retry
+	tst	b$orct			;is response available?
+	bmi	20$			;no
+	tstb	mp.sts(r4)		;got an error?
+	bne	bo$rty			;yes - try again
+	asr	b$oonl			;processing on-line request?
+	bcs	bo$trn			;yes - do transfer now
+bo$ret:	return				;back to caller
+
+bo$err:	mov	#1,b$oini		;force init on next call
+	jmp	br$ioe+$		;i/o error
+.sbttl	prepare, data
+
+;	Prepare message & packet
+;
+;	jsr	r5,bo$pre
+;	.word	message code
+
+bo$pre:	mov	#b$oclr-$,r4		;area to clear
+10$:	clr	-(r4)			;clear packet
+	cmp	r4,#b$omsg-$		;all clear?
+	bne	10$			;nope
+	mov	#ud.bbs,(r4)+		;reset length
+	tst	(r4)+			;r4 -> mscp packet
+	.if ne bup$c
+	mov	b$ouni,r3		;get the unit
+	movb	b$ounm-$(r3),mp.uni(r4) ;actual unit
+	.iff
+	mov	b$ouni,mp.uni(r4)	;setup unit
+	.endc
+20$:	mov	(r5)+,mp.cod(r4)	;setup the command code
+	rts	r5			;
+
+;	UDA init data
+
+b$ouid:	.word	ud1gu$			;guard,
+	.word	b$orng-$		;ring low order address
+	.word	0			;no high order address
+	.word	ud4go$			;enable it
+
+;	UDA header and rings
+
+b$ocif:	.word	0		;ud.cif	;command interrupt flag
+b$orif:	.word	0		;ud.rif	;response interrupt flag
+b$orng:					;UDA ring base
+b$orpt:	.word	b$opkt-$		;response ring pointer
+b$orct:	.word	0			;response control
+b$ocpt:	.word	b$opkt-$		;command pointer
+b$occt:	.word	0			;command control
+
+;	UDA wrapper and MSCP packet
+
+b$omsg:	.word	ud.bbs		;ud.mbc	;message byte count
+	.word	0		;ud.cam	;unused
+b$opkt:;.blkb	ud.bbs			;mscp packet
+
+;	Falcon check
+;
+;	jsr	r1,bo$fal
+;	.word	v$ecpu			; cpu vector
+;	rti				; trap routine
+;	assume	. lt 400		; for r0 byte compare
+;
+;	Once-only code in MSCP packet (60. bytes)
+
+	.if ne fal$c
+bo$fal:	psh	r0			;
+	mov	#bofal.,b$ofal		; once-only
+	mov	r1,r0			; two copies
+	psh	@(r0)+			; save cpu vector
+	mov	r0,@(r1)+		; setup rti trap routine
+					; r0 != 4 (see assume above)
+	mfpt				; get processor type (in r0)
+	pop	@-(r1)			; restore vector
+	cmp	(r1)+,(r1)+		; past rti for rts r1
+	bneb	r0,#4,10$		; not a falcon
+	mov	#d$ufal,b$ocsr		; use falcon csr instead
+10$:	pop	r0			;
+	rts	r1
+	.endc
+.sbttl	hardware boot
+
+;	mscp packet code area continues
+;
+;	r0	unit number in low order 3 bits
+
+	xxnam. = dunam.
+    xm <xxnam. = xxnam. + drsfx.>
+bo$boo:	mov	#b$rksp,sp		;setup the stack
+	bic	#^c7,r0			;isolate unit number
+	mov	r0,b$ouni		;setup the unit number
+	mov	#brsbn.,r0		;r0 = block
+	mov	#brswc.,r1		;r1 = word count
+	mov	#br$sec,r2		;r2 = buffer address
+	call	bo$loa			;load secondary boot
+
+	.if gt  ud.bbs-<.-b$opkt>
+	.blkb	ud.bbs-<.-b$opkt>	
+	.endc
+
+;	The once-only code above is overwritten by the MSCP packet.
+
+	assume	.-b$opkt ge ud.bbs	
+
+b$oclr:	mov	#bo$rea-$,@#b$rrea	;fill in address of read routine
+	b$onam = .+2			;for SET
+	mov	#xxnam.,@#b$rdvn	;fill in device name
+	mov	b$ouni,@#b$rdvu		;setup unit number
+	br	br$sec+$		;start secondary boot
+	assume	. le b$rtop+$		;check space for bioerr etc
+
+	.drend	du
+.sbttl	load/fetch
+.=duboot+1000
+
+du$loa:	mov	r5,r2			; driver entry
+	sub	#1000+ha.lqe,r2		; r2 -> base of driver file
+	.if ne fat$c
+	jsr	r1,lo$fal		; check for falcon
+	.word	v$ecpu
+	rti
+	.endc				;					;
+	clc
+	return
+
+	.if ne fat$c
+;	Falcon check
+;
+;	jsr	r1,bo$fal
+;	.word	v$ecpu			; cpu vector
+;	rti				; trap routine
+;	assume	. lt 400		; for r0 byte compare
+
+lo$fal:	mov	r1,r0			; two copies
+	psh	@(r0)+			; save cpu vector
+	mov	r0,@(r1)+		; setup rti trap routine
+	clr	r0			; r0 = 0
+	mfpt				; get processor type
+	pop	@-(r1)			; restore vector
+	cmp	(r1)+,(r1)+		; skip 
+	bneb	r0,#4,10$		; not a falcon
+	mov	#d$ufal+ud.ipr,d$uipr(r2); setup falcon addresses
+	mov	#d$ufal+ud.sar,d$usar(r2);
+10$:	rts	r1
+	.endc
+
+	drinf$				;see front page
+	.end
+

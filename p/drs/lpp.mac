@@ -1,0 +1,814 @@
+;	SET LS SPEED
+;
+;drls$=1
+.title	lpp - printer handler
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+$drcnd
+.iif ndf drls$, drls$=0
+.if eq drls$
+	drls$=0
+	drlp$=1
+.iff
+	drls$=1
+	drlp$=0
+.endc
+drtst$ ls drls$
+drtst$ lp drlp$
+
+;	%build
+;	goto 'p1'
+;	lp:
+;	display/output=drb:drls$.mac "drls$=0"
+;	macro	drb:drls$+drs:lpp/object:drb:lpv
+;	macro	drb:drls$+drs:drmmgt+drs:lpp/object:drb:lpp
+;	link:
+;	link	drb:lpv/execute:drb:lpv.sys/nobitmap/map:drb:lpv
+;	link	drb:lpp/execute:drb:lpp.sys/nobitmap/map:drb:lpp
+;	!driver set drb:lpv csr=177560,vector=60
+;	!driver set drb:lpv csr=177564,vector=64
+;	@drs:check capture LPV
+;	driver
+;	set drb:lpv csr=177514
+;	set drb:lpv vector=200
+;	set drb:lpv width=132
+;	set drb:lpv length=66
+;	set drb:lpv endpag=0
+;	set drb:lpv skip=0
+;	set drb:lpv bit8
+;	set drb:lpv cr
+;	set drb:lpv ctrl
+;	set drb:lpv form
+;	set drb:lpv noform0
+;	set drb:lpv graph
+;	set drb:lpv hang
+;	set drb:lpv lc
+;	set drb:lpv noshare
+;	set drb:lpv tab
+;	exit
+;	@drs:check compare LPV
+;	@drs:check capture LPP
+;	driver
+;	set drb:lpp csr=177514
+;	set drb:lpp vector=200
+;	set drb:lpp width=132
+;	set drb:lpp length=66
+;	set drb:lpp endpag=0
+;	set drb:lpp skip=0
+;	set drb:lpp bit8
+;	set drb:lpp cr
+;	set drb:lpp ctrl
+;	set drb:lpp form
+;	set drb:lpp noform0
+;	set drb:lpp graph
+;	set drb:lpp hang
+;	set drb:lpp lc
+;	set drb:lpp noshare
+;	set drb:lpp tab
+;	exit
+;	@drs:check compare LPP
+;	!goto end
+;
+;	ls:
+;	display/output=drb:drls$.mac "drls$=1"
+;	macro	drb:drls$+drs:lpp/object:drb:lsv
+;	macro	drb:drls$+drs:drmmgt+drs:lpp/object:drb:lsp
+;	link:
+;	link	drb:lsv/execute:drb:lsv.sys/nobitmap/map:drb:lsv
+;	link	drb:lsp/execute:drb:lsp.sys/nobitmap/map:drb:lsp
+;	@drs:check capture LSV
+;	driver
+;	!set drb:lsv csr=173400
+;	!set drb:lsv vector=220
+;	set drb:lsv csr=176500
+;	set drb:lsv vector=300
+;	set drb:lsv width=132
+;	set drb:lsv length=66
+;	set drb:lsv endpag=0
+;	set drb:lsv skip=0
+;	set drb:lsv bit8
+;	set drb:lsv cr
+;	set drb:lsv ctrl
+;	set drb:lsv form
+;	set drb:lsv noform0
+;	set drb:lsv graph
+;	set drb:lsv hang
+;	set drb:lsv lc
+;	set drb:lsv noshare
+;	set drb:lsv tab
+;	exit
+;	@drs:check compare LSV
+;	@drs:check capture LSP
+;	driver
+;	!set drb:lsp csr=173400
+;	!set drb:lsp vector=220
+;	set drb:lsp csr=176500
+;	set drb:lsp vector=300
+;	set drb:lsp width=132
+;	set drb:lsp length=66
+;	set drb:lsp endpag=0
+;	set drb:lsp skip=0
+;	set drb:lsp bit8
+;	set drb:lsp cr
+;	set drb:lsp ctrl
+;	set drb:lsp form
+;	set drb:lsp noform0
+;	set drb:lsp graph
+;	set drb:lsp hang
+;	set drb:lsp lc
+;	set drb:lsp noshare
+;	set drb:lsp tab
+;	exit
+;	@drs:check compare LSP
+;	end:
+;	%end
+
+.macro	drinf$
+.if ne drls$
+$imgdef	LS 1 1
+$imginf fun=drv cre=hammo aut=ijh use=<RUST serial printer driver LS:>
+.iff
+$imgdef	LP 1 1
+$imginf fun=drv cre=hammo aut=ijh use=<RUST line printer driver LP:>
+.endc
+$imgham	yrs=<1986,2004> oth=<>
+;	%date	
+$imgdat <03-Feb-2009 17:19:15.41>
+;	%edit
+$imgedt <54   >
+.endm
+
+;	Standard RT-11 SET options - different defaults
+;
+;	New SET options: /[no]graph /[no]share
+;	Installation: /22bit /abort /single /external
+;
+;	Use the following options to work with laser printers:
+;
+;	width=0	length=0 skip=0 endpag=1
+;	bit8 cr ctrl form noform0 graph hang noshare tab 
+
+$chdef		;channel
+$dedef		;device
+$drdef		;driver
+$fkdef		;fork
+$dcdef		;devices
+$dsdef		;device status
+$hrdef		;handler recording
+$iqdef		;i/o queue
+$jbdef		;job
+$rmdef		;resident monitor
+$rsdef		;rt11s
+$tpdef		;RUST/XM transaction packet
+$txdef		;ascii
+$vedef		;vectors
+
+.asect		;absolute
+.psect	lpdvr	;driver psect
+.psect	handlr	;handlr psect
+.asect		;absolute
+.sbttl	hardware and structures
+
+;	LS: interface
+
+map	ls.rsr,,0		;receiver status
+map	ls.rbu,,2		;receiver buffer
+map	ls.xsr,,4		;transmit status
+map	ls.xbu,,6		;transmit buffer
+map	lscsr.,,176500
+map	lsvec.,,300
+
+;	LP: interface
+
+map	lp.csr	word,0		;csr
+map	lp.buf	byte		;buffer
+map	lp.f00	byte		;
+				;
+map	lpenb$,,100		;interrupt enable
+map	lpdon$,,200		;done
+map	lperr$,,100000		;error
+				;
+lp <map	lpcsr.,,177514>		;default csr
+ls <map	lpcsr.,,176500>		;default csr
+map	lpvec.,,200		;default vector
+map	lppri.,,4		;priority level
+
+;	Line printer flags
+
+map	lp8bt$,,1		;bit8
+map	lpmcr$,,2		;mechanical cr
+map	lpctl$,,4		;ctrl
+map	lpmff$,,10		;form - mechanical form feed
+map	lpsff$,,20		;form0 - starting form feed
+map	lpgra$,,40		;graph
+map	lphng$,,100		;hang
+map	lplow$,,200		;lc - lower case
+map	lpsha$,,400		;share
+map	lpmht$,,1000		;tab - mechanical tab
+.sbttl	setup, installation
+
+;	Setup the device handler
+
+    lp	<.drdef	lp,delpc.,dswon$!dsspc$,0,lpcsr.,lpvec.,dma=NO>
+    ls	<.drdef	lp,delsc.,dswon$!dsspc$,0,lscsr.,lsvec.,dma=NO>
+	.drest	class=delpt.
+	.drptr
+
+;	RUST/XM installation
+;
+;	This module is not STB dependent
+;
+;	Force /single/22bit/abort
+;
+;	r2 ->	device record
+;	r3 =	stb date
+;	r4 =	^rstb
+
+	.drins	lp			;install handler
+	nop				;kmon
+;sic]	nop				;boot
+     xm	cmp	r4,#^rshp		;this RUST/XM?
+     xm	bne	10$			;no - ignore it
+     xm	mov	r4,r0			;handshake
+     xm	mov	r4,r1			;reply with reason
+     xm	locon$=desin$!de22b$!deabt$	;/single/22bit
+     xm	bis	#locon$,de.con(r2) 	;device control
+10$:	tst	(pc)+			;fine
+20$:	sec				;forget it
+	return
+.sbttl	set option parameter table
+
+;	Line printer defaults
+
+map	stcsr.,,lpcsr.		;csr=lpcsr.
+map	stvec.,,lpvec.		;vector=lpvec.
+map	stwid.,,132.		;width=132
+map	stlen.,,66.		;length=66.
+map	steff.,,0		;endpag=0
+map	stskp.,,0		;skip=0
+
+.macro	stflg$ fac flg siz sta
+.iif ndf stflg$,stflg$=0	
+	map	st'flg'.,siz,sta
+.if ne sta
+	stflg$=stflg$!<lp'flg'$>
+.endc
+.endm
+
+stflg$	st 8bt,,1		;bit8
+stflg$	st mcr,,1		;cr
+stflg$	st ctl,,1		;ctrl
+stflg$	st mff,,1		;form
+stflg$	st sff,,0		;noform0
+stflg$	st gra,,1		;graph
+stflg$	st hng,,1		;hang
+stflg$	st low,,1		;lc
+stflg$	st sha,,0		;share
+stflg$	st mht,,1		;tab
+
+.macro	drset$	nam var rou typ dis val=0
+	.drset	nam,<var>,<rou>,<typ>
+;	hrent$	nam,<dis>,<val>
+.endm
+.macro	drval$	nam var rou typ dis val=0
+	.drset	nam,<var-s$tdat>,rou,typ
+;	hrent$	nam,<dis>,<val>
+.endm
+.macro	drflg$	nam var rou typ dis val=0
+	.drset	nam,<var>,st$flg,NO
+.if ne val
+;	hrent$	nam,hrset$,0
+.iff
+;	hrent$	nam,hrneg$!hrset$,0
+.endc
+.endm
+
+;	name	var	rou	typ	dis	val
+;	------------------------------------------------;
+;hrini$	con=deabt$!desin$!de22b$
+drset$	csr,	160001,	st$csr,	oct,	hroct$,	lpcsr.	;csr address
+drset$	vector,	503,	st$vec,	oct,	hroct$,	lpvec.	;vector address
+drval$	width,	s$twid,	st$val,	num,	hrdec$,	stwid.	;columns per line
+drval$	length,	s$tlen,	st$val,	num,	hrdec$,	stlen.	;lines per page
+drval$	skip,	s$tskp,	st$val,	num,	hrdec$,	stskp.	;lines to skip per page
+drval$	endpag,	s$teff,	st$val,	num,	hrdec$,	steff.	;trailing ff count
+;							;rt-11	share
+drflg$	bit8,	lp8bt$,	st$flg,	no,	hrset$,	st8bt.	;nobit8	bit8
+drflg$	cr,	lpmcr$,	st$flg,	no,	hrset$,	stmcr.	;nocr	cr
+drflg$	ctrl,	lpctl$	st$flg,	no,	hrset$,	stctl.	;noctrl	ctrl
+drflg$	form,	lpmff$,	st$flg,	no,	hrset$,	stmff.	;form	form
+drflg$	form0,	lpsff$,	st$flg,	no,	hrset$,	stsff.	;form0	noform0
+drflg$	graph,	lpgra$,	st$flg,	no,	hrset$,	stgra.	;-	graph
+drflg$	hang,	lphng$,	st$flg,	no,	hrset$,	sthng.	;hang	hang
+drflg$	lc,	lplow$,	st$flg,	no,	hrset$,	stlow.	;nolc	lc
+drflg$	share,	lpsha$,	st$flg,	no,	hrset$,	stsha.	;-	noshare
+drflg$	tab,	lpmht$,	st$flg,	no,	hrset$,	stmht.	;notab	tab
+;hrend$	
+.sbttl	set routines
+
+;	r0	value
+;	r3	default
+	
+st$flg:	br	st$set			;set it
+	nop				;
+st$clr:	bic	r3,s$tflg		;clear the flag
+	return				;
+st$set:	bis	r3,s$tflg		;set the flag
+	return
+
+st$val:	cmp	r0,#255.		;check the limit
+	bhi	st$err			;invalid command
+	mova	s$tdat,r1		;get the base address
+	add	r3,r1			;add in the base
+	movb	r0,(r1)			;store it
+st$fin:	tst	(pc)+			;fine
+st$err:	sec				;some error
+	return				;
+
+st$csr:	cmp	r0,r3			;too low?
+	blo	st$err			;yes
+	bitb	r0,r3			;odd?
+	bne	st$err			;yes
+	mov	r0,inscsr		;store it
+	mov	r0,s$tcsr		;setup the csr
+.if ne drls$
+	mova	l$prsr,r1		;
+	mov	#4,r2			;
+10$:	mov	r0,(r1)+		;store next
+	add	#2,r0			;
+	sobw	r2,10$			;
+.iff
+	mov	r0,l$pxsr		;
+	add	#2,r0			;
+	mov	r0,l$pxbu
+.endc
+	br	st$fin			;fine
+
+st$vec:	cmp	r0,r3			;too high?
+	bhi	st$err			;yes
+	bitb	#3,r0			;odd?
+	bne	st$err			;yes
+.if ne drls$
+	mov	r0,l$svtb		;rt-11 magic
+	add	#ve.bbs,r0		;second vector
+	mov	r0,l$svtb+dr.vbs	;second table element
+.iff
+	mov	r0,lpstrt		;setup the vector
+.endc
+	br	st$fin			;fine
+	$drlim	1000			;
+.sbttl	entry point and data
+
+;	Entry point and data
+
+     lp	.drbeg	lp			;entry point
+     ls	.drbeg	lp,vtbl=l$svtb		;
+	br	lp$sio			;start i/o
+
+;	Set option data
+
+s$tdat:					;lp data
+s$tcsr:	.word	lpcsr.			;csr
+s$twid:	.word	stwid.			;width
+s$tlen:	.word	stlen.			;length
+s$tskp:	.word	stskp.			;page skip
+s$teff:	.word	steff.			;trailing end form feeds
+					;
+s$tflg:	.word	stflg$			;setup default
+
+.if ne drls$
+.drvtb	l$svtb,lsvec.,lsint		; ls vector
+.drvtb  ,lsvec.+ve.bbs,lpint		;
+l$prsr:	.word	lpcsr.
+l$prbu:	.word	lpcsr.+2
+l$pxsr:	.word	lpcsr.+4
+l$pxbu:	.word	lpcsr.+6
+l$psus:	.word	0
+.iff
+l$pxsr:	.word	lpcsr.
+l$pxbu:	.word	lpcsr.+2
+.endc
+
+;	Line printer data
+
+l$pcol:	.word	0			;current column
+l$plin:	.word	0			;current line
+
+l$psff:	.byte	0		;\	;skip form feed flag
+l$peff:	.byte	0		;/	;end form feed count
+l$pcha:	.byte	0		;\	;forced character
+l$plst:	.byte	0		;/	;last character
+l$pown:	.byte	0			;owned
+	.byte	0			;free
+l$pfrk:	.blkb	fk.bbs			;fork block
+.sbttl	start I/O and ACP
+
+;	Start I/O
+;
+;	lp$ini returns:
+;
+;	r2	#ff
+;	r3	s$tflg
+;	r4	lpcqe
+
+lp$sio:	call	lp$ini			;setup
+;sic]	beq	lp$ret			;no queue element
+	movb	iq.fun(r4),r1		;get an acp function
+	beq	lp$trn			;transfer function
+	fall	lp$acp			;acp function
+
+;	ACP requests
+;
+;	Close forces optional trailing form feeds
+;
+;???	DELETE LP:STATE.* resets the database
+;???	DELETE LP:OWNER.* resets the owner
+;
+;	Everything else just resets the database
+
+lp$acp:	clr	iq.wct(r4)		;do not confuse with transfer
+	mov	@#j$bsys,r0		;get the system
+	clr	rm.spu(r0)		;assume no errors
+	cmp	r1,#rsclo.		;this a close?
+	beq	lp$clo			;yes
+	cmp	r1,#rsloo.		;this a lookup?
+	beq	lp$opn			;yes
+	cmp	r1,#rsent.		;this an enter?
+	bne	lp$ign			;ignore it
+lp$opn:
+     xm	tstb	l$pown			;currently owned?
+     xm	beq	10$			;no
+     xm	mov	#rsdiu.,rm.spu(r0)	;report the error
+     xm	br	lp$fin			;all over
+10$: xm	bit	#lpsha$,r3		;share or noshare?
+     xm	bne	20$			;share
+     xm	incb	l$pown			;noshare - grab the printer
+20$:	clr	l$psff			;forget forced form feed	
+;sic]	clrb	l$peff			;
+	clr	l$pcha			;forget forced character
+;sic]	clrb	l$plst			;forget whether written
+	br	lp$fin			;all over
+
+;	Close
+;
+;	Force FF if anything written and ENDPAG
+
+lp$clo:	clrb	l$pown			;no owner after this
+	tstb	l$plst			;written anything?
+	beq	lp$fin			;no - forget it
+	psh	l$pcol			;check column and line
+	bis	l$plin,(sp)+		;null page?
+	beq	lp$fin			;yes
+	movb	s$teff,l$peff		;want trailing stuff?
+	bne	lp$enb			;yes - do it
+	br	lp$fin			;no
+.sbttl	write
+
+;	Write 
+;
+;	Force FF if blkn=0 and FORM0
+
+lp$trn:	asl	iq.wct(r4)		;convert to byte count
+	beq	lp$fin			;seek is ignored
+	bpl	lp$err			;read is an error
+lp$wri:	tst	(r4)			;this block zero?
+	bne	lp$enb			;no
+	bit	#lpsff$,r3		;want starting form feed?
+	beq	lp$enb			;no 
+	movb	r2,l$pcha		;yes - trigger it
+					;
+lp$enb:	bis	#lpenb$,@l$pxsr		;enable it
+     ls	bis	#lpenb$,@l$prsr		;
+lp$str:	return				;stray interrupt return
+
+lp$abt:	call	lp$ini			;abort i/o
+	beq	lp$str			;no queue element
+	br	lp$fin			;finish it
+
+	assume	iq.csw eq -word		;
+lp$err:	bis	#csher$,@-(r4)		;i/o error
+lp$ign:					;ignore it
+lp$fin:	clr	@l$pxsr			;stop the device
+     ls	clr	@l$prsr			;
+	clr	l$pfrk+fk.kpc		;stop outstanding forks
+	.drfin	lp			;i/o over
+
+lp$ini:	mov	#ff,r2			;assume ff required
+	mov	s$tflg,r3		;r3 = flags
+	mov	lpcqe,r4		;get the queue element
+lp$ret:	return				;z=1 => no queue element
+.sbttl	interrupts
+
+.if ne drls$
+	.drast	ls,lppri.,lp$abt
+	.enabl	lsb		;	
+	beqw	lpcqe,20$	; been aborted
+	mov	@l$prbu,r4	;
+	aslb	r4		;
+	bneb	r4,#ctrls*2,10$	; not ^S
+	clr	@l$prsr		;
+	mov	sp,(pc)+	; output suspended
+	br	20$		;
+10$:	bneb	r4,#ctrlq*2,20$	; not ^Q
+	clr	l$psus		; not suspended
+	beqw	lpcqe,20$	; no i/o in progress
+	bis	#lpenb$,@l$prsr	;
+20$:	return
+	.dsabl	lsb
+.endc
+
+;	Line printer interrupt routine
+;
+;	Interrupts are handled at fork level
+;	Line printers can run fast enough to block the system
+;	An attempt is made to send multiple characters to the device
+
+	.drast	lp,lppri.,lp$abt	;lp interrupt
+;	call	sp$int			;
+	beqw	lpcqe,lp$ret		;been aborted
+     ls	bnew	l$psus,lp$ign		;output suspended
+	tst	l$pfrk+fk.kpc		;already forking?
+	bne	lp$ign			;yes - ignore this
+	clr	@l$pxsr			;no, turn it off
+	.fork	l$pfrk			;fork back
+	clr	l$pfrk+fk.kpc		;let the next fork thru
+
+;	Line printer fork routine
+;
+;	r0	character
+;	r2	ff
+;	r4 ->	queue element
+;	r5 ->	csr
+
+	assume	lperr$ eq 100000	;error
+	assume	lpdon$ eq 200		;ready
+lp$nxt:	call	lp$ini			;setup registers
+	beq	lp$str			;stray interrupt
+	bit	#lperr$!lpdon$,@l$pxsr	;what do we have?
+	beq	lp$enb			;nothing - try again
+	bpl	lp$pre			;its ready
+	bit	#lphng$,r3		;hung - should we wait?
+	beq	lp$err			;no - i/o error
+	br	lp$enb			;wait again
+
+;	Preprocess output data
+
+lp$pre:	movb	l$pcha,r0		;get the character
+	beq	10$			;no saved character
+	clrb	l$pcha			;once only
+	br	lp$cha			;process it
+
+10$:	tstb	l$peff			;processing end form feeds?
+	beq	lp$get			;no - get the next
+	decb	l$peff			;yes
+	br	lp$fff			;force form feed
+
+;	Get the next character to write out
+
+lp$get:	tst	iq.wct(r4)		;got any more?
+	bpl	lp$fin			;no - all over
+	inc	iq.wct(r4)		;count it
+     um	movb	@iq.buf(r4),r0		;get the character
+     um	inc	iq.buf(r4)		;skip it
+     xm	call	@$gtbyt			;get from buffer
+     xm	mov	(sp)+,r0		;get the character
+	fall	lp$cha			;process character
+.sbttl	process character
+
+;	Check the character for output
+;
+;	Strip to seven bit code unless BIT8 option
+;	Ignore FF if last character forced FF from SKIP=n option
+;	Dispatch control or printable character
+;???	Rubout can drive some line printers up the wall
+
+lp$cha:	bit	#lp8bt$,r3		;accepting 8-bit characters?
+	bne	10$			;yes
+	bicb	#200,r0			;no - clean it up
+10$:	tstb	r0			;check null
+	beq	lp$nxt			;always ignore nulls
+					;
+	asr	l$psff			;skip form feed?
+	bcc	20$			;no (once only)
+	cmpb	r0,r2			;this a form feed?
+	beq	lp$nxt			;yes - forget it
+					;
+20$:	cmpb	r0,#space		;this a printing character
+	bhis	lp$prt			;yes 
+
+lp$ctl:	cmpb	r0,#cr			;is this a return?
+	beq	lp$cr			;yes
+	cmpb	r0,#lf			;this a linefeed?
+	beq	lp$lf			;yes
+	cmpb	r0,#ht			;a tab?
+	beq	lp$ht			;yes
+	cmpb	r0,r2			;a formfeed?
+	beq	lp$ff			;yes
+	bit	#lpctl$,r3		;control characters permitted?
+	bne	lp$out			;yes - just write it
+	br	lp$nxt			;no - get the next
+
+;	Handle printing characters
+
+lp$prt:	bit	#lplow$,r3		;accepting lower case?
+	bne	10$			;yes
+	cmpb	r0,#'a			;this lowercase?
+	blo	10$			;no
+	cmpb	r0,#'z			;really?
+	bhi	10$			;no
+	bicb	#'a-'A,r0		;clean it up
+					;
+10$:	call	lp$spc			;advance one space
+	bcs	lp$nxt			;no more space on line
+					;
+lp$out:	movb	r0,l$plst		;save last character
+	movb	r0,@l$pxbu		;store the character
+	br	lp$nxt			;check for next
+.sbttl	control characters
+
+;	Control characters
+
+lp$ht:	call	lp$spc			;check for available space
+	bcs	lp$nxt			;ignore it
+	bit	#lpmht$,r3		;got mechanical tabs?
+	beq	10$			;no - expand it
+	add	#7,l$pcol		;yes - account for it
+	bic	#7,l$pcol		;
+	br	lp$out			;write it
+					;
+10$:	bit	#7,l$pcol		;this the last?
+	beq	20$			;yes
+	movb	r0,l$pcha		;get it again next time
+20$:	movb	#space,r0		;write another space
+	br	lp$out			;write it
+
+lp$cr:	clr	l$pcol			;no more columns
+	bit	#lpmcr$,r3		;want returns?
+	beq	lp$nxt			;no
+	br	lp$out			;yes
+
+;	Line feed
+;
+;	Force form feed if skip position reached
+
+lp$lf:	call	lp$lin			;generic line feed
+	bcc	lp$pag			;end of page
+	tstb	s$tskp			;get the skip count
+	bne	lp$out			;is none
+	cmpb	r1,s$tskp		;this the skip count?
+	bhi	lp$out			;no
+	inc	l$psff			;catch following form feed
+lp$fff:	mov	r2,r0			;setup for form feed
+	fall	lp$ff			;force form feed
+
+;	Form feed
+;
+;	Ignore FF after a forced form feed
+;	At least one line must be output
+
+lp$ff:	bit	#lpmff$,r3		;mechanical form feed?
+	bne	lp$pag			;yes - force new page
+	call	lp$lin			;get a line feed
+	bcc	lp$pag			;got a new page
+	mov	r0,l$pcha		;force another pass
+	br	lp$out			;until its done
+
+lp$pag:	clr	l$plin			;clear the line number
+	clr	l$pcol			;clear the column number
+	br	lp$out			;write it out
+.sbttl	column and line
+
+;	Space to next column
+;
+;	c=0	within line width or width check inactive
+;	c=1	line width exceeded - ignore character
+;	l$pcol	updated unless line width exceeded
+
+	.enabl	lsb			;
+lp$spc:	clr	r1			;assume graph mode
+	bit	#lpgra$,r3		;in graph mode?
+	bne	10$			;yes - no width
+	bisb	s$twid,r1		;got any width at all?
+	cmp	l$pcol,r1		;gone to far?
+	bhis	30$			;yes
+10$:	inc	l$pcol			;no - step it up
+	br	20$			;
+
+;	Advance to next line
+;
+;	c=0	end of page - i.e. start of new page
+;	c=1	not end of page
+;	 r1	remaining lines in page	
+
+lp$lin:	mov	#lf,r0			;get the character
+	inc	l$plin			;next line number
+	mov	s$tlen,r1		;got any length at all?
+	beq	30$			;no - forget all this
+	sub	l$plin,r1		;all done?
+	bgt	30$			;no
+20$:	tst	(pc)+			;c=0
+30$:	sec				;c=1
+	return				;
+	.dsabl	lsb			;
+;	never called!
+.if ne 0;drtm$
+.sbttl	clock
+
+;	Process timeout requests
+;
+;	SET LP/TIMEOUT=seconds
+;
+;	Stop the clock timer
+;
+;	Called in system state only
+
+lp$cst::tst	l$ptim			;are we waiting?
+	beq	10$			;no
+	clr	l$ptim			;once only
+	.ctimio	l$pctb			;cancel it
+10$:	return
+
+;	Start the clock timer
+;
+;???	Needs to setup job number
+
+lp$cgo::mova	lp$cto,l$pcto		;setup the ast address
+	call	lp$cst			;stop it first
+	mov	sp,l$pcwt		;flag we are waiting
+	mov	l$ptmo,r0		;*1 - seconds
+	psh	r0			;*1 - save *1
+	asl	r0			;*2
+	asl	r0			;*4
+	asl	r0			;*8
+	add	r0,(sp)			;*8 - save *9
+	asl	r0			;*16
+	asl	r0			;*32
+	asl	r0			;*64
+	sub	(sp)+,r0		;*55 - international second
+	mov	r0,l$pclo		;setup the count
+	jsr	r5,@$timit		;call the timeout routine
+	.word	l$pctb-.		;offset to timeout control
+	.word	0			;signal timeout
+	.word	0			;no high order
+l$pclo:	.word	0			;low order ticks
+	return				;
+
+;	Clock timeout routine
+;
+;	RUST/XM - Fork state
+;	RT-11 - completion routine state
+
+	stack	ret			;
+lp$cto:	clr	l$ptim			;no timeout in progress
+	inc	l$pexp			;remember the expiry
+	pop	r0			;get the return address
+	.mfps				;get the ps
+	psh	r0			;put back the return
+	.mtps	#pr7			;setup the new priority
+	jmp	@l$pvec			;call the interrupt routine
+					;
+;	to.hot	word,0			;c.hot	- high-order time
+;	to.lot				;c.lot	- low order time
+;	to.suc				;c.link	- next element
+;	to.job				;c.jnum	- job number - ignored
+;	to.seq				;c.seq	- sequence - 177000:177377
+;	to.tmo				;c.sys	- timout signature
+;	to.com				;c.comp	- ast address - zeroed on call
+
+l$pctb:	.word	0			;to.hot	- high-order time
+	.word	0			;to.lot	- low-order timeout
+	.word	0			;to.suc - successor
+l$pcjn::.word	0			;to.job	- job number - ignored by SHARE
+	.word	177000			;to.seq - timeout sequence number
+	.word	-1			;to.tmo - timeout signature
+l$pcto:	.word	0			;to.cas - ast address
+;?	assume	.-l$pctb eq to.bbs	;
+
+.endc
+.drend	lp				;
+drinf$					;store image information
+.end
+	u n u s e d
+
+.sbttl	 LS: detection
+
+;	Send VT100-style escape sequence to device.
+;	Get response with timeout.
+;
+;	r5 ->	device csr
+;
+;	r0 	-1	no response -- timeout
+;		0	response, but not recognised
+;		n	model number
+
+ls$det:	mova	#l$smsg,r0		; message
+	tst	2(r5)			; clean up
+	call	ls$snd			; send it
+10$:	call	ls$rcv			; gather response
+	bcc	10$			;
+	return				;
+
+	mova	l$srsp,r1		;
+	mov	#10.,r4			; timeout
+10$:	bplb	(r5),			; got input?
+	mov	2(r5),r0		;

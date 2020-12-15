@@ -1,0 +1,72 @@
+.title	ttv - RUST TT: driver
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+$aldef
+$dcdef
+$chdef
+$iqdef
+
+;	%build
+;	goto 'p1'
+;	macro	drs:ttv/object:drb:ttv
+;	link:
+;	link	drb:ttv/execute:drb:ttv.sys/nobitmap
+;	%end
+
+.macro	drinf$
+$imgdef	TT 1 0
+$imginf fun=drv cre=hammo aut=ijh use=<RUST/SJ terminal driver TT:>
+$imgham	yrs=<2004> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:27:09.00>
+;	%edit
+$imgedt <8    >
+.endm
+
+	$csr=0
+	.drdef	tt,dettc.,0,0,0,0	;define it
+	.drest	class=dvc.tt
+	.drptr
+	$drins	tt system=no, data=sj
+
+	.drbeg	tt
+	.enabl	lsb
+	mov	ttcqe,r4	; get the element
+	mov	iq.buf(r4),r3	; memory buffer
+	mov	iq.wct(r4),r2	; get the word count
+	asl	r2		; check flavor, get byte count
+	bmi	30$		; write
+	asr	(pc)+		; got eof?
+t$teof: .word	0		; EOF flag
+	bcs	25$		; yep
+	.ttyout	#'^		; prompt
+10$:	.ttyin			; get one
+;	cmpb	r0,#ctrlc.	; aborted?
+;	beq	25$		; yep
+	cmpb	r0,#ctrlz.	; eof ?
+	bne	20$		; noope
+	inc	t$teof		; remember it next time
+	clr	r0		; now pad the buffer
+20$:	movb	r0,(r3)+	; dump it
+	dec	r2		; more ?
+	beq	50$		; nope
+	tstb	r0		; padding ?
+	bne	10$		; nope
+	br	20$		; yes
+25$:	bis	#cseof$,@iq.csw(r4)
+	br	tt$fin		;
+
+30$:	movb	(r3)+,r0	; get character
+	beq	40$		; ignore nulls
+	.ttyout			; dump it
+40$:	inc	r2		; more ?
+	bne	30$		; yes
+50$:	br	tt$fin
+
+	.drast	tt 0
+tt$fin:	.drfin	tt
+	.drend	tt
+	drinf$
+
+.end
+

@@ -1,0 +1,438 @@
+.title	MQM - RUST/XM MQ: driver
+.include "lib:rust.mac"
+mmg$t=1		;memory management
+$chdef		;channel
+$dcdef		;device codes
+$dedef		;device
+$hadef		;handlers
+$iqdef		;i/o queue
+$jbdef		;job
+$mmdef		;memory management
+$prdef		;process
+$p1def		;p1ext
+$rmdef		;rmon
+$rsdef		;rt11s
+$tpdef		;tp
+.drdef	mq,demqc.,despc$!dehab$!degab$,0,0,0
+
+;	RUST/XM MQ: handler
+;
+;	STB module
+;
+;	%build
+;	goto 'p1'
+;	macro	drs:mqm/object:drb:mqp
+;	link:
+;	link	drb:mqp,lib:rustx/execute:drb:mqp.sys/nobitmap
+;	setup:
+;	driver	set drb:mqp/22bit/single/abort
+;	%end
+;
+.macro	drinf$
+$imgdef	MQ 1 0
+$imginf fun=han cre=hammo aut=ijh use=<RUST/XM message queue driver MQ:>
+$imgham	yrs=<1989> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:47:20.33>
+;	%edit
+$imgedt <43   >
+.endm
+.sbttl	overview
+
+;	Channel 
+;		The channel block CH.SBL (start block) is used to store the
+;		target process number. The file size is set to maximum.
+;
+;		ch.sbl	n	process number of target (up to 127 processes)
+;		 mqral$	200	read all
+;		 mqcom$	400	RT-11 style request
+;		ch.len	177777	big file 
+;
+;	I/O queue element
+;		The I/O queue element is used in a special way. IQ.UNI is used
+;		to store the owner process number. IQ.BLK stores information
+;		about the target process and operation.
+;
+;		iq.uni	n	owner job number
+;		iq.blk	n	target process of request
+;		 mqral$	200	read-all request
+;		 mqcom$	400	rt-11 compatibility mode
+;		 mqwri$	1000000	write request
+;
+;		Note, MQWRI$ and MQRAL$ have the same byte value (128).
+;
+;	Internal queue	
+;		M$QQUE is used to hold transfer requests for matching operations
+;	ACP requests	
+;		Ignore all except lookup and enter
+;		Determine target job 
+;		Accept null job specification as 'read-all' (lookup only)
+;		Store target process number in CH.SBL byte
+;		Read-all target stored as MQRAL$ (128)
+;
+;		.enter	#area, #chan, #name
+;		.lookup	#area, #chan, #name
+;
+;		RT-11 specifies an ascii job name. RUST/XM accepts ascii
+;		process names, rad50 process names and rad50 image names.
+;
+;		name:	.rad50	/mq/			;RT-11 ascii name
+;			.ascii	/proces/
+;		name:	.rad50	/mq procesprc/		;MQ:PROCES.PRC
+;		name:	.rad50	/mq progrmimg/		;MQ:PROGRM.IMG
+;
+;	Read	
+;		Find matching write request & transfer,  or queue
+;	Write	
+;		Do not permit write operation on read-all channel
+;		Find matching read request & transfer, or queue
+;	Transfer
+;		Buffer address must be even
+;		Report transfer errors to both sender and receiver
+;	Abort	
+;		Abort requests issued on channel or by process
+;		Send EOF to requests targeted for process with rad50 names.
+;	Synchronisation	
+;		All operations take place in system state. This synchronises
+;		all activities including queue manipulation and aborts.
+
+map	mqral$,,200		;read-all channel or request
+map	mqwri$,,200*256.	;write request
+map	mqcom$,,400		;rt-11 compatibility style
+.sbttl	installation
+
+;	Installation check
+;
+;	Must be RUST/XM with same STB date
+;
+;	Force /22bit/single/abort/priority=0
+;
+;	r2 ->	RUST/XM device record
+;	r3 =	RUST/XM stb date
+;	r4 =	^rshp if RUST/XM
+
+	.drins	mq			;MQ: installation
+	nop				;kmon
+;sic]	nop				;boot
+	cmp	r4,#^rshp		;this RUST/XM?
+	bne	10$			;no
+	mov	r4,r0			;handshake
+	mov	r4,r1			;reply with reason
+	cmp	r3,#stbdat		;using the same stb?
+	bne	10$			;no
+	movb	#1,de.pri(r2)		;/priority=0
+	bis	#de22b$!desin$,de.con(r2) ;force /22bit/single
+	bis	#deabo$,de.typ(r2)	;force /abort
+	tst	(pc)+			;fine
+10$:	sec				;forget it
+	return
+
+;	Flag RUST/XM 22-bit handler
+;
+;	Redundant for RUST/XM V3.0
+
+.save
+.asect
+.=0
+	.rad50	/22b/
+.restore
+.sbttl	Start I/O	
+
+;	Start I/O	
+;
+;	mqcqe	current queue element iq.blk address
+
+	.drbeg	mq
+	br	mq$sta			;start I/O
+m$qque::.word	0			;internal I/O element queue
+mq$sta::mov	mqcqe,r4		;get current queue element
+	beq	mq$ret			;forget it all
+	mov	tp.pcr-tp.qbl(r4),r3	;r3 -> process control record (PCR)
+	movb	pr.pid(r3),iq.uni(r4)	;get owner pid
+	mov	iq.csw(r4),r3		;r3 -> csw
+	clr	r1			;init target information
+	bisb	ch.sbl(r3),r1		;store target information
+	movb	iq.fun(r4),r2		;get the function code
+	bne	mq$acp			;ACP function
+					;
+	tst	iq.wct(r4)		;what is this?
+	beq	mq$fin			;forget seeks (complete second of pair)
+	bpl	10$			;a read
+	neg	iq.wct(r4)		;a write - make it positive
+	bis	#mqwri$,r1		;remember write
+	tstb	r1			;writes must have specific target
+	bmi	mq$err			;not specific target
+10$:	mov	r1,(r4)		;iq.blk	;store target information
+	bit	#1,iq.buf(r4)		;address must be even
+	bne	mq$err			;forget it
+
+;	Search for matching request
+;
+;	r1	target information
+;	r2 ->	m$qque
+;	r3 ->	csw
+;	r4 ->	owner queue element
+;	r5 ->	target queue element
+;
+;	Need matching read & write requests - sum of IQ.LNK must be negative.
+;	Found if owner and target pids identical
+;	Found if matching write target pid and 
+
+	mova	m$qque+i.qblk,r5	;get the queue address
+20$:	mov	r5,r2			;
+	mov	iq.lnk(r2),r5		;get the next
+	beq	mq$que			;no more - go queue request
+	assume	mqwri$ eq 100000	;
+	mov	(r4),r0			;check read/write match
+	add	(r5),r0			;
+	bpl	20$			;not read/write pair
+	cmpb	(r4),(r5)		;matching request?
+	beq	40$			;yes
+	tstb	(r5)			;is r5 a read-all request?
+	bpl	30$			;no
+	cmpb	(r4),iq.uni(r5)		;is r4 matching write for r5?
+	beq	40$			;yes
+30$:	tstb	(r4)			;is r4 a read-all request?
+	bpl	20$			;no - look at next
+	cmpb	(r5),iq.uni(r4)		;is r5 a matching write for r4?
+	bne	20$			;no
+40$:	mov	iq.lnk(r5),iq.lnk(r2)	;take this out of the queue
+	mov	r5,iq.lnk(r4)		;link into current for completion
+	fall	mq$tra			;transfer it
+.sbttl	transfer, exits, queue
+
+;	Transfer data
+;
+;	r1	r4 function - mqwri$ => write
+;	r4 ->	queue element
+;	r5 ->	queue element
+
+mq$tra:	pshs	<r5,r4>			;save these
+	stack	r4,r5			;
+	assume	mqwri$ eq 100000	;
+	tst	r1			;is r4 a destination-read block?
+	bpl	50$			;yes
+	mov	r4,r0			;no - swap pointers
+	mov	r5,r4			;
+	mov	r0,r5			;
+
+;	r4 ->	destination read block
+;	r5 ->	source write block
+;
+;	IO$BLM (block move) requires:
+;
+;	r1/r2	source page/offset
+;	r3/r4	destination page/offset
+;	r5 =	word count
+;
+;	IO$BLM returns c=1 for invalid memory addresses
+
+50$:	psh	iq.wct(r5)		;get source-write word count
+	clr	iq.wct(r5)		;once only
+	call	@#io$ptw		;move in source-write word count
+					;
+	mov	iq.par(r5),r1		;source par
+	mov	iq.buf(r5),r2		;source buffer
+	mov	iq.wct(r4),r5		;read count
+	clr	iq.wct(r4)		;once-only
+	mov	iq.par(r4),r3		;destination page
+	mov	iq.buf(r4),r4		;destination buffer
+	call	@#io$blm		;move block
+	stack	<r4,r5>			;
+	pops	<r4,r5>			;
+	bcc	mq$fin			;no errors
+	assume	iq.blk eq iq.csw+word	;
+	bis	#csher$,@-(r5)		;set the error
+mq$err:	bis	#csher$,@-(r4) 		;set the error
+mq$fin:	.drfin	mq			;complete
+
+;	Queue request 
+;
+;	r4 ->	current queue entry
+;	r2 ->	last queue entry
+
+mq$que:	mov	r4,iq.lnk(r2)		;add new element to internal queue
+	clr	mqcqe			;remove element from handler queue
+mq$ret:	return				;
+.sbttl	ACP functions
+
+;	Lookup	Open MQ: for read
+;	Enter	Open MQ: for write
+;	Close	Abort outstanding operations
+;
+;	r2	function code
+;	r3 ->	csw
+;	r4 ->	queue element
+;
+;	MQ:ascii	Process name - up to six characters
+;	MQ:		No process name - read any process
+;	MQ:proc.PRC	Rad50 process name
+;	MQ:prog.IMG	Rad50 image name
+
+	assume	rsloo. eq 3		;lookup
+	assume	rsent. eq 4		;enter
+mq$acp::sub	#rsloo.,r2		;check function
+	cmp	r2,#rsent.-rsloo.	;in range?
+	bhi	mq$fin			;no - ignore it
+	psh	@#m$kip1		;save par1
+	mov	iq.par(r4),@#m$kip1	;map par1
+	mov	iq.buf(r4),r0		;r0 -> ascii process name 
+	clr	-(sp)			;status
+	cmp	(r0)+,(r0)+		;skip to end of name
+	mov	(r0),-(sp)		;move in type
+	mov	(sp),r5			;save type
+	mov	-(r0),-(sp)		;move in rest of name
+	mov	-(r0),-(sp)		;
+	stack	nm0 nm1 nm2 sta kp1	;
+	cmp	r5,#^rprc		;*.prc?
+	beq	30$			;yes
+	cmp	r5,#^rimg		;*.img?
+	bne	40$			;no - ascii name
+30$:	mov	(r0)+,r2		;first word rad50
+	mov	(r0)+,r1		;second word rad50
+	br	50$			;go search for process
+
+;	Translate ascii process name
+
+40$:	bis	#mqcom$,ch.sbl(r3)	;RT-11 compatibility style 
+	mov	sp,r0			;r0 -> ascii name
+	call	@#na$car		;get the first word
+	mov	r1,r2			;r2 = first word
+	beq	50$			;null name
+	call	@#na$car		;r1 = second word
+50$:	fall	mq$sea			;search for process
+.sbttl	Search for process
+
+;	Search for process
+;
+;	r2	first rad50 word of name
+;	r1	second rad50 word of name
+;	r3 ->	csw
+;	r4 ->	i/o queue element
+;	sp.typ	^rimg - search for image
+
+	stack	nm0 nm1 nm2 sta kp1	;
+	stack	cnt f00 typ sta kp1	;
+mq$sea:	tst	r2			;got a name?
+	beq	40$			;no
+	mov	#p$rprs,r0		;point at the processes
+	mov	(r0)+,(sp)		;counter
+10$:	dec	(sp)			;any more?
+	bmi	50$			;no - no such job
+	mov	(r0)+,r5		;get the next
+	beq	10$			;not in operation
+	bit	#primg$,pr.sta(r5)	;does process have an image?
+	beq	10$			;no - ignore this one
+	mov	pr.phd(r5),@#m$kip1	;yes - map process header
+	mov	#p$hnam+mmp12.,r5	;point to the name
+	cmp	sp.typ(sp),#^rimg	;this a .IMG lookup?
+	bne	20$			;no
+	mov	#p$himg+word+mmp12.,r5	;yes - point to image name
+20$:	cmp	r2,(r5)+		;first word the same?
+	bne	10$			;no
+	cmp	r1,(r5)+		;second word the same?
+	bne	10$			;no
+	movb	@#p$hprn+mmp12.,ch.sbl(r3) ;setup destination process
+	br	60$			;
+
+;	Check read all 
+
+40$:	movb	#mqral$,ch.sbl(r3)	;read-all request
+	cmpb	iq.fun(r4),#rsloo.	;was this an lookup?
+	beq	60$			;yes - read-all is o.k.
+
+;	Setup result status 
+
+	assume	rsopn. eq 1		;RT11S open error
+50$:	inc	sp.sta(sp)		;return no such job
+	stack	cnt sta typ sta kp1	;
+60$:	clr	iq.wct(r4)		;return special size
+	bic	#csten$,(r3)		;not tentative - permit .savestatus
+	mov	#177777,ch.len(r3)	;make it a very large file
+	add	#sp.sta,sp		;point to status
+	pop	@#r$mspu		;return status
+	pop	@#m$kip1		;restore par1
+	br	mq$fin			;
+.sbttl	Abort I/O
+
+;	Abort I/O
+;
+;	Called in system state
+;
+;	Abort all requests for originating channel or job
+;	Close (and purge) abort outstanding channel operations
+;
+;	r0:r3	must be saved/restored
+;	r4 =	job number (not multiplied by two)
+;	r5=csw	abort only i/o on this channel for this job - rt-11 v5.4
+;	r5=0	abort all i/o for this job - rt-11 v5.4
+
+	.drast	mq,0,mq$abt		;abort entry (no interrupts)
+mq$abt::jsr	r5,@#ut$sav		;save all registers
+	movb	r4,r0			;get job number in r0
+	mova	m$qque+i.qblk,r4	;r2 -> queue
+30$:	mov	r4,r2			;get the next
+40$:	mov	iq.lnk(r2),r4		;get the next
+	beq	mq$ret			;all over, restore & return
+	mov	iq.csw(r4),r3		;get CSW
+	cmp	r3,r5			;same CSW?
+	beq	50$			;yes
+	tst	r5			;CSW abort?
+	bne	30$			;yes - skip process abort tests
+	cmpb	iq.uni(r4),r0		;same process?
+	beq	50$			;yes
+	cmp	ch.sbl(r3),r0		;target process & RUST/XM style?
+	bne	30$			;no
+	bis	#cseof$,(r3)		;yes - set end of file
+	br	60$			;don't cancel ast
+50$:	clr	iq.com(r4)		;cancel the AST
+60$:	mov	iq.lnk(r4),iq.lnk(r2)	;link this one out
+	jsr	r5,@#ut$sav		;save all registers
+	mov	r4,r5			;setup tp
+	sub	#tp.qbl,r5		;point to start of tp
+	call	@#io$rem		;remove it
+	jsr	r5,@#ut$res		;restore registers
+	br	40$			;and go again
+
+.drend	mq
+drinf$					;store image information
+.end
+.sbttl	Show messages
+
+;	Show messages
+;
+;	RUN MQP.SYS
+;
+;	Each entry is returned as follows:
+;
+;	RUST/XM message queue	
+;	From	To	Type	Count	Type	  Trans
+;	IAN1	Anyone	Read	100	RT-11	
+;	IAN2	IAN1	Write		RUST/XM
+;
+;	.word	owner
+;	.word	target
+
+;	.word	trg
+
+start:	$cmkrnl	#area, #mq$ker, pic=yes		;get the information
+	bcs					;no access to kernel
+	.print	#m$qhdr				;display the header
+	mov	#m$qbuf,r5			;get the buffer
+
+	.lookup	#area, #0, #name, #-1		;open up tables
+	bcs					;oops
+	.readw	#area, #0, #m$qlst, #1024.	;read the names
+
+.sbttl	Get information
+
+;	Get kernel information
+
+mq$ker:	mov	#d$edes,r4			;point to devices
+	mov	(r4)+,r3			;get a counter
+10$:	cmp	de.nam(r2),#^rmq		;this the device?
+	beq					;yes
+	sob	r3,10$				;no
+	.soft	0				;no such device
+20$:	mov	
+

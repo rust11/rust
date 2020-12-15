@@ -1,0 +1,435 @@
+;	SET GT BIG|SMALL
+;	SET GT LINES=n
+;	SET GT [NO]SYNC
+;
+; XM	VT100 translation
+;
+;
+v60$c=0
+syn$c=0
+.title	gt - GT40/VT11 terminal output driver
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+$cndef
+$drdef
+$ehdef
+$hkdef
+$jbdef
+$rmdef
+$txdef
+$vedef
+upini$
+
+;	%build
+;	goto 'p1'
+;	macro/object:drb:gtv drs:gtv 
+;	link/nobitmap/execute:drb:gtv.sys drb:gtv/boundary:1000
+;	gtload
+;	copy:
+;	!copy drb:gtv.sys sy:
+;	end:
+;	%end
+
+.macro	drinf$
+$imgdef	GT 1 0
+$imginf fun=drv cre=hammo aut=ijh use=<RUST/SJ GT40/VT11 driver GT:>
+$imgham	yrs=<2004> oth=<>
+;	%date	
+$imgdat <29-Oct-2008 13:20:59.11>
+;	%edit
+$imgedt <16   >
+.endm
+.sbttl	definitions
+
+map	scSIZ.,,6000		; display buffer
+map	scTOP.,,3764		; last usuable element
+map	scLIN.,,42.		; max lines on screen
+				;
+map	dpc,,172000		; display PC
+map	dps,,dpc+2		; display status
+map	dpVEC.,,320		; vector
+map	dpPRI.,,4		; priority
+				;
+map	vt.dpc	,,0		; program counter
+map	vt.dps			; processor status
+map	vt.x			; X position and increment
+map	vt.y			; Y position and character
+				; dps
+map	vtSTP$,,100000		; stopped
+map	vtMOD$,,74000		; mode
+map	vtINT$,,3400		; intensity
+map	vtPEN$,,200		; light pen
+map	vtSO$,,100		; shift-out interrupt
+map	vtEDG$,,40		; edge indicator
+map	vtITA$,,20		; italics
+map	vtBLK$,,10		; blink
+map	vtUNU$,,4		; unused
+map	vtLIN$,,3		; line
+
+set	statsa	170000		; set status A
+set	sync	4		; halt and resume in sync
+set	dstop	173000		; stop (no interrupt)
+
+map	saSTP$,,2000		; halt
+map	saSIE$,,1400		; stop interrupt enable
+map	saSID$,,1000		; stop interrupt disable
+map	saLPE$,,200		; light pen enable
+map	saLPD$,,100		; light pen disable (no intensity)
+map	saITE$,,60		; italics enable
+map	saITD$,,40		; italics disable
+;		10		;
+map	saSYN$,,4		; synchronise
+;		3
+
+				;
+set	djmp	160000		;
+				;
+				; set graphic mode
+set	char	100000		; char
+set	point	114000
+set	int4	3000
+set	lpoff	100
+set	blkon	30
+set	blkoff	20
+
+
+.sbttl	installation, startup
+
+	$drins	system=no, data=sj
+	return
+
+	$csr=0
+	.drdef	gt,377,ronly$!wonly$,0,dpc,dpVEC.
+	.drest	class=dvc.ps
+	$drptr
+
+	.drbeg	gt
+	.drfin	gt
+	.drast	gt,0
+	return
+.sbttl	display data
+;	5 432 109
+
+;	1 111 011
+
+; RMON.SCROLL-> SCTPS			RM.SCR->sc$scr
+;
+;	SCTPS:	.WORD	0
+;	SCTPB:	.WORD	0
+;	SCMAX:	.WORD	0
+;	SCLINK:	DJMP	SCTOP		sc$lnk:	djmp	sc$top	
+;
+; 	SCTOP:	...			sc$top:	...
+;		DJMP				djmp
+;	SCPNTR:	SCBUFR
+;
+;	SCBUFR:	DNOP|SYNC (VS60)
+;		data
+;		SO
+;
+
+.macro	djmpup	adr
+     up	.word	djmp,adr
+.endm
+
+
+;meta <djmp adr><.word djmp><.iif nb adr,.word adr>
+
+;	scroller page stuff
+;
+;	(Which I don't understand anymore at all)
+
+sc$top::char+blkoff+lpoff	; clean up status	<page top>
+	statsa+saSID$+saITD$	; stop interrupt and italics off
+.if ne syn$c
+;	statsa+sync		; they want me to sync
+.endc
+.if ne v60$c
+;	171040			;171052?
+	.word	dnop,dnop,dnop	;
+	.word	164350,164650,155264
+.endc
+
+	djmp			; call the page buffer
+pdp: u0	pai 			; top of scroller
+pfp: u0	pfi 			; ! insert pointer
+pnp: u0	pni 			; ! 
+
+plc:	scLIN.
+
+pai:	.rept	scLIN.		; physical page buffer	<page buffer>
+	.word	cr,lf
+	.endr
+	.byte	0
+pfi:	.byte	0
+pni: 	djmpup	sc$cur		; go to cursor
+	. =	pai+scSIZ.	; allocate buffer space
+
+pzi: up	<djmp,	pai>		; wrap around
+     u0	.word	sc$top 		; -6 where to start the dpc
+     u0	.word	pdp 		; -4 for gt off command
+     u0	.word	pai 		; -2 usual size
+$pai:u0	.word	pai 		;  0 current size
+
+sc$cur:	char+blkon, rubout	; blinking cursor <cursor>
+sc$beg:	point+blkoff+lpoff+int4,0 ;top of screen
+	.word	scTOP.		; -10 our usual setting
+
+sc$lnk: djmpup	rtp		; -4  user scroll link call
+s$clin:	.word	scLIN.		; -2  maximum lines
+				;
+;SCTPS:				; rmon scroll/rm.scr points here
+s$cscr::.word	0,0		; the scroller block
+rtv:	scLIN.			; * initial max
+rtp: 	djmpup	sc$top		; user scroller link	<user>
+
+.sbttl	driver
+
+;	catch ctrl/e
+
+	.enabl	lsb
+gt$kbd:	vehoo$	g$tkbd		; keyboard hook
+	movb	@(pc)+,-(sp)	; ctrl/e check
+g$ttkb:	.word	0		; get character
+	aslb	(sp)		; make seven bit
+	bneb	(sp)+,#ctrle*2,10$ ; not ours
+	com	(pc)+		; flip flag
+g$tech:	.word	177777		; echo flag
+	rti			; we did it
+10$:	jmp	@g$tkbd		; pass it to monitor
+	.dsabl	lsb
+
+;	screen reset on image exit
+
+scclr::
+gt$rst:	psh	r0		; reset
+	mov	@#j$bsys,r0	; system
+     up	mov	#sc$top,rtp+2	; djmp back to us.
+	mov	s$clin,rtv	; our number of lines
+	bic	#cnGTL$,rm.cfg(r0); signal no GT hook
+	cmp	@#dpc,pdp	; in the user area?
+	bhis	10$		; nope
+     up	mov	#sc$beg,@#dpc	; yes, get it back
+10$:	pop	r0		;
+	jmp	@(pc)+		; forward call
+g$trst:	.word	0		;
+
+.sbttl	insert character
+
+;	output character in r0
+
+gt$phy:	beqw	g$tech,gt$ins	; not echoing
+	psh	r0		;
+	call	@(pc)+		; call the usual routine first
+g$tphy:	.word	0		; terminal output
+	pop	r0		;
+	fall	gt$ins		; go insert it
+
+gt$ins:	jsr	r5,gt$sav	; save registers
+     up	mov	#pdp,r4
+     up	mov	#pfp,r1
+5$:	cmpb	r0,#lf		; line feed ?
+	bne	13$		; nope
+	inc	plc		; yep
+	call	13$		; insert it
+	clr	r0		; and follow lf with a zero
+				;
+13$:	cmp	plc,rtv		; big enough ?
+	ble	11$		; yah
+	call	flf		; nope
+	br	13$		; scale it down
+				;
+11$:	mov	(r1)+,r3
+	mov	(r1),r2
+	cmpb	r0,#bs
+	beq	21$
+	bit	#1,r3
+	bne	10$		;nope
+	mov	r2,r3
+26$:	mov	#dstop,(r2)+
+	psh	r2		;save a stop flag
+	call	gt$wrp
+	mov	r2,(r1)
+	call	flf1
+	mov	#djmp,(r2)+
+	call	flf1		; ditto
+     up	mov	#sc$cur,(r2)+	; got to cursor
+	clr	(r3)
+	cmp	@#dpc,(sp)+	;did we stop the dp ?
+	bne	10$		;no
+	inc	@#dpc		;yes - restart it
+10$:	movb	r0,(r3)+	;insert character
+23$:	mov	r3,-(r1)
+24$:	return
+
+;	backspace
+
+21$:	mov	r3,r0		;points to next even location
+	cmp	r3,$pai		;wrap backwards ?
+	bne	25$		;nope
+     up	mov	#pzi,r3		;yes
+25$:	dec	r3		;backspace
+	bit	#1,r3		;was this even
+	bne	22$		;yes, easy
+	mov	r3,r0		;this becomes the next even location
+22$:	cmpb	(r3),#lf	;is it a lf ?
+	beq	24$		;yes, ignore it
+	clrb	(r3)		;now its nothing at all
+	mov	r0,(r1)		;update next location pointer
+	br	23$
+
+;	overflow
+
+	.enabl	lsb
+flf1:	cmp	r2,(r4)		;ker-rash !?#$% boom ?
+	bne	40$		;nope
+flf:	psh	r2
+	mov	(r4),r2
+1$:	call	gt$wrp
+	cmpb	(r2)+,#lf
+	beq	3$		;found
+	cmp	r2,(r4)		;to far ?
+	bne	1$		;nope
+3$:	dec	plc
+2$:	inc	r2
+	bic	#1,r2
+	mov	r2,(r4)
+	pop	r2
+40$:	return
+	.dsabl	lsb
+
+gt$wrp:
+     up	cmp	r2,#pzi		;wrap for the scroller
+	bne	10$
+	mov	#djmp,(r2)	;replace the djmp
+	mov	$pai,r2
+10$:	return
+
+gt$sav::pshs	<r4,r3,r2,r1,r0,r5>
+	stack	ret,r0,r1,r2,r3,r4,r5
+	mov	sp.r5(sp),r5
+	call	@(sp)+
+	pops	<r0,r1,r2,r3,r4>
+	pop	r5
+	return
+
+	.drend	gt
+.sbttl	load/unload
+.psect	gtload
+
+dr$fet:
+dr$loa:	call	up$rel			; relocate driver first
+	mov	(r5),r5			; get the driver
+	sub	#dr.lqe,r5		; r5 -> driver base
+	mov	@#j$bsys,r4		; r4 -> rmon
+	mov	rm.syn(r4),r0		; .synch
+	mov	-(r0),r3		; r3 -> net
+					;
+	bis	#cnvts$,rm.cfg(r4)	; flag VT11 present
+	mov	#s$cscr,r0		;
+	add	r5,r0			;
+	mov	r0,rm.scr(r4)		;
+					;
+	mov	rm.tkb(r4),g$ttkb(r5)	; tkb pointer
+	vecap$	#v$ekbd,#gt$kbd,r5	; capture keyboard
+					;
+	mov	eh.phy(r3),g$tphy(r5)	; physical terminal output
+	mov	#gt$phy,r0		;
+	add	r5,r0			;
+	mov	r0,eh.phy(r3)		; we're switched on now
+					;
+	mov	eh.rst(r3),g$trst(r5)	; forward address
+	mov	#gt$rst,r0		;
+	add	r5,r0			;
+	mov	r0,eh.rst(r3)		; plug us in
+
+.if ne 0
+	mova	d$rchk,@#dpc		; run check
+10$:	bplw	@#dps,10$		; not stopped yet
+	bpsw	#40,@#dps,		; 12"
+.endc
+					; 17"
+	return
+
+d$rchk:	.word	114000			; checks things
+	.word	0			;
+	.word	1350			;
+	.word	104000			;
+	.word	77			;
+d$rstp:	.word	173000			; stops VT11
+
+dr$rel:
+dr$unl:	mov	(r5),r5			; get the driver
+	sub	#dr.lqe,r5		; r5 -> driver base
+	mov	@#j$bsys,r4		; r4 -> rmon
+	mov	rm.syn(r4),r0		; .synch
+	mov	-(r0),r3		; r3 -> net
+					;
+	mova	d$rstp,@#dpc		; stop VT11
+10$:	bplw	@#dps,10$		; wait for it
+					;
+	bic	#cnvts$,rm.cfg(r4)	; remove VT11 from config
+	clr	rm.scr(r4)		;
+					;
+	verel$	#v$ekbd,#gt$kbd,r5	; release keyboard
+	mov	g$trst(r5),eh.rst(r3)	; reset reset hook
+	mov	g$tphy(r5),eh.phy(r3)	; reset physical output
+	return
+$vepkg
+$hkpkg
+drinf$
+uprel$	
+
+.end
+.SBTTL	HEAD OF SCROLL BUFFER
+	SHORTV=104000
+	STATSA=170000
+	SCSYNC=4
+	MAXSX=17600
+	MAXSY=77
+	MISVX=20000
+	MISVY=100
+	DNOP=164000
+	DSTOP=173400
+	DJMP=160000
+	CHAR=100000
+	POINT=114000
+	INT4=3000
+	LPOFF=100
+	BLKON=30
+	BLKOFF=20
+	SOCODE=77416
+	JSRABS=004737
+	173000
+SCHEAD:	CHAR!BLKON
+	.WORD	77417
+	POINT!BLKOFF!LPOFF!INT4
+	.WORD	0
+SCYPS:	.WORD	0
+	DJMP
+	SCLINK-SCTPS
+SCTOP:	.REPT	18.
+	SHORTV
+	MAXSX+MAXSY+MISVY
+	SHORTV
+	MAXSX+MAXSY+MISVX
+	.ENDR
+	CHAR!BLKOFF!LPOFF
+V60.INT:
+.IF EQ	VS60$
+	171040
+.IFF
+	171040
+	DNOP
+	DNOP
+	DNOP
+	164350
+	164650
+	155264
+.ENDC
+	DJMP
+SCPNTR:	.WORD	SCBUFR-SCTPS
+SLT.V60:
+SCBUFR:  DNOP
+	.WORD	SOCODE
+
