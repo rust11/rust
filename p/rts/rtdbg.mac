@@ -1,0 +1,113 @@
+.title	rtdbg - rust/sj maintenance debug routines
+.include "rts:rtdef.mac"
+.psect	dbg
+meta	<dbcha$ s><.iif nb s,mov s,r0><call db$cha>
+meta	<dblin$ s><.iif nb s,mov s,r0><call db$lin>
+
+;	RUST/SJ kernel debugger
+;
+;	Assembled into monitor only when necessary.
+;	Currently untested.
+;
+;	jsr	r1,db$prt
+;	.asciz	/string/
+
+db$prt::call	db$put		; display the basic string
+	rts	r1
+
+db$put:	psh	r0		; debug string output
+	dblin$	#d$bhdr		; the header
+	dblin$	r1		; the string
+	call	db$new		; new line
+10$:	tstb	(r1)+		; skip string
+	bne	10$		;
+	inc	r1		;
+	bic	#1,r1		; even up
+	pop	r0		;
+	return
+
+db$lin:	psh	r1
+	psh	r0
+	mov	r0,r1
+10$:	movb	(r1)+,r0
+	beq	20$
+	dbcha$	r0
+	br	10$
+20$:	pop	r0
+	pop	r1
+	return
+
+db$new:	psh	r0
+	dbcha$	#cr
+	dbcha$	#lf
+	pop	r0
+	return
+
+db$cha:	call	tp$put
+	return
+
+d$bhdr:	.asciz	/?DB-I-/
+d$bnew:	.byte	0
+	.even
+
+;	r4 ->	emt table entry
+;
+;		.word	code
+;		.ascii	/name  /
+
+db$tra::save
+	mov	#50$,r0
+	mov	d$bpc,r1
+10$:	cmpb	(r1),(r0)+	; ignore this
+	beq	40$		; yep
+	tstb	(r0)		; more
+	bne	10$		; yep
+	psh	r4
+	call	sy$oct
+	pop	r4
+	dbcha$	#11
+	dbcha$	#'.
+	tst	(r4)+
+	mov	#6,r1
+20$:	movb	(r4)+,r0
+	beq	30$
+	dbcha$	r0
+	dec	r1
+	bne	20$
+30$:	call	db$new
+40$:	restore
+	return
+
+50$:	.byte	340,341,351,362,365,366,367,0
+	.even
+
+;	db$bus - bus/cpu trap
+;
+;	r2	pc
+;	r3	vector
+
+d$br2::	.word	r0
+d$br3::	.word	0
+d$bsp::	.word	0
+d$bpc::	.word	0
+
+db$bus::save
+	dblin$	#d$btrp
+	mov	r3,r1
+	call	sy$oct
+	dblin$	#d$bat
+	mov	r2,r1
+	call	sy$oct
+	call	db$new
+	restore
+	mov	d$br2,r2
+	mov	d$br3,r3
+	add	#2,d$bsp
+	mov	d$bsp,sp
+	bpt
+d$btrp:	.asciz	/Trap to /
+d$bat:	.asciz	/ at /
+	.even
+
+.end
+

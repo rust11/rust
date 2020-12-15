@@ -1,0 +1,216 @@
+;	RTMAC.MAC - RUST/SJ macro library
+;
+;	%build
+;	run sy:strip rtb:rtmac.mla=rts:rtmac.mac
+;	library/macro rtb:rtmac.mlb rtb:rtmac.mla
+;	%end
+;	RPDEF$	RUST/SJ internal queue element
+
+.MACRO	RPDEF$
+set	$ 0
+meta <setx c d e><c=$><.iif nb <d>,setx d e>
+meta <entry x y z><setx x,y,z><$=$+2>
+
+entry	qlk	;.+qbs		; link to next element
+entry	qdk			; the data check
+entry	qcm			; [flags  packet command]
+entry	qry			; -> query flag; cleared on packet return 
+entry		qch		; [subcode | channel]
+entry	qa1	qbl		; V2=2(area) V1=R0	(rename filename)
+entry	qa2	qbu		; V2=4(area) V1=n(sp)=1st push
+entry	qa3	qwc		;   ...		qa1-qa4 errors
+entry	qa4	qdu	qfn	;		    (enter,lookup,delete)
+entry	qa5			;qdu for spfun
+entry	qa6	qr0		;send spfun; return r0
+entry	qa7	qer		;send spfun; return error-code
+entry	qa8			;loox=log, temporary, data, transfers=csw
+entry	qx0	;c.csw		;renx=log, extension area
+entry	qdc			;data count
+entry	qck			;the command check
+entry	rt0	qbs		; RT-11 I/O queue element
+entry	rt1
+entry	rt2
+entry	rt3
+entry	rt4
+entry	rt5
+entry	rt6
+entry	rp.bbs			;
+meta entry
+
+.iif ne qbs-40, .error;update qbt in ss and usr
+.ENDM
+;	SJDEF$	RUST/SJ configuration parameters and constants
+;
+.MACRO	SJDEF$
+;
+map	sjSLT.,,16.	; device slots
+map	sjREQ.,,5	; request packets (qels)
+map	sjTIM.,,4	; timer queue elements
+map	sjKWP.,,12737	; KW11P clock enable
+map	sjEMT.,,22	; EMT stack depth
+map	sjTTC.,,140000	; terminal config (scope, lower case)
+map	sjBUF.,,128.	; terminal input buffer size
+.ENDM
+;	TQDEF$	RUST/SJ timer queue element
+
+.MACRO	TQDEF$
+map	tq.lnk,,0	; link
+map	tq.hot		; high order time
+map	tq.lot		; low order time
+map	tq.ast		; ast address
+map	tq.idt		; element id
+map	tq.bbs		;
+assume tq.bbs eq 10.	; standard unmapped RT-11 queue element size
+;ap	tqcnt.,,4	; number of queue elements
+.ENDM
+;	USDEF$	USR dispatch code list/table
+;
+;	RT11S rsXXX. codes, CLO...CLZ are defined by RT-11
+;	Remainder are internal to RUST/SJ
+;	Note, the NF: vaSIZ. function is local to NF.
+;
+.MACRO	USDEF$ PRE
+$=0
+.macro 	entry nam cod
+	us'cod'.=$
+	$ = $+2
+.if nb <pre>
+	.word	pre''cod
+.endc
+.endm
+
+	entry	xxx	nop	;
+	entry	close	clo	; spCLO. = 1
+	entry	delete	del	; spDEL. = 2
+	entry	lookup	loo	; spLOO. = 3
+	entry	enter	ent	; spENT. = 4
+	entry	rename	ren	; spREN. = 5
+	entry	purge	pur	; spPUR. = 6
+	entry	sfinf	inf	; spINF. = 7
+	entry	closz	clz	; spCLZ. = 8
+	entry	dstatu	dst	;
+	entry	fetch	fet	;
+	entry  	read	rea	;
+	entry	write	wri	;
+	entry	spfun	spf	;
+.ENDM
+;	RTX.TSK macros
+;
+.MACRO	RXRTX$			; resident RTX modules
+	map	luCHN.,,1	; channel base, 17. channels
+	map	luCDF.,,22.	; number of channels available for .CDFN
+				;
+	map	luDSK.,,24.	; LD: base, 8 disks
+	map	luKBD.,,32.	;
+	map	luTER.,,33.	;
+	map	luTMP.,,34.	;
+	map	luMAX.,,35.	; 34 logical units 1..34
+
+	map	fxSLT.,,4	; fx: device slot * 2
+	map	fvSLT.,,6	; fv: device slot * 2
+	map	ldSLT.,,10	; fv: device slot * 2
+				;
+	map	rxFX.,,1	; boot volume choices
+	map	rxLD.,,2	;
+	map	rxNF.,,3	;
+
+	.macro	dir$ lab	; lab = address of EMT block
+	mov	lab,r0		;
+	call	rx$dir		;
+	.endm
+
+	.macro	qio$	opr,lun,ast=#0,a1=#0,a2=#0,a3=#0
+	call	rx$qio	opr,lun,ast,a1,a2,a3
+	.endm
+
+	.macro	qiow$	opr,lun,ast=#0,a1=#0,a2=#0,a3=#0
+	call	rx$qiw	opr,lun,ast,a1,a2,a3
+	.endm
+
+	.macro	alun$	lun,dev	; lun, rad50 /DDn/
+	call	rx$aln	lun,dev
+	.endm
+.ENDM
+;
+;	RTX FAP - F11A ACP
+;
+.MACRO	RXACP$
+;
+;	VAB - function block
+;
+map	vx.flg,,0		; =  init flag (must be first)
+map	vx.wlk			; =  sub-directory walk flags
+map	vx.fun			; =  function (see $rsdef)
+map	vx.sta			; =  result status
+map	vx.cab			; -> cab address (lun info)
+map	vx.lun			; =  lun number
+map	vx.dev			; -> .rad50 /DDn/
+map	vx.buf			; -> filnam.typ or buffer
+map	vx.cnt			; =  transfer word count
+map	vx.bhi			; =  high-order block number (later)
+map	vx.blk			; =  low order transfer block number
+map	vx.stk			; =  return stack
+map	vx.qel			; -> queue element (unused by FAP)
+map	vx.csw			; -> channel block (unused by primary FAP)
+map	vx.bbs			; 2 free
+;				;
+;				; vx.wlk
+map	vxWLK$,,2		; sub-directory walk
+map	vxSUB$,,4		; sub-directory
+;				;
+;				; vx.sta
+map	faEOF.,,1		; end of file
+map	faFNF.,,1		; file not found
+map	faIOX.,,2		; i/o error
+;
+map	faDAT$,,1		; vx.flg - mostly unused
+map	faFNA$,,2		;
+map	faDIR$,,4		;
+map	faNFS$,,10		;
+map	faSPU$,,20		;
+map	faFOR$,,100000		; foreign disk
+;
+; 	CAB - channel access block (and DAB)
+;
+map	ca.fid,,0 ;dab	;reopen	;\=  file ID (must be first)
+map	ca.seq,4  ;dab		;reopen	;/=  sequence number
+map	ca.dev	  ;dab	;reopen	; =  .ascii /DD/
+map	ca.uni	  ;dab	;reopen	; =  unit
+map	da.bbs,0		;    used for driver access
+map	ca.phy			; =  physical device + unit
+map	ca.fna,8.		; =  .rad50 /filnametctyp/
+map	ca.did,6		; =  did for close & tentative file delete
+map	ca.sta	;byte?	;reopen	; =  cab status
+map	ca.acp,1	;reopen	; =  caF11.,caFOR.,caNFS.
+map	ca.f00,1		;
+map	ca.sts			; =  wildcard status
+map	ca.nxt			; =  next wildcard record
+map	ca.acc			; =  directory block base
+map	ca.cha		;???	; =  RSX device characteristcs
+map	ca.lun			;\=  lun # (must be last)
+map	ca.bbs			;/
+;				;
+;				; ca.acp
+map	caNFS.,,0		; non-file structured
+map	caFOR.,,2		; foreign disk-like
+map	caF11.,,4		; F11A volume file access
+map	caVOL.,,6		; F11A volume directory/volume.sys access
+;				;
+;				; ca.sta
+map	caACC$,,100000		; file is accessed
+map	caCRE$,,200		; file is being created
+map	caRON$,,1		; read-only file
+map	caDIR$,,2		; directory access
+map	caVOL$,,4		; boot/home blocks
+;
+;	RSX directory logical names
+;
+map	ln.log,,0		; logical name (all rad50)
+map	ln.dev			; device name
+map	ln.dir			; directory name or [m,g]
+map	ln.nam			;
+map	ln.typ			; ^rdir
+map	ln.bbs			;
+;
+.ENDM
+

@@ -1,0 +1,560 @@
+;	dir$ x/return optimization
+.title	rtrsx - RTX RSX API
+.include "lib:rust.mac"
+.library "rtb:rtmac.mlb"
+.library "lib:sm.mlb"
+$psdef		; RT-11/RUST
+$chdef
+$jsdef
+$ifdef		; RSX
+$isdef
+$jbdef
+$ludef
+$tidef
+$xidef
+rxrtx$
+rxacp$
+smini$		; SM
+clk$c=1		; use clock
+cmp$c=0		; debug compare memory test
+.psect	sys
+
+map	ie.ast,,-80.
+
+;	RTX.TSK provides a pointer to the API in location @#254
+;
+;	Significant routines return as follows:
+;
+;	Fine:	c=0, r0=1
+;	Fail:	c=1, r0=0
+;	r1 = $dsw
+;
+;	The SM CALL macro maintains the state of the C-bit only
+;	for two or fewer arguments. Thus, for example, rx$qio must
+;	be tested via R0, not the C-bit.
+;
+;	Secondary routines have individual return states.
+;	In some cases MACRO interface routines will be required for C apps.
+
+;	RTX API dispatch table
+;
+;	000254	.word	r$xapi	; job space link
+;	000256	.rad50	/RTX/	; signature
+
+	meta	<rxtyp$ msg><jsr r1,rx$typ><.ascii |msg|<128.>><.even>
+	meta	<rxprt$ msg><jsr r1,rx$typ><.asciz |msg|><.even>
+	meta	<rxoct$ val><call rx$oct val>
+
+;	RTX API application dispatch table (see $RXAPI)
+
+r$xapi::.rad50	/rtx/		; signature
+	.word	r$xrtx		; RTX data pointer
+	.word	r$xfap		; FAP data pointer
+	.word	0		; was fx$for - foreign disk ept
+	.word	rx$exi		; exit RTX
+	.word	rx$wsg		; wait for significant event (SLV.MAC)
+	.word	rx$ins		; install driver (KMS:LOAD.MAC)
+	.word	rx$ati		; attach terminal
+	.word	rx$dti		; detach terminal
+	.word	rx$sta		; start clock
+	.word	rx$stp		; stop clock
+.sbttl	status returns
+
+;	reflect r0 boolean in cbit
+
+rx$cbt::beqw	r0,10$		; r0 eq => some error
+	tst	(pc)+		; c=0
+10$:	sec			; c=1
+	return
+
+;	reflect cbit in r0 boolean
+
+rx$sts::bic	r0,r0		; assume failure
+	bcs	10$		; fail: r0=0, c=1
+	inc	r0		; fine: r0=1, c=0
+	br	20$		;
+10$:	call	rx$rep		; report it
+20$:	return
+
+;	issue RSX directive
+
+rx$dir::call	rx$dsw		; save dsw
+	psh	r0		; emt block address
+	emt	^o377		; issue rsx emt
+	call	@(sp)+		; restore dsw, return dsw in r0
+	return
+
+;	save/restore RSX DSW with co-routine
+
+
+rx$dsw::psh	@#j$busa	; save DSW
+	stack	usa,ret		;
+	call	@sp.ret(sp)	; call back for emt 377
+	pop	sp.ret(sp)	; return address
+	mov	@#j$busa,r0	; save result
+	mov	r0,r$xdsw	; our copy
+	pop	@#j$busa	; restore
+	return
+
+;	push mainline state
+
+rx$psh::psh	@#j$busa
+	psh	r$xdsw
+	psh	r$xisb
+	psh	r$xisb+2
+;	psh	r$xdev		; if asynchronous i/o supported
+;	psh	r$xuni
+	psh	r0
+	stack	ret,is2,is1,dsw,r0
+	mov	sp.r0(sp),r0
+	return
+
+;	restore mainline state
+
+rx$pop::tst	(sp)+		; forget r0
+;	pop	r$xuni
+;	pop	r$xdev
+	pop	r$xisb+2
+	pop	r$xisb
+	pop	r$xdsw
+	pop	@#j$busa
+	rts	r0
+
+;	Structured Macro <r2..r5> save/restore
+;	See RTS:RTSYS.MAC for <r0..r5> save/restore
+;
+;	jsr 	r5,s$ms25
+
+	stack	r5
+sm$s25::pshs	<r4,r3,r2>
+	stack	r2,r3,r4,r5
+	psh	r5			; return address
+	stack	ret,r2,r3,r4,r5
+	mov	sp.r5(sp),r5
+	call	@(sp)+
+	stack	r2,r3,r4,r5
+	pops	<r2,r3,r4,r5>
+	return
+.sbttl	simple directives
+
+rx$ecp::dir$	#10$		; encp$ - enable checkpointing 
+	return
+10$:	.byte	97.,1
+
+rx$dcp::dir$	#10$		; dscp$ - disable checkpointing
+	return
+10$:	.byte	95.,1
+
+rx$enb::dir$	#10$		; enar$ - enable asts
+	return
+10$:	.byte	101.,1
+
+rx$dsb::dir$	#10$		; dsar$ - disable asts
+	return
+10$:	.byte	99.,1
+
+	.enabl	lsb		; start clock
+rx$sta::bnew	r$xclk,10$	; clock already enabled
+rx$mkt::			;sic]
+	.if ne clk$c		;
+	dir$	#r$xmrk		; get the clock going
+	.endc
+10$:	return
+	.dsabl	lsb
+
+				; stop clock
+rx$stp::clr	r$xclk		; flag clock stopped
+	dir$	#10$		; disable clock
+	return			;
+10$:	.byte	27.,1		; cancel all mark time requests
+
+rx$wsg::dir$	#10$		; wsig$ - wait for significant event
+	return
+10$:	.byte	49.,1
+
+	.enabl	lsb
+rx$asx::psh	(pc)+		; astx$ - ast exit
+	.byte	115.,1		;
+	emt	^o377		;
+	.print	#10$		; error message
+	fall	rx$exi		; exit RTX back to RSX
+
+rx$exi::call	rx$dsb		; disable asts
+	call	fa$rst #luMAX.-1; zap all cabs
+	call	rx$dti		; detach terminal
+	psh	(pc)+		; exit$
+	.byte	51.,1		;
+	emt	^o377		; EXIT$
+	iot			; CRASH - should not fail
+10$:	.asciz	/?RTX-F-AST exit error/
+	.even
+	.dsabl	lsb
+.sbttl	assign lun, get lun and translate
+
+; ???	Data needs to be dynamic or context switch for asynchronous i/o
+
+  proc	rx$agl
+	p1	lun
+	p2	log
+	call	rx$aln lun(sp),log(sp)
+	bcs	10$
+	call	rx$gln lun(sp)
+	bcs	10$
+	call	rx$phy
+	clc
+10$:
+  end
+
+.sbttl	assign lun
+
+  proc	rx$aln
+	p1	lun
+	p2	log,r0
+	beqw	r0,#<^rDK>,10$		; is DK
+	bnew	r0,#<^rFX>,20$		; not FX:
+10$:	mov	#^rSY,r0		; use RSX SY: instead
+20$:	clrb	r$xuni			; for single character names
+	call	rx$unp r0,#r$xdev	; unpack device name
+	beqw	r$xuni,30$		; no unit or unit zero
+	sub	#^o60,r$xuni		; make a digit
+; ???	should sanity-test unit number
+30$:	call	rx$oln lun(sp)		; assign lun
+  end
+
+.sbttl	assign lun directive
+
+	stack	ret,lun
+rx$oln::mov	sp.lun(sp),20$		; setup
+	dir$	#10$			; assign lun
+	return
+10$:	.byte	7,4
+20$:	.word	0
+r$xdev::.ascii	/DD/			; alun$ device
+r$xuni::.byte	0,0			; alun$ unit
+	.dsabl	lsb
+
+.sbttl	get physical device name
+
+;	Called following alun$
+;
+;	r0	rad50 /ddn/ physical device name
+
+  proc	rx$phy
+	p1	equ
+	mov	#r$xgln,r0		;
+	beqb	xi.lun(r0),10$		; no unit number
+	add	#'0,xi.lun(r0)		; make ascii unit number
+10$:	call	rx$pck r0		; rad50 equivalence
+  end
+
+.sbttl	get lun information
+
+	.enabl	lsb
+  proc	rx$gln
+	p1	lun
+	mov	lun(sp),20$
+	dir$	#10$
+  end
+10$:	.byte	5,3			; glun
+20$:	.word	0			; lun
+	.word	r$xgln			; buffer
+	.dsabl	lsb
+.sbttl	queue i/o directive
+
+;	qiow$	opr, lun, ast, p1, p2, p3
+;	qiow$	opr, lun, ast, buf, bct, blk
+;	qio	opr, lun, evt, isb, ast, p1..p6
+;
+;	r0=0	=> some error
+;	c=?	cbit is not valid because of call cleanup
+
+rx$qiq::clr	r0		;	    qiow quiet	
+	inc	r0		; c=0, r0=1 qiow quiet
+	br	rx$qix		;
+rx$qiw::tst	(pc)+		; c=0, r0=0 qiow report
+rx$qio::sec			; c=1, r0=0 qio  report
+	bic	r0,r0
+  proc	rx$qix	<r2..r5>
+	p1	opr
+	p2	lun
+	p3	ast
+	p4	a1
+	p5	a2
+	p6	a3
+	p7	a4		; only if AST eq -1
+	p8	a5
+	p9	a6
+	mov	r0,r3		; r3 = "don't report" flag
+
+	mov	(pc)+,r4	; function etc
+	.byte	3,12.		; qiow
+	bcc	10$		; was qio
+	mov	(pc)+,r4	; qio
+	.byte	1,12.		; 
+
+10$:	mov	sp,r5		; -> stack parameters
+	psh	@#j$bdsw	; save DSW
+	.if ne cmp$c
+	call	rx$sto		;
+	.endc
+	bnew	ast(r5),#-1,20$	; not p1...p6
+;	inc	ast(r5)		;
+	psh	a6(r5)		; p6
+	psh	a5(r5)		; p5
+	psh	a4(r5)		; p4
+	br	30$		;
+20$:	clr	-(sp)		; p6
+	clr	-(sp)		; p5
+	clr	-(sp)		; p4
+30$:	psh	a3(r5)		; p3
+	psh	a2(r5)		; p2
+	psh	a1(r5)		; p1
+	psh	ast(r5)		; AST address
+	bnew	(sp),#-1,35$	;
+	clr	(sp)
+35$:	psh	#r$xisb		; ISB
+	psh	#^o41		; event flag (use FCS flag + 1)
+	psh	lun(r5)		; lun
+	psh	opr(r5)		; operation
+	psh	r4		; qio or qiow
+	emt	^o377		;
+	.if ne cmp$c		;
+	call	rx$cmp		;
+	.endc			;
+	mov	@#j$bdsw,r2	;
+	mov	r2,r$xdsw	;
+	pop	@#j$bdsw	;
+	mov	#1,r0		; assume success
+	bcs	40$		; directive error
+	bplb	r$xisb,50$	; no ISB error
+
+40$:	clr	r0		; signal error
+	bnew	r$xwar,45$	; wants warnings
+	bnew	r3,50$		; quiet-mode
+	beqb	r$xisb,#ieNLN.,50$ ; no file accessed on lun
+	beqb	r2,#iePRI.,50$	; privilege violation 
+	beqb	r2,#ieNSF.,50$	; no such file
+45$:	call	rx$rep		; report error
+50$:
+  end
+.sbttl	conversion routines
+
+	.enabl	lsb
+rx$c2l::call	rx$c2o		; channel to lun (base 1)
+rx$o2l::inc	r0		; lun = ordinal + 1
+	psh	r1		; lun# to lun address
+	mul	#ca.bbs,r0	; r1 = offset
+	mov	r1,r0		;
+	add	#r$xcab,r0	; r0 -> lun
+	br	10$		;
+
+rx$c2o::psh	r1		; channel to ordinal (base 0)
+	mov	r0,r1		;
+	sub	c$hbas,r1	; channel base
+	clr	r0		;
+	div	#ch.bbs,r0	; r0 = channel #
+10$:	pop	r1		;
+	return
+	.dsabl	lsb
+
+;	UIC to rad50
+;
+;	.byte	mem,grp
+;
+;	.rad50	/grpmem/
+
+  proc	rx$u2r	<r0..r5>
+	p1	uic
+	p2	opt,r3
+	psh	uic(sp)
+	mov	#^o33,r2
+10$:	swab	(sp)
+	clr	r1
+	psh	(sp)
+	clrb	1(sp)
+	br	30$
+20$:	asl	(sp)
+30$:	asl	(sp)
+	asl	(sp)
+	movb	1(sp),r0
+	bic	#^c7,r0
+	mul	#40.,r1
+	add	r0,r1
+	add	#30.,r1
+	asr	r2
+	bcs	20$
+	mov	r1,(r3)+
+	tst	(sp)+
+	bnew	r2,10$
+	tst	(sp)+
+  end
+.sbttl	messages
+
+  proc	rx$rep	<r0,r1>
+	rxtyp$	<?RTX-W-DSW: >
+	call	rx$sgn r$xdsw
+	rxtyp$	< IOSB: >
+	movb	r$xisb,r1
+	call	rx$sgn r1
+	rxtyp$	< CNT: >
+	rxoct$	r$xisb+2
+	rxprt$	<>
+10$:
+  end
+
+  proc	rx$sgn
+	p1	val
+	mov	val(sp),r1
+	bpl	10$
+	rxtyp$	<->
+	neg	r1
+10$:	call	rx$oct r1
+  end
+
+  proc	rx$oct	<r0..r5>
+	p1	val,r1
+	call	er$oct
+  end
+
+rx$typ::psh	r0
+10$:	bleb	(r1),20$
+	.ttyout	(r1)+
+	br	10$
+20$:	bmi	30$
+	.print	#40$
+30$:	bitb	(r1)+,(r1)+
+	bic	#1,r1
+	pop	r0
+	rts	r1
+40$:	.byte	0,0
+.sbttl	pack/unpack rad50 word, move block 
+
+;	r0 =	rad50 word
+;	r1 ->	past input
+
+	.enabl	lsb
+  proc	rx$pck	<r2,r4>
+	p1	ipt,r4
+	mov	#10$,r2
+	call	cs$r50
+	mov	r4,r1
+	mov	10$,r0
+  end
+10$:	.word	0
+	.dsabl	lsb
+
+	.enabl	lsb
+  proc	rx$unp	<r0..r5>
+	p1	rad,r4
+	p2	opt,r1
+	mov	#100$,r3	; get the divisors
+20$:	mov	#-1,r0		; init the result
+				; wildcard check removed
+30$:	inc	r0		; next character
+	sub	(r3),r4		; this it?
+	bcc	30$		; nope
+	add	(r3),r4		; bump back
+	tst	r0		; a null?
+	beq	90$		; yep, forget it
+	cmp	#^o33,r0	; nah?
+	blo	70$
+	beq	80$
+50$:	add	#^o56,r0
+70$:	add	#^o11,r0
+80$:	add	#^o11,r0
+	cmp	r0,#32.
+	beq	90$
+	movb	r0,(r1)+	; store it
+90$:	tst	-(r3)		; any more?
+	bne	20$		; yep
+	clrb	(r1)
+   end
+	.word	0,1,^o50
+100$:	.word	^o50*^o50
+	.dsabl	lsb
+
+;	clear/move block
+
+  proc	rx$mvb	<r2..r5>
+	p1	src,r2		; #0 => clear block
+	p2	dst,r3
+	p3	cnt
+
+	mov	cnt(sp),r4
+	beq	40$
+10$:	bnew	r2,20$
+	clrb	(r3)+
+	br	30$
+20$:	movb	(r2)+,(r3)+
+30$:	sobw	r4,10$
+40$:
+  end
+.if ne cmp$c
+.sbttl	save & compare low memory
+
+;	Debug code
+
+	lim =	^o1000
+	gap =	32.*2
+
+  proc	rx$sto	<r0,r1,r2>
+	stack	r0,r1,r2,ret
+	inc	l$msem
+	bne	30$
+	mov	sp,l$msig
+	clr	r0
+	mov	#l$mbuf,r1
+20$:	mov	(r0)+,(r1)+
+	blow	r0,#lim,20$
+
+	mov	sp,r2
+	add	#sp.ret+2,r2
+	mov	r2,l$mbas
+	sub	#gap,r2
+	mov	r2,l$mgap
+	off =	sp.ret+2+gap
+30$:
+  end
+
+  proc	rx$cmp	<r0,r1,r2>
+	rol	r3			; save c bit
+	bnew	sp,l$msig,40$		; not matching call
+	clr	r0
+	mov	#l$mcmp,r1
+5$:	mov	(r0)+,(r1)+
+	bnew	r0,#lim,5$
+	mov	#l$mbuf,r0
+	mov	#l$mcmp,r1
+	clr	r2
+10$:	beqw	r2,#<^o46>,20$
+	beqw	(r0),(r1),20$
+	rxtyp$	<ADR: >
+	rxoct$	r2
+	rxtyp$	< OLD: >
+	rxoct$	(r0)
+	rxtyp$	< NEW: >
+	rxoct$	(r1)
+	rxtyp$	< STK: >
+	rxoct$	l$mbas
+	rxprt$	<>
+	bpt
+20$:	cmp	(r0)+,(r1)+
+	tst	(r2)+
+	bnew	r2,l$mgap,30$
+	add	#off,r0
+	add	#off,r1
+	add	#off,r2
+30$:	blow	r2,#lim,10$
+	dec	l$msem
+40$:	ror	r3
+  end
+
+l$msem:	.word	-1
+l$msig:	.word	0
+l$mbas:	.word	0
+l$mgap:	.word	0
+l$mbuf:	.blkb	lim
+l$mcmp:	.blkb	lim
+.endc
+.end
+

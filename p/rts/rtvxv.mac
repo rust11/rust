@@ -1,0 +1,164 @@
+;nfcod.
+for$c=0
+.title	rtvxv - RTX.TSK VX: driver
+.include "lib:rust.mac"
+.library "rtb:rtmac.mlb"
+.library "lib:drvmac.mlb"
+.library "lib:sm.mlb"
+$chdef
+;$dcdef
+$ehdef
+$dedef
+$drdef
+$hkdef
+$iqdef
+$jbdef
+$rmdef
+$rsdef
+$vadef
+$vvdef
+rxdef$
+rxrtx$
+rxacp$
+smini$
+
+;	%build
+;	macro	drs:vxv/object:drb:
+;	link	drb:vxv/execute:drb:vxv.sys/nobitmap
+;	%end
+
+	mmg$t	= 0
+	erl$g	= 0
+	tim$it	= 0
+	rte$m	= 0
+	$csr=0
+	vx$vec	= 0
+	vxsts	= despc$!defun$!dehab$!degab$
+	vxdsiz	= ^o177777
+;reassign registers
+.sbttl	driver
+
+;	See RTS:RTFAP.MAC for the RSX-11 adapation
+;
+;	r5 ->	vab
+;	r4 ->	cab
+;	r3 ->	qel
+;	r2 ->	csw
+;	r1 =	fun
+
+	.drbeg	vx
+	jmp	vx$iop			;
+v$xvab::.blkb	vx.bbs			; common vab
+	assume	vx.bbs lt 32.		;
+	.   =	v$xvab+32		; compatibility with something?
+vx$iop:	mov	vxcqe,r3		;
+	.if ne for$c
+	clr	r0			; flags
+vx$for:	mov	#v$xvab,r5		; VAB
+	assume	vx.flg eq 0		;
+	mov	r0,(r5)			; faFOR$ or zero
+	.iff
+	mov	#v$xvab,r5		; VAB
+	clr	(r5)			; clear flags
+	.endc
+					;
+	mov	r3,vx.qel(r5)		; save queue element
+	movb	iq.fun(r3),r1		; r1 = function
+	mov	r1,vx.fun(r5)		; pass function
+					;
+	mov	iq.csw(r3),r2		; r2 -> channel
+	mov	r2,vx.csw(r5)		; save csw address
+
+	mov	iq.buf(r3),r0 		;
+	mov	r0,vx.buf(r5)		; -> buffer
+	mov	6(r0),vx.dev(r5)	; =  penultimate
+	bnew	vx.fun(r5),#rsREN.,5$	;
+	mov	6+8(r0),vx.dev(r5)	; = rename penultimate
+					;
+5$:	mov	iq.wct(r3),vx.cnt(r5)	; word count 
+	mov	iq.blk(r3),vx.blk(r5)	; I/O block
+	sub	ch.sbl(r2),vx.blk(r5)	; remove channel offset
+	beqw	r1,#rsCLO.,10$		;
+	bnew	r1,#rsCLZ.,15$		;
+10$:	mov	ch.use(r2),vx.blk(r5)	; use high block
+					;
+15$:	clr	vx.wlk(r5)		; directory walk control
+	bpcw	#csWLK$,(r2),20$	; not a directory walk
+	bis	#vxWLK$,vx.wlk(r5)	;
+20$:	bpcw	#csSUB$,(r2),30$	; not a sub-directory
+	bis	#vxSUB$,vx.wlk(r5)	;
+					;
+30$:
+	.if ne for$c
+	assume	faFOR$ eq <^o100000>	;
+	bmiw	(r5),35$		; foreign disk
+	.endc
+	mov	(r2),r0			; get csw
+	bic	#csin$n,r0		; isolate slot
+	cmp	r0,#4			; our slot?
+	beq	35$			; yes
+					; queue element came from LD:
+	mov	iq.fun(r3),r0		; get LD: unit record
+	clr	iq.fun(r3)		; function is always read/write
+	clr	vx.fun(r5)		; function is always read/write
+	movb	vv.uni(r0),iq.uni(r3)	; get the translated unit
+	mov	vv.off(r0),r4		; get the channel id/cab
+	br	36$			;
+					;
+35$:	mov	r2,r0			; r0 -> csw
+	call	rx$c2o			; csw to ordinal
+	call	rx$o2l			; ordinal to cab/lun
+	mov	r0,r4			; r4 -> cab
+ 
+36$:	mov	r4,vx.cab(r5)		; cab
+	mov	ca.lun(r4),vx.lun(r5)	; get lun #
+
+;	r5 ->	vab
+;	r4 ->	cab
+;	r3 ->	queue element
+
+	call	fa$acp r5		; call FAP
+					;
+	mov	vx.qel(r5),r4		; r4 -> qel
+	mov	vx.csw(r5),r3		; r3 -> channel
+					;
+	bneb	vx.sta(r5),40$		; some error
+	assume	vx.flg eq 0		;
+	beqw	vx.fun(r5),#rsLOO.,37$	;
+	bnew	vx.fun(r5),#rsENT.,40$	;
+37$:	mov	vx.cab(r5),ch.sbl(r3)	;
+	mov	vx.cnt(r5),ch.len(r3)	; setup channel
+	mov	vx.cnt(r5),iq.wct(r4)	;
+	bis	#csTEN$,(r3)		; force close to us
+;	mov	vx.fmt(r5),ch.use(r3)	; for lookup
+
+40$:	movb	vx.sta(r5),r1		; get result status
+	bnew	r1,#faIOX.,50$		;
+	bis	#csHER$,(r3)		;
+	br	70$			;
+	assume	vx.flg eq 0		;
+50$:	bpcw	#faSPU$,(r5),60$	; not spusr
+	mov	r1,r$mspu		;
+	br	70$			;
+60$:	beqw	r1,70$			; no error
+	bis	#csEOF$,(r3)		; EOF at least
+70$:	.drfin	vx			;
+	.drast	vx,0			;
+	return				;
+
+;	Called for every .SRESET/.HRESET
+
+vx$rst::vehoo$	v$xrst			; reset hook
+	call	fa$rst #16.		; reset cabs
+	jmp	@v$xrst			; chain
+
+;	.drend vx
+
+	.psect	vxdvr
+vx$end:
+$inptr:	.word	0
+$fkptr:	.word	0
+vxend:
+
+	.end
+

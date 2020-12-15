@@ -1,0 +1,167 @@
+.title	rtsys - RUST system routines
+.include "rts:rtdef.mac"
+.psect	sys
+$fkdef
+$iqdef
+$vedef
+$psdef
+rpdef$
+lsini$
+
+.sbttl	queue operations
+
+qu$ini::mov	#q$uqel,r5	; init queues
+	clr	q$ufre		; no free elements
+10$:	call	qu$fre		; insert one
+	add	#rp.bbs,r5	; point to next
+	blow	r5,#q$upen,10$	; not at penultimate
+	fall	qu$fre		; do the last and return
+				;
+qu$fre::clr	qcm(r5)		; clear the status bits
+	clr	qer(r5)		; starts at zero
+	call	sy$sp7		; spl 7 co-routine
+	mov	(pc)+,(r5)	;
+q$ufre:	.word	q$uqel		;
+	mov	r5,q$ufre	;
+	jmp	@(sp)+		; spl 0 and return
+
+qu$rty:	call	@(sp)+		; spl 0 - retry
+qu$req::call	sy$sp7		; spl 7 - request
+	mov	q$ufre,r5	;
+	beq	qu$rty		; go down and retry
+	mov	(r5),q$ufre	;
+	jmp	@(sp)+		; spl 0 and return
+.sbttl	inten, synch, fork
+
+;	jsr	r5,sy$int
+;	...
+;	r5/r4 saved
+
+sy$int::inc	(pc)+		; set interrupt state
+s$yint::.word	-1		;
+	psh	r4		;
+lsi	mfps!4,42504,mtps!4	;\mfps r4, bic (r5)+,r4, mtps r4
+	mov	(r5)+,r4	;|get it
+	bicb	r4,@#j$bpsw	;/clean up the ps
+	call	(r5)		; call user
+				;
+10$:	mov	#f$kcqe,r5	;
+	spl	7		;
+	bnew	s$yint,40$	; not the last
+	mov	(r5),r4		; process forks
+	beq	40$		; nothing to do
+	mov	(r4),(r5)	; link forward
+	bne	20$		; not the last
+	mov	r5,f$klqe	; set up lqe
+20$:	spl	0		;
+	save			;
+	clr	(r4)+		; fk.nxt - clear the link
+	mov	(r4)+,r3	; fk.fpc - r3 -> routine
+	beq	30$		; oops, its been aborted
+	mov	(r4)+,r5	; fk.fr5 - get fork user r5
+	mov	(r4),r4		; fk.fr4 - get fork user r4
+	call	(r3)		; call fork user
+30$:	restore			;
+	br	10$		;
+40$:	tst	t$eccc		; abort pending?
+	bpl	50$		; nope
+	jmp	ex$abt		; yes
+50$:	pops	<r4,r5>		;
+	dec	s$yint		; benign race here	
+	rti
+
+;	mov	#synblk,r4
+;	jsr	r5,sy$syn
+;	br	error
+;
+;	r5..r0 saved
+
+	.word	e$hnet		;\KMON locates $net via this
+sy$syn::cmp	(sp)+,(r5)+	;/forget r5 and error return
+	spl	0 		; work at br0
+	save			; we save the lot
+	mov	iq.sr0(r4),r0	; supply user r0 word
+	jmp	(r5)		; goto user, returns for us
+
+;	These revectoring routines must immediately precede sy$frk
+;	so that CONSOL.SAV may locate them.
+;
+;	Normalise a KW11P programmable clock interrupt by passing
+;	control via the standard vector. This technique allows the
+;	standard vector to be remapped.
+
+sy$clk::jmp	@v$eclk		; transfer trap
+sy$kbd::jmp	@v$ekbd		; transfer  keyboard interrupt
+	assume . eq sy$frk	; don't move sy$frk - see above
+
+;	jsr	r5,sy$frk
+;	.word	frkblk-.
+;	code
+
+;	Standard fork
+;	Call in system/fork state
+;
+;	jsr	r5,fk$enq
+;	.word	.-frkblk
+
+sy$frk::psh	r4		; fork enqueue
+	stack	r4 r5 rou	;
+	mov	r5,r4		; point to the block
+	add	(r5)+,r4	; add in the pic offset
+	add	#fk.bbs,r4	; point to last word of element
+	pop	-(r4)		; store r4
+	pop	-(r4)		; store r5
+	mov	r5,-(r4)	; store fork goto address
+	clr	-(r4)		; clear the fork link
+	mov	#f$klqe,r5	; r5 -> cqe, lqe
+	call	sy$mfp		; get psw
+	spl	7		; go up
+	mov	r4,@(r5)+	; pr7> link from last element
+	mov	r4,-(r5)	; pr7> update last pointer
+	call	sy$mtp		;\restore ps
+	return			;/
+	.dsabl	lsb
+.sbttl	save/restore, clear, spl 7
+
+;	save/restore registers
+;
+;	jsr	r5,sy$sav
+
+sm$s05::
+sy$sav::pshs	<r4,r3,r2,r1,r0,r5>
+	stack	ret,r0,r1,r2,r3,r4,r5
+	mov	sp.r5(sp),r5
+	call	@(sp)+
+	pops	<r0,r1,r2,r3,r4>
+sy$r5r:	pop	r5
+	return
+
+;	jsr	r5,sy$res
+
+	stack	x5,rt2,r0,r1,r2,r3,r4,r5
+sy$res::bit	(sp)+,(sp)+
+	pops	<r0,r1,r2,r3,r4>
+	rts	r5
+
+;	clear 4
+;
+;	jsr	r2,sy$cl4
+;	.word	address of area to clear
+;
+;	jsr	r2,zp$p4 
+;	r3	address
+
+sy$cl4::mov	(r2)+,r3	; get the address
+sy$zp4::jsr	r2,(pc)		; do it twice
+	clr	(r3)+		; clear it
+	clr	(r3)+		; 
+	rts	r2		; and return
+
+sy$sp7::spl	7		; spl 7 co-routine
+	call	@(sp)+		; co-routine return
+	spl	0		; c=0
+	return
+
+lsend$
+.end
+

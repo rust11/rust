@@ -1,0 +1,182 @@
+.title	rterr - rust/sj errors and exceptions
+.include "rts:rtdef.mac"
+.psect	err
+dmp$c=0		; new dump code
+dbg$c=0		; debug
+$codef		; console
+$jbdef		; command files
+sjdef$		; RUST/SJ 
+
+;	RUST/SJ system error processing and related
+
+.sbttl	kaput fpu/fis hard/soft .print/abort/print
+
+ve$bus::			;c=0
+ve$cpu::			;c=1
+	.if ne dbg$c
+	mov	r3,d$br3
+	mov	r2,d$br2
+	mov	sp,d$bsp
+	.endc
+	bit	#177400,sp	;c=?> is the stack shot ?
+	bne	10$		;c=?> nope
+	clr	r3		;c=?>
+	mov	sp,r2		;c=?> shot SP is value
+	sec			;c=1>
+	br	30$		;c=1>
+10$:	psh	s$ybus		;c=?> get the user intercept
+	beq	20$		;c=?> forget it, no intercept
+	mov	#0,s$ybus	;c=?> clear ohne c bit change
+	jmp	@(sp)+		;c=?> goto to user service
+20$:	mov	(sp),(sp)+	;c=?> pop ohne c bit change
+	mov	(sp),r2		;c=?> get the faulty pc in r2
+	mov	#4,r3		;c=?> assume to four
+	bcc	30$		;c=0> it was a trap to 4
+	asl	r3		;c=1> is was to 10
+				;c=0>
+30$:	mov	s$ylow,sp	;c=?> get a usable stack
+	mov	sp,j$busp	;c=?> reset user stack
+	.if ne dbg$c
+	jmp	db$bus
+	.endc
+	bcs	40$		;c=1> stack error
+	jsr	r0,er$abt	;c=0> go print the rest
+	.ascii	/Trap to /<200><0>
+
+40$:	jsr	r0,er$abt
+	.ascii	/Stack error /<200><0>
+
+	.enabl	lsb
+ve$fpu::stst	-(sp)		; fpu trap entry (rtboo adjusts for fis)
+ve$fis::psh	s$yfpu		; fis trap entry, get the goto
+	clr	s$yfpu		; once only flag
+	bic	#1,(sp)		; zero or one is nothing
+	bne	er$rtn		; goto the user
+	.abort	<FPU Trap>	; great fpu handling
+.sbttl	print, fatal, report, unpack
+
+ss$prt::mov	r0,r4		; RT-11 .print
+	.if ne dmp$c
+;	TBS
+	.iff
+	tst	e$hkma		; kmon in?
+	bne	10$		; yep
+	cmp	r4,#r$mmon	; one of ours?
+	blo	20$		; nope
+10$:	mov	#ru.,r1		; ignore our rubouts
+20$:	call	te$prt		; go print it
+	br	30$		; restore r0
+	.endc
+ss$pri::call	10$		; go print it
+	mov	r4,20(sp)	; new return for print
+30$:	mov	4(sp),r0	; restore r0
+er$rtn:	return			; print return, abort shake
+	.dsabl	lsb
+
+ss$fat::mov	#er$sev-ex$abt,r1; return via severe (in rtcsi.mac)
+ss$abt::add	#ex$abt,r1	;return to abort
+	mov	r1,(sp)		; fudge return address
+	mov	20(sp),r0	; get the string
+er$hdr:	.rctrlo			; make it print
+	.feed			; with a preceding newline
+er$rep::type	<?RUST-F->	; report error
+	bitb	#40,(r0)	; is it invalid?
+	beq	10$		; nope
+	type	<Invalid >	; type the first part
+10$:	mov	r0,r1		; save the pointer
+	movb	(r1)+,r0	; get first character
+	bic	#200,r0		; clean it up
+	.ttout			; out
+	mov	r1,r0		; get back string (incremented)
+	.print			; now print the rest
+	tstb	-(r1)		; need a filename?
+	bpl	er$rtn		; nope
+	fall	er$nam
+
+	.enabl	lsb
+er$nam::mov	#c$sfil,r2	; display file name
+	psh	#te$new		; feed when done
+	type	< >		; get a space
+	call	er$unp		; unpack 1
+	type	<:>		; and type a :
+	tst	(r2)		; got a name?
+	beq	100$		; nope
+	call	er$unp		; yep
+	call	er$unp
+	type	<.>		; put in a dot
+
+er$unp:	mov	(r2)+,r4	; get the word
+	mov	#110$,r3	; get the divisors
+20$:	mov	#-1,r0		; init the result
+				; wildcard check removed
+30$:	inc	r0		; next character
+	sub	(r3),r4		; this it?
+	bcc	30$		; nope
+	add	(r3),r4		; bump back
+	tst	r0		; a null?
+	beq	90$		; yep, forget it
+	cmp	#33,r0		; nah?
+	blo	70$
+	beq	80$
+50$:	add	#56,r0
+70$:	add	#11,r0
+80$:	add	#11,r0
+	.ttou			; type it
+90$:	tst	-(r3)		; any more?
+	bne	20$		; yep
+100$:	return
+	.word	0,1,50
+110$:	.word	50*50
+	.dsabl	lsb
+
+;	"Invalid " is prefixed to messages starting with a lowercase letter.
+
+e$rhrd:	.ascii	/Gulp/<200><200>/device/<200>"Dir I/O"<200>/fetch/<200><200>
+	.ascii	/Dir full/<200>/addr/<200>/chan/<200>/emt/<200>
+	.ascii	<200><200>/dir/<200>
+	.even
+.sbttl	hard/soft errors, octal
+
+;	Continuation of .HARD, EMT 377
+
+er$hrd::mov	#e$rhrd,r0	; get the hard error list
+	neg	r1		; in case its out of range
+	clr	r3		; signal no number
+	cmpb	r1,#14		; is it in range?
+	bhi	er$abt		; nope, its '??'
+10$:	tstb	(r0)+		; skip to next
+	bpl	10$		; keep skipping
+	decb	r1		; get the next
+	bne	10$		; another
+
+er$abt:	call	er$hdr		; print the fatal header
+	mov	r3,r1		; is there a number
+	beq	10$		; nope
+	call	er$oct		; print the number
+10$:	type	< >		; preface the pc
+	mov	r2,r1		; get the pc
+	call	er$oct		; display pc
+	.feed			; and put a line in
+	jmp	ex$abt		; and abort them
+
+;	r1	number
+;	r2/r5	safe
+
+er$oct::mov	#111111,r3 	; loop control.
+	clr	r4		; their once was a glichette named brigette
+10$:	clr	r0		; who fancied the occasional fidget
+20$:	asl	r1		; well, its fetch a bit here
+	rol	r0		; and fudge a bit there
+	asl	r3		; when it itches, ya just find ya digit
+	bcc	20$		; keep fiddling
+	beq	30$		; must print the final digit
+	bis	r0,r4		; set the print flag
+	beq	10$		; nothing to print so far
+30$:	add	#'0,r0		; start or continue printing
+	.ttou			; print the digit
+	tst	r3		; done all digits ?
+	bne	10$		; nope, go scritch it
+	return
+
+.end
+

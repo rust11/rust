@@ -1,0 +1,382 @@
+; change last te$cas to te$rc0
+.title	rtter - rust/sj terminal
+.include "rts:rtdef.mac"
+.psect	ter
+ctc$c=0		; 1 => [ctrl/c] ast support--never enabled
+sys$c=0		; 1 => ^C^C can abort system state (can hang system)
+$cfdef
+$codef
+$jbdef
+$jsdef
+$psdef
+sjdef$
+lsini$
+
+;	RUST/SJ resident terminal support
+;
+;	Ancient module from 1979 mostly.
+;	Some code is redundant when SL is loaded and SL is almost always loaded.
+;	[ctrl/o] is vestigal.
+
+set	bl  7, bs 10, ht 11 am 33, ru 177
+set	ca  1, cc  3, co 17, cq 21, ff 14
+set	cs 23, cu 25, cz 32, lm 128., $ 200
+
+meta <case b c a> <cmpb c,r0> <b a> 
+meta <tepos$ f,o,p> <jsr r5,te$pos><.byte f,o><.word p>
+meta <echo a,b=0><jsr r2,te$ech><.byte a,b>
+
+meta <flag c d e f g h i j><c=$><$=$/2><.iif nb <d>,flag d e f g h i j>
+meta <go c d e f g h i j><.byte c-$dual><.iif nb <d>,go d e f g h i j>
+meta <char c,a,f><.byte f,a-$dual,c>
+
+t$eact:
+$acts:	go	$pull $put $call $mute $call $echo $feed
+.byte	0
+t$echa:
+$chars:	flag	 pull  put .call  mute  call. echo  feed.
+
+char	cq	$cq	.call			;
+char	cs	$cs	.call
+char	co	$co	.call!echo!feed.
+char	cc	$cc	.call!echo!feed.
+char	cu	$cu	pull!mute!echo!feed.	;above must precede rubout
+char	ru	$ru	pull
+char	cr	$cr	put!.call!mute!feed.
+char	ht	$lf	put!mute!call.
+char	lf	$lf	put!mute!call.
+char	0	$dual	put!mute!echo		;must be last
+meta char
+meta flag
+meta go
+
+map	rb.ipt,2,0
+map	rb.cnt
+map	rb.opt
+map	rb.bbs
+
+set	li 0, lc 2, lo 4
+t$erng:	.blkb	rb.bbs		;\ see sy$cl4
+t$eccc::.word	0		;/ whack
+.sbttl	console, keyboard interrupt handler
+
+; ???	optimise with t$eccc in register
+
+	.enabl	lsb
+ve$tks::save			; save everything
+	call	tk$get		; get tkb in r0 and disable
+	spl	0		; for LSIs
+	bic	e$htmk,r0	; 7/8 bit mask
+	beq	20$		; ignore nulls
+	bit	#jsttl$,@#j$bjsw; impure> SET TT LC looks for JSW
+	br	10$		; impure> default is lower
+	call	te$upr		; convert the character
+10$:	call	te$lex		; handle other things
+	.if ne sys$c		; disabled because it can hang system 
+	tst	s$yint		; in system state?
+	bpl	20$		; yes - don't abort
+	.endc
+	tst	t$eccc		; abort?
+	bmi	30$		; yes
+20$:	spl	7		; back up
+	call	tk$enb		; enable terminal
+	jmp	em$rti		; restore and rti
+30$:	jmp	ex$abt		; clobber them
+	.dsabl	lsb		;
+ 
+te$lex:	mov	#t$echa,r1	; search for it
+	mov	#t$eact,r3	;
+10$:	clr	r2		; for the sign extend
+	bisb	(r1)+,r2	; get the mask
+	movb	(r1)+,r5	; get the offset
+	beq	20$		; its this one
+	cmpb	(r1)+,r0	; is this the character?
+	bne	10$		; check the next
+20$:	movb	(r3)+,r4	; get the routine offset
+	beq	30$		; c=0> no more
+	aslb	r2		; c=?> check the next bit
+	bcc	20$		; not this one
+	call	te$spc		; some need this
+	call	$dual(r4)	; and go to them
+	bcc	20$		; more
+30$:	return			; done
+
+$pull:	bne	$put		; ru/cu put/call
+$call:	jmp	$dual(r5)	; dispatch the user call
+$cs:	mov	#br+<te$rc1-<ss$tto+2>/2&377>,ss$tto
+	br	te$lc1
+$cq:	mov	#nop,ss$tto
+	br	te$lc1
+$cr:	mov	#lf,r0		; fudge lf, skip rubout check
+$put:	bne	$putc		; ignore it in special mode
+	tst	t$tcfg		; in scope mode?
+	bmi	$putc		; yes, ignore it
+	tstb	t$eccc		; was the last a rubout?
+	bpl	$putc		; nope
+	echo	'\		; put a backslash out
+$putc:	movb	r0,t$eccc	; and remember it
+	tepos$	sjBUF.-1,0,t$erng+li ; get and check
+	beq	10$		; wont fit
+	movb	r0,(r4)+	; and store the byte
+	inc	t$erng+li
+	incb	t$erng+lc
+	call	te$lcz		; is it end of line?
+	bne	te$lc0		; nope
+	incb	t$erng+lc+1	; another line
+	br	te$lc0		; its o.k.
+10$:	echo	'G-100		; ring the bell
+	br	te$lc1
+$feed:	mov	#cr*400+lf,r0	; to print cr/lf
+	br	$dual
+
+$echo:	cmpb	r0,#am		; this an altmode?
+	bne	10$		; nope
+	movb	#'$,r0		; yes, replace it with a dollar
+10$:	cmpb	r0,#40		; is it control character?
+	bhis	$lf		; nope
+	cmpb	r0,#ht		; between tab & lf (11 and 15)?
+	blo	20$		; nope, type ^% form
+	cmpb	r0,#cr		; really? (only catching ht,vt and ff)
+	blos	$lf		; yep, send it normal
+20$:	add	#"@^,r0
+$dual:	call	(pc)		; do it twice
+	swab	r0
+$lf:	br	te$fmx		; format it and put
+$cu:	call	te$rub		; rub one out
+	bcc	$cu		; more to do
+	mov	#'U-100,r0	; reset the character
+	br	te$lc0		; done
+$co:	com	t$eco
+	br	te$lc0
+$cc:	cmpb	r0,t$eccc	; double ^c?
+	bne	20$		; nope
+	mov	#nop,ss$tto	; enable terminal output
+	mov	s$yscc,r4	; get a ctrlc ast pointer
+	bne	10$		; its the users
+	mov	#t$eccc,r4	; use ours
+10$:
+.if ne ctc$c			; disabled ctrl/c ast code
+	ror	r4		; flag or routine?
+	bcc	15$		; flag
+	asl	r4		; routine - remove bit flag
+	call	(r4)		; call user ast
+	br	20$		;
+15$:	asl	r4		; restore flag address
+.endc
+	bis	#100000,(r4)	; set the bit
+20$:	call	$putc		; shove it in
+	tst	t$eccc		; are we aborting?
+	bmi	30$		; yes - dont check line editor
+	call	te$sp2		; check for line editor
+	bne	te$lc1		; let it handle it
+30$:	tst	s$yscc		; is it ours
+	beq	te$lc0		; yes, echo it
+	call	te$spc		; special mode?
+$mute:	bne	te$lc1		; its special mode
+te$lc0:	tst	(pc)+		; return carry clear
+sy$rc1::
+te$lc1:	sec			; return carry set
+	return
+$ru:	bisb	r0,t$eccc	; prepare a flag				;?13
+	call	te$rub		; what do we have?
+	bcs	$feed		; nothing, go clean up and feed
+	tst	t$tcfg		; something, using the scope?
+	bmi	20$		; yes
+	aslb	t$eccc		; is it the first?
+	bcs	10$		; nope
+	echo	'\		; and dump the sign
+10$:	br	$echo		; convert and echo it
+20$:	echo	40,bs		; scope, echo bs,40
+	mov	#bs,r0		; and another bs
+te$fmx:	br	te$fmt		; bs
+
+te$ech:	psh	r0		; save r0
+	mov	(r2)+,r0	; get the one to echo
+	call	$dual		; do perhaps two
+	pop	r0		; restore our guy
+	rts	r2		; and exit
+.sbttl	tty in/out
+
+;	ttyout c=1 return, ff handling
+;	ttin always picks up from command files
+;
+;	take out te$rlc checks
+
+	.enabl	lsb
+ss$tin::call	10$		; get another
+	bcs	ss$tin		; wait for it
+	call	te$rlc		; check cr,lf,cc
+	bvs	ss$tin		; its cr
+	bpl	te$cas		; not lf
+	clr	r0		; lf => 0
+	br	te$rc1		; done
+
+ss$tti::bit	#cfdcl$!cftti$,r$mcfs; command file input allowed?
+	bne	20$		; nope
+10$:	call	@e$hjob		; yep - call command file
+	bcc	40$		; they got a character for us
+20$:	clc			; try for one here
+	call	@e$hled		; try the command editor
+	bcc	te$cas		; we just got one there
+	tepos$	0,0,t$erng+lo	; get next character from ring buffer
+	beq	te$rc1		; nothing there
+	movb	(r4),r0		; get the character
+	call	te$spc		; special mode ?
+	bne	30$		; yes
+	tstb	t$erng+lc+1	; line mode; is there a line ?
+	beq	te$rc1		; nope
+30$:	decb	t$erng+lc	; one less character
+	inc	t$erng+lo	; point past character
+	call	te$lcz		; check for cc or lf
+	bne	40$		;c> not lf or cc
+	decb	t$erng+lc+1	;c> one less line
+40$:	bcs	te$exi		;c=1 => just got a ^C
+
+te$cas:	tst	r$mcfs		; is $dcls set?
+	bpl	50$		; nope
+	bit	#jsttl$,j$bjsw	; are we in lower case mode?
+	bne	50$		; yes - treat normally
+	call	te$upr		; nope - force upper case
+te$rc0:
+50$:	tst	(pc)+		; clear the c bit
+te$rc1:	sec
+	return
+te$exi:	tst	s$yscc		; user in control?
+	bne	te$cas		; yes
+	call	te$zap		; nope - abort any command file
+	.exit			; bomb the program
+	.dsabl	lsb
+.sbttl	output
+
+te$ous:	save			; ttous is used to reduce overheads
+ss$tou::call	ss$tto		; we dont use .ttyout because
+	bcs	ss$tou		; we have pushed sp far enough
+	return
+
+	.enabl	lsb
+ss$tto::nop			; impure> changed to br te$rc1
+te$fmt:	psh	r0		; save the character (format output)
+	tstb	t$eco		; ^O active?
+	bne	50$		; yes, that was fast
+	bic	e$htmk,r0	; clean it up
+	cmpb	r0,e$hffd	; $form=ff => SET TT NOFORM
+	beq	50$		; ignore it
+	cmpb	r0,e$htab	; e$htab=0 => SET TT TAB
+	bne	20$		; nope
+10$:	mov	#40,r0		; use a space
+	call	te$fmt		; echo it
+	bit	#7,t$etab	; any more?
+	bne	10$		; yes
+	br	50$		; done
+20$:	call	@e$hphy		; type the character
+	mov	#1,r4		; compute the position
+	cmpb	(sp),#40	; printable?
+	bhis	40$		; yes
+	cmpb	(sp),#bs	; going backwards?
+	beq	30$		; yep
+	call	te$rlc		; check these guys
+	bmi	50$		; lf
+	bvc	50$		; not cr
+	mov	(pc)+,r4	; clear the count
+t$etab:	.word	0		; tab count
+30$:	neg	r4		; reverse it
+40$:	add	r4,t$etab	; and ding it
+50$:	pop	r0		; restore the character
+	br	te$cas		; go back
+	.dsabl	lsb
+.sbttl	utility routines
+
+;	te$prt - print string
+;
+;	Early space optimisations included stuffing internal
+;	print strings with code 127. ("rubout") to avoid the two
+;	or three words of code required to even a string up.
+;	This optimisation continues to exist.
+;
+;	r1=0	external string
+;	r1=127.	internal string
+;	r4 ->	string
+
+	.enabl	lsb
+10$:	beqb	r0,#128.,te$cas	; null end
+	beqb	r0,r1,te$prt	; monitor padding character
+	call	te$ous		; do it fast
+te$prt::movb	(r4)+,r0	; get the next character
+	bne	10$		; crlf required
+	fall	te$new		;
+	.dsabl	lsb
+
+ss$new::
+te$new::type	&<cr><lf>&
+	br	te$rc0
+
+meta <status c,d><.iif nb <c>,.word c><.iif b <d>,return>
+	.enabl	lsb
+te$rlc:	case	beq #cr 10$	; cr (check cr, lf, cc)
+te$lcz:	case	beq #cz 40$	; cz (check lf, cc, cz)
+te$lfc::
+lfcc:	case	beq #lf 20$	; lf
+	case	beq #cc 30$	; cc
+	status	cln!clz!clv!clc ; z=0 not found
+10$:	status	sev		; z=1 v=1 cr
+20$:	status	sen		; z=1 n=1 lf
+30$:	status	sec	fall	; z=1 c=1 ^C
+40$:	status			; z=1     ^Z
+meta status
+
+te$rub:	tepos$	0,-1,t$erng+li	; position  <rubout a character>
+	beq	50$		; nothing to delete
+	movb	(r4),r0		; get it
+	call	te$lcz		; and check for line end
+	beq	50$		; cant rub eol
+	dec	t$erng+lc	; go backwards
+	dec	t$erng+li	;
+	return
+50$:	clrb	t$eccc		; clean this guy up
+	br	30$		; go out with c=1
+	.dsabl	lsb
+
+; tepos$, compute a position in the input ring buffer
+;
+;	jsr	r5,te$pos
+;	.byte	limit value
+;	.byte	offset
+;	.word	pointer to base index
+
+te$pos:	movb	(r5)+,-(sp)	; save the fail count
+	movb	(r5)+,r4	; get the offset
+	add	@(r5)+,r4	; get the next position
+	bic	#^c177,r4	; even it up
+	add	#t$ebuf,r4	; and form the address
+	cmpb	t$erng+lc,(sp)+	; count fail?
+	rts	r5		; >> z=1, fail count true
+
+	.enabl	lsb
+te$spc:	bit	#jstts$,j$bjsw	;c> is it special mode ?
+	bne	10$		;c> yes
+te$sp2:	psh	#te$lc1		;c> compare retaining c-bit
+	adc	(sp)		;c> address always even
+	sub	e$hled,(sp)	;c> subtract line editor address
+	asr	(sp)+		;c> set z and c appropriately
+10$:	return			;c> >> z=?
+	.dsabl	lsb
+
+te$ini::jsr	r2,sy$cl4	; clear the ringbuggers
+	.word	t$erng		;
+te$zap::clr	e$hjoc		; abort any command file
+	call	@e$hjob		; and remove them
+	call	@e$hled		;
+ss$rco::clrb	(pc)+		; and reset control O
+t$eco:	.word	0		; control O flag
+	return
+
+te$upr::cmpb	r0,#'a		; is it lower case?
+	blo	10$		; its too low for lower
+	cmpb	r0,#'z		; nah?
+	bhi	10$		; its too high
+	bic	#'a-'A,r0	; strip case
+10$:	return			; go back
+
+lsend$
+.end
+

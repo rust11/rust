@@ -1,0 +1,126 @@
+	L I M B O
+
+.title	rtvas - create RT-11 virtual address space
+
+;	RUST/SJ: create psuedo MMU user mapping
+;	RUST/XM: map I/O space
+;
+;	Implementing basic memory management in RUST/SJ is fairly easy.
+;	The separate user/kernel mode stack is the one wrinkle.
+
+rt.sav::call	cc$sav
+	mov	#r$tvas,r2		;
+	mov	@#v$emmu,(r2)++		;
+	mov	@#ps,(r2)++		;
+	mov	@#m$msr0,(r2)++		;
+v$m22s:	mov	@#m$msr3,(r2)++		;
+	mov	#m$uip0,r0		; user pars
+	mov	#8.,r1			; eight of them
+10$:	mov	(r0)+,(r2)++			; save them
+	sob	r1,10$			;
+	mov	sp,v$mstk		; save exception stack
+v$mexc:	mov	#0,@#v$emmu		; exceptions come to us
+.endc
+	mov	xxcqe,r4		; get the element
+	mov	iq.wct(r4),r3		; get the word count
+	mov	r3,r5			; remember function
+	bpl	20$			; a read
+	neg	r3			; make it positive
+20$:	mov	r3,r0			; word count
+	add	#377,r0			; round it up
+	clrb	r0			; get the block count
+	swab	r0			; get it low
+
+	assume	iq.blk eq 0		;
+	mov	(r4),r1			; add block number
+	add	(pc)+,r1		; add in base
+v$mbas:	.word	mmp18./mmpib.		; expressed as block
+	bcs	vm$err			; miserable
+	add	r1,r0			; end of transfer block
+	bcs	vm$err			; tragic
+	cmp	r0,(pc)+		; is this too big?
+v$msiz:	.word	-1			;
+	bhi	vm$err			; yes - hard error
+	assume	mmpib. eq 8.		;
+	asl	r1			; get the page address
+	asl	r1			; (11/40's don't have EIS)
+	asl	r1			; (so we can't use ASH)
+
+;	Map user mode to 32kw of extended memory beginning
+;	with the first transfer block.
+
+	.enabl	lsb
+vm$map:	clr	r0			; the mapping offset
+	mov	#m$kip0,r2		;
+	$ =	m$kip0			;
+10$:	mov	#mmd4k.,m$uid0-$(r2)	; page size
+	mov	#mmd4k.,m$kid0-$(r2)	;
+;	psh	m$uip0-$(r2)		; save user par
+	mov	r1,m$uip0-$(r2)		; user par
+	mov	r0,(r2)+		; kernel par
+	add	#mmpis.,r1		; next data segment
+	add	#mmpis.,r0		; next kernel segment
+	cmp	r0,#mmpis.*8.		; done them all?
+	bne	10$			; nope
+v$m22i:	mov	#mmi22.,-(r2)		;~setup i/o page
+v$m22b:	bis	#mm22b$,@#m$msr3	;~enable 22-bit
+	inc	@#m$msr0		; enable management
+	bis	#mmpum$,@#ps		; setup mode
+	fall	vm$trn			;
+	.dsabl	lsb			;
+
+;	r1	block
+;	r3	word count 
+;	r5	word count raw
+
+	.enabl	lsb			;
+vm$trn:	mov	iq.buf(r4),r0		; memory buffer
+	assume	m$mpa0 eq 0		;
+	clr	r1			; vm buffer
+	tst	r5			; read or write?
+	bmi	20$			; write
+10$:	mfpi	(r1)+			; read - fetch vm
+	pop	(r0)+			; store user
+	sob	r3,10$			;
+	br	vm$exi			;\
+.if eq sav$c
+xxint:	psh	@#v$ebus		;/
+	jmp	@(sp)+			; treat as bus error
+.endc
+20$:	psh	(r0)+			; write - fetch user
+	mtpi	(r1)+			; store vm
+	sob	r3,20$			;
+	tstb	r5			; end of block?
+30$:	beq	vm$exi			; yep
+	clr	-(sp)			; pad another
+	mtpi	(r1)+			;
+	decb	r5			;
+	br	30$			;
+	.dsabl	lsb			;
+
+.if ne sav$c
+	br	vm$abt			;\mmu abort - not called
+xxint:	psh	@#v$ebus		;/
+	jmp	@(sp)+			; treat as bus error
+
+vm$exc:	mov	(pc)+,sp		; restore stack
+v$mstk:	.word	0			;
+.endc
+vm$err:	bis	#hderr$,@iq.csw(r4)	; set the error
+.if ne sav$c
+vm$exi:	mov	#m$uip7+2,r0		; user pars
+	mov	#8.,r1			;
+10$:	pop	-(r0)			; restore them
+	sobw	r1,10$			;
+v$m22r:	pop	@#m$msr3		;~restore 22bit
+	pop	@#m$msr0		;
+	pop	@#ps			;
+	pop	@#v$emmu		; restore vector
+.iff
+vm$exi:	clr	@#ps			; clear previous user
+v$m22c:	clr	@#m$msr3		;~clear 22-bit
+	clr	@#m$msr0		; disable management
+.endc
+vm$fin:
+vm$abt:	mov	#xxcqe,r4		;~
+v$mfin:;jmp	@#rm.qco		;~sic] overwrite inten/fork

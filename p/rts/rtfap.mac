@@ -1,0 +1,1455 @@
+;	Finish get/set info
+;	Put creation time on to .ENTER files
+;
+;	RK: -> DK:
+;	EOF handling
+;	rename "foreign" to "device"
+;	vx.flg is barely used
+;
+; ???	All F11A operations should go through the dispatcher
+; ???	Terminal abort should be supressed during FAP operations
+; ???	Redirect TI: to permanent lun -- but don't close it
+;
+for$c=0	; no "new" foreign disk support
+yea$c=1	; fudged years
+.title	rtfap - RTX F11A ACP front-end
+.include "lib:rust.mac"
+.library "rtb:rtmac.mlb"
+.library "lib:drvmac.mlb"
+.library "lib:sm.mlb"
+$chdef		; RUST
+$dcdef
+$iqdef
+$jbdef
+$jsdef
+$nbdef
+$rmdef
+$rsdef
+$rtdef
+$tidef
+$vvdef
+$atdef		; RSX
+$fddef
+$ftdef
+$ifdef
+$isdef
+$ludef
+$nbdef
+$qidef
+$ucdef
+$xidef
+rxrtx$		; RTX
+rxacp$
+smini$		; SM
+.psect	usr	; put this code in the USR psect
+
+meta	<fachk$ sts><call fa$'sts>
+meta	<faerr$ sts><call fa$'sts+2>
+map	fuQUI$,,<^o100000>
+map	fuATR$,,<^o200>
+map	fuRON$,,1
+.sbttl	FAP notes
+
+;	FAP is the F11A front-end:
+;
+;	FX:	FAP virtualises the RSX file system for RUST/SJ I/O.
+;
+;	LD:	FAP permits the RT-11 logical disk driver to use RSX files
+;		FAP supports RT11A access to RSX /FOREIGN disks
+;
+;	EMTs	.SRESET, .SAVEST, .REOPEN need special handling.
+;
+;	Drivers	FAP remaps raw device driver access to F11 files
+;
+;	RT11A	FAP translates F11A directories into RT-11 directories
+;
+;	FAPI	Applications call FAP via the RTX FAP interface
+;		LDV.SYS uses FAP to open logical disk images
+;
+;	FOR$C	Not implemented.
+;		This functionality was designed to permit local psuedo
+;		drivers be loaded to access foreign disks. In fact
+;		it's unnecessary as FX: permits direct access to 
+;		available disks.
+;
+;	NONFILE	Non-file access to a directory is used to crack
+;		a directory. Writes are errors. Reads below block 6
+;		are simply ignored.
+;
+;		Non-file access to a non-RSX volume is permitted.
+;
+;	o  FAP doesn't reference channels or I/O queue elements internally
+;	o  FAP is not reentrant (static data is used)
+;
+;	Later:
+;
+;	o  LD: support standard RT-11 24-bit special functions 
+;
+;	VAB VX.	Describes a FAP operation
+;	CAB CA.	Channel (i.e. LUN) access blocks
+;
+;	F11 ACP parameters:
+;
+;	p1 ->	FID
+;	p2 ->	attribute list
+;	p3/p4 =	size and extend control
+;	p5 =	window size and access control
+;	p6 ->	NMB
+.sbttl	FAP dispatch and return
+
+;	Called from FX: (RTFXV.MAC)
+;
+;	r5 ->	vab	throughout
+;	r4 ->	cab	mostly
+
+  proc	fa$acp	<r2..r5>		; <r2,r3,r4,r5>
+	p1	vab,r5			; r5 -> VAB
+	mov	sp,vx.stk(r5)		; save stack for exit
+	mov	vx.cab(r5),r4		; r4 -> CAB
+	clr	vx.sta(r5)		; no status yet
+	call	fu$rat			; reset default attributes
+					;
+	mov	vx.fun(r5),r3		; dispatch function
+	bhiw	r3,#rsCLZ.,fa$iox	; out of range
+	asl	r3			; make word offset
+	assume	vx.flg eq 0		;
+	movb	f$aflg(r3),(r5)		; processing flags
+	.if ne for$c
+	bplw	(r5),10$		; not a foreign disk
+	call	fa$for			; handle foreign disk
+	br	20$			; done
+	.endc
+10$:	call	fa$acc			; access device (sometimes)
+					;
+	movb	ca.acp(r4),r0		; acp table index
+	mov	f$aacp(r0),r0		; get the table
+	add	r3,r0			; function
+	call	@(r0)+			; call function
+20$:	br	fa$fin
+
+fa$eof:	assume faFNF. eq faEOF.
+fa$fnf:	bcc	fa$fin
+	movb	#faFNF.,vx.sta(r5)
+	br	fa$fin
+fa$her:
+fa$iox:	bcc	fa$fin
+	mov	#faIOX.,vx.sta(r5)
+	fall	fa$fin
+
+fa$fin:	mov	r$xdsw,f$adsw		; save DSW/ISB for diagnostics
+	mov	r$xisb,f$aisb		;
+	mov	r$xisb+2,f$aisb+2	;
+	mov	vx.stk(r5),sp		; restore entry-point stack
+  end
+.sbttl	access device or directory, select ACP
+
+;	This code can be inlined in fa$acp:
+
+  proc	fa$acc
+	bpsw	#faFNA$,(r5),20$	; open/delete etc
+	assume	caACC$ lt 0		;
+	call	fa$drv			; map driver accesses
+	bmiw	ca.sta(r4),50$		; fine
+10$:	faerr$	iox			; not open, i/o error
+
+20$:	bpsw	#csSUB$,@vx.csw(r5),50$	; not first entry
+
+;	Get device class
+
+	call	fu$zap			; get rid of previous cab file
+	call	rx$agl ca.lun(r4),vx.dev(r5); assign/get lun
+	bcs	10$			; some error
+	mov	r$xdev,ca.dev(r4)	;
+	mov	r$xuni,ca.uni(r4)	;
+	mov	r0,ca.phy(r4)		; physical device * unit
+					;
+	mov	g$lcha,r0		; device characteristics
+	movb	r0,ca.cha(r4)		; save it
+	assume	caNFS. eq 0		;
+	clr	r2			; assume non-file device
+	bpcw	#ucMSD$,r0,40$		; not one of ours
+	bpsw	#ucSQD$,r0,10$		; tape not supported
+	assume	caFOR. eq 2		;
+	tst	(r2)+			; assume foreign disk-like
+	call	fu$att			; try to attach it
+	bcs	30$			; not foreign
+	call	fu$det			; detach it
+	br	40$			; is foreign
+	assume	caF11. eq 4		;
+30$:	tst	(r2)+			; is F11A
+40$:	movb	r2,ca.acp(r4)		; setup class
+50$:
+  end
+.sbttl	F11A file access
+
+; ???	Handle truncated I/O and hard errors
+;
+;	Read/write transfer
+;
+;	r0	function
+;	r1	byte count
+;	r2	logical block
+
+  proc	fa$trn	<r2>
+	call	fu$trn	#ifRVB.,#ifWVB.	; setup r0..r2 for transfer
+	inc	r2			; virtual block
+	call	rx$qiw r0,vx.lun(r5),#-1,vx.buf(r5),r1,#0,#0,r2,#0
+	beqw	r0,10$			; eof or I/O error
+	beqw	r$xisb+2,r1,20$		; not a truncated transfer
+10$:	faerr$	EOF			;
+20$:
+  end
+
+;	Lookup
+
+fa$loo::call	fa$wlk			; find the directory
+	call	fu$fna #0		; find the file
+	call	fu$arw #0		; access for read/write
+	mov	r0,vx.cnt(r5)		; return file size
+;	call	fu$fmt			; return file format
+20$:	return
+
+;	Enter
+
+fa$ent::call	fa$wlk			; directory walk
+	mov	n$btyp,n$betc		; filnam.typ
+	mov	#^rten,n$btyp		; to filnamtyp.ten
+5$:	clr	n$bver			;
+	call	fu$fna #fuQUI$		; find the file
+	bcs	10$			; file does not exist
+	call	fa$dex			; delete hanging tentative
+	br	5$			;
+					;
+10$:	call	fu$fmt			; setup file format
+	call	fu$alc			; allocate size
+	call	fu$fid #f$aCRE #fuATR$	; create the file with attributes
+	mov	(r4),n$bfid		; move create fid to name block
+	mov	2(r4),n$bfid+2		;
+	call	fu$dir #ifENA. #0	; enter the file
+	call	fu$fid #f$aext #0	; extend the file
+	call	fu$fid,#f$aACE #fuATR$	; access file with attributes
+	bis	#caCRE$,ca.sta(r4)	; file is being created
+	return
+
+;	Delete
+
+fa$del::call	fa$wlk			; directory walk
+fa$dex:	call	fu$fna #0		; find the file
+	call	fu$dir #ifRNA. #0	; remove name
+	call	fu$fid #f$aDEL #0	; delete file
+	return
+
+;	Rename
+
+fa$ren::call	fa$wlk			; directory walk
+	call	fu$fna #0		; find the file
+	call	fu$dir #ifRNA. #0	; remove old name
+	mov	vx.buf(r5),r0		; point to /oldnamtyp/
+	add	#8.,r0			; point to /newnamtyp/
+	mov	(r0)+,n$bfna		; setup new name
+	mov	(r0)+,n$bfna+2		;
+	mov	(r0)+,n$bfna+6		;
+	clr	n$bver			; 
+	call	fu$dir #ifENA. #0	; enter new name
+	call	fu$fid #f$aREN, #0	; write attributes
+	return
+
+;	Purge/Close
+
+fa$pur::callr	fu$zap			; purge - zap file
+
+fa$clz::assume	caCRE$ eq <^o200>	; close with size
+fa$clo::bplw	ca.sta(r4),20$		; not accessed
+	bmib	ca.sta(r4),10$		; a new file
+	call	fu$fid #f$adac #0	; deaccess existing file
+	br	20$			; done
+
+; ???	mark all pre-existing versions of file for delete
+
+10$:	call	fu$fid #f$arat #0	; write final size
+	mov	vx.blk(r5),r0		; setup final block size
+	mov	r0,r$ahgh+2		; setup size (high-order cleared)
+	inc	r0			;
+	mov	r0,r$aeof+2		; setup EOF block
+	call	fu$fid #f$awat #fuATR$	; write final size
+	call	fu$fid #f$adac #0	; deaccess
+	mov	vx.blk(r5),f$atru+at.slo; setup to truncate
+	call	fu$fid #f$atru #fuATR$	; truncate to final size
+	call	fu$ten			; setup tentative name block from cab
+	call	fu$dir #ifRNA. #0	; remove the tentative name
+	mov	n$betc,n$btyp		; /filnamtypTEN/
+	clr	n$betc			; /filnam   typ/
+	clr	n$bver			; highest version
+	call	fu$dir #ifENA. #0	; enter permanent name
+20$:	return
+
+;	Get/Set file info
+
+fa$inf::call	fa$wlk			; find the directory
+	call	fu$fna #0		; find the file
+	call	fu$arw #0		; access & read attributes
+	call	fu$inf			; handle attributes
+;	bcs	10$			;
+;	bnew				;
+;	call	fu$fid #f$awat		; write attributes
+10$:	call	fu$fid #f$adac #0	; deaccess file
+	return
+.sbttl	directory/sub-directory/file walk
+
+;	SUB WLK
+;	0   0	Find default directory	Fna=ufd.dir Did=MFD
+;		Find file in UFD	Fna=spc.typ Did=UFD
+;	0   1	Find subdir in MFD	Fna=sp1.dir Did=MFD
+;	1   1	Find subdir in subdir	Fna=sp2.dir Did=SP1
+;	1   0	Find file in subdir	Fna=spc.typ Did=SPn
+
+  proc	fa$wlk	<r2,r3>
+					;
+10$:	mov	vx.wlk(r5),r1		; get the walk option
+	jmp	@20$(r1)		; dispatch function
+20$:	.word	100$,200$,300$,400$	; handlers
+
+;	0   0	Find default directory	Fna=ufd.dir Did=MFD
+;		Find file in UFD	Fna=spc.typ Did=UFD
+
+100$:	call	fu$did #f$amfd		; fixed MFD (4,4,0)
+	call	fu$spc #l$nsy+ln.dir	; default directory
+	call	fu$fna #0		; find the directory
+	br	300$			; setup to find file
+
+;	0   1	Find subdir in MFD	Fna=sp1.dir Did=MFD
+
+200$:	call	fu$did #f$amfd		; did = mfd
+	br	410$			; join common
+
+;	1   0	Find file in subdir	Fna=spc.typ Did=SPn
+
+300$:	call	fu$did r4		; did = fid
+	call	fu$spc vx.buf(r5)	;
+	bnew	@vx.buf(r5),500$	; file being accessed
+	movb	#caVOL.,ca.acp(r4)	; use volume access routines
+	mov	vx.fun(r5),r0		;
+	asl	r0			;
+	jmp	@f$avol(r0)		; and finish there
+
+;	1   1	Find subdir in subdir	Fna=sp2.dir Did=SP1
+
+400$:	call	fu$did r4		; did = fid
+410$:	call	fu$sub vx.buf(r5)	; find named sub-directory
+	call	fu$fna #0		; find the file
+	jmp	fa$fin			; don't return
+500$:	tst	(pc)+			; file access
+510$:	sec				; volume access
+  end
+.sbttl	primary operation helpers
+
+;	Work out enter allocation size
+;	Setup attributes
+;
+;	vx.cnt = requested size
+
+  proc	fu$alc	<r2,r3>
+	mov	#200.,r2		; default allocation request size
+	mov	vx.cnt(r5),r3		; client size & result size
+	bne	10$			; exact size
+	mov	r2,r3			;
+	br	20$			;
+10$:	beqw	r3,#-1,20$		; maximum - start with default
+	mov	r3,r2			; exact size
+20$:	mov	r2,r$ahgh+2		; setup attributes
+	mov	r2,r$aeof+2		;
+	inc	r$aeof+2		;
+	mov	r2,f$aext+at.slo	; for the extend
+	mov	r3,vx.cnt(r5)		; returned size
+  end
+
+;	Access file for read/write
+;	Access file for read-only if read/write fails
+;
+;	r0	file size
+;	c=1	error
+
+  proc	fu$arw
+	p1	flg
+	bpsw	#fuRON$,flg(sp),10$	; read-only access
+	call	fu$fid #f$aACW #fuQUI$	; access for read/write
+	bcc	20$			; fine
+10$:	call	fu$fid #f$aACR flg(sp)	; access for read-only
+	bcs	30$			;
+	bis	#caRON$,ca.sta(r4)	; remember that
+20$:	call	fu$fid #f$aRAT flg(sp)	; read attributes
+	bcs	30$			;
+	call	fu$len			; get file length
+30$:					; (c=1 if too long)
+  end
+
+;	Clean up a channel/cab/lun
+;	Delete hanging tentative
+;
+;	Called before LOOKUP/ENTER/RENAME/DELETE
+;	Called by aborted ENTER
+;	Called by PURGE (and thus .SRESET)
+;	Called by RS$EXI to zap all cabs
+
+  proc	fu$zap
+	clc				; assume fine
+	bplw	ca.sta(r4),20$		; not accessed, so skip deaccess
+	bneb	ca.acp(r4),#caFOR.,10$	; not foreign
+	call	fu$det			; detach it
+	br	20$			;
+10$:	call	fu$fid #f$adac #fuQUI$	; deaccess the file
+	bplb	ca.sta(r4),20$		; not a created file
+	call	fu$fid #f$adel #fuQUI$	; mark file for deletion
+	bcs	20$			; some error - let others solve it
+	call	fu$ten			; rebuild tentative file name from cab
+	call	fu$dir #ifRNA.,#fuQUI$	; remove the temp file entry
+20$:	clr	ca.sta(r4)		; not accessed any more
+  end
+
+;	Setup for transfer
+;
+;	r0	function
+;	r1	byte count
+;	r2	logical block
+
+  proc	fu$trn
+	p1	rea			; read function
+	p2	wri			; write function
+	mov	rea(sp),r0		; assume read
+	mov	vx.cnt(r5),r1		; word count
+	bpl	10$			; is read
+	mov	wri(sp),r0		; write
+	neg	r1			; make positive
+10$:	asl	r1			; make byte count
+	mov	vx.blk(r5),r2		; logical block
+  end
+.sbttl	qio helpers
+
+  proc	fu$fna
+	p1	flg
+	call	fu$dir	#ifFNA.,#fuQUI$
+	bcc	10$
+	assume	fuQUI$ lt 0
+	bmiw	flg(sp),20$
+	faerr$	FNF
+	assume	ca.fid eq 0
+10$:	mov	n$bfid,(r4)
+	mov	n$bfid+2,ca.fid+2(r4)
+	tst	(pc)+
+20$:	sec
+  end
+
+  proc	fu$dir
+	p1	fun
+	p2	flg
+	call	rx$qiq	fun(sp),vx.lun(r5),#-1,#0,#0,#0,#0,#0,#f$anmb
+	bnew	r0,10$
+	assume	fuQUI$ lt 0
+	bmiw	flg(sp),10$
+	faerr$	FNF
+10$:	call	rx$cbt
+  end
+
+  proc	fu$fid	<r3>
+	p1	opr,r3
+	p2	flg
+	bpsw	#fuATR$,flg(sp),10$
+	clr	r$ahgh+2
+	clr	r$aeof+2
+10$:	call	fu$fiq r3
+	bcc	20$
+	assume	fuQUI$ lt 0
+	bmiw	flg(sp),20$
+	faerr$	FNF
+20$:	call	rx$cbt
+  end
+
+  proc	fu$fiq	<r3>
+	p1	opr,r3
+10$:	call	rx$qiq (r3),ca.lun(r4),#-1,r4,2(r3),4(r3),6(r3),8(r3),10(r3)
+	beqw	r0,30$			; some error
+	bhisw	r3,#f$aacc,20$		; not an access
+	bis	#caACC$,ca.sta(r4)	; file is accessed
+	br	30$			;
+20$:	bne	30$			; not deaccess
+	clr	ca.sta(r4)		; not accessed
+30$:	call	rx$cbt			; convert r0 to cbit
+  end
+.sbttl	data helpers
+
+  proc	fu$did
+	p1	did,r0
+	call	rx$mvb r0,#n$bdid,#6	; copy to name block did
+	movi	ca.did,r4,r1		; r1 -> cab did
+	call	rx$mvb r0,r1,#6		; copy to cab did
+  end
+
+  proc	fu$sub
+	p1	spc
+	call	fu$spc spc(sp)
+	mov	#^rdir,n$btyp
+  end
+
+  proc	fu$spc	<r2,r3>
+	p1	spc,r2
+	mov	#f$anmb,r3
+	clr	(r3)+		; fid
+	clr	(r3)+		;
+	clr	(r3)+		;
+	mov	(r2)+,(r3)+	; fna
+	mov	(r2)+,(r3)+	;
+	clr	(r3)+		; third word unused
+	mov	(r2)+,(r3)+	; typ
+	clr	(r3)+		; ver
+	clr	(r3)+		; sta
+	clr	(r3)+		; nxt
+	add	#6,r3		; did - skip did
+	mov	ca.dev(r4),(r3)+; dev ???
+	mov	ca.uni(r4),(r3)+; uni
+	movi	ca.fna,r4,r3	; for copy
+	call	rx$mvb spc(sp),r3,#6 ; copy /filnamtyp/
+  end
+
+;	Rebuild tentative file spec from cab
+
+  proc	fu$ten
+	movi	ca.fna,r4,r0		; file spec
+	call	fu$spc r0		; setup the name block
+	mov	n$btyp,n$betc		; rebuild tentative file name
+	mov	#^rten,n$btyp		;
+	call	rx$mvb r4,#f$anmb,#6	; copy our fid
+	movi	ca.did,r4,r0		;
+	call	rx$mvb r0,#n$bdid,#6	; copy did
+  end
+
+  proc	fu$rat
+	call	rx$mvb #r$atem,#r$arat,#32. ; reset attributes
+  end
+
+  proc	fu$len				; get file length
+	bnew	r$aeof,30$		; file too long
+	mov	r$aeof+2,r0		; get low order
+	beq	10$			; nothing--use allocation
+	bnew	r$affb,20$		; some bytes used
+	dec	r0			; nope
+	br	20$			;
+10$:	bhiw	n$bfid,#3,20$		; 
+	bnew	n$btyp,#<^rSYS>,20$	; not INDEXF etc
+	bnew	r$aalc,30$		; allocated too long
+	mov	r$aalc+2,r0		; allocate length
+20$:	tst	(pc)+			; fine
+30$:	sec				; fail
+  end
+.sbttl	non-file/terminal access
+
+;	Device-oriented access
+
+fa$att:	call	fu$att			; attach device
+	bcs	15$			; some error
+	bpcb	#ucTTY$,ca.cha(r4),10$	; not a terminal
+	qiow$	#ifSMC$,ca.lun(r4),#0,#20$,#2,#0 ; set full duplex
+10$:	mov	#-1,vx.cnt(r5)		; unlimited size
+	bis	#caACC$,ca.sta(r4)	; cab is accessed
+	return
+15$:	faerr$	IOX
+20$:	.byte	^o64,1			; full-duplex characteristic
+	.word	0			;
+
+fa$det:	call	fu$det			; detach device
+	clr	ca.sta(r4)		; no longer accessed
+fa$nop:	return				;
+
+	.enabl	lsb
+fu$att:	mov	#ifATT.,r0		;
+	br	10$
+fu$det:	mov	#ifDET.,r0
+10$:	call	rx$qiq r0,ca.lun(r4),#0,#0,#0,#0
+	callr	rx$cbt
+	.dsabl	lsb
+
+  proc	fa$log	<r2>			; logical I/O transfer
+	call	fu$trn	#ifRLB.,#ifWLB.	;
+	beqb	ca.acp(r4),#caFOR.,10$	; not non-file access
+	clr	r2			; record oriented
+10$:	call	rx$qiw r0,vx.lun(r5),#-1,vx.buf(r5),r1,#0,#0,r2,#0
+	bnew	r0,20$			;
+	faerr$	EOF			;
+20$:
+  end
+
+;	terminal access
+
+rx$ati::alun$	#luTER.,#<^rTI>
+	bcs	10$
+	qiow$	#ifATT.,#luTER.,#0,#0,#0,#0
+	qiow$	#ifSMC$,#luTER.,#0,#20$,#2,#0
+	call	tk$enb				; and enable it if necessary
+10$:	return
+20$:	.byte	^o64,1				; full-duplex characteristic
+	.word	0				;
+
+rx$dti::qiow$	#ifKIL.,#luTER.,#0,#0,#0,#0
+	qiow$	#ifDET.,#luTER.,#0,#0,#0,#0
+	return
+.sbttl	logical disk access
+
+;	The disk image has been opened on a regular RT-11 channel/lun.
+;	The disk needs to be reopened on a permanent LD: lun.
+;	The LD (vv.*) descriptor has all the information we need.
+;
+; ???	An easier way would be to swap the lun numbers
+;	Assigning luns would solve other problems
+;	The only potential difficulty is synchronisation
+;
+;	vv.dev=n  mount
+;	vv.dev=0  dismount
+;
+;	r5 ->	vv
+;
+;	r4 ->	new/high cab
+;	r3 ->	old/low  cab
+;	r2 =	new lun #
+
+  proc	fa$mnt	<r0..r5>		;<r1,r2,r3,r4,r5>
+	p1	vv,r5			; r2 -> vv: block
+	p2	uni
+
+	mov	vv.off(r5),r4		; r4 -> some cab
+	bnew	vv.dev(r5),20$		; mounting unit
+	bplw	ca.sta(r4),70$		; wasn't accessed (c=0)
+	beqb	ca.acp(r4),#caFOR.,10$	; foreign
+	call	fu$fid #f$adac #fuQUI$	; deaccess file 
+	br	70$			;
+10$:	call	fa$det			; deaccess device
+	br	70$			;
+					;
+20$:	bplw	ca.sta(r4),30$		; access failed
+	bnew	ca.fna(r4),30$		; it's a file 
+	bneb	ca.acp(r4),#caFOR.,60$	; must be foreign for a device
+	call	fu$det			; detach it
+					;
+30$:	mov	r4,r3			; r3 -> old cab
+	mov	uni(sp),r1		; VVn: unit
+	add	#luDSK.,r1		; r1 = permanent LD: cab/lun
+	mul	#ca.bbs,r1		; offset to cab
+	add	#f$acab,r1		; base of cabs
+	mov	r1,r4			; r4 -> new cab
+	call	fu$zap			; get rid of hanging file
+	mov	r4,vv.off(r5)		; update VV: ident
+	call	rx$mvb r3,r4,#ca.bbs-2	; copy cab (except lun number)
+	call	fu$acl			; attach cab lun
+	bcs	60$			; oops
+	beqb	ca.acp(r4),#caFOR.,40$	; foreign
+	call	fu$arw #fuQUI$		; access file for read/write
+	br	50$			;
+40$:	call	rx$gln ca.lun(r4),#r$xgln ; get device lun info
+	bcs	60$			; oops
+	bnew	r$xgln+xi.ld0,60$	; too big for us
+	mov	r$xgln+xi.ld1,vv.siz(r5); setup VV device size
+	call	fu$att			; attach device
+50$:	bcc	70$			; success
+60$:	clr	vv.dev(r5)		; dismount it
+	sec				;
+70$:					; c=1 = failed
+  end
+
+  proc	fu$acl
+	mov	ca.dev(r4),r$xdev	; setup for assign lun
+	mov	ca.uni(r4),r$xuni	;
+	call	rx$oln ca.lun(r4)	; assign lun
+  end
+.sbttl	driver access
+
+;	Install driver open on channel 0 as slot n
+
+  proc	rx$ins	<r0,r1>
+	p1	slt,r0			; slot number * 2
+	mov	r$mcsw,r1		; channel 0 csw
+	bic	#^ccsin$p,r1		; isolate slot
+	bnew	r1,#fxSLT.,10$		; not our slot
+	mov	r0,r1			;
+	mul	#da.bbs/2,r1		; get offset
+	add	#f$adap,r1		; r1 -> dap entry
+	mov	r1,d$vblk(r0)		; block holds our DAP pointer + 1
+	inc	d$vblk(r0)		;
+	call	rx$mvb #f$acab+ca.bbs,r1,#da.bbs ; setup the dab
+10$:
+  end
+
+;	Driver start blocks map to DABs - driver access blocks
+
+  proc	fa$drv	<r2,r3>
+	mov	vx.csw(r5),r3		; point to channel
+	mov	ch.sbl(r3),r2		; start block -> cab
+	bic	#1,r2			; remove driver block 1 offset
+	blow	r2,#f$adap,30$		; not one of ours
+	bhiw	r2,#f$adal,30$		; definitely not
+	bplw	ca.sta(r4),10$		; not accessed
+	call	fu$fid	#f$adac #fuQUI$	; deaccess 
+10$:	call	rx$mvb r2,r4,#da.bbs	; copy fid, device and unit
+	movb	#caF11.,ca.acp(r4)	; file acp
+	call	fu$acl			; attach cab lun
+	call	fu$fid	#f$aacw #fuQUI$	; access
+	bcc	20$			;
+	faerr$	IOX			; I/O error
+20$:	mov	r4,ch.sbl(r3)		; map cab to channel
+	mov	#-1,ch.len(r3)		;
+	mov	#caACC$,ca.sta(r4)	; say we're accessed
+30$:
+  end
+.sbttl	directory access
+
+;	Volume access ACP routines
+
+vo$trn:	callr	sg$rea		; read next segment
+vo$loo:	bis	#caACC$,ca.sta(r4); cab is active
+	mov	#-1,vx.cnt(r5)
+	br	vo$fin
+vo$clo:	clr	ca.sta(r4)
+vo$nop:
+vo$fin:	jmp	fa$fin		; that's all
+vo$err:
+vo$iox:	faerr$	IOX
+
+;	Translate RSX directory into an RT-11 directory
+;	RT-11 directory starts in block #6
+
+	loWLD$ = nbSNM$!nbSTP$!nbSVR$	; wildcard flags
+	loWLD$ = loWLD$!nbSD1$!nbSD2$	;
+
+  proc	sg$rea
+	bmiw	vx.cnt(r5),sg$err	; write not permitted
+	blow	vx.blk(r5),#6,20$	; clear anything below #6
+	bhi	10$			; not first segment - continue
+	mov	#loWLD$,ca.sts(r4)	; setup F11A wildcard flags
+	clr	ca.nxt(r4)		; begin at the beginning  
+	mov	#10.,ca.acc(r4)		; pseudo block number of first file
+	mov	#rtPER$,s$gent		; setup entry as permanent file
+10$:	call	sg$nxt			; get next entry
+	call	rx$mvb #s$ghdr,vx.buf(r5),#sglen. ; copy entry back to program
+	br	30$			;
+20$:	call	rx$mvb	#0,vx.buf(r5),vx.cnt(r5) ; clear buffer
+30$:
+  end
+sg$err:	faerr$	IOX
+
+;	Get next directory entry
+
+  proc	sg$nxt
+	movb	s$galt,s$gnxt		; switch between segments 2 & 3
+	swab	s$galt			; other one next time
+	call	rx$mvb #0,#s$gent+2,#rt.xbs-2 ; clear entry
+10$:	call	fu$spc	#s$gwld		; setup wildcard spec
+	mov	ca.sts(r4),n$bsts	; restore wildcard flags
+	mov	ca.nxt(r4),n$bnxt	; restore next record number
+20$:	call	fu$dir	#ifFNA. #fuQUI$	; search for next wildcard file
+	bcc	30$			; got one
+	mov	#rtEND$,s$gent		; terminate directory segment
+	clr	s$gnxt			; terminate directory
+	br	40$			;
+
+30$:	mov	n$bsts,ca.sts(r4)	; save wildcard status
+	mov	n$bnxt,ca.nxt(r4)	; save wildcard record number
+	bnew	n$betc,10$		; can't access long names
+	call	rx$mvb #n$bfid,r4,#6.	; save the fid of this file
+	clr	n$bsts			; prepare for last version search
+	clr	n$bnxt			;
+	clr	n$bver			;
+	call	fu$dir #ifFNA. #fuQUI$	; search for last version
+	bcs	sg$err			; oops
+	bnew	(r4),n$bfid,10$		; not the same as the wildcard fid
+	bnew	2(r4),n$bfid+2,10$	;
+	mov	n$bfna,s$gfna		; highest version of this file found
+	mov	n$bfna+2,s$gfna+2	; copy name to entry
+	mov	n$btyp,s$gtyp		;
+	call	fu$fid #f$arat #fuQUI$	; read attributes
+	bcs	40$			; oops - report zero length entry
+	call	fu$len			; test length
+	bcs	10$			; too long for us
+	mov	ca.acc(r4),s$gbas	; RT-11 directory segment block base
+	add	s$glen,ca.acc(r4)	; accumulate block base
+	call	at$imp			; import directory attributes 
+40$:
+  end
+
+;	Directory data
+
+s$ghdr:	.word	31.
+s$gnxt:	.word	2
+	.word	3,6
+s$gbas:	.word	0
+
+s$gent:	.word	rtPER$
+s$gfna:	.word	0,0
+s$gtyp:	.word	0
+s$glen:	.word	0
+s$gtim:	.word	0
+s$gdat:	.word	0
+s$gctl:	.word	0
+s$guic:	.word	0
+s$gpro:	.word	0
+
+;$getc:	.word	0
+;$gver:	.word	0
+;
+s$gend:	.word	rtEND$
+	sgLEN. = .-s$ghdr
+s$gwld:	.word	0,0,0
+s$galt:	.byte	2,3			; alternate segments 2 & 3
+.sbttl	get/set attributes
+
+; !!!	SET ATTRIBUTES NOT DONE YET
+
+;	.SPFUN ->	FXx.SYS ->	FAP		FXx.SYS -> .SPFUN
+;	iq.buf->dblk	vx.blk=val	Vblk=val	ch.len=val
+;		val	Vrwc=opr/off
+;		opr/off
+;
+;	GET works for all values
+;	Must eventually work with all ACPs
+;
+;		GET	SET	BIC	BIS
+;	Status	y	y*	y*	y*	*Protection only, always perm.
+;	Spec	Y	N	N	N	Use rename
+;	Date	Y	Y	N	N
+;	Time	Y	Y	N	N
+;	Length	Y	Y	N	N
+;	Control	Y*	Y*	N	N	Only low-order time & era
+;	UIC	Y*	Y*	N	N	Only if ACP supports	
+;	Prot.	Y*	Y*	N	N	Only if ACP supports
+;
+;	N* = except for local RT11A/RT11X
+;	Y* = local RT11X only, and with rights
+;
+;	Return previous value in vab->Vblk
+;
+;	opr: 0=get, 1=bic, 2=bis, 3=mov (??? 2xx user)
+;
+;	r2 -> directory entry
+;
+;	1	File not found
+;	2	Invalid operation
+;	3	Invalid offset
+;	4	Invalid data
+
+fu$inf:	mov	vx.blk(r5),r0
+	mov	vx.cnt(r5),r1
+
+.if ne 0
+	.enabl	lsb
+sc$inf::call	rt$sea		;
+	bcs	rt$er1		;
+	movi	qa2,r5,r3	; r3 -> value
+	mov	(r3)+,r0	; r0 = value
+	movb	1(r3),r1	; r1 = offset
+	cmp	r1,d$leng	; longer than entry?
+	bhis	100$		; yep - error 3
+	bit	#1,r1		; odd offset?
+	bne	100$		; yep -invalid offset
+	add	r1,r2		; r2 -> target word
+	mov	(r2),qr0(r5)	; return previous value
+				;
+	movb	(r3)+,r1	; get the operation
+	beq	60$		; get already done
+	cmpb	(r3),#rt.len	; trying to change length?
+	beq	70$		; yes - that's special
+	tstb	(r3)		; status word?
+	bne	20$		; nope
+	cmpb	r1,#3		; move?
+	bne	10$		; nope
+	bic	#^c17,r0	; can't alter low bits
+	bic	#17,(r2)	;
+	dec	r1		; make it a bis
+				; falls through test below
+10$:	bit	#7400,r0	; invalid bits?
+	bne	rt$er4		; yep - error 4
+				;
+20$:	sub	#2,r1		; dispatch us
+	bmi	40$		; bic
+	beq	30$		; bis
+	dec	r1		; mov?
+	bne	rt$er2		; nope
+	clr	(r2)		; do move with a bis
+30$:	bis	r0,(r2)		;
+	br	50$		;
+40$:	bic	r0,(r2)		;
+50$:	br	rt$upp		; update segment, purge channel
+60$:	br	rt$pu2		; purge channel
+
+				; truncate file
+70$:	bneb	r1,#3,100$	; only move is accepted
+	mov	r2,r3		; r3 -> length
+	sub	#rt.len,r2	; r2 -> entry
+	mov	(r3),(r5)	; save current length
+	call	rt$ent		; point at next entry
+	sub	r0,(r5)		; truncate or extend?
+	ble	90$		; extend
+	bit	#rtEMP$,(r2)	; this an empty?
+	bne	80$		; yes
+	call	rt$exp		; nope - move it up
+	bcs	sc$inf		; segment split - start again
+	mov	#rtEMP$,(r2)	; make an empty
+	clr	rt.len(r2)	; make a zero length empty
+80$:	sub	(r5),(r3)	; reduce our entry
+	add	(r5),rt.len(r2)	; difference to empty
+	br	50$		; update and purge
+
+;	Extend will almost never work
+				;
+90$:	bit	#rtEMP$,(r2)	; need empty to extend
+	beq	100$		; no room
+	mov	rt.len(r2),r0	; do trial extend
+	add	(r5),r0		; (r5 has negative delta)
+	bge	80$		; sufficient space availabe
+				;
+100$:	jmp	rt$er3		; invalid offset (size for known good offset)
+rt$er4:	acfat$	4		;
+	.dsabl	lsb		;
+.endc
+.sbttl	import directory entry attributes
+
+;	Used by directory and get/set file info
+;	RT-11 sets only the revison times
+;
+;	r4 ->	input
+;	r2/r3	long value
+;	r1	multiplier
+;	r0	value
+
+  proc	at$imp	<r0..r5>
+	call	fu$len			; get length
+	mov	r0,s$glen		; guaranteed not too long
+	clr	s$gctl			; no extended date/time yet
+	mov	r$apro,s$gpro		; protection
+	mov	r$aown,s$guic		; uic
+
+;	get date
+
+	mov	#r$arev,r4		; r4 -> .ascii /31JAN99235959/
+	bneb	(r4),5$			; has revision
+	mov	#r$acre,r4		; use creation date
+5$:	clr	r2			;
+	call	at$two			; get day
+	ash	#5,r1			;
+	mov	r1,r3			;
+					;
+	mov	#a$tmon+3,r0		; ascii month names /JANFEB.../
+10$:	add	#^o2000,r3		; next month
+	bneb	(r0)+,(r4),20$		; compare with month name
+	bneb	(r0),1(r4),20$		;
+	beqb	1(r0),2(r4),25$		;
+20$:	bitb	(r0)+,(r0)+		; no match
+	bneb	(r0),10$		; got more
+					; bad month
+25$:	add	#3,r4			; skip month
+	call	at$two			; get year
+	sub	#72.,r1			; get our year
+	.if ne yea$c
+	bpl	30$			; in our range
+; ???	zero should be detected
+	add	#100.,r1		; 1900-1971 => 2000-2071
+	.endc
+30$:	mov	r1,r0			; r0 = copy of year-1972
+	bic	#^c^o37,r0		; r2 = isolate bits 0:4 of year
+	bis	r0,r3			; low-order year
+					;
+	bic	#^c^o140,r1		; isolate bits 5:6
+	ash	#9.,r1			; left to bits 14:15
+	bis	r1,r3			; high-order year
+	mov	r3,s$gdat		;
+					;
+	ash	#-7.,r1			; move bits 7:15 right
+	bic	#^o177000,r1		; isolate bits 0:8
+	mov	r1,s$gctl		; excess year
+
+;	get time
+
+	clr	r2			; r4 -> /235959/
+	clr	r3			; r2/r3 = seconds
+	mov	#60.,r0			; multiplier
+	call	at$twx			; get hour
+	call	at$twx			; get minute
+	call	at$twx			; get second
+	div	#3,r2			; get value pair
+	bis	#^o100000,r2		; or-in valid time flag
+	mov	r2,s$gtim		; seconds/3 in bits 0:14
+	bic	#^c3,r3			;
+	bis	r3,s$gctl		; rem(seconds/3) in bits 0:1
+  end
+ 
+;	r2/r3 * r0
+
+at$mul:	mov	r2,r1			; save high order
+	mov	r3,r2			; r0 = low order
+	mul	r0,r2			; multiply low order
+	mul	r0,r1			; multiply high order
+	add	r1,r2			; add into r2/r3 result
+	return
+
+at$twx:	call	at$mul			; multiply by 60.
+	call	at$two			; get two digits
+	add	r1,r3			; long add
+	adc	r2			;
+	return
+
+at$two:	clr	r1			; get two digits
+	call	(pc)			; repeat below
+10$:	mul	#10.,r1			; next digit
+	clr	-(sp)			;
+	movb	(r4)+,(sp)		; ascii digit
+	beq	20$			; is none (sanity step)
+	sub	#'0,(sp)		; decimal digit
+20$:	add	(sp)+,r1		; add in to result
+	return
+
+a$tmon:	.ascii	"BADJANFEBMARAPRMAYJUNJULAUGSEPOCTNOVDEC"
+	.even
+.sbttl	export directory entry attributes
+
+; !!!	NOT YET CALLED--R$AEOF NEEDS ADJUSTMENT
+
+  proc	at$exp	<r0..r5>
+	mov	s$glen,r$aeof+2	; file length
+	mov	s$gpro,r$apro	; protection
+	mov	s$guic,r$aown	; uic
+
+	mov	#r$arev,r3	; r3 -> revision date/time
+	mov	s$gdat,r0	; get the date
+	mov	r0,r1		; save date
+	ash	#-tidav.,r0	; rotate day into place
+	bic	#tida$n,r0	; isolate day
+	call	100$		; two digits out
+				;
+	mov	r1,r0		; get the month
+	ash	#-timov.,r0	; rotate into place
+	bic	#timo$n,r0	; isolate month
+	cmp	r0,#12.		; too high?
+	blos	10$		; no
+	clr	r0		; yes - bad
+10$:	psh	r0		;
+	asl	r0		;
+	add	(sp)+,r0	;
+	add	#a$tmon,r0	;
+	movb	(r0)+,(r3)+	;
+	movb	(r0)+,(r3)+	;
+	movb	(r0)+,(r3)+	;
+
+	mov	r1,r0		;
+	assume	tiyev. eq 0	; no shift
+	bic	#tiye$n,r0	; isolate year
+	ash	#tierv.,r1	; shift era into place
+	bic	#tier$n,r1	; isolate era
+	bis	r1,r0		; or into year
+	assume	tiyeb. eq 72.	; rt-11 uses 72.
+	add	#tiyeb.,r0	; add in year base
+	.if ne yea$c
+	cmp	r0,#1999.	; beyond RSX limit?
+	blos	15$		; nope
+	sub	#100.,r0	; yes
+	.endc
+15$:	call	100$		;
+				; time
+	mov	s$gtim,r0	; get the time
+	bmi	20$		; fine
+	clr	r0		; invalid
+20$:	bic	#^o100000,r0	; clean out flag
+	mul	#3.,r0		; get seconds
+	div	#60.*60.,r0	; get the hours
+	call	100$		; move out the hours
+	clr	r0		;
+	div	#60.,r0		; get minutes
+	call	100$		;
+	mov	r1,r0		;
+	fall	100$		; seconds
+
+;	Output two digit number
+
+100$:	psh	r1		; save r1
+	mov	r0,r1		;
+	clr	r0		;
+	div	#10.,r0		;
+	add	#'0,r0		;
+	movb	r0,(r3)+	; high digit
+	add	#'0,r1		;
+	movb	r1,(r3)+	;
+	pop	r1
+  end
+.sbttl	FAP data
+
+r$xfap::			;\data pointers
+f$adsw::.word	0		;|last DSW
+f$aisb::.word	0,0		;|last IOSB
+	.word	f$xvab		;|vab pointer
+	.word	f$anmb		;|name block pointer
+	.word	r$xcab		;|cab table pointer
+	.word	fa$acp		;/FAP dispatcher
+
+r$xgln::
+f$agln:	.word	0		; device name, unit
+	.byte	0		; lun
+g$lres:	.byte	0		; 200 => resident
+g$lcha:	.word	0		; device characteristics 
+g$lshi:	.word	0		; size high
+g$lslo:	.word	0		; size low
+	.word	0		; default buffer size
+
+f$anmb::
+n$bfid::.word	0,0,0		;n.fid - 3-word file id
+n$bfna::.word	0		;n.fna - 3-word file name
+	.word	0		;
+n$betc:	.word	0		;
+n$btyp:	.word	0		;n.typ  - rad50 filetype
+n$bver:	.word	0		;n.ver  - version number (0=highest,-1=lowest)
+n$bsts:	.word	0		;n.stat - status
+n$bnxt:	.word	0		;n.next - wildcard position
+n$bdid:	.word	0,0,0		;n.did  - 3-word directory id
+	.word	0		;n.dvnm - ascii device name
+	.word	0		;n.unit	- unit number
+
+f$acab::f$adsk=.+<ca.bbs*luDSK.>; first logical disk cab
+r$xcab::.blkb	ca.bbs		; cab/lun 0 is unused
+	assume ca.bbs-2 eq ca.lun ; last word is lun #
+	malun. = 1		; lun/cab #
+	.rept	luMAX.		; luns
+	.blkb	ca.bbs-2	;
+	.word	malun.		; ca.lun is last entry
+	malun. = malun. + 1	; next cab/lun
+	.endr
+
+f$adap::.blkb	da.bbs*<16.-1>	; first dap
+f$adal:	.blkb	da.bbs		; last dap
+
+f$amfd:	.word	4,4,0		; MFD FID (constant) 
+
+	faDIX$ = faFNA$!faDIR$
+f$aflg::.word	faDAT$		; read/write
+	.word	fanfs$!faSPU$	; close
+	.word	faFNA$!faSPU$	; delete
+	.word	faDIX$!faSPU$	; lookup
+	.word	faDIX$!faSPU$	; enter
+	.word	faFNA$!faSPU$	; rename
+	.word	fanfs$!faSPU$	; purge
+	.word	faFNA$!faSPU$	; sfinf
+	.word	fanfs$!faSPU$	; cloz
+;	.word	0,0
+
+f$aacp:	.word	f$anfs,f$anfs,f$af11,f$avol
+
+f$anfs::.word	fa$log		; read/write	Non-file device dispatch
+	.word	fa$det		; close		Foreign also, but no transfer
+	.word	fa$nop		; delete
+	.word	fa$att		; lookup
+	.word	fa$att		; enter
+	.word	fa$nop		; rename
+	.word	fa$det		; purge
+	.word	fa$nop		; sfinf
+	.word	fa$det		; cloz
+
+f$af11::.word	fa$trn		; read/write	F11 dispatch
+	.word	fa$clo		; close
+	.word	fa$del		; delete
+	.word	fa$loo		; lookup
+	.word	fa$ent		; enter
+	.word	fa$ren		; rename
+	.word	fa$pur		; purge
+	.word	fa$inf		; sfinf
+	.word	fa$clz		; cloz
+
+f$avol::.word	vo$trn		; read/write	Volume dispatch
+	.word	vo$clo		; close
+	.word	vo$nop		; delete
+	.word	vo$loo		; lookup
+	.word	vo$err		; enter
+	.word	vo$nop		; rename
+	.word	vo$clo		; purge
+	.word	vo$nop		; sfinf
+	.word	vo$clo		; cloz
+.sbttl	FID operation QIO parameters
+
+map	at.fun,,0	; =  function code
+map	at.atr		; -> attribute list
+map	at.shi		; =  size high-order
+map	at.slo		;    size low-order
+map	at.acc		; =  access
+map	at.nmb		; -> name block
+map	at.bbs
+
+;			p2	p3	p4	p5	p6
+;		fun	atr	siz/ext		win/acc	nmb
+.radix	8.
+f$aacr:	.word	ifACR.,	0,	0,	0,	100000,	0
+f$aacw:	.word	ifACW.,	0,	0,	0,	100000,	0
+f$aace:	.word	ifACE.,	0,	0,	0,	100000,	0
+f$aacc:	; all previous result in file being accessed
+
+f$adac:	.word	ifDAC.,	0,	0,	0,	0,	0
+f$adax:	.word	ifDAC.,	0,	0,	0,	0,	0
+
+	cre = 100000;210*256.
+f$acre:	.word	ifCRE.,	f$ucre,	cre,	0,	0,	0
+f$adel:	.word	ifDEL.,	0,	0,	0,	0,	0
+f$atru:	.word	ifDEL.,	0,	100000,	0,	0,	0
+
+f$aext:	.word	ifEXT.,	0,	100000,	0,	0,	0
+f$arat:	.word	ifRAT.,	f$urat,	0,	0,	0,	0
+f$arin:	.word	ifRAT.,	f$urin,	0,	0,	0,	0
+f$awat:	.word	ifWAT.,	f$uwat,	0,	0,	0,	0
+f$aren:	.word	ifWAT., f$uren,	0,	0,	0,	0
+.radix	10.
+
+;	attribute lists
+
+	meta	<faatr$ typ,len,adr><.byte typ,len><.word adr>
+f$ucre:	faatr$	4, 14,  r$arat	; write record attributes
+f$uren:	faatr$	5, 10,  n$bfna	; write filnametc.typ;ver
+	.word	0
+
+f$uwin:	faatr$	1,  4,  r$aown	; owner uic/protection
+	faatr$	13.,35.,r$arvn	; revision and times
+f$uwat:	faatr$	4, 14,  r$arat	; write record attributes
+	.word	0
+
+f$urat:	faatr$ -1, 4,	r$aown	; owner uic/protection
+	faatr$ -5, 10.,	r$afna	;
+	faatr$ -4, 14.,	r$arat	; record attributes
+	faatr$ -9.,10.,	r$asta	; statistics (allocate size)
+f$urin:	faatr$ -13.,35.,r$arvn	; revision and times
+	.word	0		;
+
+r$afna:	.blkw	5		; filnametc.typ;ver
+
+r$arat::			; record attributes
+	.byte	1,0		; fixed length, no carriage control
+r$arsz:	.word	512.		; record size
+r$ahgh:	.word	0,0		; highest block
+r$aeof:	.word	0,1		; EOF block
+r$affb:	.word	0		; FFB
+;?
+r$aacm:	.byte	1		; access mode - read/write
+r$acha:	.byte	^o310		; device characteristics
+	.blkb	32.-<.-r$arat>	;
+
+r$asta:				; statistics block
+	.word	0,0		; some block number
+r$aalc:	.word	0,0		; allocated size
+	.byte	0		; access count
+	.byte	0		; lock count
+
+r$atem:	.byte	1,0		; attributes template
+	.word	512.		; record size
+	.word	0,1		; highest block
+	.word	0,1		; EOF block
+	.word	0		; FFB
+	.byte	2		; access mode - random access
+	.byte	^o310		; device characteristics
+	.blkb	32.-<.-r$atem>	;
+
+r$aown:	.byte	1,54.		; owner uic
+r$apro:	.word	-1		; owner protection
+r$arvn:	.word	0		; revision #
+r$arev:	.ascii	/01JAN00/	; revision date/time
+	.ascii	/010101/	;
+r$acre:	.ascii	/01JAN00/	; creation date/time
+	.ascii	/121212/	; 
+	.ascii	/01JAN00/	; expiration date (unused)
+	assume <.-r$arvn> eq 35.;
+	.even
+.sbttl	set file format
+
+; 	THIS ROUTINE WILL GROW OVER TIME
+
+;	Called by enter (fa$ent) to set new file attributes
+
+	loDIR. = ^rDIR
+
+  proc	fu$fmt
+	bnew	n$betc,#loDIR.,10$	; not a .DIR file
+	mov	#16.,r$arsz		; 16-byte records
+	clr	vx.cnt(r5)		; no file size
+;	br	100$			; 
+10$:
+  end
+.sbttl	ddn:, .sreset patches
+
+;	Called by RTS:RTUSR.MAC when accessing a device
+;	Check FX device/logical name exists for RTACP
+;
+;	(r3) ->	logical or device name
+;
+;	c=0	path exists
+;	1=1	path does not exist
+;
+;r$xddn::;call @#rx$ddn			;*RTX patch point (see RTRTX & RTFAP)
+;	nop, nop			;*try DDn: catch-all
+;60$:	sec				; no such device
+;	return
+
+rx$ddn::
+fa$ddn:	mov	r$mddn,(r3)		;
+	bnew	(r3),<#^rFX>,10$	; not us
+	psh	r0			;
+	alun$	#luTMP.,(r3)		; does path exist? 
+	pop	r0			;
+	bcs	10$			; nope
+	mov	r$mddn,(r3)		; setup path
+	tst	(pc)+			; z=0
+10$:	sec				; z=1
+	return
+
+;	.sreset patch
+;
+;	Reset cabs
+;	Delete tentative files via cab
+;
+;	Zap luns opened on .CDFN channels 
+
+  proc	fa$rst	<r0..r5>
+	p1	cnt,r3
+	clr	r2
+	mov	#f$acab,r4
+10$:	add	#ca.bbs,r4		; first cab is unused
+	beqw	cnt(sp),#luMAX.-1,20$	; doing all cabs
+	bnew	r2,#15.,20$		; not the image channel
+	bpsw	#jsOVR$,@#j$bjsw,30$	; overlayed-skip channel
+20$:	call	fu$zap			; zap cab
+30$:	inc	r2			;
+	sobw	r3,10$
+  end
+.sbttl	CSI patch
+
+;	CSI patch for [g,m] syntax
+;
+;	CSI handles "dev:\aaa\bbb\.." and "dev:[aaa.bbb...]
+;	The task here is to handle dev:[grp,mem] syntax
+;
+;	r2 ->	rad50 output
+;	r4 ->	character past \ or [
+;	r5 = 0	[ seen
+
+;r$xcsi::call	@#rx$csi	;*RTX patch (see RTS:RTCSI.MAC cd$ini:)
+;	call	cs$r50		;*get two words
+;	...			;
+;r$xcsx::			; parse return point
+
+	stack	ret,sav,r0,r1,r2,r3,r4; cd$ini stack frame
+rx$csi::psh	r1		;
+	bnew	r5,20$		; not for us
+	mov	r4,r1		; check for [...,...]
+10$:	beqb	(r1),<<#',>>,30$; got a comma
+	beqb	(r1),<#']>,20$	; end of [...]
+	bneb	(r1)+,10$	; more to come
+20$:	pop	r1		;
+	callr	cs$r50		; ignore it
+
+30$:	psh	r0		;
+	call	100$		; convert first number
+	bneb	(r4),<<#',>>,20$; must be a comma
+	inc	r4		; skip comma
+	call	100$		; convert member number
+	bneb	(r4),<#']>,40$	; must be ]
+	inc	r4		; skip ]
+40$:	pops	<r0,r1>		;
+	tst	(sp)+		; skip return address
+	stack	sav,r0,r1,r2,r3,r4 ; RTCSI.MAC cd$dir stack frame
+	mov	r4,sp.r4(sp)	; save input scan point
+	jmp	r$xcsx		; continue in cd$dir
+
+;	leading zero pad 3-digit numbers ("1" => "001")
+
+100$:	mov	#160$,r0	; output
+	mov	#3,r1		; max digits
+110$:	beqb	(r4),<#'?>,120$	;
+	beqb	(r4),<#'%>,120$	;
+	beqb	(r4),<#'*>,120$	;
+	blob	(r4),<#'0>,130$	; end if not a digit
+	bhib	(r4),<#'7>,130$	; (note, [,] => [000,000])
+120$:	movb	(r4)+,(r0)+	; one more digit
+	sob	r1,110$		; more to go
+130$:	psh	r4		; save for cs$r50
+	mov	#160$,r4	; point to input
+	sub	r1,r4		; go back n digits
+	call	cs$r50		; convert to rad50
+	tst	(r2)+		; retain result rad50
+	pop	r4		;
+	return
+
+	.ascii	"000"
+160$:	.asciz	"000"
+	.even
+.sbttl	.savest, .reopen patches
+
+;	.savestatus patch
+;
+;	csw	csw
+;	sbl	dev	.rad50 /ddn/
+;	len	len	.word	fid
+;	use	fid	.word	fid+2	; ch.use cleared by reopen
+;	ioc/uni	seq	
+;
+;	r4 ->	channel
+;	r3 ->	save area + 5*2
+;	
+;	Error conditions have been checked
+;	Channel area has been copied to user
+;
+;r$xsav::;callr	@#r$xsav		; RTX patch
+;20$:	clr	(r4)			;
+;	return
+
+rx$sav::bcs	20$			; some eror
+	jsr	r5,sy$sav
+	mov	r4,r2			; r2 -> channel
+	sub	#ch.bbs,r3		; r3 -> save area
+	mov	(r3)+,r0		; r3 -> ch.sbl
+	bic	#csin$n,r0		; isolate slot
+	bnew	r0,#fxSLT.,10$		; not our slot
+					;
+	mov	r2,r0			; r0 -> channel
+	call	rx$c2l			; get lun address
+	mov	r0,r4			; r4 -> cab
+	bplw	ca.sta(r4),10$		; ignore closed channels
+	bneb	ca.acp(r4),#caF11.,10$	; can't help these
+	mov	ca.phy(r4),(r3)+	; store physical device
+	mov	(r4),(r3)+		; store fid
+	mov	2(r4),(r3)+		;
+	call	fu$fid #f$adac #fuQUI$	; deaccess existing file
+	clr	(r4)			; close cab
+					;
+10$:	clr	(r2)			; close channel (c=0)
+20$:	return
+
+;	.reopen patch
+;
+;	Errors have been checked
+;
+;r$xreo::;callr	@#rx$reo		;*RTX.TSK hook
+;	mov	r4,r3			; channel
+;	br	sy$mv5			; reopen channel
+
+rx$reo::jsr	r5,sy$sav		; r2 -> user area
+	mov	r4,r3			; r3 -> channel
+	call	rx$mvb r2,r3,#ch.bbs	; standard reopen
+	mov	(r3)+,r0		; r0 = csw
+	bic	#csin$n,r0		; isolate slot
+	bnew	r0,#fxSLT.,10$		; not our slot, done
+					;
+	mov	r4,r0			; r0 -> channel
+	call	rx$c2l			; get lun address
+	mov	r0,r4			; r4 -> cab
+	call	fu$zap			; zap anything
+	movb	#caF11.,ca.acp(r4)	; setup F11 ACP
+	mov	(r3)+,ca.phy(r4)	; setup physical device
+	mov	(r3)+,(r4)		; fid
+	mov	(r3),2(r4)		;
+	alun$	ca.lun(r4),ca.phy(r4)	; attach lun
+	bcs	10$			; nope
+	call	fu$arw #fuQUI$		; access file for read/write
+	bcs	10$			; nope
+	clr	(r3)			; ch.use
+	mov	r0,-(r3)		; length (from fu$arw)
+	mov	r4,-(r3)		; setup start block
+10$:	clc
+	return
+
+	.end
+

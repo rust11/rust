@@ -1,0 +1,496 @@
+rsx$c=1
+.title	rtcsi - rust/sj command string interpreter
+.include "rts:rtdef.mac"
+.psect	csi
+oct$c=1		; octal output
+ini$c=1		; sub-directory parse inits
+sub$c=1		; sub-directories
+clo$c=1		; .close fix
+$cfdef
+$dndef
+$emdef
+$esdef
+$jbdef
+$jsdef
+rpdef$		; RUST/SJ request packet
+sjdef$		; RUST/SJ configuration
+
+meta	<cserr$ c,a><jsr r1,cs$err><.word a,177400!c>
+
+;	RUST/SJ Command String Interpreter
+;
+;		csigen		csispc		gtlin		$gtlin
+;	p1	unused		unused		future		future
+;	p2 qa2	[cstrng]	[cstrng]	0		signals
+;	p3 qa3	deftyp		deftyp		[prompt]	[prompt]
+;	p4 qa4	devspc[!1]	outspc[!1]	1 or 3		control
+; p4&3	p5	[linbuf]	[linbuf]	linbuf		linbuf
+;	   qa8	entry/exit stack
+;	   qr0  exit r0
+;
+;	r0 exit	devspc&177776	outspc&177776	unchanged
+;				;??> CSI error should set SEVER$
+; qa2 string/0, qa3 types/prompt, qa4 space/0, qa5 string, qa8 stack
+; r0 char, r1 input, r2 our string, r3 user string, r4 flag
+
+c$sprm:	.byte	'*,200		; default prompt
+
+cs$dev::psh	#c$sdst		; (sp) -> return status area
+	mov	#c$sfil,r0	; r0  -> rad50 device name
+	emt	emdst.		;
+	return
+
+	.enabl	lsb
+cs$err:	mov	(r1)+,r0	; get the string address
+	mov	qa8(r5),sp	; get the stack back again
+	tst	qa2(r5)		; is it ours?
+	bne	10$		; its the users
+	call	er$rep		; report error
+	tst	e$hjoc		; are we in a command file?
+	beq	cs$agn		; nope, go again
+er$sev::bisb	#esfat$,j$bsev	; setup the error bit
+	.exit			; and exit from this place
+10$:	mov	(r1),qer(r5)	; report the error
+cs$rtn:	return
+	.dsabl	lsb
+.sbttl	csigen, csispc, gline
+
+ss$csi::mov	#emclo.*256.+8.+39.,r1 ; gen> r1 = flag
+ss$csp::mov	sp,qa8(r5)	; save the stack
+	mov	qa5(r5),qr0(r5) ;  qr0 = linbuf for gtlin
+	mov	qa4(r5),r3	; get and test this guy
+	cmp	r3,#2		; this gtlin=term?
+	blos	10$		; it's gtlin or gtlin=term
+	sub	#39.,r1		;  spc=-19., gen=cloc.+12
+	mov	r3,qr0(r5)	; gen> return space pointer
+10$:	mov	r1,(r5)		;  (r5) = spc<lin=0<gen
+
+cs$agn:	mov	qa3(r5),r0	; lin> prompt for gtlin
+	mov	qa2(r5),r1	;  r1 -> user input string
+	mov	#c$slin,r2	;  r2 -> our output string
+	mov	qa5(r5),r3	;  r3 -> user output string
+	bne	10$		;  user wants string
+	mov	r2,r3		;  use ours again as nop
+10$:	mov	qa4(r5),r4	; spc> output space to clear
+	tst	(r5)		; this gtlin?
+
+	beq	40$		;  its gtlin
+	.if ne clo$c
+20$:	mov	(r5),r0		; get the flag
+	bmi	30$		;  its csispc
+	emt	374		; gen> close channels
+	decb	(r5)		; gen> 9. channels
+	bpl	20$		; gen> another
+	.iff
+	mov	(r5),r0		; get the flag
+	bmi	30$		;  its csispc
+20$:	emt	374		; gen> close channels
+	decb	r0		; gen> 9. channels
+	bpl	20$		; gen> another
+	.endc
+	mov	#empur.*256.+8.,(r5) ; purge channels on restarts
+30$:	mov	#-1,r4		;  r4 = equals seen flag
+	clr	r0		; assume no prompt
+	tst	qa2(r5)		; user string?
+	bne	40$		; yes - no prompt
+	mov	#c$sprm,r0	; default prompt
+40$:	mov	r0,e$hprm	; store the prompt string
+	beq	70$		; no prompt for this gtlin
+
+	mov	e$hjoc,r0	; get the command file
+	beq	60$		; is none
+	bit	#jsgtl$,j$bjsw	; is gtlin in action?
+	beq	50$		; nope
+
+	cmpb	(r0)+,#3	; control/C?
+	bne	50$		; nope
+	cmpb	(r0)+,#cfEOS.	; in a dcl command file? 
+	bne	60$		; nope
+	cmp	r0,e$hjob	; any more in command file?
+	beq	60$		; nope - prompt
+	bic	#cfdcl$!cfcon$,r$mcfs	; turn these off
+50$:	bit	#cfdcl$!cfcon$!cfqui$,r$mcfs ; prompting inhibited?
+	bne	70$		; yes, skip it
+60$:	.print	e$hprm		; print the prompt
+70$:	fall	cs$inp		; input csi string
+.sbttl	input csi string
+
+cs$inp:
+10$:	movb	(r1)+,r0	; in case its a user string
+	tst	qa2(r5)		; is it a user string?
+	bne	20$		;  yes
+	.ttin			;  nope, get another
+20$:	bic	#^c<177>,r0	; clean it up
+	tst	(r5)		; is it gtlin?
+	beq	40$		;  yes, ignore tests
+	cmpb	r0,#'<		; is it '<'?
+	bne	30$		;  nope
+	incb	r0		;  yes, convert < to =
+30$:	cmpb	r0,#'=		; is it '='?
+	bne	40$		;  nope
+	com	r4		;  yes, remember it
+	bmi	cs$icm		;  twice is not nice
+40$:	cmp	r2,#c$slin+80.	; too many characters?
+	bhis	50$		;  yes, line too long
+	movb	r0,(r2)+	; store it in our string
+	movb	r0,(r3)+	; store in user string
+50$:	call	te$lfc		; is it lf or ctrl/c?
+	beq	60$		; yep
+	tst	r0		; is this lf?
+	bne	10$		; nope
+60$:	clr	e$hprm		; remove the prompt
+	tst	(r5)		; is this just a getlin ?
+	beq	cs$rtn		; yes, gtlin exit
+	fall	cs$clr		; clear stuff then parse
+
+; r0 free, r1 types r2 work, r3 space, r4 string, r5 qel 
+
+cs$clr:	bpl	cs$cmd		; its csigen
+	mov	qa4(r5),r1	; point to the area
+	mov	(r5),r3		; get the count
+10$:	clr	(r1)+		; clean one
+	inc	r3		; count it
+	bne	10$		; till 39. are done
+	fall	cs$cmd		; process command
+.sbttl	command processor
+
+; r0 free, r1 types r2 work, r3 space, r4 string, r5 qel 
+
+cs$cmd:	add	#c$slin,r4	;  r4 -> normalized string
+	clr	qry(r5)		; clear up the switch count
+	mov	#ement.*256.,c$semt ; shove in the code and channel
+	mov	qa4(r5),r3	;  r3 -> output space
+	mov	qa3(r5),r1	;  r1 -> file types
+	.if ne sub$c
+	.if ne ini$c
+	call	cd$ini
+	.iff
+	mov	#1,c$dini	;  trigger init
+	.endc
+.endc
+cs$def:	mov	#^rDK,c$sfil	; setup the default device
+	.if ne sub$c
+	.if ne ini$c
+	call	cd$def
+	.iff
+	mov	#^rDK,c$ddef
+	.endc
+	.endc
+	.enabl	lsb
+cs$par:	mov	2(r1),c$sfil+6	; set up the type (parse loop)
+	tst	(r5)		; spc or gen?
+	bmi	10$		; spc
+	mov	#c$sfil,r3	; use ourselves
+10$:	add	#10,r3		; assume it bombs
+	call	cs$fil		; get a file specification
+	beq	cs$swi		; we got nothing
+	sub	#10,r3		; back up
+	mov	#c$sfil,r2	; for the move
+	call	sy$mv4		; and move them in
+	mov	#c$slen,r2	; look at the size
+	clr	(r2)		; and clear it
+	call	cs$chn		; input or output channel?
+	bpl	cs$opn		; input channel
+	tst	c$sfil+2	; file structured?
+	bne	20$		;  yes, no check
+	call	cs$dev		; see if its o.k.
+	bcs	cs$idv		;  no device
+	tst	c$sdst		; file structured device?
+	bmi	cs$icm		;  yes, its an error
+20$:	cmpb	(r4),#'[	; size specified?
+	bne	30$		; nope
+	inc	r4
+	call	cs$dec		; get a decimal
+	cmpb	(r4)+,#']	; hows the syntax?
+	beq	30$		; its o.k.
+cs$icm:	cserr$	0,e$ricm	; invalid command
+30$:	mov	(r2),(r3)	; and move the size
+	.dsabl	lsb	
+
+cs$opn:	tst	(r5)		; do we open it? (open files)
+	bmi	cs$swi		; nope
+	call	cs$dev		; check the device
+	bcs	cs$idv		; oops
+	.fetch	qr0(r5),#c$sfil	; fetch the device concerned
+	bcs	cs$idv		; oops, problems loading it
+	mov	r0,qr0(r5)	; and return the pointer
+	mov	#c$semt,r0	; get it
+	emt	375		; do the lookup or enter
+	bcs	cs$iop		; we have error 3 or 4
+	fall	cs$swi		; do switches
+.sbttl	switches
+
+cs$swi:	cmpb	(r4)+,#'/	; a switch?
+	bne	cs$nxt		; nope, no switch
+	movb	c$semt,r0	; get the switch word
+	swab	r0		; get it in the high byte
+	bisb	(r4)+,r0	; and the value
+	call	te$upr		; convert switch to upper case
+10$:	inc	qry(r5)		; count the switch
+	psh	r0		; push the switch value
+	mov	sp,r2		; point for values
+	cmpb	(r4),#':	; got a value?
+	bne	cs$swi		; end of switch - try again
+	inc	r4		;
+	psh	(sp)		; make a space
+	bis	#100000,(sp)	; set the value flag
+	cmpb	(r4),#'A	; alphabetic?
+	blo	20$		;  nope, get number
+	call	cs$r50		; get a word
+	br	40$		; for the other test
+20$:	psh	r4		; save r4, in case we fail
+	call	cs$dec		; try for a decimal
+	beq	30$		; it was decimal (had a dot)
+	.if ne oct$c
+	mov	(sp),r4		; and point again
+	call	cs$oct		; get the octal number
+	.iff
+	sub	#2,c$srad	; make it base 8, octal
+	mov	(sp),r4		; and point again
+	call	cs$num		; get the octal number
+	.endc
+30$:	inc	(sp)+		; clean up the stack
+40$:	bcc	10$		; get another value (colon seen)
+	br	cs$swi		; else look for another switch
+
+cs$nxt:	inc	c$semt		; next channel
+	tstb	-(r4)		; end of string?
+	beq	cs$mrg		; yes, move the switches
+	call	cs$chn		; which channel?
+	bgt	30$		; second or later input file
+	bit	(r1)+,(r3)+	; next type and size
+	bcc	20$		; its the first input file
+	cmpb	(r4),#'=	; sitting on =?
+10$:	beq	cs$par		; yes
+	br	40$		; skip a comma or crash
+20$:	cmpb	(r4)+,#'=	; got an equals?
+	bne	cs$icm		; nope, it bombs
+	sub	#10,r1		; and adjust for input type
+	decb	c$semt+1	; make it a lookup
+	.if ne sub$c
+	jmp	cs$def		; go again and setup the device
+	.iff
+	br	cs$def		; go again and set up the device
+	.endc
+30$:	cmpb	c$semt,#9.	; too many?
+	bhis	cs$icm		; yes
+40$:	cmpb	(r4)+,#',	; is it a comma?
+	bne	cs$icm		; nope, it dies
+	br	10$		; go do the next
+
+cs$idv:	cserr$	1,e$ridv
+cs$iop:	call	cs$chn		; what was it?
+	bpl	20$		; input
+	decb	j$berr		; direction or protection?
+	beq	10$		; direction
+	cserr$	2,c$spro	; protected file
+10$:	cserr$	3,c$sful	; device full
+20$:	cserr$	4,e$rfnf	; file not found
+
+cs$mrg:	psh	qry(r5)		; get the switch count (merge switches)
+	mov	qa8(r5),r1	; r1 = old stack
+	sub	sp,r1		;  r1 = switch depth
+	mov	r1,r4		; 
+	add	#sjEMT.+4,r4	;  r4 = switch+depth legnth
+	mov	sp,r2		;  r2 = current base
+	sub	r1,sp		;  sp = shunt base
+	mov	sp,r0		;  r0 = shunt base
+10$:	mov	(r2)+,(r0)+	; and move them
+	sub	#2,r4		; count them
+	bne	10$		; nope
+20$:	mov	(sp)+,(r0)+	; shift the others in
+	sub	#2,r1		; count them
+	bne	20$		; till we're done
+				; cs$mrg and cs$chn share "return"
+cs$chn:	cmpb	c$semt,#3	; channel type
+	return			; go home
+.sbttl	file, rad50, decimal and octal processors
+
+; ???	CSIGEN should reject wildcards
+;
+;	r4 ->	ascii input
+
+	.enabl	lsb
+cs$spc::call	cd$ini		; init sub-directories
+cs$fil: mov	#c$sfil,r2	; r2 -> rad50 output
+	.if ne sub$c
+	.if ne rsx$c
+	cmpb	(r4),#'[	;
+	beq	5$
+	.endc
+	cmpb	(r4),#'\	; starts with sub-directory?
+	bne	10$		; nope
+5$:	mov	r4,-(sp)	; yep - set flag and backup
+	br	20$		; collect directory and name
+	.endc
+10$:	call	60$		; get the name
+	mov	(r2),-(sp)	; set null/full flag
+	bcs	30$		; colon not found
+	mov	(r2),-(r2)	; move it into place
+	inc	r4		; skip the colon
+	.if ne sub$c
+	mov	(sp),c$ddef	; 
+20$:	call	cd$dir		; get directory
+;sic]	bcs	cs$idv		;
+	.endc
+	call	50$		; now get the name
+30$:	call	60$		; get the second half
+	call	cs$dot		; look for a dot
+	bne	40$		; no dot
+	call	50$		; get the type
+40$:	tst	(sp)+		; return null/full status
+	return
+
+50$:	inc	r0		; flag : or . seen for si.mac
+60$:	tst	(r2)+		; skip the last
+	fall	cs$r50		;
+	.dsabl	lsb
+
+;	r4 ->	input
+;	r2 ->	output
+
+	stack	res,r0,r1,r2,r3,r4,r5,ret
+cs$r50::save			; save the lot
+	clr	(r2)		; clear the output
+	mov	#3,r3		; get a counter
+10$:	mov	#c$sr50,r1	; get the states list
+20$:	movb	(r1)+,r0	; get the next offset
+	beq	30$		; forget it
+	bpl	20$		; skip range parameters
+	cmpb	(r1)+,(r4)	; check the range
+	bhi	20$		; its too low
+	cmpb	(r1)+,(r4)	; too high
+	blo	20$		;
+	movb	(r4)+,r1	; accept the character
+	add	r1,r0		; and compute the present value
+30$:	jsr	r4,cs$dig	;
+	.word	40.-1		; the multiplier
+	dec	r3		;
+	bne	10$		; do another sign
+cs$ret:	mov	r4,sp.r4(sp)	; return the r4 pointer
+	restore			; and restore the world
+
+cs$col:	cmpb	(r4),#':	; is it a colon?
+	beq	10$		;  yes, c=0, z=1
+	.word	sec!sez		;  no,  c=1, z=1
+10$:	return
+c$sr50:	.byte	-11,'%,'%,-15,'*,'*,-137,'_,'_
+	.byte	28.-'?,'?,'?,27.-'$,'$,'$					;V4
+c$sr5x:	.byte	-22,'0,'9,-100,'A,'Z,-140,'a,'z,0
+	.even
+
+;	r1=base r2->output r4=string 
+
+cs$dec:	mov	#10.-1,c$srad	; set up for decimal
+	call	cs$num		; get the number
+cs$dot:	cmpb	(r4)+,#'.	; does it have a dot
+	beq	cs$col		;  yes, look for a colon
+	dec	r4		;  no, bump back
+	return			; 
+
+	.enabl	lsb		;
+	.if ne oct$c
+cs$oct::mov	#8.-1,c$srad	; octal parse
+	.endc
+cs$num:	save
+	clr	(r2)		; clear number
+	movb	(r4),r3		; the minus check
+	sub	#'-,r3		; r3=0 -> negative number
+	bne	20$		; not negative
+10$:	inc	r4		; skip minus sign or digit
+20$:	movb	(r4),r0		; get the digit
+	sub	#'0,r0		; check for lower bounds
+	cmpb	r0,c$srad	; out of range?	
+	bhi	30$		; yes, end of number
+	jsr	r4,cs$dig	;
+c$srad: .word	10.-1		; radix control
+	br	10$
+30$:	tst	r3		; was it negative?
+	bne	40$		; nope
+	neg	(r2)		; negate the number
+40$:	br	cs$ret		; restore, update r4, test and return
+	.dsabl	lsb		;
+
+cs$dig:	mov	(r4)+,r5	; get counter
+	mov	(r2),r1		; get a copy
+10$:	add	r1,(r2)		; multiply it
+	dec	r5		; till we're done
+	bne	10$
+	add	r0,(r2)		; and add in the new guy
+	rts	r4
+c$sful:	string	<&<304>&evice full>,200
+c$spro:	string	<&<306>&ile protected>,200
+.sbttl	sub-directory specification
+.if ne sub$c
+
+;	r2 ->	rad50 output -> device
+;	r4 ->	input stream
+
+c$ddev:	.word	0		;\ sticky device name
+c$dnxt:	.word	0		;| next entry
+c$dlog:	.word	0		;/ next logical name
+
+	.if ne ini$c
+cd$ini:	mov	#1,c$dini
+cd$def:	mov	#^rDK,c$ddef
+	return
+	.endc
+
+	.enabl	lsb
+cd$dir:	save
+	stack	sav,r0,r1,r2,r3,r4,r5
+	.if ne rsx$c
+	clr	r5		; assume [..]
+	beqb	(r4),<#'[>,5$	; has directory
+	inc	r5		; not []
+	.endc
+	bneb	(r4),<#'\>,40$	; no directory
+5$:	mov	#c$dlog,r3	;
+	asr	(pc)+		; once only
+c$dini:	.word	1		;
+	bcc	10$		; already done
+	mov	#^rC00,(r3)	; first logical
+	mov	d$mcsi,-(r3)	; c$dnxt
+	clr	@(r3)+		; aint no next
+10$:	mov	-(r3),r2	; c$dnxt
+	clr	(r2)+		; dn.cnt
+	mov	c$dlog,(r2)+	; dn.log 
+	mov	(pc)+,(r2)+	; dn.dev
+c$ddef:	.rad50	/DK /		; sticky device
+20$:	inc	r4		; skip \
+	mov	r4,sp.r4(sp)	; skip what we have
+	bhiw	r2,d$mcsx,40$	; out of space
+r$xcsi::;jmp	@#r$xcsi	;\*RTX patch overwrites instruction below
+	call	cs$r50		;/*get two words
+	tst	(r2)+		; retain word
+	call	cs$r50		;
+	tst	(r2)+		; retain word
+	.if ne rsx$c
+	bnew	r5,21$		;
+	beqb	(r4),<<#'.>>,20$; another directory
+	bneb	(r4),<#']>,21$	; no more directories
+	inc	r4		;
+	mov	r4,sp.r4(sp)	;
+	br	25$		;
+	.endc
+21$:	beqb	(r4),<#'\>,20$	; another directory
+	cmp	-(r2),-(r2)	; backup over last
+r$xcsx::			; rx$csi return point
+25$:	clr	(r2)		; will be next, next time
+	mov	r2,r0		; 
+	sub	(r3),r0		; get length of it
+	beqw	r0,#dn.sub,30$	; null spec
+				;
+	mov	(r3),r1		; c$dnxt
+	mov	dn.log(r1),@sp.r2(sp); fill in logical
+	mov	r0,@(r3)+	; entry is now for real
+	inc	(r3)		; c$dlog - next logical
+	add	r0,-(r3)	; c$dnxt - update our pointer
+30$:;	tst	(pc)+		; errors are ignored and caught later
+40$:;	sec			;
+	return
+	.dsabl	lsb
+.endc
+
+.end
+

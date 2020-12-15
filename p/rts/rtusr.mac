@@ -1,0 +1,675 @@
+if2$c=0		; info test
+;----------------
+
+ked$c=1		; KED patch
+rtx$c=1		; RTX
+err$c=1		; elide redundant c-bit code
+.title rtusr - rust/sj user service routines
+.include "rts:rtdef.mac"
+.psect	usr
+rts$c=1		; rt11s fix
+abt$c=0		; abort I/O
+inf$c=1		; get/set info
+imp$c=1		; implicit catch-all penultimate ??? delete ???
+dvq$c=1		; 
+cla$c=0		; .dclass
+col$c=0		; 
+tty$c=0		; built-in tt:
+$chdef
+$dcdef
+$dedef
+$drdef
+$dsdef
+$emdef
+$erdef
+$hadef
+$iqdef
+$jbdef
+$psdef
+$rsdef
+$rtdef
+$vedef
+rpdef$		; RUST/SJ request packet
+
+;	RUST/SJ file-related services
+
+set	v.max 500 ; replace with v$emax
+
+meta	<usfat$ c><jsr r0,us$fat><.word c+177400>
+meta	<acfat$ c><jsr r0,ac$fat><.word c+177400>
+
+meta	<phaze c><movb qcm(r5),r0><jmp @c'lst(r0)>
+;eta	<table c><c''lst: usdef$ c>
+
+;	Disk-like devices opened non-file by wildcard lookup are set nowrite
+.sbttl	usr, primary dispatch, errors, exit
+
+;  	I/O routines expect the following stack:
+;	
+;	4(sp)	emt rti
+;	2(sp)	usr caller
+;	0(sp)	exeunt
+
+us$ent::			; enters with registers saved
+	.if ne col$c
+	mov	qck(r5),qbs(r5) ; qbs(r5) -> user emt
+	.endc
+	mov	sp,qck(r5)	; r5 = qel (save stack for exit)
+				; r4 = csw
+	movi	qfn,r5,r3	; for lookup, enter, delete
+	movi	qa1,r5,r2	; for rename, dstatus
+	mov	#u$ssta,r1	; default device return area
+	clr	qdk(r5)		; assume channel finishs not active
+	phaze	pr$		; do the preface phaze
+
+us$ftp::
+ac$fat::clr	(r4)		; directory errors purge channel
+us$fat:	mov	(r0),r0		; return the error code
+	br	us$err		; join common
+us$ex0:	clr	qr0(r5)		; get the stack back
+us$exi:	clr	r0		; no errors
+us$err:	mov	r0,qer(r5)	; return error codes
+.if eq err$c
+	tst	(pc)+		; c=0
+	sec			; c=1
+.endc
+	mov	qck(r5),sp	; get the stack back
+pr$nop:
+sc$nop:
+sc$clz:
+sc$dst:	return			; go back
+.sbttl	preface phaze, secondary dispatch
+
+	.enabl	lsb
+pr$clz:
+pr$clo:	psh	(pc)+		; flag close
+pr$pur:	clr	-(sp)		; flag purge
+	comb	qdk(r5)		; flag channel operation	
+	mov	(r4),r0		; get the csw
+	bpl	20$		; already closed, skip this
+	call	us$chn		; check the channel
+	beq	us$ndv		;
+	mov	(r2),u$ssta	; remember status for special
+	tst	(sp)+		; purge or close?
+	beq	10$		; purge
+	bit	#dsRTA$!dsSPC$,(r2) ;this a file structured device?
+	beq	10$		; nope - just purge it
+	bpl	us$ph2		; always purge special directory devices	;?200-
+	tstb	(r4)		; is a file-structured open?
+	bmi	us$ph2		; yep, go check handler & dispatch
+10$:	clr	ch.use(r4)	; purge special devices
+	bit	#dsSPC$,(r2)	; this a special directory?
+	bne	us$ph2		; yes - force a purge at least
+	br	30$		; join the common stuff
+20$:	tst	(sp)+		; skip the purge/close flag
+30$:	clr	(r4)		; purge it
+	br	us$exi		; and exit				
+
+pr$rea:				; read
+pr$wri:				; write
+pr$spf:				; spfun
+	mov	(r4),r0	; get the device number
+	call	us$chn		; check local
+	bne	us$sec		; local and loaded
+us$ndv:	usfat$	erNDV.		; no device
+	.dsabl	lsb
+
+;	dstatus and fetch
+
+pr$dst:	mov	qa2(r5),r1	; return area
+pr$fet:	mov	r2,r3		; device name in qa1
+	call	us$dev		; do device things
+	bcc	us$sec		; device exists
+	usfat$	0		; error code 0
+
+;	lookup, enter, rename, delete, info
+
+pr$ren:	mov	r2,r3		; point to device name
+	br	pr$del		;
+pr$ent:
+pr$loo:	bis	#csACT$,qdk(r5)	;csw final state
+pr$del:
+pr$inf:	bpsw	#csSUB$,(r4),10$; skip for sub-directory
+	call	us$dev		; check device
+	blos	us$ndv		; no device or not loaded
+	mov	r4,r0		; get another copy
+	bisb	u$sidx,(r0)+	; open it
+	bisb	qdk+1(r5),(r0)+	; set activ for non-file
+	clr	(r0)+		; ch.sbl
+	mov	#-1,(r0)+	; ch.len non-file
+	clr	(r0)+		; ch.use
+	clrb	(r0)+		; ch.ioc
+	movb	u$suni,(r0)	; ch.uni
+10$:	tst	(r3)+		; r3 -> filename now
+	bit	#dsRTA$!dsSPC$,u$ssta ; this file-structured?
+	beq	us$ex0		;
+	bpl	20$		; special directory - skip filename test	;?200-
+	tst	(r3)		; non-file?
+	beq	us$ex0		; yep, we're done			
+20$:				; non-file catch have nowrite set
+	tst	(r3)		; got a file?
+	beq	30$		; nope -- catch nowrite remains
+	bic	#csNWR$,(r4)	; remove nowrite for file access
+30$:	bis	#csACT$,(r4)	; nope, we do it
+us$ph2:	call	us$spc		; check special directory
+us$sec:	psh	#us$exi		; we always succeed now
+	phaze	sc$		; do the next phaze
+.sbttl	fetch, release
+
+sc$fet:	mov	r1,d$rent	; error recovery
+	mov	(r1),d$rres	; restore value for I/O errors
+	mov	r5,d$rqel	; for aborts
+	mov	#r$mcsw+<5*2*21>,r0;
+	movb	r$msyu+1,-(r0)	; ch.uni - system unit					;162
+	clrb	-(r0)		; ch.ioc
+	clr	-(r0)		; ch.use
+	mov	#-1,-(r0)	; ch.len
+	clr	-(r0)		; ch.sbl
+	movb	#200,-(r0)	; active
+	movb	r$msyi,-(r0)	; index
+
+	mov	r1,r4		; r4 -> hentry
+	mov	qa2(r5),r2	; r2 = qa2(qel) = load addr
+	mov	r2,qr0(r5)	; default return address
+.if ne cla$c
+	bpsw	#1,qa1(r5),dr$cla ; read class information
+.endc
+	tst	(r4)		; r1 -> hentry; is it loaded?
+	bne	40$		; yep - already loaded
+	cmp	r2,#v.max	; fetch or release?
+	blo	60$		; release; forget it
+				;
+	mov	u$shsz,r1	;
+	mov	r1,r3		; compute end of driver
+	add	r2,r3		;
+	bcs	dr$err		; ridiculous
+	cmp	r$musr,r3	; is it over the system?
+	bcs	dr$err		;*yep, illegal load
+	ror	r1		;*word count
+	clr	r0		;
+	call	dr$loa		; load it
+	clr	ha.cqe(r2)	; clear setup stuff
+	mov	r3,qr0(r5)	;
+	mov	#sy$frk,-(r3)	; point to fork
+	mov	#sy$int,-(r3)	; plug in the inten jump	
+	mov	(r2)+,r1	; ha.vec
+	beq	30$		; oops, no vector
+	bmi	10$		; a vector table
+	mov	r2,(r1)		; store the base
+	add	(r2),(r1)+	; add in ha.isr offset
+	mov	#pr7,(r1)	; get the ps
+	br	30$		; join the common stuff
+10$:	asl	r1		; read sysmac for this
+	add	r2,r1		; point to the table
+20$:	mov	(r1)+,r0	; get the vector
+	ble	30$		; no more vectors
+	mov	r1,(r0)		; relocate
+	add	(r1)+,(r0)+	; to the ast
+	mov	(r1)+,(r0)	; move in the users ps
+	bis	#pr7,(r0)	; and put ours on top
+	br	20$		; look for more
+	assume ha.lqe-ha.isr eq 4 ;
+30$:	tst	(r2)+	;ha.isr	;
+	clr	(r2)+	;ha.hol	;
+			;ha.lqe	; r2 -> ha.lqe
+;	add	#ha.lqe-ha.isr,r2; point to lqe
+	mov	r2,(r4)		; fill hentry
+	mov	#drftc.+1,r3	; fetch
+	call	dr$ser		; do the service routine
+	bcs	50$		; 
+	br	60$		; fine
+
+40$:	cmp	r2,#v.max	; is it a release
+	bhis	60$		; nope, its a fetch
+	cmp	(r4),s$ylow	; is it a loaded handler?
+	bhis	60$		; yep, ignore it
+	mov	#drrlc.,r3	; release code
+	call	dr$ser		; do the service routine
+	bcs	dr$err		; release refused
+50$:	bic	(r4),(r4)	; nope, unload the handler
+	bcs	dr$err		;
+60$:
+dr$ret:	clc			;
+	return			;
+
+.if ne cla$c
+dr$cla:	clr	r0		; block zero
+	mov	#drcbs/2,r1	; class information size (12 words)
+	br	dr$get		; 
+.endc
+.sbttl	fetch utilities
+
+;	read routines
+;
+;	r0 =	block
+;	r1 =	word count
+;	r2 =	buffer
+
+	.enabl	lsb
+dr$ovl:	mov	#512.,r1		; word count
+	mov	#u$sbuf,r2		;
+dr$get:	dec	r0			; rt-11 magic
+dr$loa:	add	(pc)+,r0		; offset it
+u$sblk:	.word	0			;
+	call	dr$rea			;
+	bcc	20$			; fine
+	mov	(pc)+,@(pc)+		; restore slot
+d$rres:	.word	0			;
+d$rent:	.word	0			;
+dr$err:	mov	(pc)+,r5		; qel
+d$rqel:	.word	0			; fetch error
+	usfat$	erFET.			;
+					;
+dr$rea:	psh	r3			;
+	mov	#d$rwct,r3		;
+	mov	r1,(r3)			; word count
+	mov	r2,-(r3)		; buffer
+	mov	r0,-(r3)		; block
+					; NF: fetch/release
+	mov	#r$msch+ch.sbl,r0	; system channel start block
+	clr	(r0)			;
+.if ne rtx$c
+	beqb	d$vsta+2,#defxc.,5$	; SY: is FX:
+.endc
+	bneb	d$vsta+2,#denfc.,10$	; SY: not NF:
+5$:	mov	u$sblk,(r0)		; use that as base
+	dec	(r0)			; --base
+	sub	(r0),(r3)		; remove from block
+					;
+10$:	tst	-(r3)			; r3 -> iob
+	mov	r3,r0			;
+	psh	c$hbas			; save that
+	mov	#r$mcsw,c$hbas		; use system base
+	emt	375			; do read
+	pop	c$hbas 			;*
+	pop	r3			;*
+	bic	#csher$,r$msch		;*clear system channel error
+20$:	return				;*
+	.dsabl	lsb
+
+;	r2 ->	driver lqe
+;	r3 =	service code
+;	r4 ->	hentry
+;
+; dsr:	r0 ->	service routine
+;	r1 ->	getvec routine
+;	r2 =	$slot*2
+;	r3 =	service call code
+;	r4 ->	read routine (r0=blk,r1=buf,r2=wct)
+;	r5 ->	hentry for driver
+
+dr$ser:	save
+	mov	r4,r5			; r5 -> hentry
+	assume	ha.beg-ha.lqe eq 4	;
+	cmp	(r2)+,(r2)+		; r1 -> ha.beg
+	blow	(r2),#nop,dr$ret	; low guard failed
+	bhiw	(r2),#nop+37,dr$ret	; high guard failed
+	bpcb	r3,(r2),dr$ret		; routine not enabled
+	bic	#1,r3			; clean up the code
+10$:	clr	r0			; 
+	call	dr$ovl			; read the first two blocks
+	mov	r2,r4			; r2/r4 -> buffer
+	bnew	(r4)+,#^rhan,dr$ret	; not appropriate version
+	add	r3,r4			; 
+	mov	(r4),r4			; r4 -> service routine
+	beq	dr$ret			; shouldn't happen
+	blow	r4,#1000,20$		; in block zero
+					;*c=0
+	mov	r4,r0			;*work out block number
+	ror	r0			;*words per block
+	clrb	r0			; delete words
+	swab	r0			; block number
+	call	dr$ovl			; get the blocks
+20$:	mov	r4,r0			; isolate routine
+	bic	#^c777,r0		;
+	add	r2,r0			; r0 -> routine
+	mov	r$mgvc,r1		; r1 -> getvec routine
+	movb	r$msl2,r2		; r2 = $slot * 2
+					; r3 = fetch/release code
+	mov	#dr$rea,r4		; r4 -> read routine
+					; r5 = hentry
+	callr	(r0)			; thar she blows
+;move us$chn
+.sbttl	io$res - reset driver I/O
+
+;	Called by .sreset/.hreset and image exit
+;
+;	r2 ->	driver lqe
+;	r3 =	service code
+;	r4 ->	hentry
+
+io$res::save			; driver reset
+	mov	#d$vent,r4	; get the hentrys
+10$:	mov	(r4),r2		; get the next
+	beq	20$		; not loaded/fetched
+	.if ne tty$c
+	cmp	r2,#$rmon	; this a built-in driver?
+	bhis	20$		; yep
+	.endc
+	clr	(r2)		; clear lqe
+	clr	2(r2)		; clear cqe
+	cmp	r2,s$ylow	; is this loaded?
+	bhis	20$		; yep, leave it alone
+	mov	#drrlc.,r3	; release code
+	call	dr$ser		; call service routine
+	clr	(r4)		; nope, clear it
+.if ne abt$c
+	br	30$		;			
+20$:	bpsw	#dshab$,d$vsta-d$vent(r4),30$ ; not if handler abort
+	bpcw	#dsgab$,d$vsta-d$vent(r4),30$ ; only generic abort
+	tst	-(r2)		; back up to...
+	mov	-(r2),r1	;
+	add	r2,r1		; relocate it
+	save			;
+	call	-(r2)		; just before the ast
+	restore			;
+30$:
+.iff
+20$:
+.endc
+	tst	(r4)+		; 
+	cmp	(r4),#-1	; end of table?
+	bne	10$		; yes
+.if ne rtx$c
+	call	@e$hrst		; call hook reset chain
+.endc
+	return			; go back
+
+us$chn:				; check channel local/loaded
+	bic	#^ccsin$p,r0	; isolate device index
+	mov	r0,r2		; get a copy
+	add	#d$vsta,r2	;  r2 = $slot entry
+	br	us$loa		; go check it
+.sbttl	setup device
+
+;???	For NF: catchall check server for directory exists.
+;
+;	NF: & FX: DDD: wildcard device
+;	FX: DDn: wildcard device (patch)
+;
+;  Input
+;
+;	r1 ->	device information area - output
+;	r3 ->	device name
+;
+;  Output:
+;
+;	c=1	device not found
+;	else
+;	...	(r1) device area filled in
+;	pname	permanent device name
+;	r1 ->	$hentry entry
+;	z=1	driver not loaded
+
+us$dev:	.enabl	lsb
+10$:	mov	#d$vper,r0	; get the monitor list
+20$:	cmp	r0,#d$vent	; end of $hentry list?
+	bhis	40$		; yes, no chance
+	mov	(r3),r2		; get the device name
+	sub	(r0)+,r2	; check for a match
+	blo	20$		; no chance
+	beq	25$		; exact
+	sub	(pc)+,r2	; try for unit number
+	.rad50	/  0/		;
+	blo	20$		; no chance
+	cmp	r2,#7		; unit out of range?
+	bhi	20$		; yep, not this guy
+25$:	movb	r2,u$suni	; remember the unit
+	tst	-(r0)		; bump the index back
+	sub	#d$vper,r0	; and adjust it
+	movb	r0,(pc)+	; sets index and unit
+u$sidx::.byte	0		; device index
+u$suni:	.byte	0		;
+	bic	#1,r1		; clean up (physical) address
+.if ne ked$c
+	mov	d$vsta(r0),(r1)	;
+	bnew	e$himg+2,#<^rKED>,35$ ; not ked
+	bnew	e$himg+4,35$	;
+	beqb	(r1),#denfc.,30$; not NF
+	bneb	(r1),#defxc.,35$; or FX
+30$:	bis	#100000,(r1)	; make NF/FX look like RT11A 
+35$:	tst	(r1)+		;
+.iff
+	mov	d$vsta(r0),(r1)+
+.endc
+	mov	d$vhsz(r0),(r1)+
+	mov	d$vent(r0),(r1)+
+	mov	d$vdsz(r0),(r1)
+	mov	d$vblk(r0),u$sblk
+us$loa:
+	mov	#d$vent,r1	; >> r1 -> handler entry
+	add	r0,r1		; and point to it
+	tst	(r1)		; >> z=1 => not loaded; z=0 => loaded
+	return			;
+
+;	No device -- check for catchall device
+
+40$:	bit	#1,r1		; physical device?
+	bne	60$		; yes - NF: isn't.
+	mov	r$mcal,r0	; get the catch-all device
+	beq	45$		; nope [not strictly necessary]
+	beqw	r0,(r3),60$	; already is DDD: catch-all
+.if ne rtx$c
+45$:	beqw	r$mddn,(r3),60$	; already DDn: catch-all
+.endc
+	bis	#csNWR$,qdk(r5)	; default to nowrite
+
+;	names must be three characters and not end with a digit
+
+	mov	(r3),r2		; get the name for destruction
+.if ne imp$c
+	mov	r2,qx0(r5)	; replace penultimate
+.endc
+	mov	r0,(r3)		; in case we try the catch-all
+	mov	#100$,r0	; get the divisors
+50$:	sub	(r0),r2		; this it?
+	bcc	50$		; nope
+	add	(r0),r2		; bump back
+	tst	-(r0)		; got another divisor
+	bne	50$		; yep
+	tst	r2		; what's the result
+	beq	55$		; only two characters
+	sub	(pc)+,r2	; check for digit
+	.rad50	/  0/		;
+
+	cmp	r2,#7		; a digit?
+	bhi	10$		; nope - decode  DDD: catch-all
+.if ne rtx$c			; RTX DDn: catch-all
+r$xddn::;call @#rx$ddn		;*RTX patch point (see RTRTX & RTFAP)
+55$:	br	60$		;*try DDn: catch-all
+	nop			;
+	bcc	10$		;
+.endc				;
+60$:	sec			;
+	return			;
+
+	.word	0,50
+100$:	.word	50*50
+	.dsabl	lsb
+.sbttl	spfun, read, write
+
+;	channel is open, request is within bounds
+
+sc$spf:	bit	#dsFUN$,(r2)	; does it accept spfun's?
+	beq	us$ret		; nope, ignore it
+	movb	qa4+1(r5),r3	; get the function			
+	mov	qa5(r5),qa4(r5) ; move the completion up
+	br	io$que		; go queue it
+
+sc$wri:	mov	qwc(r5),r0	; get the wordcount
+	add	#377,r0		; round up to a block
+	clrb	r0		; modulus 256.
+	swab	r0		; divide by 256.
+	add	qbl(r5),r0	; form the high block
+	cmp	ch.use(r4),r0	; is this a new high?
+	bhi	10$		; nope
+	tstb	(r4)		; opened with .enter?
+	bpl	10$		; nope
+	mov	r0,ch.use(r4)	; yep, update the channel
+10$:	neg	qwc(r5)		; negative count signals write
+sc$rea:	clr	r3		;  r3 = function
+	fall	io$que		; fall into line
+.sbttl	i/o queue, done
+
+;	don't build new queue element 
+;	add reque and retest limits for a shorter LD:
+
+io$que:	.enabl	lsb		; queue an i/o request
+	bit	#dsRTA$!dsSPC$,(r2) ; file-structured?
+	beq	10$		; nope
+	bic	#csEOF$,(r4)	; yes, clean it up
+10$:	mov	(r1),r1		;  r1 -> ha.lqe of handler
+	movi	qbs,r5,r0	; point to the queue area
+	clr	(r0)+		; i.qlnk = 0
+	mov	r4,(r0)+	; i.qcsw
+	mov	qbl(r5),(r0)	; qbl - request block
+	add	ch.sbl(r4),(r0)+; i.qblk
+	movb	r3,(r0)+	; i.qfun (r3=func)
+	movb	ch.uni(r4),(r0)+; i.quni
+	mov	qbu(r5),(r0)+	; i.qbuf
+	mov	qwc(r5),(r0)+	; i.qwct
+	mov	qdu(r5),(r0)	; i.qcom
+	sub	#i.qcom-i.qblk,r0 ; point back to i.qblk
+	clr	qwc(r5)		; it is done, son
+	tst	(r1)+		; ignore lqe, r1 -> cqe
+	call	sy$sp7		; spl 7 co-routine
+	mov	(r1),r2		; get the queue
+	bne	30$		; its busy
+	mov	r0,(r1)+	; its not busy
+	call	@(sp)+		;
+	call	(r1)		; call the driver
+	br	40$		; exit
+20$:	mov	i.qlnk-i.qblk(r2),r2 ; go thru the list ???
+30$:	tst	i.qlnk-i.qblk(r2) ; go to end of queue
+	bne	20$		; still not end
+	mov	r0,i.qlnk-i.qblk(r2) ; put it in
+	call	@(sp)+		; spl 0
+40$:	cmp	(sp)+,(sp)+	; skip r5-type return (we just lost qel)
+us$ret:
+50$:	return			; c=0
+60$:	.dsabl	lsb
+
+	.enabl	lsb
+io$don::save			; driver completion
+	mov	(r4),r5		; get the qel
+	beq	30$		; no queue element (aborted)
+	psh	r5		; and save it a moment
+	mov	iq.lnk(r5),(r4)+; get the next
+	beq	10$		; is no next
+				; note tiny abort race condition
+	call	(r4)		; get this one going
+10$:	pop	r5		; get back our guy
+.if ne inf$c
+	bleb	iq.fun(r5),20$	; not an acp function
+	mov	iq.wct(r5),r$msps ; grab acp spfun result word
+.endc
+20$:	sub	#qbs+i.qblk,r5	; get back our qel
+	mov	qa8(r5),r4	; get the csw pointer
+	decb	ch.ioc(r4)	; request done, adjust i/o count
+	mov	(r4),r0		;  r0 = csw
+	movb	qch(r5),r1	;  r1 = channel
+	mov	qa5(r5),r2	; get the completion
+	call	qu$fre		; free the queue element
+	bit	#177776,r2	; completion routine?
+	beq	30$		;  no, just vanish
+io$ast::psh	@#j$berr	;  yes, save error word
+	call	(r2)		;  << r2 -> completion routine
+	pop	@#j$berr	; in case she changed it
+30$:	return
+	.dsabl	lsb
+;	need to supply address of .gfinf control block
+;	driver interprets the control block
+.sbttl	RT11S ACP operations
+
+;	Refashion current qel as spfun and send direct
+;
+;	chn|32	chn,32	
+;	blk	p2		
+;	buf	dblk	
+;	wct	p1	
+;	fun|377	377,rt11s code	
+;	ast	0=wait
+;
+;	p2=p1=seq for lookup, delete, close, etc
+;	p1=len, p2=seq for enter
+;	p1=len for closz
+;	p1=new, p2=off|opr for info
+;
+; ???	wcnt	channel #
+; ???	ch.use	size for enter/close
+
+us$spc:				; handle special directory stuff
+	bit	#dsSPC$,u$ssta	; this a special directory device?
+	beq	us$ret		; not for us
+	movb	qcm(r5),r0	; get the code
+	asr	r0		; 
+10$:	.if eq dvq$c
+	clrb	ch.ioc(r4)	; reset this for ctrl/c
+	.endc
+	clr	(sp)		; ast   wait I/O
+	psh	#-1		; func  default function
+	movb	r0,1(sp)	;       special function in high byte
+	movi	qa2,r5,r1	; 
+.if ne inf$c			;
+	mov	r1,r3		;
+.endc				;
+	psh	(r1)		; wcnt  enter size
+	psh	r1		; buff  dblk + 2
+	cmpb	r0,#rsren.	; this a rename?
+	beq	30$		; yes
+	add	#qfn+2-qa2,(sp)	; point to the name
+	mov	qx0(r5),qa8(r5)	;
+30$:	clr	-(sp)		; blk	assume no seqnum
+.if ne inf$c
+	beqb	r0,#rsinf.,35$	; sfinf 
+	bhib	r0,#rsent.,50$	; rename or something else
+	bne	40$		; not enter
+35$:	tst	(r3)+		; blk = qa3 (p2)
+40$:	mov	(r3),(sp)	; pass parameter
+.iff
+	cmpb	r0,#rsent.	; this an enter?
+	bhi	50$		; it's a rename or something else???
+	beq	40$		; enter
+	mov	qa2(r5),qa3(r5)	; lookup - move sequence number
+40$:	mov	qa3(r5),(sp)	; pass sequence number
+.endc
+50$:	psh	#32*256.	; build spfun
+	movb	qch(r5),(sp)	; and the channel
+	bmib	qdk(r5),60$	; channel operation (close/purge)
+	movb	(sp),ch.use+1(r4) ; pass channel number
+;sic]	clrb	ch.use(r4)	; process number
+60$:	mov	sp,r0		; point to our stack area
+	emt	375		; and do it
+	bcs	90$		; directory error
+	mov	r$mspu,r0	; any special usr errors?
+	bne	100$		; yes - jump to fatal
+.if ne inf$c
+	mov	r$msps,qr0(r5)	; r0 return
+	bmiw	qdk(r5),70$	; lookup/enter
+	clr	(r4)		; no - close channel
+.if ne if2$c
+	bneb	qcm(r5),#rsinf.*2,80$ ; not get/set info
+.iftf
+70$:
+.ift
+	mov	ch.len(r4),qr0(r5) ; lookup/enter size or prior info value
+.endc
+.iff
+	bmiw	qdk(r5),70$	; lookup/enter
+	clr	(r4)		; no - close channel
+70$:	bpl	80$		; don't modify r0 for above
+	mov	ch.len(r4),qr0(r5) ; return lookup/enter size
+.endc
+80$:	jmp	us$exi		; and exit
+
+90$:	mov	#erDIO.,r0	; directory i/o error
+100$:	bis	#177400,r0	; make it an error code
+	clr	(r4)		; turn off the channel
+	jmp	us$err		; goto errors
+.sbttl	data
+
+pr$lst:	usdef$ pr$		; primary/preparation table
+sc$lst:	usdef$ sc$		; secondary/action table
+
+.end
+

@@ -1,0 +1,160 @@
+.title	rttim - rust/sj clock and timer
+.include "rts:rtdef.mac"
+.psect	tim
+spl$c=1
+sys$c=1
+$fkdef
+$psdef
+sjdef$		; RUST/SJ configuration
+tqdef$		; timer queue element
+lsini$
+
+;	RUST/SJ timer services and asts
+
+.sbttl	clock handler
+
+	.enabl	lsb
+ve$clk::adc	r$mtim+2	; (c=1) time-of-day
+	adc	r$mtim		; 
+	.inten	6		; clock priority
+	mov	#t$ilot,r5	; mark-time
+	add	#1,t$ilot	; 
+	adc	t$ihot		;
+	inc	(pc)+		; twait
+t$itwt:	.word	0		;
+	sub	#1,(pc)+	; counting semaphore
+t$isem:	.word	0		;
+	bcc	40$		; we're not the first
+	.if ne sys$c
+	jsr	r5,sy$frk	; fork
+	.word	t$ifrk-.	;
+	.endc
+10$:	mov	#t$iact,r5	; pointer to the first
+20$:	mov	r5,r4		; save pointer
+	mov	(r4),r5		; the next
+	beq	30$		; all done
+	cmp	t$ihot,tq.hot(r5); expired? 
+	blo	20$		; nope
+	cmp	t$ilot,tq.lot(r5)
+	blo	20$		;
+	save			; save everything
+	mov	@(r4)+,-(r4)	; link us out
+	mov	tq.ast(r5),r2	; r2 -> ast
+	mov	tq.idt(r5),r0	; r0 = ast value
+	mov	(pc)+,(r5)	; put on the free list
+t$ifre:	.word	t$ique		;
+	mov	r5,t$ifre	; make it free
+	spl	0		; go down
+	call	io$ast		; call completion routine
+	.if eq spl$c
+	spl	7		; go up
+	.endc
+	restore			; get the registers back
+	br	10$		; and try again from the top
+30$:	inc	t$isem		; clock ticks remaining?
+	bne	10$		; yes
+40$:	return
+	.dsabl	lsb
+
+.if ne sys$c
+t$ifrk:	.blkb	fk.bbs
+.endc
+.sbttl	twait & mrkt
+
+ss$twt::mov	(r3),r3		; get the area address
+	mov	(r3)+,r0	; get the high order
+	mov	(r3)+,r1	; get the low order
+	mov	#t$itwt,r3	; now point to the counter
+	mov	#1,(r3)		; start with plus one, count to -1
+10$:	mov	(r3),r2		; get the counter
+	sub	r2,(r3)		; adjust the counter
+	sub	r2,r1		; decrement the low order
+	sbc	r0		; and the high order
+	bcc	10$		; till we overflow
+ti$ret:	return			; that was easy, if long
+
+;	r0 ->	tq.lnk
+
+ss$mkt::call	sy$sp7		; spl 7 co-routine
+	mov	t$ifre,r1	; get an element
+	beq	ti$err		; oops, is none, error.
+	assume	tq.lnk eq 0	;
+	mov	(r1)+,t$ifre	; delink
+	mov	(r0)+,r2	; get the time pointer
+	assume	tq.hot eq 2	;
+	mov	(pc)+,(r1)	;
+t$ihot:	.word	0		;
+	add	(r2)+,(r1)+	; get the high order
+	mov	(pc)+,(r1)	;
+t$ilot:	.word	0		;
+	add	(r2),(r1)+	; the low order
+	adc	tq.hot-tq.ast-4(r1)
+	assume	tq.ast eq 6	;
+	assume	tq.idt eq 10	;
+	mov	(r0)+,(r1)+	; the done routine
+	mov	(r0),(r1)+	; the id
+	assume	tq.bbs eq 12	;
+	sub	#tq.bbs,r1	; back to beginning
+	call	sy$sp7		; spl 7>
+	mov	(pc)+,(r1)	; insert in list
+t$iact::.word	0		;
+	mov	r1,t$iact	;
+	return
+
+ti$err:	clr	r1		; error = 0
+	call	@(sp)+		; spl 0>, return
+rm$sec::nop			; rmon magic
+	nop			; 
+	sec			; c=1
+	return
+.sbttl	cmkt
+
+set cm.idt 2-2, cm.tim 4-2	; emts dispatched with r0+2
+
+ss$cmk::mov	(r0)+,r1	; r1 = id or 0 for all
+ti$ini::mov	#t$iact,r3	; get the list
+	mov	#t$ifre,r2
+	call	sy$sp7		; br7> stop the world
+	tst	r1		; is it cancel all?
+	bne	20$		; nope
+				; cmkt - all
+	clr	t$isem		; zap the semaphore
+	clr	t$ihot		; extend system lifetime
+	clr	(r3)		; t$iact=0, stop the lot
+	mov	#sjTIM.-1,r0	; count the slots
+	mov	#t$ique,(r2)	; point to the first
+10$:	mov	(r2),r2		; get the next
+	mov	r2,(r2)		; form the next
+	add	#tq.bbs,(r2)	; point to the next
+	dec	r0		; any more?
+	bne	10$		; nope
+	clr	(r2)		; c=0 and clear the last
+	jmp	@(sp)+		; c=0, >> br0, return
+				; cmkt - selective
+;	r0 ->	time return area
+;	r1 =	idt
+;	r2 ->	free
+;	r3 ->	active
+
+20$:	mov	r3,r4		; swap elements
+	mov	(r4),r3		; get the next active
+	beq	ti$err		; not found
+	cmp	tq.idt(r3),r1	; is this the guy?
+	bne	20$		; nope
+
+	mov	(r3),(r4)	; delink from busy
+	mov	(r2),(r3)	; link into free
+	mov	r3,(r2)		;
+	mov	(r0),r0		; r0 -> return area
+	beq	30$		; not required
+	tst	(r3)+		; r3 -> hot, lot
+	mov	(r3)+,(r0)	;
+	sub	t$ihot,(r0)+	;
+	mov	(r3),(r0)	;
+	sub	t$ilot,(r0)	;
+	sbc	-(r0)		;
+30$:	jmp	@(sp)+		; spl 0 and return
+
+lsend$
+.end
+

@@ -1,0 +1,626 @@
+inf$c=0		; save/restore qa2..3 across directory walk
+;	enable rec$c recursion test?
+;	hreset can be reduced
+.title	rtser - rust/sj system services
+.include "rts:rtdef.mac"
+.psect	ser
+seq$c=1		; propagate sequence number
+usr$c=1	;temp	; move usr code (for branch distance?)
+fet$c=1	;???	; fetch/dstat temporary patch
+sav$c=1		; new savestatus code
+xtm$c=1		; extended date/time requests
+sdt$c=1		; minor code cleanup
+
+rec$c=0		; recursion check
+neg$c=0		; negative word count
+dbg$c=0		; debug
+
+$chdef
+$emdef
+$hkdef		; RUST hooks
+$iqdef
+$jbdef
+$jsdef
+$npdef
+$kwdef
+usdef$
+rpdef$		; RUST/SJ request packet
+sjdef$
+lsini$
+
+;	RUST/SJ system services 
+
+meta <re n,c><.rept n><c><.endr>
+meta <check c><jsr r3,io$chk><.word c>
+.sbttl	wait, spfun, read, write  
+
+	.enabl	lsb
+ss$wai::tst	(r4)		; channel open?
+	bpl	sv$err		; nope, err=0
+10$:	tstb	ch.ioc(r4)	; wait for channel
+	bne	10$		; keep waiting
+	bit	#csher$,(r4)	; hard error on channel?
+	beq	20$		; nope, no errors
+	psh	#sv$err		; yes, push return path
+sv$chk:	mov	(r4),r1		; convert and remove errors
+	bic	#cseof$!csher$,(r4) ; pick errors out of csw
+	bic	(r4),r1		; pick csw out of errors
+	bne	30$		; eof=0, hard=1 (hard has priority)
+20$:	tst	(pc)+		; >> c=0 => no error
+30$:	sec			; >> c=1 => error
+	return
+	.dsabl	lsb
+
+	.enabl	lsb
+ss$spf::check	usspf.		; spfun
+	br	30$		; skip word count checks
+ss$wri::check	uswri.		; write
+	bpsw	#csNWR$,(r4),sv$err ; file isn't writeable
+	br	10$		; go to common section
+ss$rea::check	usrea.		; read
+10$:	mov	qa4(r5),qa5(r5) ; completion always in qa5
+	stack	dis,end		; dispatcher, end processing returns
+	stack	tmp,end		; use dispatcher return address as temp
+	.if ne neg$c		; no other RT-11 system tests this condition
+	tst	(r2)		; negative word count?
+	bmi	sv$err		; yes, it bombs (sanity check)
+	.endc			;
+				; RT-11 doesn't check non-RT11A devices
+	beqw	ch.sbl(r4),20$	; non-file structured channel aren't checked
+				; - DUP needs this 
+	mov	ch.len(r4),r0	; get size of file
+				; RUST non-file channels have size=177777
+				; - thus tests below will always succeed
+	sub	qbl(r5),r0	; subtract user block
+	blos	sv$err		; end of file
+	swab	r0		; convert to word count
+				; assumes swab tests low byte
+	bne	20$		; more words than we can count - its okay
+	cmp	(r2),r0		; is word count too big?
+	blos	20$		;  nope, its fine
+	mov	r0,(r2)		;  yes, truncate request
+	movb	qch+1(r5),(sp)	; .WRITx code is odd, sets c later
+20$:	mov	(r2),r0		; r0 = returned size
+
+30$:	incb	ch.ioc(r4)	; channel is busy
+	psh	qa5(r5)		; save the completion
+	call	sv$usr		; send it
+	tst	(sp)+		; shall we wait ?
+	bne	50$		;  no, nonwait i/o
+40$:	tstb	ch.ioc(r4)	;  yes, channel wait
+	bne	40$		; keep waiting
+50$:	call	sv$chk		; check for errors
+	bcs	60$		; found one
+	asr	(sp)		; get truncate error
+60$:	inc	(sp)+		; (return direct to em$don:)
+	return			; and return
+	.dsabl	lsb
+.sbttl	i/o check
+.sbttl	cstat, close, closz, purge
+
+;	error processing
+
+sv$er2:	bitb	(r1)+,(r1)+	; error +2
+sv$err: bis	#177400,r1	; make it an error code
+	mov	r1,qer(r5)	; return it
+	return			; sv$err here for branches
+
+;	io$chk - check i/o preconditions
+
+io$chk:	tst	(sp)+		; pop the saved r3
+	mov	(r3)+,(r2)	; << (r3)+ = packet codes
+	clr	qr0(r5)		; >> qr0(r5) = 0
+	mov	r4,qa8(r5)	; >> qa8(r5) -> csw
+	tst	(r1)+		; r1 = 2, error code
+	mov	(r4),r0		; r0 = csw
+sv$bm2:	bpl	sv$err		; err=2, channel not open
+	call	sv$chk		; check eof and hard
+	bcs	sv$err		; we got one
+	movi	qwc,r5,r2	; >> r2 -> qwc(r5)
+	bic	#^c<76>,r0	; >> r0 = channel code
+	jmp	(r3)		; >> z=1 => tt
+
+ss$cst::tst	(r4)		; explicit check for sub-directory case
+	bpl	sv$bm2		; channel not open
+	mov	(r3),r3		;  r3 -> area
+	mov	r4,r2		;  r2 -> csw area
+	call	sv$mv4		; move the first four
+	movb	1(r2),(r3)+	; c.unit down low
+	clrb	(r3)+		; high byte is null
+	mov	(r4),r2		; get the csw
+	bic	#^c76,r2	; clean it up
+	mov	d$vper(r2),(r3)+;
+	return			;
+
+;	RT-11 doesn't check length for RT11S
+
+	.enabl	lsb
+ss$clz::cmp	(r3),ch.len(r4)	; trying to extend?
+	bhi	sv$er2		; yes
+	mov	(r3),ch.use(r4)	; truncating
+	fall	ss$clo		;
+ss$clo::inc	r1		; most closes and purges are redundant
+	mov	ch.use(r4),qa1(r5); send the high block (for KED)
+ss$prg::movb	10$(r1),(r2)	; set up the host command code
+	jmp	sv$snd
+10$:	.byte	uspur.,usclo.
+	.dsabl	lsb
+.sbttl	lookup, enter, delete, rename, get/set file info
+
+sv$opn:	.enabl	lsb		; branch link to sv$err
+ss$loo::bmi	sv$err		; oops, already open	
+	call	sv$loo		; do the general stuff
+	beqw	qr0(r5),#d$niob,sv$wlk 
+	tst	qfn+2(r5)	; file-structured?
+	beq	50$		; nope - use plain device
+	mov	e$hpth,r0	; get a pointer
+10$:	cmp	(r0),#-1	; end of paths?
+	beq	50$		; nope - no path applicable
+	cmp	(r0)+,-10(r2)	; is this the name?
+	beq	20$		; yep - we have a path
+	add	#np.ebs-2,r0	; point to next path
+	br	10$		; and look at the next path
+20$:	tst	(r0)		; any more in the path?
+	beq	30$		; nope - not found
+	movi	qfn+10,r5,r3	; point to the filename
+	psh	r2		; save this for retries
+	mov	-(r2),-(r3)	;
+	mov	-(r2),-(r3)	;
+	mov	-(r2),-(r3)	;
+	mov	(r0)+,-(r3)	; get the next in the path
+	call	sv$trn		; do the assignment
+	call	sv$acp		; try it on
+	pop	r2		; restore it
+	bcs	20$		; didn't work, do the next
+30$:	return			; found it
+
+;	.sfinf			.fprot/.sfdat	
+; 	.byte	req,chn		.byte	req,chn				
+;qa1/r3	.word	dblk		.word	dblk
+;qa2	.word	value (0=>gfinf).word	prot/date
+;qa3	.byte	opr,off
+;
+;	opr: 0=get, 1=bic, 2=bis, 3=set
+;
+;	r3 ->	qa1(r5)
+
+ss$fpr::tst	(r3)+		;  skip dblk
+	ror	(r3)		;c prot=0/1
+	mov	#100000,(r3)+	;c value
+	bic	(r3),(r3)	;c opr/off=0
+	adc	(r3)		;c opr=0/1
+	inc	(r3)		;  opr=1/2 bic/bis
+	cmp	-(r3),-(r3)	;  r3 -> dblk
+	br	ss$sfi		;
+
+ss$sfd::cmp	(r3)+,(r3)+	;
+	mov	#3+<14*400>,(r3); opr|off
+	tst	-(r3)		; got a date?
+	bne	40$		; yep
+	mov	r$mdat,(r3)	;
+40$:	tst	-(r3)		; r3 -> dblk
+	fall	ss$sfi		;
+
+ss$sfi::mov	#usinf.,(r2)	;
+.if ne inf$c
+	mov #bpt,xxx
+.endc
+	tst	(r4)		;
+	fall	ss$del		;
+ss$ent::
+ss$del::bmi	sv$opn		; oops, already open
+	call	sv$loo		; do the common stuff
+	br	50$		; and the rest		
+rq$cho:				; channel open propagation branch
+ss$ren::bmi	sv$opn		; channel open
+	mov	(r3),r2		; get the input pointer
+	call	sv$m4a		; move 4, do assigns
+	call	sv$m4a
+50$:	fall	sv$acp
+	.dsabl	lsb
+.sbttl	acp interface, sub-directories
+
+;	sv$acp
+; 	sv$acp is invoked initially at base level
+; 	and invoked again for each sub-directory lookup
+; 	sub-directory lookups do not parse the sub-directory table
+;   	thus the repetition bpsw at sv$wlk
+; 
+; 	rec$c
+;   	checks for infinite recursion
+;
+;
+;	r2/r3	free
+;	r4 -> csw
+;	r5 -> r5
+;
+;	dk:\ian\..\
+
+sv$acp:	.enabl	lsb		;
+sv$wlk:	bpsw	#csSUB$!csWLK$,(r4),sv$snd ; don't repeat this stuff
+dn$dis:	psh	r0		; non-channel ept
+.if ne inf$c
+	psh	qa3(r5)
+	psh	qa2(r5)
+.endc
+	.if ne rec$c		; recursion check
+	mov	(pc),r2		; r2 = 5026 - counter
+	.endc			;
+	clr	-(sp)		; walk stopper
+10$:	mov	d$mdir,r0	;
+	movi	qfn,r5,r3	;
+	beqb	qcm(r5),#usren.,20$
+	blosb	qcm(r5),#usinf.,30$
+20$:	add	#qa1-qfn,r3	;
+30$:	mov	r0,r1		;
+	add	(r0),r0		; r0 -> next
+	beqw	(r1)+,40$	; end of list
+	bnew	(r3),(r1)+,30$	; try again
+	mov	(r1)+,(r3)	;
+	psh	r1		; save it
+	call	sv$trn		;
+	.if ne rec$c
+	asr	r2		; count loop down
+	bne	10$		;
+	br	70$		;
+	.iff			;
+	br	10$		; try again
+	.endc
+				;
+40$:	bhisb	qcm(r5),#usdst.,80$; dstat/fetch are different
+45$:	beqw	(sp),80$	; wasn't found
+	mov	qx0(r5),d$nspc	; use penultimate first time around
+50$:	beqw	(sp),80$	; not a directory name, or no more
+	pop	r2		; get next name
+	mov	-6(r2),r3	;
+	tst	-(r3)		;
+60$:	sub	#4,r3		; any more
+	beq	50$		; all done
+	mov	(r2)+,d$nspc+2	;
+	mov	(r2)+,d$nspc+4	;
+	mov	#d$niob,r0	;
+	movb	qch(r5),(r0)	; the channel
+	bis	#csWLK$,(r4)	; directory walk in progress
+	.if ne seq$c
+	mov	qa2(r5),d$nseq	; propagate sequence number
+	.endc
+	emt	375		; look it up
+	bis	#csWLK$!csSUB$,(r4)
+	bcc	60$		; fine
+70$:	tst	(sp)+		; skip past guard
+	bne	70$		;
+	pop	r0		;
+	clr	(r4)		; zap channel
+	mov	#177401,qer(r5)	; file not found
+	br	sv$ret		;
+80$:	tst	(sp)+		; skip past guard
+	bne	80$		;
+.if ne inf$c
+xxx=.
+	nop
+mov #nop,xxx
+	pop	qa2(r5)
+	pop	qa3(r5)
+.endc
+	pop	r0		; restore that
+	bic	#csWLK$,(r4)	; no longer recursive
+	fall	sv$snd		; walk done, do actual operation
+
+;	requests pause here, in tt waits, or in req
+;	<< c = host error, r0 maybe qr0	r1 unchanged
+;	r2 points to qa2(r5) and r3 gets qa1(r5)
+;	r4, csw, is unchanged, and r5 gets the qel adress.
+
+sv$snd:				; .close/.purge entry
+	call	sv$usr		; send operation to usr
+100$:	asrb	qer+1(r5)	; set error bit
+sv$ret:	return			;
+	.dsabl	lsb
+
+.if ne usr$c			; here for branch forwarding
+sv$usr:	save			; build usr stack frame
+	call	us$ent		; call usr
+	return			; can't be callr
+.endc
+.sbttl	savestatus, reopen, dstatus, fetch, qset
+
+;	.reopen
+;
+;	r4 ->	channel
+;	r3 ->	application area
+
+ss$reo::bmi	rq$cho		; error = 0, channel active (c=0)
+	mov	(r3),r2		; user area
+r$xreo::;callr	@#rx$reo	;*RTX.TSK hook
+	mov	r4,r3		;*channel
+	br	sy$mv5		;*reopen channel
+
+;	.savestatus
+;
+;	o RUST always returns the channel area
+;	o RUST/XM handles NF: more flexibly
+;	o RUST/SJ doesn't handle SPECL$ && WONLY$
+;
+;	error
+;	0	Channel not open
+;	1	Tentative file
+
+ss$sav::.enabl	lsb
+	mov	r4,r2		; r2 -> channel
+	mov	(r3),r3		; r3 -> user area
+	call	sy$mv5		; always copy them
+.if ne sav$c
+	bplw	(r4),20$	; not open (error = 0)
+	inc	r1		; (error = 1)
+	bmib	(r4),20$	; error=1 (RT-11 doesn't copy on this error)
+r$xsav::;callr	@#r$xsav	;*RTX patch
+10$:	bic	(r4),(r4)	;*close channel
+	return			;*
+20$:	jmp	sv$err		; error 0 or 1
+.iff
+	mov	(r2)+,(r3)+	; move the first
+	a
+sl	(r4)		; howdy doody!
+	bcs	10$		; c=1 => error=0 -- channel not open
+	inc	r1		; for error 1
+	asrb	1(r4)		; c=1 => error=1 -- tentative file
+r$xsav::;call	@#rx$sav	; RTX.TSK hook
+10$:	bic	(r4),(r4)	; close channel
+	br	sv$mv4		; move the rest
+.endc				; cbit flows back to EMT dispatcher
+
+sy$mv5::mov	(r2)+,(r3)+	; shift the first one
+sy$mv4::
+sv$mv4:	bic	#1,r3		; even it up for dstatus (& fetch)
+	mov	(r2)+,(r3)+	; !!! don't modify cbit
+sv$mv3:	mov	(r2)+,(r3)+	;
+sv$mv2:	mov	(r2)+,(r3)+	;
+sv$mv1:	mov	(r2)+,(r3)+	;
+	return			;
+
+ss$dst::movb	#usdst.,(r2)	; send the command code
+	call	80$		; do the common stuff
+	bcs	70$		; forget it.
+ss$qst::mov	qa2(r5),qr0(r5)	; fetch, release, qset
+70$:	return			; 3 words
+
+ss$fet::movb	#usfet.,(r2)	; setup the code				;?5
+80$:	mov	qa2(r5),r2	; get no translate flag
+	asr	r2		; check physical
+	mov	(r3),r2		; get the device name address
+	.if ne fet$c
+	mov	#90$,r4		; make a dummy channel
+	clr	(r4)		; clear directory walk flags
+	.endc
+	call	sv$ass		; handle logical devices			;?5
+	bcs	sv$snd		; physical (for sub-directories)
+	jmp	dn$dis		; dispatch it
+	.if ne fet$c
+90$:	.word	0		; dummy CSW
+	.endc
+	.dsabl	lsb
+.sbttl	stdat, date, gval, pval, peek, poke, gtim
+.sbttl	gtjb, trpset, sfpa, scca, herr, serr
+
+;	.word	dat, hot, lot, era
+	.enabl	lsb		; r3 -> emt block copy
+ss$sdt::mov	(r3),r2		; r2 -> time block
+	.if ne xtm$c		; c=0
+	sub	#emgtx$,-(r3)	; sdttm=-1, gtimx=0, stimx=1
+	beq	ss$gtx		; gtimx
+	.endc
+5$:	blew	(r2)+,10$	; don't change date if le 0
+	mov	-2(r2),r$mdat	;
+	.if ne xtm$c		;
+	bmiw	(r3),10$	; .sddtm
+	mov	4(r2),r$mera	;
+	.endc
+10$:	bmiw	(r2),30$	; don't set time
+	.if ne sdt$c		;
+	mov	#r$mtim,r3	;
+	.iff
+	mov	#r$mtim+2,r3	;
+	clr	(r3)		; avoid overflow
+	clr	-(r3)		;
+	.endc
+	br	sv$mv2		; copy time
+
+ss$dat::mov	#r$mdat-r$mmon,(r3) ; setup the offset
+	clrb	qch(r5)		; force .gval
+ss$gvl::asrb	qch(r5)		; gval=0, pval=2
+	bcs	20$		; peek=1, poke=3
+	add	#r$mmon,(r3)	; form the address
+20$:	mov	@(r3)+,qr0(r5)	; r3=qa1(r5)=addr, return the value
+	asrb	qch(r5)		; gval=0 or peek=0?
+	bcc	30$		; pval=1 or poke=1
+	mov	(r3),@-(r3)	; qa2(r5)=value, poke the value
+30$:	return			;
+	.dsabl	lsb		;
+
+	.enabl	lsb		;
+	.if ne xtm$c		;
+ss$gtx::			; .GTIMX - get extended time
+	mov	r2,r3		; r3 -> time block
+	tst	(r3)+		; skip date until rollover done
+	call	5$		; get the time
+	mov	r$mera,(r3)+	; move in the era
+	mov	r$mdat,-10(r3)	; and put date back at the start
+	return			;
+	.endc
+
+ss$gtm::mov	(r3),r3		; point to user area
+5$:	mov	#r$mtim,r2 	; at time > 24:00
+10$:	mov	#t$irol,r0	; rollover
+	cmp	(r2)+,(r0)+	; after midnight?
+	blo	30$		; nope
+	bhi	20$		; definitely
+	cmp	(r2),(r0)	; check low order
+	blo	30$		; no rollover
+20$:	sub	(r0),(r2)	;
+	sbc	-(r2)		;
+	sub	-(r0),(r2)
+	add	#40,r$mdat	; up the date
+	br	10$		; check for more than one day
+30$:	tst	-(r2)		; backup
+	br	sv$mv2		; go move them
+	.dsabl	lsb
+
+ss$gjb::mov	(r3),r3 	; get job parameters
+	mov	r3,qr0(r5)	;  >> r0 = data block address
+	clr	(r3)+		; job number always zero, clear hi byte
+	mov	s$ylow,(r3)+	; high memory address
+	clr	(r3)+	 	; low memory address
+	mov	c$hbas,(r3)+	; csw table address
+	clr	(r3)+	 	; impure area, null for sj.
+	return
+
+ss$ser::mov	(pc)+,(r3)	;\ serf <>0 => serr
+ss$her::clr	(r3)		;| serf  =0 => herr
+	tst	(r1)+		;|  r1 = 6
+ss$trp::tst	(r1)+		;|  r1 = 4
+ss$sfp::tst	(r1)+		;|  r1 = 2
+ss$scc::mov	s$ysta(r1),qr0(r5) ; return previous state
+	mov	(r3),s$ysta(r1);/ set up the flag
+	return
+;	This code can be reorganised
+;	ss$wld: is probably vestigal
+.sbttl	hreset, sreset, settop 
+
+ss$hrs::
+ss$srs::mov	#17.,c$hcnt	; restore channel count
+	mov	#r$mcsw,c$hbas	; restore default channels
+				;
+	mov	#^o17,r1	; assume no overlay
+	mov	#r$mcsw+<20*5*2>,r4 ; get the last one
+	bit	#jsovr$,j$bjsw	; overlayed?	
+	beq	10$		; nope
+	dec	r1		; leave image channel open
+	sub	#5*2,r4		; backoff
+10$:	call	30$		; go clean up
+20$:	clr	-(r4)		; clear them all
+	cmp	r4,#r$mcsw	; any more?
+	bne	20$		; yep
+	return			;
+
+30$:	call	io$res		; release local devices
+				;
+assume	sjKWP. eq 012737	; changes mov #x,#y to mov #x,@#y
+ti$csr::mov	(pc)+,(pc)+	;*clock csr (patched to mov #,@#k$lcsr)
+t$ienb::.word	klenb$		; kwlin$ for kw11p
+t$icsr::.word	k$lcsr		; k$wcsr for kw11p
+				;
+ti$rpt::mov	#1,(pc)+	;*clock count (patched to mov #1,@#k$prpt)
+	.word	k$prpt	;patch	; repeat count
+				;
+ss$wld::mov	#e$hnet,r0	; cusp pointer (nop for h/sreset)
+	return			; shared return
+.dsabl	lsb
+
+;	settop
+
+ss$stp::cmp	r0,s$ylow	; is this bigger?
+	blo	10$		; nope
+	mov	s$ylow,r0	; yes, use our top
+	tst	-(r0)		; adjust to last available
+10$:	mov	r0,j$btop	; set top up
+rm$clc::			; clear carry return for rmon pointers
+	nop			; rmon magic
+	nop			;
+	clc			; no errors here
+	return			; and exit
+.sbttl	logical name translation
+
+	.enabl	lsb
+sv$loo:	mov	(r3)+,r2	; get qa1(r5)	
+	bit	(r3)+,(r3)+	; (r3) = qfn(r5)
+sv$m4a:	psh	#sv$mv3		; move three more later
+	bpcw	#csSUB$,(r4),10$; ordinary
+	jmp	sv$mv1		; just copy four
+10$:	clc		     ;c	; never physical
+				; r3 -> qfn(r5)
+sv$ass:	bic	#1,r2	     ;c	; we dont support extra word callbacks
+	mov	(r2)+,(r3)   ;c	; get the device
+	bcs	100$	     ;c	; don't translate logical name
+				; r3->qfn(r5)
+sv$trn:	mov	(r3),qx0(r5)	; remember the original name
+	bpsw	#csSUB$,(r4),100$ ; no translation required
+20$:	clr	r1		; clear the index
+30$:	cmp	(r1)+,(r3)+
+	cmp	r1,#sjSLT.+2*2	; done? (ignore local SY:)
+	bhi	100$		; yep (c=0)
+	cmp	d$vlog-2(r1),-(r3) ; got a match?
+	bne	30$		; nope
+				; c=0
+	mov	(r3),qx0(r5)	; remember last translation step		;
+	mov	d$vequ-2(r1),(r3); do the assignment
+	bne	20$		; recurse unless <null> name (wierd)
+				; c=0
+100$:	return			; c=1 => physical name
+	.dsabl	lsb
+.sbttl	channel define, .device
+
+;	r0 ->	request r0
+;	r1	0
+;	r2 ->	qcm
+;	r3 ->	qa1 = new area
+;		qa2 = number of channels
+;	r4 -> 	current csw table
+;	r5	qel
+;
+;	err=0	if new count is lower or same as current.
+;		(documentation says if lower, but it's wrong)
+;
+;	c$hcnt:	current channel count
+;	c$hbas:	current csw area
+
+ss$cdf::mov	r4,r2		; r2 -> old channels
+	mov	r3,r4		; r4 -> EMT data: new channels, count
+	mov	(r4)+,r3	; r3 -> new channels
+
+	mov	#c$hcnt,r1	; r1 -> old count (-2=pointer, -4=flag)
+	mov	(r4),r0		; r0 =  new count
+	sub	(r1),r0		; get difference
+	blos	30$		; oops, can't get smaller
+
+10$:	call	sy$mv5		; move old ones across
+	sobw	(r1),10$	;
+	mov	(r4),(r1)	; new count
+	mov	-(r4),-(r1)	; new address
+	inc	-(r1)		; set chain flag
+20$:	jsr	r2,sy$zp4	; clear new channels
+	clr	(r3)+		; c=0
+	sobw	r0,20$		; do all channels
+	return
+30$:	tst	(sp)+		; don't go back
+	clr	r1		; error zero
+	jmp	sv$err
+
+;	.device
+;
+;	.word	req | flg
+;	.word	addr
+;
+;	flg=0	addr -> single unlinked list for program
+;		.word	addr,val,addr,val,...,0
+;	flg=1	addr -> next linked list for program
+;		.word	0,addr,val,addr,val,...,0
+;
+;	r0 -> area+2 = device_list
+
+ss$dev::mov	#d$vque,r2	; get our list
+	tstb	-2(r0)		; is it linked?
+	beq	10$		; nope
+	mov	(r2)+,@(r0)	; set up linked list
+10$:	mov	(r0),-(r2)	; complete the link
+	return			; c=0> !!!
+.sbttl	i/o subroutines
+
+.if eq usr$c
+sv$usr:	save			; build usr stack frame
+	call	us$ent		; call usr
+	return			; can't be callr
+.endc
+
+lsend$
+.end
+

@@ -1,0 +1,292 @@
+.title	rtemt - RUST/SJ EMT dispatch
+.include "rts:rtdef.mac"
+.psect	emt
+col$c=1		; usr collect call - desupport!
+cal$c=1		; .callk
+dbg$c=0		; debug
+$chdef		; channels
+$codef		; console
+$hkdef		; RUST hooks
+$jbdef		; job
+rpdef$		; RUST/SJ request packet
+tqdef$		; timer queue element
+usdef$		; usr interface
+sjdef$
+
+;	RUST/SJ System Call EMT processor
+
+meta <re n,c><.rept n><c><.endr>	; repeat
+.sbttl	EMT processor
+
+stack	res,r0,r1,r2,r3,r4,r5,pc,ps,bbs
+assume sp.bbs eq sjEMT.
+
+t$tcfg::.word	sjTTC.		;\ rt11>
+ve$emt::bic	#1,2(sp)	;/ rt11> clear the error c bit
+	jmp	@(pc)+		; new trace hook
+	assume	.-ve$emt eq hkEMT.
+	.word	10$		;
+10$:	save			; setup phaze
+	mov	16(sp),r4	; emt return address (V4: r5->emt)
+	mov	-(r4),r2	; r3 = emt + code
+	.if ne dbg$c
+	mov	r4,d$bpc
+	.endc
+	mov	#e$msel,r4	; assume its old/new style
+	cmpb	r2,#374		; nah?
+	bhis	em$374		; its a new guy
+	.if ne cal$c
+	cmpb	r2,#373		; and?
+	beq	em$373		; callk
+	.endc
+	mov	r2,r1		; copy it <setup old style>
+	bic	#^c<17*20>,r1	;  r1 = subcode*20
+  re 4 <asr	r1>		;  r1 = subcode
+	bic	#^c17,r2	;  r2 = channel%subcode
+	cmpb	r1,#16		; old/emt16/internal ?
+	blo	30$		; its old/new r1<16
+	bhi	20$		; its internal r1=17
+	tst	-(r4)		; back for emt 16
+20$:	tst	-(r4)		; back for emt 17
+	mov	r2,r1		;  r1 = subcode
+	clr	r2		;  r2 = 0 = channel
+30$:	call	em$adr		; get the address etc
+	mov	r0,(r3)+	; do some defaults, qa1 = r0
+	bic	#^c6,r2		; get the count
+	beq	em$cmp		; its got no extra parameters
+	cmp	r2,#4		; is this a csi type ?
+	bne	50$		; nope
+	tst	(r2)+		; make it 3 at least
+	asr	sjEMT.+4(sp)	; do we have an extra parameter?
+	bcc	40$		; nope
+	tst	(r2)+		; adjust the counter
+40$:	asl	sjEMT.+4(sp)	; restore the word
+50$:	mov	r3,r1		;  r1 = guard for parameter move
+	add	r2,r3		;  r3 -> plex
+	clr	(r3)		; default v1 count,and csi linbuf
+	add	sp,r2		; the base
+	add	#sjEMT.,r2	;  r2 -> parameters (then stack)
+	mov	r2,r0		;  r0 -> stack rebuild
+60$:	mov	-(r2),-(r3)	; move a parameter
+	cmp	r3,r1		; all done ?
+	bne	60$		; yes, or - r2 points to stack
+70$:	mov	-(r2),-(r0)	; re-align stack
+	cmp	r2,sp		; done ?
+	bne	70$		; more
+	mov	r0,sp
+	br	em$cmp
+em$adr:	mov	(r4),r4		; << r4 -> table base
+	.if ne dbg$c
+	psh	r1
+	asl	r1
+	asl	r1
+	asl	r1
+	add	r1,r4		; r4 -> entry
+	pop	r1		;
+	call	db$tra		;
+	.iff
+	add	r1,r4		; << r1 = subcode
+	add	r1,r4		; compute offset
+	.endc
+	mov	(r4),r4		;  >> r4 = address, flags
+	bit	#1,r4		; is it simple?
+	beq	em$smp		; its a simple case
+	call	qu$req		; get a qel
+	movi	qcm,r5,r3	; thats where it goes
+	movb	e$mcod(r1),(r3)+; >> qcm(r5) = packet code
+	clrb	(r3)+		; >> qcm+1 = 0
+	clr	(r3)+		; >> qry(r5) = 0
+	movb	r2,(r3)+	; >> qch(r5) = << r2 = channel
+	movb	r1,(r3)+	; >> qch+1(r5) = subcode
+	mov	r4,r2		; >> r2 = emt flags
+  re 3 <asr	r4>
+	add	#e$m340,r4	; >> r4 = routine address
+	return
+.sbttl	simple and complex emts
+
+em$smp: mov	r0,r2		; >> r0,r2 = user r0
+	clr	r1		; >> r1 = 0, c=0
+	add	#e$m340,r4	; index it
+	mov	r4,(sp)		; replace the addres return
+	mov	20(sp),r4	; r4 = emt return address
+	call	@(sp)+		; call simple routine
+				; simple 375's with R0+2 (see st.mac)
+em$end:	mov	r0,2(sp)	;  >> r0 to user
+em$bad:	mov	16(sp),r2	;  r2 = emt return for errors
+em$377:	bcs	10$		; got an error (377 => c=0)
+	clr	r1		; no error
+10$:	movb	r1,r1		; what is the error
+	bcc	em$sft		; no error
+	bpl	em$frm		; a light error
+	tst	s$yser		; serr in effect?
+	bne	em$frm		;  yes
+	jmp	er$hrd		; nope, go print error
+em$frm:	inc	sjEMT.-2(sp)	; set the error bit (firm)
+em$sft:	movb	r1,j$berr	; if it was an error (soft)
+em$rti::restore
+	rti
+
+.if ne cal$c
+em$373:	restore			; .callk
+	stack	pc,ps,rou	;
+	call	@sp.rou(sp)	; call them
+	mov	(sp)+,(sp)	; squeeze out ps
+	mov	(sp)+,(sp)	; squeeze out routine
+	return
+.endc
+
+em$don::pop	r0		; get the return r0
+	clr	r1		; no errors
+	br	em$end		; this is shakey
+em$374:	bhi	em$375		; its not us <emt 374>
+	cmp	(r4)+,(r4)+
+	mov	sp,r0
+	tst	(r0)+		; point at r0
+em$375:	cmpb	r2,#376		; well?
+	beq	em$iem		; 376 not supported
+	bcc	em$377		; we ignore 377 (c=0 !)
+	movb	(r0)+,r2	; r2 has the channel
+	movb	(r0)+,r1	; r1 has the code
+	cmpb	2(r4),r1	; too big?
+	blo	em$iem		; yes, illegal emt
+	cmpb	r2,c$hcnt	; channel number too big?
+	bcc	em$ich		; c=0> yes
+	call	em$adr		; convert the address
+	mov	r0,r2
+	call	sy$mv5
+em$cmp:	mov	2(sp),qr0(r5)	; qr0 = (complex) 
+	.if ne col$c
+	mov	sp,qck(r5)	; usr> collect call
+	.endc
+	psh	#em$end		; guarded returns
+	psh	r4		; save the address
+	clr	r1		; r1 num =  0
+	movi	qcm,r5,r2	; r2 src -> qcm(r5)
+	movi	qa1,r5,r3	; r3 dst -> qa1(r5) (default value = 0)
+	movb	qch(r5),r4	; r4     -> csw
+	asl	r4		; r5 qel
+	psh	r4
+  re 2 <asl	r4>
+	add	(sp)+,r4
+	add	c$hbas,r4	; r4 -> csw, c=0
+	bit	#csWLK$,(r4)	; sub-directory?
+	bne	10$		; yes - channel always okay
+	tst	(r4)		; check for active, c=0
+10$:	call	@(sp)+		; call them
+	mov	qr0(r5),r0	; get return r0
+	mov	qer(r5),r1	; get error code
+	call	qu$fre		; release this shackle
+	add	#100000,r1	; clear or set c bit
+ss$nop:
+	return			; ignore it
+em$iem:	sec			; c=1> invalid emt
+em$ich:	mov	#-10,r1		; c=0> -10 is invalid channel
+	sbc	r1		; c=1> -11 is invalid emt
+	sec
+	br	em$bad		; and go back
+.sbttl	emt tables
+
+;	Discard special emts - use calls or move up to 366-373 range (for TR)
+;
+;	Presence of second argument signals "complex emt" with queue element
+;
+;	.word	((addr-e$m340)*8)+((count*2)+1) if count specified
+;	.word	((addr-e$m340)*1)+((0      )+0)	otherwise
+
+.if eq dbg$c
+meta <em n,c><.iif b <c>,.word n-e$m340><.iif nb <c>,.word n-e$m340*10+<c*2>+1>
+.iff
+.macro	em n,c
+	.iif b <c>,.word n-e$m340
+	.iif nb <c>,.word n-e$m340*10+<c*2>+1
+	$$$ = .
+	.ascii	/n/
+	. = $$$ + 6
+.endm
+.endc
+
+e$m340::em	ss$tti		;340 ttyin	sam
+	em	ss$tto		;341 ttyout	sam
+	em	ss$dst 	1;a	;342 dstatus	host (bypass)
+	em	ss$fet	1;a	;343 fetch/release nop (side affects)
+	em	ss$csi	2;-	;344 csigen	sam/host
+	em	ss$csp	2;-	;345 csispc/gtlin 2 => 3 or 4
+	em	ss$nop		;346 lock	nop
+	em	ss$nop		;347 unlock	nop
+	em	ss$exi		;350 exit	sam
+	em	ss$prt		;351 .print	sam
+	em	ss$srs	0;-	;352 sreset	host
+	em	ss$qst	1;-	;353 qset	nop (side affects)
+	em	ss$stp		;354 settop	sam
+	em	ss$rco		;355 rctrlo	sam
+	em	ss$wld		;356 rj=world sj=nop fb=exit xm=astx
+	em	ss$hrs	0;-	;357 hreset	sam (sreset)
+e$m360:	em	ss$nop	0;-	;360 (was .treset)
+	em	ss$nop	0;-	;361 (was .idle)
+	em	ss$new		;362 print newline			;??
+	em	ss$abt		;363 unconditional abort		;??
+	em	ss$fat		;364 fatal error			;??
+	em	ss$pri		;365 print a line			;??
+	em	ss$tin		;366 get a character			;??
+	em	ss$tou		;367 put a character			;??
+	em	ss$nop	0;-	;370 (was .gslots)
+
+e$m374: em	ss$wai	0;-	;00  wait
+	em	ss$nop	0;-	;01  spnd
+	em	ss$nop	0;-	;02  rsum
+	em	ss$prg	0	;03  purge
+	em	ss$ser	0;-	;04  serr
+	em	ss$her	0;-	;05  herr
+	em	ss$clo	0	;06  close
+	em	ss$nop	0;-	;07  tlock
+	em	ss$chn	 ;-	;10  chain
+	em	ss$nop	0;-	;11  mwait
+	em	ss$dat	0;-	;12  date
+	em	ss$nop	0;-	;13  abtio
+
+e$m375: em	ss$del	0;a	;00  delete
+	em	ss$loo	0;a	;01  lookup
+	em	ss$ent	1;a	;02  enter
+	em	ss$trp	0;-	;03  trpset
+	em	ss$ren	0;a	;04  rename
+	em	ss$sav	0;-	;05  savesta
+	em	ss$reo	0;-	;06  reopen
+	em	ss$clo	0	;07  close
+	em	ss$rea	3	;10  read
+	em	ss$wri	3	;11  write
+	em	ss$wai	0;-	;12  wait
+	em	ss$nop	0;-	;13  chcopy
+	em	ss$dev	0;-	;14  device
+	em	ss$cdf	0;-	;15  cdfn
+	em	ss$nop	0;-	;16  simple emt list
+	em	ss$nop	0;-	;17  internal emt list
+	em	ss$gjb	0;-	;20  gtjb
+	em	ss$gtm	0;-	;21  gtim
+	em	ss$mkt	0	;22  mrkt
+	em	ss$cmk	0;-	;23  cmkt
+	em	ss$twt	0;-	;24  twait
+	em	ss$nop	0;-	;25  sdat
+	em	ss$nop	0;-	;26  rcvd
+	em	ss$cst	0;-	;27  cstat
+	em	ss$sfp	0;-	;30  sfpa
+	em	ss$nop	0;a	;31  protect
+	em	ss$spf	0	;32  spfun
+	em	ss$nop	0;-	;33  cntxsw
+	em	ss$gvl	0;-	;34  gval,peek,pval,poke, qa1=addr,qa2=val
+	em	ss$scc	0;-	;35  scca
+	em	ss$nop	0;-	;36  plas
+	em	ss$nop	0;-	;37  mtt
+	em	ss$sdt	0;-	;40  sdttm(/gtimx/stimx)
+	em	ss$nop	0;-	;41  spcps
+	em	ss$sfd	0;a	;42  sfdat	qa1=dblk, qa2=date
+	em	ss$fpr	0;a	;43  fprot	qa1=dblk, qa2=prot
+	em	ss$sfi	0;a	;44  sfinf
+	em	ss$clz	0	;45  closz
+;;;	em	ss$nop	0	;46  cmap/gcmap/msds
+
+e$mcod:	.byte	usdel.,usloo.,usent.,0,usren.,0,0,usclo.,usrea.,uswri.
+	.word	e$m340,e$m360
+e$msel:	.word	e$m375,45,e$m374,13 ;
+
+.end
+

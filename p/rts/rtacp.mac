@@ -1,0 +1,668 @@
+bpt$c=0		; chasing .CLOSE error
+.title rtacp - rust/sj rt11a/rt11x acp
+.include "rts:rtdef.mac"
+.psect acp
+inv$c=1		; new invalid directory checks
+v57$c=1		; RT-11 V5.7 directory entry status word
+ovr$c=1		; buffer defined as overlay
+end$c=0		; directory overrun detection disabled
+col$c=0		; collect calls desupported
+sub$c=1		; sub-directories supported
+$chdef		; channels
+$emdef		; emts
+$erdef		; errors
+$rtdef		; RUST/SJ
+rpdef$		; RUST/SJ request packet
+
+;	RUST/SJ RT-11 file structure routines (lookup, enter etc).
+;
+;	RT11A  = Standard RT-11 ACP functionality
+;	RT11A2 = RT-11 V5.67??? extensions
+;
+;	RT11X  = Extended RUST/XM ACP functionality
+;	RT11X2 = RUST/SJ 3.5 extensions
+;
+;	RUST/SJ supports:
+;
+;	RT11A	upto V5.5/V5.6
+;	RT11A	RT-11 V1.0/V2.0 callbacks (for PIP etc) desupported
+;	RT11A2	V5.6? directory status word extensions ignored
+;
+;	RT11X	file time support (TSX compatible)
+;	RT11X	UIC and protection are ignored
+;	RT11X2	truncate
+;	RT11X2	sub-directories
+;
+; ???	abort should clear r$mchk
+; ???	update should set rmon dwrit
+; ???	add ctrl/c blocks - use free emt slots .ensys, .exsys
+;
+; ???	fatal 0,1,2,3 when stack frame ???
+;
+; ???	rename and delete both need to delete a previous
+;	version with a different block number. This can
+;	handled by changing search to avoid a particular
+;	block. Search should return start block in r0.
+
+meta	<acfat$ c><jsr r0,ac$fat><.word c+177400>
+
+;	Define directory structures in USR buffer
+
+.if ne ovr$c
+.psect	buf ovr
+
+b$ftot = . + rt.tot	; total segments
+b$fnxt = . + rt.nxt	; next segment (zero for last)
+b$fhgh = . + rt.hgh	; highest directory segment (segment 0 only)
+b$fext = . + rt.ext	; extra bytes per entry
+b$fsta = . + rt.blk	; start - first block of segment
+b$ffst = . + rt.hbs	; first -> first entry
+b$fmid = b$ffst+512.	; middle of buffer
+b$flim = b$ffst+1022.	; space for endblk
+b$flst = .+2000-2	; last valid directory entry address
+.iff
+.psect buf
+$ = . - 2000
+
+b$ftot = $ + rt.tot	; total segments
+b$fnxt = $ + rt.nxt	; next segment (zero for last)
+b$fhgh = $ + rt.hgh	; highest directory segment (segment 0 only)
+b$fext = $ + rt.ext	; extra bytes per entry
+b$fsta = $ + rt.blk	; start - first block of segment
+b$ffst = $ + rt.hbs	; first -> first entry
+b$fmid = b$ffst+512.	; middle of buffer
+b$flim = b$ffst+1022.	; space for endblk
+b$flst = $+2000-2	; last possible directory entry address
+.endc
+
+.psect acp
+.sbttl lookup, enter
+
+sc$loo::call	rt$sea		; look for the file
+	bcs	rt$er1		; file not found
+	.if ne col$c		; PIP etc callback
+	call	rt$col		; see if the user wants us
+	.endc			;
+	br	rt$map		; go map the channel
+
+sc$ent::clr	r$mchk		; force a new directory
+10$:	mov	#r$tdim,r0	; get the dimension list
+	mov	qa2(r5),(r0)+	; set up the flag
+	bpl	20$		;  =0 => half
+	inc	-(r0)		;  <0 => biggest
+	com	(r0)+		;  >0 => exact
+20$:	clr	(r0)+		; no biggest
+	clr	(r0)+		; no next best
+	call	rt$sea		; check the file/length
+30$:	bcs	40$		; not found; goto pass 2
+	call	rt$prt		; check for protection
+	call	rt$mor		; do the whole directory
+	br	30$		; to calculate best size fit
+40$:	mov	#r$tdim,r0	; get the dimension list
+	mov	qa2(r5),(r5)	; assume exact
+	tst	(r0)+		; what sort was it?
+	bmi	50$		; the biggest
+	bne	60$		; exact or biggest
+	ror	(r0)		; divide the biggest
+	cmp	(r0)+,(r0)	; which is larger
+	blo	50$		; the second best is			
+	tst	-(r0)		; half the biggest is
+50$:	mov	(r0),(r5)	; get the size
+60$:	tst	(r0)		; did we get anything at all?
+	beq	rt$er1		; nope; device full
+	call	rt$vol		; get the directory again
+70$:	bcs	80$		; next segment
+	bit	#rtEMP$,(r2)	; is this it?
+	beq	80$		; no way
+	cmp	rt.len(r2),(r5)	; is this it?
+	bhis	90$		; yep
+80$:	call	rt$nxt		; nope, get the next entry
+	br	70$		; and look again
+90$:	call	rt$exp		; go make space for us
+	bcs	10$		; we just split, start again
+	mov	r2,r1		; get another copy
+	mov	#rtTEN$,(r1)+	; rt.sta
+	mov	(r3)+,(r1)+	; rt.fil
+	mov	(r3)+,(r1)+	;
+	mov	(r3)+,(r1)+	;
+	mov	(r5),(r1)+	; rt.len
+	movb	qch(r5),(r1)+	; rt.chn
+	clrb	(r1)+		; rt.job
+	mov	r$mdat,(r1)+	; rt.dat
+	.if ne col$c		;
+	call	rt$col		; see what the user wants
+	.endc			;
+	mov	b$fext,r0	; clear extra words
+	beq	110$		; are none
+100$:	clrb	(r1)+		; clear extra words
+	sobw	r0,100$		; count them
+
+110$:	sub	(r5),rt.len(r1)	; negotiate length
+	call	rt$upd		; write it out
+	bis	#csten$,(r4)	; make it a tentative file
+
+rt$map:	.if ne sub$c
+	bpsw	#csSUB$,(r4),10$; not a sub-directory
+	clr	ch.sbl(r4)	; so add becomes move
+10$:	add	r$tsbl,ch.sbl(r4)
+	.iff
+	mov	r$tsbl,ch.sbl(r4); get the start block
+	.endc
+	mov	rt.len(r2),ch.len(r4) ; setup the size
+	mov	rt.len(r2),qr0(r5) ; return the file size
+	return			; good exit
+
+rt$er1:	acfat$	1		; error 1
+.sbttl	get/set entry info
+
+;	.fprot .gfdat .gfinf .gfsta .sfdat .sfinf .sfsta
+;
+;	.byte	req,chn
+;	.word	dblk
+; qa2	.word	value (0 for gfinf)
+; qa3	.byte	opr,off
+; ???	.word	0/1		supress translation if area is odd
+;
+;	opr: 0=get, 1=bic, 2=bis, 3=mov (??? 2xx user)
+;
+;	r2 -> directory entry
+;
+;	1	File not found
+;	2	Invalid operation
+;	3	Invalid offset
+;	4	Invalid data
+
+	.enabl	lsb
+sc$inf::call	rt$sea		;
+	bcs	rt$er1		;
+	movi	qa2,r5,r3	; r3 -> value
+	mov	(r3)+,r0	; r0 = value
+	movb	1(r3),r1	; r1 = offset
+	cmp	r1,d$leng	; longer than entry?
+	bhis	100$		; yep - error 3
+	bit	#1,r1		; odd offset?
+	bne	100$		; yep -invalid offset
+	add	r1,r2		; r2 -> target word
+	mov	(r2),qr0(r5)	; return previous value
+				;
+	movb	(r3)+,r1	; get the operation
+	beq	60$		; get already done
+	cmpb	(r3),#rt.len	; trying to change length?
+	beq	70$		; yes - that's special
+	tstb	(r3)		; status word?
+	bne	20$		; nope
+	cmpb	r1,#3		; move?
+	bne	10$		; nope
+	bic	#^c17,r0	; can't alter low bits
+	bic	#17,(r2)	;
+	dec	r1		; make it a bis
+				; falls through test below
+10$:	bit	#7400,r0	; invalid bits?
+	bne	rt$er4		; yep - error 4
+				;
+20$:	sub	#2,r1		; dispatch us
+	bmi	40$		; bic
+	beq	30$		; bis
+	dec	r1		; mov?
+	bne	rt$er2		; nope
+	clr	(r2)		; do move with a bis
+30$:	bis	r0,(r2)		;
+	br	50$		;
+40$:	bic	r0,(r2)		;
+50$:	br	rt$upp		; update segment, purge channel
+60$:	br	rt$pu2		; purge channel
+				; truncate file
+70$:	bneb	r1,#3,100$	; only move is accepted
+	mov	r2,r3		; r3 -> length
+	sub	#rt.len,r2	; r2 -> entry
+	mov	(r3),(r5)	; save current length
+	call	rt$ent		; point at next entry
+	sub	r0,(r5)		; truncate or extend?
+	ble	90$		; extend
+	bit	#rtEMP$,(r2)	; this an empty?
+	bne	80$		; yes
+	call	rt$exp		; nope - move it up
+	bcs	sc$inf		; segment split - start again
+	mov	#rtEMP$,(r2)	; make an empty
+	clr	rt.len(r2)	; make a zero length empty
+80$:	sub	(r5),(r3)	; reduce our entry
+	add	(r5),rt.len(r2)	; difference to empty
+	br	50$		; update and purge
+
+;	Extend will almost never work
+				;
+90$:	bit	#rtEMP$,(r2)	; need empty to extend
+	beq	100$		; no room
+	mov	rt.len(r2),r0	; do trial extend
+	add	(r5),r0		; (r5 has negative delta)
+	bge	80$		; sufficient space availabe
+				;
+100$:	jmp	rt$er3		; invalid offset (size for known good offset)
+rt$er4:	acfat$	4		;
+	.dsabl	lsb		;
+.sbttl	delete, rename
+
+rt$er2:	acfat$	2		; error 2
+
+sc$del::call	rt$sea		; find it first
+	bcs	rt$er1		; file not found
+rt$del:	call	rt$rem		; protect/remove/compact/update
+sc$pur::clr	(r4)		; purge the channel
+	return			; good exit
+
+;	Should save segment # from first search
+
+sc$ren::call	rt$sea		; find old name
+	bcs	rt$er1		; file not found		
+	mov	r$tsbl,(r5)	; save the start block
+	add	#10,r3		; now look for the new name
+	call	rt$sea		; look for new name
+	bcs	10$		; no prior version of new name
+	cmp	r$tsbl,(r5)	; same file?
+	beq	20$		; yep, special case
+	call	rt$rem		; protection, delete, compact & update
+10$:	sub	#10,r3		; point back to the first filename
+	call	rt$sea		; find it again
+	bcs	rt$er1		; this should never happen, but.
+20$:	movi	qa6,r5,r0	; point again
+	assume	rt.fil eq 2	;
+	mov	r2,r1		;
+	tst	(r1)+		;
+	mov	(r0)+,(r1)+	;
+	mov	(r0)+,(r1)+	;
+	mov	(r0)+,(r1)+	;
+	.if ne col$c		;
+	call	rt$col		; check for user stuff
+	.endc			;
+rt$upp:	call	rt$upd		; go update us
+rt$pu2:	br	sc$pur		; purge and exit
+.sbttl	close
+
+	.enabl	lsb		;
+sc$clo::tstb	(r4)		; opened by enter?
+	bpl	sc$pur		; nope, forget it (SM clears csw)
+	mov	ch.sbl(r4),(r5)	; get the block
+	clr	ch.sbl(r4)	; make it non-file structured
+	mov	#-1,ch.len(r4)	; non-file structured length
+	psh	(r4)		; create index
+	bic	#^ccsin$p,(sp)	; isolate device index
+	movb	ch.uni(r4),1(sp); get the unit
+	pop	u$sidx		; this was about the last usr bug
+10$:	call	rt$vol		; get the directory
+20$:	bcs	rt$pu2		; not found, ignore it
+	.if ne sub$c
+	bit	#csSUB$,(r4)	; sub-directory file?
+	beq	30$		; nope
+	cmp	(r5),r$tsbl	; start must be above
+	blos	30$		; but it's not (eq handles preceding)
+	psh	r$tsbl		;
+	add	rt.len(r2),(sp)	;
+	cmp	(r5),(sp)+	; end must be in file
+	bhis	30$		; but it isn't
+	cmp	rt.fil+4(r2),#^rdsk ; sanity check for removable media
+	bne	30$		; let it fail normally
+	add	r$tsbl,ch.sbl(r4); setup volume	
+	sub	r$tsbl,(r5)	; and relocate inside it
+	clr	r$mblk		; force restart
+	br	10$		;
+	.endc
+30$:	cmp	(r2),#rtTEN$	; this a tentative file?			
+	bne	40$		; nope - look again
+	cmpb	rt.chn(r2),qch(r5) ; on our channel?
+	bne	40$		; nope - look again			
+	cmp	(pc)+,(r5)	; is it the same file?
+r$tsbl:	.word	0		; current block number
+	beq	60$		; nope
+40$:	call	rt$nxt		; get the next entry
+	br	20$		; try the next
+50$:	br	rt$del		; chain-branch
+60$:	mov	#rtPER$,(r2)	; make it permanent
+
+	clr	-(sp)		; get file time in 3-second units
+	mov	sp,r1		; low order
+	psh	#emgtm.*400	; .gtim
+	mov	sp,r0		; sp -> high order
+	mov	r0,(r1)		; r1 -> low order
+	emt	375		;
+	stack	hgh,low		;
+	clr	r0		; init result
+	br	80$		; need 16 rotates
+70$:	asl	r0		; result and counter
+	cmp	(pc)+,(sp)	; got another factor?
+t$ifrq::.word	<50.*3>/2	; 3-second units
+	bhi	90$		; nope
+	sub	t$ifrq,(sp)	; take it out
+80$:	inc	r0		; accumulate result
+90$:	asl	(r1)		; rotate
+	rol	(sp)		; double precision
+	mov	r0,rt.chn(r2)	; store the time
+	bpl	70$		; more to go
+	stack	hgh,low		;
+	bit	(sp)+,(sp)+	; dump temps
+	
+	add	#rt.len,r2	; r2 -> tentative length
+	mov	r2,r3		;
+	add	d$leng,r3	; r3 -> empty length
+.if ne bpt$c
+	cmp	ch.use(r4),(r2)	; used more than we have?
+	blos	95$		; nope
+	bpt
+95$:
+.endc
+	add	(r2),(r3)	; tent + empty
+	mov	ch.use(r4),(r2)	;
+	sub	(r2),(r3)	; tent + empty - used
+	movi	qbs+10,r5,r3	; fill in the filename
+	mov	-(r2),-(r3)	; rt.fil+4
+	mov	-(r2),-(r3)	; rt.fil+2
+	mov	-(r2),-(r3)	; r3 -> filename
+
+	mov	r$tsbl,(r5)	; save the start block for checks
+	call	rt$com		; compact and update the segment
+	call	rt$sea		; find our name
+100$:	bcs	20$		; chain branch to pur2
+	cmp	r$tsbl,(r5)	; the same block?
+	bne	50$		; nope, go delete it
+	call	rt$mor		; keep looking
+	br	100$		; and check for delete
+	.dsabl	lsb		;
+.sbttl	search, more, protect, collect
+
+;	r2 ->	entry
+;	r3 ->	filename (not device)
+;
+;	r0/r1	burnt
+;	r2 ->	entry matched 
+;	r3 ->	filename (not device)
+;	c=0	matched
+
+	.enabl	lsb
+rt$sea:	call	rt$vol		; get the directory
+
+10$:	bit	#rtEMP$,(r2)	; this an empty?
+	beq	40$		; nope - just match the name
+	mov	rt.len(r2),r1	;  r1 = length of this entry
+	mov	#r$tdim,r0	; get the dimension list
+	tst	(r0)+		; what are we doing?
+	ble	20$		; biggest or half
+	tst	(r0)+		; exact; already got one?
+	bne	40$		; yes, use it
+	cmp	r1,qa2(r5)	; this o.k.?
+	bhis	30$		; yes, record it
+	br	40$		; exit
+20$:	cmp	r1,(r0)		; a new high?
+	blo	40$		; nope
+	mov	(r0)+,(r0)	; yep, move old one up
+30$:	mov	r1,-(r0)	; and save the new high
+				; or save exact
+40$:	mov	r2,r0		; r0 -> entry
+	bit	#rtPER$,(r0)+	; must be permanent
+	beq	rt$mor		; but isn't
+	assume	rt.fil eq 2	; r0 -> rt.fil
+	mov	r3,r1		; our target name
+	cmp	(r0)+,(r1)+	; the same?
+	bne	rt$mor		; nope
+	cmp	(r0)+,(r1)+	;
+	bne	rt$mor		;
+	cmp	(r0)+,(r1)+	; type match?
+	beq	50$		; name matched
+rt$mor:	call	rt$nxt		; continue search past match
+	bcc	10$		; more to come
+50$:;	mov	r$tsbl,r0	;
+	return
+	.dsabl	lsb
+
+rt$prt:	tst	(r2)		; is it protected?			
+	bpl	rt$rc1		; nope					
+rt$er3:	acfat$	3		; protected file error			
+
+	.if ne col$c
+rt$col:	psh	r1		; save this guy				
+	mov	qbs(r5),r1	; get the emt dispatch stack
+	mov	16(r1),r0	; get the emt pc
+	cmp	-(r0),#emt+375	; new style?
+	bne	10$		; nope, forget it
+	mov	2(r1),r0	; get the users r0
+	bit	#1,2(r0)	; is it in collect mode?
+	beq	10$		; nope
+	mov	r2,r1		; get the current entry
+	add	#rt.dat,r1	; point to the date
+	psh	10(r0)		; get the address			
+	bic	#1,(sp)		; even it up (logical bypass flag)	
+	call	@(sp)+		; and call them				
+10$:	pop	r1		; restore this guy
+	return			;					
+	.endc
+.sbttl	volume, segment, update, first, next, entry 
+
+rt$nxt:	call	rt$ent		; get the next
+	beq	rt$ret		; c=1 => no more
+	.enabl	lsb		; z=0 - get next segment
+rt$seg:	mov	b$fnxt,r0	; get the next segment number
+	br	10$		;
+rt$vol:	mov	#1,r0		; force the block number
+10$:	beq	rt$rc1		; oops
+	cmp	r$mchk,u$sidx	; same device?
+	bne	20$		; nope, reread
+	.if ne sub$c
+	cmp	s$bbas,ch.sbl(r4)
+	bne	20$
+	.endc 
+	cmp	r$mblk,r0	; same block?
+	beq	30$		; yep, use it
+20$:	mov	r0,r$mblk	; set it up
+	.if ne sub$c
+	mov	ch.sbl(r4),(pc)+
+s$bbas:	.word	0
+	.endc
+	fall	rt$ref		;
+
+;	r$mchk/s$bbas are incorrect if we're aborted here
+;	However, aborts (should) clear r$mchk
+
+rt$ref::movb	#emREA.,r$temt+1; the function				
+	call	rt$tra		; read segment
+	.if ne inv$c
+	psh	b$ftot		; check total segments
+	beq	rt$did		; zero is a no-no
+	cmp	(sp),#31.	; 31. is max
+	bhi	rt$did		;
+	cmp	b$fnxt,(sp)+	; next can't exceed total
+	bhi	rt$did		;
+	bit	#1,b$fext	; extra bytes must be even
+	bne	rt$did		;
+	.endc
+30$:	call	rt$cmp		; compress segment
+rt$fir:	mov	b$fsta,r$tsbl	; renovate this guy
+	mov	#b$ffst,r2	; point to the entry
+rt$rc0:	tst	(pc)+
+rt$rc1:	sec
+rt$ret:	return
+	.dsabl	lsb
+
+rt$rem:	call	rt$prt		; check protection, remove, update
+	mov	#rtEMP$,(r2)	; delete this entry			
+rt$com:	call	rt$cmp		; compact the segment			
+rt$upd:	movb	#emWRI.,r$temt+1; write the segment			
+rt$tra:				; read/write segment
+	mov	#r$tblk,r0	; point to the block
+	mov	r$mblk,(r0)	; get the segment
+	asl	(r0)		; (r0)=segment*2
+	add	#4,(r0)		; block=segment*2-2+6
+	dec	r0		; skip back past subcode			
+	movb	qch(r5),-(r0)	; setup channel				
+	clr	r$mchk		; avoid limbo
+	emt	375		; do the job
+	bcs	rt$dio		; oops, i/o error
+	mov	b$fext,d$leng	; compute this
+	add	#rt.ebs,(pc)+	;
+d$leng:	.word	0		;
+	mov	u$sidx,r$mchk	; update chkey
+	cmp	r$mblk,#1	; first segment?
+	bne	rt$rc0		; nope
+	mov	b$fhgh,(pc)+	; yep - save high block
+r$thgh:	.word	0		; last segment in use
+	br	rt$rc0		; return with c=0
+rt$dio:	acfat$	erDIO.		; comes out Directory I/O error
+	.if ne inv$c
+rt$did:	acfat$	erDIN.		; comes out as Invalid directory
+	.endc
+
+rt$ent:	add	rt.len(r2),r$tsbl; remember where we are
+	add	d$leng,r2	; c=0
+	.if ne end$c		; RT-11 doesn't check this, so we can't.
+				; There are directories missing ENDBLK.
+	cmp	#b$flst,r2	; out of bounds?
+	bcs	rt$did		; yep (bcs == blo)
+	.endc
+	bit	#rtEND$,(r2)	; is it the last?
+	return			; c=0, z=?
+.sbttl	compact segment
+
+;	At least one file always precedes ENDBLK (at least an empty).
+
+	.enabl	lsb
+rt$cmp:	psh	r3		; merge contiguous empties
+	stack	r3		;
+	call	rt$fir		; get the first one
+	mov	r2,r1		; get the current guy
+	mov	r2,r3		; get another copy
+	call	rt$eli		; check first 
+30$:	mov	r2,r0		; get a copy
+	call	rt$ent		; point to the next
+	mov	r1,r3		; save start of entry
+40$:	mov	(r0)+,(r1)+	; move it in
+	cmp	r0,r2		; all done?
+	blo	40$		; nope
+	mov	r1,(pc)+	; remember last slot
+r$tlst:	.word	0		; address of last entry
+	bit	#rtEND$,(r3)	; was this the last?
+	bne	70$		; yep
+50$:	call	rt$eli		; check for empty
+	bit	#rtEMP$,(r2)	; is it empty?
+	beq	30$		; nope
+	.if ne v57$c
+	bit	#rtEMP$,(r3)	; was the last empty too?
+	.iff
+	bit	(r2),(r3)	; was the last empty too?
+	.endc
+	bne	60$		; yes - merge them
+	bit	#rtPER$,(r3)	; is the last permanent?
+	beq	30$		; nope
+	tst	rt.len(r2)	; is this an empty empty?
+	bne	30$		; nope
+60$:	add	rt.len(r2),rt.len(r3) ; yep, compact
+	call	rt$ent		; get the next guy
+	br	50$		; and ignore one
+70$:	br	rt$p3r		; pop r3 and return
+
+rt$eli:				; elide hanging tentatives
+	bit	#rtTEN$,(r2)	; a forgotten tentative?
+	beq	90$		; nope, we forget it
+	movb	rt.chn(r2),r0	; compute the csw
+	cmpb	r0,c$hcnt	; channel in range
+	bhi	80$		; nope, claim it
+	asl	r0		; multiply by ten
+	psh	r0
+	asl	r0
+	asl	r0
+	add	(sp)+,r0	; channel offset
+	add	c$hbas,r0	; channel base
+	bitb	(r0)+,(r0)	; open, with enter?
+	bpl	80$		; nope - claim it
+	movb	-(r0),-(sp)	; get the index
+	bic	#^ccsin$p,(sp)	; isolate device index
+	movb	ch.uni(r0),1(sp); get the unit
+	cmp	u$sidx,(sp)+	; same device?
+	bne	80$		; nope, claim it
+	cmp	r4,r0		; is a .close in progress?
+	beq	90$		; yep, ignore it
+	cmp	ch.sbl(r0),r$tsbl; same start block?
+	beq	90$		; yes, leave it alone
+80$:	mov	#rtEMP$,(r2)	; make it empty
+90$:	return
+	.dsabl	lsb
+.sbttl	expand & split directory segment
+
+;	r2 ->	entry to move up
+;	r$tsbl	start block of entry (but isn't used here)
+;
+;	c=1	split, start over
+;	r2 ->	entry
+;		for .enter this might be incoming r2 + d$leng
+;	r0 ->	next entry - copy of incoming r2 entry
+
+rt$exp:	psh	r3		; make space for tentative
+	mov	d$leng,r0	; extra bytes
+	asl	r0		; for two entries
+	add	r$tlst,r0	; add in current end
+	cmp	r0,#b$flim	; check limit
+	bhis	rt$spl		; need to split
+10$:	mov	r$tlst,r0	; get the last
+	mov	r0,r1		; get another copy
+	add	d$leng,r0
+	mov	r0,r$tlst	; remember it
+20$:	mov	-(r1),-(r0)	; move an entry
+	cmp	r1,r2		; just moved our guy?
+	bne	20$		; nope
+	cmp	r2,#b$ffst	; is this the first?			
+	beq	30$		; yes, then no previous
+	mov	r2,r3		; get a copy
+	sub	d$leng,r3	; point at previous
+	bit	#rtTEN$,(r3)	; is it a tentative?
+	beq	30$		; nope (always perm for file truncate)
+	mov	rt.len(r2),rt.len(r0) ; move the length
+	clr	rt.len(r2)	; clear the current guy
+	mov	r0,r2		; bump up to the next
+	br	10$		; and do it again
+30$:				; c=0 => no split
+				; r1,r2 -> tent, r0 -> empty
+rt$p3r:	pop	r3		; restore register
+	return
+
+;	put dhigh pointer in register
+
+rt$spl:	stack	r3		; split a full segment in two
+	cmp	r$thgh,b$ftot	; any more segments available?		
+	bhis	30$		; nope - directory full
+	call	rt$fir		; get set up
+10$:	call	rt$ent		; get the next
+	cmp	r2,#b$fmid	; hit the middle yet?
+	blo	10$		; nope
+	bit	#rtEMP$,(r2)	; this an empty?
+	bne	10$		; yep, dont split here
+	psh	r2		; save the middle marker
+	psh	r$mblk		; save the segment number
+	mov	#b$ffst,r1	; get the first guy
+20$:	mov	(r2)+,(r1)+	; move them down
+	cmp	r2,r$tlst	; this the last word?
+	blo	20$		; nope
+	mov	r$tsbl,b$fsta	; setup the new start
+	inc	r$thgh		; allocate the next segment
+	mov	r$thgh,r$mblk	; point to the new guy
+	call	rt$upd		; write new segment
+	call	rt$vol		; get the first
+	inc	b$fhgh		; update the highest used
+	call	rt$upd		; update first segment
+	pop	r$mblk		; get original segment
+	call	rt$ref		; read it in
+	pop	r2		; get the split-point back
+	mov	#rtEND$,(r2)	; make it an empty
+	mov	r$thgh,b$fnxt	; setup the new link
+	call	rt$upd		; rewrite current truncated segment
+	sec			; c=1 => we split
+	br	rt$p3r		; pop r3 and return
+30$:	acfat$	erFUL.		; nope, directory full
+
+r$tdim:	.word	0		; size flag (tentative dimensions)
+	.word	0		; biggest or exact
+	.word	0		; next biggest
+
+r$temt:	.word	emREA.*400	; directory read area
+r$tblk:	.word	0		; the block number
+ 	.word	u$sbuf		; the buffer
+	.word	1000,0		; wordcount and completion
+
+u$fend:
+.end
+

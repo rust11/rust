@@ -1,0 +1,153 @@
+.title	rthdw - pdp-11 hardware detection
+.include "rts:rtdef.mac"
+hdw$c=1		; check hardware in this module
+fpu$c=1
+$rmdef
+$cfdef
+$cndef
+$cpdef
+$jbdef
+$jsdef
+$kjdef
+$kwdef
+$hwdef
+$psdef
+$rmdef
+;tidef
+$vedef
+$mmdef
+
+;	This code originated in BOOT.SYS where space was tight.
+
+	map	hw.mfp,,0	; mfpt code
+	map	hw.cfg		; rt-11 config flags	
+	map	hw.cf2		; rt-11 config2 flags
+	map	hw.ext		; more flags
+	map	hw.cat		; supplied catch trap routine
+	map	hw.res		; supplied restore routine
+	map	hw.bbs
+	map	hwT11$,,1	; T11 seen
+	map	hwFIS$,,2
+
+
+b$trom::.word	1			; 1=boot rom present
+b$tmfp::.word	0			; mfpt code (else big number)
+b$ot11::.word	0			; T11
+
+hw$det:	psh	r5			;
+	call	tr$cat			; catch traps
+	mov	#v$eclk,r2		; boot.mac compatibility
+	mov	#h$wswr,r3		; r3 -> switch register
+	mov	#r$mcfg+byte,r4		; r4 -> config+1
+	mov	#r$mcf2,r5		; r5 -> confg2
+					;
+	assume	cpf11. eq 3		; f11 - byte code
+	assume	cpt11. eq 4		; t11 - word code
+	assume	cpj11. eq 5		; j11 - byte code
+	mov	pc,r0			;
+20$:	mfpt			;r0=?	; get the cpu type
+	mov	r0,b$tmfp		; save it
+	sub	#cpt11.,r0		; this a falcon?
+	bne	40$			; no
+				;r0=0	;
+30$:	inc	b$ot11			; remember this critter
+	bisb	#<cnclo$!cnp03$>/256.,(r4) ; r$mcfg+1 cnp03$ set for 11/03
+;	btwar$	<T11 processor is untested>
+	br	bo$opx			;
+
+;	Bus test
+;
+;	r0=-1	f11 - byte
+;	r0=0	t11
+;	r0=1	j11 - byte
+;	r0=12	???
+
+40$:	tst	@#1			; odd trap separation
+	bvs	50$			; unibus or 11/73
+					;
+	incb	r0		;f11=-1	; f11 or lsi
+	bne	60$			; not f11 - qbus 03
+	clr	(r3)		;r0=0	; h$wswp	- writable switch register?
+	bvs	60$			; no  - qbus f11 - 11/23
+	fall	50$		;r0=0	; yes - unibus f11 - 11/24
+					;
+50$:	decb	r0		;j11=1	; j11 or unibus (44)
+	bne	70$			; unibus (44)
+	bit	#kjuni$,@#k$jcpm;r0=0	; unibus bit in maintenance register?
+	bvs	70$			; no  - unibus j11 - 11/84
+	bne	70$			; yes - unibus j11 - 11/84
+					; no  - qbus j11 - 11/73
+	assume	cnbus$ eq 100	;r0=?	;
+60$:	bis	r2,(r5)		;r2=100	; r$mcf2 - set the qbus bit
+70$:	fall	bo$opt			;
+
+;	Set boot config and confg2
+; 
+;	cnclo$ is set by clock interrupt 
+
+bo$opt:
+	.if ne 0			;	  done elsewhere
+	bis	r2,@#h$wlks	;r2=100	;h$wlks - check & set clock
+	bvs	10$			;	  no clock register
+	assume	100*256. eq cnkwc$	;
+	bisb	r2,(r4)		;r2=100	;r$mcfg+1 cnkwc$ set
+	.endc				;
+10$:	tst	@#psw			;	  do we have a psw ?
+	bvc	20$			;	  yes
+	bisb	#<cnclo$!cnp03$>/256.,(r4) ;r$mcfg+1 cnp03$ set for 11/03
+	br	30$			;	  dont check for 11/60
+	assume	jmp eq 100		;
+20$:	mov	#30$,r1			;	  skip if it fails
+	med6x				;med	  11/60 med instruction
+	.word	111		;jmp @r1;	  read csp(11)
+	bis	#c2p60$,(r5)	;r0=?	;r$mcf2	  got an 11/60
+					;
+;	assume	c2lds$ eq 20		;	  ld status is 'dont care'
+;	assume	c2eis$ eq 400		;
+;	assume	20*20  eq 400		;
+30$:	mov	#20,r1			;cnlds$	  get root of cneis$
+	mul	r1,r1			;	  should make 400
+	bvs	35$			;
+;	bis	r1,(r5)			;cneis$	
+	bis	#c2eis$,(r5)		;
+35$:	setf			;v=?	;	  do we have fpu ?
+	bvs	40$			;	  no
+	assume	cnfpu$ eq 100		;
+	bisb	r2,-(r4)	;r2=100	;r$mcfg - we have fpu
+	.if ne fpu$c
+	add	#ve$fpu-ve$fis,b$tfpu+as.isr ;	  adjust FPU trap address
+	.endc
+40$:	tst	(r3)		;r4=?	;h$wswr - got a switch register?
+	bvs	50$			;no
+	bis	#c2swr$,(r5)		;r$mcf2 - yes
+50$:	clr	(r3)			;h$wswr - can we write it?
+	bvs	60$			;	  no
+	bis	#c2sww$,(r5)		;r$mcf2 - yes
+	br	60$			;
+60$:	bis	#hwcdp$,@#h$wccr	;	  disable cache parity errors
+	bvs	70$			;	  have no cache
+	bis	#c2cac$,(r5)		;r$mcf2 - have cache
+					;
+70$:	tst	@#h$wlss		;	  got system size register?
+	bvs	80$			;	  no - not an 11/70
+	bis	#c2p70$,(r5)		;r$mcf2 - yes - an 11/70
+					;
+80$:	clr	r0		;clv	;0: 0,0	  r0 -> null descriptors
+	l2d0			;v=v	;	  load two descriptors
+	bvs	90$		;r0:r4?	;	  no cis
+	bis	#c2cis$,(r5)		;r$mcf2	  got cis
+					;
+90$:	clr	@#172032		;	  VS60 stack register
+	bvs	95$			;	  nope
+	bis	#c2v60$,(r5)		;r$mcf2	  got VS60
+					;
+95$:	tst	@#173000		;	  got a boot rom?
+	sbc	b$trom			;	  c=1 => b$trom=0
+					;
+100$:					;
+bo$opx:	call	tr$res			; restore vectors
+	pop	r5			;
+	return
+
+.end
+

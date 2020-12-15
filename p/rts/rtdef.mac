@@ -1,0 +1,52 @@
+lsi$c=0
+.sbttl	RTDEF - RUST/SJ definitions
+.nlist
+.enabl	lc,gbl
+.nlist	ld,cnd,bex
+.list	ttm
+.list
+.macro	meta	m n o p
+.macro	m
+n
+o
+p
+.endm
+.endm
+meta <set c d e f g h i j k l m n><c=d><.iif nb <e>,set e f g h i j k l m n>
+set	cr 15, lf 12
+meta <save> <jsr r5,sy$sav>
+meta <restore> <jsr r5,sy$res>
+meta <.feed><emt 362>
+meta <.ttin><emt 366>
+meta <.ttou a><.iif nb,a,movb a,r0><emt 367>
+meta <type s><emt 365><string <s>,200>
+meta <.abort s,l><emt 363><.iif nb l,l==.><.iif nb <s>,string <s>>
+meta <.fatal s,l><emt 364><.iif nb l,l==.><.iif nb <s>,string <s>>
+meta <string a,t=0,?l><l:.ascii&a&><.iif eq .-l&1,.byte 177><.byte t>
+meta <$spl c d e f><.iif eq c,lsi mtps!27 d e><.iif eq c,f>
+meta <spl a><$spl a,4,,<clr @#j$bpsw>><$spl a-7,340,240,<mov #340,@#j$bpsw>>
+
+.if ne lsi$c
+.macro lsini$
+.endm
+.macro	lscod$ m n
+	.save
+	.psect lsi
+	.word	m
+	.restore
+.endm
+meta <lsi c d e f><.irp x,<. c d e f 0>><lscod$ x,\lv><.endr>
+.macro lsend$
+.endm
+.iff
+meta <lsini$><set ls 0, lv 0>
+meta <lscod$ m n><.iif nb m,ls'n=m><.iif nb m,lv=lv+1>
+meta <lsi c d e f><.irp x,<. c d e f 0>><lscod$ x,\lv><.endr>
+meta <lssec$ a><.psect lsi><.word ls'a><ls=ls+1>
+meta <lsend$><.rept lv><lssec$ \ls><.endr>
+.endc
+
+meta <dbg s><prt <s>><bpt>
+.include "lib:rust.mac"
+.library "rtb:rtmac.mlb"
+

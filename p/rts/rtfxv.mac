@@ -1,0 +1,160 @@
+;nfcod.
+for$c=0
+.title	rtfxv - RTX.TSK FX: driver
+.include "lib:rust.mac"
+.library "rtb:rtmac.mlb"
+.library "lib:drvmac.mlb"
+.library "lib:sm.mlb"
+$chdef
+$ehdef
+$dedef
+$drdef
+$hkdef
+$iqdef
+$jbdef
+$rmdef
+$rsdef
+$vadef
+$vvdef
+rxrtx$
+rxacp$
+smini$
+
+;	%build
+;	macro	drs:fxv/object:drb:
+;	link	drb:fxv/execute:drb:fxv.sys/nobitmap
+;	%end
+
+; ???	driver constants are probably redundant
+
+	mmg$t	= 0
+	erl$g	= 0
+	tim$it	= 0
+	rte$m	= 0
+	$csr=0
+	fx$vec	= 0
+	fxsts	= despc$!defun$!dehab$!degab$
+	fxdsiz	= ^o177777
+;reassign registers
+.sbttl	FX: F11A driver
+
+;	See RTS:RTFAP.MAC for the RSX-11 adapation
+;
+;	r5 ->	vab
+;	r4 ->	cab
+;	r3 ->	qel
+;	r2 ->	csw
+;	r1 =	fun
+
+	.drbeg	fx
+	jmp	fx$iop			;
+f$xvab::.blkb	vx.bbs			; common vab
+	assume	vx.bbs lt 32.		;
+	.   =	f$xvab+32		; compatibility with something?
+fx$iop:	mov	fxcqe,r3		;
+	.if ne for$c
+	clr	r0			; flags
+fx$for:	mov	#f$xvab,r5		; VAB
+	assume	vx.flg eq 0		;
+	mov	r0,(r5)			; faFOR$ or zero
+	.iff
+	mov	#f$xvab,r5		; VAB
+	clr	(r5)			; clear flags
+	.endc
+	mov	r3,vx.qel(r5)		; save queue element
+	movb	iq.fun(r3),r1		; r1 = function
+	mov	r1,vx.fun(r5)		; pass function
+					;
+	mov	iq.csw(r3),r2		; r2 -> channel
+	mov	r2,vx.csw(r5)		; save csw address
+
+	mov	iq.buf(r3),r0 		; r0 -> buffer
+	mov	r0,vx.buf(r5)		; -> buffer
+	mov	6(r0),vx.dev(r5)	; =  penultimate logical name
+	bnew	vx.fun(r5),#rsREN.,5$	; not a rename
+	mov	6+8(r0),vx.dev(r5)	; = rename penultimate
+					;
+5$:	mov	iq.wct(r3),vx.cnt(r5)	; word count 
+	assume	iq.blk eq 0		;
+	mov	(r3),vx.blk(r5)		; I/O block
+	sub	ch.sbl(r2),vx.blk(r5)	; remove channel offset
+	beqw	r1,#rsCLO.,10$		; .close
+	bnew	r1,#rsCLZ.,15$		; not .cloz
+10$:	mov	ch.use(r2),vx.blk(r5)	; use high block for .clo(s,z)
+					;
+15$:	clr	vx.wlk(r5)		; directory walk control
+	bpcw	#csWLK$,(r2),20$	; not a directory walk
+	bis	#vxWLK$,vx.wlk(r5)	; mark walk 
+20$:	bpcw	#csSUB$,(r2),30$	; not a sub-directory
+	bis	#vxSUB$,vx.wlk(r5)	; mark sub-directory
+					;
+30$:
+	.if ne for$c
+	assume	faFOR$ eq <^o100000>	;
+	bmiw	(r5),35$		; foreign disk
+	.endc
+	mov	(r2),r0			; get csw
+	bic	#csin$n,r0		; isolate device slot
+	beqw	r0,#fxSLT.,35$		; our FX: slot?
+					; queue element came from LD:
+	mov	iq.fun(r3),r0		; get LD: unit record
+	clr	iq.fun(r3)		; function is always read/write
+	clr	vx.fun(r5)		; function is always read/write
+	movb	vv.uni(r0),iq.uni(r3)	; get the translated unit
+	mov	vv.off(r0),r4		; get the channel id/cab
+	br	36$			;
+					;
+35$:	mov	r2,r0			; r0 -> csw
+	call	rx$c2o			; csw to ordinal
+	call	rx$o2l			; ordinal to cab/lun
+	mov	r0,r4			; r4 -> cab
+ 
+36$:	mov	r4,vx.cab(r5)		; cab
+	mov	ca.lun(r4),vx.lun(r5)	; get lun #
+					;
+	call	fa$acp r5		; call FAP
+					;
+	bneb	vx.sta(r5),40$		; some error
+	assume	vx.flg eq 0		;
+	beqw	vx.fun(r5),#rsLOO.,37$	;
+	bnew	vx.fun(r5),#rsENT.,40$	;
+	bis	#csTEN$,(r2)		; force close to us
+37$:	bpcw	#caRON$,ca.sta(r4),38$	; not read only
+	bis	#csNWR$,(r2)		; reflect in CSW
+38$:	mov	r4,ch.sbl(r2)		; start block is cab address
+	mov	vx.cnt(r5),ch.len(r2)	; setup channel
+	mov	vx.cnt(r5),iq.wct(r3)	; return actual word count
+	clr	ch.use(r2)		;
+;	mov	vx.fmt(r5),ch.use(r2)	; for lookup
+
+40$:	movb	vx.sta(r5),r1		; get result status
+	bnew	r1,#faIOX.,50$		; not IOX
+	bis	#csHER$,(r2)		; set hard error
+	br	70$			;
+	assume	vx.flg eq 0		;
+50$:	bpcw	#faSPU$,(r5),60$	; not spusr
+	mov	r1,r$mspu		; return SPU user status
+	br	70$			;
+60$:	beqw	r1,70$			; no error
+	bis	#csEOF$,(r2)		; EOF at least
+70$:	mov	r3,r4			; queue element
+	.drfin	fx			;
+	.drast	fx,0			;
+	return				;
+
+;	Called for every image exit
+
+fx$rst::vehoo$	f$xrst			; reset hook
+	call	fa$rst #luCDF.		; reset cabs
+	jmp	@f$xrst			; chain
+
+;	.drend fx
+
+	.psect	fxdvr
+fx$end:
+$inptr:	.word	0
+$fkptr:	.word	0
+fxend:
+
+	.end
+

@@ -1,0 +1,1556 @@
+.title	rtboo - rust/sj tertiary boot
+.include "rts:rtdef.mac"
+hdw$c=0		; check hardware in this module
+emu$c=1		; setup emulator code
+fet$c=1		; fetch the system driver
+blk$c=1		; black hole memory test
+res$c=1		; reserve bootstrap memory
+mnt$c=1		; maintenance build
+
+xtm$c=1		; extended time
+fpu$c=1		; fpu/fis fixup
+.psect	boo	; set psect order
+.psect	ini	; ini data
+.psect	lsi	; lsi fixup list
+.psect	lsx	;
+.psect	usr	; usr
+.psect	acp	; acp
+.psect	buf ovr	; usr buffer (overlaid)
+.psect	boo	; us again
+$aldef
+$cfdef
+$cidef
+$codef
+$cndef
+$cpdef
+$dedef
+$drdef
+$emdef
+$esdef
+$jbdef
+$jsdef
+$kjdef
+$kwdef
+$hadef
+$hwdef
+$iqdef
+$psdef
+$rmdef
+$rrdef
+$sddef
+$sgdef
+$tidef
+$vedef
+$vrdef
+indef$
+sjdef$
+lsini$
+$mmdef
+
+;	RUST/SJ bootstrap 
+;
+; ???	Need to catch own bus traps and restore low memory
+;	before returning control to BOOT, RUST/SJ or RT-11.
+;	Command errors should exit.
+;
+; ???	Setup location 50
+;
+;	RUST.SAV is linked as an RT-11 relocatable image.
+;	bt$rel self-relocates the monitor to its high-memory location.
+
+; 	Primary		Hardware boot from block zero
+;			Software boot from block zero
+;	Secondary	BOOT.SYS in blocks 4 to 7
+;			Boot activates RUST.SAV
+;
+;	RUN RUST.SAV	Direct activation from RUST/SJ or RT-11
+;
+;	Tertiary
+;	  low memory	bt$ter etc from 1000 on
+;	  high memory	bt$hgh in the USR buffer
+;
+;	Tasks
+;	  Relocate	Relocate the image
+;			Do this with image in low memory
+;			Do it first so that mods don't get overwritten
+;	  Driver	Install the system driver
+;	  Copy		Copy image, driver and asect list
+;	  Jump		Jump to high memory
+;	  Setup		Hardware detect etc in USR buffer
+;	  .exit		.exit passes control to resident kmon
+;			Resident KMON looks for startup command file
+.sbttl	local definitions
+
+meta	<btchk$ msg><jsr r1,bt$chk><.word msg>
+meta	<void>				; must be blank for relocation
+
+;	Message output 
+
+meta	<btfat$ msg><jsr r1,bt$fat><.asciz |msg|><.even>
+meta	<bterr$ msg><jsr r1,bt$err><.asciz |msg|><.even>
+meta	<btwar$ msg><jsr r1,bt$war><.asciz |msg|><.even>
+meta	<btvrb$ msg><jsr r1,bt$vrb><.asciz |msg|<200>><.even>
+meta	<bttyp$ msg><jsr r1,bt$typ><.asciz |msg|<200>><.even>
+meta	<btprt$ msg><jsr r1,bt$typ><.asciz |msg|><.even>
+meta	<ok c><br c><nop>
+
+.macro	btalc$ siz adr reg
+  mov	fp.alc(r5),adr
+  .if nb reg
+    mov fp.alc(r5),reg
+  .endc
+  add	siz,fp.alc(r5)
+.endm
+
+;	Bootstrap frame (r5 pointer)
+
+map	fp.bas,,0	; relocated root base address
+assume	fp.bas eq 0	;
+map	fp.low		; unrelocated root base address
+map	fp.blk		; relocation block
+map	fp.rsz		; root size
+			;
+map	fp.alc		; memory allocation
+map	fp.buf		; i/o buffer address
+			;
+map	fp.sys		; system device name with unit
+map	fp.han		; driver buffer
+map	fp.drv		; where we load it
+map	fp.hsz		; driver size
+map	fp.roo		; driver root (entire driver)
+map	fp.dbl		; driver block length
+map	fp.dsr		; driver dsr address
+			;
+map	fp.cst	 	;/.cstat result
+map	fp.sbl,3*2	;|file start block
+map	fp.uni	  	;|device unit
+map	fp.dev	  	;\device name
+
+map	fp.rou		;callback routine
+map	fp.reg,4*2	;register swap area
+map	fp.bbs		;
+
+	.asect
+	. = j$bjsw
+	.word	jsovr$			; overlay flag keeps image channel open
+	.psect	boo
+.sbttl	tertiary boot
+
+;	r5 ->	stack frame thruout (must be saved)
+
+start::					; linked to address 1000
+bt$ter:	nop				; nice place for a B P T
+	mov	r5,(pc)+		; remember host activation signature
+b$thst:	.word	0			;
+	bnew	r5,<#^rSHP>,10$		; not RUST/XM
+	.print	#b$tubt			; Use BOOT on RUST/XM
+	.exit				;
+10$:	mov	@#v$eclk,t$rclk		; remember host vectors
+	mov	@#v$ebus,t$rbus		;
+	mov	@#v$ecpu,t$rcpu		;
+	mov	#bt$tik,@#v$eclk	; catch KW11L interrupts
+	mov	#pr7,@#v$eclk+2		;
+	mov	#bt$tik,@#k$pvec	; catch KW11P interrupts
+	mov	#pr7,@#k$pvec+2		;
+					;
+	mov	#bt$ter-fp.bbs,sp	; use a tertiary stack
+	mov	sp,r5			; r5 -> data
+	.mtps	#0			; BOOT.SYS default is PR7
+	.serr				; we do the errors
+					;
+	mov	@#j$btop,r4		; get top of image
+	tst	(r4)+			; adjust for settop logic
+	mov	r4,fp.buf(r5)		; 2-block i/o buffer
+	mov	r4,fp.alc(r5)		; allocation pointer
+	add	#2000,fp.alc(r5)	; past buffer
+
+	call	bt$ccl			; check for CCL command
+	.if ne fet$c
+	call	bt$fet			; fetch boot.sav driver
+	.endc
+	call	bt$ini			; process ini file
+	btprt$	<RUST/SJ V3.8>		; aloha
+	inc	b$tfnl			; force newline for anything else
+	call	bt$ifm			; check for ini file missing
+	btvrb$	<Verbose boot>		; conditional verbose messages
+	btvrb$	<Validate system image>	;
+					;
+	.readw	#b$tiob,#17,r4,#256.,#0	; read first block of us
+	btchk$	bt$trn			;
+	cmp	jb.ref(r4),#^rrel	; check rel flag sig
+	bne	bt$img			; not an RT-11 relocatable image
+					;
+	mov	jb.rbl(r4),fp.blk(r5)	; first relocation block number
+	mov	jb.rrs(r4),r2		; rel root size
+	mov	r2,fp.rsz(r5)		; save root size
+	assume	fp.bas eq 0		;
+	mov	#bt$ter,fp.low(r5)	; bt$ter unrelocated
+					;
+	add	#1000,r2		; correct for fake asect for check
+	cmp	r2,r4			; must be the same
+	bne	bt$img			; invalid format
+					;
+	call	bt$cpu			; cpu tests (must be first for T11)
+	call	bt$clk			; get a clock going
+	call	bt$v11			; check for v11 emulator
+	call	bt$emu			; E11/SIMH emulator checks
+	call	bt$mmu			; size extended memory
+	call	bt$ker			; size kernel memory-sets (r5) mem top
+	sub	fp.rsz(r5),(r5)		; base of relocated monitor
+	.if ne res$c
+	asl	b$tres			; words to bytes
+	sub	b$tres,(r5)		; reserved bootstrap space
+	.endc
+	call	bt$ins			; install system driver
+	call	bt$ttv			; install terminal driver
+	call	bt$tks			; remap terminal csr/vector
+	call	bt$lsi			; lsi fixups
+	call	bt$rel			; relocate the image
+	call	bt$htz			; work out clock rate
+	call	bt$tim			; time setup
+	call	bt$cop			; copy the lot to high memory
+					; monitor now in high memory
+	call	bt$dsr			; driver fetch service routine
+	jmp	bt$nml			; up via no mans land
+.sbttl	messages
+
+bt$dir:	bterr$	<File not found>
+bt$img:	bterr$	<Invalid image: RUST.SAV>
+bt$trn:	bterr$	<BOOT I/O error: RUST.SAV>
+.if ne fet$c
+bt$fer:	bterr$	<BOOT fetch error>
+.endc
+b$tubt:	.asciz	/?RUST-E-Use BOOT/
+b$terr:	.ascii	/?RUST-F-/<200>
+b$tnew:	.byte	0
+b$tlin:	.blkb	82.
+	.even
+
+;	bt$chk - check for error
+
+bt$chk:	bcc	10$			; fine
+	jmp	@(r1)+			; do the error
+10$:	tst	(r1)+
+	rts	r1
+
+;	fatal error
+;
+;	r1 ->	ascii reason
+
+bt$fat:	reset			; reset hardware
+	call	tr$exi		; exit traps
+	mov	#20$,r0		; display header
+	call	10$		;
+	mov	r1,r0		; display reason
+	call	10$		;
+	mov	#30$,r0		; say we're halting
+	call	10$		;
+	HALT			; unprotected halt
+	jmp	@#173000	; try rebooting
+
+10$:	tstb	@r$mtps		; minimal output routine
+	bpl	10$		;
+	movb	(r0)+,@r$mtpb	;
+	bne	10$
+	return
+20$:	.asciz	/?RUST-F-/
+30$:	.byte	cr.,lf.
+	.ascii	/?RUST-F-Bootstrap halt/
+	.byte	cr.,lf.,0
+	.even
+
+bt$war:	beqw	b$twar,10$
+	bttyp$	<?RUST-W->
+	call	bt$opx
+10$:	call	bt$evn
+	rts	r1
+
+bt$err:	bttyp$	<?RUST-E->
+	call	bt$opt
+	call	tr$exi
+	clr	r0
+	.exit
+
+bt$vrb:	tst	b$tvrb
+	beq	bt$mut
+	bttyp$	<?RUST-I->
+	call	bt$opt
+	.if ne mnt$c
+	beqw	i$ndbg,10$
+	bttyp$	<; Continue? >
+	bis	#jsgtl$,@#j$bjsw
+	.gtlin	#b$tlin
+	br	20$
+	.endc
+10$:	btprt$	<>
+20$:	rts	r1
+
+bt$typ:	call	bt$opt
+	rts	r1
+
+bt$mut:	call	bt$evn
+	rts	r1
+
+bt$opt:	psh	#bt$evn
+bt$opx:	psh	r0
+	asr	(pc)+			; need to force newline?
+b$tfnl:	.word	0			; 
+	bcc	10$			; nope
+	.print	#20$			; yes - put a spacer out
+10$:	.print	r1
+	pop	r0
+	return
+20$:	.word	0
+
+bt$evn:	tstb	(r1)+
+	bne	bt$evn
+	inc	r1
+	bic	#1,r1
+	return
+
+bt$wai:	bit	#100,@r$mtps		; output still happening?
+	bne	bt$wai			; yep
+10$:	tstb	@r$mtps
+	bpl	10$
+	clrb	@r$mtpb
+20$:	tstb	@r$mtps
+	bpl	20$
+	return
+.sbttl	interrupts
+
+;	clock interrupt
+
+bt$tik:	inc	(pc)+			; have clock
+b$tclk:	.word	0			;
+	inc	(pc)+			; see bt$htz
+b$ttik:	.word	0			; clock ticker
+	rti				;
+
+;	catch bus/cpu traps
+
+tr$cat:	mov	#tr$trp,@#v$ebus	; catch bus traps
+	mov	#tr$trp,@#v$ecpu	; catch cpu traps
+	return
+
+tr$exi:	mov	(pc)+,@(pc)+		; reset host clock
+t$rclk:	.word	0,v$eclk		;
+tr$res:	mov	(pc)+,@(pc)+		; reset host bus trap
+t$rbus:	.word	0,v$ebus		;
+	mov	(pc)+,@(pc)+		; reset host cpu
+t$rcpu:	.word	0,v$ecpu		;
+	return
+
+tr$trp:	bis	#vbit!cbit,2(sp)	; set V-bit C-bit
+	rti
+
+b$tiob:	.blkw	5			; i/o block
+.sbttl	process CCL command
+
+;	.rust/switch
+;
+;	/M	Maintenance startup
+;	/V	Verbose startup
+
+bt$ccl:	movb	@#j$bcct,r1		; get the count
+	blosw	r1,#1,100$		; no command
+	bis	#jsgtl$,@#j$bjsw	; inhibit ^C abort from CCL command
+	.gtlin	#b$tlin			; get gtlin copy of CCL command
+	.gtlin	#b$tlin			; get CCL ^C
+	bhisw	r1,#10,90$		; ignore rubbish
+	mov	#j$bcst,r0		;
+	add	r0,r1			;
+	clrb	(r1)			; a bit of paranoia
+10$:	beqb	(r0),100$		; end of it
+	bneb	(r0)+,<#'/>,90$		; not an option
+	movb	(r0)+,r1		;
+	beq	100$			;
+	beqb	r1,<#'v>,30$		; /v
+	beqb	r1,<#'V>,30$		;
+	beqb	r1,<#'m>,20$		; /m
+	bneb	r1,<#'M>,90$		;
+20$:	bis	#400,i$ndbg		; we're very loud
+30$:	bis	#400,b$tvrb		;
+	bis	#400,b$twar		;
+	br	10$			;
+90$:	btwar$	<Invalid command>
+100$:	return
+.sbttl	cpu tests
+
+;	This code originated in BOOT.SYS where space was tight.
+
+b$trom:	.word	1			; 1=boot rom present
+b$tmfp:	.word	0			; mfpt code (else big number)
+b$ot11:	.word	0			; T11
+
+bt$cpu:	btvrb$	<Detect CPU and instruction sets>
+	.if ne hdw$c
+	call	hw$det
+	.iff
+	psh	r5			;
+	call	tr$cat			; catch traps
+	mov	#v$eclk,r2		; boot.mac compatibility
+	mov	#h$wswr,r3		; r3 -> switch register
+	mov	#r$mcfg+byte,r4		; r4 -> config+1
+	mov	#r$mcf2,r5		; r5 -> confg2
+					;
+	assume	cpf11. eq 3		; f11 - byte code
+	assume	cpt11. eq 4		; t11 - word code
+	assume	cpj11. eq 5		; j11 - byte code
+	mov	pc,r0			;
+20$:	mfpt			;r0=?	; get the cpu type
+	mov	r0,b$tmfp		; save it
+	sub	#cpt11.,r0		; this a falcon?
+	bne	40$			; no
+				;r0=0	;
+30$:	inc	b$ot11			; remember this critter
+	bisb	#<cnclo$!cnp03$>/256.,(r4) ; r$mcfg+1 cnp03$ set for 11/03
+	btwar$	<T11 processor is untested>
+	br	bo$opx			;
+
+;	Bus test
+;
+;	r0=-1	f11 - byte
+;	r0=0	t11
+;	r0=1	j11 - byte
+;	r0=12	???
+
+40$:	tst	@#1			; odd trap separation
+	bvs	50$			; unibus or 11/73
+					;
+	incb	r0		;f11=-1	; f11 or lsi
+	bne	60$			; not f11 - qbus 03
+	clr	(r3)		;r0=0	; h$wswp	- writable switch register?
+	bvs	60$			; no  - qbus f11 - 11/23
+	fall	50$		;r0=0	; yes - unibus f11 - 11/24
+					;
+50$:	decb	r0		;j11=1	; j11 or unibus (44)
+	bne	70$			; unibus (44)
+	bit	#kjuni$,@#k$jcpm;r0=0	; unibus bit in maintenance register?
+	bvs	70$			; no  - unibus j11 - 11/84
+	bne	70$			; yes - unibus j11 - 11/84
+					; no  - qbus j11 - 11/73
+	assume	cnbus$ eq 100	;r0=?	;
+60$:	bis	r2,(r5)		;r2=100	; r$mcf2 - set the qbus bit
+70$:	fall	bo$opt			;
+
+;	Set boot config and confg2
+; 
+;	cnclo$ is set by clock interrupt 
+
+bo$opt:
+.if ne 0				;	  done elsewhere
+	bis	r2,@#h$wlks	;r2=100	;h$wlks - check & set clock
+	bvs	10$			;	  no clock register
+	assume	100*256. eq cnkwc$	;
+	bisb	r2,(r4)		;r2=100	;r$mcfg+1 cnkwc$ set
+	.endc				;
+10$:	tst	@#psw			;	  do we have a psw ?
+	bvc	20$			;	  yes
+	bisb	#<cnclo$!cnp03$>/256.,(r4) ;r$mcfg+1 cnp03$ set for 11/03
+	br	30$			;	  dont check for 11/60
+	assume	jmp eq 100		;
+20$:	mov	#30$,r1			;	  skip if it fails
+	med6x				;med	  11/60 med instruction
+	.word	111		;jmp @r1;	  read csp(11)
+	bis	#c2p60$,(r5)	;r0=?	;r$mcf2	  got an 11/60
+					;
+;	assume	c2lds$ eq 20		;	  ld status is 'dont care'
+;	assume	c2eis$ eq 400		;
+;	assume	20*20  eq 400		;
+30$:	mov	#20,r1			;cnlds$	  get root of cneis$
+	mul	r1,r1			;	  should make 400
+	bvs	35$			;
+;	bis	r1,(r5)			;cneis$	
+	bis	#c2eis$,(r5)		;
+35$:	setf			;v=?	;	  do we have fpu ?
+	bvs	40$			;	  no
+	assume	cnfpu$ eq 100		;
+	bisb	r2,-(r4)	;r2=100	;r$mcfg - we have fpu
+	.if ne fpu$c
+	add	#ve$fpu-ve$fis,b$tfpu+as.isr ;	  adjust FPU trap address
+	.endc
+40$:	tst	(r3)		;r4=?	;h$wswr - got a switch register?
+	bvs	50$			;no
+	bis	#c2swr$,(r5)		;r$mcf2 - yes
+50$:	clr	(r3)			;h$wswr - can we write it?
+	bvs	60$			;	  no
+	bis	#c2sww$,(r5)		;r$mcf2 - yes
+	br	60$			;
+60$:	bis	#hwcdp$,@#h$wccr	;	  disable cache parity errors
+	bvs	70$			;	  have no cache
+	bis	#c2cac$,(r5)		;r$mcf2 - have cache
+					;
+70$:	tst	@#h$wlss		;	  got system size register?
+	bvs	80$			;	  no - not an 11/70
+	bis	#c2p70$,(r5)		;r$mcf2 - yes - an 11/70
+					;
+80$:	clr	r0		;clv	;0: 0,0	  r0 -> null descriptors
+	l2d0			;v=v	;	  load two descriptors
+	bvs	90$		;r0:r4?	;	  no cis
+	bis	#c2cis$,(r5)		;r$mcf2	  got cis
+					;
+90$:	clr	@#172032		;	  VS60 stack register
+	bvs	95$			;	  nope
+	bis	#c2v60$,(r5)		;r$mcf2	  got VS60
+					;
+95$:	tst	@#173000		;	  got a boot rom?
+	sbc	b$trom			;	  c=1 => b$trom=0
+					;
+100$:					;
+bo$opx:	call	tr$res			; restore vectors
+	pop	r5			;
+	return
+.endc
+.sbttl	clock enable
+
+;	Detect clock and get it running
+;
+; ???	If hosted system then we should use .GTIM
+;
+;	kw11l	line frequency clock
+;	kw11p	programmable clock
+;
+;	sjKWP. is 012737, mov #x,@#y. The value overwrites
+;	a NOP instruction, 012727, mov #x,#y. See rtswr.mac.
+
+bt$clk:	btvrb$	<Enable clock>
+	call	tr$cat			; catch traps
+	bnew	b$ot11,30$		; skip for T11
+	tst	@#k$lcsr		; got a line clock?
+	bvs	10$			; nope
+	bis	#cnlks$!cnclo$,r$mcfg	; set flags
+	bis	#klenb$,@#k$lcsr	; yes - enable boot clock
+	br	20$			; enable the code as well
+					;
+10$:	tst	@#k$pcsr		; got a programmable clock?
+	bvs	30$			; nope
+	mov	#kpLIN$,@#k$pcsr	; get boot clock going
+	mov	#1,@#k$prpt		; and the repeat count
+					;
+	bis	#cnkwc$!cnclo$,r$mcfg	; set flags
+	mov	#v$eclp,r1		; vector address
+	call	bt$prt			; protect it
+	mov	#k$pcsr,t$icsr		; use kw11p csr 
+	mov	#kpLIN$,t$ienb		; use kw11p enable 
+	mov	#sjKWP.,ti$rpt		; repeat setup instruction
+20$:	mov	#sjKWP.,ti$csr		; clock enable instruction
+					;
+30$:	call	tr$res			; restore traps
+	return
+.sbttl	fetch boot image driver
+
+.if ne fet$c
+b$tdrv:	.rad50	/            /		;
+
+bt$fet::
+	movi	fp.cst,r5,r1		; point to cstat area
+	.cstat	#b$tiob,#17,r1		; get it
+	btchk$	bt$trn			; check errors
+	mov	fp.dev(r5),r0		; get the device name
+	mov	r0,d$vper+2		; 
+	mov	r0,b$tdev+2		; the system driver name
+	mov	fp.uni(r5),r1		; get the unit
+	movb	r1,r$msyu+1		;*rmon version of system unit
+	add	#<^r  0>,r1		; make it rad50
+	add	r1,r0			; add it into the device name
+	mov	r0,b$tdrv		; boot device
+	mov	r0,b$tdev		; boot driver
+	mov	r0,b$tttv		; TT driver
+	mov	r0,d$vdke		;*setup assignments
+	mov	r0,d$vsye		;* 
+	.if ne fet$c
+	.fetch	#b$tfet, #b$tdrv	; fetch the driver
+	btchk$	bt$fer			; report error
+	.endc
+	return
+
+.endc
+.sbttl	process sy:rust.ini file
+
+bt$ini:	mov	b$tdrv,b$tini		; get target device
+	inopn$	#b$tini 30$		; open sy:rust.ini
+	insec$	#b$tsec	20$		; locate [boot] section
+	inint$	#b$tprf			; process table
+					;
+	bis	i$ndbg,b$tvrb		; verify sets verbose
+	mov	b$tter,r1		; setup the terminal
+	mov	#r$mtks,r2		; for boot messages
+	mov	#4,r3			;
+10$:	mov	r1,(r2)+		; 
+	add	#2,r1			; do vector later
+	sobw	r3,10$			;
+20$:	return				;
+30$:	inc	b$tvrb			; verbose if missing
+	inc	b$tifm			; ini file missing
+	return
+
+bt$ifm:	tst	(pc)+			; need a warning?
+b$tifm:	.word	0			; inst. file missing
+	beq	10$			; nope
+	btwar$	<Initialisation file missing SY:RUST.INI>	
+10$:	return
+
+b$tini:	.rad50	/sy rust  ini/
+b$tsec:	.asciz	/[boot]/
+	.even
+
+b$tvrb:	.word	1		; verbose
+b$twar:	.word	1		; warnings
+b$tter:	.word	177560,60	; terminal csr/vector
+b$tmem:	.word	0		; memory size (0=auto)
+.if ne res$c
+b$tres:	.word	0		; end-of-memory words to reserve
+.endc
+
+b$tprf:
+initm$	i$ndbg	boo verify
+initm$	b$tvrb	boo verbose
+initm$	b$twar	boo warnings
+initm$	b$tter	csr terminal
+initm$	b$tsta	str startup
+initm$	b$tmem	dec memory
+initm$	x$mlim	dec xmlimit
+initm$	b$thtz	dec hertz
+.if ne res$c
+initm$	b$tres	dec reserve
+.endc
+inend$
+.sbttl	check for V11/VRT, E11/SIMH
+
+b$tv11:	.word	0			; V11 flags
+
+bt$v11:	btvrb$	<Check emulators>	;
+	psh	v$eiot			; save it
+	psh	v$eiot+2		;
+	mov	sp,r1			;
+	mov	#20$,@#v$eiot		; setup a trap catcher
+	clr	v$eiot+2		;
+	psh	#vrDET.			; detect
+	iot				;
+	.word	vrSIG.			;
+	mov	r0,b$tv11		; remember it
+	incb	e$hv11			; remember it in monitor
+	mov	#1,b$temu		; is an emulator
+	mov	#50.,b$thtz		; 50hz clock
+	beqb	r0,#vrPDP.,10$		; PDP-11 mode
+	btvrb$	<Emulator detected: VRT>
+	bterr$	<Can't boot from VRT emulator>
+10$:	btvrb$	<Emulator detected: V11>
+	.if ne emu$c
+	movb	#cpv11.,r$memu		; remember it
+	.endc
+	br	30$			; leave VCL intact
+20$:	mov	#nop,s$kvcl		; nop VCL
+	mov	#nop,s$kvcl+2		;
+	mov	#nop,s$kvcl+6		;
+30$:	mov	r1,sp			; dump trap
+	pop	v$eiot+2		; restore
+	pop	v$eiot			; 
+	return				;
+
+.sbttl	check for SimH or E11 emulator
+
+;	Detect Simh/E11 by writing specific sequences to MMU SR0.
+;	Test not made if MMU missing or boot ROM present.
+
+b$temu:	.word	0			;0=unknown, -1=isn't, 1=is
+
+bt$emu:	call	tr$cat			; capture traps
+	bnew	b$ot11,40$		; skip for T11
+	bnew	b$temu,40$		; already know
+	bnew	b$trom,40$		; rom means not emulator
+	mov	#m$msr0,r0		; emulator check
+	mov	#m$msr1,r1		;
+	tst	(r1)			; got MMU with SR1 etc?
+	bvs	40$			; nope
+	clr	(r0)+			; clear SR0 with increment
+	bis	#160000,-(r0)		; overwrite and freeze
+	bneb	(r1),#170027,10$	; SIMH magic number is (17)0027
+	btvrb$	<Emulator detected: SIMH>;
+	.if ne emu$c
+	movb	#cpsmh.,r$memu		; remember it
+	.endc
+	br	20$			;
+					;
+10$:	mov	#340,(r0)		; SR0 = 340
+	bnew	(r0),#140,30$		; E11 magic number is 140
+	btvrb$	<Emulator detected: E11>; (misses some read-only bits)
+	.if ne emu$c
+	movb	#cpe11.,r$memu		; remember it
+	.endc
+20$:	inc	b$temu			; is emulator
+					;
+30$:	clr	(r0)			; make them all clean again
+	clr	(r1)			;
+40$:	call	tr$res			; restore traps
+	return
+.sbttl	size extended memory
+
+x$mrtx:	.word	0			; RT11XM running
+x$mmmu:	.word	0			; has MMU
+x$m22b:	.word	0			; has 22bit
+x$mker:	.word	1600			; r$mmsz - kernel memory size
+;$mram:	.word	1600			; $ramsz - total memory size
+x$mmax:	.word	mmi18.			; memory max
+x$mlim:	.word	-1		; ini	; memory limit
+x$msr1:	.word	0			; functioning SR1 detected
+
+bt$mmu:	btvrb$	<Size extended memory>	;
+	bnew	b$ot11,40$		; not for T11
+	mov	x$mlim,r0		; got a kiloword limit?
+	beqw	r0,#-1,10$		; default
+	btvrb$	<Using XMLIMIT in RUST.INI> ;
+	.rept	5			; 1 kiloword = 1024 words
+	asl	r0			; 1 page = 32 words
+	.endr				; 1024/32 = 32 = 5 rotates
+	mov	r0,x$mlim		; lazy
+	br	20$			; now size it
+10$:	call	xm$rtx			; check for RT-11/XM
+	bcc	30$			; use their size (in r0)
+20$:	call	bt$xms			; get the xm size (in r0)
+30$:	mov	r0,m$esiz		; the point of it all
+40$:	return				;
+
+bt$xms:	call	tr$cat			; catch bus traps
+	tst	@#psw			; got a PSW?
+	bvs	70$			; nope - no MMU
+	tst	@#m$msr0		; got mmu?
+	bvs	70$			; nope - skip all this
+	inc	x$mmmu			; we have mmu
+	mov	#160000,(r5)		;*that's the top of memory
+	tst	@#m$msr3		; got 22-bit?
+	bvs	10$			; nope
+	inc	x$m22b			; it's 22-bit 
+	mov	#mmi22.,x$mmax		; adjust memory limit
+10$:	call	xm$map			; map memory
+	clr	r0			; start here
+20$:	add	#mmpik.,r0		; advance 1k words
+	cmp	r0,x$mmax		; end of it all?
+	bcc	50$			; yes - done
+	cmp	r0,x$mlim		; at page limit?
+	bcc	50$			; yes - forget the rest
+25$:	mov	r0,@#m$uip1		; get the next location
+	mov	sp,r1			; r1 = current sp
+	mov	@#0,r2			; r0 = current location zero
+	mfpi	@#m$mpa1		; check it
+	bvs	40$			; oops - we just ran out
+	cmp	(sp)+,@#0		; this the same as location zero?
+	bne	30$			; nope
+	inc	@#0			; yes - reset it
+	mfpi	@#m$mpa1		; get it again
+	bvs	40$			; should be impossible
+	cmp	(sp)+,@#0		; did it change with us?
+	beq	40$			; yes - we just wrapped around
+30$:	tst	(pc)+			; reset this
+40$:	sec				; 
+	mov	r1,sp			; restore the stack
+	mov	r2,@#0			; restore this
+	bcc	20$			; keep looking
+	mov	@#m$msr1,x$msr1		; get SR1, ignore missing (bvs)
+50$:	call	xm$res			; restore management
+70$:	call	tr$res			; restore bus traps
+80$:	return				; r0 = size in pages
+
+xm$map:	clr	@#psw			; clean up the ps
+	clr	@#m$msr0		; disable management
+	clr	r0			; page register offset
+	clr	r1			; the mapping offset
+20$:	mov	r1,m$kip0(r0)		; kernel page
+	mov	r1,m$uip0(r0)		; user page
+	mov	#mmd4k.,m$kid0(r0)	; and the user also
+	mov	#mmd4k.,m$uid0(r0)	; map it
+	tst	(r0)+			; do the next
+	add	#mmpis.,r1		; the next segment
+	cmp	r0,#7.*2		; is this the i/o stuff?
+	bne	30$			; nope
+	mov	#mmi18.,r1		; 18-bit IO page
+	tst	x$m22b			; got 22-bit memory?
+	beq	30$			; nope
+	mov	#mmi22.,r1		; 22-bit IO page
+30$:	cmp	r0,#8.*2		; done them all?
+	blo	20$			; nope
+	tst	x$m22b			; got 22-bit?
+	beq	40$			; nope
+	bis	#mm22b$,@#m$msr3	; enable 22-bit
+40$:	inc	@#m$msr0		; enable management
+	bis	#mmpum$,@#psw		; setup previous user mode
+	return
+
+xm$res:	clr	@#psw			;
+	tst	x$m22b			; 22-bit mode?
+	beq	10$			; nope
+	clr	@#m$msr3		; yep - turn off 22-bit mode
+10$:	clr	@#m$msr0		; turn off management
+	return				;
+
+;	Check for RT-11 XM
+;
+;	Probing MMU kills RT11XM
+;	It has the information we want anyway
+
+xm$rtx:	mov	@#j$bsys,r0		;
+	bit	#sgmmg$,rm.syg(r0)	; this an XM system?
+	beq	10$			; nope
+	inc	x$mrtx			; yep
+	add	rm.mpt(r0),r0		; memory descriptors
+	mov	rr.rsz(r0),r0		; r0 = total memory size in pages
+	tst	(pc)+			; all done boss
+10$:	sec				; not RT11XM
+	return
+.sbttl	size kernel memory
+
+;	Start with the size provided by the resident monitor.
+;	120000, 20KW, is the minimum RUST will run in.
+
+bt$ker:	btvrb$	<Size kernel memory>	;
+	mov	b$tmem,r0		; manual setting?
+	beq	10$			; yes nope
+	swab	r0			; * 256
+	asl	r0			; * 512
+	asl	r0			; * 1024
+	asl	r0			; words to bytes
+	br	40$			;
+					;
+10$:	mov	#160000,r0		; 28kw = 56kb
+	bnew	b$ot11,40$		; assume 28kw for T11
+	bnew	x$mmmu,40$		; mmu is always 28=8k
+.if ne 0
+	mov	j$bsys,r1		;
+	add	rm.mpt(r1),r1		; dynamic memory list
+	mov	-(r1),r0		; number of pages
+	.rept	6			; 64 bytes per page
+	asl	r0			; make byte address
+	.endr				;
+	beq	30$			; virtual machine
+.endc
+15$:	call	tr$cat			; catch traps
+20$:	mov	(r0),r1			; get it
+	bvs	30$			; that's it
+.if ne blk$c				; black hole memory test
+	mov	r1,r2			; get a copy
+	com	r2			; complement it
+	mov	r2,(r0)			; write it back
+	bvs	30$			; oops
+	mov	(r0),r2			; get back result
+	mov	r1,(r0)			; restore original
+	bvs	30$			; oops
+	com	r2			; recompliment it
+	cmp	r1,r2			; same as original
+	bne	30$			; nope--black hole
+.iff					;
+	mov	r1,(r0)			; writeable?
+	bvs	30$			; nope
+.endc
+
+	add	#64.,r0			; be reasonable
+	bne	20$			;
+30$:	sub	#64.,r0			; virtual address space
+	call	tr$res			; restore bus vector
+
+40$:	mov	r0,(r5)			;*top of memory
+	clc				;
+	ror	r0			; convert to page address
+	.rept	5			;
+	asr	r0			;
+	.endr				;
+	bnew	m$esiz,50$		; already have that
+	mov	r0,m$esiz		;*total memory
+50$:	mov	r0,r$mmsz		;*kernel memory
+	return
+.sbttl	install system driver
+
+;	driver	low memory copy
+;	driver  high memory copy
+;	$xxxx+2	system device is in second slot of tables
+;
+;	r4 ->	temp buffer
+
+bt$ins:	btvrb$	<Install system driver>	;
+.if eq fet$c
+	movi	fp.cst,r5,r1		; point to cstat area
+	.cstat	#b$tiob,#17,r1		; get it
+	btchk$	bt$trn			; check errors
+	mov	fp.dev(r5),r0		; get the device name
+	mov	r0,d$vper+2		; 
+	mov	r0,b$tdev+2		; the system driver name
+	mov	fp.uni(r5),r1		; get the unit
+	movb	r1,r$msyu+1		;*rmon version of system unit
+	add	#<^r  0>,r1		; make it rad50
+	add	r1,r0			; add it into the device name
+	mov	r0,d$vdke		;*setup assignments
+	mov	r0,d$vsye		;* 
+.endc
+	beqw	b$tv11,6$		; not V11
+	add	#<^r  w>,b$tdev+2	; try our prefix first
+	.lookup	#b$tiob,#0,#b$tdev,#0	; lookup the system device
+	bcs	5$			; not V11 driver
+	mov	r0,r1			; save file size
+	btvrb$	<Using V11 RUST system driver>
+	br	20$			;
+5$:	sub	#<^r  w>,b$tdev+2	; restore name
+
+6$:	add	#<^r  v>,b$tdev+2	; try our prefix first
+	.lookup	#b$tiob,#0,#b$tdev,#0	; lookup the system device
+	bcs	10$			; not located
+	mov	r0,r1			; save file size
+	btvrb$	<Using RUST system driver>
+	br	20$			;
+10$:	sub	#<^r  v>,b$tdev+2	; try without prefix
+	.lookup	#b$tiob			; lookup the system device
+	mov	r0,r1			; save file size
+	btchk$	bt$dir			; check errors
+	btwar$	<Using RT-11 system driver>
+					;
+20$:	mov	r1,fp.dbl(r5)		; remember driver block length
+	swab	r1			; get word size
+	asl	r1			; bytes
+	btalc$	r1,fp.roo(r5),r4	; allocate space for entire driver
+	asr	r1			; now as word count
+	.readw	#b$tiob,#0,r4,r1,#0	; read entire driver
+	btchk$	bt$trn			; check errors
+	clr	dr.cqe(r4)		; clear setup flags
+	clr	dr.hol(r4)		; clear setup flags
+	call	bt$ich			; do installation check (r4/r5 saved)
+	mov	dr.sta(r4),d$vsta+2	;*status - we accept anything
+	mov	dr.dsz(r4),d$vdsz+2	;*device block size
+	mov	dr.hsz(r4),r1		; driver byte size
+	mov	r1,d$vhsz+2		;*save driver size
+	mov	r1,fp.hsz(r5)		; save it to fill in fork etc
+					;
+	mov	(r5),r4			; bt$ter relocated
+	add	#us$ent-bt$ter,r4	; usr base
+	sub	r1,r4			; where driver gets loaded
+	mov	r4,fp.drv(r5)		; save that
+	mov	r4,s$ylow		; also top/stack address
+	add	#ha.lqe,r4		; rt-11 magic
+	mov	r4,d$vent+2		;*driver entry point
+					;
+	btalc$	r2,fp.han(r5)		; allocate the space
+	asr	r1			; get words (can't be negative)
+	.readw	#b$tiob,#0,fp.han(r5),r1,#1 ; read the driver
+	btchk$	bt$trn			; check errors
+
+;	Install the driver
+
+	movi	fp.cst,r5,r1		; get driver start block
+	.cstat	#b$tiob,#0,r1		; for the driver
+	btchk$	bt$trn			; check errors
+	mov	fp.sbl(r5),d$vblk+2	;*to get the start block
+
+;	Fill in the driver hooks
+
+	mov	fp.han(r5),r2		; get it again
+	mov	r2,r0			;
+	add	fp.hsz(r5),r0		; point at driver end
+	mov	#sy$frk-1000,-(r0)	; fill in the hooks
+	add	(r5),(r0)		; relocate
+	mov	#sy$int-1000,-(r0)	;
+	add	(r5),(r0)		;
+
+;	Fill in the driver vectors 
+
+	mov	fp.drv(r5),r4		; driver base address
+	mov	r2,r0			; driver base address
+	mov	(r2)+,r1		; ha.vec
+	beq	50$			; oops, no vector (wierd)
+	bmi	30$			; a vector table
+	call	bt$dvc			; do a single vector
+	br	50$			; (no ps bits for single)
+					; vector table
+30$:	asl	r1			; read sysmac for this
+	add	r1,r2			; point to the table
+40$:	mov	(r2)+,r1		; get the vector
+	ble	50$			; no more vectors
+	call	bt$dvc			; set it up
+	bis	(r2)+,-2(r3)		; driver table sets ps bits 
+	br	40$			;
+
+;	Setup for driver fetch service routine
+
+50$:	clr	fp.dsr(r5)		; assume no service routine
+	mov	fp.roo(r5),r4		; get the driver
+	bnew	(r4),#^rhan,60$		; not valid for dsrs
+	mov	dr.beg(r4),r0		; get the pointer flags
+	blow	r0,#nop,60$		; low guard failed
+	bhiw	r0,#nop+37,60$		; high guard failed
+	assume	drloc. eq 4		;
+	bpcw	#4,r0,60$		; no load routine
+	mov	dr.ptr+drloc.(r4),fp.dsr(r5) ; save load dsr address
+60$:	return				; zero means none
+
+;	Fill in device vector and protect it
+;
+;	r0	driver base address
+;	r1	vector
+;	r2 ->	driver ast relative
+;	r3 ->	asect table (address, pc, ps)
+;	r4 	driver base address
+;	(r5)	monitor base address
+;
+;	r2 ->	past driver ast ept
+;	r3 ->	past pc/ps in vector list
+
+bt$dvc:	psh	r2			; save r2
+	psh	#pr7			; ps
+	psh	r2			; base 
+	sub	r0,(sp)			; relocate to low driver
+	add	r4,(sp)			; relocate to high driver
+	add	(r2),(sp)		; offset within driver
+	mov	sp,r2			; point to pc/ps
+	call	bt$vec			; set it up
+	cmp	(sp)+,(sp)+		; pop data
+	pop	r2			; ast entry point
+	tst	(r2)+			; skip it
+	return				;
+
+;	r1 =	vector address
+;	r2 ->	pc, ps
+;
+;	r1 =	vector adress + 4
+;	r2 ->	past pc/ps
+;	r3 ->	past vector list pc/ps
+
+bt$vec:	mov	b$tvcp,r3		; get the vector list
+	mov	r1,(r3)+		; store the vector
+	mov	(r2)+,(r3)+		; pc
+	mov	(r2)+,(r3)+		; ps
+	mov	r3,b$tvcp		;
+
+;	r1 =	vector address
+;
+;	r1 ->	r1 + 4
+
+bt$prt:	call	(pc)			; two words per vector
+	psh	r2			;
+	psh	r1			;
+	asr	r1			; get a byte offset
+	mov	r1,r2			; 
+	bic	#^c7,r2			; the bit
+	asr	r1			; divide by eight
+	asr	r1			;
+	asr	r1			; the bitmap byte
+	bisb	b$tbit(r2),r$mlmp(r1)	;*set the bits
+	pop	r1			;
+	pop	r2			;
+	tst	(r1)+			; next word of vector
+	return
+b$tbit:	.byte	200,100,40,20,10,4,2,1	; protection bits
+
+b$tdev:	.rad50	/sy       sys/		; system device driver
+.sbttl	driver service routines
+
+bt$ich:	pshs	<r5,r4>		; installation check
+	call	tr$cat		; capture bus errors
+	mov	fp.roo(r5),r3	; get low block
+	add	#dr.csr,r3	; csr
+	tst	@(r3)+		; does it exist?
+	bvs	20$		; installation fail
+	tst	(r3)+		; skip data install entry
+	tst	(r3)		; system install routine there?
+	beq	10$		; nope
+	mov	#r$mmon,r0	; r0 -> rust rmon
+	mov	m$esiz,r1	; r1 = totmem (RT-11 has this)
+	clr	r2		; r2 = 0
+	mov	#^rRST,r4	; r4 = ^rrst
+	clr	r5		; r5 = 0 (noprobe)
+	call	(r3)		; call installation check
+	pops	<r4,r5>		;
+	bcs	20$		; oops
+	call	tr$res		; fine
+10$:	return
+20$:	call	tr$res		;
+	bterr$	<System driver installation check fail>
+
+;	Call the driver fetch routine, if there is one
+
+d$rblk:	.word	0		; base block of driver
+d$rlen:	.word	0		; driver length in blocks
+d$rbuf:	.word	0		; driver buffer
+
+bt$dsr:	psh	r5		; driver service routine
+	mov	d$vblk+2,d$rblk	; driver block
+	dec	d$rblk		; rt-11 magic
+	mov	fp.dbl(r5),d$rlen ; driver length in blocks
+	mov	fp.roo(r5),d$rbuf ; driver buffer
+				;
+	mov	fp.dsr(r5),r0	; get service routine
+	beq	10$		; is none
+	add	fp.roo(r5),r0	; r0 -> routine
+	mov	r$mgvc,r1	; r1 -> getvec
+	movb	r$msl2,r2	; r2 = slot count * 2
+	mov	#drslc.,r3	; r3 =  service code
+	mov	#30$,r4		; r4 -> read routine
+	mov	(r5),r5		; relocate $hentry
+	add	#d$vent-1000+2,r5 ; r5 -> ye olde hentry
+	call	(r0)		; call ye olde routine
+	bcs	20$		; this is very bad
+10$:	pop	r5		;
+	return			;
+20$:	btfat$	<System driver refuses to load>
+
+;	Read routine reads only from driver image in memory
+;
+;	r0 =	block number
+;	r1 =	word count
+;	r2 ->	buffer
+
+30$:	pshs	<r2,r1,r0>
+	sub	d$rblk,r0	; remove base block
+	bcs	50$		; too low
+	psh	r1		;
+	add	#377,(sp)	;	
+	clrb	(sp)		;
+	swab	(sp)		;
+	bhisw	(sp)+,d$rlen,50$; too high
+	swab	r0		; make address
+	asl	r0		;
+	add	d$rbuf,r0	;
+40$:	mov	(r0)+,(r1)+	; do the read
+	sobw	r2,40$		;
+	clc			;
+50$:	pops	<r0,r1,r2>	;
+	return			;
+.sbttl	relocate image
+
+;	Relocate monitor
+;
+;	RUST.SAV is a RT-11 position-independent relocatable image
+;
+;	We relocate in low memory because we need the boot
+;	monitor for I/O. We don't relocate below b$trel
+;	because that would modify bt$rel and bt$cop
+;
+;	RT-11 relocatable loader treats the root as an 
+;	impure overlay and restores the original values.
+;	We don't do that because that overwrites changes
+;	we make in the tertiary boot.
+
+bt$rel:	btvrb$	<Relocate system image>	;
+10$:	mov	fp.buf(r5),r4		;
+	.readw	#b$tiob,#17,r4,#256.,fp.blk(r5) ; read next block of relocators
+	btchk$	bt$img			; check i/o error
+	inc	fp.blk(r5)		; next block next time		
+	mov	#128.,r3		; number of entries in a block
+30$:	mov	(r4)+,r0		; get the next
+	cmp	r0,#-2			; end of it? (rt-11 magic)
+	beq	60$			; yep - done here
+	asl	r0			; make word offset, get flag
+	rol	r2			; save flag
+	add	fp.low(r5),r0		; relocate down low
+	cmp	r0,#b$trel		; relocating low stuff?
+	blo	50$			; yes - skip that
+	mov	(r5),r1			;
+	sub	#1000,r1		; (we skipped the asect)
+;sic]	mov	(r4),(r0)		; restore the value (see above)
+	ror	r2			; check it
+	bcc	40$			; positive
+	neg	r1			; 
+40$:	add	r1,(r0)			; relocate it
+50$:	tst	(r4)+			; skip content
+	dec	r3			; count it
+	bne	30$			; more in this block
+	br	10$			; do another block
+60$:	return
+.sbttl	determine clock rate
+
+;	We loop counting the number of clock ticks it takes to output 
+;	a null to the system terminal. A lookup table tells both the
+;	tick rate and terminal baud rate. I developed this technique for
+;	RUST/SJ because I wanted the system to be more 'Plug-n-Play', 
+;	but it would be been really useful back in the real PDP-11 days.
+;
+;	The test is not performed under emulators because they don't
+;	usually emulate terminal output clocking. Additionally, SimH
+;	used to output nulls as spaces.
+
+map	hz.bau	2,0
+map	hz.htz	
+map	hz.cnt
+map	hz.bbs
+
+b$thtz: .word	0			; 0=unknown, 
+
+bt$htz::
+	bnew	b$tv11,60$		; VRT is 50hz
+	bnew	b$temu,40$		; default emulator is 60hz
+
+	beqw	b$tclk,50$		; no ticks so far, assume no clock
+	btvrb$	<Check clock rate>	;
+					;
+	call	bt$wai			; wait for silence
+					;
+	call	hz$cnt			; count them
+	cmp	r3,#hzmax.		; above max?
+	bhis	60$			; yep
+	mov	#h$ztab,r1		;
+	mov	#177777,r2		;
+10$:	mov	hz.cnt(r1),r0		;
+	sub	r3,r0			; get the difference
+	bpl	20$			;
+	neg	r0			;
+20$:	cmp	r0,r2			; this a better shot?
+	bhi	30$			; nope
+	mov	r0,r2			; remember better approximation
+	mov	r1,r4			; select entry
+30$:	add	#hz.bbs,r1		; next entry
+	tst	(r1)			; any more?
+	bne	10$			; yes
+	mov	hz.htz(r4),b$thtz	; set result
+	br	60$			;
+40$:	mov	#60.,b$thtz		; emulator default
+	br	60$			;
+50$:	btvrb$	<No clock detected>	; nothing ticking
+60$:	return
+
+hz$cnt:	mov	#-2,b$ttik
+	clr	r3			;
+20$:	cmp	b$ttik,#10.		; all done?
+	bge	40$			; yep
+	cmp	b$ttik,#-1		; got first one?
+	bne	30$			; nope
+	clr	b$ttik			; yep - start counting
+	clr	r3			; reset counter
+30$:	tstb	@r$mtps			; ready for another?
+	bpl	30$			; nope
+	movb	#0,@r$mtpb		; write a null
+	inc	r3			; count it
+	tst	b$ttik			; waiting for first tick?
+	bpl	20$			; nope
+	cmp	r3,#400.		; got a clock?
+	blo	20$			; maybe
+	mov	#hzmax.,r3		; no clock
+40$:	return
+
+	.macro	hzbau$	bau
+	.word	bau, 50., bau/5
+	.word	bau, 60., bau/6
+	.endm
+
+h$ztab:	hzbau$	3840.
+	hzbau$	1920.
+	hzbau$	960.
+	hzbau$	480.
+	hzbau$	240.
+	hzbau$	120.
+	hzbau$	60.
+	hzbau$	30.
+	hzbau$	15.
+	.word	0
+	hzmax. = 3840./5
+.sbttl	setup time
+
+;	Monitor has been relocated but is in low memory
+;
+;	The extended time code handles Y2M dates.
+
+bt$tim:	btvrb$	<Configure clock settings>
+	.if ne xtm$c
+	.gtimx	#b$tiob,#b$txtm		; get extended time
+	mov	b$txtm+6,r$mera		; save era, if available
+	.endc
+	.gtim	#b$tiob,#r$mtim		;*mouth to mouth here
+	.date				; get the date
+	mov	r0,r$mdat		;*inherit date
+					;
+	mov	b$thtz,r0		; worked the rate out?
+	beq	10$			; nope
+	cmp	r0,#60.			; got 50?
+	beq	20$			; yep
+	br	30$			; nope
+10$:	mov	@#j$bsys,r0		; get host's setting
+	bit	#cn50h$,rm.cfg(r0)	; got fifty hertz?
+	bne	30$			; yes
+20$:	bic	#cn50h$,r$mcfg		;*clear it
+	mov	#ti60h.,t$irol		;*adjust rollover
+	mov	#ti60l.,t$irol+2	;*
+	mov	#60.*3,t$ifrq		; rt11x time
+30$:	tst	b$tclk			; had an interrupt?
+	beq	40$			; nop
+	bis	#cnclo$,r$mcfg		; yep
+40$:	bnew	b$tclk,50$		; seen a clock yet?
+	bnew	b$temu,50$		; not an issue
+	btwar$	<No clock ticks detected>
+50$:	return
+
+b$txtm:	.word	-1,-1,0,0		; extended time
+.sbttl	install terminal driver
+
+b$tttv:	.rad50	/sy ttv   sys/
+
+bt$ttv:	btvrb$	<Install terminal driver>
+	mov	#<^rtt >,d$vper		;*install TT:
+	mov	#4,d$vsta		;*
+	.purge	#0			;
+	.lookup	#b$tiob,#0,#b$tttv,#0	; lookup the driver
+	bcs	10$			; no driver
+	mov	fp.buf(r5),r4		; get the buffer
+	.readw	#b$tiob,#0,r4,#256.,#0	; read base block
+	bcs	20$			; oops
+	mov	dr.hsz(r4),d$vhsz	; size of driver
+					;
+	movi	fp.cst,r5,r1		; point to cstat area
+	.cstat	#b$tiob,#0,r1		; get it
+	mov	ci.sbl(r1),d$vblk	;*driver start block
+	inc	d$vblk			;*block 1
+	return
+10$:	btwar$	<File not found SY:TTV.SYS>
+	return
+20$:	btwar$	<Error reading SY:TTV.SYS>
+	return
+
+;	Remap terminal csr/vector from ini file
+
+bt$tks:	mov	#b$tter,r0		; terminal csr, vector
+	bnew	(r0),r$mtks,10$		; it's different
+	beqw	2(r0),#v$ekbd,30$	; standard 
+
+10$:	btvrb$	<Remap terminal CSR and vector>
+	.if ne 0			; already done in bt$ini
+	mov	(r0)+,r1		; setup the terminal
+	mov	#r$mtks,r2		;
+	mov	#4,r3			;
+20$:	mov	r1,(r2)+		; 
+	add	#2,r1			;
+	sobw	r3,20$			;
+	.endc				;
+					;
+;	Remap terminal vector.
+;
+;	The specified vector passes control to sy$kbd which 
+;	transfers control via the standard keyboard vector.
+
+	mov	b$tter+2,r1		; the vector
+	beqw	r1,#v$ekbd,30$		; no change
+	mov	b$tvcp,r2		; vector pointer
+	mov	r1,(r2)+		; store vector address
+	mov	#sy$kbd-1000,(r2)	; get relocated EPT
+	add	(r5),(r2)+		; store EPT
+	mov	#pr7,(r2)+		; store vector PSW
+	mov	r2,b$tvcp		; reset list
+	call	bt$prt			; protect the input vector
+	call	bt$prt			; and the unused output vector
+30$:	return
+.sbttl	copy monitor, driver and asect
+
+;	We destroy the host monitor in this process 
+;	so it's a good idea to block interrupts first.
+;
+;	We avoid destroying the low memory stack so that we
+;	can return, however, things are sensitive from here on.
+
+bt$cop:	btvrb$	<Copy system image to high memory>
+	btvrb$	<RUST bootstrap completed>
+
+	call	bt$wai			; wait for output to complete
+	.mtps	#pr7			; block interrupts
+
+	beqw	x$mrtx,40$		; not RT11XM
+	mov	sp,10$			; save user mode stack
+	mov	#pr7,@#psw		; direct action
+	mov	(pc)+,sp		; restore stack as kernel stack
+10$:	.word	0			;
+20$:	dec	#0			; wait a tick
+	bne	20$			;
+	reset				; ta boom
+30$:	dec	#0			; wait again
+	bne	30$			;
+	clr	@#m$msr0		; zap MMU
+;	clr	@#m$msr3		; zap MMU
+	br	50$			;
+
+;	Hardware RESET puts some MSCP devices to sleep for upto a minute.
+;	We can avoid RESET for BOOT.SYS because it has no interrupts active.
+
+40$:	beqw	b$thst,<#^rBOO>,50$	; its BOOT
+;	beqw	@j$bsys,#137,50$	; RUST/SJ
+	reset				; ugh, ugh, ugh
+
+50$:	mov	fp.low(r5),r0		; the monitor
+	mov	fp.bas(r5),r1		; where we're going
+	mov	fp.rsz(r5),r2		; and how much of us goes
+	call	bt$mov			; move them
+					;
+	mov	fp.han(r5),r0		; the driver
+	mov	fp.drv(r5),r1		; where it goes
+	mov	fp.hsz(r5),r2		; 
+	call	bt$mov			; 
+					;
+	mov	#700,r0			; clear low memory
+60$:	clr	-(r0)			; (but leave our stack alone)
+	tst	r0			;
+	bne	60$			;
+					;
+	mov	#b$tasc,r0		; asect list
+70$:	mov	(r0)+,r1		; get address (first is zero)
+	mov	(r0)+,(r1)+		; store first
+	cmp	(r0),#-1		; this a dummy second value?
+	beq	80$			; yep
+	mov	(r0),(r1)		; nope - fill it in
+80$:	tst	(r0)+			; skip second value
+	tst	(r0)			; got any more
+	bne	70$			; yep
+	return				;
+
+bt$mov:	movb	(r0)+,(r1)+		; move bytes
+	sobw	r2,bt$mov		;
+	return
+.sbttl	lsi fixups
+
+;	Dynamic patches handle the lack of a PSW on LSIs.
+
+b$tvcp:	.word	b$tvec			; vector pointer
+
+bt$lsi:	bit	#cnp03$,r$mcfg		;this an LSI?
+	beq	30$			; nope
+	btvrb$	<LSI instruction fixups>;
+	mov	#genes,r1		;lsi> change our chromasonal blick
+10$:	mov	(r1)+,r2		;lsi> program change area
+20$:	mov	(r1)+,(r2)+		;lsi> move from list to program
+	tst	(r1)			;lsi> till theyre all done
+	bne	20$			;lsi> more in this area
+	tst	(r1)+			;lsi> skip the terminator
+	tst	(r1)			;lsi> any more mods ?
+	bne	10$			;lsi> yes
+30$:	return	
+
+;	Code and data past b$trel is relocated.
+
+.psect	lsi
+b$trel:
+genes:				;lsi code replace list
+.psect	lsx
+	.word	0		;terminate lsi list
+
+;	b$tasc - asect list
+;
+;	Here so that it gets relocated
+;
+;	.word	vector, pc, ps
+;   or:	.word	vector, val, -1  for single word entries
+
+	map	as.vec	0		; vector address
+	map	as.isr			; isr address
+	map	as.pri			; isr priority etc
+	meta <asect c d e=-1><.word c,d,e>
+
+b$tasc:	asect	0       40000,104350	; bic r0,r0, .exit
+	asect	4	ve$bus	0	; bad address trap
+	asect	10	ve$cpu	cbit	; bad instruction trap
+	asect	24  	ve$pow	pr0	; power fail trap
+	asect	30	ve$emt	pr0	; emt program requests
+;sic]	asect	40	0		; beg
+	asect	42	1000		; stk
+;sic]	asect	44	0		; jsw overlay flag keeps channel open
+	asect	50	0		; top
+;sic]	asect	52	0		; err
+	asect	54	r$mmon		; mon
+;sic]	asect	56	0		; fcha, fcnt
+	asect	60	ve$tks	pr7	; keyboard interrupt
+;	asect	64			; console output interrupt unused
+	asect	100	ve$clk	pr7!cbit; clock interrupt
+	asect	104	sy$clk	pr7!cbit; revectored kw11p (was net vector)
+	.if ne fpu$c
+b$tfpu:	asect	244	ve$fpu	0	; floating point exception
+	.endc
+b$tvec:	.word	0,0,0, 0,0,0		; system driver vectors
+	.word	0,0,0, 0,0,0		; four for paranoia
+	.word	0			;
+.sbttl	high memory initialisation and go
+.sbttl	USR buffer
+.psect	buf ovr
+
+;	High memory initialization codes lives in the USR buffer
+
+u$sbuf::				; USR buffer
+bt$nml:	jmp	@#bt$hgh		; relocated jump from no mans land
+bt$hgh:					; the high ground
+	mov	#ve$bus,@#v$ebus	; restore bus trap vector
+	mov	#ve$cpu,@#v$ecpu	; and the cpu trap vector
+
+	mov	#d$mtem,r0		; dynamic memory template
+	mov	s$ylow,r1		; setup initial dynamic area
+	mov	#dmTEM.,r2		;
+	sub	r2,r1			;
+	mov	r1,m$eptr		;
+	mov	r1,s$ylow		; adjust top
+	mov	r1,r$musl		;
+	movi	4,r1,e$hmet		;
+	mov	#4,e$hmel		;
+	movi	dmDIR.,r1,d$mdir	;
+	movi	dmCSI.,r1,d$mcsi	;
+	movi	dmCSX.,r1,d$mcsx	;
+10$:	movb	(r0)+,(r1)+		;
+	sobw	r2,10$			;
+	mov	r1,m$eptr+2		; end of it
+					;
+	mov	#b$tsta,r0		; startup command file spec
+	mov	#j$bcct,r2		; count
+	mov	#j$bcst,r1		; string
+	mov	#1,(r2)			; start count
+	movb	#'@,(r1)+		; @
+20$:	inc	(r2)			;  sy:rust.com
+	movb	(r0)+,(r1)+		;
+	bne	20$			;
+	bis	#jsdcx$,@#j$bjsw	; flag exit to command file
+					;
+	.mtps	#0			; come down a peg
+	mov	sp,r0			; soft exit
+	.exit				; and start up
+
+b$tsta:	.asciz	/sy:rust.com/		; default startup command file
+	. = b$tsta + inMXS.		; max string length
+
+d$mtem:					; dynamic memory templates
+10$:	.word	20$-10$
+	.rad50	/UCF/
+	.byte	0,0,0,-1
+20$:	.word	50$-20$
+	.rad50	/DLN/
+30$:
+40$:	.rept	30.
+	.word	0
+	.endr	
+50$:	.word	0
+60$:	dmDIR. = 30$-10$
+	dmCSI. = 40$-10$
+	dmCSX. = 50$-10$
+	dmTEM. = 60$-10$
+
+assume	. lt <u$sbuf + 2000>
+	. =  u$sbuf + 2000		; two block usr buffer
+.sbttl	rust native integration
+
+;	See RTRSX.MAC for RSX RTX.TSK adaption
+;	RUST RTX.TSK does not use this boot module
+;	RTRTX.MAC has alternate code for this section
+
+	j$bpsw == ps		; use the hardware psw
+	r$ttks == c$otks	; terminal hardware
+	r$ttkb == c$otkb	;
+	r$ttps == c$otps	;
+	r$ttpb == c$otpb	;
+
+;	Hardware terminal routines
+
+	.psect	ter
+tk$enb::bis	#ie,@r$mtks	; re-enable console
+	return
+
+tk$get::mov	@r$mtkb,r0	; get it
+tk$dsb::clr	@r$mtks		; turn it off
+	return
+
+tp$put::			; console terminal output
+10$:	bplb	@r$mtps,10$	; would you believe a device wait
+	mov	r0,@r$mtpb	; write character
+	return
+.if ne 0
+	.enabl	lsb
+10$:	call	sy$pau		; pause
+tp$put:	bplb	@r$mtps,10$	; console terminal output
+	mov	r0,@r$mtpb	; write character
+	return
+.endc
+
+.end	start
+

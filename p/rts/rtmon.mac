@@ -1,0 +1,286 @@
+.title	rtmon - RUST/SJ monitor data and utilities
+.include "rts:rtdef.mac"
+.psect	mon
+kwp$c=1	; kw11p line clock
+$cfdef
+$cldef
+$codef
+$cndef
+$emdef
+$esdef
+$fkdef
+$iqdef
+$npdef
+$psdef
+$tidef
+$vedef
+rpdef$
+sjdef$
+tqdef$
+lsini$
+
+;	RUST/SJ monitor database and related
+.sbttl	rmon table
+
+r$mmon::jmp	@#sy$int	;000 @# is our sig. RSTS has 0.
+r$mcsw::.blkb	16.*5*2		;004 csw table
+r$msch::.blkb	5*2		;244 local USR .fetch operations
+r$mblk::.word	0		;256 current directory segment
+r$mchk::.word	0		;260 current directory device
+r$mdat::.word	0		;262 date word
+r$mdfl:	.word	0		;264 directory operation flag
+s$ylow::			;    system low, top of background
+r$musr::.word	0	;setup	;266 $usrlc - default usr address
+r$mqco:	.word	io$don		;270 I/O done (qcomp) address
+r$mspu::.word	0		;272 special device usr errors
+r$msyu::.word	0		;274 system device unit (in high byte)
+r$msyv:	.byte	5		;276 system version
+r$msup:	.byte	5		;277 system update
+r$mcfg::.word	cnusr$!cn50h$	;300 system configuration flags
+r$mscr:	.word	0		;302 GT scroller (gt.mac)
+r$mtks::.word	r$ttks		;304 terminal hardware
+r$mtkb::.word	r$ttkb		;306 
+r$mtps::.word	r$ttps		;310
+r$mtpb::.word	r$ttpb		;312
+r$mddn::			;314*RTX DDn: catch-all device
+r$mmax:	.word	-1		;314 maximum block size (unused)
+r$me16:	.word	e$m340-r$mmon	;316 emt 16 group offset (no longer called)
+r$mtim::.word	0,0		;320 sj time of day (high,low)
+r$msyn:	.word	sy$syn		;324 .synch address
+r$mlmp::.byte	377,074,007,360	;000-076 -- we don't protect 50
+	.byte	303,0,0,0 	;100-176 00,20,40,60:  0,2,4,6,10,12,14,16
+	rxLMO. == 10.		;*RTX patch to protect 254/256
+	rxLMP$ == 3		;*
+;*RTX	.byte	0,0,063,0	;200-276 (RTX patches here to protect 254/256)
+	.byte	0,0,060,0	;200-276
+	.byte	0,0,0,0		;300-376
+	.byte	0,0,0,0		;400-476
+r$musl::.word	us$ent		;352 floating usr location, i.e. entry point
+r$mgtv:	.word	320		;354 gt40/vt11 interrupt vector address
+r$merc:	.word	0		;356 error count from cusps (unused)
+r$mmtp:	br	sy$mtp		;360 move to ps
+r$mmfp:	br	sy$mfp		;362 move from ps
+r$msyi::.word	2		;364 system device index
+r$mcfs::.word	cftti$!cfqui$	;366 dcls status (rt mode default)
+r$mcf2::.word	c2kms$		;370 config2 - set by boot
+r$msyg:	.word	0		;372 sysgen options. Always zero for RUST/SJ.
+r$musa:	.word	0		;374 size of usr in bytes = 0
+r$merl::.byte	esdef$&177	;376 abort level (error|fatal|unconditional)
+r$mcpu:	.byte	200		;377*cpu flags (was ifmxns - @file nesting)
+r$memr:	.word	em$don-r$mmon	;400 emt return path for batch (unsupported)
+r$mfrk:	.word	sy$frk-r$mmon	;402 offset to fork processor
+r$mpnp:	.word	d$vper-r$mmon	;404 offset to $pname table
+r$mmnm:	.rad50	/RUST  /	;406 monitor name
+r$msuf:	.rad50	/  V/		;412 driver suffix
+r$mera::			;414 extended data era
+;$msps:				;414 spstat - spooler status word
+r$mdcn:	.word	0		;414 decnet - unused
+r$minx::.byte	0		;416 ind extension
+r$mins::.byte	0		;417 ind status
+r$mmsz::.word 0;28.*<1024./32.>	;420 kernel memory size in 32 word pages
+r$mclg:	.word	0		;422 (reused by FB/XM)
+r$mtcf:	.word	t$tcfg		;424 pointer to terminal config in rtemt
+r$midv:	.word	i$ndev		;426 pointer to ind dev name
+r$mmpt:	.word	m$eptr-r$mmon	;430 offset to memory pointers
+r$mp1x:	.word	0		;432 par1 Externalisation routine (XM)
+r$mcal::.rad50	/   /		;434*catch all device (trplst in XM)
+r$mgvc::.word	rm$sec		;436 Pro vector routine
+r$mdwt:	.word	0		;440 Pro DW type
+r$mtrs:	.word	s$ytrs		;442 trpset - .trpset value
+r$mnul:	.word	0		;444 $nuljb - FB
+r$miml:	.word	0		;446 imploc - FB
+r$mkmn:	.word	-1	;???	;450 kmonin - 		net:$km
+r$mpgd:	.byte	223,206	;???	;452 progdf - ked,f4	net:$edit
+r$mwld:	.byte	1		;454 wildef - wildcards	unused
+r$mjbs:	.byte	1		;455 $jobc  - job count
+r$mqhk:	.word	rm$rts		;456 $qhook - UB:
+r$mhub:	.word	rm$clc		;460 $h2ub  - UB:
+
+r$mxof:	.word	0		;462 xedoff - XOFF pointer (not implemented)
+r$mrpc:	.word	rm$sec		;464 $rtspc - 
+r$mcf3:	.word	0		;466 confg3 - config3
+r$mt2r:	.word	0		;470 $tt2rm - 
+r$mrco:	.word	rm$rts		;472 $rm2co - 
+r$mdec:	.word	0		;474 $decnt - DECNET (obselete)
+r$mxps:	.word	rm$clc	 	;476 $xttps - TT:
+r$mxpb:	.word	rm$clc		;500 $xttpb - TT:
+r$msl2::.byte	sjSLT.*2	;502 $slot2 - $slot*2 (byte)
+r$memu::.byte	0		;503(unused)- emulator code 
+r$msps::.word	0		;504 $spsiz - RT11S filesize
+.sbttl	mtps, mfps
+
+;	.mtps - move to processor status
+;
+;	psh	#xxx
+;	call	sy$mtp		; move to psw
+
+	stack	ret,val		;
+sy$mtp::lsi	mtps!66,2,nop	; lsi code
+	movb	sp.val(sp),@#j$bpsw; unibus code
+	mov	(sp)+,(sp)	; squeeze out priority
+rm$rts:	return			; RMON return dummy
+
+;	.mfps - move from processor status
+;
+;	call	sy$mfp		; move from ps
+;	...
+;	pop	psw		;
+;
+;	RT-11 pushs PSW first to save condition codes, however
+;	that's for internal use only. Documentation says they go.
+
+sy$mfp::mov	(sp),-(sp)	; make space for parameter
+	lsi	mfps!66,2,207	; mfps 2(sp), return
+	mov	@#j$bpsw,2(sp)	; give em the bits
+	return			
+.sbttl	expert header
+
+;	This table was initially created for STAReleven and SHAREeleven.
+;	Some elements have been retained for compatibility.
+;	Many slots have been reused.
+
+e$hv11::			;000 V11 flag from boot
+e$hnet::.byte	0		;000 net entry point (unused)
+e$hfor:	.byte	0	;->rmon	;001 fortran type - 0=fortran, 1=f77
+e$hcls:	.word	0	;???	;002 CLI status 
+	.word	0	;--	;004 satellite #
+	.word	2	;--	;006 0=>share, 177xxx=>satellite
+e$hedi:	.byte	6	;->rmon	;010 1=edit, 2=teco, 3=ked, 6=keypad
+e$hcrd:	.byte	0	;->rmon	;011 0=implicit, 1=explicit
+e$hjob::.word	sy$rc1,sy$rc1	;012 job control area (hook area)
+e$hjof:	.word	0		;016 job echo flag
+e$hjoc::.word	0		;020 job byte count
+e$hkmf::.word	0	;--	;022 power up flag (-1=boot, -2=power-up)
+	.word	0	;unused	;024 free
+	.byte	0	;unused	;026 <>0 => kmon in control
+e$htab::.byte	ht.	;??	;027 ht=NOTAB, 0=TAB
+e$hbas:	.byte	'A	;	;030 SET BASIC All, None, 0
+e$hffd::.byte	0	;??	;031 0=NOFORM, ff=FORM
+e$hclb:	.word	c$slin	;??	;032 input line
+e$hres:	.word	0;bang	;??	;034 to patch reset and pause		;V4
+e$hkma::.word	0	;->rmon	;036 0=non-resident, %=start address
+e$htop:	.word	us$ent	;->rmon	;040 0=non-resident, %=start address ???
+t$irol::.word	ti50h.,ti50l.	;042 time rollover
+e$hcli:	.word	0	;??	;046 SET CLI - nopped
+e$hpth::.word	d$vpth		;050 [de]assign/path table
+e$hmet::.word	0;metas$	;052 meta buffer. 0 => none
+	.word	0	;??	;054 terminal control bits
+	.byte	0	;--	;056 satellite number
+ 	.byte	0	;--	;057 maximum satellite number
+e$hjon: .byte	0	;--	;060 job number
+	.byte	0	;--	;061 maximum job number
+e$hmel::.word	0	;??	;062 new meta list			;V4
+e$htmk::.word	177400	;++	;064 set terminal /noeightbit mask 
+	.word	-1	;--	;066 user system rights
+	.word	-1	;--	;070 space for extension rights
+e$huix:	.word	0	;??	;072 user identification code
+e$huse:	.rad50	/rust  /;??	;074 user name
+				;076
+	.word	0	;--	;100 points to retry table
+e$hled::.word	sy$rc1	;++	;102 line editor
+e$hsre:	.word	0	;++	;104 sreset routine chain
+e$hprm::.word	0	;++	;106 optional CSI prompt string
+	.word	0	;--	;110 signal routine
+e$hind::.rad50	/sy ind   sav/	;112 IND filename
+e$hphy::.word	tp$put		;122 console physical output routine
+e$hrst::.word	sy$rc1		;124 image reset hook chain
+e$hucl:	.rad50	/            /	;126 UCL image name
+e$hdot::.byte	cr.,lf.,'.,200,0,0,0,0,0,0 ;136 Monitor prompt
+e$himg::.word	0,0,0,0		;150 current image name
+e$hfil::
+c$sfil::.word	0,0,0,0,0	;160 file-name, size
+.sbttl	more impure data
+
+	.word	0		; terminate list of lists
+d$vlst::.word	0		; .device list
+d$vque::.word	0		;
+
+d$niob::.byte	0,emLOO.	; sub-directory lookup block
+	.word	d$nspc		;
+d$nseq::.word	0		;
+d$nspc::.rad50	/dk       dsk/	;
+
+f$kcqe::.word	0		; fork queue (rtsys)
+f$klqe::.word	f$kcqe		; 
+
+;	USR & CSI device I/O emt, addressed via WCNT parameter
+
+	.word	emREA.*400+20	; read from channel 16.
+	.word	0		; block - filled by fetch from u$sblk
+	.word	0		; buffer - filled by fetch from user
+d$rwct::.word	0		; count - filled by fetch from u$shsz
+	.word	0		; wait i/o
+
+c$sdst::
+u$ssta::.word	0		;\ device status
+u$shsz::.word	0		;|
+	.word	0		;|
+	.word	0		;/
+
+c$semt::.byte	0,emLOO.	; CSI lookup 
+	.word	c$sfil		; 
+c$slen::.word	0,0		; size, seqnum
+
+	.byte	'=		; to force lookup only
+c$slin::.blkb	81.		; CSI 80 byte line buffer
+
+t$ebuf::.blkb	sjBUF.		;terminal input line buffer
+	.even
+
+s$ysta::			; states
+s$yscc::.word	0		;\ scca flag address
+s$yfpu::.word	0		;! sfpa ast address
+s$ytrs:				;! r$mtrs points here
+s$ybus::.word	0		;! trpset ast address
+s$yser::.word	0		;! serr/herr flag
+s$ycdf::.word	0		;/ cdfn flag for chain
+c$hbas::.word	r$mcsw		; where they are
+c$hcnt::.word	17.		; current channel count (cdfn)
+
+m$esiz::.word  0;28.*<1024./32.>;\ total size of memory in 32 word pages 
+m$eptr::.word	0		;| v5 memory allocation
+	.word	m$eptr		;| 
+d$mdir::.word	0		;| start of directory dynamic names
+d$mcsi::.word	0		;| start of csi entries
+d$mcsx::.word	0		;/ end of csi entries
+
+	clDEF$ = cldcl$!clccl$!clucl$
+c$lkmn::.word	0		;\kmon setting up CLITYP
+c$lflg:	.byte	clDEF$	 	;|v5.2 cli flag
+c$ltyp::.byte	-1		;|v5.2 cli type
+i$ndev::.ascii	/sy0:/		;/V5 IND dev
+
+t$ique::.blkb	tq.bbs*sjTIM.	; timer queue
+
+d$vequ::.blkb	sjSLT.*2	; RT-11 device assignments
+d$vdke::.word	0		; DK: assignment
+d$vsye::.word	0		; SY: assignment
+d$vlog::.blkb	sjSLT.*2	; logical names
+	.rad50	/dk /		;
+	.rad50	/sy /
+d$vper::.blkb	sjSLT.*2	; permanent names
+d$vent::.blkb	sjSLT.*2	; entry points
+	.word	-1		; end of table
+d$vsta::.blkb	sjSLT.*2	; device status
+d$vblk::.blkb	sjSLT.*2	; block number on sy:
+d$vhsz::.blkb	sjSLT.*2	; size of handler in memory
+d$vdsz::.blkb	sjSLT.*2	; size of device in blocks
+
+;	paths & queues
+
+d$vpth::.blkb	np.eot		; name path table
+	.word	-1		; end of table
+
+;q$uqel::.blkb	rp.bbs*<sjREQ.-1>; queue entries
+;q$upen::.blkb	rp.bbs		; for link arithmetic
+
+q$uqel::.rept	sjREQ.-1
+	.word	.+rp.bbs
+	.blkb	rp.bbs-2
+	.endr
+q$upen::.word	0
+	.blkb	rp.bbs-2
+
+lsend$
+.end
+

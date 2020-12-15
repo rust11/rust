@@ -1,0 +1,1289 @@
+;	Image following [Ctrl/C] may fail
+;	Only load LD: if used as system volume.
+;
+;	Setup robust SIMH dev/test environment (with backups)
+;	Setup SIMH scripts
+;	Investigate Windows process-to-process messaging
+;
+;	Ascii file conversion automatic for VIP under RTX
+;	(Use /IMAGE to circumvent)
+;	/CONVERT=STM (as well as STF)
+;	RTX.TSK/F fails
+;
+;	VIP open/close file attribute processing
+;	TYPE (rsx file) fails
+;	Edit/Convert RSX text files
+;
+;	DCL has breakpoints;
+; !!!	LD: fails with RSX SY:
+;	PATCH LD: doesn't notice not loaded
+;
+; ok	UNBOOT command
+;	Multiple definitions of $INPTR and $FKPTR
+;	EDIT/WINDOWS for windows keypad assignments
+;	KEYPAD support for RSX text files
+;
+;	Support SHE as an RSX shell
+;	Support POS32 with new directory app
+;	MOUNT/OVER=IDENT DL1: (a POS disk) fails
+;
+;	/WArn -- issue all QIO error messages
+;	dstat doesn't return target device status for LP: etc
+;	fccla.d etc -- need to define FX type (wait for VX)
+;	RSX ERROR--get last error information
+; ok	dir [,] syntax -- needs to handle ,
+;	convert to \000000
+; ok	BITMAP.SYS etc reported as zero blocks
+;
+;	RTPAT.MAC for all the patch routines
+; ok	.enter /*.tsk/ -- contiguous file enter
+;	Change enter allocation to what PIP uses
+;	copy a a repeats
+;
+;	ATTACH TI: crashes
+;	Documentation/Help
+;	Get/set file information
+;	Date range 1965-2064--support M+ dates
+;	Logical names
+;	CF: WF: both to TMP:
+;	MD/RD F11 directories; delete all files etc
+;	MOUNT DL: loads DLR.SYS
+;	OPV: fails
+;	TTIN/OUT monitor support; DRVMAC $TT* support
+;
+;	More RTX /S information
+;	/SHOW etc instead of /S etc
+;	Remove foreign disk access
+;	Cleanup .acp names 
+;	Omit RTX.INI?
+;	Formalise DDN catch-all
+;	Zero fill/FFB text files (use format codes)
+;	RTX.INI set_time=on/off/auto
+; ok	Get date/time from V11, set RSX date/time
+;	PURGE command
+;	SET VERSIONS N command
+;	WIFF and documentation
+;	RTX.R
+;
+;	/HE*LP		Full documentation via OV:
+;	/DI*RECTORY=...		
+;	RTX.HLB
+;
+;	automount may be site of V11 crash
+;	OPV.SYS uses savestatus/reopen
+;
+;	define wf nf7 fails
+;
+;	DEFINE/TRANSLATE SY: SYX: fails
+; ok?	LOAD NLV: (not NLW:)
+;
+;	TST: -> HUB:\TST\, or via definition list
+;	RSX NFS support (TI:)
+;	Translation of LB: SY:
+;	Where do temp files go?
+;	Restricting versions
+;	Squeezing
+;
+; ok?	Boot string for SHOW CONFIG
+;	Update PROGRA.SAV for extended F11A dates
+;	
+;	RUST/XM ASTX etc require fixes to run RTX
+;	RUN MCR crashes
+;	SHOW -- gets RESIDENT wrong
+;	$INPTR - benign multiple definition
+;	.INI - system=FX: or NF: etc
+;	.INI - noheader
+;	.INI - place in [1,54]
+;	CP: uses TKS
+.title	rtrtx - RSX RTX.TSK adaption
+.include "lib:rust.mac"
+.library "rtb:rtmac.mlb"
+.library "lib:sm.mlb"
+$aldef		; RUST
+$chdef
+$cidef
+$cndef
+$cpdef
+$dcdef
+$dedef
+$drdef
+$hadef
+$hkdef
+$iodef
+$jbdef
+$jsdef
+$lddef
+$mmdef
+$psdef
+$tidef
+$vedef
+$vrdef
+$vvdef
+$ifdef		; RSX
+$isdef
+$ludef
+$xidef
+indef$		; .INI
+rxrtx$		; RTX
+rxacp$		; FAP
+smini$		; SM
+
+;	Semi-permanent conditionals
+
+fvv$c=0		; FV: foreign volumes 
+ini$c=0		; process RTX.INI (later)
+ttv$c=0		; install TTV.SYS (fails, won't handle FX:)
+vec$c=0		; disable asts while ast stripping
+clk$c=1		; clock enable/disable
+
+;	Basic PSECT layout
+
+.psect	boo	; set psect order
+.psect	ini	; ini data
+.psect	lsi	; lsi fixup list
+.psect	lsx	;
+.psect	nfdvr	; nf: - lowest system component
+.psect	fxdvr	; fx:
+.psect	lddvr	; ld:
+.psect	usr	; usr
+.psect	acp	; acp
+.psect	buf ovr	; usr buffer (overlaid)
+
+.psect	boo	; this module
+
+;	messages
+
+meta	<btchk$ msg><jsr r1,bt$chk><.asciz |msg|><.even>
+meta	<bterr$ msg><jsr r1,bt$err><.asciz |msg|><.even>
+meta	<btwar$ msg><jsr r1,bt$war><.asciz |msg|><.even>
+meta	<btvrb$ msg><jsr r1,bt$vrb><.asciz |msg|<128>><.even>
+meta	<bttyp$ msg><jsr r1,bt$typ><.asciz |msg|<128>><.even>
+meta	<btprt$ msg><jsr r1,bt$typ><.asciz |msg|><.even>
+meta	<btpln$ msg><.iif dif r0,msg, mov msg,r0><call bt$pln>
+;eta	<btunp$ msg><.iif dif r0,msg, mov msg,r0><call bt$unp>
+meta	<btr50$ msg><.iif dif r0,msg, mov msg,r0><call bt$r50>
+;eta	<btnew$><call bt$new>
+
+.sbttl	construction
+
+;	RTSTB.TSK (RTX stub) is a 32kw RSX image which passes control 
+;	to absolute location @#2000.
+;
+;	...:	jmp	@#2000
+;
+;	In RTX.SAV we jump from @#2000 to start:
+
+	.asect
+	.  =	^o2000
+	jmp	start
+
+;	RTX.SAV is linked /HIGH
+;
+;	RTB:RTMAKE.SAV merges RTSTB.TSK and RTX.SAV
+;	The result is RTX.TSK, a 32kw image with the monitor code
+;	already in place.
+;
+;	This bootstrap code is located below the monitor and is 
+;	discarded after the boot completes.
+;
+;	-------------------------------------------------------------
+;	OTHER MODULES:
+;
+;	RTS:RTRSX.MAC	ALUN$, QIO, basic routines
+;	RTS:RTFAP.MAC	F11A and other access code
+;	RTS:RTFXV.MAC	Resident FX: driver, calls FAP
+;	RTS:RTLDV.MAC	Resident LD:. Conditionalised DRS:LDV.MAC
+;	RTS:RTNFW.MAC	Resident NF:. Conditionalised DRS:NFW.MAC
+;	DRS:SLV.MAC	Patched with WSIG$--should be monitor call.
+;	DRS:LDV.MAC	Conditional to call RX$MNT
+;
+;	RTS:RTSER.MAC	Patches
+;	RTS:RTCSI.MAC	Patches and permanent conditionals
+;	RTS:RTUSR.MAC	Patches
+;	RTS:RTMON.MAC	Permanent conditionals
+;
+;	KMS:LOAD.MAC	Calls rx$drv
+;	KMS:HOST.MAC	Detects RTX
+;	KMS:KC.MAC
+;	SMS:LDJ.MAC	$JBDEF
+;	SMS:LDR.MAC	$RXAPI
+;
+;	-------------------------------------------------------------
+;	RUST/XM
+;
+;	In theory, RTX.TSK should also run under RUST/XM:
+;
+;	RUST/XM needs to handle the top 2kw better
+;	RUST/XM needs AST and ASTX fixes 
+;
+;	The following temporary fixes are required to test under RUST/XM:
+;
+;	rtstb.mac	rtx$c=1 to compile for RUST/XM
+;	rtmake.r	rtx$c=1 to compile for RUST/XM
+.sbttl	start RTX
+
+	.psect	boo		; once-only boot code
+start::	mov	#^o1000,sp	; use an application stack
+	call	rx$dcp		; disable checkpointing
+	call	rx$low		; fill in low memory/vectors/patches
+	dir$	#r$xsst		; capture vectors
+	call	rx$ati		; attach terminal
+
+;	RUST/SJ emts may be used from here on
+;	RTX terminal is now functional (for error messages etc)
+
+	call	rx$cmd		; get MCR command and installation options
+
+;	Verbose boot, if selected, is now active
+
+	call	rx$v11		; check for V11
+	call	rx$tim		; get the time/date/ticks
+	call	rx$mkt		; start the clock
+	call	rx$def		; get default device/directory/protection
+	call	rx$boo		; choose boot device
+				;
+	call	rx$nfw		; load resident NF: (if V11 detected)
+	call	rx$fxv		; load resident FX:
+	.if ne fvv$c		; disabled
+	call	rx$fvv		; load resident FV:
+	.endc			;
+	.if ne ini$c		;
+	call	rx$ini		; process RTX.INI
+	.endc			;
+	call	rx$ldv		; load resident LD:
+	call	rx$hgh		; setup dynamic memory and s$ylow
+	call	rx$mnt		; mount LD7: if required
+	.if ne ttv$c		; disabled
+	call	rx$ttv		; install TT: from SY:
+	.endc
+	call	rx$sta		; setup the startup command file
+	call	rx$sho		; show setup if was requested
+	btvrb$	<Start RTX>	; verbose
+	bneb	@r$xget,10$	; don't identify for single line commands
+	bnew	r$xqui,10$	; init: quiet=on
+	btprt$	<RUST/RTX V3.8>	; ident
+10$:	mov	sp,r0		; soft exit
+	.exit			; and start up
+.sbttl	messages
+
+;	jsr	r1,bt$war/bt$err/bt$vrb/bt$chk
+;	.asciz	/message/
+;	.even
+
+bt$war:	beqw	b$twar,bt$mut		; issue warning
+	bttyp$	<?RTX-W->		; header
+	call	bt$opx			; r1 -> message
+bt$mut:	call	bt$evn			; mute - skip message
+	rts	r1
+
+bt$chk:	bcc	bt$mut			; check error, has none
+bt$err:	bttyp$	<?RTX-E->		; issue error message
+	call	bt$opt			; r1 -> message
+	jmp	rx$exi			; and exit RTX.TSK
+
+bt$vrb:	beqw	b$tvrb,bt$mut		; not in verbose mode
+	bttyp$	<?RTX-I->		; header
+	call	bt$opt			; r1 -> message
+10$:	btprt$	<>			; newline
+20$:	rts	r1
+
+bt$typ:	call	bt$opt			; type r1 string
+	rts	r1			; no newline
+
+bt$opt:	call	bt$opx			; display first
+bt$evn:	tstb	(r1)+			; even up r1
+	bne	bt$evn			; skip message
+	inc	r1			; even up to word
+	bic	#1,r1
+	return
+
+bt$opx:	psh	r0			; save
+	.print	r1			; display 
+bt$p0r:	pop	r0			; pop r0, return
+	return
+
+bt$pln:	psh	r1			; put line
+	mov	r0,r1			; r1 -> characters
+10$:	bleb	(r1),20$		; all done
+	.ttyout	(r1)+			; one more out
+	br	10$			;
+20$:	pop	r1			; restore r1
+	return
+
+;	r0 -> 	rad50 file spec
+
+bt$unp:	psh	r1			; unpack/display file spec
+	mov	r0,r1			; r1 -> file spec
+	call	20$			; display device
+	bttyp$	<:>			; :
+	call	10$			; display FILNAM
+	bttyp$	<.>			; .
+	call	20$			; display TYP
+	pop	r1			; restore r1
+	return
+
+10$:	call	(pc)			; unpack two words
+20$:	mov	(r1)+,r0
+bt$r50:	call	rx$unp r0,#10$		; unpack rad50 r0
+	btpln$	#10$			; display
+	return
+10$:	.ascii	/    /
+.sbttl	low memory
+
+;	RSX low memory contains an image header
+;	Clear low memory and fill in the RUST vectors
+;	Protect RTX vector 254/256
+
+rx$low:	mov	#^o700,r0		; clear low memory
+10$:	clr	-(r0)			; (but leave our stack alone)
+	bnew	r0,10$			;
+					;
+	mov	#r$xlow,r0		; asect list
+20$:	mov	(r0)+,r1		; get address (first is zero)
+	mov	(r0)+,(r1)+		; store first
+	cmp	(r0),#-1		; this a dummy second value?
+	beq	30$			; yep
+	mov	(r0),(r1)		; nope - fill it in
+30$:	tst	(r0)+			; skip second value
+	bnew	(r0),20$		; more
+					;
+	bisb	#rxLMP$,r$mlmp+rxLMO.	; protect 254/256
+	return				; in rmon bitmap
+
+;	.word	vector, pc, ps
+;   or:	.word	vector, val, -1  for single word entries
+
+	map	as.vec	0		; vector address
+	map	as.isr			; isr address
+	map	as.pri			; isr priority etc
+	meta <asect c d e=-1><.word ^o'c,d,e>
+
+	.radix	8.
+r$xlow:	asect	0       40000,104350	; bic r0,r0, .exit
+	asect	4	ve$bus	0	; bad address trap
+	asect	10	ve$cpu	cbit	; bad instruction trap
+	asect	24  	ve$pow	pr0	; power fail trap
+	asect	30	ve$emt	pr0	; emt program requests
+;sic]	asect	40	0		; beg
+	asect	42	1000		; stk
+;sic]	asect	44	0		; jsw overlay flag keeps channel open
+	asect	50	0		; top
+;sic]	asect	52	0		; err
+	asect	54	r$mmon		; mon
+;sic]	asect	56	0		; fcha, fcnt
+	asect	60	ve$tks	pr7	; keyboard interrupt
+;	asect	64			; console output interrupt unused
+	asect	100	ve$clk	pr7!cbit; clock interrupt
+	asect	104	sy$clk	pr7!cbit; revectored kw11p (was net vector)
+	asect	244	ve$fpu	0	; floating point exception
+	asect	254	r$xapi,<^rRTX>	; RTX.TSK API
+	.word	0			; terminate list
+	.radix	10.
+.sbttl	get MCR command
+
+;	MCR RTX/switch command
+;
+;	MCR RTX /S TIME 		"RTX /S TIME"
+;	RUN/COMMAND="/S TIME" RTX =>	"/S TIME"
+
+rx$cmd:	dir$	#r$xmcr			; get the command
+	blew	r0,50$			; no command
+	clrb	r$xcmd(r0)		; r0 = command length
+	mov	#r$xcmd,r0		; r0 -> command
+	mov	#r$xsig,r1		;
+	clr	r3			; switch counter--see rx$swi
+10$:	beqb	(r1),20$		; found/skipped
+	beqb	(r0)+,(r1)+,10$		; "RTX "?
+	mov	#r$xcmd,r0		; "RTX " not present
+20$:	call	rx$skp			; skip space
+30$:	call	rx$swi			; check switches
+	bcc	30$			; (actually can't happen)
+	call	rx$skp			; skip space
+	beqb	(r0),40$		; no command
+					;
+	mov	r0,r$xget		; input pointer
+	mov	#^o4737,s$kvcl		; patch get line hook in rtimg.mac
+	mov	#rx$gli,s$kvcl+2	; to collect command
+	mov	#nop,s$kvcl+4		;
+	br	50$			;
+					;
+40$:	mov	#nop,s$kvcl		; nop VCL call in RTIMG.MAC
+	mov	#nop,s$kvcl+2		;
+	mov	#sec,s$kvcl+6		;
+					;
+50$:	neg	r$xvrb			; test and negate verbose flag
+	beq	60$			; not verbose
+	btprt$	<?RTX-I-Verbose boot>	;
+60$:	return				;
+
+rx$swi:	bneb	(r0),<#'/>,20$		; not an option
+	inc	r0			; skip /
+	movb	(r0)+,r1		; switch letter
+	beq	30$			; that's wierd
+	mov	#r$xswi-2,r2		; search options
+	blow	r1,<#'a>,10$		; redundant upper case conversion
+	bhiw	r1,<#'z>,10$		;
+	sub	#'a-'A,r1		;
+10$:	tst	(r2)+			; skip address
+	beqw	(r2),30$		; not found
+	bnew	r1,(r2)+,10$		; not this one
+	inc	@(r2)+			; set switch flag
+	bnew	r$xhlp,rx$hlp		; want help
+	inc	r3			; count switches
+	tst	(pc)+			;
+20$:	sec
+	return
+30$:	bterr$	<Invalid switch; Use /H for help>
+
+rx$skp:	bneb	(r0),#32.,10$		; not a space
+	inc	r0			;
+10$:	return
+
+r$xsig:	.asciz	"RTX"
+
+rx$hlp:	btprt$	<RUST/RTX command switches:>
+	btprt$	<>
+	btprt$	</F	Use FX: as system directory>
+	btprt$	</H	Display this help>
+	btprt$	</L	Use LD7: as system volume>
+	btprt$	</M	Maintenance boot>
+	btprt$	</N	Use NF7: as system volume>
+	btprt$	</S	Show boot configuration>
+	btprt$	</Q	Quiet boot>
+	btprt$	</V	Verbose boot>
+	btprt$	</W	Display warnings>
+	jmp	rx$exi
+
+r$xswi:	.word	'F,r$xfxb	; /F  FX: boot
+	.word	'H,r$xhlp	; /H  Help
+	.word	'?,r$xhlp	; /?  Help
+	.word	'L,r$xldb	; /L  LD7: boot
+	.word	'M,i$ndbg	; /M  Maintenance boot
+	.word	'N,r$xnfb	; /N  NF7: boot
+	.word	'Q,r$xqui	; /Q  Quiet
+	.word	'S,r$xsho	; /S  Show things
+	.word	'V,r$xvrb	; /V  Verbose boot
+	.word	'W,r$xwar	; /W  Warnings
+
+rx$sho:	beqw	r$xsho,10$
+	bttyp$	<?RTX-I-Default>
+	call	rx$dis #l$ndk
+	bttyp$	<?RTX-I-System >
+	call	rx$dis #l$nsy
+	bttyp$	<?RTX-I-Library>
+	call	rx$dis #l$nlb
+	bttyp$	<?RTX-I-MCR command  line: [>
+	btpln$	#r$xcmd
+	btprt$	<]>
+10$:	return
+
+  proc	rx$dis
+	p1	dir,r1
+	bttyp$	< directory: >
+	btr50$	ln.dev(r1)
+	bttyp$	<:[>
+	btr50$	ln.dir(r1)
+	bttyp$	<,>
+	btr50$	ln.nam(r1)
+	bttyp$	<]>
+	btprt$	<>
+  end
+.sbttl	process SY:RTX.INI
+
+.if ne ini$c
+; !!!	NOT IMPLEMENTED
+
+;	RTX.INI is the RTX initialization file.
+;	Supports RT-11 stream and RSX-11 formatted ascii
+
+rx$ini:;mov	r$xdrv,r$xini		; get target device
+	inopn$	#r$xini 20$		; open lb:rtx.ini
+	insec$	#r$xsct	30$		; locate [boot] section
+	inint$	#r$xprf			; process table
+	br	30$			;
+					;
+20$:	;inc	r$xifm			; ini file missing
+30$:	return
+
+r$xini:	.rad50	/LB RTX   INI/
+r$xsct:	.asciz	/[boot]/
+	.even
+
+.iftf
+b$tvrb:
+r$xvrb:	.word	0		; verbose
+b$twar:
+r$xqui:	.word	0		; quiet
+r$xfxb:	.word	0		;\
+r$xldb:	.word	0		;|
+r$xnfb:	.word	0		;/
+r$xhlp:	.word	0
+r$xsho:	.word	0
+.ift
+
+r$xprf:
+initm$	i$ndbg	boo verify
+initm$	r$xvrb	boo verbose
+initm$	r$xwar	boo warnings
+initm$	r$xqui	boo quiet
+initm$	r$xsta	str startup
+;nitm$	r$xdef	str directory
+inend$
+.endc
+.sbttl	V11 emulator detection
+
+rx$v11:	mov	#vrDET.,r0		; detect V11
+	call	rx$vap			; call V11 API
+	bcs	10$			; not V11
+	inc	r$xv11			; remember it here
+	incb	e$hv11			; remember it in monitor
+	movb	#cpv11.,r$memu		; remember again
+	btvrb$	<V11 detected>
+10$:	return
+
+;	V11 API (VAP) interface
+
+rx$vap:	psh	r2			; call V11 API
+	psh	@#v$eiot		; save it
+	psh	@#v$eiot+2		;
+	mov	sp,r2			;
+	mov	#10$,@#v$eiot		; setup a trap catcher
+	clr	v$eiot+2		;
+	psh	r1			; VAP code
+	iot				;
+	.word	vrSIG.			;
+	tst	(pc)+			; V11 handled it
+10$:	sec				; V11 not present
+	mov	r2,sp			; dump trap
+	pop	@#v$eiot+2		; restore
+	pop	@#v$eiot		; 
+	pop	r2			;
+	return				;
+.sbttl	date and time
+
+rx$tim:	btvrb$	<Setup date and time>
+	dir$	#r$xgtm			; get RSX time
+	mov	r$xyea,r1		; r1 = year - 1900
+	bhisw	r1,#1972.,10$		;
+	add	#100.,r1		; treat as Y2k date
+10$:	sub	#1972.-1900.,r1		; r1 = year - 1972
+	mov	r1,r2			; r2 will become RT-11 date
+	bic	#^c^o37,r2		; r2 = isolate bits 0:4 of year
+					;
+	mov	r1,r0			; r0 = copy of year-1972
+	bic	#^c^o140,r0		; isolate bits 5:6
+	ash	#9.,r0			; left to bits 14:15
+	bis	r0,r2			; set in date
+
+	ash	#-7.,r1			; move bits 7:15 right
+	bic	#^o177000,r1		; isolate bits 0:8
+	mov	r1,r$mera		;
+					;
+	mov	r$xmon,r0		; r0 = month
+	ash	#10.,r0			; left 10.
+	bis	r0,r2			; set in date
+					;		
+	mov	r$xday,r0		; r0 = day of month
+	ash	#5,r0			; left 5
+	bis	r0,r2			; set in date
+	mov	r2,r$mdat		; save date
+					;
+	mov	r$xhou,r0		; r0 = hour
+					;
+	mov	#60.,r2			; r2 = multiplier
+	mul	r2,r0			; r0/r1 = hour * 60.
+	add	r$xmin,r1		; add in minutes
+	adc	r0			;
+
+	call	100$			; * 60. again
+	add	r$xsec,r1		; add in seconds
+	adc	r0			;
+					;
+	mov	r$xhtz,r2		; multiplier = 50. or 60.
+	call	100$			;
+	add	r$xtik,r1		; add in tix
+	adc	r0			;
+					;
+	mov	r0,r$mtim		; store time
+	mov	r1,r$mtim+2		;
+
+	beqw	r$xhtz,#50.,20$		; 50 hertz alread set up
+	bic	#cn50h$,r$mcfg		; clear it
+	mov	#ti60h.,t$irol		; adjust rollover
+	mov	#ti60l.,t$irol+2	; 
+	mov	#60.*3,t$ifrq		; rt11x time
+
+20$:	bis	#cnclo$,r$mcfg		; assume clock present
+
+	beqw	r$xv11,30$		; not V11
+	mov	#vrHTZ.,r1		; get V11 time/date
+	mov	r$xhtz,r0		; set hertz
+	call	rx$vap			;
+	mov	#vrTIM.,r1		; get the time
+	mov	#r$xhst,r0		; host time data
+	call	rx$vap			;
+	mov	(r0)+,r$mdat		;
+	mov	(r0)+,r$mtim		;
+	mov	(r0)+,r$mtim+2		;
+	mov	(r0)+,r$mera		;
+30$:	return
+
+;	r0/r1 * r2
+
+100$:	mov	r0,r3			; save high order
+	mov	r1,r0			; r0 = low order
+	mul	r2,r0			; multiply low order
+	mul	r2,r3			; multiply high order
+	add	r3,r0			; add into r0/r1 result
+	return
+
+r$xgtm:	.byte	61.,2
+	.word	r$xyea
+r$xyea:	.word	0
+r$xmon:	.word	0
+r$xday:	.word	0
+r$xhou:	.word	0
+r$xmin:	.word	0
+r$xsec:	.word	0
+r$xtik:	.word	0
+r$xhtz:	.word	0
+
+r$xhst:	.word	0,0,0,0
+.sbttl	default devices/directories
+
+; LB$	LB ->	Library device
+; DK$	SY0 ->	Default device
+;
+; LBX		LB$:[1,1]
+; SYX		LB$:[1,54]
+; RTX		LB$:[1,64]
+; DKX		DK$:[Default UIC]
+
+	rxSY. = ^rSY
+	rxLB. = ^rLB
+
+rx$def:	btvrb$	<Get device/directory defaults>
+	call	rx$trn	#rxSY.,#l$ndk+ln.dev ; translate RSX SY:
+	bcs	20$			; should not occur
+	call	rx$trn	#rxLB.,#l$nlb+ln.dev ; translate RSX LB:
+	bcs	20$			; should not occur
+	mov	l$nlb+ln.dev,l$nsy+ln.dev ; assume same disk
+mov #^rfx,l$nlb+ln.dev
+mov #^rfx,l$nsy+ln.dev
+mov #^rfx,l$ndk+ln.dev
+					;
+	dir$	#40$			; get task information
+	bcs	30$			; should not occur
+	mov	#50$,r2			; task information
+	call	rx$u2r xi.tui(r2),#l$ndk+ln.dir ; DK => RSX user directory
+	call	rx$mvb #l$nlb+ln.dev,#d$mlbe,#6					;
+
+	mov	xi.tsc(r2),r$xcod	; system code
+10$:	return
+
+20$:	bterr$	<Error accessing RSX device information>
+30$:	bterr$	<Error accessing RSX task information>
+
+40$:	.byte	63.,2			;
+	.word	50$
+50$:	.blkb	xi.tbs
+
+;	translate name
+;
+;	log =	rad50 logical name
+;	equ ->	rad50 equivalance name
+
+  proc	rx$trn
+	p1	log,r0			; =  rad50 logical
+	p2	equ			; -> rad50 equivalence
+	call	rx$agl #luTMP.,r0	; assign lun & translate
+	bcs	10$			; some error
+	mov	r0,@equ(sp)		; store physical name
+10$:	call	rx$sts			; report errors
+  end
+
+.sbttl	choose boot device
+
+	assume	rxFX. eq 1
+	assume	rxLD. eq 2
+	assume	rxNF. eq 3
+rx$boo:	btvrb$	<Select boot volume or directory>
+	clr	r0
+	mov	#r$xfxb,r1
+	mov	#r$xboo,r2
+	mov	#3,r3
+10$:	inc	r0
+	beqw	(r1)+,20$
+	beqw	(r2),15$
+	btwar$	<Conflicting boot volume choices>
+15$:	mov	r0,(r2)
+20$:	sobw	r3,10$
+	bnew	(r2),30$
+	mov	#rxLD.,(r2)
+	beqw	r$xv11,30$
+	mov	#rxNF.,(r2)
+30$:	beqw	r$xvrb,40$
+	bttyp$	<?RTX-I-Using >
+	mov	(r2),r0
+	asl	r0
+	.print	50$-2(r0)
+	btprt$	< as system volume>
+40$:	return
+
+50$:	.word	60$,70$,80$
+60$:	.ascii	|FX:|<128>
+70$:	.ascii	|LD7:|<128>
+80$:	.ascii	|NF7:|<128>
+	.even
+.sbttl	permanent devices
+
+;	NF:, FX: and LD: are resident device drivers
+
+;	Install NF: as system device (if V11 present)
+
+rx$nfw::bnew	r$xv11,10$		; this is V11
+	bnew	r$xboo,#rxNF.,30$	; not booting NF:
+	btwar$	<V11 not present; Can't boot NF7:>
+	br	30$			;
+10$:	btvrb$	<Install NF:>		;
+	bnew	r$xboo,#rxNF.,20$	; not booting NF
+	mov	#<^rNF7>,d$vdke		; setup NF: SY:
+	mov	#<^rNF7>,d$vsye		;
+20$:	mov	#nfstrt,s$ylow		; system low address
+	mov	#2,r0			;
+	mov	#<^rNF>,d$vper(r0)	;
+	mov	#nflqe,d$vent(r0)	;
+	mov	#despc$!defun$!dehab$!degab$!denfc.,d$vsta(r0)
+	mov	#nfend-nfstrt,d$vhsz(r0)
+
+	mov	#-1,d$vdsz(r0)		; unlimited size
+	mov	#<^rnf>,r$mcal		; catch-all device
+	mov	e$hrst,n$frst		; hook reset
+	mov	#nf$rst+hk.rou,e$hrst
+30$:	return
+
+;	Install FX: (as system device if NF: missing)
+
+rx$fxv::btvrb$	<Install FX:>
+	bnew	s$ylow,10$		; SY: already setup
+	mov	#fxstrt,s$ylow		; system low address
+	mov	#<^rFX>,r$mcal		; catch-all device
+10$:	bnew	r$xboo,#rxFX.,20$	; not system device
+
+	mov	#<^rSYX>,d$vdke		; SY: -> FX:
+	mov	#<^rSYX>,d$vsye		; DK: -> FX:
+
+20$:	mov	#<^rFX>,r$mddn		; DDn: catch-all
+	mov	#fxSLT.,r0		; FX: slot
+	mov	#<^rFX>,d$vper(r0)	;
+	mov	#fxlqe,d$vent(r0)	;
+	mov	#despc$!defun$!dehab$!degab$!defxc.,d$vsta(r0)
+	mov	#fxend-fxstrt,d$vhsz(r0);
+	mov	#-1,d$vdsz(r0)		;
+					; RTFAP monitor patches:
+	mov	e$hrst,f$xrst		; hook xRESET  (see RTS:RTFXV.MAC)
+	mov	#fx$rst+hk.rou,e$hrst	;
+	mov	#<^o4737>,r$xddn	; hook r$xddn (see RTS:RTUSR.MAC)
+	mov	#rx$ddn,r$xddn+2	;
+	mov	#^o137,r$xsav		; hook .SAVEST (see RTS:RTSER.MAC)
+	mov	#rx$sav,r$xsav+2	;
+	mov	#^o137,r$xreo		; hook .REOPEN (see RTS:RTSER.MAC)
+	mov	#rx$reo,r$xreo+2	;
+	mov	#^o4737,r$xcsi		; hook .CSIxxx (see RTS:RTCSI.MAC)
+	mov	#rx$csi,r$xcsi+2	;
+	return
+
+;	Install LD:
+
+rx$ldv::btvrb$	<Install LD:>
+	mov	#ldSLT.,r0
+	mov	#<^rLD>,d$vper(r0)
+	mov	#ldlqe,d$vent(r0)
+	mov	#derta$!defun$!devar$!deLDC.,d$vsta(r0)
+	mov	#ldend-ldstrt,d$vhsz(r0)
+	return
+
+.if ne fvv$c
+;	Install FV:
+
+rx$fvv::btvrb$	<Install FV:>
+	mov	#fvSLT.,r0
+	mov	#<^rFV>,d$vper(r0)
+	mov	#fxlqe,d$vent(r0)
+	mov	#derta$!despc$!defun$!dehab$!degab$!defxc.,d$vsta(r0)
+	mov	#fxend-fxstrt,d$vhsz(r0)
+	mov	#-1,d$vdsz(r0)
+	return
+.endc
+
+.if ne ttv$c
+;	Install TT:
+;
+; !!!	TT: is too difficult to install here
+;
+;	TT: must be installed.
+;	Otherwise terminal output is sent to RSX TT:
+	map	vamnt.,,<^o40001>	;mount channel
+	map	vadsm.,,<^o40002>	;dismount channel
+
+rx$ttv:	.lookup	#100$,#0,#110$,#vamnt.	; find driver
+	bcs	20$			; not our problem
+	.readw	#100$,#0,#u$sbuf,#256.,#0 ; read block zero
+	bcs	10$			; still not our problem
+	mov	#u$sbuf,r1		; 
+	mov	#^rTT,d$vper		; permanent name
+	mov	dr.hsz(r1),d$vhsz	; handler size
+	mov	dr.sta(r1),d$vsta	; device status
+	mov	r$mcsw+ch.sbl,d$vblk	;
+10$:	.close	#0
+20$:	return
+
+100$:	.blkw	5
+110$:	.rad50	/sy ttv   sys/
+.endc
+; ???	256 word buffer below
+.sbttl	mount LD7: [1,1]RTX.DSK
+
+;	LDV.SYS mounts an LD: device using a regular channel
+;	Remap the LD: volume to a permanent LD: cab
+;
+;	Search path:
+;
+;	/dkx:rtx.dsk/
+;	/lbx:rtx.dsk/
+
+rx$mnt:	beqw	r$xboo,#rxLD.,7$
+	return
+7$:	btvrb$	<Mount LD7:>
+	.serr
+	mov	sp,r1				; save stack
+.if ne 0
+	.csispc	#r$xcss,#r$xdef,#r$xspc,#0	; convert filespec to rad50
+	mov	r1,sp				; restore stack
+	btchk$	<Error translating LB:RTX.DSK>	; (can't happen)
+.endc
+	.lookup	#r$xemt,#0,#r$ximg,#0		; lookup LB:RTX.DSK
+	btchk$	<Error opening LB:RTX.DSK>	; RTX.DSK not found
+	.cstat	#r$xemt,#0,#r$xcst		; channel status
+	btchk$	<Error accessing LB:RTX.DSK channel>	; (can't happen)
+	mov	#r$xcst,r2			; rt-11 channel status
+	mov	#r$xent+2,r3			; LD unit 
+	movb	ci.csw(r2),ld.vid(r3)
+	bicb	#^c^o76,ld.vid(r3)
+	movb	ci.uni(r2),ld.uni(r3)		; unit
+	mov	ci.sbl(r2),ld.off(r3)		; cab
+	mov	ci.len(r2),ld.siz(r3)		; image size
+
+	mov	#r$xcss+20.,r0
+	movi	ld.dev,r3,r1
+	mov	ci.nam(r2),(r1)+
+	mov	(r0)+,(r1)+
+	mov	(r0)+,(r1)+
+	mov	(r0)+,(r1)+
+
+	.lookup	#r$xemt,#1,#r$xld7,#0
+	btchk$	<Error opening LD7:>
+	.writw	#r$xemt,#1,#r$xent,#ld.bbs+2/2,#-2
+	btchk$	<Error writing LD7:>
+	mov	#<^rLD7>,d$vdke		; setup DK: SY:
+	mov	#<^rLD7>,d$vsye		;
+
+.if ne 0
+	.lookup	#r$xemt,#2,#r$xldv,#0	; open LD7:LDV.SYS
+	btchk$	<Error opening LD:>	; ooops
+	mov	r0,r2			; get block size
+	beq	10$			; empty file
+	dec	r2			; r2 = last block #
+BR 50$
+	.readw	#r$xemt,#2,#r$xbuf,#256.,r2 ; read last block
+	btchk$	<Error reading LD:>	; oops
+	mov	#r$xspc,r0		; "..."
+	mov	#r$xbuf+<7*64.>,r1
+5$:	movb	(r0)+,(r1)+
+	bne	5$
+	.writw	#r$xemt,#2,#r$xbuf,#256.,r2
+	btchk$	<Error writing LD:>
+.endc
+
+10$:
+50$:	.close	#0
+	.close	#1
+	.close	#2
+	return
+
+r$xspc:	.asciz	/LB:RTX.DSK/
+	.even
+r$xcss:	.blkw	3*5			; .csispc area
+r$ximg:	.rad50	/LB RTX   DSK/
+	.blkw	8.*4			; first lookup file
+r$xdef: .rad50	/DSKDSKDSKDSK/		; filetypes
+
+r$xld7:	.rad50	/LD7         /
+r$xemt:	.blkw	5
+r$xcst:	.blkb	ci.bbs
+
+r$xent:	.word	ldGUA$			; LD: guard word
+	.blkb	ld.bbs			; LD: entry
+
+r$xldv:	.rad50	/LD7LDV   SYS/
+r$xbuf:	.blkw	256.
+.sbttl	high memory
+
+rx$hgh::btvrb$	<Setup high memory>
+	mov	#mmpik.*32.-1,r$mmsz	; memory size
+	mov	#mmpik.*32.-1,m$esiz	;
+					;
+	mov	#d$mtem,r0		; dynamic memory template
+	mov	s$ylow,r1		; setup initial dynamic area
+	mov	#dmTEM.,r2		;
+	sub	r2,r1			;
+	mov	r1,m$eptr		;
+	mov	r1,s$ylow		; adjust top
+	mov	r1,r$musl		;
+;	mov	r1,r$musr		;
+	movi	4,r1,e$hmet		;
+	mov	#4,e$hmel		;
+	movi	dmDIR.,r1,d$mdir	;
+	movi	dmCSI.,r1,d$mcsi	;
+	movi	dmCSX.,r1,d$mcsx	;
+10$:	movb	(r0)+,(r1)+		;
+	sobw	r2,10$			;
+	mov	r1,m$eptr+2		; end of it
+	return
+					;
+;	Setup startup command file
+
+rx$sta:	btvrb$	<Setup startup command file>
+	mov	#r$xsta,r0		; startup command file spec
+	mov	#j$bcct,r2		; count
+	mov	#j$bcst,r1		; string
+	mov	#1,(r2)			; start count
+	movb	#'@,(r1)+		; @
+20$:	inc	(r2)			;  sy:rust.com
+	movb	(r0)+,(r1)+		;
+	bne	20$			;
+	bis	#jsdcx$,@#j$bjsw	; flag exit to command file
+	return
+					;
+r$xsta:	.asciz	/sy:rtx.com/		; default startup command file
+	. = r$xsta + inMXS.		; max string length
+
+d$mtem:	.enabl	lsb			; dynamic memory templates
+10$:	.word	20$-10$
+	.rad50	/UCF/
+	.byte	0,0,0,-1
+20$:	.word	50$-20$
+	.rad50	/DLN/
+30$:
+	.word	10.,^rlb
+d$mlbe:	.word	0,0,0
+
+40$:	.rept	30.
+	.word	0
+	.endr	
+50$:	.word	0
+60$:	dmDIR. = 30$-10$
+	dmCSI. = 40$-10$
+	dmCSX. = 50$-10$
+	dmTEM. = 60$-10$
+	.dsabl	lsb
+.sbttl	RSX vector intercepts
+
+;	PERMANENT MEMORY STARTS HERE
+
+	.psect	buf ovr
+u$sbuf::.blkw	512.		; USR buffer for file ops
+
+	.psect	sys
+r$xsst:	.byte	105.,3		; SVTK$ system call
+	.word	10$		; the table
+	.word	8.		; number of entries
+
+10$:	.word	rx$bus		; bus error
+	.word	rx$mmu		; mmu error
+	.word	rx$bpt		; bpt
+	.word	rx$iot		; iot
+	.word	rx$cpu		; cpu error
+	.word	rx$emt		; emt (except 377)
+	.word	rx$trp		; trap 
+	.word	rx$fpu		; fpu (11/40)
+
+	.macro	rxsst$	lab,pop=0
+rx$'lab:.iif ne pop,add #pop,sp
+	psh	@#v$e'lab+2
+	psh	@#v$e'lab
+	rti
+	.endm
+
+;	rxsst$	mmu	;mmu
+	stack	sr0,sr2,sr1,ret,psw
+rx$mmu:	add	#sp.ret,sp
+	psh	@#v$ebus+2
+	psh	@#v$ebus
+	rti
+
+	rxsst$	bus		;bus vector
+	rxsst$	bpt		;bpt
+	rxsst$	iot		;iot
+	rxsst$	cpu		;cpu vector
+	stack	cod,ret,psw
+	rxsst$	emt,sp.ret	;emt
+	rxsst$	trp		;trap
+	rxsst$	fpu		;fpu		; actually FIS? 
+.sbttl	RSX adaption routines
+.psect	sys
+
+;	MCR single line command support
+;	RTIMG.MAC patched to pass control here
+
+rx$gli::mov	r$xget,r1	; got a single line?
+	beq	20$		; nope, or no more
+	clr	r$xget		; once only
+10$:	movb	(r1)+,(r0)+	; copy command
+	bne	10$		;
+	clc			; fine
+	return
+20$:	jmp	rx$exi		; exit RTX
+
+;	See RTS:RTBOO.MAC for native equivalents
+
+tk$get::movb	@r$xget,r0	; got character to go?
+	beq	10$		; nothing pending
+	inc	r$xget		; setup for next
+	br	30$		;
+10$:	clr	r$xmut		; turn off mute
+	mov	@r$mtkb,r0	; get it
+	bne	20$		;
+	call	tk$enb		;
+	br	10$		;
+20$:	clr	@r$mtks		; turn it off
+30$:	return
+
+tk$enb::jsr	r0,rx$psh	; save DSW/ISB/r0
+	call	rx$dsb		; disable asts/interrupts
+	tst	t$kenb		; already active?
+	beq	10$		; yes
+	inc	t$kenb		;
+	dir$	#t$kqio		; 
+10$:	call	rx$enb		; enable asts
+	jsr	r0,rx$pop
+tk$dsb::return
+;	qio	opr, lun, evt, isb, ast, p1..p6
+t$kqio:	.byte	1,12.		; qio
+	.word	ifRAL$!ifRNE$,luTER.,^o40, t$kisb, tk$ast
+	.word	r$ttkb, 1, 0, 0, 0, 0
+t$kisb:	.word	0,0
+
+;	ASTs
+
+;	dsw,vec,vec+2,m0,m1,m2,m3,ret,psw
+	stack	dsw,opc,ops,m0,m1,m2,m3
+
+	.macro	rxast$
+	sub	#4,sp		;
+	psh	r0		;
+	mov	sp,r0
+	tst	(r0)+
+	.rept	7.
+	mov	4(r0),(r0)+
+	.endr
+	pop	r0
+	stack	dsw,apc,aps,m0,m1,m2,m3,opc,ops
+	mov	sp.apc(sp),sp.opc(sp)
+	mov	sp.aps(sp),sp.ops(sp)
+	.endm
+
+tk$ast::dec	t$kenb		; permit more
+	beqb	@(sp)+,#ieABO.,20$ ; aborted
+.if ne vec$c
+	call	rx$dsb		; disable asts
+	rxast$			; strip the AST
+	stack	dsw,apc,aps,m0,m1,m2,m3,opc,ops
+	mov	10$,sp.apc(sp)
+	mov	#^o170000,sp.aps(sp)
+	jmp	rx$asx
+10$:	call	rx$enb
+	psh	v$ekbd+2
+	psh	#v$ekbd
+	rti
+.iff
+	rxast$			; strip the AST
+	stack	dsw,apc,aps,m0,m1,m2,m3,opc,ops
+	mov	v$ekbd,sp.apc(sp)
+	mov	v$ekbd+2,sp.aps(sp)
+20$:	jmp	rx$asx
+.endc
+
+;	Convert from RT-11 output idiom to RSX:
+;
+;	RT-11:  "...."<cr><lf>
+;	RSX:	<lf>"..."<cr>
+
+tp$put::pshs	<r2,r0>		;
+	stack	r0,r2		;
+	clr	t$pbuf		; for cr & lf
+	bnew	r$xmut,40$	; we are mute
+	mov	#t$plf,r2	; assume lf pending
+	asr	t$pnew		; newline pending?
+	bcc	10$		; nope
+	call	tp$opt		; output LF
+10$:	bneb	(sp),#lf.,20$	; not LF
+	mov	#1,t$pnew	; newline pending
+	br	40$		;
+20$:	tst	(r2)+		; potential cr
+	beqb	(sp),#cr.,30$	; it's CR
+	tst	(r2)+		; it's an ordinary character
+	mov	(sp),t$pbuf	;
+30$:	call	tp$opt		;
+40$:	pops	<r0,r2>
+	return
+
+tp$opt:	movb	(r2),t$pbct	;
+	movb	1(r2),t$pvfc	;
+	jsr	r0,rx$psh	;
+	call	rx$dsb		;
+	dir$	#t$pqiw		; output character
+;	call	rx$pau		; pause a moment
+	call	rx$enb		;
+	jsr	r0,rx$pop
+10$:	return
+
+t$plf:	.byte	1,'$		; linefeed (null output buffer)
+t$pcr:	.byte	1,'+		; carriage return (null output buffer)
+t$pxx:	.byte	1,0		; ordinary character
+
+t$pqiw:	.byte	3,12.		; 
+t$pfun:	.word	ifWLB., luTER., ^o37, t$pisb, 0
+	.word	t$pbuf
+t$pbct:	.word	1
+t$pvfc:	.word	0, 0, 0, 0
+
+t$pnew:	.word	1		; newline pending
+t$pbuf:	.word	0		; line feed
+t$pisb:	.word	0,0
+
+;	timer AST
+
+ti$ast::tst	(sp)+		; no EFN
+	jsr	r0,rx$psh	;
+	.if ne clk$c			; enable/disable clock
+	beqw	r$xclk,10$	; don't reenanble clock
+	.endc
+	dir$	#r$xmrk		; get the clock going
+10$:	jsr	r0,rx$pop	;
+.if ne vec$c
+	call	rx$dsb
+	rxast$			; strip the AST
+	stack	dsw,apc,aps,m0,m1,m2,m3,opc,ops
+	mov	#20$,sp.apc(sp)
+	mov	#^o170000,sp.aps(sp)
+	jmp	rx$asx
+20$:	call	rx$enb
+	psh	v$eclk+2
+	psh	v$eclk
+	rti
+.iff
+	rxast$			; strip the AST
+	stack	dsw,apc,aps,m0,m1,m2,m3,opc,ops
+	mov	v$eclk,sp.apc(sp)
+	mov	v$eclk+2,sp.aps(sp)
+	jmp	rx$asx
+.endc
+.sbttl	adaption data
+
+r$xrtx::			; data pointer
+r$xv11::.word	0		; V11 host
+r$xboo:	.word	0		; default to LD boot
+
+r$ttks::.word	0
+r$ttkb::.word	0
+r$ttps::.word	0
+r$ttpb::.word	0
+
+r$xmcr:	.byte	127.,41.	; GMCR$ system call
+r$xcmd:	.blkb	80.		; command line
+r$xget:	.word	10$		; command pointer - assume no command
+10$:	.word	0		;
+r$xmut:	.word	0		; 1 => don't output to TT:
+
+r$xdsw::.word	0		; saved dsw
+r$xisb::.word	0,0		; generic isb
+r$xdsx::.word	0		; saved dsw in AST
+r$xisx::.word	0,0		; saved isb in AST
+
+	.radix	8
+	meta <lndef$ log grp mem><.word ^r'log,0,^r'grp,^r'mem,^rdir>
+;		log grp mem
+l$nsy::	lndef$	sy  001 054	; SY:
+l$nlb::	lndef$	lb  001 001	; LB$:
+l$ndk::	lndef$	lg  000 000	; DK$:
+	.word	0
+	.radix	10
+
+r$xcod::.word	0		; rsx system code
+
+j$bpsw::.word	0		; dummy psw
+t$kenb:	.word	-1		; tk enabled
+
+r$xclk::.word	1		; clock enabled
+r$xwar::.word	0		; QIO warnings
+
+r$xmrk::.byte	23.,5		; mrkt$
+	.word	0		; efn
+	.word	1		; ticks
+	.word	1		; 1 tick
+	.word	ti$ast		; clock ast
+
+	.end	start
+;	SCRAPS
+;
+;
+;	RSX provides the following limited information to a task:
+;
+; ALUN	LB:	DD:[1,1]	RSX library directory
+; ALUN	SY:	DD:[1,54]	RSX system directory
+;	DK:	DD:[g,m]	RSX default directory
+;
+;	GTSK$	Prot UIC	Login UIC
+;		Task UIC	Task default UIC
+;
+;	Protec	Directory oriented UIC
+;	Default Non-Directory UIC
+;	Term.	Login UIC
+;
+;		Non-Priv	Priv.
+;		--------	-----
+;	Protec 	Login UIC	Login UIC
+;				Last SET/UIC
+;	Default	Login UIC	Login UIC
+;		Last SET/UIC	Last SET/UIC
+;
+;	There are two standard logical names and one default directory:
+;
+;	RSX	RTX	
+;	LB:	LB:	System volume
+;	SY:	LG:	User volume
+;	[g,m]	n/a	Default directory
+;
+;	RSX has separate device and directory defaults.
+;	Thus, LB:, and SY:, without a directory => LB:[g,m] and SY:[g,m]
+;
+;	$
+;	LB:	LB:	LB:[1,1]	Passed unchanged to RSX
+;	LG:	SY:	SY:[default]
+;	CL:
+;	CO:
+;	TI:
+;	TT:
+; M+	WK:
+;	SP:
+;
+;	LB$:	LB:	none
+;	LG$:	SY:	none
+;
+;	LBX	LB$:[1,1]
+;	RSX:	LB$:[1,54]
+;	RTX:	LB$:[1,64]
+;	DKX:	LG$:[200,200]
+;	SYX:	NF7: or LD7: or RTX:
+

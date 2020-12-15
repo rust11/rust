@@ -1,0 +1,355 @@
+ctc$c=1		; let ctrl/c flag remain across most image activations
+nf7$c=0		; run DCL from NF7 (for debug)
+rtx$c=1		; RTX
+ccl$c=1		; disable image load optimization
+sta$c=1		; code not finished
+img$c=1		; invalid image message
+sys$c=1		; system state
+; see ex$tim:
+.title	rtimg - rust/sj image control and commands
+.include "rts:rtdef.mac"
+.psect	img
+vcl$c=1		; V11 command line
+frc$c=0		; $force/exeunt
+$cldef
+$codef
+$indef
+$jbdef
+$jsdef
+$vrdef
+rpdef$		; RUST/SJ request packet
+tqdef$		; timer queue element
+
+;	RUST/SJ resident commands and image loader
+
+set	i$mbuf 2000		;block 0 work area (high for chains)
+.sbttl	power-up, abort, exit, chain
+
+ve$pow::mov	#-2,e$hkmf	; set the power up flag
+ex$abt::mov	@#j$busp,sp	; get a good stack
+	.if ne sys$c
+	mov	#-1,s$yint	; reset system state
+	clr	f$kcqe		; no fork queue
+	mov	#f$kcqe,f$klqe	;
+	.endc
+	clr	e$hkma		; no kmon in memory
+	clrb	r$mins		; no control file in ind status
+	call	te$ini		; clean up the console
+	clr	r1		; jsw=0
+	br	ex$img		; use image exit
+
+ss$chn::mov	#jscha$,r1	; set the chain flag (.chain)
+	br	ex$img		; use image exit
+
+ss$exi::mov	@#j$bjsw,r1	; get the jsw (.exit)
+	bic	#^c<jsovr$!jsrst$!jsdcx$!jsdcc$>,r1 ; cleanup JSW
+	asr	c$lkmn		; this coming from DCL?
+	bcs	ex$dcl		; yes - use DCL exit
+	movb	#cldcl.,c$ltyp	; no - reset cli flag
+
+ex$img:	bit	#jsdcx$!jsdcc$,r1 ; exit/chain to DCL commands?
+	bne	ex$dcx		; yes
+	clr	@#j$bcct	; nope - zap command file
+
+ex$dcx:
+	.if eq ctc$c
+	clr	t$eccc		; clear ^C^C flag (which makes no sense
+	.endc				; in a command file, but that's how it is)
+10$:	call	tk$dsb		; stop the console
+ex$dcl:	mov	@#j$busp,sp	; get a clean stack (from the user)
+
+	psh	r1		; save jsw image
+	bic	#jsdcx$!jsdcc$,r1 ; don't leave these hanging
+	mov	r1,@#j$bjsw	; reset the jsw
+				;
+	clr	r1		; force cancel all
+	call	ti$ini		; init timer queue
+
+ex$dev:	mov	#d$vque,r3	; d$vque=d$vlst+2
+10$:	mov	(r3),r1		; get the .device queue
+	beq	30$		; no more
+	mov	(r1)+,(r3)	; get the link
+20$:	mov	(r1)+,r2	; get the next
+	beq	10$		; oops, no more here
+	mov	(r1)+,(r2)	; do a user move
+	br	20$		; and look for more
+30$:	mov	-(r3),r1	; get the .device list
+	beq	40$		; there aint one
+	clr	(r3)		; terminate it
+	br	20$		; and go again
+40$: 	fall	ex$job		
+
+ex$job:
+10$:	.if ne frc$c
+	mov	$exeunt,r5	; get the exit list
+	beq	20$		; are none
+	mov	(r5)+,$exeunt	; take it out of the chain
+	call	@(r5)+		; call them
+	br	10$		; and go again
+	.endc
+20$:
+	.if eq rtx$c
+	call	@e$hrst		; call hook reset chain
+	.endc
+	call	tk$enb		; turn on the terminal
+	call	qu$ini		; reset queues
+	jsr	r2,sy$cl4	; zero scca,sfpa,trpset,serr/herr
+	.word	s$ysta		; returns r3 pointing to cdfn flag
+	tst	(r3)		; done a cdfn?
+	beq	30$		; no
+	clr	(r3)		; yes - reset it
+	.sreset			; force sreset
+30$:	call	io$res		; release local devices
+
+	mov	#j$blev,r0	; r0 -> userrb - error level
+	bitb	(r0),r$merl	; did the user crash with error level?			
+	beq	40$		; nope
+	call	te$zap		; yes, remove any command file
+40$:	bisb	(r0),r$minx	; save it for ind
+	clrb	(r0)		; now clean it up
+
+	pop	r5		; r5 = exit jsw
+	bit	#jscha$,r5	; chain to image?
+	bne	ex$chn		; yes, go run it
+	.sreset			; no, clean up the channels
+	fall	im$cmd		; go into the input loop
+.sbttl	get a command
+
+	.enabl	lsb
+im$cmd:	.rctrlo			; turn on the display
+	mov	#c$slin,r4	;  r4 -> line buffer
+	mov	#^rSY,e$hfil	; setup default device
+	mov	#^rSAV,e$hfil+6	; setup default type
+
+	bit	#jsdcx$!jsdcc$,r5; a chain to command file?
+	bne	im$com		; yes, call dcl
+	clr	r5		; forget other things
+	tst	e$hjoc		; is a comand file active?
+	bne	20$		; yes, dont allow slave files thru
+	tst	e$hkmf		; power-up or slave?
+	bne	im$com		; yes, go get it
+	tstb	r$mins		; is ind running us?
+	bmi	im$ind		; yep, go back there
+	.if ne frc$c
+	mov	$force,r0	; get the forced command
+	mov	r4,r1		; get the line buffer
+10$:	movb	(r0)+,(r1)+	; move it in	
+	bne	10$		; till its done	
+	tstb	(r4)		; is the key turned?
+      	bne	30$		; yes, do the turn key job
+	movb	#1,$smon	; allow slave calls in
+	.endc
+	.if ne vcl$c		; V11 command line
+	psh	#vrVCL.		; get next command line
+	mov	r4,r0		;
+s$kvcl::iot			;* RTBOO.MAC overwrites with 3 NOPs
+	.word	vrSIG.		;* if not V11. RTRSX always NOPs.
+	inc	(sp)+		;
+	bcc	30$		;
+	.endc
+20$:	.gtlin	r4,#e$hdot	; get the line
+30$:	tstb	(r4)		; a null line?
+      	beq	im$cmd		; yes, ignore it
+	.if ne frc$c
+	clrb	$smon		; dont allow slave jobs in
+	.endc
+	clr	r0		; signal for file/command
+
+im$fil:	call	cs$spc		; nope, look for a filespec
+	beq	im$dcl		; complex command, goto dcl
+	tst	e$hfil+2	; was a filename given?	
+	beq	im$dcl		; nope - go to dcl
+	tst	r0		; was : or . seen?
+	bne	im$eol		; yes, just check end of line
+	tst	e$hfil+4	; we only know 3 letter commands
+	bne	im$dcl		; this has more
+	mov	#i$msym,r0	; look at symbols, flag pass 2
+40$:	mov	(r0)+,r1	; get the routine
+	beq	im$dcl		; is none - dcl
+	cmp	(r0)+,e$hfil+2	; this a match?
+	bne	40$		; nope
+	jmp	(r1)		; call the command
+	.dsabl	lsb
+.sbttl	process local commands
+
+dc$get:	comb	r5		; r5=377 => get
+dc$run:
+dc$ru:	mov	#^rDK,e$hfil	; set default device
+dc$r:	cmpb	(r4)+,#sp.	; is there a space?
+	beq	im$fil		; yes, get the file
+	br	im$dcl		; nope, dcl must do it
+im$eol:	tstb	(r4)		; did we get end of line?
+	bne	im$dcl		; nope, we need dcl
+	br	im$act		; try and run it
+im$ind:	bisb	#inrun$,r$mins	; say we are running ind
+	bicb	#inlin$!inind$,r$mins ; turn off the others
+	mov	#e$hind,r2	; point to the ind name
+	br	im$run
+im$dcl:	mov	#-1,r5		; r5=0
+im$com:	inc	r5		; set the com bit
+	mov	e$hkma,r3	; check for dcl in memory
+	bne	im$st1		; its there, go there fast
+10$:	jsr	r2,im$run	; run dcl
+	.if ne nf7$c
+	.rad50	/nf7dcl   sav/	;
+	.iff
+	.rad50	/sy dcl   sav/	;
+	.endc
+ex$chn:	mov	#500,r2		; get the chain filename
+im$run:	mov	#e$hfil,r3	; store the filename
+	call	sy$mv4		; and move in the name
+	br	im$act		; activate
+
+	.enabl	lsb
+dc$sta:	tstb	(r4)		; got an address? (STArt command)
+	bne	10$		; yep
+im$sta:	clr	r3		; userpc
+im$st2:	add	@#j$bupc,r3	; userpc+r3
+im$st1:	mov	@#j$busp,sp	;  sp = user stack
+	jmp	(r3)		; go downstairs
+
+10$:	cmpb	(r4)+,#sp.	; got a number coming?
+	bne	im$dcl		; nope
+.if ne sta$c
+	clr	-(sp)		;
+	mov	sp,r2		;
+	call	cs$oct		; get octal number
+	pop	r3
+	br	im$st1		;
+.iff
+	clr	r3		; yep
+20$:	movb	(r4)+,r0	; get the next
+	beq	im$st1		; we are done
+	sub	#'0,r0		; this a digit?
+	bmi	20$		; nope
+	asl	r3		; get the next
+	asl	r3		; 
+	asl	r3		; 
+	add	r0,r3		; get the digit
+	br	20$		; and look again
+.endc
+	.dsabl	lsb
+
+im$idv:	.fatal
+e$ridv::string	<&<344>&evice>,200 ; ?RUST-F-Invalid device
+im$mem:	.fatal	<More memory>	; ?RUST-F-More memory
+
+im$exe::bit	#jsovr$,@#j$bjsw; running overlays?
+	bne	10$		; yep
+	emt	160+17		; nope, close program channel
+10$:	tstb	r5		; was it a get
+	bpl	im$sta		; nope
+	.exit			; yes - start again
+
+dc$ree:	mov	#-2,r3		;  reenter = start-2 (REEnter command)
+	bit	#jsrst$,@#j$bjsw; is it legal ?
+	bne	im$st2		; yes, go re-enter
+	.fatal	<command>,e$ricm
+.sbttl	activate image
+
+;	This is still largely 1979/1980 code.
+
+	v1CLO. = 160		; v1 .close emt code
+	v1LOO. = 20		; v1 .lookup emt code
+	v1REA. = 200		; v1 .read emt code
+
+im$act:	clr	e$hkma		; kmon no longer in memory
+	mov	s$ylow,sp	; get a clean stack
+	.if eq ccl$c			; disable CCL optimization
+	cmpb	c$ltyp,#clccl.	; this CCL?
+	beq	10$		; yes - file is already open
+	.endc
+	emt	v1CLO.+17	; close the program channel
+	call	cs$dev		; check the device
+	bcs	im$idv		; oops
+	mov	#e$hfil,r0	; look it up
+				; remember image name
+	mov	r0,r2		; new image
+	mov	#e$himg,r3	;
+	call	sy$mv4		;
+				;
+	emt	v1LOO.+17	; lookup the file
+	bcs	im$fnf		; ?RUST-F-File not found
+10$:
+	movb	#cldcl.,c$ltyp	; no - v5.2 -> reset cli flag
+	clr	r1		; r1 = block number
+	mov	#i$mbuf,r3	; r3 = buffer adress
+	clr	-(sp)		; done = wait
+	mov	r1,r0		; r0 =  emt's  block number
+	psh	#400		; wordcount = 256.
+	psh	r3		; buffer = r3
+	emt	v1REA.+17	; read it
+	bcc	30$		; fine
+20$:	.fatal	<Input error>	; ?RUST-F-Read error
+30$:	mov	sp,r0		; compute size
+	sub	#100,r0		; we need some breathing space
+	cmp	r0,j$btop(r3)	; is it too big?
+	blos	im$mem		;  yes
+	mov	#476/2,r1	; start at the top
+50$:	jsr	r5,im$bit	; do we protect this one?
+	.word	r$mlmp		;  lowmap -> bitmap
+	beq	60$		; dont protect it
+	asl	r1		;  protect it. make it words
+	mov	(r1),i$mbuf(r1)	; protect it
+	asr	r1		; restore bytes
+60$:	dec	r1		; more to check?
+	bpl	50$		;  yes
+
+;	r3 =	1000
+; ???	r4 =	1000	run
+; ???	r4 =	500	chain
+
+	mov	#500,r1		; assume no chain data
+	asrb	j$bjsw+1(r3)	; called chain bit set?
+	bcc	70$		; nope
+	mov	r3,r1		; yes, start at 1000
+70$:	asrb	@#j$bjsw+1	; caller jsw set?
+	rolb	j$bjsw+1(r3)	; put in the chain bit
+
+80$:	mov	i$mbuf-2(r1),-(r1); move one down
+	tst	r1		; all done?
+	bne	80$		; nope
+
+	clr	-(sp)		; readw
+	mov	#16.*8.,r1	; max block
+90$:	decb	r1		; block = block-1
+	.if ne img$c
+	bmi	im$iim		; no program content
+	.endc
+	jsr	r5,im$bit	; check the block
+	.word	360		; the save file bit map
+	beq	90$		; not this guy
+	inc	r1		; 256. per block
+	swab	r1		; make word count
+	psh	r1		; store it
+	psh	#1000		; buffer
+	mov	#1,r0		; block
+	emt	v1REA.+17	; read it
+	bcs	20$		; oops - input error
+	br	im$exe	
+
+.if ne img$c
+im$iim:	.fatal
+	string	<&<351>&mage>,200 ; ?RUST-F-Invalid image
+.endc
+.sbttl	utilities
+
+im$fnf:	.fatal			; the emt
+e$rfnf::string <&<306>&ile not found>,200
+
+im$bit:	mov	r1,r0		; check bit in r$mlmp
+	bic	#^c<7>,r0	; pick out a digit
+	psh	r1		; save it
+	asr	(sp)		; get a byte address
+	asr	(sp)
+	asr	(sp)
+	add	(r5)+,(sp)
+	bitb	110$(r0),@(sp)+	; test the bit
+	rts	r5		; and return
+110$:	.byte	200,100,40,20,10,4,2,1
+
+meta <entry c d e f g h><.word dc$'c><.rad50 /c/><.iif nb d,entry d e f g h>
+i$msym:	entry	sta,ree,get,r,ru,run
+	.word	0
+.end
+
