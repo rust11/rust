@@ -1,0 +1,55 @@
+;***;	CCINI - Use START: to avoid loading 1000 words of C code
+.title	ccini - init standard C app
+.include "lib:crt.mac"
+.weak	ccAprm, ccAimg			; default prompt and image name
+smini$
+prm$c=0	; don't prompt by default
+
+ccstr$
+.if eq prm$c
+c$cprm:	.asciz	/> /
+.endc
+c$cimg:	.byte	0			; no image name
+c$cinv:	.asciz	/W-Invalid command/
+cccod$
+
+;	Called here if user hasn't intercepted START in a source module
+;	This module is in the library and only searched for globals
+;	See CCSAV.MAC for more detail (in particular the .END sequence)
+;
+;	1.  Get the CCL command (rt.gln)
+;	    Pickup user prompt or use default
+;	2.  Parse the command (cc.cmd)
+;	    Pickup user image name or use default
+;	3.  Call main (cnt:int, vec:**char)
+;	4.  Field exit
+
+start::
+cc$ini::call	me.alc #84.		; get a line buffer 
+	mov	r0,r2			; r2 -> line buffer
+
+10$:	mov	#ccAprm,r1		; default prompt
+	.if eq prm$c			; 
+	bne	20$			; got one
+	mov	#c$cprm,r1		; use the default instead
+	.endc				; prm=r1=0 => get ccl command only; not terminal
+					;
+20$:	call	cl.cmd	r1,r2		; get the command
+					;
+	mov	#c$cimg,r1		; assume default image name
+	mov	#ccAimg,r0		; get the default image name
+	beq	30$			; nope
+	mov	r0,r1			; use it instead
+	mov	r0,imPfac		; use for error messages
+					;
+30$:	call	cc.cmd	r2,r1		; parse the command
+	bnew	r0,40$			; fine
+	call	im.rep #c$cinv, #0	; invalid command
+	br	10$			;
+
+40$:	mov	(r0)+,r1		; r1 = count, r0 -> vector
+	call	main r1,r0		; thar she blows...
+	mov	sp,r0			; whar she goes
+	.exit				; nobody knows
+
+.end

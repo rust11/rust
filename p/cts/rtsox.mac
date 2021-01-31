@@ -1,0 +1,33 @@
+;	catch exits and do cleanup manually
+.title	rtsox - rt-11 set-on-exit
+.include "lib:crt.mac"
+$emdef
+smini$
+
+ccdat$
+r$semt:	.byte	0,emdev.	; .device
+r$slst:	.word	0		; .device addr
+cccod$
+
+code	rt_sox (lst:*WORD) int
+
+;	Set-On-Exit (RT-11 .DEVICE interface)
+;
+;	lst ->	.word adr, val, ..., 0
+;	  adr	Location to set
+;	  val	Value to set
+;	  ...	more entry pairs
+;	  0	adr=0 terminates list
+;
+;	o This routine may be extended to handle linked lists.
+;	o RT-11/SJ does not support .DEVICE
+
+  proc	rt.sox
+	p1	lst
+	mov	lst(sp),r$slst
+	mov	#r$semt,r0
+	emt	^o375
+	mov	#1,r0
+  end
+
+.end

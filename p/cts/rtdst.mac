@@ -1,0 +1,40 @@
+.title	rtdst - rt-11 device status
+.include "lib:crt.mac"
+$emdef
+$dcdef
+$dsdef
+fbdef$
+smini$
+
+code	rt_dst (spc:*char, dst:*WORD) int
+
+;	1. Convert spec from ascii to rad50 at f$ispc
+;	2. Default dst to f$idst
+;	3. Issue .DSTATUS (result at f$idst)
+;	4. Return failure for unknown device
+;	5. Fudge FILST$ for NF:
+;	6. Return DSW in R0 (all are non-zero)
+;
+;	rt_dst is used rt_fet (and in turn by fi_opn, fi_del etc).
+;	Rider rtTdst defined in cts:rtdev.d
+
+  proc	rt.dst
+	p1	spc
+	p2	dst
+
+	call	rx.scn spc(sp),#f$ispc	; convert the name
+	mov	dst(sp),r1		; r1 -> dst
+	bne	10$			;
+	mov	#f$idst,r1		; use ours instead
+10$:	psh	r1			; (sp) -> dst
+	mov	#f$ispc,r0		; r0   -> spc
+	emt	emdst.			; .dstat
+	bic	r0,r0			; 
+	bcs	30$			; failed - r0 = 0 
+	bpcw	#dsSPC$,(r1),20$	; can't be NF:
+	bneb	(r1),#deNFC.,20$	; not NF:
+	bis	#dsRTA$,(r1)		; is NF: - fudge file structured 
+20$:	mov	(r1),r0			; return device status word
+30$:	end
+
+.end

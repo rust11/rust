@@ -1,0 +1,43 @@
+;???;	sks:mealp will replace/augment im_sav
+.title	imsav - im_sav - save/restore image context
+.include "lib:crt.mac"
+smini$
+
+;	save/restore user mode stack context
+;
+;	used by search/bindif/srcdif to permit restart from an inner loop
+;	see cus:search.r
+;
+;	repeat
+;	   sig = im_sav (...)	; saves context
+;	   ...			; continues here from im_res ()
+;	   ...
+;	forever
+;
+;	error:	im_res ()	; loop inner error
+
+;	image context
+
+map	im.stk,,0		; sp
+map	im.ret			; pc
+map	im.rea			; reason
+
+;	im_sav : (*ctx) int
+
+im.sav::stack	ret,ctx		;
+	mov	sp.ctx(sp),r0	; get context block
+	mov	sp,(r0)+	;
+	mov	(sp),(r0)	; ret
+	clr	r0		; r0 = 0
+	return
+
+;	im_res : (*ctx, int) int
+
+im.res::stack	ret,ctx,rea
+	mov	sp.rea(sp),r0	; get reason
+	mov	sp.ctx(sp),r1	; get context
+	mov	(r1)+,sp	; restore stack
+	mov	(r1)+,(sp)	; return address
+	return			; r0 = reason
+
+.end

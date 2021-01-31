@@ -1,0 +1,42 @@
+	.title	fprintf	Formatted Output Conversion
+	.ident	/000003/
+;
+;+
+;
+; Index		Formatted Conversion
+;
+; Usage
+;
+;	fprintf(iov, format, arg1, ...);
+;	FILE		*iov;
+;	char		*buffer;
+;	char		*format;
+;
+; Description
+;
+;	fprintf() converts and formats its arguments, writing the
+;	result to the indicated file.
+;
+;	For information on formatting, please refer to the description
+;	of printf.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 02-Jul-82 MM	Split out from printf
+; 000002 03-Aug-82 MM	.doprnt -> $$prnt
+; 000003 17-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+fprintf::
+	jsr	r5,csv$			; Link environments
+	mov	C$PMTR+0(r5),-(sp)	; filedes
+	mov	#C$PMTR+4,-(sp)		; offset to first arg
+	add	r5,(sp)			; -> first arg
+	mov	C$PMTR+2(r5),-(sp)	; format
+	call	$$prnt			; $$prnt(format, args, fildes)	;02
+	jmp	cret$			; exit
+	.end

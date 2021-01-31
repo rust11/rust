@@ -1,0 +1,43 @@
+.title	figet - get line
+.include "lib:crt.mac"
+$aldef
+smini$
+
+.if eq 0
+  proc	gets
+	p1	buf
+	call	fi.get stdin,buf(sp),#512.
+	inc	r0			; EOF?	
+	beq	10$			; yep
+	mov	buf(sp),r0		; nope
+10$:	end
+.endc
+
+code	fi_get - read line from file
+
+;	fi_get (fil:*F, str:*c, cnt:int) *c
+;
+; Out:	r0	number of characters read or EOF
+;
+;	o  fi$gch does all the work for text files
+;	o  fi_get () on a binary file is probably rubbish
+;	o  cnt does not include the trailing zero
+
+  proc	fi.get	<r2,r3,r4>
+	p1	fil,r4
+	p2	str,r2
+	p3	cnt,r3
+10$:	clrb	(r2)			; terminate it
+	beqw	r3,20$			; all over
+	call	fi.gch	r4		; get the next
+	beqw	r0,#EOF,30$		; all over
+	beqb	r0,#lf.,20$		; all over
+	movb	r0,(r2)+		;
+	dec	r3			;
+	br	10$			;
+20$:	mov	r2,r0			;
+	sub	str(sp),r0		; r0 = # chars
+30$:	end
+
+.end
+

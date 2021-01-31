@@ -1,0 +1,170 @@
+.title	rtinf - issue RT-11 get/set file info requests
+.include "lib:crt.mac"
+$emdef
+$ffdef
+$rtdef
+fbdef$
+smini$
+ccstr$
+f$iinf:	.byte	eminf.,0
+cccod$
+
+code	rt_gfd (*spc, &val) int		; get file date
+code	rt_gft (*spc, &val) int		; get file time
+code	rt_gfl (*spc, &val) int		; get file length
+code	rt_gfx (*spc, &val) int		; get file extended
+
+code	rt_sfd (*spc, &val, int) int	; set file date
+code	rt_sft (*spc, &val, int) int	; set file time
+code	rt_sfl (*spc, &val, int) int	; set file length
+code	rt_sfx (*spc, &val, int) int	; set file extended (ctl)
+
+;	ff.emt,,0	; emt code (high byte)
+;	ff.fil		; filespec pointer
+;	ff.val		; new/prv value
+;	ff.opr,1	; operation
+;	ff.off,1	; offset (see $rtdef)
+
+	.enabl	lsb
+rt.gfd::tst	(pc)+
+rt.sfd::sec	
+	psh	#rt.dat*256.
+	br	10$
+
+rt.gft::tst	(pc)+
+rt.sft::sec	
+	psh	#rt.tim*256.
+	br	10$
+
+rt.gfx::tst	(pc)+
+rt.sfx::sec	
+	psh	#rt.ctl*256.
+	br	10$
+
+rt.gfl::tst	(pc)+
+rt.sfl::sec	
+	psh	#rt.len*256.
+10$:	assume	ffGET. eq 0		;
+	adcb	(sp)			; make operation
+	beq	20$			; is get
+	movb	#ffMOV.,(sp)		; is move, i.e. set
+	assume	ff.val eq 4		;
+	assume	ff.opr eq 6		;
+20$:	pop	f$iiob+ff.opr		;
+	.dsabl	lsb
+
+local
+  proc	rt$inf
+	p1	spc
+	p2	adr
+	p3	val
+	mov	val(sp),f$iiob+ff.val	; new value (set only)
+	call	fi$opr #f$bopr,spc(sp),#0,#f$iinf,#f$iiob
+					; r0=0 => fail
+	mov	adr(sp),r1		; previous value address?
+	beq	10$			; don't want it
+	mov	r0,(r1)			; check error
+	beq	10$			; was error
+	mov	f$bopr+fb.len,(r1)	; return previous value
+10$:
+  end
+
+.end
+.end
+.title	rtinf - issue RT-11 get/set file info requests
+.include "lib:crt.mac"
+
+rt$inf::stack	ret, fil, cur, upd
+	assume	ff.off eq 7		;
+;sic]	psh	#offset			; offset
+	stack	opr, ret, fil, cur, upd	;
+	adcb	(sp)			; adjust opcode
+	beq	10$			; not set
+	movb	#ffMOV.,(sp)		;
+	assume	ff.opr eq 6		;
+	assume	ff.val eq 4		;
+10$:	psh	sp.upd(sp)		;
+	stack	upd, opr, ret, fil, cur	;
+	assume	ff.fil eq 2		;
+
+	psh	sp.fil(sp)		;
+	stack	fil, upd, opr, ret, xxx, cur
+	psh	#emINF.*256.		; emt code
+	stack	emt, fil, upd, opr, ret, xxx, cur
+	mov	sp,r0			;
+	emt	^o375
+	bcs	30$			;
+	beqw	sp.cur(sp),30$		; don't want previous
+	mov	r0,@sp.cur(sp)		; return previous value
+20$:	mov	(pc)+,r0		; fine
+30$:	clr	r0			;
+	add	#sp.ret,sp		;
+	return
+
+.end
+.title	rtinf - issue RT-11 get/set file info requests
+.include "lib:crt.mac"
+$emdef
+$ffdef
+$dsdef
+$rtdef
+fbdef$
+smini$
+
+code	rt_gfd (fil, &val) int		; get file date
+code	rt_gft (fil, &val) int		; get file time
+code	rt_gfl (fil, &val) int		; get file length
+code	rt_sfd (fil, &val, int) int	; set file date
+code	rt_sft (fil, &val, int) int	; set file time
+code	rt_sfl (fil, &val, int) int	; set file length
+
+;	opr=0	read
+;	opr=1	write
+;
+; Out	r0	0/1 fail/fine
+;	fb.cnt	R0 result
+
+rt.gfd::tst	(pc)+
+rt.sfd::sec	
+	mov	#rt.dat*256.,r0
+	br	rt$inf
+
+rt.gft::tst	(pc)+
+rt.sft::sec	
+	mov	#rt.tim*256.,r0
+	br	rt$inf
+
+rt.gfl::tst	(pc)+
+rt.sfl::sec	
+	mov	#rt.len*256.,r0
+	br	rt$inf
+
+rt$inf::stack	ret, fil, cur, upd
+	assume	ff.off eq 7		;
+	psh	r0			; offset
+	stack	opr, ret, fil, cur, upd	;
+	adc	(sp)			; adjust opcode
+	beq	10$			; not set
+	movb	#ffMOV.,(sp)		;
+	assume	ff.opr eq 6		;
+	assume	ff.val eq 4		;
+10$:	psh	sp.upd(sp)		;
+	stack	upd, opr, ret, fil, cur	;
+	assume	ff.fil eq 2		;
+
+	psh	sp.fil(sp)		;
+	stack	fil, upd, opr, ret, xxx, cur
+	psh	#emINF.*256.		; emt code
+	stack	emt, fil, upd, opr, ret, xxx, cur
+	mov	sp,r0			;
+	emt	^o375
+	bcs	30$			;
+	beqw	sp.cur(sp),30$		; don't want previous
+	mov	r0,@sp.cur(sp)		; return previous value
+20$:	mov	(pc)+,r0		; fine
+30$:	clr	r0			;
+	add	#sp.ret,sp		;
+	return
+
+.end
+

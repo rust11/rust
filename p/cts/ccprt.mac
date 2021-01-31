@@ -1,0 +1,372 @@
+flt$c=1	; floating point fix					; 12
+	.title	$$prnt	Print formatter
+	.ident	/0000012/
+;
+;+
+;
+; Index		Formatted output
+;
+; Internal
+;
+; Usage
+;
+;	$$prnt(format, argvec, iov)
+;	char		*format;
+;	int		*argvec[];
+;	FILE		*iov;
+;
+; Description
+;
+;	$$prnt() performs all formatting operations for printf(),
+;	sprintf(), and fprintf().  The formatting options are described
+;	int the documentation of printf().
+;
+; Bugs
+;
+;	$$prnt() is functionally identical to the _doprnt() module
+;	in Unix and Vax-11 C libraries.  Unfortunately, the '_'
+;	conflicts with RSX FCS library conventions.
+;
+;-
+;
+; Edit history
+; 000001 05-Mar-80 MM	Initial edit
+; 000002 22-May-80 MM	Fout -> stdout
+; 000003 19-Nov-80 MM	Allow "*" as a substitute for "?"
+; 000004 23-Nov-81 SDR	e, f, and g now work -- with optional "l" prefix
+; 000005 08-Feb-82 MM	Merged into master library.  dtoa is now $$dtoa.
+; 000006 15-Apr-82 CCG  Split apart printf, fprintf, sprintf.
+;			Made sprintf return a pointer.
+; 000007 15-Apr-82 SDR	Added %F, %G, %E equivalences for %lf, %lg, %le.
+; 000008 02-Jul-82 MM	The newer library -- split out printf etc.
+;			ARGP is now in the calling parameter vector.
+; 000009 03-Aug-82 MM	Renamed $$prnt
+; 000010 19-Jan-87 JMC  Change .psect for I/D space.
+; 000011 15-Jan-02 BQT	Changed for I/D space
+; 000012 02-Oct-11 IJH	Graceful treatment of floating point denial
+;
+; Autos.
+;
+;
+; Note: these values are compiled as c$$auto - number.  If c$$auto
+; changes, these must also.
+;
+.iif	df	c$auto	auto$$	=	c$auto			;08+
+.iif	ndf	auto$$	auto$$	=	-10
+
+LJUST	=	auto$$-2
+PREC	=	LJUST-2
+WIDE	=	PREC-2
+FILL	=	WIDE-2
+HORD	=	FILL-2
+LORD	=	HORD-2
+BUF	=	LORD-20.	; 20 bytes number output buffer
+OLDP	=	BUF-2
+STACK	=	LJUST-OLDP+2	; Last argument for stack get	;01-/08-
+
+	.ENABLE GBL,LC
+	.weak	$$DTOA			; weak $$DTOA reference 	;12
+
+	.psect	c$stcn,d,ro						;10
+
+null:	.asciz	"{Null}"
+
+	.psect	c$code,i,ro
+
+cc.prt::
+$$prnt::							;08+/09
+	jsr	r5,csv$			; Linkage
+	sub	#STACK,sp		; Get temp space
+	mov	C$PMTR+0(r5),r3		; r3 -> format
+	mov	C$PMTR+4(r5),r4		; File descriptor	;08-
+;
+; Get next character from the format string.
+; If not a '%' just send it to the output.
+;
+
+prf01:	movb	(r3)+,r0
+	bne	25$						;01+
+	jmp	cret$						;08
+
+25$:	cmp	r0,#'%						;01-
+	beq	30$
+	call	$$putc						;08
+	br	prf01
+
+;
+; Get widths and flags.
+;
+
+30$:	clr	LJUST(r5)
+	clr	WIDE(r5)
+	mov	#-1,PREC(r5)
+	mov	#' ,FILL(r5)
+
+	movb	(r3)+,r0
+	cmp	r0,#'-
+	bne	40$
+	inc	LJUST(r5)
+	movb	(r3)+,r0
+
+40$:	cmp	r0,#'0
+	bne	50$
+	mov	r0,FILL(r5)
+	movb	(r3)+,r0
+
+50$:	call	num
+	mov	r1,WIDE(r5)
+
+	cmp	r0,#'.
+	bne	60$
+	movb	(r3)+,r0
+	call	num
+	mov	r1,PREC(r5)
+
+;
+; %r					Remote format
+;
+
+60$:	cmp	r0,#'r
+	bne	70$
+	mov	@C$PMTR+2(r5),C$PMTR+2(r5)
+	mov	@C$PMTR+2(r5),r3
+	add	#2,C$PMTR+2(r5)
+	br	prf01
+; %e, %f, %g				Floating point
+;
+; All of the dirty work is done by '$$dtoa'.  The PREC is set to -1 because
+; these items use the PREC field in an unstandard way.  le, lf, and lg specify
+; double float variables.
+;
+
+70$:
+	mov	r5,r2
+	add	#BUF,r2
+	tst	#$$DTOA			; floating point loaded?	;12
+	beq	90$			; nope				;12
+	MOV	#4,R1			; Assume single precision float
+	MOV	R0,HORD(R5)		;	saving the format char
+	CMP	#'l,R0			; Double (long) float?
+	BNE	75$			;	No
+	ASL	R1			;	Yes, note it
+	MOVB	(R3)+,R0		;	    and get next format char;07+
+75$:	CMP	R0,#'e
+	BEQ	80$
+	CMP	R0,#'E
+	BEQ	77$
+	CMP	R0,#'f
+	BEQ	80$
+	CMP	R0,#'F
+	BEQ	77$
+	CMP	R0,#'g
+	BEQ	80$
+	CMP	R0,#'G
+	BEQ	77$
+	CMPB	#'l,HORD(R5)		; Backup.  Long char first?
+	BNE	76$			;	No
+	MOVB	R0,-(R3)		;	Yes, put it back
+	MOV	HORD(R5),R0		; Restore format char
+76$:	BR	90$			; Check other format types
+77$:	MOV	#'l,HORD(R5)		; Note double FP
+	MOV	#10,R1			; (ASL dangerous, in case "%lE")
+	BIS	#40,R0			; Make conversion char lower case
+	
+80$:	ADD	C$PMTR+2(R5),R1		; Point to the floating number
+	MOV	R1,C$PMTR+2(R5)
+	CMPB	#'l,HORD(R5)		; Long?
+	BNE	82$			;	No
+	MOV	-(R1),-(SP)		;	Yes, send 2nd half of double
+	MOV	-(R1),-(SP)
+	BR	85$
+82$:	CLR	-(SP)			; Make the single float a double
+	CLR	-(SP)
+85$:	MOV	-(R1),-(SP)		; Push 1st half of dbl		;07-
+	mov	-(r1),-(sp)
+	mov	PREC(r5),-(sp)
+	mov	WIDE(r5),-(sp)
+	mov	r0,-(sp)
+	mov	r2,-(sp)
+	call	$$dtoa
+	ADD	#16.,SP			; Pop the stack			;07
+	mov	#-1,PREC(r5)
+	br	prf02
+
+;
+; Get the data. If there is an 'l' in the format, copy a long to HORD and
+; LORD. Otherwise copy the integer to LORD and sign extend if %d.
+;
+
+90$:	mov	C$PMTR+2(r5),OLDP(r5)
+	mov	@C$PMTR+2(r5),r1
+	add	#2,C$PMTR+2(r5)
+
+	cmp	r0,#'l
+	bne	100$
+;
+; %l					Long integer
+;
+	mov	r1,HORD(r5)
+	mov	@C$PMTR+2(r5),LORD(r5)
+	add	#2,C$PMTR+2(r5)
+	movb	(r3)+,r0
+	br	120$
+
+100$:	cmp	r0,#'d
+	beq	110$
+	mov	r1,LORD(r5)
+	clr	HORD(r5)
+	br	120$
+
+110$:	clr	HORD(r5)
+	mov	r1,LORD(r5)
+	bpl	120$
+	com	HORD(r5)
+
+;
+; %c					Character
+;
+
+120$:	cmp	r0,#'c
+	bne	130$
+	mov	r5,r2
+	add	#LORD,r2
+	clrb	LORD+1(r5)
+	br	prf02
+
+;
+; %s					String
+;
+; If pointer is 0, print {Null}
+;
+
+130$:	cmp	r0,#'s
+	bne	140$
+	mov	LORD(r5),r2
+	bne	prf02
+	mov	#null,r2
+	br	prf02
+
+;
+; %d, %o, %u, %x, %X			Integer conversion
+;
+; Only %d gets integers sign extended.  All done with common routine.
+;
+
+140$:	cmp	r0,#'d
+	beq	150$
+145$:	cmp	r0,#'o
+	beq	150$
+	cmp	r0,#'u
+	beq	150$
+	cmp	r0,#'x
+	beq	150$
+	cmp	r0,#'X
+	bne	160$
+
+150$:	mov	LORD(r5),-(sp)
+	mov	HORD(r5),-(sp)
+	mov	r0,-(sp)
+	mov	r2,-(sp)
+	call	$$ltoa
+	add	#10,sp
+	br	prf02
+
+;
+; None of the above.  Restore C$PMTR+2 so an argument is not eaten.
+;
+
+160$:	mov	OLDP(r5),C$PMTR+2(r5)
+	call	$$putc						;08
+	jmp	prf01						;01	
+
+;
+; Send out the null terminated ascii string pointed to by r2.
+; Inserted any required fills and pads.
+;
+
+prf02:	mov	r2,r1
+
+170$:	tstb	(r1)+
+	bne	170$
+	dec	r1
+	sub	r2,r1
+	tst	PREC(r5)
+	bmi	180$
+	cmp	PREC(r5),r1
+	bhis	180$
+	mov	PREC(r5),r1
+
+180$:	mov	r1,PREC(r5)
+
+	tst	LJUST(r5)
+	bne	190$
+	call	fills
+
+190$:	mov	PREC(r5),r1
+
+200$:	dec	r1
+	bmi	210$
+	movb	(r2)+,r0
+	call	$$putc						;08
+	br	200$
+
+210$:
+	tst	LJUST(r5)
+	beq	215$						;01
+	call	fills
+
+215$:	jmp	prf01						;01
+
+;
+; Output WIDE - PREC copies of the FILL character.
+;
+
+fills:	mov	WIDE(r5),r1
+	sub	PREC(r5),r1
+	ble	240$
+
+	mov	FILL(r5),r0
+
+230$:	call	$$putc						;08
+	dec	r1
+	bne	230$
+
+240$:	return
+
+;
+; Read in a field width.  The first character of the width is in r0.
+; The width is returned in r1.  If the width specifier is '*' or '?' then the
+; width is obtained from the args.
+;
+
+num:	cmp	r0,#'*						;03
+	beq	10$						;03
+	cmp	r0,#'?
+	bne	250$
+
+10$:	mov	@C$PMTR+2(r5),r1				;03
+	add	#2,C$PMTR+2(r5)
+	movb	(r3)+,r0
+	br	270$
+
+250$:	clr	r1
+
+260$:	cmp	r0,#'0
+	blo	270$
+	cmp	r0,#'9
+	bhi	270$
+
+	asl	r1
+	mov	r1,-(sp)
+	asl	r1
+	asl	r1
+	add	(sp)+,r1
+
+	add	r0,r1
+	sub	#'0,r1
+	movb	(r3)+,r0
+	br	260$
+
+270$:	return
+
+	.end

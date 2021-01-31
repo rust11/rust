@@ -1,0 +1,37 @@
+.title	rtgtm - get extended system time
+.include "lib:crt.mac"
+$emdef
+smini$
+cccod$
+
+;	rt_gtm : (*rtTtim) int
+;
+;	ne =>	extended date supported
+;	eq =>	extended date not supported
+
+  proc	rt.gtm
+	p1	tim,r1
+
+	psh	r1			; emt data pointer
+	mov	#-1,(r1)		; don't alter date
+	mov	(r1)+,(r1)		; don't alter time
+	psh	#emgtx$			; EMT code/subcode for .GTIMX
+	mov	sp,r0			; point to them
+	emt	^o375			; have a go
+	cmp	(sp)+,(sp)+		; dump emt area
+	mov	sp,r0			; assume FINE
+	bnew	(r1),#-1,10$		; system supports .GTIMX
+					;
+	psh	r1			; do it by hand instead
+	psh	#emgtm.*256		; EMT code
+	mov	sp,r0			;
+	emt	^o375			;
+	cmp	(sp)+,(sp)+		;
+	.date				;
+	mov	r0,-(r1)		;
+	clr	6(r1)			;
+	clr	r0			; .GTIMX not supported
+10$:	end
+
+.end
+

@@ -1,0 +1,27 @@
+.title	rthtz - get RT-11 clock rate (hertz)
+.include "lib:crt.mac"
+$cndef
+$emdef
+$rmdef
+$rtdef
+smini$
+
+ccdat$
+r$thtz::.word	0
+r$tgvl:	.word	emgvl.*256.,rm.cfg
+cccod$
+
+  proc	rt.htz
+	mov	r$thtz,r0		; get the ticks per second
+	bne	20$			;
+	mov	#r$tgvl,r0		; .gtval
+	emt	^o375			; no error possible
+	mov	#50.,r1			; assume 50
+	bpsw	#cn50h$,r0,10$		; right
+	mov	#60.,r1			; wrong
+10$:	mov	r1,r$thtz		; cache it
+	mov	r1,r0			;
+20$:	end
+
+.end
+

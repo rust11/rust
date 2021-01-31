@@ -1,0 +1,188 @@
+;	allocate stdin/stdout file blocks
+.title	fiopn - fi_opn - open file
+.include "lib:crt.mac"
+$didef
+$dsdef
+$emdef
+fbdef$
+smini$
+fidef$
+
+;	See fidat.mac
+;
+;	io.rea	io.wri	blocks
+;	fi_rea	fi_wri	sections
+;	fi.get	fi.put	lines
+;	fi.gch	fi.pch	characters
+
+code	fi_opn (*char, *char, *char) *FILE
+
+;	"r"	read/write - existing file
+;	"+"	permit writes
+;	"w"	write - new file
+;	"b"	binary (not text)
+;	"a"	append - not implemented
+;
+;	"p"	physical i/o guard. required to write non-file opens.
+;	"m"	manual open -- just allocate file block
+;
+; ???	"u"	unix text file
+; ???	"t"	temp file
+;
+;	0..13.	Ordinary file channels
+;	14.	Delete, rename etc
+;	15.	Overlays
+;
+;	o  The file ACP calls are non-reentrant (static variables)
+;	o  Temp file: fi_opn ("...", "w", ...) then clear fbNEW$
+
+ccstr$
+f$ichn:	.asciz	/F-No channel available [%s]/
+f$iloo:	.byte	emloo.,1
+	.asciz	/E-Error opening file [%s]/
+f$ient:	.byte	ement.,1
+	.asciz	/E-Error creating file [%s]/
+ccdat$
+f$iext:	.word	f$iopn			; extension block pointer
+f$ierr:	.byte	0			; error code
+	.byte	0			; flags
+	.word	0			; unused
+	.word	0			; sequence
+	.word	0			; allocation
+
+f$iopn::.byte	0			; error code
+	.byte	0			; unused
+	.word	f$ispc			; file spec
+f$iseq:	.word	0			; sequence number
+f$ialc:	.word	0			; file allocation
+
+cccod$
+code	fi.opn (spc:*char, mod*char, msg:*char) *FILE
+
+	stack	ret,p1,p2,p3,p4
+fx.opn::mov	sp.p4(sp),r0		; extension block 
+	br	fi$opn			;
+
+fi.opn::mov	#f$ierr,r0		; create extension block [sic]
+	fall	fi$opn			;
+local
+  proc	fi$opn	<r2,r3,r4>
+	p1	spc
+	p2	mod
+	p3	msg
+	p4	ext			; fx_opn only
+
+;	r0 -> extension block
+
+	mov	r0,f$iext		; extension block pointer
+	clrb	(r0)			; zap error code
+	cmp	(r0)+,(r0)+		; skip first two
+	mov	(r0)+,f$iseq		; sequence 
+	mov	(r0)+,f$ialc		; allocation
+
+;	Setup exit handler to close and flush files
+
+	bnew	f$iexi,5$		; exit already set up
+	mov	c$cexi,f$iexi		; get the chain
+	mov	#fi$exi,c$cexi		; link us up front
+
+;	Find an available channel or mint a new one
+;	Fatal error if no channel available
+
+5$:	clr	r3			; channel
+	mov	#f$imap,r2		; get the map
+10$:	cmp	r3,#14.			; any more?
+	blo	15$			; yep
+	call	im.rep #f$ichn,spc(sp)	; nope - F-Insufficient channels
+	clr	r0			; shouldn't return
+	br	120$			;
+15$:	mov	(r2)+,r4		; allocated?
+	beq	20$			; nope - grab it
+	assume	fbOPN$ eq 128.		;
+	bplb	(r4),30$		; it was available
+	inc	r3			; next channel
+	br	10$			; try again
+20$:	call	me.alc	#fb.bbs		; get a fileblock
+	mov	r0,-(r2)		; record it in f$imap
+	mov	r0,r4			; our working copy
+30$:	call	me.clr r4,#fb.bbs	; clear it
+	movb	r3,fb.chn(r4)		; setup the channel
+
+;	Translate mode: "rwabp+"
+;
+;	r	open old file	  implicit unless "w"
+;	w	open new file	  +fiNEW$ -fbRON$
+;	b	binary else text  +fiBIN$
+;	p(sic)	physical access	  +fbPHY$
+;	+	permit writes	          -fbRON$
+;	a	append mode	  not implemented
+;	m	manual		  just allocate file block
+
+40$:	mov	#f$iloo,r1		; assume lookup
+	bis	#fbRON$,(r4)		; assume read-only
+	mov	mod(sp),r2		; get the mode string
+50$:	beqb	(r2),70$		; end of modes
+	clr	r0			;
+	beqb	(r2),#'+,55$		; explicit write
+	assume	fbPHY$ eq 4		;
+	assume	fbBIN$ eq 2		;
+	assume	fbNEW$ eq 1		;
+	mov	#fbPHY$,r0		; start with physical
+	beqb	(r2),#'p,60$		; physical
+	asr	r0			;
+	beqb	(r2),#'b,60$		; binary
+	asr	r0			;
+	beqb	(r2),#'m,115$		; manual fb allocate
+	bneb	(r2),#'w,65$		; not write
+	mov	#f$iseq,r1		; get extension block
+	psh	(r1)+			; swap EXT order for .enter
+	mov	(r1),-(r1)		; from: seq, alc
+	pop	2(r1)			; to:   alc, seq
+	mov	#f$ient,r1		; new files use .enter
+55$:	bic	#fbRON$,(r4)		; clear read-only
+60$:	bis	r0,(r4)			; setup mode
+65$:	inc	r2			;
+	br	50$			; look for more
+
+70$:	call	fi$opr r4,spc(sp),msg(sp),r1,#f$iopn
+	bnew	r0,80$			; okay
+	movb	fb.err(r4),@f$iext	; return error code
+	movb	fb.err(r4),f$iopn	; default location
+	clrb	(r4)			; stuffed - free the file block
+	br	120$			; r0 = 0
+					;
+					; fb.len = file length
+					; fb.drv = driver address
+80$:	bis	#fbOPN$,(r4)		; we have a file
+	assume	dsrta$ eq <^o100000>	;
+	bmiw	f$idst,90$		; it's file structured
+	bis	#fbSEQ$,(r4)		; sequential device
+	br	100$			;
+					;
+90$:	bnew	f$ispc+2,110$		; it has a filename
+	bpsw	#fbPHY$,(r4),100$	; it's explicit physical write
+	bis	#fbRON$,(r4)		; it ain't - read-only
+100$:	mov	#-1,fb.len(r4)		; non-file have maximum length
+	mov	#-1,fb.ebl(r4)		; twice
+110$:	call	st.dup spc(sp)		; clone the file spec
+	mov	r0,fb.spc(r4)		; remember it
+	call	bs$opn			; open block stream
+115$:	mov	r4,r0			; result is file block address
+120$:	end
+
+.end
+;	a	Append not implemented.
+;	r RON$+	Sets RON$
+;	+ RON$-	Clears RON$.
+;	w NEW$+ New file (.enter) else existing (.lookup)
+;	b BIN$+	Binary get/put processing else text
+;	p PHY$+	Non-standard "p" mode acts as a guard on non-standard
+;		physical write access to a file-structured device.
+;		PHY$ used only during fi_opn(). Flag may be removed.
+;	  RON$	Set if "p" is missing in case above.
+;
+;	  WRI$	.CLOSE if WRI$ & NEW$. Else .PURGE.
+;	  TMP$	Not required - NEW$ is cleared and channel is purged.
+;	  SEQ$	Set if SPECL$ and FILST$ are both clear.
+;
+;	  MAN$	Manual control. fb.man -> dispatcher (see ccfmt.mac)

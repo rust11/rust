@@ -1,0 +1,78 @@
+.title	sscanf	Formatted input conversion
+.ident	/000003/
+.include "lib:crt.mac"
+fbdef$
+smini$
+;+
+;
+; Index		Formatted input conversion
+;
+; Usage
+;
+;	sscanf(buf, fmt, pointer(s))
+;	char		*buf;	/* Output buffer	*/
+;	char		*fmt;	/* Format string	*/
+;
+; Description
+;
+;	sscanf() parses the input string, in buf, according to the indicated
+;	format descriptor, storing the results in the pointer arguments.
+;	It returns the number of successfully assigned input items.
+;
+;	See the description of scanf() for further documentation.
+;
+; Diagnostics
+;
+;	Sscanf() returns -1 if the end of the input string was detected
+;	and no data was stored.  It returns -2 if a palpably
+;	incorrect format, such as "%" is encountered.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 02-Jul-82 MM		Split out from scanf.
+; 000002 03-Aug-82 MM		.doscan -> $$scan
+; 000003 19-Jan-02 BQT		Changed for I/D space.
+;
+	.psect	c$code,i,ro
+
+sscanf::
+	jsr	r5,csv$			; Link routines
+	clr	-(sp)			; fb.cnt
+	psh	c$pmtr(r5)		; fb.ptr - pointer
+	psh	#100$			; fb.man - manual control routine
+	clr	-(sp)			; fb.chn
+	psh	#fbOPN$!fbSEQ$!fbMAN$	; fb.flg - manual control file
+	mov	sp,r4			; file block
+	mov	r4,-(sp)		; _doprnt arg block, fildes
+					;
+	mov	#C$PMTR+4,-(sp)		; arg offset
+	add	r5,(sp)			; -> args
+	mov	C$PMTR+2(r5),-(sp)	; format
+	call	$$scan			; do it				;02
+	jmp	cret$			; and exit
+
+100$:	stack	ret,fil,opr		;
+	bneb	sp.opr(sp),#fbUNG.,110$	; not unget
+	bmiw	(r4),120$		; got EOF
+	beqw	fb.cnt(r4),120$		; nothing to unget
+	dec	fb.cnt(r4)
+	dec	fb.ptr(r4)		;
+	br	130$			;
+					;
+110$:	cmpb	sp.opr(sp),#fbGET.	; this a get?
+	bne	120$			; nope
+	movb	@fb.ptr(r4),r0		; yep
+	beq	120$			; EOF
+	inc	fb.ptr(r4)		;
+	inc	fb.cnt(r4)		;
+	br	130$			;
+
+120$:	mov	#EOF,r0			; EOF
+	bis	#fbEOF$,(r4)		; set EOF
+130$:	return
+
+	.end
+

@@ -1,0 +1,27 @@
+.title	fiput - put line (and cc puts)
+.include "lib:crt.mac"
+$aldef
+smini$
+
+  proc	puts
+	p1	buf
+	call	fi.put stdout,buf(sp)
+  end
+
+code	fi_put - write line to file
+
+  proc	fi.put	<r2,r3,r4>
+	p1	fil,r4
+	p2	buf,r2
+10$:	movb	(r2)+,r3		; get the next
+	bne	20$			;
+	movb	#lf.,r3			;
+20$:	bneb	r3,#cr.,30$		; not cr/lf pair
+	beqb	(r2),#lf.,10$		;
+30$:	mov	r3,r0			;
+	call	fi$pch			; write it
+40$:	bneb	r3,#lf.,10$		;
+	end
+
+.end
+

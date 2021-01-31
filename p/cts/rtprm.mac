@@ -1,0 +1,45 @@
+.title	rt_prm - RT-11 prompt for command
+.include "lib:crt.mac"
+$emdef
+$jbdef
+$jsdef
+$rtdef
+smini$
+
+code	rt_prm (*prm, *lin, flg) : int
+
+;	rtGLN_ := 1	; past @file [ctrl/c]	jsw |= jsgln$
+;	rtTER_ := 2	; from terminal		.gtlin ..#3...
+
+;	bis	#jsgln$,jsw for rtGLN_
+;	psh	#linbuf
+;	psh	#1 or 3 for rtTER_
+;	psh	#prompt
+;	clr	-(sp)
+;	emt	345
+
+map	rtGLN$,,1
+map	rtTER$,,2
+
+  proc	rt.prm
+	p1	prm
+	p2	lin
+	p3	flg
+	psh	lin(sp)
+	psh	flg+2(sp)
+	bpcw	#rtGLN$,(sp),10$
+	bis	#jsgtl$,@#j$bjsw
+10$:	bis	#1,(sp)			; indicate .GTLIN
+	psh	prm+4(sp)		;
+	mov	(sp),r1			; terminate prompt
+20$:	bneb	(r1)+,20$		; must be found
+	movb	#128.,-(r1)		; inhibit newline
+	clr	-(sp)			;
+	emt	^o345			; .gtlin ...
+;	r0 = 0 if line was too long
+	bic	#jsgtl$,@#j$bjsw	; turn that off
+	clrb	(r1)			; restore terminator
+  end
+
+.end
+

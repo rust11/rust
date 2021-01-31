@@ -1,0 +1,35 @@
+.title	firep - report file messages
+.include "lib:crt.mac"
+fbdef$
+smini$
+
+code	fi_rep (fil:*FILE, msg:*char, def:*char) void
+
+  proc	fi.rep	
+	p1	fil,r0
+	p2	msg
+	p3	def
+	call	fi$rep msg(sp),fb.spc(r0),def(sp)
+  end
+
+code	fi$rep (msg:*char, spc:*char, def:*char) void
+
+;	Report file messages
+;
+;	1. msg eq <> => display nothing
+;	2  msg eq "" => display default message DEF
+;	3. else		display user MSG
+
+  proc	fi$rep
+	p1	msg			; user message
+	p2	spc			; message object
+	p3	def			; default message
+	mov	msg(sp),r1		; get the message
+	beq	20$			; they don't want one
+	bneb	(r1),10$		; they roll their own
+	mov	def(sp),r1		; use the default
+10$:	call	im.rep r1, spc(sp)	; report via usual channels
+20$:	end
+
+.end
+

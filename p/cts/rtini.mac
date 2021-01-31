@@ -1,0 +1,531 @@
+;+++;	RTINI - support " := " and 
+fmt$c=1
+dbg$c=0
+.title	rtini - scan initialisation file
+.include "lib:rust.mac"
+$aldef
+indef$
+.iif ndf inc$c, inc$c=0
+
+;	%build
+;	macro cts:ini/obj:ctb:
+;	link ctb:ini/exe:ctb:
+;	%end
+;
+;	auto:=0
+;	verbose[off]=off
+;	clock[50.,60.,0]=auto
+;	terminal[csr][vector]=auto,auto
+;
+;	[boot]
+;	verbose=on
+;	nomap=sys
+;	nocheck=clock
+;	clock=50
+;	startup=sy:rust.com
+;	sy=sy:hdv.sys
+;	slots=15
+;	;bg_limit=n
+;	;bg_top=n
+;	;xm_limit=n
+;	;terminal=177500,300
+;	;noinstall=ld
+;	;autoinstall=on
+;	;load=db
+;	;noload=
+;	[startup]
+
+.if ne dbg$c
+start:	inc	i$ndbg
+	mov	#c$uspc,r0
+	call	in$opn
+	bcs	30$
+	mov	#c$usec,r0
+	call	in$sec
+	bcs	40$	
+	inc	i$nvrb
+	mov	#i$dtab,r0
+	call	in$int
+	br	20$
+10$:	call	in$def
+	bcs	20$
+	.print
+	br	10$
+20$:	.exit
+30$:	.print	#c$ufnf
+	.exit
+40$:	.print	#c$uhdr
+	.exit
+
+c$ufnf:	.asciz	/?INI-E-File not found/
+c$uhdr:	.asciz	/?INI-E-Header not found/
+	.even
+c$uspc:	.rad50	/sy rust  ini/
+c$usec:	.asciz	/[boot]/
+	.even
+
+i$dvrb:	.word	0
+i$dter:	.word	0,0 ;177560,60
+i$dclk:	.word	0
+i$dsy:	.rad50	/   / ;/sy /
+i$dsta:	.rad50	/            /;/sy rust  com/
+
+i$dtab:
+initm$	i$dsta	spc startup
+initm$	i$dvrb	boo verbose
+initm$	i$dter	csr terminal
+initm$	i$dsy	r50 sy
+initm$	i$dclk	dec clock
+inend$
+
+.endc
+.sbttl	.INI interpreter
+
+;	Table interpreter
+;
+;	r0 ->	table
+;
+;	r5 ->	line
+;	(sp)->	table
+;	r4 ->	item
+;	r3 ->	data
+;
+;	User data area can't be left corrupt, so:
+;
+;	o  Each item is parsed
+;	o  Data is stored in a temporary area
+;	o  Any error aborts the line 
+;	o  Data is copied to the user area on success
+
+i$nvrb::.word	0			; verbose
+i$ndbg::.word	0			; debug
+i$nmut::.word	0			; mute - no messages
+i$nwar:	.word	0			; warnings count
+					;
+i$nsec:	.word	0			; in-section flag
+i$nnxt:	.word	0			; stack context of line loop
+i$ndat:	.word	0			; -> user data
+i$ntmp:	.blkb	32.			; temporary data
+i$ndef:	.word	0			; current definition
+.if ne fmt$c
+i$nrec:	.word	0			; record byte counter
+i$nfmt:	.word	0			; RSX formatted file
+.endc
+
+map	inchn.,,14.
+meta	<inerr$	s><jmp	in$err>
+
+	stack	ret,ini			; C entry point
+rt.ini::mov	sp.ini(sp),r0		; get init table
+	fall	in$int			; and join common code
+
+	.enabl	lsb
+in$int::pshs	<r5,r4,r3,r2>
+	psh	r0			; save table address
+	psh	r0			; twice
+	stack	cur,tab,r2,r3,r4,r5	;
+	mov	#in$her,i$nerr		; setup error routine
+	clr	i$nwar			; count warnings
+	mov	sp,i$nnxt		; line stack
+	beqw	i$nsec,20$		; actually, not in a section
+in$nxt:	mov	i$nnxt,sp		; reset context
+	call	in$def			; get a line
+	bcs	30$			; end of section
+	mov	r0,i$ndef		; for errors
+	mov	sp.tab(sp),(sp)		; reset list
+	mov	sp.tab(sp),(sp)		; reset list
+	beqw	i$nvrb,10$		; not verbose
+	.print				; display line
+10$:	mov	i$ndef,r5		;
+	mov	(sp),r4			; r4 -> next item
+	mov	(r4)+,r0		; length
+	beq	in$err			; definition not found
+	add	r0,(sp)			; next item
+	mov	(r4)+,i$ndat		; where the result goes
+	mov	#i$ntmp,r3		; r3 -> output (temp)
+	mov	(r4)+,r2		; r2 = type
+	mov	r4,r0			; r4 -> "item"
+	call	in$scn			; scan "item="
+	bcs	10$			; not this item
+	bneb	(r5)+,#'=,10$		; really not
+	psh	#in$eol			; conclude with eol checking
+	add	r2,pc			; dispatch
+	br	in$boo
+	br	in$oct
+	br	in$dec
+	br	in$r50
+	br	in$spc
+	br	in$str
+	br	in$csr
+20$:	.print	#i$nnsc			; not in a section
+	cmp	(pc)+,pc		; set carry
+30$:	clc				; no big deal
+in$exi:	mov	i$nnxt,sp		;*restore context
+	bit	(sp)+,(sp)+		;*
+	pops	<r2,r3,r4,r5>		;*
+	mov	i$nwar,r0		;*return warnings
+	return				;*
+	.dsabl	lsb
+
+in$scn:	mov	r5,r1			; line
+10$:	beqb	(r0),20$		; found it
+	beqb	(r0)+,(r1)+,10$		;
+	br	30$			; missed
+20$:	mov	r1,r5			; gobble string
+	tst	(pc)+			; found
+30$:	sec
+	return
+
+in$eol:	bneb	(r5),in$err		; didn't parse all the line
+	mov	#i$ntmp,r0		; get temporary area
+	mov	i$ndat,r1		; result
+10$:	beqw	r0,r3,in$nxt		; all done
+	movb	(r0)+,(r1)+		; store 
+	br	10$			;
+
+in$her:	psh	r0
+	.print	#i$niox			;
+	pop	r0
+	sec
+	br	in$exi
+
+in$err:	.print	#i$ninv
+	mov	i$ndef,r1
+10$:	bnew	r1,r5,20$		; this where the error was?
+	.ttyout	#'^			; say where
+20$:	.ttyout	(r1)+
+	bneb	(r1),10$
+	.print	#i$nrsb
+	br	in$nxt
+
+in$csr:	call	in$oct			; get CSR
+	beqb	(r5),10$		; csr only
+	bneb	(r5),#comma.,10$	; got comma?
+	inc	r5			; skip it
+	call	in$oct			;
+10$:	return
+
+in$r50:	mov	#ip$r50,r2
+	br	in$cvt
+in$dec:	mov	#ip$dec,r2
+	br	in$cvt
+in$oct:	mov	#ip$oct,r2
+in$cvt:	mov	r5,r0
+	call	(r2)
+	mov	r0,r5
+	mov	r1,(r3)+
+	return
+
+;	r5 ->	input 
+;	r3 ->	output
+	
+in$str:	mov	#inMXS.-1.,r1		; maximum string
+10$:	dec	r1			; got more space?
+	bmi	20$			; nope
+	movb	(r5)+,(r3)+		; store another
+	bne	10$			; more
+	dec	r5			; backup for test
+20$:	clrb	(r3)			; terminate
+	return
+
+in$spc:	mov	i$ndat,r0		; copy user defaults
+	mov	r3,r1			;
+	mov	(r0)+,(r1)+		;
+	mov	(r0)+,(r1)+		;
+	mov	(r0)+,(r1)+		;
+	mov	(r0)+,(r1)+		;
+	mov	r5,r0			; prepare for conversion
+	mov	r3,r1			;
+	call	ip$spc			;
+	bcs	in$err			; oops
+	mov	r0,r5			;
+	mov	r1,r3			;
+	return
+
+in$boo:	clr	r2			; "on", "off"
+	mov	#30$,r0			; check for on
+	call	in$scn			;
+	bcc	10$			; fine
+	inc	r2			;
+	mov	#40$,r0			; check on
+	call	in$scn			;
+	bcs	20$			;
+10$:	movb	r2,(r3)+		; alters only low byte
+	tst	(pc)+			;
+20$:	sec
+	return
+30$:	.asciz	/off/
+40$:	.asciz	/on/
+	.even
+
+i$nnsc:	.asciz	|?INI-W-Not in a section|
+i$niox:	.asciz	|?INI-E-Definition file I/O error|
+i$ninv:	.ascii	|?INI-W-Invalid definition [|<200>
+i$nrsb:	.asciz	|]|
+	.even
+.sbttl	access routines
+
+in$sec::psh	r1
+	mov	r0,r1			; section name
+	clr	i$nsec			; not in a section
+10$:	call	in$hdr			; look for section header
+	bcs	20$			; are no more
+	call	in$cmp			; scan line
+	bcs	10$			; different
+	inc	i$nsec			; in a section
+	tst	(pc)+			; found section
+20$:	sec				;
+	pop	r1			;
+	return				;
+
+in$hdr:	tst	(pc)+			; want section header
+in$def:	sec				; want definition
+	pshs	<r3,r2,r1>		;
+	ror	-(sp)			;
+	stack	flg,r1,r2		;
+5$:	mov	#i$nlin,r1		; line buffer
+	clr	r3			; count characters
+10$:	clrb	(r1)			;
+	call	in$get			; get a character
+	bcs	50$			; eof
+	beqb	r0,#lf.,20$		; endable?
+	beqb	r0,#semi.,15$		; comment
+	beqb	r0,#xclam.,15$		; comment
+	beqb	r0,#lf.,20$		; endable
+	beqb	r0,#cr.,10$		; skippable?
+	beqb	r0,#ht.,10$		; tab
+	beqb	r0,#ff.,10$		; formfeed
+	beqb	r0,#sp.,10$		; space
+	beqw	r3,#79.,10$		; line too long
+	inc	r3			;
+	movb	r0,(r1)+		; store it
+	br	10$			;
+					;
+15$:	call	in$get			; skip comment
+	bcs	50$			; eof
+	bneb	r0,#lf.,15$		; more
+
+20$:	mov	#i$nlin,r0		; return it
+	beqb	(r0),5$			; empty line
+	beqw	i$ndbg,25$		; not debug
+	.print				; display line
+					;
+25$:	bmiw	(sp),30$		; want text line
+	bneb	(r0),#'[,10$		; want section, not section
+	br	40$			; got section
+30$:	beqb	(r0),#'[,50$		; want text, end of section
+40$:	tst	(pc)+			; fine
+50$:	sec				;
+	inc	(sp)+			;
+	pops	<r1,r2,r3>		;
+	return
+
+in$cmp:	psh	r1
+10$:	beqb	(r0),20$		;
+	beqb	(r0)+,(r1)+,10$		;
+	sec				;
+20$:	pop	r1			;
+	return
+
+i$nlin:	.blkb	80.			; line
+.sbttl	stream input 
+
+;	r0 ->	ini file spec
+;
+;	c=0	fine
+;	c=1	file not found
+
+in$opn::clr	i$nblk			; zap
+	clr	i$ncnt			;
+	psh	r0			; save file spec
+	.purge	#inchn.			;
+	.lookup	#i$niob,#inchn.,(sp)+	; open file
+	mov	r0,i$nlen		; file length
+	return
+
+.if ne fmt$c
+in$get:	beqw	i$nfmt,in$gtb		; not formatted
+	bplw	i$nrec,10$		; not past end-of-record
+	bit	#1,i$nrec		; odd byte?
+	bne	in$get			; yes - even up
+	call	in$gtb			; end of record - get next count
+	movb	r0,i$nrec		;
+	call	in$gtb			; get padding byte
+;	bneb	r0,...			; could do sanity check...
+	br	in$get			; now get first character of record
+10$:	bne	20$			; not last in record
+	movb	#lf.,r0			; terminate record
+	br	40$			;
+20$:	call	in$gtb			; get the character
+30$:	dec	i$nrec			;
+40$:	return
+
+.iff
+in$get:
+.endc
+in$gtb:	bnew	i$ncnt,10$		; more in buffer
+	beqw	i$nblk,i$nlen,20$	; end of file
+	.readw	#i$niob,#inchn.,#i$nbuf,#256.,i$nblk
+	bcs	30$			; i/o error
+	beqw	r0,20$			; end of file
+	inc	i$nblk			; next block next time
+	mov	#i$nbuf,i$npnt		;
+	mov	#512.,i$ncnt		;
+.if ne fmt$c
+	asr	#1			; first?
+	bneb	i$nbuf+1,10$		; null upper byte?
+	clr	r0			;
+	bisb	i$nbuf,r0		;
+	beqb	i$nbuf+2+1(r0),#-1,5$	;
+	bneb	i$nbuf+2+1(r0),10$	; another null byte?
+5$:	inc	i$nfmt			; it's formatted
+	mov	#-1,i$nrec		; next record
+	br	in$get			; start over
+.endc
+10$:	movb	@i$npnt,r0		;
+	inc	i$npnt			;
+	dec	i$ncnt			;
+	tst	(pc)+			;
+20$:	sec				;
+	return
+30$:	jmp	@i$nerr			; they handle it
+
+i$nerr:	.word	0			; error routine pointer
+i$nblk:	.word	0			; block
+i$ncnt:	.word	0			; counter
+i$npnt:	.word	0			; pointer
+i$nbuf:	.blkw	256.			; buffer
+i$niob:	.blkw	5			; i/o block
+i$nlen:	.word	0			; file length
+.sbttl	input file spec
+
+;	r0 ->	input stream
+;	r1 ->	output block with defaults
+;
+;	c=0	filename present
+;	r0 ->	past string
+;	r1 ->	past output block
+;
+;	c=1	no spec found, nothing altered
+
+ip$spc:	pshs	<r2,r1>		;
+	stack	r1,r2		;
+	mov	r1,r2		; r2 -> output area
+	call	50$		; get the name
+	bcs	30$		; nothing found - dont accept null spec
+	bneb	(r0),#':,10$	; no colon
+	mov	(r2),-(r2)	; move in the device
+	call	40$		; now get the name
+10$:	call	50$		; get the second half
+	bneb	(r0),#'.,20$	; no dot
+	call	40$		; get the type
+	assume	sp.r1 eq 0	;
+20$:	add	#8.,(sp)	; skip entire spec for success
+	tst	(pc)+		; we got something
+30$:	sec			; nothing there
+	pops	<r1,r2>		; restore these
+	return
+
+40$:	inc	r0		; skip colon or dot
+50$:	tst	(r2)+		; next word
+	call	ip$r50		; get the word
+	mov	r1,(r2)		; store it
+	return
+.sbttl	input rad50
+
+;	r0 ->	input stream
+;
+;	c=0
+;	r0 ->	input ascii stream (popped past)
+;	r1 =	output word
+;
+;	c=1	no value found
+;	r1	0
+;
+;	Converts usual cases plus %, *, $ and _
+
+ip$r50:	pshs	<r5,r4,r3,r2>	; save them
+	clr	r1		; assemble word here
+	clr	r5		; count digits
+	mov	#3,r3		; get a counter
+10$:	asl	r1		; multiply by 40
+	asl	r1		;
+	asl	r1		; 
+	psh	r1		; * 8
+	asl	r1		;
+	asl	r1		; * 32
+	add	(sp)+,r1	; * 40
+	mov	#50$,r2		; get the states list
+20$:	movb	(r2)+,r4	; get the next offset
+	beq	30$		; forget it
+	bpl	20$		; skip range parameters
+	bhib	(r2)+,(r0),20$	; too low
+	blob	(r2)+,(r0),20$	; too high
+	inc	r5		; count digit
+	add	r4,r1		; add in the offset
+	movb	(r0)+,r4	; accept the character
+	add	r4,r1		; add in the character
+30$:	sobw	r3,10$		; count them
+	bneb	r5,40$		; got something
+	sec			; got nothing
+40$:	pops	<r2,r3,r4,r5>	; restore these
+	return
+
+50$:	.byte	-11,'%,'%,-15,'*,'*,-137,'_,'_,-11,'$,'$
+60$:	.byte	-22,'0,'9,-100,'A,'Z,-140,'a,'z,0
+	.even
+.sbttl	input octal/decimal
+
+;	r0 ->	input stream
+;
+;	c=0
+;	r0 ->	input ascii stream (popped past)
+;	r1 =	output value
+;
+;	c=1	no number
+;	r1	zero
+;
+;	-ddddd.
+
+ip$oct:	tst	(pc)+		; octal
+ip$dec:	sec			;
+	pshs	<r5,r4,r3,r2,r0>; save
+	stack	r0,r2,r3,r4,r5	;
+	mov	#7.,r5		; assume octal
+	bcc	10$		; fine
+	cmpb	(r5)+,(r5)+	; decimal
+	assume	sp.r0 eq 0	;
+10$:	mov	(sp),r0		; try again
+	movb	r5,r5		; zap flags
+	clr	r1		; no value yet
+20$:	bneb	(r0),#'-,30$	; negative?
+	bis	#40000,r5	; remember it's negative
+	inc	r0		; skip it
+30$:	movb	(r0),r4		; get the next digit
+	sub	#'0,r4		; make a number
+	bhib	r4,r5,50$	; not one of our digits
+	inc	r0		; skip the digit
+	bis	#100000,r5	; remember digit seen
+	movb	r5,r3		; multiplier
+	mov	r1,r2		; get a copy
+40$:	add	r2,r1		; multiply it
+	sobw	r3,40$		; 
+	add	r4,r1		; add in the new guy
+	br	30$		;
+50$:	bneb	(r0),#'.,60$	; explicit decimal?
+	inc	r0		; assume we were decimal
+	add	#2,r5		; up to decimal if were octal
+	beqb	r5,#9.,10$	; do decimal this time
+60$:	asl	r5		; check things
+	bcc	80$		; no digits found
+	bpl	70$		; not negative
+	neg	r1		; negate the number
+	assume	sp.r0 eq 0	;
+70$:	mov	r0,(sp)		; update string
+	tst	(pc)+		; fine
+80$:	sec			; yikes
+	pops	<r0,r2,r3,r4,r5>;
+	return
+
+.iif ne dbg$c, .end start
+.iif eq inc$c, .end

@@ -1,0 +1,47 @@
+.title	rtqry - RT-11 query
+.include "lib:crt.mac"
+map	rtGLN$,,1
+smini$
+ccstr$
+r$tqry:	.asciz	/; Are you sure? /
+cccod$
+
+code	rt_qry (obj, act, qry) bool
+
+;	obj = "DL2:"		""
+;	act = "/Copy"		no default
+;	qry = "; Continue? "	"; Are you sure? "
+;
+;	DL2:/Copy; Continue? 
+;	DL2:/Copy; Are you sure? 
+
+  proc	rt.qry	<r2,r3>
+	p1	obj
+	p2	act
+	p3	qry
+	call	me.alc #84.*2		; allocate a temp buffer
+	mov	r0,r2			; r2 -> prompt
+	mov	r0,r3			;
+	add	#84.,r3			; r3 -> response
+	mov	obj(sp),r1		; got an object?
+	beq	10$			; nope
+	call	st.cop r1,r0		; start with that
+10$:	call	st.cop act(sp),r0	; action is mandatory
+	mov	qry(sp),r1		; got a question?
+	bne	20$			; yep
+	mov	#r$tqry,r1		; nope - use default
+20$:	call	st.cop r1,r0		;
+	movb	#128.,(r0)		; terminate 
+30$:	call	rt.prm	r2, r3, #rtGLN$ ; force terminal input if at ^C
+	beqb	(r3),30$		; ask again if no reply
+	movb	(r3),r3			; save response
+	call	me.dlc r2		; deallocate temp
+	mov	r3,r0			; easy non-zero
+	beqb	r0,#'y,40$		; y
+	beqb	r0,#'Y,40$		; Y
+	clr	r0			; anything else fails
+40$:
+  end
+
+.end
+

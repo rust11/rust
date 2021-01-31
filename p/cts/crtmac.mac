@@ -1,0 +1,83 @@
+;	CRTMAC.MAC - CRT.MLB
+;
+;	%build
+;	libr/macro ctb:crtmac cts:crtmac
+;	copy ctb:crtmac.mlb lib:crtmac.mlb
+;	%end
+;
+;	Some CRT.MLB macros override those in SM.MLB (See CTS:CRT.MAC)
+;
+;	CC maps "_" to "." conflicting with our standard offset pattern.
+;	FI.xxx is the only real bummer so it's renamed FB.xxx, for file block.
+;
+.macro	fbdef$
+map	fb.flg,,0		; flags 			(must be first)
+map	fb.chn	1		; channel 			(must be even)
+map	fb.err	1		; error code, if any
+map	fb.man			; manual driver
+map	fb.ptr			;
+map	fb.cnt			; also rt_rea/rt_wri result r0
+				;
+				; file:
+map	fb.spc			; file spec pointer
+map	fb.ung			; unget char/flag (was fb.dsw - device status word)
+map	fb.drv			; driver address (for release)
+map	fb.len			; file block length (or device length)
+				;
+				; end-of-file:
+map	fb.ebl			; end-of-file block
+map	fb.ebt			; end-of-file byte
+				;
+				; position:
+map	fb.blk			; current block
+map	fb.byt			; current byte 
+				;
+				; buffer:
+map	fb.buf			; buffer pointer
+map	fb.bsz			; buffer size
+map	fb.bbs			
+				
+				; open mode:
+;;;	fbTMP$			; clear fiNEW$ for temp files
+map	fbNEW$,,bit0$		; w new file (close, not purge)
+map	fbBIN$,,bit1$		; b binary i/o, otherwise text i/o
+map	fbPHY$,,bit2$		; p physical (write file-structured device)
+;3 4 5 
+map	fbRON$,,bit6$		; no-write
+map	fbOPN$,,bit7$		; file open for business	(must be bit 7)
+				; device:
+map	fbSEQ$,,bit8$		; sequential, else block-oriented
+map	fbTER$,,bit9$		; terminal - stdin or stdout
+map	fbMAN$,,bit10$		; manual control
+				; stream engine:
+map	fbWRI$,,bit11$		; file written, requires close
+map	fbFLU$,,bit12$		; buffer written, requires flush
+map	fbBUF$,,bit13$		; buffer valid
+map	fbERR$,,bit14$		; some error
+map	fbEOF$,,bit15$		; EOF				(must be bit 15)
+map	EOF,,-1			; EOF constant
+	assume	fb.flg eq 0
+	assume	<fb.chn&1> eq 0
+	assume	fbOPN$ eq bit7$
+	assume	fbEOF$ eq bit15$
+
+;	manual control
+;
+;	  func	mn_xxx		0(sp)  return
+;		fil : * FILE	2(sp) r4 -> file
+;		opr : int	4(sp)	
+;		P1  : word	6(sp) r0 = p1
+;		P2  : word	8(sp) r1 = p2
+;		...
+;
+map	fbGET.,,1 ;out r0=byte	; get 
+map	fbPUT.,,2 ;in  p1=byte	; put 
+map	fbOPN.,,3 ;    p1=*ext	; open (not called yet)
+map	fbCLO.,,4 ;in  p1=*ext	; close
+map	fbSEE.,,5 ;in  p1/p2=pos; seek
+map	fbPOS.,,6 ;out r0/r1=pos; position
+map	fbFLU.,,7 ;		; flush
+map	fbUNG.,,8.;		; unget
+				;
+map	fbCHN.,,14.		; channel reserver for internal operations
+.endm

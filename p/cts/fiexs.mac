@@ -1,0 +1,27 @@
+.title	fiexs - check file exists
+.include "lib:crt.mac"
+$emdef
+smini$
+
+ccstr$
+mod:	.asciz	/r/
+def:	.asciz	/E-File missing [%s]/
+	.even
+cccod$
+
+code	fi_exs (spc:*char, msg:*char) int
+
+  proc	fi.exs
+	p1	spc
+	p2	msg
+	call	fi.opn	spc(sp),#mod,#0
+	beqw	r0,10$
+	call	fi.clo	r0,#0	; file exists
+	mov	#1,r0		; fine
+	br	20$
+10$:	call	fi$rep	msg(sp),spc(sp),#def
+	clr	r0		; file missing, fail
+20$:
+  end
+
+.end

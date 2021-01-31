@@ -1,0 +1,23 @@
+.title	rttin - rt-11 terminal input
+.include "lib:crt.mac"
+$jbdef
+$jsdef
+smini$
+
+  proc	rt.tin	<r2,r3>
+	p1	wai,r1			; wait flag
+	p2	mod,r2			; special mode
+	mov	@#j$bjsw,r3		; save that
+	bic	#jstts$,@#j$bjsw	;
+	beqw	p2(sp),10$		; not special mode
+	bis	#jstts$,@#j$bjsw	; wants special mode
+10$:	.ttinr				; get a character
+	bcc	20$			; fine
+	bnew	wai(sp),10$		; wait for it
+	clr	r0			;
+20$:	mov	r3,@#j$bjsw		; restore jsw
+
+  end
+
+.end
+

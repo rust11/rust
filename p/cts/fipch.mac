@@ -1,0 +1,40 @@
+.title	fipch - put character to file (and cc putc)
+.include "lib:crt.mac"
+$aldef
+$jbdef
+$jsdef
+fbdef$
+smini$
+
+putc::
+fi.ptb::
+  proc	fi.pch	<r4>
+	p1	fil,r4
+	p2	cha,r0
+	call	fi$pch
+  end
+
+;	r4 ->	file
+;	r0 =	character
+
+$$putc::psh	r1			; called by $$prtf
+	psh	r0			;
+	call	fi$pch			;
+	pop	r0			;
+	pop	r1			;
+	return
+
+fi$pch::bpsw	#fbBIN$,(r4),10$	; not sequential
+	bneb	r0,#lf.,10$		; not lf
+	mov	#cr.,r0			;
+	call	fi$pch			; write cr first
+	mov	#lf.,r0			; continue sir
+10$:	bpcw	#fbTER$,(r4),20$	; not the terminal
+	.ttyout				; some things are simple
+	br	30$			;
+20$:	call	bs$put			; write the little bugger
+30$:	return
+
+.end
+
+

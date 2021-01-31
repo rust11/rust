@@ -1,0 +1,42 @@
+.title	rtrea - issue RT-11 .read and .write requests
+.include "lib:crt.mac"
+$emdef
+$dsdef
+fbdef$
+smini$
+
+code	rt_opr (fil, blk, buf, wct, don, opr)
+code	rt_rea (fil, blk, buf, wct, don)
+code	rt_wri (fil, blk, buf, wct, don)
+
+;	opr=0	read
+;	opr=1	write
+;
+; Out	r0	0/1 fail/fine
+;	fb.cnt	R0 result
+
+rt.opr::stack	ret, fil, blk, buf, wct, don, opr
+	bnew	sp.opr(sp),rt.wri	;
+rt.rea::tst	(pc)+			;c=0
+rt.wri::sec				;c=1
+	stack	ret,fil			;
+	assume	sp.fil eq 2		;?
+	mov	sp,r0			;?
+	bit	(r0)+,r1		;? r0 -> sp.fil (sic)
+	mov	(r0),r1			;? r1 -> fil
+	mov	#8.*256.,(r0)		;? overwrite with emt code
+	adcb	1(r0)			;? adjust for .WRITE
+	movb	fb.chn(r1),(r0)		;  channel
+	emt	^o375			;
+	mov	r1,sp.fil(sp)		; restore fil
+	mov	r0,fb.cnt(r1)		; result count
+	mov	#1,r0			;
+	sbc	r0
+  	return
+
+rt.cnt::stack	ret,fil			;
+	mov	sp.fil(sp),r0		;
+	mov	fb.cnt(r0),r0		;
+	return
+
+.end

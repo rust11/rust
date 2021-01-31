@@ -1,0 +1,66 @@
+twt$c=0
+.title	rsspn - spawn RSX task with command
+.include "lib:crt.mac"
+$isdef
+smini$
+ccdat$
+l$ospn:	.byte	11.,13.	; 0 spwn$
+l$otsk:	.rad50	/mcr/	; 1
+l$onam:	.rad50	/.../	; 2
+	.blkw	3	; 3,4,5
+l$ouic:	.byte	0,0	; 6
+	.byte	1,0	; 7
+	.word	0	; 8
+	.word	l$osts	; 9
+l$ocmd:	.word	0	; 10
+l$olen:	.word	0	; 11
+	.word	0	; 12
+	.rad50	/   /	; 13
+
+l$osts:	.blkw	8.	; rqst status block
+l$odsw:	.word	0	;
+
+l$owse:	.byte	41.,2	; wtse$
+	.word	1
+
+l$oref:	.byte	37.,2		; rdef - read event flag
+	.word	1		;
+l$otwt:	.byte	0,^o24		; .twait
+	.word	10$		;
+10$:	.word	0,2		; wait two ticks
+
+
+rsAmcr::.rad50	/mcr.../	; rsAmcr : [] WORD+
+rsAdcl::.rad50	/...dcl/	; rs_spn (rsAmcr)
+cccod$
+
+  proc	rs.spn
+	p1	tsk,r1		; -> rad50 task name
+	p2	cmd,r0		; -> "cmd"
+	p3	res		; -> int RSX DSW status (optional)
+	mov	(r1)+,l$otsk	;
+	mov	(r1)+,l$onam	;
+	mov	r0,l$ocmd	;
+	call	st.len r0	;
+	mov	r0,l$olen	;
+	call	rs.emt #l$ospn, #l$odsw	; SPWN$ ...
+	beqw	r0,10$		; some error
+.if eq twt$c
+	call	rs.emt #l$owse, #l$odsw  ; WTSE$ ...
+.iff
+	beqw	r0,10$		; r0 = 0 or 1
+5$:	mov	#l$otwt,r0	;
+	emt	^o375
+	call	rs.emt #l$oref, #l$odsw  ; WTSE$ ...
+	beqw	l$odsw,#isclr.,5$
+	clr	r0		; assume some error
+	bnew	l$odsw,#isset.,20$
+	inc	r0		; success
+.endc
+10$:	mov	res(sp),r1	; want a result?
+	beq	20$		; nope
+	mov	l$osts,(r1)	; yes
+20$:
+  end
+
+.end

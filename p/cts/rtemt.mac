@@ -1,0 +1,22 @@
+.title	rtemt - rt_emt - issue RT-11 emt
+.include "lib:crt.mac"
+
+;	rt_emt (&r0, emt-code)
+;
+;	DEC CPUs let you write into the code stream. Whether more
+;	recent CPUs have got that completely right I do not know.
+;	Thus the branch to at least attempt to defeat a pipeline.
+;
+;!!!	This code will not work in an I/D configuration.
+;!!!	Some kind of .PVALI will be required. (See I/D::)
+
+	.enabl	lsb
+10$:	emt	0			; any RT-11 emt
+	jmp	em$don			; return r0 and status
+	stack	ret,r0,cod
+rt.emt::movb	sp.cod(sp),10$		; write code into pc stream
+	mov	@sp.r0(sp),r0		; supply user r0 for emt
+	br	10$			; go do it
+	.dsabl	lsb
+
+.end

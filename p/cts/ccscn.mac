@@ -1,0 +1,761 @@
+	.title	$$scan	Formatted input conversion
+	.ident	/000009/
+	.include "crs:rt11.eis"
+;+
+;
+; Index		Formatted input conversion
+;
+; Internal
+;
+; Usage
+;
+;	$$scan(fmt, args, iov)
+;	char		*fmt;	/* Format string	*/
+;	int		*arg[];	/* Arg vector		*/
+;	FILE		*iov;	/* File descriptor	*/
+;
+; Description
+;
+;	$$scan() does parsing for scanf(), etc.  See the description
+;	of scanf() for more details.
+;
+; Bugs
+;
+;	$$scan() is functionally identical to the _doscan() routine in
+;	Unix and Vax-11 C libraries.  Unfortunately, the leading '_'
+;	conflicts with RSX FCS library name conventions.
+;
+;-
+;
+; Edit history
+; 000001 19-Aug-80 MM		Initial Edit
+; 000002 18-Sep-80 MM		Fixed .psect name
+; 000003 27-Jan-82 SDR		Added floating point using FPP instructions
+; 000004 18-Mar-82 CCG		Fixed bug in %*[]
+;				Also NEVER use tst (rn)+ or -(rn) to count!!!
+; 000005 28-Apr-82 SDR		Made exponent 'e' illegal in integer strings
+; 000006 02-Jul-82 MM		Merged with Dec edits 03 (23-Aug-81) to fix
+;				whitespace bug and 04 (16-Sep-81) to fix
+;				negative int bug.  Also revised to handle
+;				separation of sscanf, etc.
+; 000007 03-Jul-82 MM		Renamed $$scan
+; 00007a 07-Jun-85 DLE		Add .psect c$data,d & c$code so I/D tasks OK
+; 00007b 09-Jun-85 DLE		Change switch in getnum:
+;				saves 2 words, is PIC, is I/Dable, is less
+;				dependent on the actual ISP of your pdp-11
+; 000008 19-Jan-87 JMC          Change .psect for I/D space.
+; 000009 15-Jan-02 BQT		Changed for I/D space.
+; 000010 28-Apr-13 IJH		Add %n support.
+.if DF BQT
+.MACRO	PRINTF	FMT,A1,A2,A3,A4,A5,A6,A7,A8,A9,?FORMAT
+	  MOV	R0,-(SP)
+	  MOV	R1,-(SP)
+$$$$$$	=	4
+.IF	NB	A9
+	  MOV	A9,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A8
+	  MOV	A8,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A7
+	  MOV	A7,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A6
+	  MOV	A6,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A5
+	  MOV	A5,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A4
+	  MOV	A4,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A3
+	  MOV	A3,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A2
+	  MOV	A2,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A1
+	  MOV	A1,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+	  MOV	#FORMAT,-(SP)
+	  MOV	STDERR,-(SP)
+	  CALL	FPRINTF
+	  ADD	#$$$$$$,SP
+	  MOV	(SP)+,R1
+	  MOV	(SP)+,R0
+	.save
+	.psect	c$stcn,d,ro
+FORMAT:	.ASCII	FMT
+	.BYTE	12,0
+	.restore
+.ENDM	PRINTF
+
+.MACRO	NOTE	TEXT,?TLOC
+	  mov	r0,-(sp)
+	  mov	#tloc,r0
+	  call	$$msg
+	  mov	(sp)+,r0
+	.save
+	.psect	c$stcn,d,ro
+tloc:	.asciz	text
+	.restore
+.ENDM	NOTE
+.endc
+	.psect	c$data,d,rw						;08
+;
+; These are made static to simplify argument passing to getnum
+; myget, and gettext
+;
+fd:	.word	0		; File descriptor
+endflg:	.word	0		; "End of input" flag
+length:	.word	0		; Current field length
+argptr:	.word	0		; Actual argument pointer
+match:	.word	0		; Number of items compiled
+chars:	.word	0		; number of characters consumed		;10
+;
+; Character class table
+;
+	.psect	c$mwcn,d,ro
+;
+ccltab:	.byte	0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0	; <TAB>, <LF>
+	.byte	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+	.byte	1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0	; <SPACE>
+	.byte	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+	.byte	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+	.byte	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+	.byte	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+	.byte	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+;
+; Warning -- the above won't handle extended (8-bit) ascii.
+;
+;
+	.psect	c$stcn,d,ro						;02,08
+err01:	.asciz	/?scanf/
+; Main routines
+;
+; Register usage within main scan loop:
+;
+;	r2	Current (format) character
+;	r3	Current argument pointer
+;	r4	Current format pointer
+;
+	.psect	c$code,i,ro
+$$scan::								;07
+	jsr	r5,csv$		; Link environments.			;06+
+	mov	C$PMTR+0(r5),r4	; R4 -> format string.
+	mov	C$PMTR+2(r5),r3	; R3 -> arguments
+	mov	C$PMTR+4(r5),fd	; store static file descriptor.
+	clr	match		; Number matched = 0
+	clr	endflg		; End of input flag = 0
+;
+; Loop through here for all format characters
+;
+loop:
+	movb	(r4)+,r2	; Next format character
+	bne	10$		; If none,
+	mov	match,r0	; return number matched
+	jmp	done		; Off to exit.
+
+10$:
+	mov	r2,r0		; What is it?
+	call	whtest		; Whitespace?
+	beq	20$		; Br if not				;06+
+	call	whskip		; Yes, skip it
+	call	backup		; unget non-white char.
+	br	loop		; Go for another
+20$:				;					;06-
+	cmpb	r2,#'%		; '%'?
+	bne	text		; no, match next character.
+; Percent seen
+;
+percnt:
+	movb	(r4)+,r2	; Get format type
+	cmpb	r2,#'%		; Explicit percent?
+	beq	text		; Yes, go for a match
+	clr	argptr		; No argument yet
+	cmpb	r2,#'*		; Supress assignment?
+	beq	10$		; Br if so,
+	mov	(r3)+,argptr	; Want this one.
+	cmpb	r2,#'N+040	; %n?					;10
+	bne	20$		; nope					;10
+	mov	chars,@argptr	; Return bytes thus far			;10
+	inc	match		;					;10
+	br	loop		; Get next %..				;10
+10$:
+	movb	(r4)+,r2	; Was '*', get next format byte
+
+20$:
+	clr	r1		; Length accumulator
+;
+; Loop to get explicit length, if any.
+;
+30$:
+	mov	r2,(sp)		; Get format byte
+	sub	#'0,(sp)	; To ascii integer value
+	blt	40$		; Exit if < '0'
+	cmp	(sp),#9.	; or if > '9'
+	bgt	40$		; Too big, exit.
+	mov	r1,r0		; Save length
+	asl	r1		; length = length * 10
+	asl	r1		;
+	add	r0,r1		;
+	asl	r1		;
+	add	(sp),r1		; length = (length * 10) + (c - '0')
+	movb	(r4)+,r2	; Get next character
+	br	30$		; and go for more length
+;
+; Got the length, if any.
+;
+40$:
+	mov	r1,length	; Store the length
+	bne	50$		; but, if it's zero,
+	mov	#32767.,length	; Store a really big length.
+;
+; Length is gotten, look at format byte
+;
+50$:
+	cmpb	r2,#'[		; Class
+	beq	ccl		; Yep
+	cmpb	r2,#'L+040	; "Long"?
+	bne	60$		; Nope
+	movb	(r4)+,r2	; Yep, get format flavor
+	cmpb	r2,#'A+040	; Is it lowercase?
+	blt	60$		; Not if it's < 'a'
+	cmpb	r2,#'Z+040	; Nor if it's > 'z'
+	bgt	60$		;
+	bic	#040,r2		; Uppercase it
+;
+; Can't be a character class
+;
+60$:
+	tst	r2		; Still going strong?
+	beq	bug		; Nope.  Just exit.
+	cmpb	r2,#'C+040	; Yep, Characters?
+	beq	istext		; Character stuff
+	cmpb	r2,#'S+040	; String?
+	beq	istext		; Character stuff
+	call	getnum		; Do a number
+	br	gotit		; Continue mainstream
+;
+; Compile character class
+;
+ccl:
+	clr	r1		; Assume "normal" class
+	clr	r0		; r0 counts characters
+	cmpb	(r4),#'^	; Inverse class?
+	bne	10$		; Br if not
+	inc	r4		; Yes, eat the '^'
+	add	#2,r1		; tst (r1)+ can cause trouble!		;04
+;
+10$:
+	jsr	pc,bisbic(r1)	; Set/clear the flag,
+	inc	r0		; counting it.
+	cmp	r0,#128.	; Still in the table?
+	blt	10$		; Keep on going, then.
+	neg	r1		; Flip the set/clear flag
+;
+; Loop through the format (until ] or end of string), updating the
+; stop table.
+;
+20$:
+	movb	(r4)+,r0	; Get the next byte
+	bic	#177600,r0	; Erase parity bit
+	cmp	r0,#']		; At the end?
+	beq	istext		; Yes, continue mainstream
+	jsr	pc,bisbic+2(r1)	; Clear/set the flag
+	tstb	-1(r4)		; True EOS (parity bit untouched)
+	bne	20$		; No, get another byte
+	dec	r4		; Yes, format -> NULL
+;
+istext:
+	call	gettxt		; Get textual stuff
+;
+gotit:
+	tst	endflg		; End of file?
+back:
+brloop:	beq	loop		; No, go for next			;10
+	mov	match,r0	; Yes, get number matched
+	bne	done		; Got something
+	dec	r0		; Nothing, return -1
+	br	done		;
+;
+; Bit set or clear routine
+;
+bisbic:	br	10$		; call bisbic+0 to set   bit 2
+	bicb	#2,ccltab(r0)	; call bisbic+2 to clear bit 2
+	return
+;
+10$:
+	bisb	#2,ccltab(r0)
+	return
+;
+;
+; Here for a text character within the format string
+;
+text:
+	call	getcha		; Get next character			;06
+	cmp	r0,r2		; Match?
+	beq	back		; Yes, continue
+	cmp	r0,#-1		; No, EOF?
+	beq	done		; Yes, return same
+	mov	match,r0	; No, return number gotten.
+;
+; Exit
+;
+done:	cmpb	(r4),#'%	; %n coming?				;10
+	bne	10$		; nope					;10
+	cmpb	1(r4),#'N+040	; %n?					;10
+	beq	brloop		; yes					;10
+10$:	jmp	cret$		; All done for now.
+;
+bug:
+	mov	#-2,r0		; Illegal format
+	br	done		; Just exit
+;
+; Whtest is called to test the byte (in r0) for whitespaceness.
+; calling sequence:
+;
+;	mov	byte,r0
+;	call	whtest
+;	bne	iswhite		; Note -- branch not equal.
+;
+; All registers preserved.  The value in r0 will be mapped into the
+; range 0..127  -- this is a problem with 8-bit ascii terminals.
+;
+whtest:
+	bic	#^C0177,r0	; Clear out the parity bit
+	bitb	#1,ccltab(r0)	; If whitespace bit is set
+	return			; return with Z-bit cleared.
+;
+; whskip skips input characters until non-whitespace appears
+;
+whskip:	call	getcha		; Get a byte				;06
+	call	whtest		; well?
+	bne	whskip		; again
+	return			; gotcha.
+;
+; Getnum is called by scanf to compile a real number
+;
+; On entrance:
+;	r2		Format type ( d o x D O X, e f E F )
+;	r2, r3, r4	Preserved
+;
+; Also static stuff
+;
+; No interesting returned value
+;
+;
+; Note: to disable Floating-point code, set MAXN = 0
+;
+
+.IIF	NDF	MAXN	MAXN	=	64.		; Longest number
+
+flags1	= C$AUTO-2	; Two flag bytes		;03+
+fflag	=	flags1	;	Float flag
+eflag	=	flags1+1;	Exponent flag
+flags2	= flags1-2	; Two more flags
+lflag	=	flags2	;	Long flag
+nflag	=	flags2+1;	Negative flag
+ndigit	= flags2-2	; Number of digits found
+hval	= ndigit-2	; High integer
+lval	= hval-2	; Low  integer
+nbrbuf	= lval-MAXN	; Number buffer
+farg	= nbrbuf-2	; Param to @funct
+			; Note: farg(r5) = (sp)
+getnum:
+	jsr	r5,csv$		; Linkage (to save registers)
+	sub	#C$AUTO-farg,sp	; Get space for local variables
+	clr	flags1(r5)	; Clear flag bits
+	clr	flags2(r5)
+	clr	hval(r5)	; Clear integer
+	clr	lval(r5)	; Buffer
+	cmpb	r2,#'A		; Uppercase
+	blt	10$		;  means
+	cmpb	r2,#'Z		;   it's
+	bgt	10$		;    long
+	incb	lflag(r5)	; Set "long result" flag
+	bis	#040,r2		; Convert to lowercase
+;
+10$:
+	cmpb	r2,#'E+040	; 'e'?
+	beq	20$		;	Yes
+	cmpb	r2,#'F+040	; 'f'?
+	beq	20$		;	Yes
+	cmpb	r2,#'G+040	; 'g'?
+	bne	30$		;	No
+;
+20$:
+.if ne	MAXN
+	incb	fflag(r5)	; Set floating point flag
+.iff
+	CRASH			; No floating point
+.endc
+;
+30$:
+	clr	r3		; r3 := jump index
+	cmpb	r2,#'X+040	; Hexidecimal
+	beq	40$		; Yes, exit
+	add	#2,r3		; tst (rn)+ can cause trouble!		;04
+	cmpb	r2,#'O+040	; Octal
+	beq	40$		; Yes, exit
+	sub	#4,r3		; No, gotta be decimal or floating
+;
+; r3 := -2/0/+2 depending on decimal/hex/octal
+; r2 is no longer needed.
+;
+40$:
+.if ne	MAXN
+	mov	r5,r4		; r4 -> number buffer
+	add	#nbrbuf,r4
+.iff
+	clr	r4		; r4 counts characters read
+.endc
+
+;
+; Skip over leading whitespace
+;
+
+50$:
+	call	whskip		; Get next non-whitespace char.
+;
+; Negative?
+;
+	cmpb	r0,#'-		; If first byte's a minus
+	bne	60$		; (nope)
+	comb	nflag(r5)	; set flag and
+.if ne	MAXN
+	movb	r0,(r4)+	; store the byte and
+.iff
+	inc	r4		; count the character and
+.endc
+	br	170$		; go for the next byte
+;
+60$:
+	cmpb	r0,#'+		; (optional) plus sign
+	bne	80$		; nope, continue
+;
+170$:
+	call	getcha		; + or -, get next byte			;06
+	dec	length		; and drop the length count
+;
+80$:
+;
+; Main number loop -- the current byte is in r0
+;
+nloop:
+	mov	r0,r1		; Save (for eof test)
+.if ne	MAXN
+	movb	r0,(r4)+	; Store the character away
+.iff
+	inc	r4		; Count the character.
+.endc
+	dec	length		; More field to do?
+	blt	nloopx		; No, field is complete
+;
+; Note: Unix stdio allows '8' and '9' in octal strings for some
+; strange reason.  We don't.
+;
+	cmpb	r0,#'0		; Is it too low?
+	blt	notdig		; Sorry
+	cmpb	r0,digtab(r3)	; Is it in range?
+	ble	10$		; Yes, ok
+;
+; We can only come here if the character is greater than the highest digit.
+;
+	tst	r3		; Are we in Hex mode?
+	bne	notdig		; Sorry
+	bic	#040,r0		; Convert 'a'..'z' to 'A'..'Z'
+	cmpb	r0,#'A		; Is it an OK alpha?
+	blt	notdig		; Sorry
+	cmpb	r0,#'F		; Is it really a hex alpha?
+	bgt	notdig		; Nope.
+	sub	#'A-<'9+1>,r0	; Fix up the range ('A' follows '9')		
+;
+10$:
+	sub	#'0,r0		; R0 has binary value of the digit.
+;
+; Process the new digit
+;
+	inc	ndigit(r5)	; Count that it's gotten
+	mov	#3,r1		; Prime for octal
+
+									;7b+
+;	jmp	@20$(r3)	; Off to the races
+;	.word	30$		; Multiply by 10
+;20$:	.word	40$		; Multiply by 16
+;	.word	50$		; Multiply by 8
+	tst	r3
+	bpl	50$
+	beq	40$
+									;7b-
+
+;
+; Decimal multiply (a bit of a hack)
+;
+
+;30$:									;7b
+	mov	hval(r5),r1
+	mov	lval(r5),r2
+	asl	r2		; Multiply by 2
+	rol	r1		;
+	asl	r2		; Multiply by 4
+	rol	r1		;
+	add	lval(r5),r2	; Multiply by 5
+	adc	r1		;
+	add	hval(r5),r1	;
+	asl	r2		; Multiply by 10
+	rol	r1		;
+	mov	r2,lval(r5)	; Save in the
+	mov	r1,hval(r5)	; buffer
+	br	60$		; Continue
+	
+40$:
+	inc	r1		; Gotta multiply by 16
+;
+50$:
+	asl	lval(r5)	; Multiply by 2
+	rol	hval(r5)	;
+	dec	r1		; Count it
+	bne	50$		; And continue
+60$:
+	add	r0,lval(r5)	; Add it the value
+	adc	hval(r5)	; all of it
+;
+nnext:
+	call	getcha		; Get next byte				;06
+	br	nloop		; Go for it
+;
+; Not a digit
+;
+notdig:
+.if ne	MAXN
+	tstb	fflag(r5)	; Float?				;05+
+	beq	nloopx		;   No, can't be decimal pt. or exponent
+	cmpb	r0,#'.		; Decimal point?			;05-
+	bne	10$		; Nope
+	inc	ndigit(r5)	; Ok, keep it
+	br	nnext		; and continue
+;
+; Here to test for exponent part
+;
+10$:	tstb	eflag(r5)	; Exponent seen?
+	bne	nloopx		;	Yes, don't bother to test
+	cmpb	r0,#'E		; Exponent?
+	beq	20$		;	Yes
+	cmpb	r0,#'E+040	; Another chance?
+	beq	20$		;	Yes
+	cmpb	r0,#'D		; Exponent?
+	beq	20$		;	Yes
+	cmpb	r0,#'D+040	; Another chance?
+	bne	nloopx		; Nothing left to do.
+;
+20$:
+	incb	eflag(r5)	; Set "exponent seen" flag
+	call	getcha		; Get the next byte			;06
+	mov	r0,r1		; Save in case of exit
+	dec	length		; Out of field space?
+	blt	nloopx		;	Yes, skip exponent
+	movb	r0,(r4)+	; Store it away
+	cmpb	r0,#'+		; Plus?
+	beq	nnext		;	Wonderful
+	cmpb	r0,#'-		; Minus?
+	beq	nnext		;	Marvelous
+	cmpb	r0,#'0		; Decimal?
+	blt	nloopx		;	No
+	cmpb	r0,#'9
+	ble	nnext		;	Yes
+.endc
+;
+; End of the "get a number loop".  The last byte read is in r1 and -(r4)
+; Clean up r4, returning the last byte to the file system.
+;
+nloopx:
+.if ne	MAXN
+	clrb	-(r4)		; Terminate the output
+.iff
+	dec	r4		; Uncount the character
+.endc
+	mov	r1,r0		; Backup wants the character
+	call	backup		; Unget the last character
+	tstb	nflag(r5)	; Negative?
+	beq	10$		; Nope
+	neg	hval(r5)	; Yep, negate them
+	neg	lval(r5)	; Both halves
+	sbc	hval(r5)	; All 32 bit's worth
+;
+10$:
+	mov	argptr,r0	; A genuine argument?
+	beq	40$		; Nope, exit
+.if ne	MAXN
+	mov	r5,r1		; At buffer start?
+	add	#nbrbuf,r1
+	cmp	r4,r1		; At buffer start?
+.iff
+	tst	r4		; Compiled zero characters?
+.endc
+	beq	40$		; Nothing was read if so
+	inc	match		; got one to store
+.if ne	MAXN
+	tstb	fflag(r5)	; Floating point?
+	bne	30$		; Yes, do it.
+.endc
+;
+; Output an integer
+;
+	tstb	lflag(r5)	; Long?
+	bne	20$		; Br if so
+	mov	lval(r5),(r0)	; Output it
+	br	40$		; and exit
+;
+20$:
+	mov	hval(r5),(r0)+	; Output the long
+	mov	lval(r5),(r0)	; both halves
+.if ne	MAXN
+	br	40$		; and exit
+;
+; Convert and output the floating point value
+;
+
+30$:	mov	r0,-(sp)	; Save r0
+	mov	r1,-(sp)	; atof(buffer) does all the work
+	call	atof		;					;06
+	tst	(sp)+
+	setd
+	tstb	lflag(r5)	; Double?
+	bne	35$		;	Yes
+	setf			;	No
+35$:	std	r0,@(sp)+	; Store the FP result			;03-
+.endc
+;
+40$:
+	jmp	cret$		; All done.
+
+	.psect	c$mwcn,d,ro						;08
+
+;
+; Digit test vector:
+;
+	.word	'9		; Decimal
+digtab:	.word	'9		; Hex
+	.word	'7		; Octal
+	.psect	c$code,i,ro
+
+; Gettxt is called to read text until the break character
+;
+; On entrance:
+;	r2		Format code	c s [
+;	r2, r3, r4	Preserved
+;
+; Nothing returned
+;
+
+gettxt:
+	jsr	r5,csv$		; Linkage
+	mov	argptr,r4	; R4 -> output buffer
+	cmpb	r2,#'C+040	; Character type?
+	bne	10$		; Nope
+	cmp	length,#32767.	; Yep, default (zero) length?
+	bne	10$		; Nope, length was specified
+	mov	#1,length	; Only want one character
+;
+10$:
+	clr	r3		; Stop code
+	cmp	r2,#'S+040	; String type?
+	bne	20$		; Nope
+	inc	r3		; Yep, stop code := 1
+;
+20$:
+;
+; Initial skip over stuff we don't want
+;
+30$:
+	call	getcha		; Get the next byte			;06
+	bitb	ccltab(r0),r3	; Match?
+	beq	40$		; No, exit this loop
+	cmp	r0,#-1		; Yes, EOF?
+	bne	30$		; No, continue
+;
+40$:
+	clr	r3		; Clear stop flag
+	cmp	r2,#'C+040	; Character
+	beq	50$		; Yes, stop flag := 0
+	inc	r3		; No, assume a string
+	cmp	r2,#'S+040	; Well, ...
+	beq	50$		; Ok
+	inc	r3		; Nope, gotta be [ class
+;
+50$:
+;
+; Main loop for character getting (current char in r0)
+;
+tloop:
+	dec	length		; Get another?
+	blt	10$		; No more
+	tst	r0		; Real character?
+	blt	10$		; No (EOF)
+	bitb	ccltab(r0),r3	; Yes, in stop table?
+	bne	10$		; Yes, exit.
+	tst	r4		; Storing?
+	beq	5$		; No, skip store		;04
+	movb	r0,(r4)+	; Yes, store it
+5$:	call	getcha		; and get another		;06
+	br	tloop		; Loop some more
+;
+10$:
+	call	backup		; Unget the character
+	tst	r4		; Really storing
+	beq	20$		; Nope
+	cmp	r4,argptr	; Actually stored something?
+	beq	20$		; Nope
+	inc	match		; Yes, count it
+	cmpb	r2,#'C+040	; Character arg?
+	beq	20$		; Yes, don't terminate it
+	clrb	(r4)		; Terminate the string
+;
+20$:
+	jmp	cret$		; Exit
+; Backup the scan pointer -- called when the main scan a field loop
+; terminates.
+;
+; On entrance:
+;	r0	:= last character read (or EOF flag)
+;
+; Return:
+;
+; If r0 was not EOF, the character will be pushed back onto the input stream.
+;
+backup:
+	cmp	r0,#-1		; EOF?
+	bne	10$		; Nope
+	inc	endflg		; Yep, set flag
+	return			; and exit
+;
+10$:
+	mov	fd,-(sp)	; ungetc(c, fd);
+	mov	r0,-(sp)	;
+	cmp	r0,#-1		; EOF?					;10
+	beq	20$		; Yes, don't uncount			;10
+	dec	chars		; Uncount character			;10
+20$:	call	ungetc		; Do it
+	cmp	(sp)+,(sp)+	; Clean the stack
+	return			; Exit cleanup code
+
+getcha:	mov	fd,-(sp)	; Setup for get				;10
+	call	getc		; Get character				;10
+	tst	(sp)+		;					;10
+	cmp	r0,#-1		; EOF?					;10
+	beq	10$		; Nope					;10
+	inc	chars		; Count character			;10
+10$:	return			;					;10
+
+	.end

@@ -1,0 +1,16 @@
+;***;	RT.BPT - Now breaks after the call, not in rt.bpt
+.title	rtbpt - breakpoint
+.include "lib:crt.mac"
+$psdef
+
+;rt.bpt::bpt.
+;	return
+
+rt.bpt::psh	(sp)
+	stack	pc,ps
+	.mfps			; pushs psw onto the stack
+	bis	#tbit,(sp)	; force a trace trap on rti
+	mov	(sp)+,sp.ps(sp)	; put in place
+	rti			; return causing trace trap
+
+.end

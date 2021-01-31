@@ -1,0 +1,219 @@
+.title	rtcsi - RT-11 CSISPC
+.include "lib:crt.mac"
+$aldef
+$jbdef
+smini$
+ccstr$
+c$seql:	.asciz	/=/
+c$sinv:	.asciz	/E-Invalid command/
+c$sswi:	.asciz	/E-Invalid switch/
+c$scon:	.asciz	/E-Conflicting switches/
+ccdat$
+c$sdef:	.rad50	/            /
+c$smap:	.word	1,2,4,8,16,32,64,128,256
+cccod$
+
+;	bindif, srcdif
+;	ets:rtcsi.r
+;
+;	build,dump, ld, list, md, patch, rd, search, split, vmount
+;	vus:csmod.r
+;	
+;	Use CSISPC to error-check command and decode switches
+;
+;	Parse ascii specs from command line (to keep sub-dir stuff)
+;	???See incomplete CSPAR.R for ascii specs.
+;	No default device (DK:) or file types (use fi_def()).
+
+map	fs.spc,,0			; csTspc
+map	fs.dis				;
+map	fs.alc				;
+map	fs.bbs
+
+map	sw.cha,1,0			; csTswi
+map	sw.flg,1			;
+map	sw.val				;
+map	sw.bbs				;
+
+map	cs.non,,0			; csTcsi
+map	cs.opn
+map	cs.req
+map	cs.exc
+map	cs.idt
+map	cs.cmd
+map	cs.imp,0			; impure
+map	cs.flg
+map	cs.fil
+map	cs.swi,17.*sw.bbs
+map	cs.opt,3*fs.bbs
+map	cs.ipt,6*fs.bbs
+map	cs.csi,39.*2
+map	cs.dis,80.			; display specs
+map	cs.str,9.*16.			; 84.
+map	cs.typ 
+map	cs.bbs
+
+map	of.spc,8.,0			; csi output filespec
+map	of.alc				;
+map	of.bbs				;
+
+map	csidt$,,1
+map	csexc$,,2
+
+  proc	cs.par	<r2,r3,r4>
+	p1	csi,r4			; CSI block
+	p2	lin			; optional command line
+;	clrb	j$bcct			; this steals first command
+
+	mov	#c$sdef+8.,r0		;
+	clr	-(r0)			; zap them
+	clr	-(r0)			;
+	clr	-(r0)			;
+	clr	-(r0)			;
+	mov	cs.typ(r4),r1		; file types
+	beq	5$			; are none
+	call	rx.pck r1,#c$sdef,#4	; convert file types
+
+5$:	movi	cs.imp,r4,r0		; clear impure
+	call	me.clr r0,#cs.bbs-cs.imp;
+					;
+	mov	sp,r2			; parse CSI
+	movi	cs.csi,r4,r1		; result csi area
+	movi	cs.dis,r4,r3		; result command line
+	.csispc	r1,#c$sdef,lin(r2),r3	; do system parse
+	bcs	55$			; some error
+	bneb	(r3),7$			; got something
+	mov	cs.idt(r4),r0		; get ident
+	beq	56$			; is none
+	.print				; display it
+	br	56$			;
+7$:	mov	cs.cmd(r4),r0		; want a copy?
+	beq	8$			; nope
+	call	st.cop r3,r0		; yep
+
+8$:	pop	r0
+	bhiw	r0,#16.,55$		; too many switches
+	asl	r0			;
+	asl	r0			;
+	movi	cs.swi,r4,r3		; r3 -> switchs
+	add	r0,r3			; un-reverse them
+;sic]	clr	(r3)			; terminate them
+10$:	beqw	sp,r2,cs$dis		; all done
+	clr	r1			; assume no value
+	pop	r0			;
+	bpl	20$			; no value
+	pop	r1			;
+20$:	mov	r1,-(r3)		;
+	mov	r0,-(r3)		; switch in place
+	psh	(r3)			; save this
+	clrb	1(r3)			; make a string
+	beqw	cs.opn(r4),25$		; no optional list
+	call	st.fnd r3,cs.opn(r4)	; optional?
+	bnew	r0,40$			; yes
+25$:	mov	cs.req(r4),r0		;
+	bmiw	(sp),30$		;
+	mov	cs.non(r4),r0		;
+30$:	beqw	r0,55$			; no list
+	call	st.fnd r3,r0		; must be in one of these lists
+	beqw	r0,55$			; invalid switch
+40$:	beqw	cs.exc(r4),50$		;
+	call	st.fnd r3,cs.exc(r4)	; in exclusive list?
+	beqw	r0,50$			; not found
+	bpsw	#csEXC$,cs.flg(r4),55$	; conflicting options (one of)
+	bis	#csEXC$,cs.flg(r4)	; once-only
+50$:	pop	(r3)			; restore that
+	br	10$			;
+55$:	call	cs.inv
+56$:	mov	r2,sp			;
+	mov	lin(sp),r0		; explicit command?
+	beq	5$			; nope - try again
+	br	cs$err			; error return
+
+;	Emit command line specs
+
+cs$dis:	movi	cs.dis,r4,r3		; r3 -> strings
+	movi	cs.opt,r4,r2		; output spec string pointers
+	call	st.fnd #c$seql,r3	; got an equals sign?
+	bnew	r0,80$			; yes
+70$:	movi	cs.ipt,r4,r2		; nope - input files
+80$:	movb	(r3),r0			; get the next
+	beq	120$			; all over
+	clrb	(r3)+			; assume we zap it
+	beqb	r0,#'=,70$		; do input files
+	beqb	r0,#'/,110$ 		; got a switch
+	beqb	r0,#'[,110$		; got allocation
+	beqb	r0,#comma.,100$		; got comma - next file
+	assume	fs.spc eq 0		;
+	dec	r3			; backup
+	bnew	fs.dis(r2),90$		; not the first
+	mov	r3,fs.dis(r2)		;
+90$:	movb	r0,(r3)+		; restore character
+	br	80$			; put it back
+100$:	add	#fs.bbs,r2		; skip spec
+	br	80$			;
+					;
+110$:	movb	(r3),r0			; skip switch/allocation
+	beq	120$			;
+	clrb	(r3)+			;
+	beqb	r0,#comma.,100$		; got comma
+	beqb	r0,#'=,70$		; input files
+	br	110$			;
+120$:	fall	cs$spc
+
+;	Back-translate CSI file specs
+
+cs$spc:
+60$:	clr	-(sp)			; file number
+	clr	cs.fil(r4)		; no files seen 
+	movi	cs.str,r4,r3		; r3 -> string area
+	movi	cs.opt,r4,r2		; r2 -> string pointers/allocations
+	movi	cs.csi,r4,r1		; r1 -> csispc rad50
+70$:	beqw	(r1),80$		; no spec
+	assume	fs.spc eq 0		;
+	mov	r3,(r2)			; setup the pointer
+	psh	r1			;
+	call	rx.spc r1,r3		; convert rad50 back to ascii
+	pop	r1			; (sub-directories map to C00:..Cxx:)
+	add	#16.,r3			; skip spec
+					;
+	psh	(sp)			; record file in file map
+	asl	(sp)			;
+	add	#c$smap,(sp)		;
+	bis	@(sp)+,cs.fil(r4)	;
+	bhisw	(sp),#3,80$		; not an output file
+	mov	of.alc(r1),fs.alc(r2)	; get allocation
+80$:	bhisw	(sp),#3,85$		; not an output file
+	tst	(r1)+			; one extra for output files
+85$:	add	#8.,r1			; skip rad50
+	add	#fs.bbs,r2		; skip spec
+	inc	(sp)			; next file
+	blow	(sp),#9.,70$ 		; do another
+	tst	(sp)+			;
+	mov	(pc)+,r0		; we won
+cs$err:	clr	r0			; we lost
+  end
+
+;	Validate input/output files
+
+  proc	cs.val	<r4>
+	p1	csi,r4
+	p2	req			; required
+	p3	per			; permitted
+	mov	sp,r0			; assume okay
+	mov	cs.fil(r4),r1		; file mask
+	bic	r1,req(sp)		; got all required files?
+	bne	10$			; nope
+	bic	per(sp),r1		; got any excluded files?
+	beq	20$			; nope
+10$:	call	cs.inv 			; invalid command
+	clr	r0			; fails
+20$:
+  end
+
+  proc	cs.inv
+bpt
+	call	im.rep #c$sinv, #0	; invalid command message
+  end
+
+.end	
+

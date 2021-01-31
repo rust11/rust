@@ -1,0 +1,42 @@
+.title	rtfet - rt-11 driver fetch
+.include "lib:crt.mac"
+$didef
+$emdef
+fbdef$
+smini$
+
+code	rt_fet (spc:*char) adr:*WORD
+
+;	1. Convert file spec from ascii to rad50 (result at f$ispc)
+;	2. Get device status (result at f$idst)
+;	3. Load driver if not already resident
+;
+; 	Result:
+;
+;	0   Unknown device
+;	-1  Already loaded (rt_rel recognises this)
+;	n   Driver load address (for use by rt_rel)
+;
+;	fi_opn, fi_del etc automatically fetch (using this routine)
+
+  proc	rt.fet
+	p1	spc
+	call	rt.dst spc(sp),#0	; get internal device status
+	beqw	r0,10$			; invalid device
+	mov	#f$idst,r1		; look at it
+	mov	#-1,r0			; assume already loaded
+	bnew	di.ent(r1),10$		; already loaded
+	call	me.alc di.hsz(r1)	; allocate some space
+	mov	r0,r1			; r1 = result
+	psh	r0			; (sp)-> load address
+	mov	#f$ispc,r0		; r0  -> spec
+	emt	emfet.			; .fetch
+					;
+	bic	r0,r0			; assume failure
+	bcs	10$			; failed
+	mov	r1,r0			; handler low address
+;	add	#ha.lqe,r1		;
+;	mov	r1,f$idst+di.ent	; flag in memory
+10$:	end
+
+.end

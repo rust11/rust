@@ -1,0 +1,190 @@
+	.title	$$ltoa	Convert long to Ascii
+	.ident	/000004/
+;+
+;
+; Internal
+;
+; Index		Convert long to Ascii (any radix)
+;
+; Usage
+;
+;	$$ltoa(buff, radix, value);
+;	char		*buff;	/* Where it goes	*/
+;	int		radix;	/* Conversion radix	*/
+;	long		value;	/* What to convert	*/
+;
+; Description
+;
+;	Called by printf to convert a long integer from binary
+;	to Ascii, storing the result in buffer.  The radix argument
+;	determines the conversion:
+;
+;		d	Signed decimal
+;		o	Octal
+;		u	Unsigned decimal
+;		X	Hex (10-15 = A-F)
+;		x	Hex (10-15 = a-f)
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 05-Mar-80 MM	Initial edit
+; 000002 05-Jun-81 MM	Big (number) messup.
+; 00002a 07-Jun-85 DLE	change .psect (blank) to .psect c$data
+;			move .psect c$code
+;			cosmetic
+; 000003 19-Jan-87 JMC  Change .psect for I/D space.
+; 000004 14-Jan-02 BQT	Changed for I/D space
+;
+
+	.psect	c$mwcn,d,ro						;03
+;
+; Double precision (integer) power of
+; ten table. Used by the decimal
+; conversion.
+;
+
+; The largest positive long int is 2 147 483 647
+
+tab:	;.word	052013, 162000		; 10 ** 10 (don't want)		;02
+	.word	035632, 145000		; 10 **  9
+	.word	002765, 160400		; 10 **  8
+	.word	000230, 113200		; 10 **  7
+	.word	000017, 041100		; 10 **  6
+	.word	000001, 103240		; 10 **  5
+	.word	000000, 023420		; 10 **  4
+	.word	000000, 001750		; 10 **  3
+	.word	000000, 000144		; 10 **  2
+	.word	000000, 000012		; 10 **  1
+tabe:
+
+	.psect	c$code,i,ro
+
+$$ltoa::
+	jsr	r5,csv$
+	mov	c$pmtr+0(r5),r4
+	mov	c$pmtr+4(r5),r2
+	mov	c$pmtr+6(r5),r3
+	clr	-(sp)
+	cmp	c$pmtr+2(r5),#'d
+	beq	70$
+	cmp	c$pmtr+2(r5),#'u
+	beq	80$
+
+;
+; Octal.
+; Hexadecimal.
+;
+
+	mov	#8.,r1
+	cmp	c$pmtr+2(r5),#'o
+	bne	10$
+	mov	#11.,r1
+	clr	r0
+	br	20$
+
+10$:
+	clr	r0
+	asl	r3
+	rol	r2
+	rol	r0
+
+20$:
+	asl	r3
+	rol	r2
+	rol	r0
+	asl	r3
+	rol	r2
+	rol	r0
+
+	cmp	c$pmtr+2(r5),#'o
+	beq	30$
+	asl	r3
+	rol	r2
+	rol	r0
+
+30$:
+	cmp	r1,#1
+	beq	40$
+	tst	r0
+	bne	40$
+	tst	(sp)
+	beq	60$
+
+40$:
+	inc	(sp)
+	add	#'0,r0
+	cmp	r0,#'9
+	blos	50$
+	add	#'A-'0-10.,r0
+	cmp	c$pmtr+2(r5),#'X
+	beq	50$
+	add	#'a-'A,r0
+
+50$:
+	movb	r0,(r4)+
+
+60$:
+	dec	r1
+	bne	10$
+	br	150$
+
+;
+; Decimal.
+; Unsigned.
+;
+
+70$:
+	tst	r2
+	bpl	80$
+	movb	#'-,(r4)+
+	neg	r2
+	neg	r3
+	sbc	r2
+
+80$:
+	mov	#tab,r1
+
+90$:
+	clr	r0
+
+100$:
+	cmp	r2,(r1)
+	blo	120$
+	bhi	110$
+	cmp	r3,2(r1)
+	blo	120$
+
+110$:
+	sub	2(r1),r3						;02
+	sbc	r2							;02
+	sub	(r1),r2
+	inc	r0
+	br	100$
+
+120$:
+	tst	r0
+	bne	130$
+	tst	(sp)
+	beq	140$
+
+130$:
+	inc	(sp)
+	add	#'0,r0
+	movb	r0,(r4)+
+
+140$:
+	add	#4,r1
+	cmp	r1,#tabe
+	blo	90$
+
+	add	#'0,r3
+	movb	r3,(r4)+
+
+150$:
+	clrb	(r4)
+	jmp	cret$
+
+	.end	; ltoa.mac

@@ -1,0 +1,123 @@
+.title	rtcla - get RT-11 file class information
+.include "lib:crt.mac"
+$chdef
+$cidef
+$dcdef
+$dedef
+$emdef
+$didef
+$dsdef
+$fcdef
+$jbdef
+$rmdef
+$sfdef
+fbdef$
+smini$
+ccdat$
+
+d$vvar:	.word	emspf.*256.,0,d$vsiz,1,sfdgs.*256+255,0
+d$vinf:	.word	eminf.*256.+fbCHN.,f$ispc,0,0
+d$vsiz:	.word	0
+d$vcst:	.blkw	6
+
+	.macro	fidev$	cod,flg
+	.word	flg,cod*256.
+	.endm
+
+f$idev:	fidev$	detpc.	fcNET$!fcDSK$
+	fidev$	demtc.	fcMAG$
+	fidev$	demmc.	fcMAG$
+	fidev$	demsc.	fcMAG$
+	fidev$	demuc.	fcMAG$
+	fidev$	dectc.	fcCAS$
+	fidev$	deldc.	fcVIR$
+	fidev$	dettc.	fcTER$
+	.word	0
+	rxDSK = ^rDSK
+cccod$
+
+  proc	rt.cla	<r2,r3,r4>
+	p1	fil,r4			; r4 -> file block
+	p2	cla,r3			; r3 -> result info block
+	clrb	fc.sta(r3)		;
+	clr	fc.sz0(r3)		;
+	clr	fc.sz1(r3)		;
+	assume	fc.flg eq 0		;
+	mov	#fcFIL$,(r3)		; zap class flags, assume file
+					;
+	mov	#f$idst,r2		; r2 -> device status
+	call	rt.dst fb.spc(r4),r2	; get dstat and translate name
+	beqw	r0,110$			; invalid device
+	bisb	#fcDEV$,fc.sta(r3)	; device exists
+	assume	di.dsw eq 0		;
+	mov	(r2),fc.dsw(r3)		; copy device status word
+	bpcw	#dsRTA$,(r2),10$	; not regular disk
+	bis	#fcDSK$,(r3)		; disk
+	mov	di.dsz(r2),fc.siz(r3)	; grab the size
+					;
+10$:	mov	#f$idev,r0		; search for specific devices
+20$:	mov	(r0)+,r1		; get the flag
+	beq	40$			; are no more
+	inc	r0			; skip low byte
+	bneb	(r0)+,(r2),20$		; not this critter
+30$:	bis	r1,(r3)			; set flag for device
+					;
+40$:	call	rt.cst r4,#d$vcst	; get the channel status
+	beqw	r0,110$			; it failed, we failed
+	mov	#d$vcst,r1		;
+	bpcw	#csSUB$,(r1),50$	; not a sub-directory channel
+	bis	#fcSUB$,(r3)		; sub-directory
+;sic]	mov	ci.len(r1),fc.siz(r3)	; use channel size
+
+50$:	bnew	f$ispc+2,80$		; open as a file
+	aslb	(r3)			; = fcDEV$
+	assume	fcSUB$ eq bit15$	;
+	bmiw	(r3),70$		; is actually a directory
+	bplw	(r2),100$		; can't be variable size or sy:
+	bpcw	#dsVAR$,(r2),55$	; not variable size
+	mov	#d$vvar,r0		; get variable device size 
+	movb	fb.chn(r4),(r0)		; channel
+	emt	^o375			; variable size .spfun
+	bcs	110$			; yikes
+	mov	d$vsiz,fc.siz(r3)	; get size
+					;
+55$:	mov	@#j$bsys,r0		;
+	psh	(r1)			; get csw
+	bic	#csin$m,(sp)		; isolate index
+	bneb	(sp)+,rm.syi(r0),60$	; not system index
+	bneb	ci.uni(r1),rm.syu+1(r0),60$ ; not system unit
+	bis	#fcSYS$,(r3)		; system device
+60$:	br	100$			;
+					;
+	assume	fcDIR$ eq 4		;
+70$:	aslb	(r3)			; = fcDIR$ - directory
+	br	90$			; use file size
+
+80$:	mov	#d$vinf,r0		; get file info
+	emt	^o375			; returns status word
+	bcs	85$			; wierd, but ignore it
+	bisb	#fcFIL$,fc.sta(r3)	; file open succeeded
+	bplw	r0,85$			; not protected
+	bis	#fcPRO$,(r3)		; file is protected
+85$:	bnew	f$ispc+6,#rxDSK,90$	; not a container
+	bis	#fcCON$,(r3)		; container disk
+90$:	mov	ci.len(r1),fc.siz(r3)	; use channel size
+					;
+100$:	mov	(pc)+,r0		; r0 <> 0
+110$:	clr	r0			;
+	end
+
+.end
+;	Get driver information
+;
+;	On RUST/SJ read the driver directly
+;	On RUST/XM call the system
+
+	mov	@#j$bsys,r0		; get system
+	movb	rm.x,r1			; slot count
+	mov	rm.pnm(r0),r0		; pname
+	add	r1,r0			; past names
+	add	r1,r0			; past 
+
+			;
+	mov	di.

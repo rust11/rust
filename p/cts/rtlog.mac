@@ -1,0 +1,96 @@
+;	executes lt.ini multiple times (clever rather than bad)
+;	API is used only by lnmod and ldv.mac
+;	it's amazingly tiny
+.title	rtlog - logical name table routines
+.include "lib:crt.mac"
+$jbdef
+$rmdef
+smini$
+ccdat$
+map	lt.log,,0
+map	lt.equ
+map	lt.nth
+map	lt.cnt
+map	lt.ltb
+map	lt.etb
+map	lt.bbs
+
+l$ttab::.blkb	lt.bbs
+cccod$
+
+  proc	lt$def
+ 	p1	log
+	p2	equ
+	call	lt$und log(sp)
+	call	lt$loo #0
+	bcs	10$
+	mov	log(sp),@(r0)+
+	mov	equ(sp),@(r0)+
+10$:
+  end
+
+  proc	lt$und
+ 	p1	log
+	call	lt$loo log(sp)
+	bcs	10$
+	clr	@(r0)+
+	clr	@(r0)+
+10$:
+  end
+
+  proc	lt$rem
+ 	p1	equ
+	call	lt$ini
+10$:	call	lt$nxt
+	bcs	20$
+	bnew	equ(sp),@lt.equ(r0),10$
+	clr	@(r0)+
+	clr	@(r0)+
+20$:
+  end
+
+  proc	lt$loo
+ 	p1	log
+	call	lt$ini
+10$:	call	lt$nxt
+	bcs	20$
+	bnew	log(sp),@lt.log(r0),10$
+20$:
+  end
+
+  proc	lt$ini	<r2>		
+	mov	#l$ttab,r2
+	mov	@#j$bsys,r0
+	movb	rm.sl2(r0),r1
+	add	#lt$cnt,r2	;
+	mov	r1,(r2)		; lt.cnt
+	asr	(r2)+		;
+	add	rm.pnp(r0),r0	;
+	cmp	(r1)+,(r1)+	; r1 += 4
+	sub	r1,r0		;
+	mov	r0,(r2)+	; lt.ltb
+	sub	r1,r0		;
+	mov	r0,(r2)+	; lt.etb
+	call	lt$fst 
+  end
+
+  proc	lt$fst
+	mov	#l$ttab,r0
+	mov	#-1,lt.nth(r0)
+	mov	lt.ltb(r0),(r0)
+	mov	lt.etb(r0),lt.equ(r0)
+  end
+
+  proc	lt$nxt
+	mov	#l$ttab,r0
+	inc	lt.nth(r0)	; next entry
+	beq	10$		; the first
+	bhisw	lt.nth(r0),lt.cnt(r0),20$
+	add	#2,(r0)
+	add	#2,lt.equ(r0)
+10$:	tst	(pc)+
+20$:	sec
+  end
+
+.end
+

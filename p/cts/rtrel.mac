@@ -1,0 +1,51 @@
+;???;	RTREL - RT.REL uses a spec, so should be FI_REL
+;???;	RT.REL should accept a pointer to the driver
+.title	rtrel - rt-11 release driver
+.include "lib:crt.mac"
+$emdef
+$didef
+fbdef$
+smini$
+fbr$c = 0	; fb$rel is never called and is wrong anyway
+
+.if ne fbr$c
+code	fb$rel - internal driver release 
+
+fb$rel::mov	fb.drv(r4),r0		; got a driver
+	beq	10$			; nope
+	clr	fb.drv(r4)		; don't hang on to it
+	call	rt.rel r0		; release it
+;	should be call rt.rel fb.spc(r4)
+;	But in fact, rt.rel should be a "fi" routine
+;	etc.
+10$:	return
+.endc
+
+code	rt_rel (spc:*char) void
+
+;	1.  Ensure loaded and not resident
+;	2.  Ensure driver not in use 
+;	3.  Release driver
+;	4.  Free dynamic memory
+;
+;	Used internally
+
+  proc	rt.rel	<r2>
+	p1	spc
+	call	rt.dst spc(sp),#0	; get device status
+	beqw	r0,30$			; invalid device
+	mov	f$idst+di.ent,r2	; get the load address
+	beq	30$			; not in memory
+	bhisw	r2,m$elim,30$		; loaded or resident driver
+	mov	#f$imap,r0		; check in use
+10$:	mov	(r0)+,r1		; get next
+	beq	20$			; are no more - release it
+	beqw	fb.drv(r1),r2,30$	; driver is in use
+	br	10$			; next
+20$:	clr	-(sp)			; (sp)-> load address: 0 => release
+	mov	#f$ispc,r0		; r0  -> spec
+	emt	emfet.			; .fetch/.release
+	call	me.dlc r2		; deallocate the memory
+30$:	end
+
+.end

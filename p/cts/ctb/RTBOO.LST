@@ -1,0 +1,1495 @@
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09
+Table of contents
+
+    2-   1	crt.mac - basic definitions
+    3-   1	RUST preface
+    8-   1	rt.boo - generic boot loader
+    9-   1	boot common
+   10-   1	physical boot
+   11-   1	file and driver
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 1
+
+
+      1					;	im.rep fails
+      2					;	quiet/etc fail
+      3					;
+      4		000001 			slf$c=1	;???; testing boot/self
+      5					;???;	RTBOO - RT11FB boots but time is not setup
+      6					;+++;	RTBOO - must search both .SAV and .SYS
+      7					;+++;	RTBOO - must detect non-bootable images
+      8					;+++;	RTBOO - integrate DCS:RTBOO RUST/XM etc
+      9					;+++;	RTBOO - integrate ancient interfaces
+     10					;+++;	RTBOO - add boot host capability and MOP boot
+     11					;???;	RTBOO - should release driver and channel on error exit
+     12					;???;	rt_boo - rewrite interface using stack and in rider
+     13					;???;	rt_boo - /reset option required
+     14					;???;	RTBOO - RUST/XM check missing
+     15		000001 			rsx$c=1		; read block 0 for RSX
+     16		000001 			nf7$c=1		; default NF: and NF0: to NF7:
+     17					.title	rtboo - boot rt-11 device/file
+     18					.include "lib:crt.mac"
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 2
+Crt.mac - basic definitions
+
+      1					.sbttl	crt.mac - basic definitions
+      2					.include "lib:rust.mac"
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 3
+RUST preface
+
+      1					.sbttl	RUST preface
+      2					.enabl	lc, gbl, mcl
+      3			.list	ttm
+      4			.library "lib:rust.mlb"
+      5			.mcall	spl
+      6			.mcall	.print
+      7		003737 	ma$yea=2015.
+      8	000000		local
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 5
+RUST preface
+
+      1			.library "lib:sm.mlb"
+      2			.library "lib:crtmac.mlb"
+      3
+      4	000000		meta <cccod$><.psect c$code,i,ro>
+      5	000000		meta <ccdat$><.psect c$data,d>
+      6	000000		meta <ccstr$><.psect c$stcn,d,ro>						;10
+      7
+      8		000003 	bpt. == 3
+      9
+     10	000000		map	EOF,,-1		; easy constant
+     11			.if ndf smcrt.
+     12			map	smcrt.,,1	; CRT psects sm.mlb
+     13			.endc
+     14	000000		cccod$
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 7
+RUST preface
+
+      1	000000		$aldef		;alphabet
+      2	000000		$brdef		;boot rt-11
+      3	000000		$chdef		;channel
+      4	000000		$cidef		;channel information
+      5	000000		$cndef		;config
+      6	000000		$dcdef		;device codes
+      7	000000		$didef		;device info
+      8	000000		$dsdef		;device status
+      9	000000		$fndef		;filename
+     10	000000		$gddef		;generic disk
+     11	000000		$hadef		;handler
+     12	000000		$hodef		;homeblock
+     13	000000		$jbdef		;job
+     14	000000		$mmdef		;memory management
+     15	000000		$rmdef		;rmon
+M		000446 		rm.=:$
+M		000472 		rm.=:$
+     16			;psdef		;psw
+     17	000000		$sfdef		;special functions
+     18	000000		$vedef		;vector
+     19	000000		smini$
+     20
+     21			;	%build
+     22			;	macro cts:rtboo/object:ctb:/list:ctb:
+     23			;	%end
+     24
+     25			;map	b$rini,,b$renx		;init code at end of boot
+     26			;map	b$rhan,,b$renx		;2-block handler buffer at end of boot
+     27			;map	b$rtmp,,600		;temporary area at 600
+     28
+     29	000000		ccdat$
+     30	000000	000000 	b$ostk:	.word	0 			; saved stack
+     31	000002		b$oemt:	.blkw	7			; emt area
+     32	000020	000000 	b$ofor:	.word	0			; /foreign
+     33	000022	000000 	b$omem:	.word	0			; self pointer
+     34	000024	000000 	b$odrv:	.word	0			; /driver
+     35
+     36	000026	000000 	b$ospc:	.word	0			; points to ascii spec
+     37	000030	075250 	b$ofil:	.rad50	/sy          /		; boot file specification
+	000032	000000
+	000034	000000
+	000036	000000
+     38	000040	075250 	b$odev:	.rad50	/sy          /		; boot device
+	000042	000000
+	000044	000000
+	000046	000000
+     39
+     40	000050		b$odst:	.blkb	di.bbs			; device info
+     41	000060		b$ocst:	.blkb	ci.bbs			; channel info
+     42	000074		b$ogen:	.blkb	gddgs.			; generic disk (spfun)
+     43	000104	000000 	b$ohan:	.word	0			; handler address
+     44
+     45	000106	000000 	b$obuf:	.word	0			; 6kw buffer pointer
+     46
+     47	000110	177777 	b$ogtx:	.word	-1,-1,0			;\ get extended date
+	000112	177777
+	000114	000000
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 7-1
+RUST preface
+
+     48	000116	000000 	b$oera:	.word	0			;/ extended date
+     49
+     50
+     51	000120	   123 	b$odef:	.asciz	/SY:/
+	000121	   131
+	000122	   072
+	000123	   000
+     52	000124	   105 	b$oivd:	.asciz	"E-Invalid boot device %s"
+	000125	   055
+	000126	   111
+	000127	   156
+	000130	   166
+	000131	   141
+	000132	   154
+	000133	   151
+	000134	   144
+	000135	   040
+	000136	   142
+	000137	   157
+	000140	   157
+	000141	   164
+	000142	   040
+	000143	   144
+	000144	   145
+	000145	   166
+	000146	   151
+	000147	   143
+	000150	   145
+	000151	   040
+	000152	   045
+	000153	   163
+	000154	   000
+     53	000155	   105 	b$ofnf:	.asciz	"E-File not found %s"
+	000156	   055
+	000157	   106
+	000160	   151
+	000161	   154
+	000162	   145
+	000163	   040
+	000164	   156
+	000165	   157
+	000166	   164
+	000167	   040
+	000170	   146
+	000171	   157
+	000172	   165
+	000173	   156
+	000174	   144
+	000175	   040
+	000176	   045
+	000177	   163
+	000200	   000
+     54	000201	   105 	b$odnf:	.asciz	"E-Driver not found %s"
+	000202	   055
+	000203	   104
+	000204	   162
+	000205	   151
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 7-2
+RUST preface
+
+	000206	   166
+	000207	   145
+	000210	   162
+	000211	   040
+	000212	   156
+	000213	   157
+	000214	   164
+	000215	   040
+	000216	   146
+	000217	   157
+	000220	   165
+	000221	   156
+	000222	   144
+	000223	   040
+	000224	   045
+	000225	   163
+	000226	   000
+     55	000227	   105 	b$oiox:	.asciz	"E-I/O error %s"
+	000230	   055
+	000231	   111
+	000232	   057
+	000233	   117
+	000234	   040
+	000235	   145
+	000236	   162
+	000237	   162
+	000240	   157
+	000241	   162
+	000242	   040
+	000243	   045
+	000244	   163
+	000245	   000
+     56	000246	   105 	b$ofai:	.asciz	"E-Boot failed %s"
+	000247	   055
+	000250	   102
+	000251	   157
+	000252	   157
+	000253	   164
+	000254	   040
+	000255	   146
+	000256	   141
+	000257	   151
+	000260	   154
+	000261	   145
+	000262	   144
+	000263	   040
+	000264	   045
+	000265	   163
+	000266	   000
+     57	000267	   105 	b$oins:	.asciz	"E-Device not installed %s"
+	000270	   055
+	000271	   104
+	000272	   145
+	000273	   166
+	000274	   151
+	000275	   143
+	000276	   145
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 7-3
+RUST preface
+
+	000277	   040
+	000300	   156
+	000301	   157
+	000302	   164
+	000303	   040
+	000304	   151
+	000305	   156
+	000306	   163
+	000307	   164
+	000310	   141
+	000311	   154
+	000312	   154
+	000313	   145
+	000314	   144
+	000315	   040
+	000316	   045
+	000317	   163
+	000320	   000
+     58	000321	   105 	b$ofet:	.ascii	"E-Device driver fetch failed %s"
+	000322	   055
+	000323	   104
+	000324	   145
+	000325	   166
+	000326	   151
+	000327	   143
+	000330	   145
+	000331	   040
+	000332	   144
+	000333	   162
+	000334	   151
+	000335	   166
+	000336	   145
+	000337	   162
+	000340	   040
+	000341	   146
+	000342	   145
+	000343	   164
+	000344	   143
+	000345	   150
+	000346	   040
+	000347	   146
+	000350	   141
+	000351	   151
+	000352	   154
+	000353	   145
+	000354	   144
+	000355	   040
+	000356	   045
+	000357	   163
+     59	000360	   105 	b$oibd:	.asciz	"E-Invalid boot device %s"
+	000361	   055
+	000362	   111
+	000363	   156
+	000364	   166
+	000365	   141
+	000366	   154
+	000367	   151
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 7-4
+RUST preface
+
+	000370	   144
+	000371	   040
+	000372	   142
+	000373	   157
+	000374	   157
+	000375	   164
+	000376	   040
+	000377	   144
+	000400	   145
+	000401	   166
+	000402	   151
+	000403	   143
+	000404	   145
+	000405	   040
+	000406	   045
+	000407	   163
+	000410	   000
+     60	000411	   105 	b$oihs:	.asciz	"E-Invalid boot driver %s"
+	000412	   055
+	000413	   111
+	000414	   156
+	000415	   166
+	000416	   141
+	000417	   154
+	000420	   151
+	000421	   144
+	000422	   040
+	000423	   142
+	000424	   157
+	000425	   157
+	000426	   164
+	000427	   040
+	000430	   144
+	000431	   162
+	000432	   151
+	000433	   166
+	000434	   145
+	000435	   162
+	000436	   040
+	000437	   045
+	000440	   163
+	000441	   000
+     61	000442	   105 	b$onfx:	.asciz	"E-Can't boot network disk %s"
+	000443	   055
+	000444	   103
+	000445	   141
+	000446	   156
+	000447	   047
+	000450	   164
+	000451	   040
+	000452	   142
+	000453	   157
+	000454	   157
+	000455	   164
+	000456	   040
+	000457	   156
+	000460	   145
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 7-5
+RUST preface
+
+	000461	   164
+	000462	   167
+	000463	   157
+	000464	   162
+	000465	   153
+	000466	   040
+	000467	   144
+	000470	   151
+	000471	   163
+	000472	   153
+	000473	   040
+	000474	   045
+	000475	   163
+	000476	   000
+     62	000477	   105 	b$oldx:	.asciz	"E-Can't boot logical disk %s"
+	000500	   055
+	000501	   103
+	000502	   141
+	000503	   156
+	000504	   047
+	000505	   164
+	000506	   040
+	000507	   142
+	000510	   157
+	000511	   157
+	000512	   164
+	000513	   040
+	000514	   154
+	000515	   157
+	000516	   147
+	000517	   151
+	000520	   143
+	000521	   141
+	000522	   154
+	000523	   040
+	000524	   144
+	000525	   151
+	000526	   163
+	000527	   153
+	000530	   040
+	000531	   045
+	000532	   163
+	000533	   000
+     63	000534	   105 	b$opar:	.asciz	"E-Can't boot disk partition %s"
+	000535	   055
+	000536	   103
+	000537	   141
+	000540	   156
+	000541	   047
+	000542	   164
+	000543	   040
+	000544	   142
+	000545	   157
+	000546	   157
+	000547	   164
+	000550	   040
+	000551	   144
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 7-6
+RUST preface
+
+	000552	   151
+	000553	   163
+	000554	   153
+	000555	   040
+	000556	   160
+	000557	   141
+	000560	   162
+	000561	   164
+	000562	   151
+	000563	   164
+	000564	   151
+	000565	   157
+	000566	   156
+	000567	   040
+	000570	   045
+	000571	   163
+	000572	   000
+     64	000573	   105 	b$odir:	.asciz	"E-Can't boot directory %s"
+	000574	   055
+	000575	   103
+	000576	   141
+	000577	   156
+	000600	   047
+	000601	   164
+	000602	   040
+	000603	   142
+	000604	   157
+	000605	   157
+	000606	   164
+	000607	   040
+	000610	   144
+	000611	   151
+	000612	   162
+	000613	   145
+	000614	   143
+	000615	   164
+	000616	   157
+	000617	   162
+	000620	   171
+	000621	   040
+	000622	   045
+	000623	   163
+	000624	   000
+     65			;$oxmx:	.asciz	"E-Use DCL BOOT command to boot"
+     66	000625	   105 	b$oexh:	.asciz	"E-Insufficient memory"
+	000626	   055
+	000627	   111
+	000630	   156
+	000631	   163
+	000632	   165
+	000633	   146
+	000634	   146
+	000635	   151
+	000636	   143
+	000637	   151
+	000640	   145
+	000641	   156
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 7-7
+RUST preface
+
+	000642	   164
+	000643	   040
+	000644	   155
+	000645	   145
+	000646	   155
+	000647	   157
+	000650	   162
+	000651	   171
+	000652	   000
+     67	000653	   105 	b$onf7:	.asciz	"E-Can't access NF7: network %s"
+	000654	   055
+	000655	   103
+	000656	   141
+	000657	   156
+	000660	   047
+	000661	   164
+	000662	   040
+	000663	   141
+	000664	   143
+	000665	   143
+	000666	   145
+	000667	   163
+	000670	   163
+	000671	   040
+	000672	   116
+	000673	   106
+	000674	   067
+	000675	   072
+	000676	   040
+	000677	   156
+	000700	   145
+	000701	   164
+	000702	   167
+	000703	   157
+	000704	   162
+	000705	   153
+	000706	   040
+	000707	   045
+	000710	   163
+	000711	   000
+     68				.even
+     69	000712		cccod$
+     70
+     71	000000		meta	<bofai$ adr><jsr r2,bo$fai><.word adr>
+     72	000000		meta	<bochk$ adr><jsr r2,bo$chk><.word adr>
+     73	000000		meta	<boerr$ adr><jsr r2,bo$err><.word adr>
+     74
+     75				.irpc	let,<ABCDEFGHIJKLM>
+     76				.macro 'let'
+     77				psh	r0
+     78				.ttyou	#upr'let'.
+     79				pop	r0
+     80				.endm
+     81				.endm
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 8
+RUST preface
+
+      1	000000		code	rt.boo - generic boot loader
+      2
+      3		000001 		btFOR = 1
+      4
+      5			;	rt_dst (spc:*char, dst:*WORD) int
+      6			;	rx_scn (*char, *WORD) *char
+      7			;	rx_pck (*char, *WORD, cnt) *char
+      8
+      9	000000			stack	r2,r3,r4,r5,ret
+     10	000000		  proc	rt.boo	<r2,r3,r4,r5>
+     11	000010			p1	spc			; ascii specification
+     12	000010			p2	for			; /foreign flag and self
+     13	000010			p3	mem			; in-memory secondary boot
+     14	000010	010667 		mov	sp,b$ostk		;
+		000000'
+     15	000014	062767 		add	#sp.ret,b$ostk		; locate the return slot
+		000010
+		000000'
+     16								;
+     17	000022	016667 		mov	for(sp),b$ofor		; foreign media
+		000014
+		000020'
+     18	000030	016667 		mov	mem(sp),b$omem		; memory copy
+		000016
+		000022'
+     19								;
+     20	000036	016667 		mov	spc(sp),b$ospc		; capture
+		000012
+		000026'
+     21	000044	001003 		bne	10$			; got a spec
+     22	000046	012767 		mov	#b$odef,b$ospc		; default spec is SY:
+		000120'
+		000026'
+     23	000054		10$:
+     24	000054			call	rx.scn b$ospc,#b$ofil	; get the filename
+     25	000072		20$:	call	rt.dst b$ospc,#0	; make sure it's installed
+     26	000106			bofai$	b$oins			; device not installed
+     27								;
+     28	000114			call	rt.fet b$ospc		; fetch -- rt.fet reports errors
+     29	000126			bofai$	b$ofet			; fetch failed
+     30								;
+     31	000134	010067 		mov	r0,b$ohan		; fetched handler address
+		000104'
+     32	000140			call	me.alc #b$renx+1024.	; working space
+     33	000152			bofai$	b$oexh			; memory exhausted
+     34	000160	010067 		mov	r0,b$obuf		; save that
+		000106'
+     35								;
+     36	000164			call	rt$boo			; do the hard stuff
+     37	000170			boerr$	b$ofai			; boot failed
+     38	000176		  end
+	000176		.2049:
+     39
+     40			;	error exit
+     41			;
+     42			;	should clean up
+     43
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 8-1
+Rt.boo - generic boot loader
+
+     44	000210		bo$fai:	beqw	r0,bo$err		; r0=0 -> fail
+     45	000214	005722 		tst	(r2)+			;
+     46	000216	000202 		rts	r2			;
+     47	000220	103402 	bo$chk:	bcs	bo$err			; an error
+     48	000222	005722 		tst	(r2)+			; skip the address
+     49	000224	000202 		rts	r2			;
+     50
+     51	000226	016706 	bo$err:	mov	b$ostk,sp		; reset stack
+		000000'
+     52			;	mov	(r2),r0			; error message
+     53	000232			call	me.dlc	b$obuf		;
+     54	000244			call	rt.rel	b$ohan		; release driver
+     55	000256		30$:	call	im.rep	(r2),b$ospc	; report it
+     56	000272	005000 		clr	r0			; some error
+     57	000274	000207 		return				;
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 9
+Rt.boo - generic boot loader
+
+      1	000276		code	boot common
+      2
+      3			;	b$rdvu	unit	device unit
+      4			;	b$rduf	0	dup flags
+      5			;	b$rhot	time	boot time
+      6			;	b$rlot
+      7			;	b$rdat		boot date
+      8			;			.rad50 /era/
+      9			;	b$rera		boot era
+     10			;
+     11			; in	b$o...	flat memory data
+     12			;
+     13			; local	r4 ->	emt area;
+     14			;	r5 ->	6kw buffer space
+     15			;
+     16			; out	r0 ->	error message
+     17
+     18	000276		rt$boo::
+     19	000276	010667 		mov	sp,b$ostk
+		000000'
+     20
+     21	000302	005067 		clr	b$odrv			; assume not driver boot
+		000024'
+     22	000306	016705 		mov	b$obuf,r5		; r5 -> buffer
+		000106'
+     23	000312	012704 		mov	#b$oemt,r4		; r4 -> emt area
+		000002'
+     24								;
+     25			;???;	Abort if RUST/XM host
+     26
+     27	000316	012703 		mov	#b$odst,r3		; .dstat info address
+		000050'
+     28	000322	016767 		mov	b$ofil,b$odev		; setup for device access
+		000030'
+		000040'
+     29	000330	001017 		bne	10$			; specific device
+     30								; use system boot device
+     31	000332	013700 		mov	@#j$bsys,r0		; system
+		000054
+     32	000336	010001 		mov	r0,r1			;
+     33	000340	116001 		movb	rm.syi(r0),r1		; get system unit offset
+		000364
+     34	000344	066001 		add	rm.pnp(r0),r1		; r1 -> permanent name
+		000404
+     35	000350	116000 		movb	rm.syu+byte(r0),r0	; get the device unit
+		000275
+     36	000354	062700 		add	#<^r  0>,r0		; add in rad50
+		000036
+     37	000360	061100 		add	(r1),r0			; add in permanent name
+     38	000362	010067 		mov	r0,b$odev		; and use that
+		000040'
+     39	000366	005203 		inc	r3			; inhibit logical name translation
+     40
+     41	000370		10$:	.dstat	r3,#b$odev		; get device status
+     42	000400			bochk$	b$oins			; device not installed
+     43	000406	042703 		bic	#1,r3			; remove inhibit
+		000001
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 9-1
+Boot common
+
+     44	000412			beqb	(r3),#denfc.,30$	; NF:?
+     45	000420			bplw	(r3),30$		; not an RT11A device?
+     46	000424			bneb	(r3),#deldc.,30$	; not LD:
+     47	000432			boerr$	b$oldx			; can't boot LD:
+     48								;
+     49	000440		30$:	.purge	#0			; purge it
+     50	000446			.lookup	r4, #0, #b$odev, #0	; lookup the device
+     51	000470	103003 		bcc	40$			; we have a device
+     52	000472			boerr$	b$oivd			; invalid device
+     53								;
+     54	000500		40$:	bpcw	#dsVAR$,(r3),45$	; not a variable size device
+     55								; use (r5) buffer to get size
+     56								; probe 32-bit get size
+     57	000506	012703 		mov	#b$ogen,r3		; generic disk info
+		000074'
+     58	000512			.spfun	r4,#0,#sfdgs.,r3,#1,#sfd32. ; fails for wcnt ne 4
+     59	000554	103030 		bcc	45$			; no 32-bit support
+     60	000556			.spfun	r4,#0,#sfdgs.,r3,#4,#sfd32. ; get 32-bit size
+     61	000620	103406 		bcs	45$			; no 32-bit support
+     62	000622			beqb	gd.bb1(r3),45$		; not in a partition
+     63	000630			boerr$	b$opar			; can't boot a partition
+     64								;
+     65	000636		45$:	.cstat	r4, #0, #b$ocst		; get the channel status
+     66	000654			bochk$	b$oivd			; invalid device
+     67
+     68	000662			bneb	b$odst,#denfc.,46$	; NF:?
+     69	000672			bnew	b$ocst+ci.uni,46$	; not NF0:
+     70	000700	016767 		mov	b$ocst+ci.nam,b$odev	;
+		000072'
+		000040'
+     71	000706	062767 		add	#<^r  7>,b$odev		; NF0: is actually NF7: for booting
+		000045
+		000040'
+     72	000714			.purge	#0			;
+     73	000722			.lookup	r4, #0, #b$odev, #0	; lookup the device
+     74	000744			bochk$	b$onf7			;
+     75
+     76	000752		46$:	bpcw	#csSUB$,b$ocst,50$	; not a directory channel?
+     77	000762			boerr$	b$odir			; yep
+     78								;
+     79	000770		50$:	call	bo$vol			; do a volume check
+     80								;
+     81	000774			.readw	r4, #0, r5, #256., #0	; read block zero of the device
+     82	001026			bochk$	b$oiox			; i/o error
+     83								;
+     84	001034			bnew	b$ofor,54$		; foreign
+     85	001042	016700 		mov	b$omem,r0		; got a memory copy?
+		000022'
+     86	001046	001414 		beq	53$			; it's a file
+     87	001050			movi	br$sec,r5,r1		; point to the secondary boot
+     88	001056			call	me.cop r0, r1, #2048.	; copy it into place
+     89	001076	000403 		br	54$			;
+     90
+     91	001100		53$:	beqw	b$ofil+fn.fil,55$	; no file specified
+     92	001106		54$:	call	bo$fil			; get the file stuff
+     93	001112	000424 		br	60$			; fill in impure
+     94
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 9-2
+Boot common
+
+     95			;	Device boot
+     96
+     97	001114		55$:	movi	br$sec,r5,r1		; point to the secondary boot
+     98	001122			.readw	r4, #0, r1, #1024., #2	; no - read the secondary boot
+     99	001156			bochk$	b$oiox			; i/o error
+    100
+    101			;	Finish up boot impure
+    102			;
+    103			;	r5 ->	boot buffer
+    104
+    105	001164	016765 	60$:	mov	b$ocst+ci.uni,b$rdvu(r5); b$rdvu - store the device unit
+		000070'
+		004722
+    106	001172	005065 		clr	b$rduf(r5)		; b$rduf - signal booted by dup
+		000000
+    107								;
+    108	001176			movi	b$rhot,r5,r1		; b$rhot - point to time
+    109	001204			.gtimx	r4,#b$ogtx		; get extended time
+    110	001222	012765 		mov	#^rERA,b$rers(r5)	; pass the ERA signature
+		021021
+		005006
+    111	001230	016765 		mov	b$oera,b$rera(r5)	; b$rera
+		000116'
+		005010
+    112	001236			.gtim	r4,r1			; b$rlot - store it
+    113	001252			.date				; get the date
+    114	001260	010065 		mov	r0,b$rdat(r5)		; b$rdat - date
+		005004
+    115
+    116	001264			bplw	b$ofor,64$		; not a self boot
+    117	001272	005067 		clr	b$rfn0			; no image
+		004724'
+    118								;
+    119	001276	000167 	64$:	callr	bo$phy			; get physical
+		000000
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 10
+Boot common
+
+      1	001302		code	physical boot
+      2
+      3			;	There's no way back home from now on
+      4
+      5	001302		bo$phy:
+      6	001302	012737 	64$:	mov	#65$,@#v$etrp		; get into kernel mode
+		001316'
+		000034
+      7	001310	005037 		clr	@#v$etrp+ve.ps		; for RT-11/XM
+		000036
+      8	001314	104400 		trap				; doesn't work for RUST/XM
+      9	001316	022626 	65$:	cmp	(sp)+,(sp)+		; dump interrupt stack
+     10
+     11				.if ne 0
+     12				.gval	r4,#rm.cf2		; get config2
+     13				bit	#c2pro$,r0		; got a pro?
+     14				beq				; nope
+     15				bit	#c3kxc$,r0		; running on KX cpu?
+     16				bne				; yes
+     17				mov	#^o60,@#173202		; reset interrupts?
+     18				mov	#^o60,@#173206		;
+     19				mov	#^o60,@#173212		;
+     20				mov	#^o100,@#173202		;
+     21				mov	#^o100,@#173206		;
+     22				mov	#^o100,@#173212		;
+     23				.endc
+     24
+     25	001320	000005 	70$:	reset				; bang
+     26	001322			bnew	b$odrv,75$		; noread for driver boot
+     27	001330			beqb	b$odst,#denfc.,75$	; or NF:
+     28				.if ne rsx$c
+     29	001340			.readw	r4, #0, r5, #2, #0, #0 	; read one word from block zero
+     30				.iff				; (must be block zero for RSX)
+     31				.readw	r4, #0, r5, #2, #1, #0 	; read one word from block one
+     32				.endc
+     33								; not much we can do with an error
+     34	001372		75$:	.mtps	#^o340			; block interrupts
+     35	001412	012706 		mov	#b$rksp,sp		; the processor is blocked so it
+		010000
+     36								; doesn't matter where the stack is
+     37	001416			psh	@#v$ebus		; save it
+     38	001422	012737 		mov	#76$,@#v$ebus		;
+		001446'
+		000004
+     39	001430	012737 		mov	#^o340,@#v$ebus+2	;
+		000340
+		000006
+     40	001436	005037 		clr	@#m$msr0		; disable memory management
+		177572
+     41	001442	005037 		clr	@#m$msr2		; and 22-bit
+		177576
+     42	001446	005327 	76$:	dec	#0			; pause and affect
+		000000
+     43	001452	001375 		bne	76$			; (apparently necessary)
+     44	001454			pop	@#v$ebus		; restore it
+     45								;
+     46	001460	012706 		mov	#b$rksp,sp		;
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 10-1
+Physical boot
+
+		010000
+     47	001464	016700 		mov	b$obuf,r0		; move the boot into place
+		000106'
+     48	001470	005001 		clr	r1			; (we assume that we're executing above
+     49	001472	012021 	85$:	mov	(r0)+,(r1)+		; location 6000)
+     50	001474	020127 		cmp	r1,#b$renx		;
+		005012
+     51	001500	001374 		bne	85$			;
+     52
+     53	001502	016700 		mov	b$ocst+ci.uni,r0	; unit number
+		000070'
+     54	001506			bnew	b$odrv,86$		; /driver
+     55	001514			beqw	b$ofor,90$		; foreign
+     56	001522	000137 	86$:	jmp	@#br$beg		; /foreign
+		000002
+     57	001526	000137 	90$:	jmp	@#br$sec		; start secondary boot
+		001000
+     58
+     59			;	get volume information
+     60
+     61	001532		bo$vol:	.readw	r4, #0, r5, #256., #0	; read home block
+     62	001564	103413 		bcs	20$			; ignore errors
+     63	001566			movi	ho.sys,r5,r1		; look at file system id
+     64	001574	012702 		mov	#b$ovol,r2		;
+		001616'
+     65	001600	122122 	10$:	cmpb	(r1)+,(r2)+		; is this RSX?
+     66	001602	001004 		bne	20$			; nope
+     67	001604	105712 		tstb	(r2)			; all done?
+     68	001606	001374 		bne	10$			; nope
+     69	001610	005267 		inc	b$ofor			; yes - boot RSX as /FOREIGN
+		000020'
+     70	001614	000207 	20$:	return
+     71
+     72	001616	   104 	b$ovol:	.asciz	/DECFILE11/		; RSX/VMS home block ident
+	001617	   105
+	001620	   103
+	001621	   106
+	001622	   111
+	001623	   114
+	001624	   105
+	001625	   061
+	001626	   061
+	001627	   000
+     73				.even
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 11
+Physical boot
+
+      1	001630		code	file and driver
+      2
+      3			;	Locate boot file - get secondary boot
+      4			;	Locate device handler - get primary boot
+      5			;
+      6			;	b$rdvn	^rDDX	device name with suffix
+      7			;	b$rdvs	^rDD	device name without suffix
+      8			;	b$rrea	addr	address of read routine
+      9			;	b$rfn0	^rFIL	filename
+     10			;	b$rfn1	^rNAM
+     11			;	b$rsfx	^r  X	suffix only
+     12
+     13	001630		bo$fil:	bnew	b$omem,15$		;it's in memory
+     14	001636			.purge	#1			;purge it first
+     15	001644	005767 		tst	b$ofil+6		;got a type?
+		000036'
+     16	001650	001003 		bne	10$			;yep
+     17	001652	012767 		mov	#^rsys,b$ofil+6		;default it
+		075273
+		000036'
+     18	001660		10$:	.lookup	r4, #1, #b$ofil, #0	;look for the file
+     19	001702			bochk$	b$ofnf			;file not found
+     20								;
+     21	001710			movi	br$sec,r5,r1		;point to secondary area
+     22	001716			.readw	r4, #1, r1, #1024., #1	;read in the secondary boot
+     23	001752			bochk$	b$oiox			;i/o error
+     24
+     25			;	Get the driver
+     26
+     27	001760	012702 	15$:	mov	#b$ofil+fn.fil,r2	;get the spec
+		000032'
+     28	001764	012265 		mov	(r2)+,b$rfn0(r5)	;fn.fil - store the monitor name
+		004724
+     29	001770	012265 		mov	(r2)+,b$rfn1(r5)	;fn.nam
+		004726
+     30								;fn.typ
+     31	001774	012712 		mov	#^rsys,(r2)		;fn.typ
+		075273
+     32	002000	005042 		clr	-(r2)			;fn.nam
+     33	002002	016742 		mov	b$ocst+ci.nam,-(r2)	;fn.fil - permanent name
+		000072'
+     34	002006	011265 		mov	(r2),b$rdvs(r5)		;b$rdvs - device without suffix
+		004720
+     35	002012	066512 		add	b$rsfx(r5),(r2)		;fn.fil - add in the suffix
+		004774
+     36
+     37			;	Bootstrap code is usually identical for mapped and unmapped drivers.
+     38			;	If we're booting BOOT.SYS all we need is one of: DDV, DDP, DD or DDX.
+     39
+     40	002016	011201 		mov	(r2),r1			;r1 = initial choice
+     41	002020			.purge	#2			;purge it
+     42	002026	012703 		mov	#b$osuf,r3		;get suffix list
+		002444'
+     43	002032	026527 		cmp	b$rrst(r5),#^rrst	;is this BOOT?
+		004772
+		071614
+     44	002040	001401 		beq	20$			;yep
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 11-1
+File and driver
+
+     45	002042	005743 		tst	-(r3)			;nope - backup to RT-11 terminator
+     46
+     47	002044	011265 	20$:	mov	(r2),b$rdvn(r5)		;b$rdvn - device name with suffix
+		004716
+     48	002050	005742 		tst	-(r2)			;fn.dev
+     49	002052			.lookup	r4, #2, r2, #0		;look it up
+     50	002072	103017 		bcc	35$			;found it
+     51
+     52			;	No driver found with the specified name
+     53			;	Search for an RUST ddV, ddP and ddX driver
+     54
+     55	002074	005722 		tst	(r2)+			;point at name again
+     56	002076	021301 		cmp	(r3),r1			;same as initial choice?
+     57	002100	001001 		bne	30$			;nope
+     58	002102	005723 		tst	(r3)+			;yes - skip it
+     59	002104	016512 	30$:	mov	b$rdvs(r5),(r2)		;name minus suffix
+		004720
+     60	002110	061312 		add	(r3),(r2)		;add in next suffix
+     61	002112	011265 		mov	(r2),b$rdvn(r5)		;result name
+		004716
+     62	002116	022327 		cmp	(r3)+,#-1		;was this the list terminator?
+		177777
+     63	002122	001350 		bne	20$			;nope
+     64	002124			boerr$	b$odnf			;driver not found
+     65	002132	010003 	35$:	mov	r0,r3			;r3 file size
+     66	002134	000431 		br	bo$rea			;read driver
+     67
+     68			;	boot driver
+     69
+     70	002136	012702 	bo$drv:	mov	#b$ofil,r2		;
+		000030'
+     71	002142	011200 		mov	(r2),r0			;
+     72	002144	012722 		mov	#^rsy,(r2)+		;
+		075250
+     73	002150	010012 		mov	r0,(r2)			;
+     74	002152	062722 		add	#<^r  V>,(r2)+		;
+		000026
+     75	002156	005022 		clr	(r2)+			;
+     76	002160	012712 		mov	#^rsys,(r2)		;
+		075273
+     77	002164	012702 		mov	#b$ofil,r2		;
+		000030'
+     78	002170			.lookup	r4, #2, r2, #0		; look it up
+     79	002210			bochk$	b$odnf			;
+     80	002216	010003 		mov	r0,r3			; driver size
+     81	002220			fall	bo$rea			;
+     82
+     83			;	Read driver bootstrap
+     84			;
+     85			;	r3 	driver size
+     86			;	r4 ->	emt area
+     87			;	r5 ->	buffer
+     88			;
+     89			;	r5 ->	driver bootstrap
+     90
+     91	002220		bo$rea:	.readw	r4, #2, r5, #256., #0	;read block zero
+     92	002252			bochk$	b$oiox			;i/o error
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 11-2
+File and driver
+
+     93	002260	016565 		mov	ha.brd(r5),b$rrea(r5)	;b$rrea - read routine address
+		000066
+		004730
+     94	002266	016501 		mov	ha.bpt(r5),r1		;r1 handler pointer
+		000062
+     95	002272	016502 		mov	ha.ble(r5),r2		;r2 boot byte size
+		000064
+     96	002276	001003 		bne	60$			;not invalid yet
+     97	002300		50$:	boerr$	b$oihs			;invalid driver structure
+     98	002306	020227 	60$:	cmp	r2,#^o1000		;too long for us?
+		001000
+     99	002312	101372 		bhi	50$			;that is invalid
+    100	002314	010102 		mov	r1,r2			;get the pointer
+    101	002316	042702 		bic	#^o777,r2		;isolate the block
+		000777
+    102	002322	040201 		bic	r2,r1			;r1 is the offset
+    103	002324	000302 		swab	r2			;make block number
+    104	002326	006202 		asr	r2			;bytes/512.
+    105	002330	001763 		beq	50$			;block zero is ridic
+    106	002332	020203 		cmp	r2,r3			;this too high?
+    107	002334	103361 		bhis	50$			;yes
+    108	002336			movi	b$renx,r5,r3		;r3 -> segment area
+    109	002344			psh	#256.			;assume block boundary
+    110	002350	005701 		tst	r1			;on a block boundary?
+    111	002352	001401 		beq	70$			;yes
+    112	002354	006316 		asl	(sp)			;no - read two blocks
+    113	002356		70$:	.readw	r4, #2, r3, (sp)+, r2	;read the primary boot
+    114	002406			bochk$	b$oiox			;i/o error
+    115	002414	060103 		add	r1,r3			;r3 -> primary boot
+    116	002416	021327 		cmp	(r3),#^o240		;is this a bootstrap?
+		000240
+    117	002422	001326 		bne	50$			;no
+    118	002424	010502 		mov	r5,r2			;yes - copy it
+    119	002426	012701 		mov	#256.,r1		;
+		000400
+    120	002432	012322 	80$:	mov	(r3)+,(r2)+		;one more move
+    121	002434			sobw	r1,80$			;I have been here before
+    122	002440	000207 		return				;fine
+    123
+    124	002442	177777 		.word	-1			;RT-11 terminator
+    125	002444	000026 	b$osuf:	.rad50	/  V/			;RUST/SJ
+    126	002446	000020 		.rad50	/  P/			;RUST/XM
+    127	002450	000000 		.rad50	/   /			;RT-11/SJ
+    128	002452	000030 		.rad50	/  X/			;RT-11/XM
+    129	002454	177777 		.word	-1			;BOOT terminator
+    130
+    131		000001 	.end
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 11-3
+Symbol table
+
+ADDR$L= 000001   	BR$REP  000672   	B$RENX  005012
+ADDR$N= 177776   	BR$SEC  001000   	B$RERA  005010
+ADDR$R= 177777   	BR$SJA  000040   	B$RERS  005006
+ADDR. = 000002   	BR$SRA  000120   	B$RFN0  004724
+AMPSD.= 000046   	BR.EBO  000004   	B$RFN1  004726
+ASTRX.= 000052   	BR.EBS  000006   	B$RHOT  005000
+ATSGN.= 000100   	BR.ECK  000003   	B$RHTO  004732
+AUTO. = 000000   	BR.ECT  000001   	B$RIMG  004762
+BELL. = 000007   	BR.EDT  000005   	B$RIMS  004700
+BITS  = 177777   	BR.EFT  000002   	B$RKSP  010000
+BIT.  = 000001   	BR.EPT  000000   	B$RLOT  005002
+BIT0$ = 000001   	BSLAS.= 000134   	B$RNAM  004740
+BIT1$ = 000002   	BS.   = 000010   	B$RREA  004730
+BIT10$= 002000   	BTFOR = 000001   	B$RRMS  004736
+BIT11$= 004000   	BYTE  = 000001   	B$RRST  004772
+BIT12$= 010000   	BYTE. = 000001   	B$RSFX  004774
+BIT13$= 020000   	B$OBUF  000106R     003	B$RSYG  004776
+BIT14$= 040000   	B$OCST  000060R     003	B$RTMV  004714
+BIT15$= 100000   	B$ODEF  000120R     003	B$RTOP  000664
+BIT2$ = 000004   	B$ODEV  000040R     003	B$RV3P  000004
+BIT3$ = 000010   	B$ODIR  000573R     003	B$RV4S  000006
+BIT4$ = 000020   	B$ODNF  000201R     003	CELL. = 000002
+BIT5$ = 000040   	B$ODRV  000024R     003	CHAR. = 000001
+BIT6$ = 000100   	B$ODST  000050R     003	CHEXT.  000001
+BIT7$ = 000200   	B$OEMT  000002R     003	CHIMG.  000017
+BIT8$ = 000400   	B$OERA  000116R     003	CHIPT.  177776
+BIT9$ = 001000   	B$OEXH  000625R     003	CHKER.  177775
+BO$CHK  000220R     002	B$OFAI  000246R     003	CHMAX.  000374
+BO$DRV  002136R     002	B$OFET  000321R     003	CHMIN.  000001
+BO$ERR  000226R     002	B$OFIL  000030R     003	CHOPT.  177777
+BO$FAI  000210R     002	B$OFNF  000155R     003	CH.BBS  000012
+BO$FIL  001630R     002	B$OFOR  000020R     003	CH.CSW  000000
+BO$PHY  001302R     002	B$OGEN  000074R     003	CH.IOC  000010
+BO$REA  002220R     002	B$OGTX  000110R     003	CH.LEN  000004
+BO$VOL  001532R     002	B$OHAN  000104R     003	CH.PRO  000001
+BPT.  = 000003 G 	B$OIBD  000360R     003	CH.SBL  000002
+BRCCB$  000004   	B$OIHS  000411R     003	CH.UNI  000011
+BRCCM$  000040   	B$OINS  000267R     003	CH.USE  000006
+BRCGE$  000100   	B$OIOX  000227R     003	CI.BBS  000014
+BRCQB$  000002   	B$OIVD  000124R     003	CI.CSW  000000
+BRCQM$  000020   	B$OLDX  000477R     003	CI.LEN  000004
+BRCUB$  000001   	B$OMEM  000022R     003	CI.NAM  000012
+BRCUM$  000010   	B$ONFX  000442R     003	CI.SBL  000002
+BRFRT.  000020   	B$ONF7  000653R     003	CI.UNI  000010
+BRIOE$  004167   	B$OPAR  000534R     003	CI.USE  000006
+BRNBS.  000034   	B$OSPC  000026R     003	CNBAT$  000010
+BRP11.  000020   	B$OSTK  000000R     003	CNBUS$  000100
+BRRBS.  000014   	B$OSUF  002444R     002	CNCAC$  000001
+BRSBN.  000002   	B$OVOL  001616R     002	CNCIS$  000200
+BRSWC.  002000   	B$RBOT  000062   	CNCLO$  100000
+BRV3N$  012700   	B$RDAT  005004   	CNEIS$  000400
+BRV4B$  000416   	B$RDUF  000000   	CNFBM$  000001
+BRV4N$  004067   	B$RDUP  004734   	CNFGJ$  000200
+BRV5B$  000415   	B$RDVN  004716   	CNFPU$  000100
+BR$BEG  000002   	B$RDVS  004720   	CNGCC$  010000
+BR$BPT  000014   	B$RDVU  004722   	CNGTL$  000400
+BR$IOE  000664   	B$REND  005006   	CNKMS$  000040
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 11-4
+Symbol table
+
+CNKWC$  040000   	CTRLZ.= 000032   	DEL.  = 000177
+CNLDS$  000020   	CTRSB.= 000035   	DEMMC.  000020
+CNLKS$  020000   	CTUND.= 000037   	DEMQC.  000042
+CNMPY$  000002   	C2BUS$  000100   	DEMSC.  000035
+CNPRO$  020000   	C2CAC$  000001   	DEMTC.  000011
+CNP03$  004000   	C2CIS$  000200   	DEMTT.  000005
+CNP60$  100000   	C2DBG$  002000   	DEMUC.  000060
+CNP70$  040000   	C2EIS$  000400   	DENCC.  000061
+CNQUE$  002000   	C2GCC$  010000   	DENFC.  000205
+CNSLE$  000020   	C2KMS$  000040   	DENFQ$  100000
+CNSLK$  000002   	C2KXJ$  004000   	DENFT$  000200
+CNSWR$  000004   	C2LDS$  000020   	DENIT.  000013
+CNSWW$  000010   	C2MPY$  000002   	DENLC.  000025
+CNUSR$  001000   	C2PRO$  020000   	DENLT.  000001
+CNVTS$  000004   	C2P60$  100000   	DENQC.  000061
+CNV60$  001000   	C2P70$  040000   	DENTC.  000201
+CNXMM$  010000   	C2SWR$  000004   	DENUC.  000061
+CN50H$  000040   	C2SWW$  000010   	DEPCC.  000007
+COLON.= 000072   	C2V60$  001000   	DEPDC.  000036
+COMMA.= 000054   	C3ACT$  000040   	DEPIC.  000054
+CR.   = 000015   	C3ATT$  001000   	DEPPC.  000010
+CSACT$  100000   	C3DMA$  000200   	DEPQC.  000037
+CSEOF$  020000   	C3NIN$  000020   	DEPST.  000014
+CSHER$  000001   	C3OWN$  002000   	DERFC.  000012
+CSIN$M  177701   	C3RES$  000100   	DERKC.  000000
+CSIN$N  177701   	C364U$  000400   	DESBT.  000020
+CSIN$P  000076   	DEBAC.  000004   	DESDC.  000062
+CSNPH$  002000   	DECRC.  000014   	DESIT.  000016
+CSNPU$  010000   	DECTC.  000013   	DESLC.  000051
+CSNRE$  000400   	DECTT.  000006   	DESNC.  000204
+CSNWR$  001000   	DEDDC.  000034   	DESOT.  000017
+CSRW$M  176377   	DEDEC.  000010   	DESPC.  000055
+CSRW$P  001400   	DEDKT.  000004   	DESTC.  000063
+CSSPL$  004000   	DEDLC.  000005   	DETPC.  000205
+CSSUB$  040000   	DEDLT.  000012   	DETPT.  000003
+CSTEN$  000200   	DEDMC.  000023   	DETTC.  000004
+CSTTI$  000000   	DEDMT$  000002   	DETTT.  000002
+CSWLK$  000100   	DEDPC.  000021   	DEUKT.  000000
+CSWRI$  040000   	DEDPT.  000011   	DEVMC.  000047
+CTBSL.= 000034   	DEDRC.  000043   	DEVTT.  000015
+CTHAT.= 000036   	DEDSC.  000016   	DEVVC.  000202
+CTRLA.= 000001   	DEDTC.  000001   	DEVXC.  000200
+CTRLB.= 000002   	DEDUC.  000050   	DEV2Q$  040000
+CTRLC.= 000003   	DEDWC.  000053   	DEXCC.  000057
+CTRLD.= 000004   	DEDXC.  000022   	DEXLC.  000057
+CTRLE.= 000005   	DEDXT$  000001   	DEXTC.  000044
+CTRLF.= 000006   	DEDYC.  000006   	DIG0. = 000060
+CTRLP.= 000020   	DEDZC.  000052   	DIG1. = 000061
+CTRLQ.= 000021   	DEELC.  000002   	DIG2. = 000062
+CTRLR.= 000034   	DEFAC.  000203   	DIG3. = 000063
+CTRLS.= 000023   	DEFTC.  000204   	DIG4. = 000064
+CTRLT.= 000024   	DEFXC.  000206   	DIG5. = 000065
+CTRLU.= 000025   	DEHDC.  000175   	DIG6. = 000066
+CTRLV.= 000026   	DELDC.  000046   	DIG7. = 000067
+CTRLW.= 000027   	DELPC.  000003   	DIG8. = 000070
+CTRLX.= 000030   	DELPT.  000007   	DIG9. = 000071
+CTRLY.= 000031   	DELSC.  000041   	DI.BBS  000010
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 11-5
+Symbol table
+
+DI.DSW  000000   	HA.BRD  000066   	HO.RE1  000702
+DI.DSZ  000006   	HA.CQE  000010   	HO.RLB  000000
+DI.ENT  000004   	HA.CSR  000176   	HO.RRB  000002
+DI.HSZ  000002   	HA.DSZ  000054   	HO.RTB  000702
+DOLAR.= 000044   	HA.ELP  177770   	HO.RTG  000700
+DOT.  = 000056   	HA.FKP  177776   	HO.SEG  000724
+DQUOT.= 000042   	HA.GBP  177762   	HO.SYS  000760
+DSCOD$  000377   	HA.HOL  000004   	HO.VER  000726
+DSFUN$  002000   	HA.HSZ  000052   	HO.VOL  000730
+DSGAB$  001000   	HA.INS  000200   	HT.   = 000011
+DSHAB$  004000   	HA.ISR  000002   	IM.REP= ****** GX
+DSRON$  040000   	HA.ITP  177774   	INT$L = 000001
+DSRTA$  100000   	HA.LQE  000006   	INT$R = 177777
+DSSPC$  010000   	HA.MOD  000007   	INT.  = 000002
+DSVAR$  000400   	HA.MPP  177760   	JBAUN.  100000
+DSWON$  020000   	HA.OP0  000002   	JBAUT.  177777
+EOF     177777   	HA.OP1  000004   	JBECR$  000200
+EQUAL.= 000075   	HA.PBP  177764   	JBEEX$  000377
+ESC.  = 000033   	HA.PRI  000004   	JBEIN$  100000
+FALSE = 000000   	HA.PWP  177766   	JBETE$  177777
+FF.   = 000014   	HA.RLP  177756   	JBRTX.  071670
+FNWIL.  132500   	HA.ROU  000006   	JBVIC.  105353
+FN.BBS  000010   	HA.SBS  000010   	JB.AFN  000400
+FN.DEV  000000   	HA.SET  000400   	JB.AMF  000776
+FN.FIL  000002   	HA.SIO  000014   	JB.AUL  000112
+FN.NAM  000004   	HA.STA  000056   	JB.AUR  000110
+FN.TYP  000006   	HA.SYG  000060   	JB.AUT  000140
+FN.XBS  000012   	HA.TMP  177772   	JB.BDA  000070
+FN.XEC  000004   	HA.VAL  000000   	JB.BLE  000064
+FN.XFL  000000   	HA.VEC  000000   	JB.BPT  000062
+FN.XNM  000002   	HA.VOF  000002   	JB.BRD  000066
+FN.XTP  000006   	HA.VPS  000004   	JB.CCT  000510
+FN.XVR  000010   	HA.VVC  000000   	JB.CFN  000500
+FOR   = 000014   	HA.XKH  177776   	JB.CHA  000500
+GDDGS.  000010   	HA.22B  000000   	JB.CQE  001010
+GD.BB0  000004   	HA.22F  000002   	JB.CSR  000176
+GD.BB1  000006   	HA22B.  146402   	JB.CST  000512
+GD.BC0  000000   	HORDL.  000024   	JB.CS0  000174
+GD.BC1  000002   	HORDM.  000040   	JB.CS1  000172
+HADON$  040000   	HORDP.  000024   	JB.DST  000056
+HAHOL$  100000   	HOREN.  000000   	JB.DSW  000046
+HALF. = 000002   	HORTE$  071645   	JB.DSZ  000054
+HANFT$  100000   	HO.BFN  000255   	JB.EFL  000510
+HANOP$  000200   	HO.BID  000252   	JB.EIF  000512
+HANUM$  000100   	HO.BLS  000272   	JB.EOF  000540
+HAOCT$  000040   	HO.BUP  000252   	JB.EPT  001012
+HAQCO.  000270   	HO.BUZ  000274   	JB.ERR  000052
+HARKO.  177772   	HO.BVN  000266   	JB.EXI  000000
+HASH. = 000043   	HO.BVS  000270   	JB.HBT  000022
+HAT.  = 000136   	HO.CKS  000776   	JB.HCS  000600
+HAVT0.  000000   	HO.CLU  000722   	JB.HDC  000020
+HAVT1.  100000   	HO.INI  000204   	JB.HDV  000021
+HAXHS.  000002   	HO.INZ  000252   	JB.HFT  000026
+HA.BBS  000006   	HO.OWN  000744   	JB.HF0  000022
+HA.BEG  000012   	HO.REP  000000   	JB.HF1  000024
+HA.BLE  000064   	HO.REZ  000202   	JB.HIC  000072
+HA.BPT  000062   	HO.RE0  000700   	JB.HIT  000070
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 11-6
+Symbol table
+
+JB.HST  000400   	J$BAUT  000140   	J$BLQE  001006
+JB.HSZ  000052   	J$BBDA  000070   	J$BMAP  000360
+JB.IAI  000140   	J$BBLE  000064   	J$BRBL  000062
+JB.ICD  000144   	J$BBPT  000062   	J$BREF  000060
+JB.ICI  000134   	J$BBRD  000066   	J$BROS  000056
+JB.IED  000146   	J$BCCT  000510   	J$BRRS  000052
+JB.IFN  000130   	J$BCFN  000500   	J$BRSS  000054
+JB.IIB  000132   	J$BCHA  000500   	J$BRTX  000254
+JB.IIG  000116   	J$BCQE  001010   	J$BSEV  000053
+JB.INH  000200   	J$BCSR  000176   	J$BSIG  000256
+JB.INM  000124   	J$BCST  000512   	J$BSYG  000060
+JB.INS  000202   	J$BCS0  000174   	J$BSYS  000054
+JB.IPS  001004   	J$BCS1  000172   	J$BTOP  000050
+JB.IRG  000114   	J$BDST  000056   	J$BTTF  000056
+JB.ISD  000122   	J$BDSW  000046   	J$BTTN  000057
+JB.ISI  000120   	J$BDSZ  000054   	J$BUPC  000040
+JB.ISR  001002   	J$BEFL  000510   	J$BUSA  000046
+JB.IUN  000112   	J$BEIF  000512   	J$BUSP  000042
+JB.IUS  000142   	J$BEOF  000540   	J$BVEC  001000
+JB.IUX  000172   	J$BEPT  001012   	J$BVIC  000210
+JB.IVN  000110   	J$BERR  000052   	J$BVIE  000300
+JB.JSP  001000   	J$BEXI  000000   	J$BVIF  000000
+JB.JSW  000044   	J$BHBT  000022   	J$BVOT  000066
+JB.KWL  000056   	J$BHCS  000600   	J$BVTO  000002
+JB.LEV  000053   	J$BHDC  000020   	LANGL.= 000074
+JB.LOT  000064   	J$BHDV  000021   	LBRAC.= 000133
+JB.LQE  001006   	J$BHFT  000026   	LF.   = 000012
+JB.MAP  000360   	J$BHF0  000022   	LONG  = 000004
+JB.RBL  000062   	J$BHF1  000024   	LONG$L= 000002
+JB.REF  000060   	J$BHIC  000072   	LONG$R= 177776
+JB.ROS  000056   	J$BHIT  000070   	LONG. = 000004
+JB.RRS  000052   	J$BHST  000400   	LOWA. = 000141
+JB.RSS  000054   	J$BHSZ  000052   	LOWB. = 000142
+JB.RTX  000254   	J$BIAI  000140   	LOWC. = 000143
+JB.SEV  000053   	J$BICD  000144   	LOWD. = 000144
+JB.SIG  000256   	J$BICI  000134   	LOWE. = 000145
+JB.SYG  000060   	J$BIED  000146   	LOWF. = 000146
+JB.SYS  000054   	J$BIFN  000130   	LOWG. = 000147
+JB.TOP  000050   	J$BIIB  000132   	LOWH. = 000150
+JB.TTF  000056   	J$BIIG  000116   	LOWI. = 000151
+JB.TTN  000057   	J$BINH  000200   	LOWJ. = 000152
+JB.UPC  000040   	J$BINM  000124   	LOWK. = 000153
+JB.USA  000046   	J$BINS  000202   	LOWL. = 000154
+JB.USP  000042   	J$BIPS  001004   	LOWM. = 000155
+JB.VC0  000000   	J$BIRG  000114   	LOWN. = 000156
+JB.VC1  000002   	J$BISD  000122   	LOWO. = 000157
+JB.VEC  001000   	J$BISI  000120   	LOWP. = 000160
+JB.VIC  000210   	J$BISR  001002   	LOWQ. = 000161
+JB.VIE  000300   	J$BIUN  000112   	LOWR. = 000162
+JB.VIF  000000   	J$BIUS  000142   	LOWS. = 000163
+JB.VOT  000066   	J$BIUX  000172   	LOWT. = 000164
+JB.VTO  000002   	J$BIVN  000110   	LOWU. = 000165
+JSW     000044   	J$BJSP  001000   	LOWV. = 000166
+J$BAFN  000400   	J$BJSW  000044   	LOWW. = 000167
+J$BAMF  000776   	J$BKWL  000056   	LOWX. = 000170
+J$BAUL  000112   	J$BLEV  000053   	LOWY. = 000171
+J$BAUR  000110   	J$BLOT  000064   	LOWZ. = 000172
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 11-7
+Symbol table
+
+LPARN.= 000050   	MMPRS$  000001   	M$SIP0  172240
+LSQIG.= 000173   	MMPUM$  030000   	M$UDD0  177620
+LSQUA.= 000133   	MMP12.  160000   	M$UDP0  177660
+MADOL.= 001012   	MMP18.  001600   	M$UID0  177600
+MAVAL.= 000012   	MMP22.  010000   	M$UID1  177602
+MA$MOD= 000000   	MMP61.  120000   	M$UID2  177604
+MA$VAL= 000173   	MMP62.  100000   	M$UID3  177606
+MA$YEA= 003737   	MMREG$  000003   	M$UID4  177610
+MEM   = 000016   	MMROA$  020000   	M$UID5  177612
+ME.ALC= ****** GX	MMSPC$  000020   	M$UID6  177614
+ME.COP= ****** GX	MMSYS$  000004   	M$UID7  177616
+ME.DLC= ****** GX	MMVIP.  000006   	M$UIP0  177640
+MINUS.= 000055   	MMWIP.  000040   	M$UIP1  177642
+MMBIP.  000100   	MM.P0   000000   	M$UIP2  177644
+MMCUM$  140000   	MM.P1   000002   	M$UIP3  177646
+MMDED$  000040   	MM.P2   000004   	M$UIP4  177650
+MMDED.  000040   	MM.P3   000006   	M$UIP5  177652
+MMDEF$  000001   	MM.P4   000010   	M$UIP6  177654
+MMDMO$  000100   	MM.P5   000012   	M$UIP7  177656
+MMDMO.  000100   	MM.P6   000014   	NF7$C = 000001
+MMDNO.  000000   	MM.P7   000016   	NONE. = 000000
+MMDPT$  000007   	MM.SBS  000040   	NULL  = 000000
+MMDRA.  000001   	MM22B$  000020   	NULL. = 000000
+MMDRO.  000002   	MM22M$  000010   	PERCT.= 000045
+MMDRS$  077402   	M$KDD0  177360   	PLUS. = 000053
+MMDRW.  000006   	M$KDP0  177320   	P1    = 000012
+MMDUM$  170000   	M$KID0  172300   	P2    = 000014
+MMDWA.  000004   	M$KID1  172302   	P3    = 000016
+MMDWM.  000005   	M$KID2  172304   	P4    = 000020
+MMDWS$  077406   	M$KID3  172306   	P5    = 000022
+MMD4K.  077406   	M$KID4  172310   	P6    = 000024
+MMENB$  000001   	M$KID5  172312   	P7    = 000026
+MMINC$  000170   	M$KID6  172314   	P8    = 000030
+MMI18.  007600   	M$KID7  172316   	P9    = 000032
+MMI22.  177600   	M$KIP0  172340   	QMARK.= 000077
+MMKP0.  000000   	M$KIP1  172342   	QUAD  = 000010
+MMKP1.  000200   	M$KIP2  172344   	QUOTE.= 000047
+MMKP2.  000400   	M$KIP3  172346   	RANGL.= 000076
+MMKP3.  000600   	M$KIP4  172350   	RBRAC.= 000135
+MMKP4.  001000   	M$KIP5  172352   	RMCLF.  177776
+MMKP5.  001200   	M$KIP6  172354   	RMCLT.  177777
+MMKP6.  001400   	M$KIP7  172356   	RMNET.  177776
+MMKP7.  001600   	M$MPA0  000000   	RMRSZ.  177776
+MMMAP$  000002   	M$MPA1  020000   	RMTCF.  177776
+MMMOD$  000140   	M$MPA2  040000   	RMXMP.  000004
+MMNRA$  100000   	M$MPA3  060000   	RM.     000472
+MMPAG$  000016   	M$MPA4  100000   	RM.BBS  000456
+MMPAV.  000015   	M$MPA5  120000   	RM.BLK  000256
+MMPA$M  017777   	M$MPA6  140000   	RM.CAL  000434
+MMPA$N  017777   	M$MPA7  160000   	RM.CFG  000300
+MMPA$P  160000   	M$MSR0  177572   	RM.CFS  000366
+MMPIB.  000010   	M$MSR1  177574   	RM.CF2  000370
+MMPIK.  000040   	M$MSR2  177576   	RM.CF3  000466
+MMPIS.  000200   	M$MSR3  172516   	RM.CHK  000260
+MMPIV.  002000   	M$SDD0  177260   	RM.CLG  000422
+MMPLA$  040000   	M$SDP0  177220   	RM.CPU  000377
+MMPN$N  176000   	M$SID0  172200   	RM.CSW  000004
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 11-8
+Symbol table
+
+RM.CXT  000320   	RM.TIM  000320   	SFMWE.  000377
+RM.DAT  000262   	RM.TKB  000306   	SFMWG.  000374
+RM.DEC  000474   	RM.TKS  000304   	SFNAL.  000200
+RM.DFL  000264   	RM.TPB  000312   	SFNMA.  000203
+RM.DRP  000350   	RM.TPL  000434   	SFNPM.  000201
+RM.DWT  000440   	RM.TPS  000310   	SFNPR.  000202
+RM.EDT  000452   	RM.TRS  000442   	SFNRE.  000205
+RM.EMR  000400   	RM.UCF  000342   	SFNTR.  000204
+RM.EMU  000503   	RM.USA  000374   	SFONC$  000004
+RM.ERC  000356   	RM.USL  000352   	SFPHW$  040000
+RM.ERL  000376   	RM.USR  000266   	SFPHY$  000040
+RM.E16  000316   	RM.V54  000456   	SFREA$  000100
+RM.FOR  000453   	RM.V55  000506   	SFRWS$  100000
+RM.FRK  000402   	RM.WLD  000454   	SFUND$  020000
+RM.F00  000455   	RM.XNR  000470   	SFWCT$  000001
+RM.GTV  000354   	RM.XOF  000462   	SFWRI$  000200
+RM.GVC  000436   	RM.XPB  000500   	SFXBR.  000202
+RM.HUB  000460   	RM.XPS  000476   	SFXCL.  000201
+RM.IDV  000426   	RPARN.= 000051   	SFXOF.  000205
+RM.IML  000446   	RSQIG.= 000175   	SFXRB.  000203
+RM.INS  000417   	RSQUA.= 000135   	SFXRS.  000204
+RM.INX  000416   	RSX$C = 000001   	SF.ADR  000002
+RM.JBS  000455   	RT$BOO  000276RG    002	SF.COD  000000
+RM.JNM  000322   	RT.BOO  000000RG    002	SF.CTL  000000
+RM.KMN  000450   	RT.DST= ****** GX	SF.DAT  000002
+RM.LMP  000326   	RT.FET= ****** GX	SF.DBS  000004
+RM.MAX  000314   	RT.REL= ****** GX	SF.EBS  000006
+RM.MES  000420   	RX.SCN= ****** GX	SF.FRE  000005
+RM.MFP  000362   	SEMI. = 000073   	SF.FUN  000004
+RM.MNM  000406   	SFBCT$  000400   	SI.   = 000016
+RM.MON  000000   	SFBYP$  001000   	SLASH.= 000057
+RM.MPT  000430   	SFCLB.  000376   	SLF$C = 000001
+RM.MSZ  000420   	SFCLF.  000377   	SMADM$= 000070
+RM.MTP  000360   	SFCNB.  000374   	SMALL.= 000000
+RM.NET  000342   	SFCNF.  000375   	SMASS.= 000000
+RM.NUL  000444   	SFCRW.  000373   	SMBCC.= 000001
+RM.PGD  000452   	SFCTL$  000020   	SMBCS.= 000001
+RM.PNP  000404   	SFCWG.  000372   	SMBC..= 000001
+RM.P1X  000432   	SFDGS.  000373   	SMBLK.= 000005
+RM.QCO  000270   	SFDMS.  000371   	SMBPT.= 000001
+RM.QHK  000456   	SFDMX.  000360   	SMBSC.= 000001
+RM.RTS  000464   	SFDPR.  000377   	SMBSS.= 000001
+RM.SCH  000244   	SFDPW.  000376   	SMBS..= 000001
+RM.SCR  000302   	SFDRB.  000374   	SMCOD.= 000002
+RM.SL2  000502   	SFDTT.  000372   	SMCRT.  000001
+RM.SPL  000414   	SFDWD.  000375   	SMDAT.= 000001
+RM.SPS  000504   	SFD32.  000001   	SMDEF.= 000000
+RM.SPU  000272   	SFERB$  000010   	SMELS.= 000006
+RM.SUF  000412   	SFGVS.  000373   	SMEND.= 004000
+RM.SUP  000277   	SFLIM$  000002   	SMIF. = 000001
+RM.SYG  000372   	SFMBB.  000375   	SMLBC.= 000001
+RM.SYI  000364   	SFMFB.  000376   	SMLBS.= 000001
+RM.SYN  000324   	SFMPR.  000370   	SMLOC.= 000001
+RM.SYU  000274   	SFMPW.  000371   	SMLON.= 000001
+RM.SYV  000276   	SFMRO.  000372   	SMMC..= 000001
+RM.TCF  000424   	SFMRW.  000373   	SMMOD.= 000000
+RM.THP  000472   	SFMST.  000367   	SMMS..= 000001
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 11-9
+Symbol table
+
+SMNAT.= 000002   	T10   = 000022   	VESST$  010000
+SMOFF.= 177776   	T11   = 000026   	VESYS$  004000
+SMON..= 000001   	T12   = 000030   	VETRN$  001000
+SMPDP.= 000001   	T2    = 000002   	VETRP.  000007
+SMPRO.= 000004   	T3    = 000004   	VEUNV.  000016
+SMREP.= 000002   	T4    = 000006   	VEUSE$  100000
+SMRGM$= 000000   	T5    = 000010   	VEUSP.  000014
+SMSHO.= 000000   	T6    = 000012   	VEWEA$  002000
+SMSPM.= 000000   	T7    = 000014   	VE.BBS  000004
+SMSUB.= 000003   	T8    = 000016   	VE.PC   000000
+SMTRA.= 000000   	T9    = 000020   	VE.PS   000002
+SMVAX.= 000000   	UNDER.= 000137   	VT.   = 000013
+SMWHI.= 000000   	UPRA. = 000101   	V$EBPT  000014
+SM.PPC= 000010   	UPRB. = 000102   	V$EBUS  000004
+SO.   = 000017   	UPRC. = 000103   	V$ECLK  000100
+SPACE.= 000040   	UPRD. = 000104   	V$ECLP  000104
+SPC   = 000012   	UPRE. = 000105   	V$ECPU  000010
+SP.   = 000040   	UPRF. = 000106   	V$EEMT  000030
+SP.RET= 000010   	UPRG. = 000107   	V$EFPU  000244
+SP.R2 = 000000   	UPRH. = 000110   	V$EIOT  000020
+SP.R3 = 000002   	UPRI. = 000111   	V$EKBD  000060
+SP.R4 = 000004   	UPRJ. = 000112   	V$EMAX  000600
+SP.R5 = 000006   	UPRK. = 000113   	V$EMEM  000114
+SQUOT.= 000047   	UPRL. = 000114   	V$EMMU  000250
+S$MALN= 000000   	UPRM. = 000115   	V$EPOW  000024
+S$MBGN= 000001   	UPRN. = 000116   	V$ETER  000064
+S$MDUP= 000000   	UPRO. = 000117   	V$ETRP  000034
+S$MELS= 000000   	UPRP. = 000120   	WORD  = 000002
+S$MEND= 004001   	UPRQ. = 000121   	WORD$L= 000001
+S$MLBE= 004001   	UPRR. = 000122   	WORD$R= 177777
+S$MLES= 000000   	UPRS. = 000123   	WORD. = 000002
+S$MLOC= 000000   	UPRT. = 000124   	XCLAM.= 000041
+S$MLON= 000000   	UPRU. = 000125   	$     = 001002
+S$ML1 = 000001   	UPRV. = 000126   	$00000= 100000
+S$MMEE= 000000   	UPRW. = 000127   	$40000= 140000
+S$MMOD= 000000   	UPRX. = 000130   	$60000= 160000
+S$MMSC= 000000   	UPRY. = 000131   	$70000= 170000
+S$MMTC= 000000   	UPRZ. = 000132   	$74000= 174000
+S$MM1 = 000000   	VARY  = 000000   	$76000= 176000
+S$MNAT= 000000   	VARY. = 000000   	$77000= 177000
+S$MNRG= 000001   	VBAR. = 000174   	$77400= 177400
+S$MNST= 000000   	VEADR.  000010   	$77600= 177600
+S$MPAN= 000004   	VEBPT.  000003   	$77700= 177700
+S$MPNS= 000001   	VEBUG.  000017   	$77740= 177740
+S$MPOO= 000001   	VEBUS.  000001   	$77760= 177760
+S$MPSC= 000000   	VECPU.  000002   	$77770= 177770
+S$MRNS= 000000   	VEEMT.  000006   	$77774= 177774
+S$MSAV= 000004   	VEFAT$  040000   	$77776= 177776
+S$MSEC= 000002   	VEFPU.  000012   	$77777= 177777
+S$MTMP= 000000   	VEIOT.  000004   	...V1 = 000003
+S$MTYP= 000004   	VEKSP.  000015   	...V10= 000003
+S$MT1 = 000004   	VEMAX.  000020   	...V11= 000027
+TAB.  = 000011   	VEMEM.  000011   	...V2 = 000027
+TICK. = 000140   	VEMMU.  000013   	...V3 = 000000
+TILDA.= 000176   	VENOP.  000000   	...V4 = 000027
+TRUE  = 000001   	VEPOW.  000005   	.2049   000176R     002
+T1    = 000000   	VEPRC$  020000
+Rtboo - boot rt-11 device/file	MACRO V05.06  Monday 11-Jan-21 09:09  Page 11-10
+Symbol table
+
+
+. ABS.	000000    000	(RW,I,GBL,ABS,OVR)
+      	000000    001	(RW,I,LCL,REL,CON)
+C$CODE	002456    002	(RO,I,LCL,REL,CON)
+C$DATA	000712    003	(RW,D,LCL,REL,CON)
+Errors detected:  2
+
+*** Assembler statistics
+
+
+Work  file  reads: 277
+Work  file writes: 229
+Size of work file: 25768 Words  ( 101 Pages)
+Size of core pool: 11776 Words  ( 46 Pages)
+Operating  system: RT-11
+
+Elapsed time: 00:00:01.46
+CTB:RTBOO,CTB:RTBOO=CTS:RTBOO
+                    

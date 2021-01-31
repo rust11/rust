@@ -1,0 +1,72 @@
+.title	rtftm - setup file time
+.include "lib:crt.mac"
+$cndef
+$rmdef
+$rtdef
+smini$
+
+ccdat$
+t$iemt:	.blkw	2
+t$itim:	.blkw	2
+cccod$
+
+  proc	rt.ftm	<r2,r3>
+	p1	ent,r2			; rtTent
+	p2	siz			; directory entry byte size
+	call	rt.htz			; get clock rate
+	mov	r0,r3			; r3 = 50. or 60.
+	mov	#t$itim,r1		;
+	.gtim	#t$iemt, r1		; get the time
+	mov	(r1)+,r0		;
+	mov	(r1),r1			;
+	mul	#3,r3			; get three second units
+	div	r3,r0			; get the number of 3 second units
+	bis	#^o100000,r0		; flag the time
+	mov	r0,rt.tim(r2)		; rt.tim = 100000 ! 3-second unit time
+					;
+	blosw	siz(sp),#rt.ebs,20$	; not rt11x
+	clr	r0			; now do the remainder
+;	div	t$ifre,r0		; make it smaller
+	div	r3,r0			; divide by frequency
+	bic	#^c3,r0			; clean it up
+	bicb	#3,rt.ctl(r2)		; make space for it
+	bisb	r0,rt.ctl(r2)		; and set it up
+20$:	.date				;
+	mov	r0,rt.dat(r2)		;
+	end
+
+.end
+  type	rtTtim
+  is	Vti0 : WORD		; time low
+	Vti1 : WORD		; time high
+	Vdat : WORD		; RT-11 date
+	Vcen : WORD		; century
+  end
+
+  type	rtTclk
+  is	Vtk0 : WORD		; ticks low
+	Vtk1 : WORD		; ticks high
+	Vhtz : WORD		;
+	Vzon : WORD		;
+  end
+
+	auto	em0
+	auto	em1
+  proc	rt.tim	r2
+	p1	tim,r1		; time information
+	.gtim	sp,r1		;
+	.date			;
+	mov	r0,ti.dat(r1)	;
+	clr	ti.cen(r1)	;
+  end
+
+  proc	rt.ftm
+	p1	tim		; time block
+	.gval	sp,#rmcfg.	; get config
+	div	#
+mov	t$ifre,r3		;get the ticks per second
+	mul	#3,r3		;get three second units
+	div	r3,r0		;get the number of 3 second units
+	bis	#100000,r0	;flag the time
+	mov	r0,rt.tim(r2)	;rt.tim = 100000 ! 3-second unit time
+

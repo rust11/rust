@@ -1,0 +1,681 @@
+;	im.rep fails
+;	quiet/etc fail
+;
+slf$c=1	;???; testing boot/self
+;???;	RTBOO - RT11FB boots but time is not setup
+;+++;	RTBOO - must search both .SAV and .SYS
+;+++;	RTBOO - must detect non-bootable images
+;+++;	RTBOO - integrate DCS:RTBOO RUST/XM etc
+;+++;	RTBOO - integrate ancient interfaces
+;+++;	RTBOO - add boot host capability and MOP boot
+;???;	RTBOO - should release driver and channel on error exit
+;???;	rt_boo - rewrite interface using stack and in rider
+;???;	rt_boo - /reset option required
+;???;	RTBOO - RUST/XM check missing
+rsx$c=1		; read block 0 for RSX
+nf7$c=1		; default NF: and NF0: to NF7:
+.title	rtboo - boot rt-11 device/file
+.include "lib:crt.mac"
+$aldef		;alphabet
+$brdef		;boot rt-11
+$chdef		;channel
+$cidef		;channel information
+$cndef		;config
+$dcdef		;device codes
+$didef		;device info
+$dsdef		;device status
+$fndef		;filename
+$gddef		;generic disk
+$hadef		;handler
+$hodef		;homeblock
+$jbdef		;job
+$mmdef		;memory management
+$rmdef		;rmon
+;psdef		;psw
+$sfdef		;special functions
+$vedef		;vector
+smini$
+
+;	%build
+;	macro cts:rtboo/object:ctb:
+;	%end
+
+;map	b$rini,,b$renx		;init code at end of boot
+;map	b$rhan,,b$renx		;2-block handler buffer at end of boot
+;map	b$rtmp,,600		;temporary area at 600
+
+ccdat$
+b$ostk:	.word	0 			; saved stack
+b$oemt:	.blkw	7			; emt area
+b$ofor:	.word	0			; /foreign
+b$omem:	.word	0			; self pointer
+b$odrv:	.word	0			; /driver
+
+b$ospc:	.word	0			; points to ascii spec
+b$ofil:	.rad50	/sy          /		; boot file specification
+b$odev:	.rad50	/sy          /		; boot device
+
+b$odst:	.blkb	di.bbs			; device info
+b$ocst:	.blkb	ci.bbs			; channel info
+b$ogen:	.blkb	gddgs.			; generic disk (spfun)
+b$ohan:	.word	0			; handler address
+
+b$obuf:	.word	0			; 6kw buffer pointer
+
+b$ogtx:	.word	-1,-1,0			;\ get extended date
+b$oera:	.word	0			;/ extended date
+
+
+b$odef:	.asciz	/SY:/
+b$oivd:	.asciz	"E-Invalid boot device %s"
+b$ofnf:	.asciz	"E-File not found %s"
+b$odnf:	.asciz	"E-Driver not found %s"
+b$oiox:	.asciz	"E-I/O error %s"
+b$ofai:	.asciz	"E-Boot failed %s"
+b$oins:	.asciz	"E-Device not installed %s"
+b$ofet:	.ascii	"E-Device driver fetch failed %s"
+b$oibd:	.asciz	"E-Invalid boot device %s"
+b$oihs:	.asciz	"E-Invalid boot driver %s"
+b$onfx:	.asciz	"E-Can't boot network disk %s"
+b$oldx:	.asciz	"E-Can't boot logical disk %s"
+b$opar:	.asciz	"E-Can't boot disk partition %s"
+b$odir:	.asciz	"E-Can't boot directory %s"
+;$oxmx:	.asciz	"E-Use DCL BOOT command to boot"
+b$oexh:	.asciz	"E-Insufficient memory"
+b$onf7:	.asciz	"E-Can't access NF7: network %s"
+	.even
+cccod$
+
+meta	<bofai$ adr><jsr r2,bo$fai><.word adr>
+meta	<bochk$ adr><jsr r2,bo$chk><.word adr>
+meta	<boerr$ adr><jsr r2,bo$err><.word adr>
+
+	.irpc	let,<ABCDEFGHIJKLM>
+	.macro 'let'
+	psh	r0
+	.ttyou	#upr'let'.
+	pop	r0
+	.endm
+	.endm 
+code	rt.boo - generic boot loader
+
+	btFOR = 1
+
+;	rt_dst (spc:*char, dst:*WORD) int
+;	rx_scn (*char, *WORD) *char
+;	rx_pck (*char, *WORD, cnt) *char
+
+	stack	r2,r3,r4,r5,ret
+  proc	rt.boo	<r2,r3,r4,r5>
+	p1	spc			; ascii specification
+	p2	for			; /foreign flag and self
+	p3	mem			; in-memory secondary boot
+	mov	sp,b$ostk		;
+	add	#sp.ret,b$ostk		; locate the return slot
+					;
+	mov	for(sp),b$ofor		; foreign media
+	mov	mem(sp),b$omem		; memory copy
+					;
+	mov	spc(sp),b$ospc		; capture
+	bne	10$			; got a spec
+	mov	#b$odef,b$ospc		; default spec is SY:
+10$:
+	call	rx.scn b$ospc,#b$ofil	; get the filename
+20$:	call	rt.dst b$ospc,#0	; make sure it's installed
+	bofai$	b$oins			; device not installed
+					;
+	call	rt.fet b$ospc		; fetch -- rt.fet reports errors
+	bofai$	b$ofet			; fetch failed
+					;
+	mov	r0,b$ohan		; fetched handler address
+	call	me.alc #b$renx+1024.	; working space
+	bofai$	b$oexh			; memory exhausted
+	mov	r0,b$obuf		; save that
+					;
+	call	rt$boo			; do the hard stuff
+	boerr$	b$ofai			; boot failed
+  end
+
+;	error exit
+;
+;	should clean up
+
+bo$fai:	beqw	r0,bo$err		; r0=0 -> fail
+	tst	(r2)+			;
+	rts	r2			;
+bo$chk:	bcs	bo$err			; an error
+	tst	(r2)+			; skip the address
+	rts	r2			;
+
+bo$err:	mov	b$ostk,sp		; reset stack
+;	mov	(r2),r0			; error message
+	call	me.dlc	b$obuf		;
+	call	rt.rel	b$ohan		; release driver
+30$:	call	im.rep	(r2),b$ospc	; report it
+	clr	r0			; some error
+	return				;
+code	boot common
+
+;	b$rdvu	unit	device unit
+;	b$rduf	0	dup flags
+;	b$rhot	time	boot time
+;	b$rlot	
+;	b$rdat		boot date
+;			.rad50 /era/
+;	b$rera		boot era
+;
+; in	b$o...	flat memory data
+;
+; local	r4 ->	emt area;
+;	r5 ->	6kw buffer space
+;
+; out	r0 ->	error message
+
+rt$boo::
+	mov	sp,b$ostk
+
+	clr	b$odrv			; assume not driver boot
+	mov	b$obuf,r5		; r5 -> buffer
+	mov	#b$oemt,r4		; r4 -> emt area
+					;
+;???;	Abort if RUST/XM host
+
+	mov	#b$odst,r3		; .dstat info address
+	mov	b$ofil,b$odev		; setup for device access
+	bne	10$			; specific device
+					; use system boot device
+	mov	@#j$bsys,r0		; system
+	mov	r0,r1			;
+	movb	rm.syi(r0),r1		; get system unit offset
+	add	rm.pnp(r0),r1		; r1 -> permanent name
+	movb	rm.syu+byte(r0),r0	; get the device unit
+	add	#<^r  0>,r0		; add in rad50
+	add	(r1),r0			; add in permanent name
+	mov	r0,b$odev		; and use that
+	inc	r3			; inhibit logical name translation
+
+10$:	.dstat	r3,#b$odev		; get device status
+	bochk$	b$oins			; device not installed
+	bic	#1,r3			; remove inhibit
+	beqb	(r3),#denfc.,30$	; NF:?
+	bplw	(r3),30$		; not an RT11A device?
+	bneb	(r3),#deldc.,30$	; not LD:
+	boerr$	b$oldx			; can't boot LD:
+					;
+30$:	.purge	#0			; purge it
+	.lookup	r4, #0, #b$odev, #0	; lookup the device
+	bcc	40$			; we have a device
+	boerr$	b$oivd			; invalid device
+					;
+40$:	bpcw	#dsVAR$,(r3),45$	; not a variable size device
+					; use (r5) buffer to get size
+					; probe 32-bit get size
+	mov	#b$ogen,r3		; generic disk info
+	.spfun	r4,#0,#sfdgs.,r3,#1,#sfd32. ; fails for wcnt ne 4
+	bcc	45$			; no 32-bit support
+	.spfun	r4,#0,#sfdgs.,r3,#4,#sfd32. ; get 32-bit size
+	bcs	45$			; no 32-bit support
+	beqb	gd.bb1(r3),45$		; not in a partition
+	boerr$	b$opar			; can't boot a partition
+					;
+45$:	.cstat	r4, #0, #b$ocst		; get the channel status
+	bochk$	b$oivd			; invalid device
+
+	bneb	b$odst,#denfc.,46$	; NF:?
+	bnew	b$ocst+ci.uni,46$	; not NF0:
+	mov	b$ocst+ci.nam,b$odev	;
+	add	#<^r  7>,b$odev		; NF0: is actually NF7: for booting
+	.purge	#0			;
+	.lookup	r4, #0, #b$odev, #0	; lookup the device
+	bochk$	b$onf7			;
+
+46$:	bpcw	#csSUB$,b$ocst,50$	; not a directory channel?
+	boerr$	b$odir			; yep
+					; 
+50$:	call	bo$vol			; do a volume check
+					;
+	.readw	r4, #0, r5, #256., #0	; read block zero of the device
+	bochk$	b$oiox			; i/o error
+					; 
+	bnew	b$ofor,54$		; foreign
+	mov	b$omem,r0		; got a memory copy?
+	beq	53$			; it's a file
+	movi	br$sec,r5,r1		; point to the secondary boot
+	call	me.cop r0, r1, #2048.	; copy it into place
+	br	60$;54$			;  
+
+53$:	beqw	b$ofil+fn.fil,55$	; no file specified
+54$:	call	bo$fil			; get the file stuff
+	br	60$			; fill in impure
+
+;	Device boot
+
+55$:	movi	br$sec,r5,r1		; point to the secondary boot
+	.readw	r4, #0, r1, #1024., #2	; no - read the secondary boot
+	bochk$	b$oiox			; i/o error
+					
+;	Finish up boot impure
+; 
+;	r5 ->	boot buffer
+
+60$:	mov	b$ocst+ci.uni,b$rdvu(r5); b$rdvu - store the device unit
+	clr	b$rduf(r5)		; b$rduf - signal booted by dup
+					;
+	movi	b$rhot,r5,r1		; b$rhot - point to time
+	.gtimx	r4,#b$ogtx		; get extended time
+	mov	#^rERA,b$rers(r5)	; pass the ERA signature
+	mov	b$oera,b$rera(r5)	; b$rera
+	.gtim	r4,r1			; b$rlot - store it
+	.date				; get the date
+	mov	r0,b$rdat(r5)		; b$rdat - date
+
+	bplw	b$ofor,64$		; not a self boot
+	clr	b$rfn0			; no image
+					;
+64$:	callr	bo$phy			; get physical
+code	physical boot
+
+;	There's no way back home from now on
+
+bo$phy:
+64$:	mov	#65$,@#v$etrp		; get into kernel mode
+	clr	@#v$etrp+ve.ps		; for RT-11/XM
+	trap				; doesn't work for RUST/XM
+65$:	cmp	(sp)+,(sp)+		; dump interrupt stack
+
+	.if ne 0
+	.gval	r4,#rm.cf2		; get config2
+	bit	#c2pro$,r0		; got a pro?
+	beq				; nope
+	bit	#c3kxc$,r0		; running on KX cpu?
+	bne				; yes
+	mov	#^o60,@#173202		; reset interrupts?
+	mov	#^o60,@#173206		;
+	mov	#^o60,@#173212		;
+	mov	#^o100,@#173202		;
+	mov	#^o100,@#173206		;
+	mov	#^o100,@#173212		;
+	.endc
+
+70$:	reset				; bang
+	bnew	b$odrv,75$		; noread for driver boot
+	beqb	b$odst,#denfc.,75$	; or NF:
+	.if ne rsx$c
+	.readw	r4, #0, r5, #2, #0, #0 	; read one word from block zero
+	.iff				; (must be block zero for RSX)
+	.readw	r4, #0, r5, #2, #1, #0 	; read one word from block one
+	.endc
+					; not much we can do with an error
+75$:	.mtps	#^o340			; block interrupts
+	mov	#b$rksp,sp		; the processor is blocked so it
+					; doesn't matter where the stack is
+	psh	@#v$ebus		; save it
+	mov	#76$,@#v$ebus		;
+	mov	#^o340,@#v$ebus+2	;
+	clr	@#m$msr0		; disable memory management
+	clr	@#m$msr2		; and 22-bit
+76$:	dec	#0			; pause and affect
+	bne	76$			; (apparently necessary)
+	pop	@#v$ebus		; restore it
+					;
+	mov	#b$rksp,sp		; 
+	mov	b$obuf,r0		; move the boot into place
+	clr	r1			; (we assume that we're executing above 
+85$:	mov	(r0)+,(r1)+		; location 6000)
+	cmp	r1,#b$renx		;
+	bne	85$			;
+
+	mov	b$ocst+ci.uni,r0	; unit number
+	bnew	b$odrv,86$		; /driver
+	beqw	b$ofor,90$		; foreign
+86$:	jmp	@#br$beg		; /foreign
+90$:	jmp	@#br$sec		; start secondary boot
+
+;	get volume information
+
+bo$vol:	.readw	r4, #0, r5, #256., #0	; read home block
+	bcs	20$			; ignore errors
+	movi	ho.sys,r5,r1		; look at file system id
+	mov	#b$ovol,r2		;
+10$:	cmpb	(r1)+,(r2)+		; is this RSX?
+	bne	20$			; nope
+	tstb	(r2)			; all done?
+	bne	10$			; nope
+	inc	b$ofor			; yes - boot RSX as /FOREIGN
+20$:	return
+
+b$ovol:	.asciz	/DECFILE11/		; RSX/VMS home block ident
+	.even
+code	file and driver
+
+;	Locate boot file - get secondary boot
+;	Locate device handler - get primary boot
+;
+;	b$rdvn	^rDDX	device name with suffix
+;	b$rdvs	^rDD	device name without suffix
+;	b$rrea	addr	address of read routine
+;	b$rfn0	^rFIL	filename
+;	b$rfn1	^rNAM
+;	b$rsfx	^r  X	suffix only
+
+bo$fil:	bnew	b$omem,15$		;it's in memory
+	.purge	#1			;purge it first
+	tst	b$ofil+6		;got a type?
+	bne	10$			;yep
+	mov	#^rsys,b$ofil+6		;default it
+10$:	.lookup	r4, #1, #b$ofil, #0	;look for the file
+	bochk$	b$ofnf			;file not found
+					;
+	movi	br$sec,r5,r1		;point to secondary area
+	.readw	r4, #1, r1, #1024., #1	;read in the secondary boot
+	bochk$	b$oiox			;i/o error
+
+;	Get the driver
+
+15$:	mov	#b$ofil+fn.fil,r2	;get the spec
+	mov	(r2)+,b$rfn0(r5)	;fn.fil - store the monitor name
+	mov	(r2)+,b$rfn1(r5)	;fn.nam
+					;fn.typ
+	mov	#^rsys,(r2)		;fn.typ
+	clr	-(r2)			;fn.nam
+	mov	b$ocst+ci.nam,-(r2)	;fn.fil - permanent name
+	mov	(r2),b$rdvs(r5)		;b$rdvs - device without suffix
+	add	b$rsfx(r5),(r2)		;fn.fil - add in the suffix
+
+;	Bootstrap code is usually identical for mapped and unmapped drivers.
+;	If we're booting BOOT.SYS all we need is one of: DDV, DDP, DD or DDX.
+
+	mov	(r2),r1			;r1 = initial choice
+	.purge	#2			;purge it
+	mov	#b$osuf,r3		;get suffix list
+	cmp	b$rrst(r5),#^rrst	;is this BOOT?
+	beq	20$			;yep
+	tst	-(r3)			;nope - backup to RT-11 terminator
+
+20$:	mov	(r2),b$rdvn(r5)		;b$rdvn - device name with suffix
+	tst	-(r2)			;fn.dev
+	.lookup	r4, #2, r2, #0		;look it up
+	bcc	35$			;found it
+
+;	No driver found with the specified name
+;	Search for an RUST ddV, ddP and ddX driver
+
+	tst	(r2)+			;point at name again
+	cmp	(r3),r1			;same as initial choice?
+	bne	30$			;nope
+	tst	(r3)+			;yes - skip it
+30$:	mov	b$rdvs(r5),(r2)		;name minus suffix
+	add	(r3),(r2)		;add in next suffix
+	mov	(r2),b$rdvn(r5)		;result name
+	cmp	(r3)+,#-1		;was this the list terminator?
+	bne	20$			;nope
+	boerr$	b$odnf			;driver not found
+35$:	mov	r0,r3			;r3 file size
+	br	bo$rea			;read driver
+
+;	boot driver
+
+bo$drv:	mov	#b$ofil,r2		;
+	mov	(r2),r0			;
+	mov	#^rsy,(r2)+		;
+	mov	r0,(r2)			;
+	add	#<^r  V>,(r2)+		;
+	clr	(r2)+			;
+	mov	#^rsys,(r2)		;
+	mov	#b$ofil,r2		;
+	.lookup	r4, #2, r2, #0		; look it up
+	bochk$	b$odnf			;
+	mov	r0,r3			; driver size
+	fall	bo$rea			;
+
+;	Read driver bootstrap
+;
+;	r3 	driver size
+;	r4 ->	emt area
+;	r5 ->	buffer
+;
+;	r5 ->	driver bootstrap
+
+bo$rea:	.readw	r4, #2, r5, #256., #0	;read block zero
+	bochk$	b$oiox			;i/o error
+	mov	ha.brd(r5),b$rrea(r5)	;b$rrea - read routine address
+	mov	ha.bpt(r5),r1		;r1 handler pointer
+	mov	ha.ble(r5),r2		;r2 boot byte size
+	bne	60$			;not invalid yet
+50$:	boerr$	b$oihs			;invalid driver structure
+60$:	cmp	r2,#^o1000		;too long for us?
+	bhi	50$			;that is invalid
+	mov	r1,r2			;get the pointer
+	bic	#^o777,r2		;isolate the block
+	bic	r2,r1			;r1 is the offset
+	swab	r2			;make block number
+	asr	r2			;bytes/512.
+	beq	50$			;block zero is ridic
+	cmp	r2,r3			;this too high?
+	bhis	50$			;yes
+	movi	b$renx,r5,r3		;r3 -> segment area
+	psh	#256.			;assume block boundary
+	tst	r1			;on a block boundary?
+	beq	70$			;yes
+	asl	(sp)			;no - read two blocks
+70$:	.readw	r4, #2, r3, (sp)+, r2	;read the primary boot
+	bochk$	b$oiox			;i/o error
+	add	r1,r3			;r3 -> primary boot
+	cmp	(r3),#^o240		;is this a bootstrap?
+	bne	50$			;no
+	mov	r5,r2			;yes - copy it
+	mov	#256.,r1		;
+80$:	mov	(r3)+,(r2)+		;one more move
+	sobw	r1,80$			;I have been here before
+	return				;fine
+
+	.word	-1			;RT-11 terminator
+b$osuf:	.rad50	/  V/			;RUST/SJ
+	.rad50	/  P/			;RUST/XM
+	.rad50	/   /			;RT-11/SJ
+	.rad50	/  X/			;RT-11/XM
+	.word	-1			;BOOT terminator
+
+.end
+.end
+.sbttl	setup default, purge caches
+
+;	Setup default boot device
+;
+;	Get BOO: equivalence from system logical name table
+;	Use kernel monitor logic if BOO: translation fails
+
+bo$def:	clr	b$ofil+fn.nam		;assume device boot
+	$trnlog	#b$oemt, #b$olog, #0, #0, #0, #6
+	bcs	10$			;that name has been lost
+	tst	r0			;got a name?
+	bne	20$			;yes
+					;
+10$:	kernel	#bo$dek			;call the kernel routine
+20$:	mov	r0,b$ofil		;setup the name
+	return
+
+;	Get system device from RMON tables
+
+bo$dek:	mov	@#r$msyi,r1		;get system unit offset
+	add	#r$mpnm,r1		;r1 -> permanent name
+	movb	@#r$msyu+byte,r0	;get the device unit
+	add	#<^r  0>,r0		;add in rad50
+	add	(r1),r0			;add in permanent name
+	mov	r0,rp.r0(r5)		;return it in r0
+	return
+
+;	Validate boot device
+;
+;	Make sure device exists
+;	Make sure device is RT11A/RT11X
+;
+;???	Better is to check boot start address in driver
+
+bo$val:	tst	b$orom			;this a ROM boot?
+	bne	10$			;yes - no device
+	.dstat	#b$odst, #b$ofil	;get the device status
+	bochk$	b$oivd			;invalid device
+					;
+	tst	b$odst			;this an RT11A device?
+	bmi	10$			;yes
+	cmpb	b$odst,#denfc.		;NF: ?
+	beq	10$			;yes
+	boerr$	b$oibd			;invalid boot device
+10$:	return
+
+;	Purge system caches
+;	
+;	The /WAIT option permits volumes to be changed
+;	Purge this information before/after dismount and remount
+;
+;	Purge all transaction buffers
+;	Invalidate all image cache information
+
+bo$pur:	kernel	#bo$puk			;do this in kernel mode
+	return				;
+					;
+bo$puk:	$cmsch				;stop the scheduler
+	mov	@#t$bfir,r3		;get the first
+10$:	clr	tb.sta(r3)		;yes - clear it out
+	mov	tb.nxt(r3),r3		;get the next
+	bne	10$			;
+					;
+	mov	#-1,r0			;dismount all volumes
+	$bypass	b$ydsm			;and dismount them
+	$cmpro				;release it
+	return				;
+.sbttl	kernel server
+
+;	Kernel boot server
+
+kb$dev:	$cmsch				;stop the scheduler
+	spl	7			;stop interrupts
+	mov	#v$eclk+ve.ps,@#v$eclk 	;stop the clock
+	mov	#rti,@#v$eclk+ve.ps 	;
+	mova	k$ures,k$ares		;setup addresses
+	mova	k$usav,k$asav		;
+	mova	k$uini,k$aini		;
+
+;	Issue kernel reset in par0
+
+	bombl$	k$atmp,k$asav,ksres.	;save the temp area
+	bombl$	k$ares,k$atmp,ksres.	;move reset to temp
+	call	@#b$rtmp		;call the reset
+	bombl$	k$asav,k$atmp,ksres.	;restore temp
+	br	kb$rea			;go do the read
+
+k$ures:	mov	sp,r1			;save stack
+	mova	30$,r0			;get temporary stack
+	mov	r0,sp			;setup temporary stack
+	mov	@#ps,r2			;save ps
+	mov	@#m$msr3,r3		;save this
+10$:	dec	#20000.			;wait a little
+	bne	10$			;wait a bit more
+	reset				;Brain-dead RUST/XM
+20$:	dec	#20000.			;wait again
+	bne	20$			;
+					;
+	mov	r3,@#m$msr3		;reset 22-bit mode
+	mov	r2,@#ps			;restore ps
+	inc	@#m$msr0		;reset memory management
+	mov	r1,sp			;reset the stack
+	return				;
+	.blkw	20.			;small stack
+30$:	ksres.==.-k$ures 		;
+k$usav:	.blkb	ksres.			;space to save it here
+
+;	Read a single word from block zero into location two.
+;	Compatible with hardware boots that leave unit info in CSRs.
+;	That unit information was lost with the reset above.
+
+kb$rea:	spl	0			;
+	mova	k$kare,r0		;do the final read
+	.readw	r0, #0, #2, #1, #0 	;read one word from block zero
+	spl	7			;go back up
+	mov	k$uboo,r0		;previous mode address
+	clr	r1			;destination
+20$:	mfpd	(r0)+			;get the next
+	pop	(r1)+			;store it
+	cmp	r1,#b$renx		;is this the last of them?
+	blo	20$			;no
+	bombl$	k$aini,k$kini,ksini. 	;move in the start code
+	mov	b$ofor,r1		;supply foreign flag
+	jmp	@k$kini			;and do the final part
+
+	.readw	r0, #0, #2, #1, #0 	;read one word from block zero
+k$uini:	mov	#b$rksp,sp		;reset the stack
+	clr	@#m$msr0		;turn off mmu
+	clr	@#m$msr3		;turn off 22-bit
+	mov	#pr7,@#ps		;turn off previous user mode
+	mov	@#b$rdvu,r0		;supply unit number
+10$:	dec	#0			;wait
+	bne	10$			;wait
+	tst	r1			;this /foreign?
+	beq	20$			;no
+	jmp	@#br$beg		;/foreign
+20$:	jmp	@#br$sec		;go
+	ksini.=.-k$uini 
+.sbttl	rom boot
+
+;	BOOT/ROM:address bootstrap
+
+bo$rom:	kernel	#kb$rom			;/ROM
+	boerr$	b$ofai			;boot failed
+
+kb$rom:	spl	7			;stop everything
+	mova	k$urom,k$arom		;setup the address
+	bombl$	k$arom,k$atmp,ksrom.	;move down some code
+	jmp	@#b$rtmp		;and execute it
+
+k$urom:	mova	20$,r2			;get the stack
+	mov	r2,sp			;
+	mov	@#v$eclk+ve.ps,@#v$eclk	;stop the clock
+	mov	#rti,@#v$eclk+ve.ps	;
+10$:	dec	#0			;wait a second
+	bne	10$			;
+	reset				;reset the world
+	jmp	@k$brom			;and call them
+	.blkw	20.			;stack space
+20$:					;temporary stack
+k$brom:	.word	173000			;rom start address
+ksrom.=.-k$urom 
+
+;	Move kernel buffer
+; 
+;	r0 ->	src
+;	r1 ->	dst
+;	(r5)+	cnt
+
+bo$mbl:	mov	(r5)+,r2		;bytecount
+	asr	r2
+10$:	mov	(r0)+,(r1)+		;
+	sob	r2,10$			;
+	rts	r5
+.sbttl	data
+
+;	Kernel data
+
+k$atmp:	.word	b$rtmp			;temporary area
+k$ares:	.word	0			;k$ures
+k$asav:	.word	0			;k$usav
+k$aini:	.word	0			;k$uini
+k$kini:	.word	b$renx			;5012
+					;
+k$uboo:	.word	0			;user boot address - supplied
+k$arom:	.word	0			;rom area
+
+;	Command data
+
+b$ombd:	.ascii	"Mount boot devices; Are you ready? "<200>
+b$omsd:	.ascii	"Remount RUST/XM devices; Are you ready? "<200>
+b$osur:	.ascii	"RUST/XM/Boot; Are you sure? "<200>	
+	.even
+;	%end
+b$olin:	.blkb	84.			;Input line
+
+b$ogtx:	.word	-1,-1,0			; .GTIMX data
+b$oera:	.word	0			; boot era
+
+.end
+

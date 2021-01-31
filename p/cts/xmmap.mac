@@ -1,0 +1,68 @@
+.title	xmmap - map extended memory for non-system code
+.include "lib:crt.mac"
+$mmdef
+$psdef
+smini$
+ccdat$					; mmu sr3 (i.e. 22-bit addressing)
+x$msr3::.word	-1			; -1=unknown,0=missing, 1=present
+cccod$
+
+;	Maps kernel/user pars to default kernel mapping
+;	Sets up 22bit addressing if SR3 available
+;	This code is designed for non-system use
+
+;	xm$map - map kernel/user pars
+
+xm$map::pshs	<r0,r1>
+	call	xm$sr3
+	clr	@#psw			; clean up the ps
+	clr	@#m$msr0		; disable management
+	clr	r0			; page register offset
+	clr	r1			; the mapping offset
+20$:	mov	r1,m$kip0(r0)		; kernel page
+	mov	r1,m$uip0(r0)		; user page
+	mov	#mmd4k.,m$kid0(r0)	; and the user also
+	mov	#mmd4k.,m$uid0(r0)	; map it
+	tst	(r0)+			; do the next
+	add	#mmpis.,r1		; the next segment
+	cmp	r0,#7.*2		; is this the i/o stuff?
+	bne	30$			; nope
+	mov	#mmi18.,r1		; 18-bit IO page
+	tst	x$msr3			; got sr3?
+	beq	30$			; nope
+	mov	#mmi22.,r1		; 22-bit IO page
+30$:	cmp	r0,#8.*2		; done them all?
+	blo	20$			; nope
+	tst	x$msr3			; got 22-bit?
+	beq	40$			; nope
+	bis	#mm22b$,@#m$msr3	; enable 22-bit
+40$:	inc	@#m$msr0		; enable management
+	bis	#mmpum$,@#psw		; setup previous user mode
+	pops	<r0,r1>			;
+	return
+
+;	xm$res - restore unmapped mmu state
+
+xm$res::clr	@#psw			; restore mapping
+	tst	x$msr3			; 22-bit mode?
+	beq	10$			; nope
+	clr	@#m$msr3		; yep - turn off 22-bit mode
+10$:	clr	@#m$msr0		; turn off management
+	return				;
+
+;	xm$sr3 - check for mmu sr3
+
+xm$sr3::tst	x$msr3			; checked it yet?
+	bge	20$			; we have checked
+	clr	x$msr3			; assume we don't have it
+	call	tr$cat			;
+	tst	@#m$msr3		; got SR3?
+	bcs	10$			; nope
+	inc	x$msr3			; not actually, but
+10$:	call	tr$res			;
+	br	xm$sr3			;
+20$:	bne	30$			; c=0 => present
+	sec				; c=1 => missing
+30$:	return
+
+.end

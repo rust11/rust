@@ -1,0 +1,41 @@
+.title	coctc - console ctrl-c
+.include "lib:crt.mac"
+smini$
+ccdat$
+
+	coCHK = 1		; result != => ctrl-c seen
+	coENB = 2		; result = prior coENB/coDSB setting
+	coDSB = 3		; ditto
+
+	.byte	0,^o35		; .scca
+	.word	0		; ctrl-c enable/disable
+coVenb:	.word	coENB		; enable/disable state
+coVctc: .word	0		; ctrl-c state
+cccod$
+
+code	co_ctc (flg) - enable/disable/check ctrl-c
+
+
+  proc	co.ctc	<r2>
+	p1	flg
+ 	mov	#coVctc,r1
+;	assume	coCHK eq 1	;
+	dec	flg(sp)		; just checking?
+	bne	10$		; nope
+	mov	(r1),r2		; get current value
+	bic	r2,(r1)		; remove it
+	br	30$		;
+10$:	mov	r1,r0		; assume we're disabling ctrl-c
+	mov	-(r0),r2	; return previous coENB/coDSB setting
+;	assume	coENB eq 2	;
+;	assume	coDSB eq 3	;
+	dec	flg(sp)		; disabling ctrl-C?
+	bne	20$		; yep
+	clr	r1		; nope, enable (clear .scca block address)
+20$:	mov	r1,-(r0)	; plug in address
+	tst	-(r0)		; point back to emt code
+	emt	^o375		; thus
+30$:	mov	r2,r0		; return ctrl-C state or prior flag
+  end
+
+.end
