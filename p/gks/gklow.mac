@@ -1,0 +1,109 @@
+dbg$c=1
+.title	lowmap
+.include "lib:share.mac"
+$jbdef
+$rmdef
+
+;	Display lowmap
+;
+;	%build
+;	!if "'p1'" goto 'p1'
+;	macro:
+;	macro/object:itb:	its:lowmap
+;	link:
+;	link/execute:itb:	itb:lowmap
+;	%end
+
+;	Image information area
+
+;000: 000 002 004 006  010 012 014 016  000 002 004 006  010 012 014 016  
+;040: 040 002 004 006  010 012 014 016  000 002 004 006  010 012 014 016  
+;	100 002 004 006  010 012 014 016  000 002 004 006  010 012 014 016  
+;	140 002 004 006  010 012 014 016  000 002 004 006  010 012 014 016  
+;	200 002 004 006  010 012 014 016  000 002 004 006  010 012 014 016  
+;	240 002 004 006  010 012 014 016  000 002 004 006  010 012 014 016  
+;
+
+gk.low::
+	pshs	<r5,r4,r3,r2>
+	mov	sp,savstk
+	mov	@#j$bsys,r4
+	add	#rm.lmp,r4
+	clr	r1
+10$:	mov	r1,r0
+	call	cu$vec
+	.ttyout	#':
+15$:	.ttyout	#32.
+	.ttyout	#32.
+	mov	#128.,r2
+20$:	bitb	r2,(r4)
+	bne	30$
+	.print	#m$sblk
+	br	40$
+30$:	mov	r1,r0
+	call	cu$vec
+40$:	.ttyout	#32.
+	tst	(r1)+
+	asr	r2
+	beq	50$
+;	cmp	r2,#10
+;	bne	50$
+;	.ttyout	#32.
+;	.ttyout	#32.
+	br	20$
+50$:	inc	r4
+	bit	#37,r1
+	bne	15$
+	.print	#m$snew
+	cmp	r1,#500
+	blo	10$
+	mov	savstk,sp
+	pops	<r2,r3,r4,r5>
+	return
+savstk:	.word	0
+
+cu$vec:	psh	r0
+	cmp	(sp),#100
+	bhis	20$
+	.ttyout	#'0
+10$:	cmp	(sp),#10
+	bhis	20$
+	.ttyout	#'0
+20$:	pop	r0
+	br	sh$oct
+
+sh$pad:	mov	(pc)+,(pc)+	; pad octal
+sh$oct:	clr	(pc)+		;
+s$hpad:	.word	0		; padding fla
+	tst	(pc)+		; flag octal
+sh$dec:	sec			;
+	pshs	<r2,r1,r0>	; save them
+	jsr	r3,30$		; assume decimal
+10$:	10000.,1000.,100.,10.,1,0
+20$:	100000,10000,1000,100,10,1,0
+30$:	bic	r2,r2		; no digits seen yet
+	bcs	40$		; is decimal
+	add	#20$-10$,r3	;
+	beqw	s$hpad,40$	; not padding
+	mov	#'0,r2		; show all digits
+40$:	mov	r0,r1		;
+50$:	mov	#-1,r0		; look for a digit
+60$:	inc	r0		; step up dividend
+	sub	(r3),r1		; subtract
+	bcc	60$		; go again
+	add	(r3)+,r1	; bumb it back to positive
+	beqw	(r3),70$	; final digit
+	bnew	r0,70$		; got something
+	beqw	r2,80$		;
+70$:	mov	#'0,r2		;
+	add	r2,r0		;
+	.ttyout
+80$:	bnew	(r3),50$	;any more to do ?
+	pops	<r3,r0,r1,r2>
+	return
+m$snew:	.asciz	//
+m$sblk:	.ascii	/   /<200>
+	.even
+
+.end	
+

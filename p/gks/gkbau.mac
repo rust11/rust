@@ -1,0 +1,316 @@
+.title	baud
+.include "lib:crt.mac"
+$jbdef
+$vedef
+smini$
+	.macro	tkbau$	bau
+	.word	bau, 50., bau/5
+	.word	bau, 60., bau/6
+	.endm
+
+map	ts.bau	2,0
+map	ts.htz	
+map	ts.cnt
+map	ts.bbs
+
+tps:	.word	0
+tpb:	.word	0
+			;50	60
+t$ktab:	tkbau$	3840.	;768	640
+	tkbau$	1920.	;384	320
+	tkbau$	960.	;192	160	
+	tkbau$	720.	;144	120
+	tkbau$	480.	;96	80
+	tkbau$	240.	;48	40
+	tkbau$	120.	;24	20
+	tkbau$	60.	;12	10
+	tkbau$	30.	;6	5
+	tkbau$	15.	;3	2
+	.word	0
+;	tkmax. = 38400.*3/50.
+	tkmax. = 3840./5+128.
+
+  proc	gk.bau	<r2,r3,r4,r5>
+	p1	csr
+	mov	csr(sp),r0
+	bne	10$
+	mov	#^o177564,r0
+10$:	mov	r0,tps
+	add	#4,r0
+	mov	r0,tpb
+	call	gk$bau
+	mov	#1,r0
+  end
+
+gk$bau:	mov	sp,t$kstk
+	mov	@#v$eclk,t$kclk
+	mov	@#v$ebus,t$kbus
+	mov	t$kstk,sp
+	call	tk$rst
+	.scca	#area,#0
+	mov	@#j$btop,r1
+	tst	(r1)+
+	cmp	tps,#^o177560
+	bne	35$
+	add	#4,tps
+	add	#4,tpb
+	.print	#tks
+	br	40$
+35$:	bit	#4,tpb
+	bne	40$
+	.print	#warn
+40$:	clr	t$kctc
+	.scca	#area,#t$kctc
+
+baud:	call	tk$cat
+	call	tk$cnt
+	call	tk$rst
+	tst	r0		; aborted
+	beq	45$		; no clock
+	bmi	tk$abt		; aborted
+	cmp	r3,#tkmax.	; above max?
+	bhi	50$		; yep - emulator
+	mov	#t$ktab,r5	;
+	mov	#^o177777,r2	;
+	clr	r4
+10$:	mov	ts.cnt(r5),r0	;
+	sub	r3,r0		; get the difference
+	bpl	20$		;
+	neg	r0		;
+20$:	cmp	r0,r2		; this a better shot?
+	bhi	30$		; nope
+	mov	r5,r4		;
+	mov	r0,r2
+30$:	add	#ts.bbs,r5
+	tst	(r5)
+	bne	10$
+	tst	r4
+	beq	50$
+	.print	#t$mend
+	.print	#t$mhdr
+	mov	ts.htz(r4),r1
+	call	decimal
+
+	.print	#t$mbad
+	mov	ts.bau(r4),r1
+	call	decimal
+
+	.print	#t$mbau
+	.print	#t$mend
+	br	60$
+45$:	.print	#t$mdsb
+	br	55$
+50$:	.print	#t$memu
+55$:	clr	r4
+60$:	tst	t$ktst
+	beq	70$
+	.print	#t$mchs
+	mov	r3,r1
+	call	decimal
+	tst	r4
+	beq	65$
+	.print	#t$mcnt
+	mov	ts.cnt(r4),r1
+	call	decimal
+65$:	.print	#t$mend
+70$:
+tk$don:
+	mov	t$kstk,sp
+	mov	#1,r0
+	return
+
+tk$abt:	.print	#t$mabt
+	.exit
+
+tk$ast:	inc	t$kcnt
+	rti
+
+tk$bus:	mov	t$kstk,sp
+	call	tk$rst
+	.print	#t$madr
+	jmp	tk$don
+
+tk$cat:	mov	#tk$ast,@#v$eclk
+	mov	#tk$bus,@#v$ebus
+	return
+tk$rst:	mov	t$kclk,@#v$eclk
+	mov	t$kbus,@#v$ebus
+	return
+
+tk$cnt:	mov	#-2,t$kcnt		;
+	clr	r3
+	mov	sp,r0			; assume okay
+20$:	tst	t$kctc
+	bmi	40$			;
+	cmp	t$kcnt,#10.		; all done?
+	bge	50$			; yep
+	cmp	t$kcnt,#-1		; got first one?
+	bne	30$			; nope
+	clr	t$kcnt			; yep - start counting
+	clr	r3			; reset counter
+30$:	tst	t$kctc			;
+	bmi	40$			;
+	tstb	@tps			; ready for another?
+	bpl	30$			; nope
+	movb	#0,@tpb			; write a null
+	inc	r3			; count it
+	tst	t$kcnt			; waiting for first tick?
+	bpl	20$			; nope
+	cmp	r3,#400.		; got a clock?
+	blo	20$			; maybe
+	clr	r0			; no clock
+	br	50$
+40$:	mov	#-1,r0
+50$:	return
+;	r1 = number
+
+decimal:mov	#deci,radix
+	br	number
+octal:	mov	#octa,radix
+	fall	number
+
+number:	psh	r0
+	psh	r1
+	psh	r2
+	psh	r3
+	psh	r4
+	clr	r0		;set number flag
+	mov	radix,r4	;get the exponent
+	mov	#num.a,r3	;set up destination
+3$:	mov	#-1,r2		;look for a digit
+4$:	inc	r2		;step up dividend
+	sub	(r4),r1		;subtract
+	bcc	4$		;go again
+	add	(r4)+,r1	;bumb it back to positive
+	tst	r2		;now look at format
+	bne	5$		;something to do
+	mov	r0,r2		;leading blanks ?
+	beq	7$		;nope nothing
+	br	6$		;put in output stream
+5$:	mov	#'0,r0		;no more blanks
+	add	r0,r2
+6$:	movb	r2,(r3)+	;output it
+7$:	tst	(r4)		;any more to do ?
+	bne	3$		;yes
+	add	#'0,r1		;generate last digit
+	movb	r1,(r3)+	;do the last digit
+	movb	#200,(r3)
+	mov	#num.a,r1	;output
+8$:	movb	(r1)+,r0
+	bmi	9$
+	.ttyout
+	br	8$
+9$:	pop	r4
+	pop	r3
+	pop	r2
+	pop	r1
+	pop	r0
+	return
+radix:	deci
+deci:	10000.,1000.,100.,10.,0
+octa:	^o100000,^o10000,^o1000,^o100,^o10,0
+num.a:	.byte	0,0,0,0,0,0
+
+t$knum:
+t$kcnt:	.word	0
+t$kclk:	.word	0,0
+t$kbus:	.word	0,0
+t$kadr:	.word	0
+t$kstk:	.word	0
+t$ktst:	.word	0
+t$kctc:	.word	0
+types:	.blkw	4
+linbuf:	.blkb	84.
+area:	.blkw	5
+
+t$mhdr:	.ascii	/?BAUD-I-Clock: /<200>
+t$mbad:	.ascii	/ hertz, Terminal: /<200>
+t$mbau:	.asciz	/0 baud /<200>
+t$mchs:	.ascii	/?BAUD-I-Chars=/<200>
+t$mcnt:	.ascii	/ Count=/<200>
+t$mdsb:	.asciz	/?BAUD-W-Clock disabled or emulated terminal/
+t$memu:	.asciz	/?BAUD-W-Emulated terminal/
+t$mabt:	.asciz	/?BAUD-E-Operation aborted/
+t$madr:	.asciz	/?BAUD-E-Invalid terminal address/
+t$minv:	.asciz	"?BAUD-E-Invalid command (specify /C:tps-address)"
+t$midt:	.asciz	/BAUD V1.1/
+t$mend:	.byte	0
+
+warn:	.asciz	/?BAUD-W-Address looks like an input register/
+tks:	.asciz	/?BAUD-W-Using console output CSR 177564/
+	.even
+	.even
+os$wri::
+os$rea::
+
+.end
+.sbttl	bt$htz - determine clock rate
+
+map	hz.bau	2,0
+map	hz.htz	
+map	hz.cnt
+map	hz.bbs
+
+bt$htz:	tst	b$tclk		; had a tick so far?
+	beq			; nope - forget all this
+	call	hz$cnt		; count them
+	cmp	r3,#hzmax.	; above max?
+	bhi			; yep
+	mov	#h$ztab,r5	;
+	clr	r4
+	mov	#177777,r2	;
+10$:	mov	hz.cnt(r5),r0	;
+	sub	r3,r0		; get the difference
+	bpl	20$		;
+	neg	r0		;
+20$:	cmp	r0,r2		; this a better shot?
+	bhi	30$		; nope
+	mov	r5,r4		;
+	mov	r0,r2		;
+30$:	add	#hz.bbs,r5	;
+	tst	(r5)		;
+	bne	10$		;
+	tst	r4		; nothing found
+	beq	50$		;
+
+	mov	#hz$ast,@#v$eclk
+
+hz$ast:	inc	t$kcnt
+	rti
+
+hz$cnt:	mov	#-2,h$zcnt		;
+	clr	r3			;
+20$:	cmp	h$zcnt,#10.		; all done?
+	bge	40$			; yep
+	cmp	h$zcnt,#-1		; got first one?
+	bne	30$			; nope
+	clr	h$zcnt			; yep - start counting
+	clr	r3			; reset counter
+30$:	tstb	@#tps			; ready for another?
+	bpl	30$			; nope
+	movb	#0,@#tpb		; write a null
+	inc	r3			; count it
+	tst	h$zcnt			; waiting for first tick?
+	bpl	20$			; nope
+	cmp	r3,#400.		; got a clock?
+	blo	20$			; maybe
+	mov	#hzmax.,r3		; no clock
+40$:	return
+
+	.macro	hzbau$	bau
+	.word	bau, 50., bau/5
+	.word	bau, 60., bau/6
+	.endm
+
+h$ztab:	tkbau$	3840.
+	tkbau$	1920.
+	tkbau$	960.
+	tkbau$	480.
+	tkbau$	240.
+	tkbau$	120.
+	tkbau$	60.
+	tkbau$	30.
+	tkbau$	15.
+	.word	0
+	tkmax. = 3840./5
+

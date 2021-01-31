@@ -1,0 +1,218 @@
+.title	gkdev - rt-11 device table
+.enabl	lc,gbl
+.mcall	.lookup	.readw	.writw	.print	.exit	.gtlin
+.mcall	.settop	.csigen	.csispc	.wait	.ttyout
+
+;	%build
+;	macro	lib:prefac+its:slots	/object=itb:
+;	link	itb:slots,lib:output	/execute=itb:slots
+;	%end
+
+.macro	meta	m n o p q
+.macro	m
+n
+o
+p
+q
+.endm
+.endm
+
+meta <set c d e f g h i j k l m n><c=d><.iif nb <e>,set e f g h i j k l m n>
+set	cr 15, lf 12
+meta <bl c,d,e> <.iif b <c>,d> <.iif nb <e>,bl c,<e>>
+meta <nb c,d,e> <.iif nb <c>,d> <.iif nb <e>,nb c,<e>>
+meta <psh a> <mov a,-(sp)>
+meta <pop a> <.iif b <a>,mov (sp),(sp)+><.iif nb <a>,mov (sp)+,a>
+
+meta <error s><jsr r2,error><.asciz &s&><.even>
+meta <print s><jsr r2,xprint><.asciz &s&><.even>
+meta <type s><jsr r2,xprint><.ascii &s&<200>><.even>
+meta <fatal s><jsr r2,fatal><.asciz &s&><.even>
+meta <$print s><jsr r2,print><.asciz &s&><.even>
+meta <$type s><jsr r2,print><.ascii &s&<200>><.even>
+meta <$file c><mov c,r1><call $file>
+meta <$octal c><mov c,r1><call $octal>
+meta <$number c><mov c,r1><call $number>
+meta <$decimal c><mov c,r1><call $decimal>
+meta <$tab><$type <	>>
+meta <$rad50 c><mov c,r1><call $rad50>
+meta <$output c><.ttyout c>
+
+meta <$bits c,d,?z><bit #'c,d><beq z><type <c >><z:>
+.sbttl	mainline
+
+set	sysptr	54
+set	config	300
+
+start:
+20$:	$print
+;
+; general
+;
+s.gen:
+	mov	sysptr,r5	; r5 -> sysptr
+
+; devices
+
+s.tables:
+print	<slot	$unam1	$unam2	$pname	$entry	$stat	$dvrec	$hsize	$dsize>
+
+	call	bu$tab		;get the tables
+	clr	r4		;start with the first
+10$:	call	unams
+	bcs	20$
+	$rad50	pname
+	$tab
+	$octal	hentr
+	$tab
+	$octal	hstat
+	$tab
+	$octal	dvrec
+	$tab
+	$octal	hsize
+	$tab
+	$decima	dsize
+	call	share		;is it share?
+	bcs	18$		;nope
+	$tab
+	$octal	class		;get the class
+18$:	$print
+20$:	add	#2,r4
+	cmp	r4,b$uhsc
+	blo	10$
+	call	unams
+	$print
+	add	#2,r4
+	call	unams
+	$print
+	.exit
+
+unams:	call	getent
+	bcs	10$		;empty entry
+	mov	r4,r1		;get the slot number
+	asr	r1		;divide by two
+	$decima	r1
+	$tab
+	$rad50	unam1
+	$tab
+	$rad50	unam2
+	$tab
+10$:	return
+.sbttl	bu$tab	get rt-11 tables	
+
+set pnptr 404, ronly$ 40000, wonly$ 20000
+b$uhsc:	.word	0		;host slot count
+
+bu$tab:
+	mov	sysptr,r1	;get the monitor
+	add	pnptr(r1),r1	;point to the list
+	mov	#40$,r2		;point to the table
+	mov	r1,@(r2)+	;$pname
+10$:	cmp	(r1)+,#-1	;look for the end of entry
+	bne	10$		;it must be found
+	mov	r1,r3		;for the last four
+	tst	-(r1)		;back off
+	sub	@-(r2),r1	;get the length
+	mov	@(r2)+,@(r2)+	;hentry
+	asr	r1		;now divide it
+	mov	r1,b$uhsc	;remember number of slots
+	mov	r2,r4		;do the last four
+	mov	r3,@(r4)	;stat
+	mov	@(r4)+,@(r4)+	;
+	add	r1,@-(r4)	;dvrec
+	mov	@(r4)+,@(r4)+
+	add	r1,@-(r4)	;hsize
+	mov	@(r4)+,@(r4)+
+	add	r1,@-(r4)	;dsize
+	mov	@(r4)+,@(r4)+
+	add	r1,@-(r4)	;class
+	add	r1,@-(r2)	;finish $entry
+	add	@-(r2),@-(r2)	;add $pname to $unam2
+	sub	r1,@(r2)+	;$unam2
+	add	@-(r2),@-(r2)	;syassg
+	sub	r1,@(r2)+	;$unam1
+	return
+
+	.word	unam1.,unam2.
+40$:	.word	pname.,hentr.,hstat.,dvrec.,hsize.,dsize.,class.
+
+.enabl	lsb
+getent:
+	mov	#50$,r1
+	mov	#60$,r2
+	clr	r0
+
+10$:	mov	(r1)+,r3
+	add	r4,r3
+	cmp	r2,#55$
+	beq	15$
+	bis	(r3),r0
+15$:	mov	(r3),(r2)+
+	cmp	r1,#55$
+	bne	10$
+
+	tst	r0
+	bne	20$
+	sec
+20$:	return
+
+meta	<map c d e f g h i j><c: .word d><.iif nb <e>,map e f g h i j>
+50$:
+map	unam1.	-4,	unam2.	-4,	pname.	0,	hentr.	0
+map	hstat.	0,	dvrec.	0,	hsize.	0,	dsize.	0
+55$:
+map	class.	0
+
+60$:
+map	unam1	-4,	unam2	-4,	pname	0,	hentr	0
+map	hstat	0,	dvrec	0,	hsize	0,	dsize	0
+map	class	0
+.dsabl	lsb
+.sbttl	utilities
+
+sizes:	$octal	r5
+	$type	< bytes, >
+	clc
+	ror	r5
+	$number	r5
+	$print	< words>
+	return
+share:	cmp	@sysptr,#137	;on a satellite?
+	bne	10$		;nope
+	cmp	sysptr,#140000	;is it share-eleven?
+	bne	10$		;nope
+	tst	(pc)+
+10$:	sec
+	return
+.sbttl	error package
+
+xprint::.print	r2		;print it
+	br	even
+error:	bcs	errorp
+even:	tstb	(r2)+		;skip it
+	bgt	even
+	inc	r2
+	bic	#1,r2
+	rts	r2		;its o.k.
+fatal:	mov	#start,r2
+errorp:	type	<?HANDLE-F->	;display the header
+	.print	r2		;and the tail
+	jmp	start
+
+types:	.rad50	/savsavsavsav/
+files:	.blkw	3*5
+ifile:	.blkw	5*4
+area:	.blkw	5
+line:	.blkb	84.
+program:
+meta	<map c d><c=progra+d>
+map	$userpc	40
+map	$usersp	42
+map	$jsw	44
+map	$usradr	46
+map	$userto	50
+map	errbyt	52
+map	$sysptr	54
+.blkw	1000
+room:
+.end	start

@@ -1,0 +1,976 @@
+.title 	radix
+.include	"lib:share.mac"
+$jbdef			;
+$jsdef			;job status word bits
+$txdef			;definitions of cr, lf, a.s.o.
+
+;	%build
+;	macro/object:utb:       uts:radix
+;	link/execute:utb:       utb:radix
+;	%end
+
+;	image information area
+$imgdef	RADIX 2 1
+$imginf	fun=sav cre=hammo aut=sus use=<Convert values>
+$imgham	yrs=<1987,2003> oth=<>
+;	%date
+$imgdat	<20-Dec-2004 22:28:44.37   >
+;	%edit
+$imgedt	<0   >
+.sbttl	main
+
+;		main	input of a specified mode and output of the other codes
+;			available modes are:
+;
+;			-		negate number
+;			'		complement number
+;			
+;			^b - binary	  (maximal input is 1111111111111111)
+;			^o - octal	  (maximal input is 177777)
+;			^d - decimal      (maximal input is 65536)
+;			^h - hexadecimal  (maximal input is FFFF)
+;			^a - ascii 	  (maximal input are two characters)
+;			^a		display ascii chart
+;			^r - radix50	  (maximal input are three characters)
+;					  (space-input as _)
+;			exit		
+;			help
+;
+;
+;			Noexisting characters in ascii and radix50 mode
+;			produce a (XXX) as output character.
+;			Default mode is always ^d.
+;			If you want to fix a mode, type it without numbers
+;			or characters. It changes, if you modifier the mode.
+;			Exit the program with ^C.
+savstk:	.word	0
+ 
+start:
+gk.rad::psh	r5
+	psh	r5
+	psh	r3
+	psh	r2
+	mov	sp,savstk
+10$:	clr	binnum				;clear binary number
+	call	iniunr				;init unaries
+	mov	#line,r2			;address of line buffer
+	call	clearb				;clear line buffer
+	mov	#numout,r2			;address of output buffer
+	call	clearb				;clear output buffer
+	clr	multi				;clear operation counter
+	bis	#jsttl$,j$bjsw			;no case conversion
+;	bis	#jsgtl$,j$bjsw			;for ctrl/c
+	.gtlin	#line,#text			;decimal number input
+;	bic	#jsgtl$,j$bjsw			;
+	mov	#line,r2			;address of input buffer
+	mov	r2,linptr			;save the pointer
+	call	other				; exit and help
+	bcc	10$				;
+	mov	#line,r2			;get it back
+	tstb	line				;existing input ?
+	bne	20$				;yes
+	.print	#i$midt				;no - display id
+	br	10$				;new input
+20$:	call	getunr				;get unary
+	mov	r2,linptr			;save the pointer
+	cmpb	(r2),#'^			;new mode ?
+	bne	30$				;no
+	clr	fixmod				;clear fix mode
+	br	40$				;
+30$:	call	gotmod				;got old mode
+40$:	mov	linptr,r2			;address of input buffer
+	tstb	(r2)+				;got mode, ignore ^
+	cmpb	(r2),#'a			;lower case ?
+	blo	45$				;no
+	cmpb	(r2),#'z			;really
+	bhi	45$				;no
+	bicb	#'a-'A,(r2)			;got upper case
+45$:	cmpb	(r2),#'D			;decimal ?
+	beq	50$				;yes
+	cmpb	(r2),#'B			;binary ?
+	beq	60$				;yes
+	cmpb	(r2),#'O			;octal ?
+	beq	70$				;yes
+	cmpb	(r2),#'H			;hexadecimal ?
+	beq	80$				;yes
+	cmpb	(r2),#'A			;ascii ?
+	beq	90$				;yes
+	cmpb	(r2),#'R			;radix50 ?
+	beq	100$				;yes
+	cmpb	(r2),#'E			;eightbit ascii?
+	beq	46$				;yep
+	.print	#errinp				;invalid input
+	jmp	start				;new input
+46$:	call	eight
+	jmp	10$
+
+50$:	call	clrmod				;clear ^*
+	movb	#72,r1				;used only for hexadecimal
+	movb	#'9,r2				;used only for hexadecimal
+	movb	#'0,r3				;decimal 0-9
+	movb	#'9,r4				;	"
+	call	inpnum				;test decimal input
+	mov	#10.,multi			;multi = 10. for decimal
+	br	110$				;start convertion
+60$:	call	clrmod				;clear ^*
+	movb	#62,r1				;used only for hexadecimal
+	movb	#'1,r2				;used only for hexadecimal
+	movb	#'0,r3				;binary 0-1
+	movb	#'1,r4				;	"
+	call	inpnum				;test binary input
+	mov	#2.,multi			;multi = 2. for binary
+	br	110$				;start convertion
+70$:	call	clrmod				;clear ^*
+	movb	#70,r1				;used only for hexadecimal
+	movb	#'7,r2				;used only for hexadecimal
+	movb	#'0,r3				;octal 0-7
+	movb	#'7,r4				;	"
+	call	inpnum				;test octal input
+	mov	#8.,multi			;multi = 8. for octal
+	br	110$				;start convertion
+80$:	call 	clrmod				;clear ^*
+	movb	#'A,r1				;hexadecimal char A-F
+	movb	#'F,r2				;	"
+	movb	#'0,r3				;hexadecimal number 0-9
+	movb	#'9,r4				;	"
+	call 	inpnum				;test hexadecimal input
+	mov	#16.,multi			;multi = 16. for hexadecimal
+	br	110$				;start convertion
+90$:	tstb	1(r2)				;got command
+	bne	95$				;
+	.print	#ascii				;no - print ascii chart
+	jmp	10$				;
+95$:	call	clrmod				;clear ^*
+	movb	#' ,r1				;ascii car (SP)-z
+	movb	#'~,r2				;
+	movb	#' ,r3				;
+	movb	#'~,r4				;
+	call	inpnum				;test ascii input
+	mov	line,binnum			;line=binnum
+	br	115$				;start convertion
+100$:	call	clrmod				;clear ^*
+	call	inprad				;test radix50 input
+	call	radbin				;convert of asc-rad to binary
+	br	115$				;
+110$:	call	numbin				;convert of ascii to binary
+115$:	call	appunr				;apply unary
+	call	binbin				;convert of binary to ascii-bin
+	mov	#txtbin,r0			;binary text
+	call	prinum				;display binary number
+	call	binoct				;convert of binary to ascii-oct
+	mov	#txtoct,r0			;octal text
+	call 	prinum				;display octal number
+	call	bindec				;convert of binary to ascii-dec
+	mov	#txtdec,r0			;decimal text
+	call	prinum				;display decimal number
+	call	binhex				;convert of binary to ascii-hex
+	mov	#txthex,r0			;hexadecimal text
+	call	prinum				;display hexadecimal number
+	call	binasc				;convert of binary to ascii-asc
+	mov	#txtasc,r0			;ascii text
+	call	prinum				;display ascii number
+	call	binrad				;convert of binary to ascii-rad
+	mov	#txtrad,r0			;radix50 text
+	call	prinum				;display radix50 number
+	tst	fixmod				;fix mode ?
+	bne	120$				;yes
+	mov	#"^D,mode			;set default mode
+120$:	jmp	10$				;new input
+
+;	r2 -> command line
+
+other:	mov	r2,r0
+	mov	#100$,r1
+	call	50$
+	bcs	30$
+	mov	savstk,sp
+	pop	r2
+	pop	r3
+	pop	r4
+	pop	r5
+	return
+
+30$:	mov	r2,r0
+	mov	#110$,r1
+	call	50$
+	bcs	40$
+	.print	#200$
+	tst	(pc)+
+40$:	sec
+	return
+
+50$:	clr	-(sp)		; assume no match
+55$:	cmpb	(r0),#32.	; leading spaces
+	bne	60$		;
+	inc	r0		;
+	br	55$		;
+60$:	tstb	(r1)		; complete match?
+	bne	65$		; nope
+	cmpb	(r0),#32.	; space or less
+	ble	85$		; check minimal
+	br	95$		; bummer
+65$:	cmpb	(r1),#'*	; reached minimal ?
+	bne	70$		; nope
+	inc	r1		;
+	inc	(sp)		; hit minimal
+	br	60$
+70$:	cmpb	(r0),#32.	; end of input?
+	ble	85$		; yes - check match
+	movb	(r0)+,r3	; get the character
+	cmpb	r3,#'a		;
+	blo	75$		;
+	cmpb	r3,#'z		;
+	bhi	75$		;
+	bic	#'a-'A,r3	; lower it
+75$:	cmpb	r3,(r1)+	;
+	beq	60$		; fine
+	br	95$		; not fine
+85$:	tst	(sp)		;
+	beq	95$		;
+90$:	tst	(pc)+		;
+95$:	sec
+	bit	r0,(sp)+
+	return
+
+100$:	.asciz	/EX*IT/
+110$:	.asciz	/HE*LP/	
+120$:	.asciz	/             /
+
+200$:	.ascii /RADIX conversion utility/<cr><lf>
+	.ascii	<cr><lf>
+	.ascii /- '     Unary negate and complement/<cr><lf>
+	.ascii /^A...   Input is ascii/<cr><lf>           
+	.ascii /^A      Display ascii chart/<cr><lf>           
+	.ascii /^B...   Input is binary./<cr><lf>           
+	.ascii /^D...   Input is decimal (default)/<cr><lf>           
+	.ascii /^E      Display eightbit ascii chart/<cr><lf>           
+	.ascii /^H...   Input is hex/<cr><lf>           
+	.ascii /^O...   Input is octal/<cr><lf>           
+	.ascii /^R...   Input is rad50/<cr><lf>           
+	.ascii /EX*IT   Exit RADIX/<cr><lf>           
+	.ascii /HE*LP   Show this help/<cr><lf>           
+	.byte	0
+	.even
+.sbttl	unaries
+
+;	unary data
+
+negunr:	.word	0			;negate flag
+comunr:	.word	0			;complement flag
+linptr:	.word	0			;pointer to line after unaries removed
+
+;	init unaries
+
+iniunr:	clr	negunr
+	clr	comunr
+	return
+
+;	get unaries
+;
+;	r2 ->	input stream
+
+getunr:	cmpb	(r2),#'-		;got minus
+	bne	10$			;no
+	com	negunr			;
+	br	20$			;look again
+10$:	cmpb	(r2),#''		;complement?
+	bne	30$			;no
+	com	comunr			;yes
+20$:	inc	r2			;
+25$:	movb	(r2)+,-2(r2)		;move line up
+	bne	25$			;
+	mov	#line,r2		;
+	br	getunr			;try again
+30$:	return
+
+;	apply unaries
+
+appunr:	tst	negunr			;negate?
+	beq	10$			;no
+	neg	binnum			;yes
+10$:	tst	comunr			;complement?
+	beq	20$			;no
+	com	binnum			;yes
+20$:	return
+.sbttl	numbin
+
+;		convert ascii number to binary number
+
+numbin:
+10$:	mov	linptr,r2			;address of ascii number
+	clr	binnum				;clear accumulator
+	clr	r3				;r3 used as addition counter
+	clr	r4				;r4 used as accumulator
+20$:	cmp	r3,multi			;end of addition ?
+	beq	30$				;yes
+	add	binnum,r4			;binnum=binnum*multi
+	bcs	40$				;input is too big
+	inc	r3				;add one to counter
+	br	20$				;next addition
+30$:	clr	r3				;clear addition counter
+	mov	r4,binnum			;new binnum
+	clr	r4				;clear for new addition
+	movb	(r2)+,r0			;save ascii digit
+	cmpb	r0,#'A				;for hexadecimal
+	blo	35$				;number 0-9, 0-1, 0-7
+	cmpb	r0,#'a				;lower case ?
+	blo	34$				;no
+bpt
+	sub	#40,r0				;got upper case
+34$:	sub	#100,r0				;got number - 10.
+	add	#9.,r0				;got binary 10-15
+	br	36$				;
+35$:	sub	#60,r0				;got binary digit
+36$:	add	r0,binnum			;add digit to accumulator
+	bcs	40$				;input is too big
+	tstb	(r2)				;end of input ?
+	bne	20$				;new addition
+	mov	binnum,r0
+	return					;end of ascii-binary convertion
+40$:	.print  #inperr				;the number is too big
+	clr	-(sp)				;clear stack
+	jmp	start				;new input
+.sbttl	radbin
+
+;		convert asc-rad input to binary
+
+radbin:
+10$:	mov	linptr,r2			;address of input buffer
+	mov	#binnum,r4			;address of binary number
+	mov	#3100,multi			;got multi for first char
+	movb	(r2)+,r0			;save first asc-char
+	call	radcha				;got meaning of rad50
+	call	addrad				;multiplication with 3100
+	tstb	(r2)				;end of input ?
+	beq	20$				;yes, return
+	mov	#50,multi			;got multi for second char
+	movb	(r2)+,r0			;save second asc-char
+	call	radcha				;got meaning of rad50
+	call	addrad				;multiplication with 50
+	tstb	(r2)				;end of input ?
+	beq	20$				;yes, return
+	movb	(r2),r0				;got third byte
+	call	radcha				;got meaning of rad50
+	add 	r0,binnum			;multiplication with 1
+20$:	mov	binnum,r0
+	return					;
+.sbttl	addrad
+
+;		multiplication with octal 3100, 50, 1
+
+addrad:
+10$:	clr 	r3				;clear addition counter
+20$:	cmp	r3,multi			;end of addition ?
+	beq	30$				;yes, return
+	add 	r0,binnum			;
+	inc	r3				;add one to counter
+	br	20$				;next one
+30$:	return					;
+.sbttl	radcha
+
+;		got octal meaning of radix50 chars (A=1,...)
+;
+;	space	null
+;	_	null
+
+radcha:
+10$:	cmpb	r0,#space			;space?
+	beq	15$				;yes
+	cmpb	r0,#'_				;space ?
+	bne	20$				;no
+15$:	clrb	r0				;space=0
+	br	60$				;return
+20$:	cmpb	r0,#'$				;$ ?
+	bne	25$				;no
+	movb	#33,r0				;$=33
+	br	60$				;return
+25$:	cmpb	r0,#'*				;*?
+	bne	30$				;
+	movb	#29.,r0				;
+	br	60$
+30$:	cmpb	r0,#'%
+	bne	35$
+	movb	#28.,r0
+	br	60$
+35$:	cmpb	r0,#'.				;. ?
+	bne	40$				;no
+	movb	#34,r0				;.=34
+	br	60$				;return
+40$:	cmpb	r0,#'A				;A-Z ?
+	blo	50$				;no
+	cmpb	r0,#'a				;lower case ?
+	blo	45$				;no
+	sub	#40,r0				;got upper case
+	br	40$				;
+45$:	sub	#100,r0				;A-Z=1-32
+	br	60$				;return
+50$:	sub	#22,r0				;0-9=36-47
+60$:	return					;
+.sbttl	inprad
+
+;		test radix50 input
+
+inprad:
+10$:	mov	linptr,r2			;address of input buffer
+	clr	r3				;byte counter
+20$:	tstb	(r2)				;end of input ?
+	beq	40$				;yes
+	cmp	r3,#3.				;only three bytes are allowed
+	beq	40$				;end of allowed input
+	movb	(r2)+,r0			;save byte
+	inc	r3				;add one to counter
+	cmpb	r0,#'_				;"space" ?
+	beq	20$				;yes, next one
+	cmpb	r0,#'$				;$ ?
+	beq	20$				;yes, next one
+	cmpb	r0,#'*				;* ?
+	beq	20$				;yes, next one
+	cmpb	r0,#'%				;% ?
+	beq	20$				;yes, next one
+	cmpb	r0,#'.				;. ?
+	beq	20$				;yes, next one
+	cmpb	r0,#'0				;number ?
+	blo	30$				;no, new input
+	cmpb 	r0,#'9				;number 0-9 ?
+	blos	20$				;yes, next one
+25$:	cmpb	r0,#'A				;A-Z ?
+	blo	30$				;no, new input
+	cmpb	r0,#'Z				;A-Z ?
+	blos	20$				;yes, next input
+	sub	#40,r0				;if char, got upper case
+	movb	r0,-(r2)			;rewrite upper case in line
+	tstb	(r2)+				;set pointer at old position
+	br	25$				;A-Z ?
+30$:	clr	-(sp)				;pop return address
+	.print	#errinp				;invalid input
+	jmp	start				;new input
+40$:	tstb	(r2)				;end of input ?
+	bne	30$				;no, new input
+	return					;
+.sbttl	inpnum
+
+;		test input 
+inpnum:
+10$:	mov	linptr,r5			;address of input buffer
+	clr	multi				;byte counter, used for asc-inp
+20$:	movb	(r5)+,r0			;save char
+	inc	multi				;add one to counter
+	cmp	mode,#"^H			;^H ?
+	bne	22$				;no
+	cmpb	r0,#'a				;lower case ?
+	blo	22$				;no
+	cmpb	r0,#'z				;really?
+	bhi	22$				;no
+	sub	#40,r0				;got upper case
+	movb	r0,-(r5)			;rewrite upper case in line
+	tstb	(r5)+				;set pointer at the old position
+22$:	tstb	r0				;end of input ?
+	beq	30$				;yes
+	cmpb	r0,r1				;for hexadecimal (A)
+	blo	25$				;number
+	cmpb	r0,r2				;for hexadecimal (F)
+	bhi	40$				;wrong input
+	br	20$				;next one
+25$:	cmpb	r0,r3				;low frontier
+	blo	40$				;no
+	cmpb	r0,r4				;high frontier
+	bhi	40$				;no
+	br	20$				;next one
+30$:	cmp	mode,#"^A			;ascii mode ?
+	bne	35$				;no, return
+	cmp	multi,#3.			;more than two bytes+endbyte ?
+	bhi	40$				;yes, new input
+35$:	return					;o.k.
+40$:	clr	-(sp)				;clean stack
+	.print	#errinp				;invalid input
+	jmp	start				;new input
+.sbttl	binoct
+
+;		convert binary number to ascii-oct number for output
+
+binoct:
+10$:	mov	#octtab,r4			;address of octal divisors
+	mov	linptr,r2			;address of line buffer
+	call	clearb				;clear line buffer
+	mov	binnum,r2			;save binary code
+	mov	linptr,r5			;address of ascii code (zeroes)
+	clr	r3				;r3 used as subtraction counter
+20$:	tst	(r4)				;end of octtab ?
+	beq	40$				;yes
+	cmp	(r4),r2				;divisor higher than number ?
+	bhi	30$				;yes
+	sub	(r4),r2				;subtract divisor from octal
+	inc	r3				;add one to subtraction counter
+	br	20$				;next subtraction
+30$:	add	#60,r3				;got ascii digit
+	movb	r3,(r5)+			;save it in line
+	clr	r3				;clear subtraction counter
+	tst	(r4)+				;next divisor
+	br	20$				;new subtraction
+40$:	call	delzer				;delete front zeroes
+	return					;
+.sbttl	delzer
+
+;		delete front zeroes
+
+delzer:
+10$:	mov	linptr,r2			;address of ascii with zeroes
+	mov	#numout,r3			;address of ascii without zeroes
+	clr	r5				;counter
+20$:	cmp	r5,#16.				;end of buffer ?
+	beq	30$				;yes
+	movb	(r2)+,r0			;save char
+	inc	r5				;add one to counter
+	cmpb	r0,#'0				;ascii zeroe ?
+	beq	20$				;ignore
+30$:	movb	r0,(r3)+			;save it in numout
+	movb	(r2)+,r0			;save char
+	inc	r5				;add one to counter
+	cmp	r5,#16.				;end of buffer ?
+	blos	30$				;no
+40$:	tst	numout				;zeroe ?
+	bne	50$				;no
+	movb	#60,numout			;
+50$:	return					;
+.sbttl	clrmod
+
+;		clear ^* of input, save it in mode
+
+clrmod:
+10$:	mov	linptr,r2			;address of line with mode
+	mov	linptr,r3			;address of line without mode
+	mov	(r2)+,mode			;save mode
+	cmpb	mode+1,#'a			;upper case
+	blo	20$				;yes
+	sub	#40,mode+1			;got upper case if low
+20$:	tstb	(r2)				;end of input ?
+	beq	30$				;yes
+	movb	(r2)+,(r3)+			;save char in line
+	br 	20$				;next one
+30$:	clrb	(r3)+				;clear "^"
+	clrb	(r3)+				;clear "*"
+	tst	line				;existing number ?
+	bne	40$				;yes
+	mov	#1,fixmod			;note fix mode
+	clr	-(sp)				;clear stack
+	jmp	start				;
+40$:	return					;
+.sbttl	gotmod
+
+;		got old mode
+
+gotmod:
+10$:	mov	linptr,r2			;address of input
+	mov	#numout,r3			;buffer for mode+input
+	tst 	mode				;mode existing ?
+	bne	15$				;yes
+	mov	#"^D,mode			;default mode
+	clr	fixmod				;clear fix mode
+15$:	mov	mode,(r3)+			;write mode
+20$:	tstb	(r2)				;end of input ?
+	beq	30$				;yes
+	movb	(r2)+,(r3)+			;write input after mode
+	br	20$				;next one
+30$:	mov	linptr,r2			;new line with mode+input
+	mov	#numout,r3			;buffer of mode+input
+40$:	tstb	(r3)				;end of buffer ?
+	beq	50$				;yes
+	movb	(r3)+,(r2)+			;write it in line
+	br	40$				;next one
+50$:	mov	#numout,r2			;address of output buffer
+	call	clearb				;clear output buffer
+	return	
+.sbttl	prinum
+
+;		display convertions of input mode
+
+prinum:
+10$:	.print 					;display mode text
+	.print	#numout				;display octal number
+	mov	#numout,r2			;address of output buffer
+	call	clearb				;clear ouput buffer
+	return					;
+
+typnum:	mov	#numout,r0
+10$:	tstb	(r0)+
+	bne	10$
+	movb	#128.,-(r0)
+	.print	#numout
+	return
+.sbttl	binbin
+
+;		convert binary number to ascii-bin for output
+
+binbin:
+10$:	mov	binnum,r5			;save binnum for rotation
+	mov	linptr,r2			;address of line buffer
+	call	clearb				;clear line
+	mov	linptr,r2			;address of line buffer
+	clr	r3				;counter of rotation
+20$:	cmp	r3,#16.				;end of rotation ?
+	beq	40$				;yes
+	rol	r5				;got bit from binary number
+	bcs	30$				;bit = 1
+	movb	#60,(r2)+			;bit = 0, save it in line
+	inc	r3				;add one to counter
+	br	20$				;next one
+30$:	movb	#61,(r2)+			;save it in line
+	inc 	r3				;add one to counter
+	br	20$				;next one
+40$:	call	delzer				;delete front zeroes
+	return					;
+.sbttl	binhex
+
+;		convert binary number to ascii-hex for output
+
+binhex:
+10$:	mov	#hextab,r4			;address of hexadecimal divisors
+	mov	linptr,r2			;address of line buffer
+	call	clearb				;clear line buffer
+	mov	binnum,r2			;save binary code
+	mov	linptr,r5			;address of ascii code (zeroes)
+	clr	r3				;r3 used as subtraction counter
+20$:	tst	(r4)				;end of chextab ?
+	beq	40$				;yes
+	cmp	(r4),r2				;divisor higher than number ?
+	bhi	30$				;yes
+	sub	(r4),r2				;subtract divisor from octal
+	inc	r3				;add one to subtraction counter
+	br	20$				;next subtraction
+30$:	cmp	r3,#10.				;
+	blo	36$				;
+	add	#'A-10.,r3			;got A-F for 10-15
+	movb	r3,(r5)+			;save it in line
+	br	37$				;
+36$:	add	#60,r3				;got ascii digit
+	movb	r3,(r5)+			;save it in line
+37$:	clr	r3				;clear subtraction counter
+	tst	(r4)+				;next divisor
+	br	20$				;new subtraction
+40$:	call	delzer				;delete front zeroes
+	return					;
+.sbttl	binasc
+
+;		convert binary number to ascii-asc for output
+
+binasc:
+10$:	mov	#numout,r2			;address of output buffer
+	mov	#binnum,r4			;address of binnum in r4
+	call	tstasc				;1.byte = printible ascii char ?
+	tstb	(r4)				;second byte clear ?
+	bne	20$				;no
+	return					;yes, ignore
+20$:	call	tstasc				;2.byte = printible ascii char ?
+	return					;
+.sbttl	tstasc
+
+;		test bytes, are they existing as ascii characters ?
+
+tstasc:
+10$:	movb	(r4)+,r0			;save byte of binnum in r0
+	cmpb	r0,#32.				;noprintible ascii char ?
+	blos	20$				;yes
+	cmpb	r0,#127.			;DEL ?
+	beq	30$				;yes
+	bhi	40$				;noexisting ascii char
+	movb	r0,(r2)+			;save char in line
+	return					;
+20$:	add	r0,r0				;r0*2
+	mov	asctab(r0),r1			;noprintible rad50-word of ascii
+	movb	#'(,(r2)+			;note noprintible with (	
+	call	radasc				;convert rad50 to ascii
+	cmpb	-(r2),#'_			;last byte a space ?
+	beq	25$				;yes, ignore
+	tstb 	(r2)+				;set pointer at old position
+25$:	movb	#'),(r2)+			;note end with )
+	return					;
+30$:	mov	#^rDEL,r1			;rad50=DEL of ascii
+	movb	#'(,(r2)+			;note noprintible with (
+	call	radasc				;convert rad50 to ascii
+	movb	#'),(r2)+			;note end with )
+	return					;
+40$:	mov	#^rXXX,r1			;rad50=XXX of ascii
+	movb	#'(,(r2)+			;note noprintible with (
+	call	radasc				;convert rad50 to ascii
+	movb	#'),(r2)+			;note end with )
+	return					;
+.sbttl	radasc
+
+;		convert radix50 to ascii
+
+radasc:
+10$:	clr	r3				;clear subtraction counter
+20$:	cmp	r1,#3100			;got first char	
+	blo	30$				;
+	sub	#3100,r1			;
+	inc	r3				;add one to counter
+	br	20$				;
+30$:	call	gotcha				;convertion of rad50 to ascii
+40$:	cmp	r1,#50				;got second char
+	blo	50$				;
+	sub	#50,r1				;
+	inc	r3				;add one to counter
+	br	40$				;
+50$:	call	gotcha				;convertion of rad50 to ascii
+	movb	r1,r3				;save last char in r3
+	call	gotcha				;convertion of rad50 to ascii
+	return					;
+.sbttl	gotcha
+
+;		convert radix50-character to ascii-character
+
+gotcha:
+10$:	tstb	r3				;radix-space ?
+	bne	20$				;no
+	movb	#'_,(r2)+			;note space with _
+	br	70$				;return
+20$:	cmpb	r3,#33				;radix-$ ?
+	bne	30$				;no
+	movb	#'$,(r2)+			;save it in line
+	br	70$				;return
+30$:	cmpb	r3,#34				;radix-. ?
+	bne	40$				;no
+	movb	#'.,(r2)+			;save it in line
+	br	70$				;return
+40$:	cmpb	r3,#35				;radix-unused ?
+	bne	50$				;no
+	movb	#'*,(r2)+			;(file char set)
+	br	70$				;return
+50$:	cmpb	r3,#36				;number ?
+	blo	60$				;no
+	cmpb	r3,#47				;>9. ?
+	bhi	65$				;
+	add	#22,r3				;got octal-number of ascii
+	movb	r3,(r2)+			;save it in line
+	br	70$				;return
+60$:	cmpb	r3,#32				;radix-char ?
+	bhi	65$				;no
+	add	#100,r3				;got octal-char of ascii
+	movb	r3,(r2)+			;save it in line
+	br	70$				;return
+65$:	movb	#'%,(r2)+			;note (XXX) as % in line
+70$:	clr	r3				;clear subtraction counter
+	return					;
+.sbttl	bindec
+
+;		convert binary number to ascii-dec for output
+
+bindec:
+10$:	mov	#dectab,r4			;address of octal divisors
+	mov	linptr,r2			;address of line buffer
+	call	clearb				;clear line buffer
+	mov	binnum,r2			;save binary code
+	mov	linptr,r5			;address of ascii code (zeroes)
+	clr	r3				;r3 used as subtraction counter
+20$:	tst	(r4)				;end of dectab ?
+	beq	40$				;yes
+	cmp	(r4),r2				;divisor higher than number ?
+	bhi	30$				;yes
+	sub	(r4),r2				;subtract divisor from binary
+	inc	r3				;add one to counter
+	br	20$				;next subtraction
+30$:	add	#60,r3				;got ascii digit
+	movb	r3,(r5)+			;save it in line
+	clr	r3				;clear subtraction counter
+	tst	(r4)+				;next divisor
+	br	20$				;new subtraction
+40$:	call	delzer				;delete front zeroes
+	return					;
+.sbttl	binrad
+
+;		convert binary number to ascii-rad for output
+
+binrad:
+10$:	mov	#numout,r2			;address of output buffer
+	mov	binnum,r1			;address of binnum
+	call	radasc				;convert radix to ascii
+	mov	#numout,r4			;address of buffer with @, %
+	mov	linptr,r2			;address of buffer without @, %
+	call	clearb				;clear line buffer
+	mov	linptr,r2			;
+20$:	tstb	(r4)				;end of output ?
+	beq	50$				;
+	movb	(r4)+,r0			;save char
+	cmpb	r0,#'@				;radix-unused ?
+	beq	30$				;yes
+	cmpb	r0,#'%				;radix-noprintible ?
+	beq	40$				;
+	movb	r0,(r2)+			;save it in line
+	br	20$				;next one
+30$:	movb	#'(,(r2)+			;note (UNU)
+	mov	#^rUNU,r1			;
+	call	radasc				;convert it
+	movb	#'),(r2)+			;end of it
+	br	20$				;next one
+40$:	movb	#'(,(r2)+			;note (XXX)
+	mov	#^rXXX,r1			;
+	call	radasc				;convert it
+	movb	#'),(r2)+			;end of it
+	br	20$				;next one
+50$:	mov	#numout,r2			;address of output buffer
+	call	clearb				;clear numout buffer
+	mov	linptr,r2			;buffer with (UNU), (XXX)
+	mov	#numout,r4			;output buffer
+60$:	tstb	(r2)				;end of buffer ?
+	beq	70$				;return
+	movb	(r2)+,(r4)+			;save byte in output buffer
+	br	60$				;next one
+70$:	return					;
+.sbttl	clearb
+
+;		clear a .blkb 18. buffer
+
+clearb:
+10$:	clr	r3				;counter of cleared bytes
+20$:	cmp	r3,#18.				;all cleared ?
+	beq	30$				;yes
+	clrb	(r2)+				;clear byte of buffer
+	inc	r3				;add one to counter
+	br	20$				;next one
+30$:	return					;
+.sbttl	eight
+
+eight:	psh	#160.
+	psh	#12.
+	clr	-(sp)
+5$:	mov	#8.,(sp)
+	mov	4(sp),binnum
+	inc	4(sp)
+10$:	call	bindec
+	call	typnum
+	.ttyou	#32.
+	call	binoct
+	call	typnum
+	.ttyou	#32.
+	.ttyou	binnum
+	add	#12.,binnum
+	dec	(sp)
+	beq	20$
+	.ttyou	#32.
+	br	10$
+20$:	.print	#newlin
+	dec	2(sp)
+	bne	5$
+	cmp	(sp)+,(sp)+
+	tst	(sp)+
+	return
+
+.sbttl	data
+
+line:	.blkb	82.				;buffer of ascii-input
+numout:	.blkb	18.				;ascii-oct output
+multi:	.word	0				;multiplicator (2,8,10,16)
+mode:	.word	0				;buffer of mode (^b,^o,^d,...)
+fixmod:	.word	0				;switch of fix-nofix mode
+binnum:	.word	0				;binary number
+octtab:	.word	100000,10000,1000,100,10,1,0	;[8]5,[8]4,[8]3,[8]2,[8]1,[8]0,0
+dectab:	.word	10000.,1000.,100.,10.,1,0	;[10]4,[10]3,[10]2,[10]1,[10]0,0
+hextab:	.word	10000,400,20,1,0		;[16]3,[16]2,[16]1,[16]0,0
+asctab:	.rad50	'NUL''SOH''STX''ETX''EOT''ENQ''ACK''BEL'
+	.rad50	'BS ''HT ''LF ''VT ''FF ''CR ''SO ''SI '
+	.rad50	'DLE''DC1''DC2''DC3''DC4''NAK''SYN''ETB'
+	.rad50	'CAN''EM ''SUB''ESC''FS ''GS ''RS ''US ''SP '
+txtoct:	.ascii	/^O /<200>			;
+txtbin:	.ascii	/^B /<200>			;
+txthex:	.ascii	/^H /<200>			;
+txtdec:	.ascii	/^D /<200>			;
+txtasc:	.ascii	/^A /<200>			;
+txtrad:	.ascii	/^R /<200>			;
+text:	.ascii	/RADIX> /<200>			;
+inperr:	.asciz	/?RADIX-E-Value out of range/
+errinp:	.asciz	/?RADIX-E-Invalid input/	;
+newlin:	.byte	0
+ascii:
+;.ascii	&________________________________________&
+;.ascii	&________________________________________&<cr><lf>
+.ascii	&0  0  ^@  16 20 ^p  32 40 sp 48 60 0  64&
+.ascii	& 100 @  80 120 P  97  140 `  112 160 p&<cr><lf>
+.ascii	&1  1  ^a  17 21 ^q  33 41 !  49 61 1  65&
+.ascii	& 101 A  81 121 Q  98  141 a  113 161 q&<cr><lf>
+.ascii	&2  2  ^b  18 22 ^r  34 42 "  50 62 2  66&
+.ascii	& 102 B  82 122 R  99  142 b  114 162 r&<cr><lf>
+.ascii	&3  3  ^c  19 23 ^s  35 43 #  51 63 3  67&
+.ascii	& 103 C  83 123 S  99  143 c  115 163 s&<cr><lf>
+.ascii	&4  4  ^d  20 24 ^t  36 44 $  52 64 4  68&
+.ascii	& 104 D  84 124 T  100 144 d  116 164 t&<cr><lf>
+.ascii	&5  5  ^e  21 25 ^u  37 45 %  53 65 5  69&
+.ascii	& 105 E  86 125 U  101 145 e  117 165 u&<cr><lf>
+.ascii	"6  6  ^f  22 26 ^v  38 46 &  54 66 6  70"
+.ascii	& 106 F  87 126 V  102 146 f  118 166 v&<cr><lf>
+.ascii	&7  7  ^g  23 27 ^w  39 47 '  55 67 7  71&
+.ascii	& 107 G  88 127 W  103 147 g  119 167 w&<cr><lf>
+.ascii	&8  10 bs  24 30 ^x  40 50 (  56 70 8  72&
+.ascii	& 110 H  89 130 X  104 150 h  120 170 x&<cr><lf>
+.ascii	&9  11 ht  25 31 ^y  41 51 )  57 71 9  73&
+.ascii	& 111 I  90 131 Y  105 151 i  121 171 y&<cr><lf>
+.ascii	&10 12 lf  26 32 ^z  42 52 *  58 72 :  74&
+.ascii	& 112 J  91 132 Z  106 152 j  122 172 z&<cr><lf>
+.ascii	&11 13 vt  27 33 ^[  43 53 +  59 73 ;  75&
+.ascii	& 113 K  92 133 [  107 153 k  123 173 {&<cr><lf>
+.ascii	&12 14 ff  28 34 ^\  44 54 ,  60 74 <  76&
+.ascii	& 114 L  93 134 \  108 154 l  124 174 |&<cr><lf>
+.ascii	&13 15 cr  29 35 ^]  45 55 -  61 75 =  77&
+.ascii	& 115 M  94 135 ]  109 155 m  125 175 }&<cr><lf>
+.ascii	&14 16 ^n  30 36 ^^  46 56 .  62 76 >  78&
+.ascii	& 116 N  95 136 ^  110 156 n  126 176 ~&<cr><lf>
+.ascii	&15 17 ^o  31 37 ^_  47 57 /  63 77 ?  79&
+.ascii	& 117 O  96 137 _  111 157 o  127 177 del&<cr><lf>
+;.ascii	&________________________________________&
+;.ascii	&________________________________________&<cr><lf>
+	.byte	200
+	.even
+.end
+________________________________________________________________________________
+0  0  ^@  16 20 ^p  32 40 sp 48 60 0  64 100 @  80 120 P  97  140 `  112 160 p
+1  1  ^a  17 21 ^q  33 41 !  49 61 1  65 101 A  81 121 Q  98  141 a  113 161 q
+2  2  ^b  18 22 ^r  34 42 "  50 62 2  66 102 B  82 122 R  99  142 b  114 162 r
+3  3  ^c  19 23 ^s  35 43 #  51 63 3  67 103 C  83 123 S  99  143 c  115 163 s
+4  4  ^d  20 24 ^t  36 44 $  52 64 4  68 104 D  84 124 T  100 144 d  116 164 t
+5  5  ^e  21 25 ^u  37 45 %  53 65 5  69 105 E  86 125 U  101 145 e  117 165 u
+6  6  ^f  22 26 ^v  38 46 &  54 66 6  70 106 F  87 126 V  102 146 f  118 166 v
+7  7  ^g  23 27 ^w  39 47 '  55 67 7  71 107 G  88 127 W  103 147 g  119 167 w
+8  10 bs  24 30 ^x  40 50 (  56 70 8  72 110 H  89 130 X  104 150 h  120 170 x
+9  11 ht  25 31 ^y  41 51 )  57 71 9  73 111 I  90 131 Y  105 151 i  121 171 y
+10 12 lf  26 32 ^z  42 52 *  58 72 :  74 112 J  91 132 Z  106 152 j  122 172 z
+11 13 vt  27 33 ^[  43 53 +  59 73 ;  75 113 K  92 133 [  107 153 k  123 173 {
+12 14 ff  28 34 ^\  44 54 ,  60 74 <  76 114 L  93 134 \  108 154 l  124 174 |
+13 15 cr  29 35 ^]  45 55 -  61 75 =  77 115 M  94 135 ]  109 155 m  125 175 }
+14 16 ^n  30 36 ^^  46 56 .  62 76 >  78 116 N  95 136 ^  110 156 n  126 176 ~
+15 17 ^o  31 37 ^_  47 57 /  63 77 ?  79 117 O  96 137 _  111 157 o  127 177 del
+________________________________________________________________________________
+dec oct			dec oct			dec oct		dec oct
+________________________________________________________________________________
+0   0 	(^@)		32  40	(space)		64  100	@	97  140	``
+1   1	(^a)		33  41	!		65  101	A	98  141	a
+2   2	(^b)		34  42	"		66  102	B	99  142	b
+3   3	(^c)		35  43	#		67  103	C	99  143	c
+4   4	(^d)		36  44	$		68  104	D	100 144	d
+5   5	(^e)		37  45	%		69  105	E	101 145	e
+6   6	(^f)		38  46	&		70  106	F	102 146	f
+7   7	(^g)	(bell)	39  47	'		71  107	G	103 147	g
+8   10	(^h)	(bs)	40  50	(		72  110	H	104 150	h
+9   11	(^i)	(tab)	41  51	)		73  111	I	105 151	i
+10  12	(^j)	(lf)	42  52	*		74  112	J	106 152	j
+11  13	(^k)	(vt)	43  53	+		75  113	K	107 153	k
+12  14	(^l)	(ff)	44  54	,		76  114	L	108 154	l
+13  15	(^m)	(cr)	45  55	-		77  115	M	109 155	m
+14  16	(^n)		46  56	.		78  116	N	110 156	n
+15  17	(^o)		47  57	/		79  117	O	111 157	o
+16  20	(^p)		48  60	0		80  120	P	112 160	p
+17  21	(^q)		49  61	1		81  121	Q	113 161	q
+18  22	(^r)		50  62	2		82  122	R	114 162	r
+19  23	(^s)		51  63	3		83  123	S	115 163	s
+20  24	(^t)		52  64	4		84  124	T	116 164	t
+21  25	(^u)		53  65	5		86  125	U	117 165	u
+22  26	(^v)		54  66	6		87  126	V	118 166	v
+23  27	(^w)		55  67	7		88  127	W	119 167	w
+24  30	(^x)		56  70	8		89  130	X	120 170	x
+25  31	(^y)		57  71	9		90  131	Y	121 171	y
+26  32	(^z)		58  72	:		91  132	Z	122 172	z
+27  33	(^[)	(esc)	59  73	;		92  133	[	123 173	{
+28  34	(^\)		60  74	<		93  134	\	124 174	`|
+29  35	(^])		61  75	=		94  135	]	125 175	}
+30  36	(^^)		62  76	>		95  136	^	126 176	`~	
+31  37	(^`_)		63  77	?		96  137	`_	127 177	(delete)
+________________________________________________________________________________
+ascii codes	

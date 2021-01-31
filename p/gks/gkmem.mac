@@ -1,0 +1,393 @@
+;???;	GKMEM - I have no idea how this works - it's arcane and grubby
+;???;	GKMEM - Fix title; PS skipped
+; DOS:	176710, 171710, 172460
+;
+;	174500-174502	TU:
+;
+;	kw11p - #registers
+;	ethernet
+;	pro
+;	rlv... extended
+.title	gkmem - memory
+.psect	mmu
+.include "lib:crt.mac"
+$jbdef
+$txdef
+$rxapi
+smini$
+.radix 8
+
+;	This module prints the memory areas mapped in this form.
+;	Possible extensions : look for extended memory, list vectors.
+;
+;	This utility expects to run in a physical environment.
+;	Check SHARE-eleven, SHAREplus and VRT job space.
+
+base:	.word	0
+basef:	.word	0
+loc:	.word	0
+.sbttl	memory definition
+
+map	me.csr,,0
+map	me.end
+map	me.vec
+map	me.nam 6
+map	me.bbs
+
+.macro	dev$	csr,cnt,vec,nam
+	.word	csr
+	.word	csr+<cnt'.-1*2>
+	.word	vec
+	.asciz	%nam%
+	.even
+.endm
+
+m$emap:
+dev$	160010,4,  000,<DH    DZ11 Terminal #1>
+dev$	160020,8,  000,<DH    DH11 Terminal #2>
+dev$	160100,4,  000,<DZ    DZV11 Terminal #1>
+dev$	160110,4,  000,<DZ    DZV11 Terminal #2>
+dev$	160120,4,  000,<DZ    DZV11 Terminal #3>
+dev$	160130,4,  000,<DZ    DZV11 Terminal #4>
+dev$	160150,2,  420,<IB:   IEEE Bus>
+dev$	160440,8,  000,<DH    DHV11 Terminal (?)>
+dev$	164000,256,000,<ROM   REV11 Boot Rom>
+dev$	170200,64, 000,<UMR   Unibus Mapping Registers>
+;ev$	170400,?,  ???,<      KWV11-CAL Calendar>
+;dev$	170400,2,  400,<A/D   ADC11/ADV11 A/D Convertor>	; also 404
+;dev$	170420,?,  440,<RTC   PRTC11/KWV11 Real Time Clock>	; also 444
+;dev$	170440,4,  000,<D/A   DAC11/AAV11 D/A Convertor>
+
+dev$	172040,11, 204,<DS:   RJS03/04 Disk>
+dev$	172100,8,  000,<MEM   Memory parity>	; 8 to 16?
+dev$	172120,8,  000,<MEM   Memory parity>	; 8 more?
+dev$	172150,2,  154,<DU:   MSCP Disk> 
+dev$	172200,8,  000,<MMU   Super. I-PDRs>
+dev$	172220,8,  000,<MMU   Super. D-PDRs>
+dev$	172240,8,  000,<MMU   Super. I-PARs>
+dev$	172260,8,  000,<MMU   Super. D-PARs>
+dev$	172300,8,  000,<MMU   Kernel I-PDRs>
+dev$	172320,8,  000,<MMU   Kernel D-PDRs>
+dev$	172340,8,  000,<MMU   Kernel I-PARs>
+dev$	172360,8,  000,<MMU   Kernel D-PARs>
+;ev$	172400,4,  ???,<DR    KW11-W>
+dev$	172410,4,  000,<DR    DRV11-B #1>		; vectors ???
+dev$	172420,4,  000,<DR    DRV11-B #2>
+dev$	172430,4,  000,<DR    DRV11-B #3>
+dev$	172440,4,  224,<MM:   TJU16 Magtape>		; TJ.MAC ??? registers
+;ev$	172450,4,  ???,<DR    DR11-B #3>
+dev$	172500,3,  000,<      OST>
+dev$	172516,1,  000,<MMU   SR3>
+;ev$	172520,4,  224,<MM:   TM11 Magtape>		; TM.MAC, TS.MAC
+dev$	172520,2,  224,<MS:   TS11 Magtape #1>		; TS11/TSV05
+dev$	172524,2,  224,<MS:   TS11 Magtape #2>		; TS11/TSV05
+dev$	172530,2,  224,<MS:   TS11 Magtape #3>		; TS11/TSV05
+dev$	172534,2,  224,<MS:   TS11 Magtape #4>		; TS11/TSV05
+dev$	172540,3,  104,<      KW11P>			; #registers???
+dev$	172570,4,  000,<      AFC11>
+dev$	172600,4,  000,<      PA611 Typesetter Reader>
+dev$	172700,4,  000,<      PA611 Typesetter Punch>
+
+dev$	173000,256,000,<ROM   REV/BDV/MRV11 Boot Rom>
+
+dev$	174400,4,  160,<DL:   RL0x Disk>
+dev$	174410,1,  000,<DL:   RLV12 22-bit BAE>
+dev$	174440,8,  120,<NQ:   DEQNA/DELQA Ethernet #1>
+dev$	174460,8,  000,<NQ:   DEQNA/DELQA Ethernet #2>
+dev$	174500,2,  260,<MU:   TMSCP Magtape>
+dev$	174510,4,  120,<NU:   DEUNA/DELUA Ethernet>
+
+;ev$	175610,x,  ???,<SL    B1 serial + modem>
+
+dev$	176150,2,  154,<DU:   MSCP Disk (Falcon)>
+dev$	176500,4,  300,<DD:   TU58 DECtape II>	;???
+dev$	176510,4,  310,<SL    Serial line>
+dev$	176520,4,  320,<SL    Serial line>
+;ev$	176500,x,  ???,<SL    16 serial - modem>
+dev$	176700,20, 254,<      RP11/RM11>			;vectors
+dev$	176750,2,  000,<      RM11>				;vectors
+
+dev$	177110,8,  234,<HD:   Emulator disk>
+dev$	177160,3,  230,<CR:   Card Reader>
+dev$	177170,2,  264,<DY:   RX0x Floppy>
+
+dev$	177340,5,  214,<DT:   DECtape I>
+dev$	177400,8,  220,<RK:   RK05 Disk>
+;ev$	177440,8,  000,<      RC11 Disk>
+dev$	177440,16, 210,<      RK611 Disk>			;??? sup
+;ev$	177460,5,  204,<RF:   RF11/RS11 Disk>
+dev$	177514,2,  200,<LP:   Line printer>
+dev$	177500,2,  260,<CT:   Cassette Tape>
+;ev$	177520,2,  000,<CPU   KDR11-B Boot>
+dev$	177520,1,  000,<CPU   KDJ11 CSR/TOY>
+dev$	177522,1,  000,<CPU   KDJ11 Page Control>
+dev$	177524,1,  000,<CPU   KDJ11 Config/Display>
+dev$	177526,1,  000,<CPU   KDJ11 Status>
+
+dev$	177540,2,  104,<CLK   Programmable clock>
+dev$	177546,1,  100,<LTC   Line Clock>
+dev$	177550,4,  070,<PC:   Papertape Reader/Punch>
+dev$	177560,2,  060,<TT:   Console In>
+dev$	177564,2,  064,<TT:   Console Out>
+dev$	177570,1,  000,<SWR   Switch Register>
+dev$	177572,3,  250,<MMU   SR0-SR2>
+dev$	177600,8,  000,<MMU   User I-PDRs>
+dev$	177620,8,  000,<MMU   User D-PDRs>
+dev$	177640,8,  000,<MMU   User I-PARs>
+dev$	177660,8,  000,<MMU   User I-PARs>
+
+dev$	177730,1,  000,<CPU   Diagnostic Controller Status> ; 11/84, 11/94
+dev$	177732,1,  000,<CPU   Diagnostic Data> 		    ; 11/84, 11/94
+dev$	177734,1,  000,<MEM   Memory Configuration> 	    ; 11/84, 11/94
+
+dev$	177744,1,  114,<CPU   Memory Error>
+dev$	177746,1,  000,<CPU   Cache Control>
+dev$	177750,1,  000,<CPU   Maintenance Register>
+dev$	177752,1,  000,<CPU   Cache Hit/Miss>
+dev$	177760,2,  000,<CPU   System Size> 		; 11/70 lower/upper size
+dev$	177764,1,  000,<CPU   System ID>		; 11/70 
+dev$	177766,1,  000,<CPU   CPU Error>
+dev$	177770,1,  000,<CPU   Microprogram Break> 	; 11/70
+dev$	177772,1,  000,<PIRQ  Programmable Interrupt>
+dev$	177774,1,  000,<CPU   Stack Limit>
+dev$	177776,1,  000,<PSW   Processor Status Word>
+	.word	0
+
+m$eptr:	.word	0
+.sbttl	main
+
+  proc	gk.mem	<r2,r3,r4,r5>
+	p1	dcl
+	rxdet$
+	bne	10$
+	.print	#g$krtx
+	br	20$
+10$:	call	gk$mem
+20$:	mov	#1,r0
+  end
+g$krtx:	.asciz	/?GEEK-E-Not under RTX/
+	.even
+
+gk$mem::
+	mov	sp,savstk
+	call	virtual			;check virtual environment
+	mov	#23.,lincnt
+	clr	loc
+	mov	#m$emap,m$eptr
+	.print	#feed
+	.print	#head
+	sub	#2,lincnt
+
+10$:	.trpset	#area,#miss
+	clr	thump
+	mov	loc,base
+	inc	basef
+15$:	mov	loc,r1
+	call	address
+	call	find
+
+20$:	add	#2,loc
+	beq	100$
+	tst	@loc
+	tst	thump
+	bne	30$
+	tst	basef
+	bne	25$
+	mov	loc,base
+	inc	basef
+	mov	loc,r1
+	call	address
+25$:	call	find
+;	bcs	20$
+;	br	15$
+	br	20$
+30$:	tst	basef
+	beq	40$
+	sub	#2,loc
+	cmp	loc,base
+	beq	35$
+	.ttyout	#'-
+	mov	loc,r1
+	call	address
+35$:	call	newline
+	add	#2,loc
+
+;	Scan missing memory
+
+40$:	.trpset	#area,#miss
+	clr	thump
+	add	#2,loc
+	beq	100$
+	tst	@loc
+	tst	thump
+	bne	40$
+	br	10$
+
+100$:	call	newline
+
+	tst	virt		;this virtual?
+	bne	50$		;yes
+	call	mmu		;check for extended memory
+	mov	r0,r1		;get the extended size
+	beq	50$		;nope
+	.print	#xm		;print the extended size
+	.rept	5.		;get the size in k.
+	asr	r1
+	.endr
+	call	$intege		;print the k size
+	.print	#kw
+50$:
+	.trpset	#area,#0
+	mov	savstk,sp
+	return
+savstk:	.word	0
+
+miss:	inc	thump
+20$:	rti
+
+virtual:clr	virt		;
+	cmp	r5,#^rshp	;this a SHAREplus job?
+	bne	10$		;no
+	inc	virt		;
+	.print	#20$		;yes
+10$:	return
+20$:	.asciz	/?MEMORY-I-Virtual memory only/
+	.even
+
+virt:	.word	0
+thump:	.word	0
+area:	.blkw	5
+head:	.asciz	/Low    High    Vec  Dev   Peripheral/
+feed:	.byte	0
+xm:	.ascii	/Total	/<200>
+kw:	.asciz	/kw/
+blank:	.ascii	/       /<200>
+vblank:	.ascii	/   /<200>
+	.even
+
+;	Number printer, no leading zeroes printed.
+;	uses all except r2 and r5
+
+address:tst	(pc)+
+vector:	sec
+	pshs	<r4,r3,r2,r1,r0>
+	mov	#111111,r3 ;we use the loop control method
+	ror	-(sp)
+10$:	clr	r4	;their once was a glichette name brigette
+1$:	clr	r0	;who fancied the occassional fidget
+2$:	asl	r1	;well, its fetch a bit here
+	rol	r0	;and fudge a bit there
+3$:	asl	r3	;when it itches ya just find ya digit
+	bcc	2$	;keep fiddling
+	beq	4$	;must print the final digit
+	bis	r0,r4	;set the print flag
+	bne	4$	;print
+	tst	(sp)	;forced?
+	bmi	1$	;nope
+4$:	add	#60,r0	;start or continue printing
+	.ttyout		;print the digit
+	tst	r3	;done all digits ?
+	bne	1$	;nope , go scritch it
+	tst	(sp)+	;
+	pops	<r0,r1,r2,r3,r4>
+	return
+.sbttl	find
+
+;	177560-177562 060 TT: Console in
+;	177564-177566 064 TT: Console out
+;	177572        100     Line clock
+;	.	.	.	.	.
+
+find:	mov	m$eptr,r5	; remainder
+
+10$:	tst	(r5)		; all over?
+	beq	60$		; yes
+	cmp	base,(r5)	; inside this one
+	blos	30$		;
+20$:	add	#me.nam,r5	; 
+25$:	tstb	(r5)+		;
+	bne	25$		;
+	inc	r5		;
+	bic	#1,r5		;
+	mov	r5,m$eptr	;
+	br	10$		; try again
+
+;	device base los current base
+
+30$:	cmp	me.end(r5),loc	; got the end of it?
+	bhi	60$		; not ready yet
+	cmp	base,(r5)	; got exact match?
+	beq	40$		; yes
+				; nope - do preceding area
+	mov	(r5),r1		;
+	sub	#2,r1		;
+	call	rem		; empty area
+	mov	loc,base	;
+	mov	base,r1		; and start new guy
+	call	address		;
+				;
+40$:	mov	me.end(r5),r1	;
+	cmp	r1,base		;
+	bne	45$		;
+	.print	#blank
+	br	46$
+45$:	.ttyout	#'-		; separator
+	call	address		;
+46$:	.ttyout	#32.		;
+	.ttyout	#32.		;
+
+50$:	mov	me.vec(r5),r1	; get the vector
+	bne	53$		;
+	.print	#vblank
+	br	55$
+53$:	cmp	r1,#100
+	bhis	54$
+	.ttyou	#32.
+54$:	call	vector
+55$:	.ttyout	#32.
+	.ttyout	#32.
+	movi	me.nam,r5,r0	;
+	.print			;
+	call	linchk
+	clr	basef		; no base 
+	tst	(pc)+		; reset base
+60$:	sec
+	return
+
+rem:	cmp	r1,base
+	beq	newline
+	br	empty
+rest:	mov	loc,r1
+empty:	.ttyout	#'-		;
+	call	address
+newline:.print	#feed
+linchk:	dec	lincnt
+	bpl	10$
+	.gtlin	#line,#more
+	mov	#23.,lincnt
+10$:	return
+lincnt:	.word	23.
+
+more:	.ascii	/?MEMORY-I-More? /<200>
+line:	.blkb	84.
+
+.end	
+.sbttl	devices
+
+
+;;;177400,174406=DL:,RL0x,160,6,18,DMA
+
+;					    default
+;	start	end	device	handler	vector	priority
+;	174440	17440	RL0x	DL:	160	6
+
+addr	174400	174406	<rl0x	dl	>	
+addr	176510	176516	<wb11?		>	<300?>
+addr	177170		<rx01/rx02 dx,dy>
+addr	177440	177476	<rk07>	<dm>	<210>	<pr5>
+addr	177560	177566	<tt		>	< 60>
+addr	177160	177166	<cr	230	br6>
+addr	177776	0	<ps		>	<>
+
+	.end
+

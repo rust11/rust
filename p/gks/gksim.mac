@@ -1,0 +1,127 @@
+.title	gksim - simple things
+.include "lib:rust.mac"
+
+gk.pqt::.print	#pq		;print the text
+	br	gk.pqt		;do it forever
+
+.macro	text	c		;define the text
+	.rept	10.
+	.ascii	/c/
+	.endr
+	.byte	13.,10.	
+.endm
+
+pq:	text	<pqbd>
+	text	<qbdp>
+	text	<bdpq>
+	text	<dpqd>
+
+	text	<pbqd>
+	text	<bqdp>
+	text	<qdpb>
+	text	<dpbq>
+
+	text	<pbdq>
+	text	<bdqp>
+	text	<dqpb>
+	text	<qpbd>
+
+	text	<pdbq>
+	text	<dbqp>
+	text	<bqpd>
+	text	<qpdb>
+	.byte	200
+	.even
+.sbttl	reset, bpt, cpu, bus 
+
+gk.res::reset
+	.print	#10$
+	mov	#1,r0
+	return
+
+10$:	.asciz	/?RESET-I-Reset returned/
+	.even
+
+gk.hlt::halt
+	.print	#10$
+	mov	#1,r0
+	return
+
+10$:	.asciz	/?HALT-I-Halt returned/
+	.even
+
+gk.bpt::bpt
+	.print	#10$
+	mov	#1,r0
+	return
+
+10$:	.asciz	/?BPT-I-Trap returned/
+	.even
+
+gk.cpu::.word	20
+	.print	#10$
+	mov	#1,r0
+	return
+
+10$:	.asciz	/?CPU-I-Trap returned/
+	.even
+
+gk.bus::mov	#1,r0		;test location 1
+	tst	(r0)		;try an odd address
+	.word	100		;try jmp r0
+	.print	#10$
+	mov	#1,r0
+	return
+
+10$:	.asciz	/?BUS-I-Trap returned/
+	.even
+.sbttl	ascii chart
+
+gk.asc::.print	#ascii
+	mov	#1,r0
+	return
+	
+	cr = ^o15
+	lf = ^o12
+
+ascii:
+;.ascii	&________________________________________&
+;.ascii	&________________________________________&<cr><lf>
+.ascii	&0  0  ^@  16 20 ^p  32 40 sp 48 60 0  64&
+.ascii	& 100 @  80 120 P  97  140 `  112 160 p&<cr><lf>
+.ascii	&1  1  ^a  17 21 ^q  33 41 !  49 61 1  65&
+.ascii	& 101 A  81 121 Q  98  141 a  113 161 q&<cr><lf>
+.ascii	&2  2  ^b  18 22 ^r  34 42 "  50 62 2  66&
+.ascii	& 102 B  82 122 R  99  142 b  114 162 r&<cr><lf>
+.ascii	&3  3  ^c  19 23 ^s  35 43 #  51 63 3  67&
+.ascii	& 103 C  83 123 S  99  143 c  115 163 s&<cr><lf>
+.ascii	&4  4  ^d  20 24 ^t  36 44 $  52 64 4  68&
+.ascii	& 104 D  84 124 T  100 144 d  116 164 t&<cr><lf>
+.ascii	&5  5  ^e  21 25 ^u  37 45 %  53 65 5  69&
+.ascii	& 105 E  86 125 U  101 145 e  117 165 u&<cr><lf>
+.ascii	"6  6  ^f  22 26 ^v  38 46 &  54 66 6  70"
+.ascii	& 106 F  87 126 V  102 146 f  118 166 v&<cr><lf>
+.ascii	&7  7  ^g  23 27 ^w  39 47 '  55 67 7  71&
+.ascii	& 107 G  88 127 W  103 147 g  119 167 w&<cr><lf>
+.ascii	&8  10 bs  24 30 ^x  40 50 (  56 70 8  72&
+.ascii	& 110 H  89 130 X  104 150 h  120 170 x&<cr><lf>
+.ascii	&9  11 ht  25 31 ^y  41 51 )  57 71 9  73&
+.ascii	& 111 I  90 131 Y  105 151 i  121 171 y&<cr><lf>
+.ascii	&10 12 lf  26 32 ^z  42 52 *  58 72 :  74&
+.ascii	& 112 J  91 132 Z  106 152 j  122 172 z&<cr><lf>
+.ascii	&11 13 vt  27 33 ^[  43 53 +  59 73 ;  75&
+.ascii	& 113 K  92 133 [  107 153 k  123 173 {&<cr><lf>
+.ascii	&12 14 ff  28 34 ^\  44 54 ,  60 74 <  76&
+.ascii	& 114 L  93 134 \  108 154 l  124 174 |&<cr><lf>
+.ascii	&13 15 cr  29 35 ^]  45 55 -  61 75 =  77&
+.ascii	& 115 M  94 135 ]  109 155 m  125 175 }&<cr><lf>
+.ascii	&14 16 ^n  30 36 ^^  46 56 .  62 76 >  78&
+.ascii	& 116 N  95 136 ^  110 156 n  126 176 ~&<cr><lf>
+.ascii	&15 17 ^o  31 37 ^_  47 57 /  63 77 ?  79&
+.ascii	& 117 O  96 137 _  111 157 o  127 177 del&<cr><lf>
+;.ascii	&________________________________________&
+;.ascii	&________________________________________&<cr><lf>
+	.byte	200
+	.even
+
+.end

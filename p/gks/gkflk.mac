@@ -1,0 +1,96 @@
+.title flakey
+.include "lib:rust.mac"
+
+gk.flk::pshs	<r5,r4,r2,r2>
+	.settop	#-1		;get available memory in r0
+	mov	r0,r4		;save it
+	sub	#10,r4		;?
+	call	crash		;setup for bus-errors
+	clr	r2		;value = 000000000000000
+	call	test		;do the	test
+	mov	#-1,r2		;value = 1111111111111111
+	call	test
+	clr	r2		;value = 0
+	call	test		;
+	mov	#125252,r2	;value = 1010101010101010
+	call	test		
+	clr	r2		;value = 0
+	call	test
+	mov	#52525,r2	;value = 0101010101010101
+	call	test
+	clr	r2		;value = 0
+	call	test
+	tst	error		;seen an error?
+	bne	10$		;	
+	.print	#errs
+10$:	pops	<r2,r3,r4,r5>
+	mov	#1,r0
+	return
+	.exit
+;
+test:	mov	#space,r5	;pointer past the program
+10$:	mov	r5,curr		;save current address
+	mov	r2,(r5)+	;copy the value to memory
+	cmp	r4,r5		;all done?
+	bhi	10$		;no
+	mov	#space,r5	;
+20$:	mov	r5,curr		;save current address
+	cmp	(r5)+,r2	;correct value?
+	beq	30$		;yes
+	call	memerr		;report different values
+30$:	cmp	r4,r5		;all done?
+	bhi	20$		;no
+	return			;
+;
+memerr:	.print	#loc		;report the error
+	mov	curr,r3		;get current address
+	call	number		;and report it
+	.print	#exp		;
+	mov	r2,r3		;get expected value
+	call	number		;and print it
+	.print	#act		;
+	mov	@curr,r3	;get actual value
+	call	number		;and print it
+	.print	#crlf		;??
+	mov	#1,error	;remember error
+	return
+;
+number:	movb	#30,r0		;setup for ascii
+	sec			;
+10$:	rol	r3		;get sign-bit
+	rolb	r0		;to r0
+	.ttyout			;print the digit
+	mov	#206,r0		;prepare for output
+30$:	asl	r3		;get next bit
+	beq	40$		;all done
+	rolb	r0		;and save it
+	bcs	30$		;
+	br	10$		
+40$:
+	return			;
+;
+;	setup for memory errors
+;
+bomb:	.print	#buserr	
+	mov	curr,r3		;get wrong address
+	call	number		;and print it
+	.print	#crlf		;
+	mov	#1,error	;remember the error	
+	call	crash		;setup for next error
+	rti
+;
+crash:	.trpset	#area,#bomb
+	return
+loc:	.ascii	/?FLAKEY-W-Location=/<200>
+buserr:	.ascii	/?FLAKEY-W-Bus error at /<200>
+exp:	.ascii	/, Expected=/<200>
+act:	.ascii	/, Actual=/<200>
+errs:	.asciz	/?FLAKEY-I-No errors detected /
+	.even
+error:	.word	0
+
+crlf:	.word	0
+curr:	.word	0		;current address
+area:	.word	0,0
+space:	
+	.end

@@ -1,0 +1,113 @@
+.title	mmu
+.include "lib:rust.mac"
+.enabl	lc
+.psect	mmu
+
+;	call	mmu
+;	c=1	=> no memory management
+;	else
+;	r0	number of pages of memory
+
+.macro	meta m n o p
+.macro m
+n
+o
+p
+.endm
+.endm
+meta <set c d e f g h i j><c=d><.iif nb <e>,set e f g h i j>
+meta <psh c><mov c,-(sp)>
+meta <pop c><mov (sp)+,c>
+
+set	pdr 172300
+set	par 40, user 5300, userpar 5340
+set	pdr0k 6, pdr4k 77406
+set	userps 30000
+set	v.bus 4
+set	v.mmu 240
+set	cbit 1
+set	ps 177776, sr0 177572
+mmsr3	= 172516		;status reg 3
+adrs22	= 000020		;22-bit addressing mode for 11/70
+
+high18	= 7600		;7740
+high22	= 177600	;177740
+
+; initialize low memory overlay space
+
+mode22:	.word	0		;see if its 22-bit
+high:	.word	high18		;assume 18 bit
+try22::	.word	1		;check 22 bits
+
+gk.mmu::
+mmu::	pshs	<r5,r4,r3,r2>
+	psh	@#v.bus		;save the RT-11 trap
+	mov	#bomb,@#v.bus	;to catch no mmu
+	clr	r0		;assume none
+	clr	@#ps		;must have a ps
+	bcs	50$		;no go
+	clr	@#sr0		;disable management
+	bcs	50$		;no management
+	mov	#high18,high
+	tst	try22		;should we try 22-bits?
+	beq	10$		;nope
+	bis	#adrs22,@#mmsr3	;check for 22-bit
+	bcs	10$		;not 22-bit
+	tst	mmsr3		;did it set?
+	beq	10$		;nope
+	mov	#high22,high	;assume we have 22-bits at present
+
+10$:	mov	#pdr,r0		;get the first
+	clr	r1		;the mapping offset
+20$:	mov	r1,userpar(r0)	;and the user offset
+	mov	r1,par(r0)	;the kernel offset
+	mov	#pdr4k,user(r0)	;and the user also
+	mov	#pdr4k,(r0)+	;map it
+	add	#200,r1		;the next offset
+	cmp	r0,#pdr+16	;is this the i/o stuff?
+	bne	30$		;nope
+;	mov	#31.*200,r1	;yes
+	mov	high,r1
+30$:	cmp	r0,#pdr+20	;done them all?
+	blo	20$		;nope
+	inc	@#sr0		;enable management
+
+	bis	#userps,@#ps	;setup mode
+	clr	r0		;accumulate here
+35$:;	cmp	r0,#1024./32.*124. ;end of i/o space?
+	cmp	r0,high		;end of it all?
+	bcc	40$		;done
+	add	#1024./32.,r0	;
+	mov	r0,pdr+userpar+2;get the next location
+	mov	sp,r1		;save the stack top
+	mov	@#0,r2		;save location zero
+	clc
+	mfpi	20000		;check it
+	bcs	37$		;oops
+	cmp	(sp)+,@#0	;this the same as location zero?
+	bne	36$		;nope
+	inc	@#0		;yes - reset it
+	clc			;
+	mfpi	20000		;get it again
+	bcs	37$		;should be impossible
+	cmp	(sp)+,@#0	;did it change with us?
+	beq	37$		;yes - we just wrapped around
+36$:	tst	(pc)+		;reset this
+37$:	sec			;
+	mov	r1,sp		;restore the stack
+	mov	r2,@#0		;restore this
+	bcc	35$		;keep looking
+40$:
+
+50$:	clr	@#ps
+	clr	@#mmsr3
+	clr	@#sr0
+	pop	@#v.bus		;restore the bust trap
+	pops	<r2,r3,r4,r5>
+	return
+
+bomb:	bis	#cbit,2(sp)	;set the c bit
+	rti
+
+.end
+

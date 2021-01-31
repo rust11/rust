@@ -1,0 +1,37 @@
+.title	vutem - vup template data
+.include "cts:crt.mac"
+$aldef
+$tedef
+smini$
+
+ccdat$
+vuAboo::.word	100$-10$		; template size
+10$:	nop				;
+	reset				;
+	br	30$			;
+	.word	0,0			; reserved
+20$:	.word	^o41420,^o116020	; standard PDP-11 media
+30$:	br	35$			; V5 branch
+35$:	jsr	r0,40$			; display message
+	.byte	cr.,0,0,0,lf.		; wait for hardcopy output
+	.ascii	/?BOOT-U-No boot on volume/
+	.byte	cr.,lf.,lf.,128.	;
+	.even				;
+40$:	bplb	@#tps,40$		; wait for it 
+	movb	(r0)+,@#tpb		; out damned bot
+	bplb	@#tks,50$		;
+	movb	@#tkb,r1		; empty input
+50$:	bplb	(r0),40$		; amore
+60$:	bplb	@#tks,60$		;
+	movb	@#tkb,r0		; empty input
+	bicb	#128.,r0		; clean it up
+	beqb	r0,#ctrlr.,80$		; rom
+	bneb	r0,#ctrlc.,60$		; not [ctrl/c]
+70$:	halt
+	br	70$			; stop this world
+80$:	jmp	@#^o173000		;
+100$:
+
+cccod$
+
+.end

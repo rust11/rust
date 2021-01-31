@@ -1,0 +1,225 @@
+.title	vucmd - command decode
+.include "lib:crt.mac"
+$aldef
+$rxdef
+smini$
+
+;	%build
+;	macro vus:vucmd/obj:vub:
+;	%end
+
+ccdat$
+c$mswv:	.byte	0,0
+c$mprm:	.asciz	/VUP> /
+c$mswm:	.asciz	"E-Invalid switch /%s"
+c$minv:	.asciz	/E-Invalid command/
+c$midt:	.asciz	/?VUP-I-RUST device utility program VUP.SAV V1.0/
+	.even
+c$mtyp:	.rad50	/            /
+c$mctx:	.blkw	2		; CRT memory context
+
+map	cm.swi,1,0
+map	cm.flg,1
+map	cm.cmd
+map	cm.opt
+map	cm.var	
+map	cm.kwd
+map	cm.bbs
+
+map	sp.spc,,0		; our spec 
+map	sp.alc
+
+map	cs.spc,4*2,0		; CSI spec
+map	cs.alc			;
+
+map	cv.val,,0
+map	cv.chn
+
+cmAspc::.blkw	9.*2
+
+c$mspc:	.blkw	39.+2
+
+c$mimp:
+c$masc:	.blkb	9.*16.
+cmVopt::.word	0
+cmVcre::.word	0
+cmIlst::.word	0,0
+cmIst1::.word	0,0
+cmIst2::.word	0,0
+cmVseg::.word	0
+cmVret::.word	0
+cmVext::.word	0
+cmVdrv::.word	0
+cmVonl::.word	0
+cmVwai::.word	0
+cmVnoq::.word	0
+cmVwrd::.word	0
+cmPcmd::.word	0
+c$mend:
+
+map	NO$,,0			; no value
+map	RQ$,,<^o100000>		; required value
+map	OP$,,<^o040000>		; optional value
+map	FI$,,<^o020000>		; with file number
+map	RF$,,<^o120000>		; required/file number
+map	A$,, <^o010000>		; alternate coming
+
+map	cmBAD$,,BIT0$		; /BAD
+map	cmRST$,,BIT1$		; /RESTORE
+map	cmLST$,,BIT3$		; /LAST=n
+map	cmSTA$,,BIT4$		; /START=n /SIZE=n
+map	cmVER$,,BIT5$		; /VERIFY
+map	cmSEG$,,BIT6$		; /SEGMENTS=n
+map	cmFOR$,,BIT7$		; /FOREIGN
+map	cmREP$,,BIT8$		; /REPLACE[=RET]
+map	cmEXT$,,BIT9$		; /EXTENSION=n
+map	cmVOL$,,BIT10$		; /VOLUME[=ONL]
+map	cmNOB$,,BIT11$		; /NOBOOT
+map	cmFIL$,,BIT12$		; /FILES
+				;
+map	cmIGN$,,BIT13$		; /IGNORE
+map	cmLOG$,,BIT14$		; /LOG
+
+;	A M P
+;	erase, purge
+
+c$mtab:
+.word 'B!OP$,	0,	cmBAD$,	cmVret,	<^rRET>	; /bad[=RETain]
+.word 'C!OP$,	cm.cre,	0,	cmVcre,	0	;* CREATE[=...]
+.word 'D!NO$,	0,	cmRST$,	0,	0	; /restore
+.word 'E!RF$,	0,	cmLST$,	cmIlst,	0	; /last=n /truncate=n
+.word 'F!NO$,	0,	cmFIL$,	0,	0	; /files
+.word 'G!RF$!A$,0,	cmSTA$,	cmIst1,	0	; /START=n (two accepted)
+.word 'G!RF$,	0,	cmSTA$,	cmIst2,	0	; /START=n (two accepted)
+.word 'H!NO$,	0,	cmVER$,	0,	0	; /verify
+.word 'I!NO$,	cm.img,	0,	0,	0	;* COPY/DEVICE
+.word 'J!NO$!A$,0,	cmIGN$,	0,	0	; /ignore
+.word 'K!NO$,	cm.dir,	0,	0,	0	;* DIR/BAD
+.word 'L!NO$,	0,	cmLOG$,	0,	0	; /log
+.word 'N!RQ$,	0,	cmSEG$,	cmVseg,	0	; /segments=n /size=n
+.word 'O!NO$,	cm.boo,	0,	0,	0	;* BOOT
+.word 'Q!NO$,	0,	cmFOR$,	0,	0	; /foreign	boot
+.word 'R!OP$,	0,	cmREP$,	cmVret,	<^rRET>	; /replace[=retain]
+.word 'S!NO$,	cm.squ,	0,	0,	0	;* SQUEEZE
+.word 'T!OP$,	cm.siz,	cmEXT$,	cmVext,	0	;*/EXTENSION=n
+.word 'U!OP$,	cm.cop,	0,	cmVdrv,	0	;*COPY/BOOT[=drv]
+.word 'V!OP$,	0,	cmVOL$,	cmVonl,	<^rONL>	; /VOLUMEID[=only]  init
+.word 'W!NO$,	0,	0,	cmVwai,	0	; /WAIT
+.word 'X!NO$,	0,	cmNOB$,	0,	0	; /NOBOOT	squeeze
+.word 'Y!NO$,	0,	0,	cmVnoq,	0	; /NOQUERY
+.word 'Z!OP$,	cm.ini,	0,	cmVwrd,	0	;*INIT[/EXTRA=n]
+.word	0
+cccod$
+
+	.enabl	lsb
+  proc	vu.cmd	<r2,r3,r4>
+	mov	sp,r4
+10$:	mov	r4,sp			; reset stack
+	clrb	c$mspc			;
+	call	cl.cmd #c$mprm,#c$mspc	; get a command
+	bneb	c$mspc,20$		; got something
+	.print	#c$midt			; ident
+	br	10$			;
+20$:	mov	#c$mimp,r0		; setup to clear
+25$:	clr	(r0)+			; clear impure
+	bnew	r0,#c$mend,25$		; more
+	.csispc	#c$mspc,#c$mtyp,#c$mspc	;
+	bcc	30$			; fine
+cm$inv:	call	im$rep #c$minv		; invalid command
+	br	10$			;
+					; parse switch
+;	switches
+
+30$:	tst	(sp)+			; skip count
+35$:	beqw	sp,r4,100$		; all over
+	mov	#c$mtab,r3		; search for switch
+	pop	r0			; switch & channel
+	bpl	40$			;
+	pop	r1			; value
+40$:	beqb	(r3),r0,55$		; found it
+45$:	add	#cm.bbs,r3		;
+	bneb	(r3),40$		;
+	movb	r0,c$mswv		; error message
+	call	im$rep #c$mswm,#c$mswv	; display message
+	br	10$			; try again
+					;
+50$:	bpsw	#A$,(r3),45$		; have alternate
+	br	cm$inv			;
+					;	
+					; found switch
+55$:	bmiw	r0,60$			; has value
+	bpsw	#RQ$,(r3),50$		; needed value
+	bnew	cm.cmd(r3),85$		; command coming
+	bneb	cm.flg(r3),85$		; flag present
+	inc	@cm.var(r3)		; set value
+	br	85$			; no value or optional
+
+60$:	bpcw	#RQ$!OP$,(r3),50$	; no value permitted
+					; we have a value
+70$:	mov	cm.kwd(r3),r2		; get the keyword, if any
+	beq	75$			; is none
+	bnew	r2,r1,50$		; wrong keyword
+75$:	mov	cm.var(r3),r2		; address 
+	bpcw	#FI$,(r3),80$		; file value?
+	bmiw	cv.chn(r2),50$		; already used this one
+	swab	r0			;
+	bic	#^o^c17,r0		; isolate channel
+	bis	#^o100000,r0		; flag it
+	mov	r0,cv.chn(r2)		; store file number
+80$:	mov	r1,(r2)			; store the value
+					;
+85$:	bis	cm.opt(r3),cmVopt	; set options, if any
+					;
+	mov	cm.cmd(r3),r0		; got a command?
+	beq	90$			; nope
+	beqw	r0,cmPcmd,90$		; same command again
+	bnew	cmPcmd,cm$inv		; already have command
+	mov	r0,cmPcmd		; store it
+90$:	br	35$			;
+
+;	Convert filespecs back to ascii
+;	Handle allocate
+
+100$:	psh	r4			;
+	mov	#c$mspc,r2		; rad50 specs	
+	mov	#c$masc,r3		; text area
+	mov	#cmAspc,r4		; spec pointers
+110$:	mov	r2,r0			; rad50
+	mov	r3,r1			;
+	mov	r1,(r4)			; store pointer
+	bnew	2(r0),#rxWLD.,115$	;
+	clr	2(r0)			; remove wildcards
+115$:	bnew	6(r0),#rxWLD.,116$	;
+	clr	6(r0)			; remove wildcards
+
+116$:	call	rx.spc r0,r1		; expand it
+	bhisw	r4,#cmAspc+<3*8.>,120$	; done first three
+	mov	cs.alc(r2),sp.alc(r4)	; copy file size
+	tst	(r2)+			; adjust for following add
+;	bneb	-(r0),#astrx.,120$	; ...*?
+;	bneb	-1(r0),#colon.,120$	; ...:*?
+;	clrb	(r0)			; remove trailing "*"
+120$:	add	#8.,r2			; skip rad50
+	add	#16.,r3			; skip ascii
+	add	#4,r4			; skip pointers
+	blow	r4,#cmAspc+<9.*4>,110$	; do another
+	pop	r4			;
+					;
+	tst	cmPcmd			; get the result command
+	beq	130$			;
+	call	me.sav #c$mctx		; save memory context
+	call	@cmPcmd			; do it
+	call	fi.zap			; purge all channels
+	call	me.res #c$mctx		; restore memory context
+	jmp	10$			; go again
+
+	c$mif0 = c$mspc + <3*5*2>	;
+130$:	beqw	c$mif0+2,#<^rex>,140$
+	bnew	c$mif0+2,#<^rexi>,150$
+	beqw	c$mif0+4,140$		;
+	bnew	c$mif0+4,#<^rt>,150$
+140$:	.exit				;
+150$:	jmp	cm$inv
+	.dsabl	lsb
+
+.end
