@@ -1,0 +1,455 @@
+;+++;	IMPORT - Support extended file sizes
+.title	IMPCLI	IMPORT CLI
+.include "ips:impmac.mac"
+code	START
+
+native
+  proc	start
+	.sreset				;reset everything
+	.serr				;soft errors
+	call	fc$ini			;setup memory
+  endless				;
+					;
+  proc	fc$cmd				;start/restart
+    repeat				;main loop
+	mov	j$busp,sp		;reset the stack
+	call	fc$ign			;ignore ctrl/c
+	mov	f$clin,r5		;setup command line
+	.gtlin	r5,#m$sprm		;get a command
+	call	fc$ctc	r5		;check for ctrl/c
+	call	fu$skp	r5		;skip blanks
+	next	ifb (r0) eq		;ignore blank lines
+	call	fu$upl	r5		;uppercase line
+	call	fc$cat			;catch ctrl/c
+					;
+	call	cl$par	r5		;parse the command
+	call	cl$key	#c$lvrb,#f$ccmd	;get a command
+	if	r0 eq			;not found
+	  or	r0 eq #-1		;or invalid
+	...	fcerr$	#e$rinv	c$lobj	;invalid command
+	call	@cl.rou(r0)		;call the routine
+    end					;command loop
+  end					;
+
+data	F$CTAB	Command table
+
+cltab$	f$ccmd
+clkey$	C*OPY		rou=co$cop
+clkey$	E*XIT		rou=fc$exi
+clkey$	H*ELP		rou=co$hlp
+clkey$	D*IRECTORY	rou=co$dir
+clkey$	MA*KE		rou=co$mkd
+clkey$	MO*UNT		rou=co$mnt
+clkey$	SE*T		rou=co$set
+clkey$	SH*OW		rou=co$sho
+clkey$	T*YPE		rou=co$typ
+clkey$	U*SE		rou=co$use
+clend$
+code	FC$INI	Init
+
+  proc	fc$ini
+	addi3	#word.,j$btop,f$cdyn	;setup dynamic memory pointer
+	call	fc$alc	#i$dhdr	#512.	
+	call	fc$alc	#h$obuf	#512.
+	call	fc$alc	#d$ihdr	#512.
+	call	fc$alc	#d$ibuf	#1024.
+	call	fc$alc	#d$inam	#82.
+	call	fc$alc	#e$nnam	#82.
+	call	fc$alc	#s$qnam	#82.
+	call	fc$alc	#f$ihdr	#512.
+	call	fc$alc	#f$ibuf	#514.	;extra for fc$typ
+	call	fc$alc	#f$ialt	#512.
+
+	call	fc$alc	#i$pnam	#82.
+	call	fc$alc	#o$pdev	#82.
+	call	fc$alc	#o$pnam	#82.
+	call	fc$alc	#m$vlst, #mv.bbs*mvcnt.+20.
+	call	fc$alc	#f$cvol	#82.
+	call	fc$alc	#f$cdir	#82.	
+	call	fc$alc	#f$cpro	#82.
+	call	fc$alc	#f$cans	#82.
+	call	fc$alc	#f$clin	#82.
+	call	fc$alc	#f$cipt	#82.	
+	call	fc$alc	#f$copt	#82.	
+	call	fc$alc	#f$cnam	#82.	;display filename
+	call	cl$ini			;init CLI routines
+					;
+	mov	f$cdir,r0		;init this
+	mov	#"[],(r0)+		;fill in default
+	clrb	(r0)			;
+  end
+
+code	FC$ALC	Allocate memory
+
+  proc	fc$alc	<r0,r1,r2>
+	p1	lab
+	p2	siz
+	mov	f$cdyn,r1		;setup dynamic pointer
+	addi3	siz(sp),r1,r2		;allocate the space
+	.settop	r2			;try for it
+	if	r0 lo r1		;got the space?
+	...	fcerr$	#e$rinm		;insufficient memory
+	mov	r0,f$cdyn		;reset dynamic pointer
+	mov	r1,@lab(sp)		;return the pointer
+	call	fu$clr	r1,siz(sp)	;clear it
+   end
+code	FC$...	Reports
+
+code	FC$EOL	Check end of line
+
+  proc	fc$eol
+	p1	lin
+	ifb	@lin(sp) ne		;must be end of line
+	...	br	fc$inv		;invalid command
+  end
+
+code	FC$SYN	Check syntax
+
+  proc	fc$syn	<r0>
+	p1	cnt
+	p2	opt
+	p3	fd1
+	p4	fd2
+	call	cl$syn	cnt(sp),opt(sp),fd1(sp),fd2(sp) ;check syntax
+	fcchk$	#e$rinv			;invalid command
+  end
+
+code	FC$END	Check CLI end
+
+  proc	fc$end	<r0,r1>
+	p1	fld
+	p2	cal
+	call	cl$end	fld(sp),cal(sp)
+	if	r0 eq			;oops
+	...	jmp	fc$cmd		;start over
+  end
+
+code	FC$IVI	Invalid item callback
+
+  proc	fc$ivi
+	p1	itm			;missing item
+	call	fc$bad	#e$rivi	itm(sp)	;report it
+  end
+
+code	FC$IVO	Invalid option callback
+
+  proc	fc$ivo	
+	p1	itm			;missing option
+	call	fu$mln	#e$rivo	f$cnam	;setup message
+	call	fu$mln	itm(sp),r0	;append the option name
+	call	fc$bad	f$cnam		;invalid option
+  end
+
+code	FC$FNF	File not found callback
+
+  proc	fc$fnf
+	p1	itm			;missing item
+	call	fc$bad	#e$rfnf	itm(sp)	;report it
+  end
+
+code	FC$INV	Invalid command
+
+  proc fc$inv
+	fcerr$	#e$rinv			;invalid command
+  endless
+code	FC$...	Messages
+
+  proc	fc$chk	
+	p1	msg
+	p2	obj
+	exit	if r0 ne		;no error
+	call	fc$err	msg(sp),obj(sp)	;make an error
+  end
+  proc	fc$err	
+	p1	msg
+	p2	obj
+	call	fc$msg	#uprE.,msg(sp),obj(sp),#eserr$
+	jmp	fc$cmd			;start over
+  endless
+  proc	fc$bad	
+	p1	msg
+	p2	obj
+	call	fc$msg	#uprE.,msg(sp),obj(sp),#eserr$
+  end
+
+  proc	fc$tst
+	p1	msg
+	p2	obj
+	exit	if r0 eq
+	call	fc$war	msg(sp),obj(sp)
+  end
+  proc	fc$war
+	p1	msg
+	p2	obj
+	call	fc$msg	#uprW.,msg(sp),obj(sp),#eswar$
+  end
+
+  proc	fc$dbg
+	p1	msg
+	p2	obj
+	call	fc$msg	#uprD.,msg(sp),obj(sp),#0
+  end
+
+  proc	fc$rep
+	p1	msg
+	p2	obj
+	call	fc$msg	#uprI.,msg(sp),obj(sp),#0
+  end
+
+  proc	fc$msg	<r0>
+	p1	cha
+	p2	msg
+	p3	obj
+	p4	sev
+	call	fc$aln			;force newline
+	call	fc$typ	#m$sfac		;facility
+	call	fc$put	cha(sp)		;severity character
+	call	fc$put	#minus.		;-
+	call	fc$typ	msg(sp)		;message
+	if	obj(sp) ne		;got object
+	 andb	@obj(sp) ne		;
+		call	fc$put	#space.	;space
+	...	call	fc$typ obj(sp)	;object
+	call	fc$new			;
+	bisb	sev(sp),j$bsev		;set exit severity
+  end
+code	FC$...	Output routines
+
+  proc	fc$prt
+	p1	str
+	call	fc$typ	str(sp)			;type it
+	call	fc$new				;newline
+  end
+
+  proc	fc$typ	<r0,r1>
+	p1	str,r1
+	whileb	(r1) gt
+		movb	(r1)+,r0		;get the next
+		call	fc$put	r0		;display it
+	end					;
+  end
+
+  proc	fc$put	<r0>
+	p1	cha,r0
+	ifb	r0 eq #cr.			;newline
+		clr	f$ccol			;reset the column
+	elsifb	r0 ge #space.			;printable
+	...	inc	f$ccol			;count it
+	.ttyout	r0				;display it
+  end
+
+  proc	fc$new	
+	call	fc$put	#cr.
+	call	fc$put	#lf.
+  end
+
+code	FC$PLU	Put with plural
+
+  proc	fc$plu	
+	p1	str				;string to type
+	p2	cnt				;count for plural test
+	call	fc$typ	str(sp)			;the string
+	if	cnt(sp) ne #1			;not just one
+	...	call	fc$put	#lows.		;make plural
+  end
+
+code	FC$COL	Position at column
+
+;	Out	r0 		next column (with wrap)
+
+  proc	fc$col	<r1,r2>
+	p1	col,r1				;required column
+	p2	wid,r2				;width
+	if	r1 lo f$ccol			;must go backwards
+	...	call	fc$new			;force newline
+	if	r1 eq				;start of line
+		mov	r2,r0			;return next
+	...	exit				;
+	sub	f$ccol,r1			;get the remainder
+	while	r1 ne				;more to go
+		dec	r1			;count it
+		call	fc$put	#space.		;space across
+	end					;
+	addi3	r2,f$ccol,r0			;get next column
+	addi3	r2,r0,r1			;will this overflow
+	if	r1 hi #80.			;huh
+	...	clr	r0			;so need a newline
+  end
+
+code	FC$ALN	Align cursor
+
+  proc	fc$aln
+	if	f$ccol ne			;not at start of line
+	...	call	fc$new			;get there
+  end
+code	FC$ABT	Check abort
+
+  proc	fc$ctc	<r0>
+	p1	lin,r0
+	call	fu$loc	r0,#ctrlc.	;check for ctrl/c in line
+	ifb	(r0) ne			;got one
+	...	bis	#^o100000,f$cctc;force crash
+	call	fc$abt			;check abort
+  end
+
+  proc fc$abt	<r0>
+	p1	dum			;unused
+	exit	if f$cctc pl		;not crashed
+	bis	#jstts$,j$bjsw		;single character
+	.rctrlo				;force input
+	repeat				;
+		.ttinr			;empty buffer
+	until	cs			;no more
+	bic	#jstts$,j$bjsw		;
+	call	fc$new			;force newline
+	clr	f$cctc			;clear it
+	fcerr$	#e$rabt			;[abort]
+  end
+
+code	FC$CAT	Catch aborts
+
+  proc	fc$cat	<r0>
+	clr	f$cctc			;clear it
+	.scca	f$bemt,#f$cctc		;catch aborts
+  end
+
+code	FC$IGN	Ignore aborts
+
+  proc	fc$ign	<r0>
+	.scca	f$bemt,#0		;ignore aborts
+  end
+
+code	FC$EXI	Exit
+
+  proc	fc$exi
+	mov	sp,r0			;soft exit
+	.exit				;exit
+  endless
+code	FC$OPT	Get output device
+
+  proc	fc$opt
+	fcdbg$	opt
+	call	cl$itm	#c$lfd2		;get output name
+	fcchk$	#e$rnod			;no output device
+	call	fu$mln	r0,f$copt	;copy the name
+  end
+
+code	FC$IPT	Get input name
+code	FC$IPO	Get optional input name
+
+;	Out	r0=0		no name
+
+  proc	fc$ipt
+	call	fc$ipo			;get a name
+	fcchk$	#e$rnfn			;make sure
+  end
+
+  proc	fc$ipo	<r1>
+	fcdbg$	ipo
+	call	cl$itm	#c$lfd1		;get input file
+	mov	r0,r1			;save the pointer
+	if	eq 			;is none
+	...	mov	#f$cnul,r1	;use null line instead
+	call	fc$val	r1		;make sure no device or directory
+	mov	f$cipt,r0		;point to output area
+	ifb	(r1) eq			;nothing
+	 orb	(r1) eq #dot.		;or implicit *
+	...	movb	#'*,(r0)+	;no - use wildcard
+	call	fu$mln	r1,r0		;move in the name
+	call	fu$loc	f$cipt,#dot.	;does it have a dot?
+	ifb	(r0) eq			;no
+		movb	#dot.,(r0)+	;force one
+		movb	#astrx.,(r0)+	;
+	...	clrb	(r0)+		;
+	movbi	(r1),r0			;return optional state
+  end
+
+code	FC$VAL	Check valid input specification
+
+  proc	fc$val	<r0,r1>
+	p1	spc,r1			;file spec
+    begin				;fail block
+	call	fu$loc	r1,#colon.	;may not have colon
+;	skip	ifb (r0) ne		;wrong
+;	call	fu$loc	r1,#lsqua. 	;may not have directory spec
+	exit	ifb (r0) eq		;
+    end					;
+	fcerr$	#e$ruse,r1		;use USE
+  end
+code	FC$SCN	Set up to scan input files
+
+;	Out	r0=0		no more files
+
+  proc	fc$scn	<r1,r2,r5>
+	call	fc$chv			;check volume open
+	call	cl$scn	#c$lfd1		;scan input files
+	clr	r2			;not the first
+    repeat
+	call	cl$itm	#c$lfd1		;get input file
+	mov	r0,r1			;save the pointer
+	if	eq 			;is none
+		exit	if r2 ne	;not the first file
+	...	mov	#f$cnul,r1	;use null line instead
+	inc	r2			;remember not first
+	call	fc$val	r1		;make sure no device or directory
+					;
+	mov	f$cipt,r0		;point to output area
+	ifb	(r1) eq			;nothing
+	 orb	(r1) eq #dot.		;or implicit *
+	...	movb	#'*,(r0)+	;no - use wildcard
+	call	fu$mln	r1,r0		;move in the name
+	call	fu$loc	f$cipt,#dot.	;does it have a dot?
+	ifb	(r0) eq			;no
+		movb	#dot.,(r0)+	;force one
+		movb	#astrx.,(r0)+	;
+	...	clrb	(r0)+		;
+	call	ac$cmp	f$cipt		;compare the file
+	if	r0 ne			;got it
+		call	cl$acc	#c$lfd1	;remember the access
+	...	exit			;and quit
+    end					;try the next
+  end
+
+code	FC$PTH - Process leading directory path
+
+;	dev:[...]rem
+	
+  proc	fc$pth	<r0,r1,r2,r3,r4,r5>
+	call	cl$bas	#c$lfd1		;
+	inc	r0			; skip flag
+	mov	r0,r1			; save beginning
+	whileb	(r1) ne			; skip to end of string
+	...	inc	r1
+	
+	while	r1 ne r0		; search backwards
+		dec	r1		; 
+;		leave	ifb (r1) eq <#':>
+		leave	ifb (r1) eq <#']>
+		leave	ifb (r1) eq <#'\>
+	end
+	exit	if r1 eq r0		; nothing there
+	inc	r1			; pop past :, ] or \
+	psh	r0			; path
+	movb	(r1),-(sp)		; first character of file
+	psh	r1			; filename
+	clrb	(r1)			;
+
+	mov	r0,r5			; setup to process path
+	call	fc$dir
+
+	pop	r1
+	movb	(sp)+,(r1)
+
+;	ifb	(r1) eq			;nothing more coming
+;	...	call	cl$acc #c$lfd1	;set it as done
+	pop	r0
+	repeat
+	   repeat			;
+		movb	(r1)+,(r0)+	;move them
+	   until eq			;field done
+	   movb	(r1)+,(r0)+		;no more fields
+	until	eq
+  end
+
+.end	start
+

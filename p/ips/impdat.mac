@@ -1,0 +1,156 @@
+.title	IMPDAT	F11 data
+.include "ips:impmac.mac"
+.include "ips:impf11.mac"
+data	IMPORT
+
+;	IMPORT data
+
+f$bemt::.word	10$		;emt pointer
+10$:	.blkw	10.		;emt block
+f$bosp::.word	0		;original sp
+f$bchn::.word	3		;channel
+
+;	volume
+
+a$cacp::.word	0		;acp code
+f$bcas::.word	0		;0=>F11A, 2=F11B
+
+;	index file header
+
+i$dvbo::.word	0		;index file VBN offset
+i$dlbn::.word	0		;indexf start LBN
+
+i$dfcb::
+i$dhdr::.word	0		;indexf header block pointer
+i$dsta::.word	0		;status
+i$dfid::.word	fdidx.,fdidx.,0	;index file FID
+i$dsiz::.word	-1		;index file header size
+i$debk::.word	-1		;end block
+i$dffb::.word	0		;first free byte
+i$dvbn::.word	0		;next index file VBN
+				;
+h$obuf::.word	0		;home block pointer
+
+;	directory
+
+d$ifcb::
+d$ihdr::.word	0		;directory header pointer
+d$ista::.word	0		;status
+d$ifid::.blkw	3		;directory fid
+d$isiz::.word	0		;directory size
+d$iebk::.word	0		;end block
+d$iffb::.word	0		;first free byte
+d$ivbn::.word	0		;next directory VBN
+d$ibuf::.word	0		;directory block buffer pointer
+
+d$imfd::.word	fdmfd.,fdmfd.,0	;MFD FID
+d$idef::.word	fdmfd.,fdmfd.,0	;default directory FID
+d$inam::.word	0		;directory name
+				
+e$nnxt::.word	0		;pointer to next entry
+e$nver::.word	0		;\ version
+e$nfid::.blkw	3		;/
+e$nnam::.word	0		;file name pointer
+
+;	sequence names
+
+s$qnam::.word	0		;sequence name
+s$qseq::.word	0		;sequence number
+
+;	file
+
+f$ifcb::
+f$ihdr::.word	0		;file header pointer
+f$ista::.word	0		;status
+f$ifid::.blkw	3		;file fid
+f$isiz::.word	0		;file size
+f$iebk::.word	0		;end block
+f$iffb::.word	0		;first free byte
+f$ivbn::.word	0		;next file VBN
+f$ibuf::.word	0		;file data block pointer 
+f$ialt::.word	0		;alternate buffer pointer
+
+b$ubct::.word	0		;buffer byte count
+
+;	input	
+
+i$pnam::.word	0		;input filename pointer
+
+;	output
+
+o$pdev::.word	0		;output device pointer
+o$pnam::.word	0		;output filename pointer
+data	CLI
+
+;	Option flags
+
+.macro	fbflg$	lab def let str
+lab::	.word	def
+	.word	let
+	.asciz	"str"
+	.even
+.endm
+f$llst::
+fbflg$	f$lhdr	0 uprH.	Header
+fbflg$	f$lexc	0 uprX.	Exclude
+fbflg$	f$lmul	0 uprM.	Multivolume
+fbflg$	f$llog	1 uprL.	Log
+fbflg$	f$lque	0 uprQ.	Query
+fbflg$	f$lrep	0 uprR.	Replace
+	.word	-1
+f$lsiz::.word	0
+
+;	Multivolume control
+
+m$vgct::.word	0			;get count
+m$vpct::.word	0			;put count
+m$vfir::.word	0			;first file on volume
+m$vrep::.word	0			;volume full already reported
+m$vput::.word	0			;put pointer
+m$vlst::.word	0			;list pointer
+
+f$ctyp::.rad50	/dskdskdskdsk/		;use default
+f$cfl0::.blkw	3*5			;file0
+f$cfl3::.blkw	6*4			;file3
+f$cexc::.rad50	/VMPTMPDMPBADLOGLISLSTMAP/
+f$cctc::.word	0			;ctrl/c flag
+f$cdyn::.word	0			;dynamic area pointer
+f$ccol::.word	0			;current terminal column
+f$czer::.asciz	"000000"		;zero spec
+f$cnul::.byte	0,0			;null line
+f$ctmp::.blkb	80.			;temporary line
+	.even	
+
+;	String pointers
+
+f$cvol::.word	0			;volume name
+f$cacp::.word	0			;acp name
+f$cdir::.word	0			;directory name
+f$cpro::.word	0			;prototype directory
+f$cipt::.word	0			;input filename
+f$copt::.word	0			;output device
+f$cans::.word	0			;yes/no answer
+f$clin::.word	0			;command line
+f$cnam::.word	0			;name pointer
+
+;	Messages
+
+m$sprm::.ascii	/IMPORT> /<128>
+m$sful::.ascii	/Volume full; Continue [N]? /<128>
+m$sbig::.ascii	/File too big for volume; Continue [N]? /<128>
+m$sfac::.asciz	/?IMPORT-/
+m$suse::.asciz	/Using: /
+m$svol::.asciz	/ volume /
+m$sset::.asciz	/Setup:/
+m$srsx::.asciz	/RSX/
+m$svms::.asciz	/VMS/
+m$srta::.asciz	/RT-11/
+m$sdos::.asciz  /DosBatch/
+m$sxdp::.asciz	/XXDP/
+m$sque::.asciz	/ [N]? /<128>
+m$sblk::.asciz	/ block/
+m$sfil::.asciz	/ file/
+	.even
+
+.end
+

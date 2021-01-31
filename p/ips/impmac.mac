@@ -1,0 +1,167 @@
+.nlist
+.if lt 65535.
+.include "lib:share.mac"
+.mcall	sob
+.endc
+.library "lib:sm.mlb"
+smini$
+aldef$
+asdef$
+debug=0
+
+.macro	map	nam,siz=word,val
+.radix	8
+.iif nb <val>,$=val
+	nam	=	$
+	$ = $ + <siz>
+.radix	10
+.endm
+
+.macro	readv	buf bct=#512 blk fcb
+	call	ac$rvb buf bct blk fcb
+.endm
+.macro	readm	buf bct=#512 blk fcb
+	call	ac$rmb buf bct blk fcb
+.endm
+.macro	readl	buf bct=#512 blk
+	call	ac$rlb buf bct blk
+.endm
+.macro	fcerr$	msg obj=#0
+	call	fc$err	msg,obj
+.endm
+.macro	fcchk$	msg obj=#0
+	call	fc$chk	msg,obj
+.endm
+.macro	fcwar$	msg obj=#0
+	call	fc$war	msg,obj
+.endm
+.macro	fctst$	msg obj=#0
+	call	fc$tst	msg,obj
+.endm
+.macro	fcrep$	msg obj=#0
+	call	fc$rep	msg,obj
+.endm
+
+.macro	fcdbg$	msg, ?lab
+.iif eq debug, .mexit
+impure text
+$'lab:	.asciz	/msg/
+default
+	call	fc$dbg	#$'lab,#0
+.endm
+
+data	constants
+
+map	j$busp,,42	;usersp	- job stack pointer
+map	j$btop,,50	;usertop - job top address
+map	j$berr,,52	;errbyt	- emt error return (byte)
+map	j$bsev,,53	;userrb - severity (byte)
+map	j$bjsw,,44	;jsw - job status word
+map	jstts$,,10000	;ttspc$	single character terminal mode
+map	eswar$,,2	;warning
+map	eserr$,,4	;error
+
+;	Multivolume table
+
+map	mv.fid	word*3,0		;fid
+map	mv.nam	12.			;name
+map	mv.bbs	null			;size of it
+map	mvcnt.,,60.			;upto 60 files
+data	CL$...	CLI parse
+
+map	cl.hsz	int.,0			;header size preface
+					;
+map	cl.flg	int.,0			;flags
+map	cl.rou	addr.			;callback routine address
+map	cl.p1	addr.			;callback p1
+map	cl.p2	addr.			;callback p2
+map	clgam.	null.			;size of it
+map	cl.str	vary.			;keyword string
+					;
+map	clmor$,,1			;more coming
+map	clacc$,,2			;option accepted
+map	clneg$,,4			;negatable
+map	clnum$,,8.			;numeric value
+map	clstr$,,16.			;string pointer
+map	clreq$,,32.			;value required
+;
+;	Option/Field list
+;
+map	cl.con	byte.,0			;control flags
+map	cl.txt	vary.			;text
+map	cl.ter	byte.			;item terminator
+;	...				;more of same
+map	cl.end	byte.			;list terminator
+;
+;	Field parameter list
+;
+map	cl.nxt	addr.,0			;next pointer
+map	cl.bas	addr.			;base address
+map	cl.cur	addr.			;current pointer
+map	cl.cnt	int.			;item count in field
+map	cllhs.				;list header size
+;
+;	Syntax constants
+;
+map	clnil.,,0			;must be empty
+map	clone.,,1			;must be exactly one
+map	clsom.,,2			;must be one or more
+map	clany.,,3			;anything
+map	clsin.,,4			;none or one
+;
+.macro	cltab$	nam
+nam::	.word	clgam.
+.endm
+.macro	clkey$	key flg rou=0 p1=0 p2=0
+	maflg$	= clmor$
+ .if nb <flg>
+  .irp	maitm$,<flg>
+   .if	nb <maitm$>
+	maflg$ = maflg$ ! cl'maitm$'$
+   .endc
+  .endr
+ .endc
+	.word	maflg$
+	.word	rou
+	.word	p1
+	.word	p2
+	.dsabl	lc
+	.asciz	"key"
+	.enabl	lc
+	.even
+.endm
+.macro	clend$
+	.word	0
+.endm
+data	File control block (FCB)
+
+;	FC.	Internal file control block
+
+map	fc.hdr	word,0	;file header pointer
+map	fc.sta	word	;status
+map	fc.fid	word*3	;fid
+map	fc.siz	word	;file size
+map	fc.ebk	word	;end block
+map	fc.ffb	word	;first free byte
+map	fc.vbn	word	;next vbn
+map	fc.buf	512.	;optional buffer
+
+;	rt-11 fid
+
+map	fc.sbl	word,fc.fid ;start block
+map	fc.fsz	word	;file size
+map	fc.bbl	word	;base logical block (LD)
+			;
+map	fcbfn$,,1	;big file numbers - i$dfcb only
+map	fclnk$,,2	;dos/xxdp linked file 
+map	fcopn$,,100000	;open
+
+;	ACP codes	
+
+map	acvms.	addr.,0		;f11b
+map	acrsx.	addr.		;rsx
+map	acrta.	addr.		;rt-11
+map	acdos.	addr.		;dosbatch/dos dectape
+map	acxdp.	addr.		;xxdp/xxdp+
+.list
+

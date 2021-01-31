@@ -1,0 +1,329 @@
+.title	IMPRTA	RT-11 disks
+.include "ips:impmac.mac"
+$hodef
+
+;	RT-11 volumes are setup with sub-directories
+
+data	RT	RT-11 file structure
+
+;	Directory header
+
+map	rt.tot,,0	;total segments
+map	rt.nxt		;next segment
+map	rt.hgh		;highest segment in use
+map	rt.ext		;extra bytes per entry
+map	rt.blk		;start block of first entry
+map	rt.hbs		;header byte size
+
+;	Directory entry
+
+map	rt.sta,,0	;00 entry status word
+map	rt.fil		;02 fil
+map	rt.nam		;04 nam
+map	rt.typ		;06 typ
+map	rt.len		;10 file length
+map	rt.tim	null	;12 time
+map	rt.chn	byte	;12 channel
+map	rt.job	byte	;13 job number
+map	rt.dat		;14 date
+map	rt.ebs	null	;16 entry byte size	
+map	rt.ctl	byte	;16 control
+map	rt.ver	byte	;17 version number (unused)
+map	rt.uic		;20 uic
+map	rt.pro		;22 protection
+map	rt.xbs		;24 rt11x entry byte size
+
+;	rt.sta - entry status	
+
+map	rtten$,,400	;tent	- tentative file
+map	rtemp$,,1000	;empty	- empty area
+map	rtper$,,2000	;perm	- permanent file
+map	rtend$,,4000	;endblk	- end of segment
+map	rtpro$,,100000	;prot	- protected file
+map	rtprp$,,102000	;	- protected permanent
+map	rtiv$p,,70377	;	- invalid entry positive
+
+;	rt.dat - date
+
+map	rtdt$p,,37777	;037777	- date positive
+map	rtpdl$,,100000	;100000	- pending delete if rtten$
+
+;	rt.ctl - entry control
+
+map	rtti$m,,3	;time remainder
+
+;	RT-11 file id block
+
+map	fd.sbl	word,0		;start block
+map	fd.fsz	word		;file size
+map	fd.bbl	word		;base logical block
+code	RT$MOU	Mount device
+
+;	Clear previous device information
+;	Read home block
+;	Compute index file parameters
+;
+;	Device is open on f$bchn
+;
+;	DECRT11A
+
+  proc	rt$mou	<r1,r2,r3,r4,r5>
+	fcdbg$	mou
+	clr	i$dsta				;volume not mounted
+	clr	d$ista				;no directory active
+	clr	f$ista				;no file open
+	mov	h$obuf,r3			;r3 -> home block buffer
+	readl	buf=r3,blk=#1			;read the home block
+	fcchk$	#e$rerh	f$cvol			;error reading homeblock
+	addi3	#ho.sys,r3,r1			;point at acp string
+	mov	f$cnam,r2			;get a string for the name
+	mov	#12,r0				;maximum count
+	whileb	(r1) hi #space.			;still got something
+		movb	(r1)+,(r2)+		;move it
+	count	r0				;limit it
+	clrb	(r2)				;terminate it
+	call	fu$cmp	#r$tacp,f$cnam		;check for RT-11 volume
+	if	r0 eq				;not DECRT11A
+	...	call	fu$cmp #r$texc,f$cnam	;check for DECVMSEXCHNG
+	exit	if r0 eq			;not RT-11 volume
+	mov	#m$srta,f$cacp			;setup ACP type
+	mov	#acrta.,a$cacp			;acp code
+	call	rt$mfd				;setup mfd
+	bis	#fcopn$,i$dsta			;volume is mounted
+	mov	sp,r0				;fine
+  end
+
+r$tacp:	.asciz	/DECRT11A/		;RT-11 label
+r$texc:	.asciz	/DECVMSEXCHNG/		;VMS EXCHANGE label
+code	RT$DIR	Open directory
+
+;	Out	r0=0		some error
+;
+;	Syntax:	[dir.dir.dir]	explicit directory
+;		[]		[000000]
+;
+;	Search for virtual disks.
+
+  proc	rt$dir	<r1,r2,r3,r4,r5>
+	fcdbg$	dir
+	p1	dir,r4				;directory name
+						;
+	ifb	(r4)+ ne #lsqua.		;open square
+	...	fcerr$	#e$rids			;invalid directory spec
+	call	rt$mfd				;start with MFD
+	mov	#6,r0				;check mfd spec
+	mov	r4,r1				;
+	whileb	(r1)+ eq #dig0.			;[000000
+		dec	r0			;
+		next	if ne			;more
+		exit	ifb (r1)+ eq #rsqua.	;got [000000]
+	endless					;
+						;
+    repeat					;subdirectory loop
+	leave	ifb (r4) eq #rsqua.		;end of it
+	mov	d$inam,r1			;build next one
+	ifb	(r4) eq #dot.			;got a dot
+	...	inc	r4			;skip it
+	repeat					;
+		leave	ifb (r4) eq #rsqua.	;done
+		leave	ifb (r4) eq #dot.	;done
+		leave	ifb (r4) eq		;end of string
+		movb	(r4)+,(r1)+		;store the next
+	end					;
+	if	r1 eq d$inam			;got nothing
+	...	fcerr$	#e$rids			;invalid directory spec
+	call	fu$mln	#r$tdir,r1		;move in ".DSK"
+						;
+	call	ac$loo	d$inam,#d$ifid		;lookup the file
+	fcchk$	#e$rdnf	d$inam			;directory not found
+	mova	d$ifid,r0			;rework base block
+	add	fd.sbl(r0),fd.bbl(r0)		;reset the base block
+	clr	fd.sbl(r0)			;and clear start block
+	call	rt$att	#d$ifcb,#d$ifid		;attach the directory
+	fcchk$	#e$read	d$inam			;error attaching directory
+    end						;directory is done
+  end
+
+r$tdir:	.asciz	".DSK"				;the directory spec
+	.even					;
+page	Directory operations
+
+code	RT$MFD	Position at MFD
+
+  proc	rt$mfd	<r0>
+	fcdbg$	mfd
+	call	rt$att	#d$ifcb,#r$tmfd	;attach master file directory
+  end
+
+	assume	fd.sbl eq 0		;
+	assume	fd.fsz eq int.		;
+	assume	fd.bbl eq int.*2	;
+r$tmfd:	.word	0,31*2+6,0		;master file directory fid
+
+code	RT$SCN	Setup to scan current directory
+
+;	Out	r0=0		End of file
+
+  proc	rt$scn
+	fcdbg$	scn
+	mov	#1,d$ivbn		;setup starting VBN
+	call	rt$rdb			;read directory block
+  end
+
+code	RT$RDB	Read directory block
+
+;	Out	r0=0		End of file
+
+  proc	rt$rdb	<r1,r2>
+	fcdbg$	rdb
+	mov	d$ivbn,r0		;get the next one
+	exit	if eq			;no more
+	mov	r0,r1			;
+	asl$	1,r1			;two at a time
+	add	#6-2,r1			;add in block base
+	mov	d$ibuf,r2		;buffer address
+	mov	r2,e$nnxt		;setup next pointer
+	readm	buf=r2,bct=#1024.,blk=r1,fcb=#d$ifcb
+	fcchk$	#e$reod			;EOF on directory
+	mov	rt.nxt(r2),d$ivbn	;next segment number
+					;
+	mova	e$nfid,r0		;setup fid
+	mov	rt.blk(r2),fd.sbl(r0)	;start block of first
+	clr	fd.fsz(r0)		;no previous size
+	mov	d$ifid+fd.bbl,fd.bbl(r0);the base block
+	add	#rt.hbs,r2		;skip the header
+	mov	r2,e$nnxt		;setup next pointer
+  end
+code	RT$NXT	Get next directory entry
+
+;	Out	r0=0		No more files
+;		e$nnam		Entry name
+;		e$nfid		Entry start block & size
+
+  proc	rt$nxt	<r1,r2,r3,r4,r5>
+	fcdbg$	nxt
+    repeat				;the big loop
+	mov	e$nnxt,r5		;entry pointer
+	if	#rtiv$p seton (r5)	;valid header?
+	...	fcerr$	#e$ridf		;invalid file structure
+	if	#rtend$ seton (r5)	;end of directory segment
+		call	rt$rdb		;read the next
+		exit	if r0 eq	;all done
+	...	next			;try again
+					;
+	mov	d$ibuf,r0		;get the directory buffer
+	addi3	#1024.,r0,r1		;get the end of it
+	addi3	#rt.ebs,r5,r2		;point past entry
+	add	rt.ext(r0),r2		;plus extra words
+	if	r2 hi r1		;out of space
+	...	fcerr$	#e$ridf		;invalid directory structure
+	mov	r2,e$nnxt		;next entry
+	clr	e$nver			;no version
+	mova	e$nfid,r0		;fill in fid
+	add	fd.fsz(r0),fd.sbl(r0)	;size of previous file
+	mov	rt.len(r5),fd.fsz(r0)	;the filesize
+	mov	d$ifid+fd.bbl,fd.bbl(r0);the base block
+    until #rtper$ seton (r5)		;got permanent entry
+					;
+	mov	e$nnam,r0		;an output pointer
+	assume	rt.fil eq word		;
+	tstw	(r5)+			;skip status
+	movwi	(r5)+,r1		;get the next
+	call	fu$r5a	r1,r0		;convert to ascii
+	movwi	(r5)+,r1		;get the next
+	call	fu$r5a	r1,r0		;convert to ascii
+	if	r0 eq e$nnam		;invalid name
+	...	movb	#'?,(r0)+	;setup dummy
+	movb	#'.,(r0)+		;store a dot
+	movwi	(r5)+,r1		;get the type
+	call	fu$r5a	r1,r0		;convert type to ascii
+	clrb	(r0)			;terminate the name
+.if ne 0
+call	fc$typ	e$nnam
+call	fc$put	#space.
+call	op$dec	e$nfid+fd.sbl,f$cnam
+call	fc$typ	f$cnam
+call	fc$put	#space.
+call	op$dec	e$nfid+fd.fsz,f$cnam
+call	fc$typ	f$cnam
+call	fc$put	#space.
+call	op$dec	e$nfid+fd.bbl,f$cnam
+call	fc$typ	f$cnam
+call	fc$new
+.endc
+	mov	sp,r0			;fine
+  end
+code	RT$ATT	Attach file to FCB
+
+;	Out	r0=0		Attach error
+
+  proc	rt$att	<r3,r4>
+	fcdbg$	att
+	p1	fcb,r3			;r3 -> FCB
+	p2	fid,r4			;r4 -> FID
+	mov	fd.sbl(r4),fc.sbl(r3)	;setup the start block
+	mov	fd.fsz(r4),fc.fsz(r3)	;get the size
+	mov	fd.bbl(r4),fc.bbl(r3)	;base logical block
+	mov	fd.fsz(r4),fc.siz(r3)	;get the size
+	mov	fd.fsz(r4),fc.ebk(r3)	;get the size
+	clr	fc.ffb(r3)		;no ffb
+	mov	sp,r0			;
+  end
+;???	Hard I/O errors
+code	RT$RVB	Read virtual block
+
+;	Map virtual block to logical block
+;	Assumes single block transfer at present
+;
+;	Out	r0=0		End of file
+;???		r0=n		Number of bytes read
+
+  proc	rt$rvb	<r1,r2>	
+	fcdbg$	rvb
+	p1	buf			;buffer address
+	p2	bct			;byte count
+	p3	blk,r1			;block number
+	p4	fcb,r2			;FCB address
+	dec	r1			;make logical block number
+  join					;
+  proc	rt$rmb	<r1,r2>			;read mapped block
+	fcdbg$	rmb
+	p1	buf			;buffer address
+	p2	bct			;byte count
+	p3	blk,r1			;logical block number
+	p4	fcb,r2			;FCB address
+  meet					;
+	call	fu$clr	buf(sp),bct(sp)	;clear the buffer first
+	if	r1 his fc.siz(r2)	;end of file?
+		clr	r0		;end of file
+	...	exit			;
+					;
+	add	fc.sbl(r2),r1		;add in start block
+	add	fc.bbl(r2),r1		;add base logical block
+	readl	buf=buf(sp),bct=bct(sp),blk=r1
+	fcchk$	#e$rinp			;input error
+  end
+
+code	RT$RLB	Read logical block
+
+;	Out	r0=0		Error
+;		r0=n		Number of bytes read
+
+  proc	rt$rlb	<r1,r2>
+	fcdbg$	rlb
+	p1	buf			;buffer address
+	p2	bct,r1			;byte count
+	p3	blk,r2			;block number
+	add	#1,r1			;round it up
+	if	cs			;overflowed
+		clr	r0		;end of disk
+	...	exit			;
+	ror	r1			;get a word count
+	.readw	f$bemt,f$bchn,buf(sp),r1,r2
+	if	cs			;oops
+	...	clr	r0		;say so
+	asl	r0			;return byte count
+  end
+
+.end
+

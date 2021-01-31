@@ -1,0 +1,604 @@
+;+++;	IPS:IMODS - Easily translates to Rider
+.title	IMPODS	F11 ACP
+.include "ips:impmac.mac"
+.include "ips:impf11.mac"
+code	FB$MOU	Mount device
+
+;	Clear previous device information
+;	Read home block
+;	Compute index file parameters
+;
+;	Device is open on f$bchn
+;
+;	DECFILES11A
+
+  proc	fb$mou	<r1,r2,r3,r4,r5>
+	clr	i$dsta			;volume not mounted
+	clr	d$ista			;no directory active
+	clr	f$ista			;no file open
+	mov	h$obuf,r3		;r3 -> home block buffer
+	readl	buf=r3,blk=#1		;read the home block
+	fcchk$	#e$rerh	f$cvol		;error reading homeblock
+	addi3	#hb.acp,r3,r1		;point at acp string
+	mov	f$cnam,r2		;get some workspace
+	call	fu$clr	r2,#10.		;terminate it
+	call	fu$mov	r1,r2,#9	;move in the label
+	call	fu$cmp	#f$bf11,r2	;check for FILES11 volume
+	exit	if r0 eq		;not FILES11
+
+;	Homeblock checksums
+
+	assume	ha.ck1 eq hb.ck1	;
+	assume	ha.ck2 eq hb.ck2	;
+	call	fb$sum r3,#hb.ck1	;first checksum
+	fcchk$	#e$rihb	f$cvol		;invalid homeblock
+	call	fb$sum r3,#hb.ck2	;full checksum
+	fcchk$	#e$rihb	f$cvol		;invalid homeblock
+
+;	Check for F11A or F11B
+
+	assume	ha.lev eq hb.lev
+	ifb	hb.lev(r3) eq #odlv2.	;this VMS?
+		call	fb$vms		;mount VMS disk
+	elsifb	hb.lev(r3) eq #odlv1.	;is this RSX?
+		call	fb$rsx		;mount RSX disk
+	else				;
+	...	fcerr$	#e$risl	f$cvol	;invalid F11 structure level
+					;
+	if	r0 eq			;volume too big
+	...	fcerr$	#e$rvtb	f$cvol	;volume too big
+					;
+	readl	buf=i$dfcb,blk=r0	;read INDEXF header
+	call	fb$chd	#i$dfcb,#i$dfid	;check it
+	fcchk$	#e$riih	f$cvol		;invalid indexf header
+	call	fb$fil	#i$dfcb		;fill in sizes
+	bis	#fcopn$,i$dsta		;volume is mounted
+	mov	sp,r0			;fine
+  end
+
+f$bf11:	.asciz	/DECFILE11/		;ACP label
+	.even
+code	FB$RSX	Setup RSX INDEXF mapping
+
+;	In	r3 ->		home block
+;	Out	r0=0		volume too big
+;		r0		LBN of INDEXF.SYS header block
+;
+;	File header N offset is VBN 2+<mapping blocks>+N
+
+  proc	fb$rsx	<r1,r2>
+	mov	#m$srsx,f$cacp		;setup the acp type
+	mov	#acrsx.,a$cacp		;setup acp code
+	clr	f$bcas			;case 0 => F11A
+	movwi	ha.ibs(r3),r1		;r1 = index bit map block size
+	movwi	ha.ib0(r3),r2		;r2 = index bit map LBN
+	mov	#ia.map,r0		;add in base
+	add	r1,r0			;bitmap size
+	mov	r0,i$dvbo		;VBN offset in indexf to header
+	addi3	r1,r2,r0		;r0 = lbn of indexf.sys header block
+pdp$	exit	ifw ha.ib1(r3) eq	;volume not too big
+pdp$	clr	r0			;too big
+  end
+
+code	FB$VMS	Setup VMS INDEXF
+
+;	In	r3 ->		home block
+;	Out	r0=0		volume too big
+;		r0		LBN of INDEXF.SYS header block
+
+  proc	fb$vms	<r1,r2>
+	mov	#m$svms,f$cacp		;setup the ACP type
+	mov	#acvms.,a$cacp		;setup acp code
+	mov	#word,f$bcas		;case 1 => F11B
+	mov	hb.clu(r3),r0		;get the cluster size
+	mov	hb.ibs(r3),r1		;index bit map size in blocks
+	mov	hb.ibl(r3),r2		;index bit map LBN
+	ifw	hb.mxf+word.(r3) ne	;a big disk
+vax$	...	bis	#fcbfn$,i$dsta	;use big file numbers
+pdp$		clr	r0		;pdp-11 can't handle it
+pdp$	...	exit			;
+	asl$	2,r0			;*4
+	add	r1,r0			;r0 = VBN offset from FID to INDEXF VBN
+	mov	r0,i$dvbo		;VBN offset
+	addi3	r1,r2,r0		;r0 = lbn of indexf.sys header block
+  end
+code	FB$DIR	Open directory
+
+;	Out	r0=0		some error
+;
+;	Syntax:	[dir.dir.dir]	explicit directory
+;		[]		[000000]
+
+  proc	fb$dir	<r1,r2,r3,r4,r5>
+	fcdbg$	dir
+	p1	dir,r4				;directory name
+						;
+	ifb	(r4)+ ne #lsqua.		;open square
+	...	fcerr$	#e$rids			;invalid directory spec
+	call	fb$mfd				;start with MFD
+						;
+    repeat					;subdirectory loop
+	leave	ifb (r4) eq #rsqua.		;end of it
+	mov	d$inam,r1			;build next one
+	ifb	(r4) eq #dot.			;got a dot
+	...	inc	r4			;skip it
+	repeat					;
+		leave	ifb (r4) eq #rsqua.	;done
+		leave	ifb (r4) eq #dot.	;done
+		leave	ifb (r4) eq		;end of string
+		movb	(r4)+,(r1)+		;store the next
+	end					;
+	if	r1 eq d$inam			;got nothing
+	...	fcerr$	#e$rids			;invalid directory spec
+	call	fu$mln	#f$bdir,r1		;move in ".DIR"
+						;
+	call	ac$loo	d$inam,#d$ifid		;lookup the file
+	fcchk$	#e$rdnf	d$inam			;directory not found
+	call	fb$att	#d$ifcb,#d$ifid		;attach the directory
+	fcchk$	#e$read	d$inam			;error attaching directory
+    end						;directory is done
+  end
+
+f$bdir:	.asciz	".DIR"				;the directory spec
+	.even					;
+page	Directory operations
+
+;	fb$mfd	position at MFD
+;	fb$def	position at default directory
+;	fb$scn	setup to scan current directory
+;	fb$nxt	get next directory entry
+;	
+;	d$iseg:	directory segment buffer
+;	d$ivbn:	directory VBN
+;	d$isiz:	directory size
+;
+;	r0 ->	next directory name
+
+code	FB$MFD	Position at MFD
+
+  proc	fb$mfd
+	fcdbg$	mfd
+	call	fb$att	#d$ifcb	#d$imfd	;attach the MFD
+	fcchk$	#e$rmfd			;error attaching MFD
+  end
+
+code	FB$SCN	Setup to scan current directory
+
+;	Out	r0=0		End of file
+
+  proc	fb$scn
+	fcdbg$	scn
+	clr	d$ivbn			;setup starting VBN
+	call	fb$rdb			;read directory block
+  end
+
+code	FB$RDB	Read directory block
+
+;	Out	r0=0		End of file
+
+  proc	fb$rdb
+	fcdbg$	rdb
+	inc	d$ivbn			;next VBN
+	mov	d$ibuf,e$nnxt		;setup next pointer
+	readv	buf=d$ibuf,blk=d$ivbn,fcb=#d$ifcb
+  end
+;???	COUNT and SOB
+code	FB$NXT	Get next directory entry
+
+;	db.rbc	word,0	;record byte count
+;			;-1 => no more entries
+;	db.lim	word,0	;version limit
+;	db.flg	byte,4	;flags
+;	db.nbc	byte,5	;name byte count
+;
+;	The remainder of the record holds pairs of
+;	version numbers and fids
+;
+;	db.ver	word,0	;version number
+;	db.fid	6,2	;fid
+;
+;	Out	r0=0		No more files
+
+  proc	fb$nxt	<r1,r2,r3,r4,r5>
+	if	f$bcas eq		;this is RSX
+		call	fa$nxt		;do RSX
+	...	exit			;and quit
+    repeat				;the big loop
+	mov	e$nnxt,r5		;entry pointer
+	addi3	#512.,d$ibuf,r0		;point past it
+	cvtwi	(r5)+,r4		;get entry length
+	if	r4 lo #3		;too small
+	  or	r4 gt #512.		;too big
+	...	fcerr$	#e$ridf		;invalid directory file
+					;
+	if	r4 mi			;end of segment
+	 or	r5 his r0		;or past end of segment
+		call	fb$rdb		;read next directory block
+		exit	if r0 eq	;end of directory - not found
+	...	next			;
+
+;	Check current entry for same as previous
+;
+;	r4	entry length
+
+	add	r5,r4			;r4 -> end of directory entry
+	mov	r4,e$nnxt		;store next entry
+	tstw	(r5)+			;skip version limit
+	tstb	(r5)+			;test & skip flags
+    until pl				;not repeat of previous entry
+					;
+	movbi	(r5)+,r0		;get the byte count
+	if	r0 eq			;no byte count
+	 or	r0 hi #80.		;or too long
+	...	fcerr$	#e$ridf		;invalid directory file
+
+	mov	e$nnam,r1		;the entry name
+	repeat				;
+		movb	(r5)+,(r1)+	;store the name
+	count	r0			;count it
+	clrb	(r1)			;terminate it
+	inc	r5			;even up pointer
+	bic	#1,r5			;
+					;
+	mova	e$nver,r0		;get the version number & fid
+	movw	(r5)+,(r0)+		;store version
+	movw	(r5)+,(r0)+		;store fid
+	movw	(r5)+,(r0)+		;
+	movw	(r5)+,(r0)+		;r0<>0
+  end
+code	FA$NXT	Get next F11A entry
+
+;	Out	r0=0		No more files
+
+  proc	fa$nxt	<r1,r2,r3,r4,r5>
+	fcdbg$	fa$nxt
+    repeat				;entry loop
+	mov	e$nnxt,r5		;entry pointer
+	if	d$ivbn hi d$isiz	;this the last block?
+		clr	r0		;end of directory
+	...	exit			;file not found
+	mov	d$ibuf,r0		;get the buffer
+	add	#512.,r0		;point past it
+	if	r5 his r0		;more to go
+		call	fb$rdb		;read the next segment
+		exit	if r0 eq	;end of file
+	...	next			;start again
+
+;	Check current entry for same as previous
+
+	mov	r5,e$nnxt		;next entry
+	add	#da.bbs,e$nnxt		;
+	mov	#e$nfid,r0		;pickup the fid
+	movw	(r5)+,(r0)+		;move it in
+    until ne				;got an entry
+	movw	(r5)+,(r0)+		;
+	movw	(r5)+,(r0)+		;
+	mov	#3,r4			;get a counter
+	mov	e$nnam,r0		;an output pointer
+	repeat				;build output name
+		movwi	(r5)+,r1	;get the next
+		call	fu$r5a	r1,r0	;convert to ascii
+	count	r4			;do 3
+					;
+	if	r0 eq e$nnam		;invalid name
+	...	movb	#'?,(r0)+	;setup dummy
+	movb	#'.,(r0)+		;store a dot
+	movwi	(r5)+,r1		;get the type
+	call	fu$r5a	r1,r0		;convert type to ascii
+	clrb	(r0)			;terminate the name
+	movw	(r5)+,e$nver		;store the version number
+	mov	sp,r0			;fine
+  end
+code	FB$ATT	Attach file to FCB
+
+;	Out	r0=0		Attach error
+
+  proc	fb$att	<r3,r4>
+	fcdbg$	att
+	p1	fcb,r3			;r3 -> FCB
+	p2	fid,r4			;r4 -> FID
+					;
+	call	fb$rhd	r3,r4		;read the header
+	exit	if r0 eq		;attach error
+	call	fb$fil	r3		;fill in things
+	mov	sp,r0			;fine
+  end
+
+code	FB$FIL	Fill in FCB
+
+  proc	fb$fil	<r0,r1,r2>
+	fcdbg$	fil
+	p1	fcb,r1			;r1 -> FCB
+	if	f$bcas eq		;what we got?
+		addi3	#fa.fat,(r1),r2	;F11A
+	else				;
+	...	addi3	#fb.fat,(r1),r2	;r2 -> attributes
+	movwi	ft.eb0(r2),r0		;r0 = end block
+	movw	r0,fc.ebk(r1)		;store end block
+	movw	ft.ffb(r2),fc.ffb(r1)	;store ffb
+	if	eq			;null block
+	...	dec	r0		;reduce size
+	mov	r0,fc.siz(r1)		;setup file size
+  end
+code	FB$RHD	Read file header
+
+;	Read file header
+; 
+;	i$dhdr		index file header
+;	i$dvbo		vbn offset to header block
+;
+;	Out	r0=0		Header check found different file
+
+  proc	fb$rhd	<r1,r2,r3,r4,r5>
+	fcdbg$	rhd
+	p1	fcb,r1			;fcb address
+	p2	fid			;file id block address
+	mov	@fid(sp),r0		;get the file number
+	add	i$dvbo,r0		;r0 = VBN in INDEXF
+	assume	fc.hdr eq 0		;
+	readv	buf=(r1),blk=r0,fcb=#i$dfcb ;read the file header
+	if	r0 eq			;
+		fcwar$	#e$rrfh		;error reading header
+	...	exit			;
+	call	fb$chd	fcb(sp),fid(sp)	;check the header
+  end
+
+code	FB$SUM	Check checksum
+ 
+;	Out	r0=0	Checksum wrong
+
+  proc	fb$sum	<r1,r2,r3>
+	p1	buf,r1			;r1 -> buffer
+	p2	bct,r2			;r2 = byte count
+	mov	sp,r0			;assume o.k.
+	clr	r3			;accumulate check
+	asr$	word$l,r2		;get address count
+	repeat				;loop
+		addw	(r1)+,r3	;add them in
+	count	r2			;count them
+	ifw	(r1) ne r3		;check it
+	...	clr	r0		;different
+  end
+code	FB$CHD	Check file header
+
+;	Out	r0=0	Error
+
+  proc	fb$chd	<r1,r2>
+	fcdbg$	chd
+	p1	fcb			;fcb address
+	p2	fid,r2			;fid address
+	mov	sp,r0			;assume o.k.
+	exit	ifw fd.seq(r2) eq #-1	;wildcards are always o.k.
+					;
+	assume	fc.hdr eq 0		;
+	mov	@fcb(sp),r1		;r1 -> header buffer
+	if	f$bcas eq		;f11a
+		call	fa$chd		;check f11a header
+	...	exit			;done
+					;
+	call	fb$sum	r1,#fb.chk	;check the checksum
+	if	r0 eq			;invalid file header checksum
+		fcwar$	#e$rfhc		;say so
+	...	exit			;
+					;
+	ifb	fb.lev(r1) ne #odlv2.	;correct structure level?
+		fcwar$	#e$rfhs		;invalid file header structure level
+		clr	r0		;failed
+	...	exit			;
+					;
+	ifw	fb.fid(r1) eq		;deleted file
+	 orw	(r2) ne fb.fid(r1)	;different file number
+	 orw	fd.seq(r2) ne fb.seq(r1);different revision number?
+		fcwar$	#e$rdel		;deleted or different file
+	...	clr	r0		;different file
+	mov	sp,r0			;fine
+  end
+
+;	In	r1 ->		header buffer
+
+  proc	fa$chd
+	fcdbg$	fa$chd
+	call	fb$sum	r1,#fa.chk	;check the checksum
+	if	r0 eq			;invalid file header checksum
+		fcwar$	#e$rfhc		;say so
+	...	exit			;
+					;
+	ifb	fa.lev(r1) ne #odlv1.	;correct structure level?
+		fcwar$	#e$rfhs		;invalid file header structure level
+		clr	r0		;
+	...	exit			;
+					;
+	ifw	fa.fid(r1) eq		;deleted file
+	 orw	(r2) ne fa.fid(r1)	;different file number
+	 orw	fd.seq(r2) ne fa.seq(r1);different revision number?
+		fcwar$	#e$rdel		;deleted or different file
+	...	clr	r0		;different file
+	mov	sp,r0			;fine
+  end
+code	FB$RMB	Read mapped block
+code	FB$RVB	Read virtual block
+
+;	Map virtual block to logical block
+;	Assumes single block transfer at present
+;
+;	r0	lbn count
+;	r1	lbn base
+;	r2	total blocks so far
+;	r3 ->	last pointer
+;	r4 ->	next pointer
+;	r5 ->	fcb
+;
+;	Out	r0=0		End of file
+
+  proc	fb$rmb	<r1,r2,r3,r4,r5>	
+	fcdbg$	rvb
+	p1	buf			;buffer address
+	p2	bct			;byte count
+	p3	blk			;block number
+	p4	fcb			;FCB address
+	inc	blk(sp)			;make virtual block
+  join					;
+  proc	fb$rvb	<r1,r2,r3,r4,r5>	
+	fcdbg$	rvb
+	p1	buf			;buffer address
+	p2	bct			;byte count
+	p3	blk			;block number
+	p4	fcb			;FCB address
+  meet					;
+	mov	fcb(sp),r5		;get the fcb
+	call	fu$clr	buf(sp),bct(sp)	;clear the buffer first
+	if	blk(sp) hi fc.siz(r5)	;end of file?
+		clr	r0		;end of file
+	...	exit			;
+					;
+	call	fb$irp	r5		;init pointers
+	mov	#1,r2			;first vbn
+	repeat				;go thru pointers
+		call	fb$nrp		;get the next pointer
+		exit	if r0 eq	;oops - end of file
+		add	r0,r2		;add in new LBN's
+	until	r2 hi blk(sp)		;is the block in this segment?
+	sub	r0,r2			;get previous limit
+
+;	r0	lbn count
+;	r1	lbn base
+;	r3	vbn
+
+	mov	blk(sp),r3		;get current virtual block
+	sub	r2,r3			;offset in this window
+	add	r1,r3			;r3 = lbn
+
+	readl	buf=buf(sp),bct=bct(sp),blk=r3
+	fcchk$	#e$rinp			;input error
+	exit	if blk(sp) ne fc.siz(r5);not last block
+	exit	if fc.ffb(r5) eq	;no first free block
+	addi3	fc.ffb(r5),buf(sp),r1	;r1 -> buffer
+	subi3	fc.ffb(r5),bct(sp),r2	;r2 = size to clear
+	call	fu$clr	r1,r2		;clear remainder
+  end
+code	FB$RLB	Read logical block
+
+;	Out	r0=0		Error
+
+  proc	fb$rlb	<r1>
+	fcdbg$	rlb
+	p1	buf			;buffer address
+	p2	bct,r1			;byte count
+	p3	blk			;block number
+	add	#1,r1			;round it up
+	if	cs			;overflowed
+		clr	r0		;end of disk
+	...	exit			;
+	ror	r1			;get a word count
+	.readw	f$bemt,f$bchn,buf(sp),r1,blk(sp)
+	if	cs			;oops
+	...	clr	r0		;say so
+  end
+code	FB$IRP	Init retrieval pointers
+
+;	Out	r3 ->	past last
+;		r4 ->	first retrieval pointer
+
+  proc	fb$irp	<r0>
+	fcdbg$	irp
+	p1	fcb
+	assume	fc.hdr eq 0		;
+	mov	@fcb(sp),r0		;r0 -> header buffer
+	assume	fa.mao eq fb.mao	;
+	movbi	fb.mao(r0),r4		;offset
+	asl	r4			;bytes
+	add	r0,r4			;base
+					;
+	if	f$bcas eq		;rsx
+		movbi	ma.mau(r4),r3	;words used so far
+		inc	r3		;one more for limit
+		asl	r3		;bytes
+		add	#ma.rtr,r4	;point to retrieval pointers
+		add	r4,r3		;r3 -> past last retrieval pointer
+	...	exit			;
+					;vms
+	movbi	fb.mau(r0),r3		;words used so far
+	inc	r3			;one more for limit
+	asl	r3			;bytes
+	add	r4,r3			;base
+  end
+code	FB$NRP	Next retrieval pointer
+
+;	Does not support multiple headers
+;
+;F11A	c ccc ccc chh hhh hhh
+;	l lll lll lll lll lll
+;
+;F11B	0 0xx xxx xxx xxx xxx		Placement - nop
+;
+;	0 1hh hhh hcc ccc ccc		
+;	l lll lll lll lll lll
+;
+;	1 0cc ccc ccc ccc ccc
+;	l lll lll lll lll lll
+;	h hhh hhh hhh hhh hhh
+;
+;	1 1cc ccc ccc ccc ccc
+;	c ccc ccc ccc ccc ccc
+;	l lll lll lll lll lll
+;	h hhh hhh hhh hhh hhh
+;
+;	In	r3 ->	end of pointers
+;		r4 ->	retrieval pointer
+;
+;	Out	r0	LBN count 
+;		r0=0	end of file
+;		r1	first LBN
+;		r3 ->	past pointers
+;		r4 ->	past retrieval pointer
+
+  proc	fb$nrp	<r2,r3>
+	fcdbg$	nrp
+	clr	r0				;assume end of file
+  repeat					;big loop
+	exit	if r4 hi r3			;end of pointers, end of file
+
+;	RSX format
+
+	if	f$bcas eq			;RSX
+		tstb	(r4)+			;high order LBN must be zero
+		exit	if ne			;treat as EOF
+		clr	r2			;get the count
+		bisb	(r4)+,r2		;r2 = count
+		movwi	(r4)+,r1		;r1 = lbn
+	...	leave				;got pointers
+
+;	VMS format
+
+	movwi	(r4),r2				;get possible counter
+	bicw	#^o140000,r2			;isolate the count
+	ifw	(r4) pl				;case 0 and 1
+		next	ifw #^o40000 setoff (r4)+;case 0 - ignore placement
+		bicw	#^o177400,r2		;case 1 - isolate count
+		movw	(r4)+,r1		;get the lbn
+	elsifw	#^o40000 setoff (r4)+		;case 2
+		movw	(r4)+,r1		;get the lbn
+		exit	ifw (r4)+ ne		;high order LBN must be zero
+	else					;case 3
+		exit	ifw r2 ne		;high order LBN count MBZ
+		movw	(r4)+,r2		;get LBN count
+		movw	(r4)+,r1		;get the lbn
+	...	exit	ifw (r4)+ ne		;high order LBN MBZ
+  endless					;
+
+;	r2 =	count-1
+;	r1 =	LBN
+
+	incw	r2				;get real count
+	if	eq				;sparse element
+	...	fcerr$	#e$rirp			;invalid retrieval pointers
+vax$	movwi	r1,r1				;
+vax$	movwi	r2,r2				;
+	addi3	r1,r2,r3			;check for overflow
+pdp$	exit	if cs				;overflowed
+vax$	exit	if r3 hi #^o177777		;higher than our world
+	mov	r2,r0				;return LBN count
+  end
+
+.end
+

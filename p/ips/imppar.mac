@@ -1,0 +1,413 @@
+.title	IMPPAR	Parse command
+.include "ips:impmac.mac"
+data	IMPORT
+
+;	Parsing calls
+;
+;	CL$PAR	#line		Parses command and creates lists below:
+;		c$lvrb		Verb field
+;		c$lopt		Option list
+;		c$lfd1		Field 1
+;		c$lfd2		Field 2
+;
+;		List	item item ... ter
+;		Item	ctl txt ter
+;		 ctl	Control byte. 0 => end of list 
+;		 txt	Item text. Leading option / is removed.
+;		 ter	Terminator. Null byte.
+;
+;	CL$NXT	#list		Returns next item in list else null.
+;	CL$ITM	#list		Returns next item in list else null.
+;	CL$KEY	#list,#table	Searchs for first list item in table.
+;	CL$LST	#list,#table	Processes each item in list via table.
+;				Calls table callback routines.
+;
+;	CL$SYN	#count,#...	Checks command syntax
+;	CL$END	#list		Checks all items have been accepted.
+
+c$lwrk::.word	0			;workspace pointer
+c$lobj::.word	0			;pointer to error object
+c$lval::.word	0			;pointer to item value
+c$lvrb::.word	0,0,0,0			;\ verb pointers
+c$lopt::.word	0,0,0,0			;| option pointers
+c$lfd1::.word	0,0,0,0			;| field 1
+c$lfd2::.word	0,0,0,0			;/ field 2
+code	CL$INI	Init 
+
+  proc	cl$ini
+	call	fc$alc	#c$lwrk	#256.
+  end
+
+code	CL$PAR	Parse command
+
+;	Out	c$lvrb ->	verb
+;		c$lopt ->	options
+;		c$lfd1 ->	field 1
+;		c$lfd2 ->	field 2
+
+  proc	cl$par	<r1,r2,r3,r4,r5>
+	fcdbg$	par
+	p1	lin,r1			;command line
+	mov	c$lwrk,r2		;get the work area
+	call	cl$xop			;extract options
+	mov	lin(sp),r1		;get back line
+	call	cl$xfd	#c$lvrb		;extract verb
+	call	cl$xfd	#c$lfd1		;extract field 1
+	call	cl$xfd	#c$lfd2		;extract field 2
+	clr	r0			;assume awful
+	exit	ifb (r1) ne		;unprocessed data
+	inc	r0			;o.k.
+  end
+
+code	CL$XOP	Extract options
+
+;	In	r1 ->		line
+;		r2 ->		work area
+;
+;	Syntax	<clmor$>...<0><clmor$>...<0><0>
+
+  proc	cl$xop
+	fcdbg$	xop
+	mov	#c$lopt,r4			;get the header
+	mov	r2,(r4)				;setup next
+	mov	r2,cl.bas(r4)			;setup base
+	mov	r2,cl.cur(r4)			;current
+	clr	cl.cnt(r4)			;clear count
+    repeat					;big loop
+	repeat					;skip non-option
+		leave	ifb (r1) eq #slash. 	;got option
+		leave	ifb (r1) eq		;end of line
+		inc	r1			;skip it
+	end					;
+	leave	ifb (r1) eq			;end of line
+	inc	r1				;skip slash
+	movb	#clmor$,(r2)+			;more coming
+	inc	cl.cnt(r4)			;count the option
+	repeat					;copy option
+		leave	ifb (r1) eq #slash.	;next option
+		leave	ifb (r1) los #space.	;end of option
+		leave	ifb (r1) eq #comma.	;end of option
+		movb	(r1)+,(r2)+		;copy next
+	end					;
+	clrb	(r2)+				;terminate option
+    end						;
+	clrb	(r2)+				;terminate list
+  end
+code	CL$XFD	Extract fields
+
+;	In	r1 ->		line
+;		r2 ->		work area
+;
+;	Out	pnt ->		field list
+;		pnt+cl.bas ->	field list
+;		pnt+cl.cnt	item count
+;
+;	Syntax	field list 	<clmor$>....<0><clmor$>....<0><0>
+
+  proc	cl$xfd	<r5>
+	fcdbg$	xfd
+	p1	pnt,r4				;pointer
+	mov	r2,(r4)				;setup pointer
+	mov	r2,cl.bas(r4)			;setup base pointer
+	mov	r2,cl.cur(r4)			;current
+	clr	cl.cnt(r4)			;count items
+	clrb	(r2)				;terminate it
+						;
+	repeat					;skip leading whitespace
+		exit	ifb (r1) eq		;done
+		ifb	(r1) los #space.	;
+			inc	r1		;skip it
+		...	next			;
+	endless					;
+						;
+    repeat					;field loop
+	clr	r3				;not first character
+	clr	r5				;not in [...]
+	repeat					;copy non-option
+		leave	ifb (r1) eq #slash. 	;got option
+		leave	ifb (r1) los #space. 	;end of field
+		ifb	(r1) eq #lsqua.		;[
+		...	mov	#1,r5		;in square brackets
+		ifb	(r1) eq #rsqua.		;]
+		...	clr	r5		;out of brackets
+		if	r5 eq			;not in brackets
+		...	leave ifb (r1) eq #comma.;next parameter
+		if	r3 eq			;first character
+			inc	r3		;not first anymore
+			inc	cl.cnt(r4)	;count the item
+		...	movb	#clmor$,(r2)+	;start it off
+		movb	(r1)+,r0		;get the character
+		call	fu$upc r0		;make uppercase
+		movb	r0,(r2)+		;store it
+	end					;
+	clrb	(r2)+				;end of parameter
+	repeat					;skip options
+		leave	ifb (r1) los #space.	;end of field
+		leave	ifb (r1) eq #comma.	;next parameter in field
+		inc	r1			;skip option text
+	end					;
+	leave	ifb (r1) los #space.		;end of field
+	inc	r1				;skip comma
+    end						;comma
+	clrb	(r2)+				;end of field
+  end
+code	CL$KEY	Get keyword
+
+;	Out	r0 ->		entry
+;		r0=0		not found
+;		r0=-1		invalid command
+;		c$lobj		object for error messages
+;
+;	call	cl$key #x$ytab,#c$lvrb
+;	call	cl$key #x$ytab,#c$lfd1
+
+  proc	cl$key	<r1,r2>
+	fcdbg$	key
+	p1	fld				;field pointer
+	p2	tab
+	call	cl$nxt	fld(sp)			;get the parameter
+	if	r0 eq				;nothing there
+	 orb	(r1) ne				;or more coming
+		mov	#-1,r0			;invalid command
+	...	exit				;
+	mov	r0,c$lobj			;save it for errors
+	call	cl$fnd	r0,tab(sp)		;search for keyword
+	ifb	(r1) ne				;not isolated keyword
+	...	mov	#-1,r0			;
+  end
+
+code	CL$LST	Process keyword list
+
+;	Out	r0=0		not all items accepted
+;		cl.rou		callback routines called
+;
+;	Callback routine
+;
+;		p1 ->		table entry
+;		p2 ->		remainder of text
+;		p3=-1		negated
+
+  proc	cl$lst	<r1,r2,r3,r4,r5>
+	fcdbg$	lst
+	p1	lst,r5
+	p2	tab
+	mov	cl.bas(r5),(r5)			;reset the list
+	mov	sp,r3				;assume all found
+    repeat					;
+	call	cl$nxt	r5			;get next item
+	mov	r0,r4				;save the pointer
+	leave	if eq				;no more items
+	call	cl$fnd	r0,tab(sp)		;find the option
+	if	r0 ne				;found it
+		bisb	#clacc$,-(r4)		;remember it was accepted
+		call	@cl.rou(r0) r0,r1,r2	;call the routine
+	else					;not found
+	...	clr	r3			;remember that
+    end						;
+	mov	r3,r0				;return result 
+  end
+code	CL$SCN	Setup to scan list
+
+  proc	cl$bas
+	p1	fld,r0
+	mov	cl.bas(r0),r0
+  end
+
+  proc	cl$scn	<r0>
+	p1	fld,r0
+	mov	cl.bas(r0),(r0)			;setup next
+	mov	(r0),cl.cur(r0)			;setup current
+  end
+
+code	CL$ACC	Set current accessed
+
+  proc	cl$acc	<r0>
+	p1	fld,r0
+	mov	cl.cur(r0),r0			;point to current
+	exit	ifb (r0) eq			;at terminator
+	bisb	#clacc$,(r0)			;set accessed flag
+  end
+
+code	CL$ITM	Return next item in list
+
+  proc	cl$itm	<r1>
+	fcdbg$	key
+	p1	fld				;field pointer
+	call	cl$nxt	fld(sp)			;get the parameter
+  end
+
+code	CL$NXT	Get next item in list
+
+;	Out	r0=0		no more items
+;		r0 ->		item text
+;		r1 ->		remainder of field
+;
+;		fld		points at next item in field
+
+  proc	cl$nxt	<r2,r3>
+	fcdbg$	nxt
+	p1	fld,r1				;field pointer
+	clr	r0				;assume none
+	mov	(r1),r2				;get pointer
+	mov	r2,cl.cur(r1)			;remember current
+	exit	ifb (r2)+ eq			;no more (skip header)
+	mov	r2,r0				;return pointer to string
+	...	whileb	(r2)+ ne		;skip to end of it
+	mov	r2,(r1)				;return next parameter pointer
+	mov	r2,r1				;point to remainder
+	mov	r2,c$lval			;save value pointer
+  end
+code	CL$END	Check all list items processed
+
+  proc	cl$end	<r0,r1,r2>
+	fcdbg$	end
+	p1	lst,r1				;list pointer
+	p2	rou,r2				;callback routine address
+	mov	cl.bas(r1),r1			;point to list base
+	whileb	(r1) ne				;more coming
+		ifb	#clacc$ setoff (r1)+	;missed this one
+		andb	(r1) ne			;and item has not been zapped
+		...	call	(r2),r1		;call them back
+		...	whileb	(r1)+ ne	;skip string
+	end					;
+  end
+
+code	CL$SYN	Check syntax
+
+;	Check fields against received syntax
+
+  proc	cl$syn	<>
+	fcdbg$	syn
+	p1	cnt				;number of fields
+	p2	opt				;option field
+	p3	fd1				;field 1
+	p4	fd2				;
+	mov	#3,r5				;total to check
+	mov	cnt(sp),r4			;the count
+	addi3	#opt,sp,r3			;point to first
+	mov	#c$lopt,r2			;the table
+	clr	r0				;assume failure
+	repeat					;
+		if	r4 eq			;no more
+			clr	r1		;none
+		else				;
+			dec	r4		;count it
+		...	mov	(r3)+,r1	;get the type
+		mov	cl.cnt(r2),r0		;get the count
+		if	r1 eq #clany.		;anything at all
+		elsif	r1 eq #clsin.		;one or none
+		  and	r0 le #1		;
+		elsif	r1 eq #clsom.		;some
+		  and	r0 ne			;got some
+		assume	clnil. eq 0		;
+		assume	clone. eq 1		;
+		elsif	r1 eq r0		;clone. or clnon.
+		else				;failed
+			clr	r0		;say so
+		...	exit			;
+		add	#cllhs.,r2		;point to next list
+	count	r5				;do them all
+	inc	r0				;fine
+  end
+code	CL$FND	Find symbol
+
+;	Out	r0=0		not found
+;		r0 ->		table entry
+;		clno$		set if NO prefix accepted
+;		r1 ->		remainder of object string (e.g. =12345)
+;		r2		0=>NO..., 1=>..., -1=>invalid value
+
+  proc	cl$fnd	<r3,r4,r5>
+	fcdbg$	fnd
+	p1	obj				;object string pointer
+	p2	tab,r4				;symbol table
+	tst	(r4)+				;skip header size
+    repeat					;
+	clr	r0				;assume not found
+	exit	if (r4) eq 			;end of table
+	mov	r4,r5				;save the pointer
+	add	@tab(sp),r4			;point to string
+	mov	#1,r2				;assume not negated
+	call	cl$mat	obj(sp)			;match these two
+						;r1 -> remainder of object
+	leave	if r0 ne			;found it
+	if	#clneg$ seton (r5)		;it is negatable
+		mov	obj(sp),r0		;get the option
+		ifb	(r0)+ eq #uprN.		;
+		  andb	(r0)+ eq #uprO.		;got no
+			clr	r2		;assume negated
+			call	cl$mat r0	;match without NO
+						;r1 -> remainder of object
+	...	...	leave	if r0 ne	;found it
+						;
+	...	whileb	(r4)+ ne		;skip string
+	inc	r4				;even up
+	bic	#1,r4				;
+    end						;more
+	mov	r5,r0				;return entry address
+  end
+
+code	CL$MAT	Match wildcard symbol
+
+;	In	p1 ->		object string
+;		r4 ->		model string
+;
+;	Out	r0=0		not found
+;		r1 ->		remainder of object string
+
+  proc	cl$mat	<r2,r4>
+	fcdbg$	mat
+	p1	obj,r1
+	clr	r0				;assume lost
+	clr	r2				;r2<>0 => wildcard seen
+    repeat					;string compare
+	ifb	(r4) eq #astrx.			;got a wildcard?
+	...	movb	(r4)+,r2		;yes - skip & remember
+	leave	ifb (r1) eq			;object done
+	leave	ifb (r1) eq #equal.		;=
+	leave	ifb (r1) eq #colon.		;:
+	exit	ifb (r1)+ ne (r4)+		;match with next (handles zero)
+    end						;
+	ifb	(r4) eq				;end of model
+	  or	r2 ne				;or found wildcard in model
+	...	inc	r0			;fine
+  end
+
+.end
+;	name		flg	rou	p1	p2
+clopt$	DEFAULT		0	0	0	
+clopt$	REPLACE		<neg>	cl$set	1	f$crep
+clopt$	SIZE		<val>	f$csiz	0	cl$put
+
+	call	cl$exp	#			;explode the line
+	call	cl$vrb				;process the verb
+	call	@cl.rou(r0)			;call the routine
+
+	call	cl$par	#c$lfd0			;get field zero
+	call	cl$fnd	c$lfd0	#c$ldef		;is this SET DEFAULT?
+	if	r0 ne				;yes
+		call	st$def			;yes - do that
+	...	exit				;
+
+ 	call	cl$opt	#c$oset			;get the options
+	mov	f$cflg,f$cset			;remember them
+
+;	/[NO]OPTION callback routine
+
+  proc	st$gen
+	p1	ent,r0
+	if	cl.val(r0) ne			;a set
+		bis	cl.par(r0),f$cflg	;set the flag
+	else					;
+	...	bic	cl.par(r0),f$cflg	;
+  end
+		
+  proc	co$cop
+	call	cl$opt	#c$ocop			;process options
+	call	cl$chk				;check all options handled
+	call	cl$par	#c$lfd1,#f$cipt		;get input spec
+	if	r0 le				;none or too many
+	call	cl$par	#c$lfd1	#f$cipt		;get the input file
+	...	fcerr$				;
+	call	fc$asn				;check device/directory spec
+

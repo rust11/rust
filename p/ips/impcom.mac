@@ -1,0 +1,467 @@
+emb$c=1	; embedded directory spec
+.title	IMPCOM	Commands
+.include "ips:impmac.mac"
+$hodef
+
+code	CO$HLP	HELP command
+
+  proc	co$hlp
+	call	fc$syn	#0			;keyword command
+	call	fc$prt	#i$midt			;say who we are
+	call	fc$typ	#c$ohlp			;display help frame
+  end
+
+.macro	cohlp$	str
+	.ascii	%str%<cr.><lf.>
+.endm
+
+c$ohlp:
+cohlp$
+cohlp$ <Read files from RT-11, RSX and VMS disks>
+cohlp$
+cohlp$ <COPY files dev:		 Copy files to device>
+cohlp$ <DIRECTORY[/SIZE] [files] List directory>
+cohlp$ <HELP			 List commands>
+cohlp$ <MAKE log directory       Make Directory>
+cohlp$ <MOUNT log directory      Mount Directory>
+cohlp$ <SET item		 Set COPY control flags>
+cohlp$ < [NO]EXCLUDE		 Do (not) exclude files with filetypes>
+cohlp$ < [NO]HEADER		 Do (not) copy F11 file header>
+cohlp$ < [NO]LOG		 Do (not) log copy operations>
+cohlp$ < [NO]QUERY		 Do (not) confirm copy operations>
+cohlp$ < [NO]MULTIVOLUME	 Do (not) use multiple output volumes>
+cohlp$ < [NO]REPLACE		 Do (not) replace existing files>
+cohlp$ <SHOW			 Display volume and settings>
+cohlp$ <TYPE files		 Display files at terminal>
+cohlp$ <USE dev:[dir]		 Specify device and/or directory>
+cohlp$
+cohlp$ <Specify device and directory with the USE command.>
+cohlp$ <Specify COPY options with the SET command.>
+cohlp$ <Check COPY options with the SHOW command.>
+	.byte	128
+	.even
+code	CO$SET	SET command
+
+  proc	co$set
+	fcdbg$	set
+	call	fc$syn	#2,#clnil.,#clsom.	;setup syntax
+	call	cl$lst	#c$lfd1,#c$oset		;process the list
+	call	fc$end	#c$lfd1,#fc$ivi		;report missing items
+  end
+
+code	FC$SET	CO$SET callback
+
+  proc	fc$set
+	p1	ent,r0				;table entry pointer
+	p2	val				;value string pointer
+	p3	flg				;set=1, NO=0
+	mov	flg(sp),@cl.p1(r0)		;set the flag
+  end
+
+data	C$OSET	SET table
+
+cltab$	c$oset
+clkey$	E*XCLUDE	<neg>	rou=fc$set p1=f$lexc
+clkey$	H*EADER		<neg>	rou=fc$set p1=f$lhdr
+clkey$	L*OG		<neg>	rou=fc$set p1=f$llog
+clkey$	M*ULTIVOLUME	<neg>	rou=fc$set p1=f$lmul
+clkey$	R*EPLACE	<neg>	rou=fc$set p1=f$lrep
+clkey$	Q*UERY		<neg>	rou=fc$set p1=f$lque
+clend$
+
+code	FC$SHF	Show flags
+
+  proc	fc$shf	<r1>
+	call	fc$typ	#m$sset		;show flags header
+	mov	#f$llst,r1		;get the list
+    repeat				;
+	call	fc$put	#space.		;space
+	if	(r1) eq			;/no
+		call	fc$put	#uprN.	;N
+	...	call	fc$put	#lowo.	;n
+	add	#4,r1			;point to string
+	call	fc$typ	r1		;display it
+	...	whileb	(r1)+ ne	;skip to end
+	inc	r1			;even up
+	bic	#1,r1			;
+    until (r1) eq #-1			;end of list
+	call	fc$new			;and a newline
+  end
+code	CO$SHO	SHOW command
+
+  proc	co$sho
+	fcdbg$	sho
+	call	fc$syn	#0		;keyword command
+	call	fc$shv			;show volume
+	call	fc$shf			;show flags
+  end
+
+;	Using: RT-11 volume "Binaries" DU2:[MAIL]
+
+  proc	fc$shv
+	if	i$dsta eq
+		fcwar$	#e$rnvm		;no volume mounted
+	...	exit			;
+	call	fc$typ	#m$suse		;Using
+	call	fc$typ	f$cacp		;ACP name
+					;
+	call	fc$typ	#m$svol		;Label
+	addi3	#ho.own,h$obuf,r1	;Volume label
+	addi3	#12,r1,r2		;point to end of label
+	while	r2 his r1		;more to go back
+	untilb	-(r2) hi #space.	;until we have a space
+	mov	f$cnam,r3		;get a line
+	movb	#dquot.,(r3)+		;[
+	while	r1 los r2		;copy out the label
+		movb	(r1)+,(r3)+	;move it out
+	end				;
+	movb	#dquot.,(r3)+		;[
+	movb	#space.,(r3)+		;
+	clrb	(r3)			;
+					;
+	call	fc$typ	f$cnam		;display the label
+	call	fc$shd			;display directory
+	call	fc$new			;and a newline
+  end
+
+  proc	fc$shd
+	call	fc$typ	f$cvol		;display volume name
+	call	fc$typ	f$cdir		;display directory name
+  end
+
+  proc	fc$shn
+	call	fc$nam	f$cnam		;build name
+	call	fc$typ	f$cnam		;display name
+  end
+
+;	Out	r0 ->	end of name string
+
+  proc	fc$nam				;build name
+	p1	nam,r0			;name pointer
+	call	fu$mln	f$cvol,r0	;the volume
+	call	fu$mln	f$cdir,r0	;the directory
+	call	fu$mln	e$nnam,r0	;the entry
+  end
+;???;	IMPCOM - co$mak assumes V11 presence
+code	CO$MAK - Make a directory
+
+;	Make log dir-spec
+
+  proc	co$mkd
+	fcdbg$	fc$vol
+	call	fc$syn	#3,#clnil.,#clone.,#clone.
+	call	cl$itm	#c$lfd1		;get the specification
+	fcchk$	#e$rivs			;invalid specification
+	psh	r0			; equivalence
+	call	cl$itm	#c$lfd2		;get the specification
+	fcchk$	#e$rivs			;invalid specification
+	psh	r0			; equivalence
+	psh	#vxMKD			;make directory
+	.word	iot, ^o110706
+	mov	4(sp),(sp)
+	mov	#c$omkd,4(sp)		;default specification
+	psh	#vxDEF
+	.word	iot, vxSYS
+	add	#8,sp
+  end
+
+c$omkd:	.byte	0,0
+code	CO$MNT - Mount a directory
+
+;	MOUNT log: dir-spec
+
+	vxSYS = ^o110706
+	vxMKD = 2		; 2, dir
+	vxDEF = 3		; 3, log, equ
+
+c$omnt:	.asciz	/pdp:.dsk/
+	.even
+
+  proc	co$mnt
+	fcdbg$	fc$vol
+	call	fc$syn	#3,#clnil.,#clone.,#clone.
+	call	cl$itm	#c$lfd1		;get the specification
+	fcchk$	#e$rivs			;invalid specification
+	psh	r0			; logical name
+	call	cl$itm	#c$lfd2		;get the specification
+	fcchk$	#e$rivs			;invalid specification
+	psh	#c$omnt			;default spec
+	psh	r0			;spec
+	psh	4(sp)			;log
+	psh	#vxDEF			;define logical
+	.word	iot, vxSYS
+	add	#8.,sp
+	pop	r5
+	call	fc$use
+	call	fc$eol	r5		;must have end of line
+  end
+
+code	CO$USE	USE command
+
+  proc	co$use
+	fcdbg$	fc$vol
+	call	fc$syn	#2,#clnil.,#clone.
+	call	cl$itm	#c$lfd1		;get the specification
+	fcchk$	#e$rivs			;invalid specification
+	mov	r0,r5			;r5 -> specification
+	call	fc$use	
+	call	fc$eol	r5		;must have end of line
+  end
+
+  proc	fc$use
+	ifb	(r5) eq #lsqua.		;directory only
+	orb	(r5) eq #bslas.		;
+		call	fc$dir		;setup directory
+	...	exit			;
+	clr	i$dsta			;no volume open
+	clr	d$ista			;no directory open
+	clr	f$ista			;no file open
+					;
+	mov	f$cvol,r0		;setup current volume
+     repeat				;fill it in
+	leave ifb (r5) eq		;
+	leave ifb (r5) eq #lsqua.	;
+	leave ifb (r5) eq #bslas.	;
+	movb	(r5)+,(r0)+		;get the next
+     end
+	clrb	(r0)			;yes
+	mov	sp,r1			;save that
+	.sreset				;get rid of other handlers
+	.csigen	f$cdyn,#f$ctyp,f$cvol	;get the volume
+	mov	r1,sp			;
+	if	cs			;invalid
+	...	fcerr$	#e$rivd f$cvol	;invalid device
+	call	ac$mou			;mount the device
+	fcchk$	#e$rivv	f$cvol		;invalid volume
+					;
+	ifb	(r5) ne #lsqua.		;got a directory?
+	andb	(r5) ne #bslas.		;
+		call	fc$eol	r5	;must have end of line
+	...	mov	#f$bmfd,r5	;setup for directory
+	call	fc$dir			;process directory
+  end
+
+f$bmfd:	.asciz	/[000000]/		;
+	.even				;
+
+  proc	fc$chv
+	exit	if i$dsta ne		;volume is open
+	fcerr$	#e$rnvm			;no volume mounted
+  end
+code	FC$DIR	Setup directory
+
+.macro bug cha
+;psh r0
+;movb #''cha,r0
+;.ttyout
+;pop r0
+.endm
+
+;	r5 ->	[dir.dir.dir...]
+
+  proc	fc$dir
+	fcdbg$	fc$dir
+	call	fc$chv			;must have volume
+	call	fu$mln	f$cdir,f$cpro	;move current to prototype
+	mov	f$cpro,r1		;get the prototype spec
+	ifb	(r5)+ ne (r1)+		;must be [
+	...	fcerr$	#e$rids		;invalid directory
+					;
+	ifb	(r5) eq #dot.		;.
+	 orb	(r5) eq #minus.		;-
+	...	call	fc$lev		;change level
+					;
+	ifb	-1(r1) eq #lsqua.	;at start of spec
+		ifb	(r5) eq #dot.	;got leading dot?
+		...	inc	r5	;yes - skip it
+		ifb	(r5) eq #rsqua.	;empty spec
+		...	call	fu$mln	#f$czer,r1  ;move in 000000
+	end				;
+
+	clr	r2			;assume no comma
+    repeat				;process text
+	movb	(r5)+,r0		;get the next
+	ifb	r0 los #space.		;oops
+	...	fcerr$	#e$rids		;invalid directory spec
+	movb	r0,(r1)+		;store it
+	leave	ifb r0 eq #rsqua.	;end of it
+	ifb	r0 eq #comma.		;got a comma?
+	...	inc	r2		;yes
+	next	ifb r0 ne #dot.		;a subdirectory?
+	ifb	r0 eq -2(r1)		;got ..?
+	  orb	(r5) eq #rsqua.		;or ]?
+	...	fcerr$	#e$rids		;invalid directory spec
+    end					;
+	clrb	(r1)			;terminate it
+	if	r2 ne			;saw a comma
+	...	call	fc$cma f$cpro	;handle comma
+	psh	r5
+	call	ac$dir	f$cpro		;find the directory
+	call	ac$mfi	#d$ifid,#d$idef	;copy the fid
+	call	fu$mln	f$cpro,f$cdir	;copy the name
+	pop	r5
+  end
+
+code	FC$LEV	Directory level
+
+;	In	r1 ->		previous spec
+;		r5 ->		. or -
+
+  proc	fc$lev
+	fcdbg$	fc$lev
+	...	whileb	(r1)+ ne	;skip to end
+	cmpb	-(r1),-(r1)		;back over zero and ]
+	whileb	(r5) eq #minus.		;up a level
+		inc	r5		;skip it
+		whileb	-1(r1) ne #lsqua. ;not at start
+		untilb	-(r1) eq #dot.	;
+	end				;
+	exit	ifb (r5) eq #rsqua.	;end of spec
+	exit	ifb (r5) eq #dot.	;got a dot
+	fcerr$	#e$rids			;invalid directory spec
+  end
+
+code	FC$CMA	Handle comma directory spec
+
+;	[0,0]
+
+  proc	fc$cma	<r2,r3,r4,r5>
+	p1	pro,r4			;spec
+	mov	#f$ctmp,r5		;
+	movb	(r4)+,(r5)+		;copy square bracket
+	call	fc$hlf	#comma.		;do first field
+	inc	r4			;skip comma
+	call	fc$hlf	#rsqua.		;
+	movb	(r4)+,(r5)+		;copy closing bracket
+	call	fu$mln	#f$ctmp,f$cpro	;
+  end
+
+  proc	fc$hlf
+	p1	ter
+	movb	#'0,(r5)+
+	movb	#'0,(r5)+
+	movb	#'0,(r5)+
+	clr	r1
+	repeat
+		if	r1 eq #3
+		...	fcerr$	#e$rids		;invalid directory spec
+		leave ifb (r4) eq ter(sp)
+		inc	r1
+		inc	r4
+	end
+	mov	r4,r2
+	mov	r5,r3
+	while	r1 ne
+		movb	-(r2),-(r3)
+		dec	r1
+	end
+  end
+code	CO$DIR	List directory
+
+  proc	co$dir
+	call	fc$chv			;must have volume
+	call	fc$syn	#2,#clany.,#clany. ;no options, multiple files
+	clr	f$lsiz			;no size
+	call	cl$lst	#c$lopt	#c$odir	;process options
+	call	fc$end	#c$lopt	#fc$ivo	;check invalid options
+	call	fc$pth			;strip path
+	call	fc$shd			;display directory
+	call	fc$new			;newline
+	call	ac$scn			;setup to scan
+	clr	r3			;block count
+	clr	r4			;file count
+	clr	r5			;column
+ 	psh	#3			;column counter, plus first-time flag
+   repeat				;entry loop
+	call	fc$abt			;check aborts
+	call	ac$nxt			;get the next
+	leave	if r0 eq		;no more
+
+	call	fc$scn			;scan files
+
+	next	if r0 eq		;not matched
+	inc	r4			;count it
+	call	fc$col	r5,#16		;next column
+	mov	r0,r5			;store next column
+	call	fc$typ	e$nnam		;display the filename
+	next	if f$lsiz eq		;no size required
+	call	fc$col	r5,#8		;get some size
+	mov	r0,r5			;setup next column
+	call	ac$att	#f$ifcb,#e$nfid	;attach the file
+	if	r0 eq			;error attaching file
+		fcwar$	#e$reaf	e$nnam	;say so
+	...	next			;do the next
+	add	f$isiz,r3		;block count
+	call	op$dec	f$isiz,f$cnam	;get the size
+	call	fc$typ	f$cnam		;display the size
+	dec	(sp)
+	if	(sp) eq
+		mov	#3,(sp)		;
+		call	fc$new		;force newline
+	...	clr	r5		;remember that here
+    end					;
+	tst	(sp)+			;
+	call	fc$aln			;align newline
+	mov	f$cnam,r1		;string space
+	call	op$dec	r4,r1		;get file count
+	call	fc$typ	r1		;display count
+	call	fc$plu	#m$sfil,r4	;files with plural
+	if	f$lsiz ne		;with size
+		call	fc$put	#comma.	;
+		call	fc$put	#space.	;
+		call	op$dec	r3,r1	;total blocks
+		call	fc$typ	r1	;display it
+	...	call	fc$plu	#m$sblk,r3 ; Blocks
+	call	fc$new			;newline
+	call	fc$end	#c$lfd1	#fc$fnf	;check files not found
+  end
+
+data	C$ODIR	Directory option
+
+cltab$	c$odir
+clkey$	S*IZE		<neg>	rou=fc$set p1=f$lsiz
+clend$
+code	CO$TYP	Type file
+
+;	In	r5 ->		command stream
+
+  proc	co$typ	<r1,r2,r3,r4>
+	call	fc$chv			;must have volume
+	call	fc$syn	#2,#clnil.,#clsom. ;no options, some files
+	call	ac$scn			;setup to scan
+	call	fc$pth			;get file path
+    repeat				;file loop
+	call	ac$nxt			;get the next
+	leave	if r0 eq		;no more
+	call	fc$scn			;scan filespecs
+	next	if r0 eq		;not this one
+	call	ac$att	#f$ifcb,#e$nfid	;attach the file
+	if	r0 eq			;error attaching file
+		fcwar$	#e$reaf	e$nnam	;say so
+	...	next			;do the next
+	call	cp$que			;log & query
+	next	if r0 eq		;forget it
+	clr	r3			;first block
+	mov	#lf.,r4			;assume terminated
+	repeat				;print loop
+		call	fc$abt		;check abort
+		inc	r3		;
+		mov	f$ibuf,r2	;get the buffer pointer
+		readv	buf=r2,blk=r3,fcb=#f$ifcb
+		leave	if r0 eq	;end of file
+		mov	#512,r1		;buffer size
+		addi3	r1,r2,r0	;point at last byte
+		whileb	-(r0) eq	;backup to first real thing
+		count	r1		;maximum to go back
+		movb	(r0)+,r4	;save terminator
+		movb	#128,(r0)	;terminate the buffer
+		.print	r2		;display it
+	end				;
+	ifb	r4 ne #lf.		;not terminated
+	...	call	fc$new		;force it
+    end					;file loop
+	call	fc$end	#c$lfd1	#fc$fnf	;check files not found
+  end
+
+.end
+

@@ -1,0 +1,274 @@
+.title	IMPCOP	COPY
+.include "ips:impmac.mac"
+
+;	Copy command
+;
+;	copy files dev:
+;
+;	r5 ->	dev:
+
+  proc	co$cop
+	call	fc$chv			;must have volume
+	call	fc$syn	#3,#clnil.,#clsom.,#clone.
+	call	fc$pth			;get file path
+	call	mv$ini			;init multivolume
+	call	fc$opt			;get output device
+	call	ac$scn			;setup to scan
+					;
+    repeat				;file loop
+	call	fc$abt			;check aborts
+	call	mv$ret			;retrieve from cache
+	if	r0 ne			;got one 
+		call	cp$tra		;transfer it
+	...	next			;do another
+	call	ac$nxt			;get next entry
+	leave	if r0 eq		;end of directory
+	call	fc$scn			;compare with file list
+	next	if r0 eq		;missmatch
+	call	cp$tra			;transfer it
+    end					;
+
+;	Done directory, check cached files
+
+    if	m$vpct ne			;got more files
+	call	mv$new			;mount new volume
+	repeat				;do remainder
+		call	mv$get		;get another
+		exit	if r0 eq	;are no more
+		call	cp$tra		;transfer it
+	end				;
+    end					;
+	call	fc$end	#c$lfd1	#fc$fnf	;check all files found
+  end
+code	CP$TRA	Transfer file
+
+;	Transfer file
+;
+;	f$cipt	input filename
+;	f$copt	output device
+;	e$nnam	filename
+
+  proc	cp$tra
+	call	ac$com				;check compatibility
+	if	r0 eq				;truncated it
+	...	fcrep$	#e$rfnt	e$nnam		;filename truncated
+
+	call	fu$mln	f$copt,o$pnam		;get the output device name
+	call	fu$mfn	e$nnam,r0		;append the filename
+	movb	#equal.,(r0)+			;move in the '=' sign
+	clrb	(r0)				;terminate it
+	mov	r0,r1				;to get rid of '=' later
+	mov	sp,r2				;save the stack
+	.csispc	#f$cfl0,#f$ctyp,o$pnam		;translate the name
+	mov	r2,sp				;reset the stack
+	clrb	-(r1)				;remove the '=' sign
+	fcchk$	#e$repo	o$pnam			;error parsing output name
+						;
+	call	cp$exc				;check /exclude/noreplace
+big	exit	if r0 ne			;forget it
+	call	cp$rep				;check /noreplace
+big	exit	if r0 ne			;
+						;
+	call	ac$att	#f$ifcb, #e$nfid	;attach the file
+	if	r0 eq				;attach error
+		fcwar$	#e$reaf	e$nnam		;error attaching file
+	...	exit				;
+						;
+	call	cp$que				;display the name
+big	exit	if r0 eq			;/query failed
+						;
+	mov	f$isiz,r1			;get the size
+	if	ne				;got some size
+	 and	f$lhdr ne			;and need a header
+	 and	a$cacp ne #acrta.		;and not rt-11
+	...	inc	r1			;need another block
+	.purge	#0				;purge output channel
+	.enter	f$bemt,#0,#f$cfl0,r1,#0		;enter the file
+	if	cs				;got some error
+		movb	j$berr,r1		;get the error code
+		ifb	r1 eq #1		;too big
+			fcrep$	#e$rdfl	e$nnam	;directory full
+			call	mv$sto		;do it later
+			exit			;
+		elsifb	r1 eq #3		;protected?
+			fcrep$	#e$rprf	e$nnam	;protected file
+			exit			;
+		elsifb	r1 eq #-6		;directory full?
+			fcrep$	#e$rdfl	e$nnam	;directory full
+			call	mv$sto		;store it
+			exit			;do it later
+		else				;
+	...	...	fcerr$	#e$reoo	o$pnam	;error opening output file
+
+;	Copy loop
+
+	clr	r5				;output block
+	clr	r4				;input block
+	clr	r3				;f$ibuf first time
+						;
+	if	f$lhdr ne			;want a header
+	 and	a$cacp ne #acrta.		;and not rt-11
+		.writw	f$bemt,#0,f$ihdr,#256.,#0 ;yes
+		if	cs			;failed
+		...	fcerr$	#e$rewo	o$pnam	;error writing output
+	...	inc	r5			;next output block
+						;
+    repeat					;copy loop
+	call	fc$abt				;check for aborts
+	if	r3 eq f$ibuf			;using first?
+		mov	f$ialt,r3		;yes - swap
+	else					;
+	...	mov	f$ibuf,r3		;
+	readm	buf=r3,bct=#512,blk=r4,fcb=#f$ifcb ;read mapped
+	leave	if r0 eq			;end of file
+	inc	r4				;next input block
+	.wait	#0				;wait for previous	
+	if	cs				;failed
+	...	fcerr$	#e$rewo	o$pnam		;error writing output
+	.write	f$bemt,#0,r3,#256.,r5		;write it
+	if	cs				;failed
+	...	fcerr$	#e$rewo	o$pnam		;error writing output
+	inc	r5				;next output block
+    end						;next block
+	.wait	#0				;wait for output
+	if	cs				;failed
+	...	fcerr$	#e$rewo	o$pnam		;error writing output
+	.close	#0				;close the file
+	clr	m$vfir				;not first file
+  end
+code	CP$EXC	Exclude files by filetype
+
+;	Out	r0=0		copy it
+
+  proc	cp$exc
+	mov	f$lexc,r0		;check it
+	exit	if eq			;dont exclude it
+	clr	r0			;assume copy
+	mov	#f$cexc,r1		;
+	repeat				;
+		exit	if (r1) eq	;all done
+	until	f$cfl0+6 eq (r1)+	;until we find it
+	fcrep$	#e$rdft	e$nnam		;discarded by filetype
+	inc	r0			;don't copy it
+  end
+
+code	CP$REP	Check /NOREPLACE
+
+;	Out	r0=0		Copy it
+
+  proc	cp$rep
+	clr	r0			;assume replace
+	exit	if f$lrep ne		;it is replace
+	.purge	#0			;purge the channel
+	.lookup	f$bemt,#0,#f$cfl0,#0	;already exists?
+	if	cs			;does not exist
+		clr	r0		;say so
+	...	exit			;
+	fcrep$	#e$rfax	o$pnam		;file already exists
+	mov	#1,r0			;don't replace it
+  end
+
+code	CP$QUE	
+
+  proc	cp$que	<r1>
+	call	cp$nam			;build the name string
+	mov	r0,r1			;save the end
+					;
+	if	f$llog ne		;no logging
+	  and	f$lque eq		;and noquery
+		call	fc$prt	f$cnam	;display it
+		mov	sp,r0		;copy it
+	...	exit			;
+	mov	sp,r0			;assume o.k.
+	exit	if f$lque eq		;noquery
+	call	fu$mln	#m$sque,r1	;? [N]<128>
+	call	fu$yes	f$cnam		;ask them
+  end
+
+  proc	cp$nam	
+	call	fc$nam	f$cnam		;build the name
+	movb	#space.,(r0)+		;space
+	movb	#lparn.,(r0)+		;(
+	call	op$dec	f$isiz,r0	;add the size
+	call	fu$mln	#m$sblk,r0	;(xxxxx block
+	if	f$isiz ne #1		;not one block
+	...	movb	#lows.,(r0)+	;make plural
+	movb	#rparn.,(r0)+		;close it
+	clrb	(r0)			;terminate it
+  end
+code	MV$...	Multivolume logic
+
+  proc	mv$ini
+	clr	m$vpct			;none put
+	clr	m$vgct			;and that
+	mov	#m$vlst,m$vput		;and the pointer
+	clr	m$vfir			;first file
+	clr	m$vrep			;not said so far
+  end
+
+  proc	mv$sto
+	if	f$lmul eq		;not /multivolume
+	...	fcerr$	#e$rvfl	o$pnam	;volume full
+	if	m$vfir ne		;first on new volume?
+		call	fu$yes	#m$sbig	;ask about this
+		exit	if r0 ne	;ignore it
+	...	jmp	fc$cmd		;abort
+	if	m$vrep eq		;first one
+		inc	m$vrep		;
+	...	fcrep$	#e$rcvf	o$pnam	;current volume full
+	call	mv$put			;save this one
+	exit	if m$vgct ne		;in get loop
+	if	m$vpct his #mvcnt.-1	;too many already
+	 or	f$isiz lo #5.		;or trivial size
+	...	call	mv$new		;do a new volume
+  end
+
+  proc	mv$new
+	mov	m$vpct,m$vgct		;and the counter
+	inc	m$vfir			;first file on new volume
+	clr	m$vrep			;no full message yet
+	call	fu$yes	#m$sful		;ask for more
+	if	r0 eq			;no
+	...	jmp	fc$cmd		;start again
+  end
+
+code	MV$RET	Retrieve next file
+
+;	Out	r0=0		no more files
+
+  proc	mv$ret
+	call	fc$abt			;check aborts
+	mov	m$vgct,r0		;got any more
+	exit	if eq			;no
+	call	mv$get			;get next
+	mov	sp,r0			;got one
+  end
+code	MV$GET	Get next file
+
+  proc	mv$get	<r0,r1,r2>
+	mov	m$vlst,r0		;
+	call	fu$mov	#e$nfid,r0,#6.	;move the fid in
+	add	#6,r0			;skip it
+	call	fu$mov	r0,#e$nnam,#12.	;copy the name
+	add	#12.,r0			;skip the name
+	locnt. = mv.bbs*<mvcnt.-1>/word.;the count
+	call	fu$mov	r0,#m$vlst,#locnt. ;move the rest down
+	dec	m$vgct			;one less
+	dec	m$vpct			;one less
+	sub	#mv.bbs,m$vput		;reset its pointer
+  end
+
+code	MV$PUT	Put next file
+
+  proc	mv$put	<r0>
+	mov	m$vput,r0		;output area
+	call	fu$mov	#e$nfid,r0,#6.	;move the FID
+	add	#6,r0			;skip the fid
+	call	fu$mov	e$nnam,r0,#12.	;move the name
+	add	#12,r0			;point past it
+	mov	r0,m$vput		;store it
+	inc	m$vpct			;remember it
+  end
+
+.end
+

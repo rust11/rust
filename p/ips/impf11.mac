@@ -1,0 +1,433 @@
+;+++;	IMF11 - F11 structures to library
+data	OD1/OD2 structures
+
+;	OD.	OD1/OD2 structures
+
+map	od.str	word,0	;0	;structure id
+map	od.ver	byte,0	;0	;structure version
+map	od.lev	byte,1	;1	;structure level
+
+;	od.str	structure id's
+
+map	odst1$,,401		;f11a - exact
+map	odst2$,,1001		;f11b
+
+;	od.ver	base versions
+
+map	odbv1.,,1		;f11a base version
+map	odbv2.,,1		;f11b base version
+
+;	od.lev	structure levels
+
+map	odlv1.,,1		;od1 -> f11a
+map	odlv2.,,2		;od2 -> f11b
+data	F11A home block
+
+;	HA.	F11A home block
+
+map	ha.ibs	word,0	;0	;bitmap size in blocks
+map	ha.ib1	word,2	;2	;index file bitmap LBN
+map	ha.ib0	word,4	;4	;
+map	ha.mxf	word,6	;6	;maximum number of files
+map	ha.clu	word,10	;8	;cluster factor - always 1
+map	ha.dvt	word,12	;10	;device type
+map	ha.str	word,14	;14	;structure id
+map	ha.ver	byte,14	;12	;structure version
+map	ha.lev	byte,15	;13	;structure level
+map	ha.nam	12.,16	;14	;volume name
+map	ha.f00	4,32	;26	;unused
+map	ha.uic	word,36	;30	;volume UIC
+map	ha.pro	word,40	;32	;volume protection
+map	ha.cha	word,42	;34	;volume characteristics
+map	ha.fpr	word,44	;36	;default file protection
+map	ha.f01	6,46	;38	;unused
+map	ha.wsz	byte,54	;44	;default window size
+map	ha.deq	byte,55	;45	;default extension quantity
+map	ha.dcc	byte,56	;46	;directory cache count
+map	ha.rdt	7,57	;47	;last home block revision date
+map	ha.rct	word,66	;54	;home block revision count
+map	ha.f02	word,70	;56	;unused
+map	ha.ck1	word,72	;58	;first checksum
+map	ha.cdt	14.	;60	;creation date
+map	ha.f03	382.	;74	;unused
+map	ha.psn	long	;456	;pack serial number
+map	ha.f04	12.	;460	;unused
+map	ha.lab	12.	;472	;ansii volume label
+map	ha.own	12.	;484	;ansii volume owner
+map	ha.acp	12.	;496	;ansii volume format type
+map	ha.f01	word	;508	;unused
+map	ha.ck2	word,776;510	;checksum 2
+map	ha.bbs	null	;512	;
+data	F11B home block
+
+;	HB.	F11B home block
+
+map	hb.lbn	long,0	;0   0	;lbn of this block
+map	hb.sbn	long,4	;4   4	;lbn of secondary home block
+map	hb.sih	long,10	;8   8	;lbn of secondary index file header
+map	hb.stl	word,14	;12  c	;structure level
+map	hb.ver	byte,14	;	;structure version
+map	hb.lev	byte,15	;13  d	;level - must be 2
+map	hb.clu	word,16	;14  e	;cluster factor
+map	hb.vbn	word,20	;16  10	;vbn in indexf
+map	hb.svb	word,22	;18  12	;vbn of secondary home block in indexf
+map	hb.biv	word,24	;20  14	;vbn of backup index file header in indexf
+map	hb.ibv	word,26	;22  16	;vbn of index file bitmap in indexf
+map	hb.ibl	long,30	;24  18	;lbn of index file bitmap
+map	hb.mxf	long,34	;28  1c	;maxfiles
+map	hb.ibs	word,40	;32  20	;ibmapsize
+map	hb.rfc	word,42	;34  22	;reserved file count
+map	hb.ddt	word,44	;36  24	;disk device type
+map	hb.vct	word,46	;38  26	;volumes in set count
+map	hb.rvn	word,50	;40  28	;relative volume number
+map	hb.cha	word,52	;42  2a	;volume characteristics
+map	hb.uic	long,56	;46  2e	;volume uic
+map	hb.f00	long,60	;48  30	;unused
+map	hb.pro	word,64	;52  34 ;volume protection
+map	hb.fpr	word,66	;54  36 ;default file protection
+map	hb.f00	word,70	;56  38	;unused
+map	hb.ck1	word,72	;58  3a	;checksum 1
+map	hb.cdt	14.	;60	;volume creation date
+map	hb.f00	382.	;74	;unused
+map	hb.psn	long	;456	;pack serial number
+map	hb.f01	12.	;460	;unused
+map	hb.lab	12.	;472	;ansii volume label
+map	hb.own	12.	;484	;ansii volume owner
+map	hb.acp	12.	;496	;ansii volume format type
+map	hb.f01	word	;508	;unused
+map	hb.ck2	word,776;510	;checksum 2
+map	hb.bbs	null	;512	;
+
+;	hb.cha	volume characteristics
+
+map	hbndc$,,1	;	;no device control functions permitted
+map	hbnat$,,2	;	;no attach - single-user volume
+map	hbrck$,,4	;	;read-check
+map	hbwck$,,10	;	;write-check
+data	F11A/F11B bitmap file
+
+;	BA.	F11A bitmap file
+
+map	ba.f00	3,0		;unused
+map	ba.bct	byte		;storage bitmap block count
+map	ba.opt	vary		;variable optimisation pairs
+map	ba.vs0	word		;volume size in logical blocks
+map	ba.vs1	word		;
+
+;	Optimising logic
+;
+;	if ba.bct<=basma. then ba.opt=ba.bct*4
+;	else ba.bct=0
+
+map	basma.,,126.		;le 126 => small disk
+map	babig.,,127.		;ge 127 => big disk
+
+
+;	BB.	F11B bitmap file
+
+map	bb.str	word,0		;bitmap structure - see OD.
+map	bb.clu	word		;cluster factor - same as hb.clu
+map	bb.vs0	word		;volume size in logical blocks
+map	bb.vs1	word		;
+map	bb.bf0	word		;blocking factor - PBNs per LBN
+map	bb.bf1	word		;
+map	bb.sc0	word		;sectors per track
+map	bb.sc1	word		;
+map	bb.tk0	word		;tracks per cylinder
+map	bb.tk1	word		;
+map	bb.cl0	word		;total cylinders
+map	bb.cl1	word		;
+map	bb.sta	word		;status
+map	bb.f00	488.		;unused
+map	bb.chk	word		;checksum
+
+;	bb.sta	status
+
+map	bbtrn$,,1		;transition - dirty bit
+
+;	Storage bitmap blocks
+;
+;	Same for F11A/F11B
+;	Each bit represents a cluster
+;	FCS EBK points to last bitmap block in use
+;
+;	bit=0	cluster in use
+;	bit=1	cluster is free
+data	file id, attributes
+
+;	F11A/F11B file id block
+
+map	fd.num	word,0		;file number
+				;0 => deleted file
+map	fd.seq	word		;file revision number
+map	fd.rvn	word		;relative volume number
+map	fd.nmx	byte,fd.rvn+byte;file number extension
+map	fd.bbs	null		;
+
+;	F11A/F11B constant file numbers
+
+map	fdidx.,,1		;indexf
+map	fdmap.,,2		;bitmap
+map	fdbad.,,3		;badblk
+map	fdmfd.,,4		;mfd
+map	fdcor.,,5		;corimg
+;
+;	F11B constant file numbers
+;
+map	fdvol.,,6		;volset
+map	fdcon.,,7		;contin
+map	fdbac.,,8.		;backup
+map	fdlog.,,9.		;badlog
+map	fdfre.,,10.		;frefil
+
+;	IA.	F11A index file layout
+;
+;	F11A	indexf lbn = ha.ibl-2
+;	F11A	indexf vbn = 	    2+ha.ibs+fd.num
+
+map	ia.boo	1,0	;boot block
+map	ia.hom	1,1	;home block
+map	ia.map	vary,2	;index file bitmap
+map	ia.sfh	16.,vary;standard file headers
+map	ia.mfh	vary,vary ;more file headers
+
+;	IB.	F11B index file layout
+;
+;	F11B	indexf vbn = hb.clu*4+hb.ibs+fd.num
+
+map	ib.boc	1,0	;boot/home cluster
+map	ib.hoc	1,1	;home cluster
+map	ib.bhc	1,2	;backup home cluster
+map	ib.bic	1,3	;backup index file header cluster
+map	ib.stc,,4	;standard clusters
+map	ib.map	vary,vary;index file bitmap
+map	ib.sfh	16.,vary;standard file headers - see IF.
+map	ib.mfh	vary,vary;more file headers
+data	file attributes
+
+;	F11A FCS/RMS file attributes
+;	F11B RMS file attributes
+
+map	ft.rto	byte,0		;record type & organisation
+map	ft.rat	byte		;record attributes
+map	ft.rsz	word		;record size
+map	ft.hb1	word		;high block 
+map	ft.fb0	word		;
+map	ft.eb1	word		;end block
+map	ft.eb0	word		;
+map	ft.ffb	word		;first free byte
+map	ft.fbs	null		;FCS size
+
+;	F11A/F11B RMS file attributes
+
+map	ft.bks	byte		;bucket size
+map	ft.hds	byte		;header size
+map	ft.mrs	word		;maximum record size
+map	ft.deq	word		;default extend quantity
+map	ft.rbs	null		;RMS size
+
+;	ft.rto	record type
+
+map	ftrt$n,,177760		;record type negative
+map	ftudf.,,0		;undefined
+map	ftvar.,,1		;variable
+map	ftvfc.,,2		;vfc
+map	ftstm.,,3		;stream
+map	ftslf.,,4		;stream lf
+map	ftscr.,,5		;stream cr
+
+;	ft.rto	record organisation
+
+map	ftor$n,,177417		;negative
+map	ftor$r,,4		;right shift
+map	ftseq.,,0		;sequential
+map	ftrel.,,1		;relative
+map	ftidx.,,2		;indexed
+map	ftdir.,,3		;direct organisation
+
+;	ft.rat	record attributes
+
+map	ftftn$,,1		;fortran cc
+map	ftimp$,,2		;implied cc
+map	ftprn$,,4		;print cc
+map	ftblk$,,10		;nospanned records
+data	F11A file header block
+
+;	FA.	F11A file header block
+
+map	fa.ido	byte,0	;0	;ident area offset in words
+map	fa.mao	byte,1	;1	;map area offset in words
+			;	;
+map	fa.fid	word,2	;2	;
+map	fa.num	word,2	;	;fid number
+map	fa.seq	word,4	;4	;fid sequence
+map	fa.str	word,6	;6	;structure
+map	fa.ver	byte,6	;6	;structure version
+map	fa.lev	byte,7	;7	;structure level
+
+map	fa.uic	word,10	;8	;UIC
+map	fa.own	byte,10	;	;owner
+map	fa.mem	byte,11	;9	;owner - member
+map	fa.pro	word,12	;10	;file protection
+map	fa.fc0	word,14	;12	;file characteristics - see FC.
+map	fa.uch	byte,14	;	;user characteristics
+map	fa.sch	byte,15	;13	;system characteristics
+			;	;
+map	fa.fat	40,16	;14	;user file attributes - see FT.
+map	fa.hbs	null,56	;46
+map	fa.chk	word,776;510	;header checksum
+
+;	IA.	F11A ident area
+
+map	ia.nam	word*3,0;0	;3-word rad50 filename
+map	ia.typ	word,6	;6	;1-word rad50 filetype
+map	ia.ver	word,10	;8	;file version number
+map	ia.rev	word,12	;10	;file revision number
+map	ia.rdt	7,14	;12	;revision date
+map	ia.rtm	6,23	;19	;revision time
+map	ia.cdt	7,31	;25	;creation date
+map	ia.ctm	6,40	;32	;creation date
+map	ia.xdt	7,46	;38	;expiration date
+map	ia.f00	byte,55	;45	;filler
+map	ia.bbs	null,54	;46	;ident area size
+
+;	MA.	F11A map area
+
+map	ma.esn	byte,0		;extension sequence number
+map	ma.erv	byte		;extension revision number
+map	ma.efn	word		;extension file number
+map	ma.efs	word		;extension file sequence number
+map	ma.cfs	byte		;count field size - always 1
+map	ma.bfs	byte		;LBN block field size - always 3
+map	ma.mau	byte		;map area words in use
+map	ma.maa	byte		;map area words available
+map	ma.rtr	vary		;retrieval pointers
+
+;	RA.	F11A retrieval pointers
+;
+;	Only type zero is supported
+
+map	ra.lb1	byte,0	;0	;LBN high order
+map	ra.cnt	byte,1	;1	;LBN count -1
+map	ra.lb0	word,2	;2	;LBN low order
+map	ra.bbs	null,4	;4	;
+data	F11B file header block
+
+;	FB.	F11B file header block
+
+map	fb.ido	byte,0	;0	;ident area offset in words
+map	fb.mao	byte,1	;1	;map area offset in words
+map	fb.aco	byte,2	;2	;acl area offset in words
+map	fb.reo	byte,3	;3	;reserved area offset in words
+			;	;
+map	fb.seg	word,4	;4	;file segment number
+map	fb.str	word,6	;6	;structure id
+map	fb.ver	byte,6	;6	;structure version
+map	fb.lev	byte,7	;7	;structure level
+			;	;
+map	fb.fid	word,10	;8	;
+map	fb.num	word,10	;8	;fid number
+map	fb.seq	word,12	;a	;fid sequence
+map	fb.rvn	word,14	;c	;fid relative volume number
+			;	;
+map	fb.xfd	word,16	;e	;extension FID
+;		word,20	;10	;
+;		word,22	;12	;
+			;	;
+map	fb.fat	40,24	;14	;user file attributes - see FT.
+map	fb.rac	word,	;14	;record attributes
+map	fb.fc0	word,64	;34	;file characteristics - see FC.
+map	fb.uch	byte,64	;34	;user characteristics
+map	fb.sch	byte,65	;35	;system characteristics
+map	fb.fc1	word,66	;36	;
+;		word,70	;38	;unused
+;			;	;
+map	fb.mau	byte,72	;3a	;map area words in use
+map	fb.prv	byte,73	;3b	;access level privileges
+map	fb.own	long,74	;3c	;owner
+map	fb.mem	word,74	;3c	;owner - member
+map	fb.grp	word,76	;3e	;owner - group
+map	fb.pro	word,100;40	;file protection
+map	fb.bak	6,102	;42	;backlink fid
+;map	fb.jcf	word,110;	;journal control flags
+;		4,110	;48	;unused
+map	fb.hbs	null,114;4c
+map	fb.chk	word,776;	;checksum
+;
+;	ident area
+;
+map	fb.nam	24,0	;	;file name
+map	fb.rev	word,24	;	;revision number
+map	fb.crd	quad,26	;	;creation date
+map	fb.red	quad,36	;	;revision date
+map	fb.exd	quad,46	;	;expiry date
+map	fb.bud	quad,56	;	;backup date
+map	fb.ibs	null,66	;	;indent area size
+map	fb.xnm	66.	;	;file name extension
+map	fb.ixs	null	;	;extended area size
+map	fb.lab	80.	;	;optional label
+
+map	fb.vbo	word,776;1fe	;vbn offset - in-memory only
+map	fb.hck	word,776;1fe	;checksum
+data	F11A/F11B file characteristics
+
+;	FA/FB	F11A/F11B file characteristics
+;
+;	fa.fc0	FA file characteristics
+;	fb.fc0	FB file characteristics
+
+map	faf00$,,1	;0	;unused
+map	fanbu$,,2	;1	;no backup
+map	fawrb$,,4	;2	;writeback
+map	fardc$,,10	;3	;readcheck
+map	fawrc$,,20	;4	;writecheck
+map	facbt$,,40	;5	;contig best try
+map	falck$,,100	;6	;locked
+map	factg$,,200	;7	;contiguous file
+map	faf01$,,3400	;8,9,a	;unused
+map	fabac$,,4000	;b	;bad acl
+map	faspo$,,10000	;c	;intermediate spool file
+map	fadir$,,20000	;d	;file is a directory
+map	fabad$,,40000	;e	;file contains bad blocks
+map	fadel$,,100000	;f	;file is marked for delete
+
+;	fb.fc1	FB F11B file characteristics
+
+map	fbnoc$,,1	;0	;nocharge
+map	fbera$,,2	;1	;erase file contents before delete
+data	Directory
+
+;	DA.	F11A directory
+
+map	da.fid	word*3,0;fid
+map	da.nam	word*3	;name
+map	da.typ	word	;file type
+map	da.ver		;version number
+map	da.bbs		;entry size
+
+;	DB.	F11B directory
+;
+;	Directory is set of virtual blocks
+;
+;	Each has a set of directory records
+
+map	db.rbc	word,0	;record byte count
+map	db.lim	word,0	;version limit for file
+map	db.flg	byte,4	;flags
+map	db.nbc	byte,5	;name byte count
+
+;	Remainder of record has pairs of versions/fids
+
+map	db.ver	word,0	;version number
+map	db.fid	6,2	;fid
+
+;	db.flg	Entry flags
+
+map	dbtp$p,,7	;type code positive
+map	dbfid.,,0	;type is fid list
+map	dbf0$p,,70	;unused
+map	dbnxv$,,100	;next entry has same name
+map	dbprv$,,200	;previous entry has same name
+
+.list
+

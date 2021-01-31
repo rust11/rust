@@ -1,0 +1,224 @@
+.title	IMPUTL	F11 utilities
+.include "ips:impmac.mac"
+
+code	FU$LOC	Locate character in string
+
+;	Out	r0 ->		located character in string
+;		r0 -> 0		not found
+
+  proc	fu$loc	<r1>
+	p1	str,r0			;the string
+	p2	cha,r1			;the character
+	whileb	(r0) ne			;got more
+		exit	ifb (r0) eq r1	;found it
+		inc	r0		;get the next
+	end
+  end
+
+code	FU$CMP	Compare strings
+
+;	Out	r0=0		strings are different
+
+  proc	fu$cmp	<r1,r2>
+	p1	str1,r1			;string 1
+	p2	str2,r2			;string 2
+	clr	r0			;
+	repeat				;
+		exit	ifb (r1)+ ne (r2) ;different
+	untilb	(r2)+ eq		;end of it
+	inc	r0			;fine
+  end
+code	FU$CLR	Clear buffer
+
+  proc	fu$clr	<r0,r1>
+	p1	buf,r0			;buffer
+	p2	cnt,r1			;count
+	repeat				;clear it
+		clrb	(r0)+		;another
+		dec	r1		;
+	until	eq			;
+  end
+
+code	FU$MOV	Move block
+
+  proc	fu$mov	<r0,r1,r2>
+	p1	src,r0
+	p2	dst,r1
+	p3	cnt,r2
+	repeat
+		movb	(r0)+,(r1)+
+		dec	r2
+	until	eq
+  end
+
+
+code	FU$MLN	Move ASCIZ line
+
+;	Out	r0 ->		end in result string
+
+  proc	fu$mln	<r1>
+	p1	src,r1			;source string
+	p2	dst,r0			;destination string
+	repeat				;
+		movb	(r1)+,(r0)+	;move them
+	until	eq			;all done
+	dec	r0			;backup to last
+  end
+
+
+
+code	FU$MFN	Move filename
+
+;	Truncate name to six characters and type to three.
+;
+;	Out	r0 ->		end in result string
+
+  proc	fu$mfn	<r1,r2>
+	p1	src,r1			;source string
+	p2	dst,r0			;destination string
+	mov	#6,r2			;move first six chars
+	repeat				;
+		leave ifb (r1) eq	;all over
+		ifb 	(r1) eq #dot.	;got a period
+		...	mov #4,r2	;move dot and type
+		leave	if r2 eq	;no more
+		if	r2 ne		;more to copy
+		...	movb (r1),(r0)+	;move them
+		inc	r1		;next byte
+		dec	r2		;count down
+	end				;
+		clrb	(r0)		;
+;mov r0,r1
+;movb #128,(r0)
+;.ttyout #'[
+;.print dst(sp)
+;.ttyout #']
+;mov r1,r0
+;clrb (r0)
+  end
+code	FU$UPL	Uppercase line
+
+  proc	fu$upl	<r0,r1>
+	p1	str,r1			;the string
+ 	repeat				;
+		movb	(r1),r0		;get the next
+		exit	if eq		;
+		call	fu$upc	r0	;make uppercase
+		movb	r0,(r1)+	;put it back
+	end				;
+  end
+
+code	FU$UPC	Uppercase character
+
+  proc	fu$upc
+	p1	cha,r0			;
+	ifb	r0 his #lowa.		;lowercase?
+	 andb	r0 los #lowz.		;
+	...	sub	#lowa.-uprA.,r0	;convert it
+  end
+
+code	FU$SKP	Skip whitespace
+
+;	Out	r0 ->		past text
+;		r1=0		no whitespace
+;		r1=n		whitespace or end of line
+
+  proc	fu$skp	
+	p1	str,r0	
+	clr	r1			;assume none seen
+    repeat				;
+	ifb	(r0) eq #space.		;space
+	 orb	(r0) eq #ht.		;tab
+		inc	r0		;skip it
+		inc	r1		;count it
+	else				;
+	  ifb	(r0) eq			;end of line
+	  ...	inc	r1		;say so
+	...	exit			;
+    end					;
+  end
+code	FU$R5F	Rad50 filename to ascii
+
+;	Out	r0 ->		past ascii output
+
+  proc	fu$r5f	<r1,r2>
+	p1	src,r1			;source		
+	p2	dst,r0			;output area
+	call	fu$r5a	(r2)+,r0	;move another
+	call	fu$r5a	(r2)+,r0	;move another
+	movb	#dot.,(r0)+		;a dot
+	call	fu$r5a	(r2)+,r0	;
+  end
+
+code	FU$R5A	Rad50 to ascii
+
+;	Out	r0 ->		past ascii output
+
+  proc	fu$r5a	<r1,r2,r3>
+	p1	r50,r1			;word to convert
+	p2	opt,r0			;ascii output
+	mova	f$urfd,r2		;get the divisors
+    repeat				;outer loop
+	mov	#-1,r3			;init the result
+	repeat				;digit loop
+		inc	r3		;next character
+		sub	(r2),r1		;this it?
+	until	cs			;done
+	add	(r2)+,r1		;bump back
+	if	r3 ne			;got something
+		if	r3 his #40	;out of range?
+		...	mov	#40,r3	;yes
+	...	movb	f$urfa(r3),(r0)+;store it
+    until (r2) eq			;done them all
+	clrb	(r0)			;terminate the string
+  end
+
+f$urfd:	.int	40*40,40,1,0		;digits
+f$urfa:	.ascii	&_ABCDEFGHIJKLMNOPQRSTUVWXYZ$%*0123456789?&
+	.even
+code	FU$YES
+
+;	Out	r0=0		No
+;
+;	.GTLIN cannot access stack parameters
+
+  proc	fu$yes	<r1,r2>
+	p1	prm,r2			;the prompt
+	mov	f$cans,r1		;answer line
+	.gtlin	r1,r2			;get the answer
+	call	fc$ctc	r1		;check ctrl/c
+	clr	r0			;assume no
+	ifb	(r1) eq #uprY.		;Yes
+	 orb	(r1) eq #lowy.		;yes
+	...	inc	r0		;yes, yes
+  end
+code	OP$DEC	Output decimal number
+
+;	Out	r0 ->	past last byte written
+
+  proc	op$dec	<r1,r2,r3,r4>
+	p1	num,r1			;number to output
+	p2	opt,r0			;output string
+	mova	o$pdec,r2		;the divisors
+	clr	r4			;none printed so far
+    repeat				;outer loop
+	mov	#-1,r3			;init the result
+	repeat				;digit loop
+		inc	r3		;next character
+		sub	(r2),r1		;this it?
+	until	cs			;done
+	add	(r2)+,r1		;bump back
+	if	r3 ne			;got something
+	  or	r4 ne			;or had something
+	  or	(r2) eq			;or last digit
+		inc	r4		;had something
+		add	#dig0.,r3	;make a digit
+	...	movb	r3,(r0)+	;store it
+    until (r2) eq			;done them all
+	clrb	(r0)			;terminate the string
+  end
+
+o$pdec:	.int	10000.,1000.,100.,10.,1,0
+
+.end
+

@@ -1,0 +1,256 @@
+.title	IMPACC	Access front end
+.include "ips:impmac.mac"
+
+data	A$C...	Access tables
+debug=0
+
+data	AC.	Access table
+
+;	ACP dispatch table
+
+map	ac.mou	addr.,0		;mount
+map	ac.dir	addr.		;find directory
+map	ac.loo	addr.		;lookup
+map	ac.scn	addr.		;setup to scan directory
+map	ac.nxt	addr.		;get next directory entry
+map	ac.cmp	addr.		;compare name
+map	ac.com	addr.		;check file compatibility
+map	ac.att	addr.		;attach file
+map	ac.mfd	addr.		;attach mfd
+map	ac.rvb	addr.		;read virtual
+map	ac.rmb	addr.		;read mapped
+map	ac.rlb	addr.		;read logical
+map	ac.mfi	addr.		;move fid
+
+.macro	actab$	nam fac
+nam::	
+.irp	marou$,<mou,dir,loo,scn,nxt,cmp,com,att,mfd,rvb,rmb,rlb,mfi>
+	.addr	fac''marou$
+.endr
+.endm
+
+a$ccas::.word	a$cf11			;current case
+;a$ctab::.word	a$cf11			;VAX/VMS
+;	.word	a$cf11			;RSX
+;;	.word	a$crta			;RT-11
+
+actab$	a$cf11	fb$			;VMS & RSX table
+actab$	a$crta	rt$			;RT-11 table
+code	AC$MOU	Mount device
+
+  proc	ac$mou
+	call	fb$mou			;use FB first
+	if	r0 ne			;fine
+		mova	a$cf11,a$ccas	;use that
+	...	exit			;
+	call	rt$mou			;try RT-11 instead
+	if	r0 ne			;fine
+		mova	a$crta,a$ccas	;use that
+	...	exit			;
+	fcerr$	#e$rufs	f$cvol		;unknown file structure
+  end
+
+code	AC$CAL	Call routines
+
+.macro	acjmp$	rou a1 a2 a3 a4
+ac$'rou::fcdbg$	rou
+	mov	a$ccas,r0		;get the table address
+	jmp	@ac.'rou(r0)		;transfer to routine
+.endm
+
+;acjmp$	mou				;mount
+acjmp$	dir	dir			;find directory
+;acjmp$	loo	nam,fid			;lookup
+;acjmp$	scn				;setup to scan directory
+acjmp$	nxt				;get next directory entry
+acjmp$	att	fcb,fid			;attach file
+acjmp$	mfd				;attach mfd
+acjmp$	rvb	buf,bct,blk,fcb		;read virtual
+acjmp$	rmb	buf,bct,blk,fcb		;read virtual
+acjmp$	rlb	buf,bct,blk		;read logical
+;acjmp$	def				;attach default directory
+;acjmp$	cmp	nam			;compare name
+;acjmp$	com				;check file compatibility
+;acjmp$ mfi	src,dst			;move fid
+
+fb$loo:
+fb$cmp:
+fb$com:
+fb$mfi:
+rt$loo:
+rt$cmp:
+rt$com:
+rt$mfi:
+code	AC$SCN	Setup to scan directory
+
+  proc	ac$scn
+	call	ac$sin			;setup sequence stuff
+	mov	a$ccas,r0		;get the table address
+	call	@ac.scn(r0)		;transfer to routine
+  end
+
+code	AC$MFI	Move FID
+
+  proc	ac$mfi	<r0,r1>
+	p1	src,r0			;r0 -> source
+	p2	dst,r1			;r1 -> destination
+	movw	(r0)+,(r1)+		;move them
+	movw	(r0)+,(r1)+		;
+	movw	(r0)+,(r1)+		;
+  end
+
+code	AC$DEF	Attach default directory
+
+  proc	ac$def
+	fcdbg$	def
+	call	ac$att	#d$ifcb #d$idef	;attach default directory
+	fcchk$	#e$rdef			;error attaching default directory
+  end
+code	AC$LOO	Lookup file
+
+;	Directory already setup
+;	Returns FID of specified file
+;
+;	Out	r0=0		file not found
+
+  proc	ac$loo	<r1,r2,r3,r4,r5>
+	fcdbg$	loo
+	p1	nam			;address of filename string
+	p2	fid			;address of result FID
+					;
+	call	ac$scn			;setup to scan directory
+    repeat				;scan directory entries
+	call	fc$abt			;check aborts
+	call	ac$nxt			;get next directory entry
+	exit	if r0 eq		;not found
+	call	ac$cmp	nam(sp)		;compare entry with current
+    until r0 ne				;got it
+	call	ac$mfi #e$nfid,fid(sp)	;return the fid
+  end
+code	AC$CMP	Compare filenames
+
+;	Out	r0=0		no match
+
+  proc	ac$cmp	<r1,r2,r3>
+	p1	nam,r2				;the filename
+	call	fu$upl	r2			;force uppercase
+	mov	e$nnam,r3			;the entry
+	call	fu$upl	r3			;force uppercase
+	call	ac$wil				;match it
+  end						;
+
+;	In	r2 ->		input model with wildcards
+;		r3 ->		current option string
+;
+;	Out	r0=0		no match
+
+  proc	ac$wil	<r2,r3>
+    repeat					;match loop
+	clr	r0				;assume missmatch
+	movb	(r2)+,r1			;get next model character
+	leave	if eq				;found it
+	ifb	r1 eq #astrx.			;got an asterix
+		repeat				;
+			call	ac$wil		;look for it
+			exit	if r0 ne	;found it all
+			exit	ifb (r3) eq	;no more - failed
+			inc	r3		;skip it
+	...	end				;again
+	exit	ifb (r3) eq			;no more - failed
+	next	ifb (r3)+ eq r1			;this one matchs
+	exit	if r1 ne #perct.		;not percent - fails
+	next	ifb (r2) ne			;more model - check %
+	exit	ifb (r3) ne			;model done - more name
+    end						;match loop
+	inc	r0				;found it
+  end
+code	AC$COM	Check name compatibility
+
+;	Truncate filename e$nnam and remove underlines & dollars
+;	Change name if same as last filename by adding digits
+;	(effective for VMS only)
+;
+;	Out	r0=0		name not compatible - edited
+
+  proc	ac$com	<r1,r2>
+	fcdbg$	com
+	mov	e$nnam,r1			;the name
+	mov	r1,r2				;another copy
+	clr	r4				;invalid flag
+	call	ac$fld	#6			;check a field
+	ifb	r3 eq #colon.			;stopped on colon
+	...	call	ac$fld	#6		;try again
+	ifb	r3 eq #dot.			;stopped on dot
+	...	call	ac$fld	#3		;
+	clrb	(r2)				;terminate the name
+	call	ac$seq				;check sequential stuff
+	if	r4 ne				;got some error
+	...	clr	r0			;
+  end
+
+code	AC$FLD	Check name field
+
+;	In	r1 ->		string
+;
+;		r3		last character
+;	Out	r4<>0		truncated
+;		r2 ->		out string
+
+  proc	ac$fld
+	p1	cnt,r0				;field count
+    repeat					;
+	movb	(r1)+,r3			;get the next
+	exit	if eq				;end of it
+	next	ifb r3 eq #dolar.		;forget that
+	next	ifb r3 eq #under.		;forget it
+	leave	ifb r3 eq #colon.		;
+	leave	ifb r3 eq #dot.			;
+	if	r0 ne				;more space
+		dec	r0			;count it
+		movb	r3,(r2)+		;store it
+	else					;
+	...	inc	r4			;remember the error
+    end						;
+	movb	r3,(r2)+			;store terminator
+  end
+code	AC$SEQ	Check name sequence
+
+;	s$qnam		last name
+;	s$qseq		sequence number
+;
+;	Out	r4<>0		name edited
+
+  proc	ac$seq
+	mov	s$qnam,r2		;get the name
+	mov	e$nnam,r1
+    repeat				;
+	leave	ifb (r2) ne (r1)+	;different
+	next	ifb (r2)+ ne		;more
+	cmpb	-(r1),-(r2)		;backup to trailing zero
+	cmpb	-(r1),-(r2)		;backup to last character
+	sub	s$qnam,r2		;get the size
+	if	r2 lo #5		;not at end
+	...	inc	r1		;add a digit
+	ifb	s$qseq lo #9.		;room for more
+		mov	s$qseq,r2	;no
+		add	#'0,r2		;
+		movb	r2,(r1)+	;change the name
+		clrb	(r1)		;
+		inc	s$qseq		;next sequence number
+	...	inc	r4		;edited it
+	exit				;
+    end					;
+
+;	Different name
+
+	call	fu$mln	e$nnam,s$qnam	;save the name
+	clr	s$qseq			;first sequence number
+  end
+
+  proc	ac$sin
+	clrb	@s$qnam			;no name
+	clr	s$qseq			;no sequence number
+  end
+
+.end
+
