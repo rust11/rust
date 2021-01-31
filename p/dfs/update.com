@@ -3,14 +3,14 @@
 @ops:up dfs dfb differ.sav 'p1' 'p2'
 !
 mac$ sdinf
-!hdr$ sdmod
-!rid$ sdroo
-!rid$ sdcli
-!rid$ sdwld
-!rid$ sdmrg
-!rid$ sdchg
-!rid$ sdpar
-!!id$ sdslp
+hdr$ sdmod
+rid$ sdroo
+rid$ sdcli
+rid$ sdwld
+rid$ sdmrg
+rid$ sdchg
+rid$ sdpar
+!id$ sdslp
 
 mrg$
 LINK:
