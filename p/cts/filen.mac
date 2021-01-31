@@ -1,0 +1,23 @@
+.title	filen - get file length
+.include "lib:crt.mac"
+fbdef$
+smini$
+
+;	convert word block size to long byte size
+;	512 bytes per block
+;	multiply by 256 and then shift left for 512
+
+code	fi_len (fil) long
+
+  proc	fi.len
+	p1	fil,r0
+	mov	fb.len(r0),r1
+	clr	r0	; r0=00000000 00000000 r1=hhhhhhhh llllllll
+	swab	r1	; r0=00000000 00000000 r1=llllllll hhhhhhhh
+	bisb	r1,r0	; r0=00000000 hhhhhhhh r1=llllllll hhhhhhhh
+	clrb	r1	; r0=00000000 hhhhhhhh r1=llllllll 00000000
+	asl	r1	; r0=00000000 hhhhhhhh r1=lllllll0 00000000
+	rol	r0	; r0=0000000h hhhhhhhl r1=lllllll0 00000000
+  end
+
+.end

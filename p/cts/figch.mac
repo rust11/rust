@@ -1,0 +1,53 @@
+.title	figch - get character from file
+.include "lib:crt.mac"
+$aldef
+$jbdef
+$jsdef
+fbdef$
+smini$
+
+;	UNGETC not implemented
+;
+;	In binary mode all characters are passed.
+;	In ascii mode:
+;	-  CR is elided
+;	-  255. is elided (this used to occur in network traffic...)
+
+getc::
+fi.gtb::
+  proc	fi.gch	<r4>
+	p1	fil,r4
+	call	fi$gch
+  end
+
+;	r4 ->	file
+;
+;	r0 =	result character or EOF
+
+fi$gch::				; get character
+	bplw	fb.ung(r4),10$		; no unget pending
+	movb	fb.ung(r4),r0		; regret the ungettable 
+	clr	fb.ung(r4)		; forget the forgettable
+	br	30$			; act as if nothing just happened
+
+10$:	bpcw	#fbTER$,(r4),20$	; not a terminal
+	bpsw	#fbEOF$,(r4),40$	; nothing doing
+	.ttyin				; grind
+	br	30$			; .ttyin handles non-sign extend 
+					;
+20$:	call	bs$get			; get next stream character
+	beqw	r0,#EOF,40$		; fergit it honey
+					;
+30$:	bpsw	#fbBIN$,(r4),50$	; binary
+	beqb	r0,fi$gch		; nulls are ignored
+	beqb	r0,#cr.,fi$gch		; so are returns on RT-11
+	beqb	r0,#-1,fi$gch		; network nulls
+					;
+	bneb	r0,#ctrlz.,50$		; not manual EOF
+	bis	#fbEOF$,(r4)		; set EOF
+40$:	mov	#EOF,r0			;
+50$:	return
+
+.end
+
+

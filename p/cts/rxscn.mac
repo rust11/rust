@@ -1,0 +1,55 @@
+csi$c=1
+.title	rxscn - scan file specification into rad50
+.include "lib:crt.mac"
+smini$
+ccdat$
+r$xof0:	.blkw	3*5			; CSI area
+r$xif0:	.blkw	6*4			; in file 0
+r$xdef:	.rad50	/            /
+cccod$
+
+code	rx_scn (*char, *WORD) *char
+
+;	We use .CSISPC to translate ascii to rad50
+;	because it handles logical names and sub-directories
+
+	.enabl	lsb
+  proc	rx.scn	<r2,r3>
+	p1	str,r1
+	p2	res,r2
+.if ne csi$c
+	mov	sp,r3		; save stack
+	.csispc	#r$xof0,#r$xdef,r1 ;system parse
+	mov	r3,sp		;c=? restore stack
+	mov	#r$xif0,r0	;c=? source
+	mov	res(sp),r1	;c=? result
+	mov	(r0)+,(r2)+	;c=?
+	mov	(r0)+,(r2)+	;c=?
+	mov	(r0)+,(r2)+	;c=?
+	mov	(r0)+,(r2)+	;c=?
+	mov	#1,r0		;c=?
+	sbc	r0		;c=?
+	end			; r0=0 => error
+.iff
+	mov	#<^rDK >,(r2)	; default device
+	call	110$		; get the name
+	bneb	(r0),#':,10$	; not a device
+	mov	(r2),-(r2)	; move it into place
+	call	100$		; now get the name
+10$:	call	110$		; get the second half
+	clr	2(r2)		; assume no type
+	bneb	(r0),#'.,20$	; no type
+	call	100$		; get the type
+20$:	end
+
+100$:	inc	r0		; skip ':' or '.'
+110$:	tst	(r2)+		; point at next word
+	call	rx.pck	r0,r2,#1; scan a word
+	bneb	(r0),130$	; string exhausted?
+	clr	r0		;
+130$:	return
+.endc
+	.dsabl	lsb
+
+.end
+

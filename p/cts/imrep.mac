@@ -1,0 +1,60 @@
+.title	imrep - report image message
+.include "lib:crt.mac"
+$aldef
+smini$
+
+ccstr$
+i$mpre:	.asciz	/?%s-/
+i$mobj:	.asciz	/%s/
+i$mnew:	.byte	lf.,0
+cccod$
+
+;	im$rep (*char, *char) void
+;
+;	Windows IM_REP supports bypass routines
+;
+;	myapp:	im_ini ("COFFEE")
+;		im_rep ("W-Out of coffee [%s]", "Ian")
+;
+;	Output:	?COFFEE-W-Out of coffee [Ian]
+;	Action:	j$bsev | eswar$
+;
+;		im_rep ("F-Out of water [%s]", "Tap")
+;	Output:	?COFFEE-F-Out of water [Tap]
+;	Action:	j$bsev | esfat$
+;		im_exi ()
+;
+;
+;	Messages are of the form:
+;
+;	"I-... %s..."
+;	"W-... %s..."
+;	"E-... %s..."
+;	"F-... %s..."
+;
+;	%s is replaced with the string object supplied.
+;	W, E & F invoke im_war, im_err, im_fat
+;	imPwar, imPerr and imPfat are user hooks for the above
+;	(see immod.mac for the details)
+;
+;	Output via console routines (printf cluster not invoked)
+
+	.enabl	lsb
+  proc	im$rep	<r2>
+	p1	msg,r2
+	p2	obj
+
+	call	printf #i$mpre,imPfac	;
+	call	printf r2,obj(sp)
+	call	printf #i$mnew
+	mov	#im.war,r1		;
+	beqb	(r2),#'W,40$		;
+	mov	#im.err,r1		;
+	beqb	(r2),#'E,40$		;
+	mov	#im.fat,r1		;
+	bneb	(r2),#'F,50$		;
+40$:	call	(r1)			; one giant leap
+50$:	end
+
+.end
+

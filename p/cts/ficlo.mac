@@ -1,0 +1,82 @@
+.title	ficlo - close file
+.include "lib:crt.mac"
+$emdef
+$esdef
+$jbdef
+fbdef$
+smini$
+
+ccstr$
+f$iclo:	.asciz	/E-Error closing file [%s]/
+cccod$
+
+code	fi$exi - clean up files on exit
+
+;	Files are not closed on FATAL or ERROR exit
+
+fi$exi::bpsb	#eserr$!esfat$,@#j$bsev,20$ ; abort
+	mov	#f$imap,r2		; get the map
+10$:	mov	(r2)+,r1		; get the next
+	beq	20$			;
+	call	fi.clo r1,#0,#0		; close it
+	br	10$			;
+20$:	jmp	@f$iexi			; do next exit routine
+
+code	fi.clo (fil, msg) 
+code	fi.prg (fil, msg) 
+
+	stack	ret,fil,msg,ext
+fx.clo::mov	sp.ext(sp),r1		; extension block
+	cmp	(r1)+,(r1)+		;
+	clc				;
+	br	fi$clo			; common
+fi.clo::tst	(pc)+			; close
+fi.prg::sec				; purge
+	bic	r1,r1			; no extension block
+	fall	fi$clo			; common
+local
+  proc	fi$clo	<r2,r3,r4>
+	p1	fil
+	p2	msg
+	p3	ext			; fx_clo only
+	mov	r1,r3			; save extension block
+	mov	#1,r2			; assume success
+	mov	fil(sp),r4		; get the file block
+	beq	60$			; all over
+	bcc	5$			; not a purge
+	bic	#fbNEW$,(r4)		; force purge
+
+	assume	fbOPN$ eq 128.		;
+5$:	bplb	(r4),60$		; file not open
+	bpsw	#fbMAN$,(r4),70$	; manual
+	bpsw	#fbTER$,(r4),60$	; some doors never close
+;	call	@f$iflu r4		; flush if necessary
+	call	bs$flu			; flush it
+10$:	mov	#emclo.*256.,r0		; assume close
+	bpcw	#fbNEW$,(r4),15$	; not a new file
+	beqw	r3,20$			; not extended close
+	mov	r3,r0			; get extension I/O block
+	mov	#emclz.*256.,(r0)	;
+	bisb	fb.chn(r4),(r0)		; build EMT
+	emt	^o375			; issue it
+	br	25$			;
+15$:	mov	#empur.*256.,r0		; nope - purge it
+20$:	bisb	fb.chn(r4),r0		; build EMT
+	emt	^o374			; .CLOSE/.PURGE
+25$:	sbc	r2			; got an error?
+	bne	40$			; fine
+;???	bpcw	#fbERR$,(r4),40$	; uncleared error?
+30$:	call	fi$rep r4,msg(sp),fb.spc(r4),#f$iclo
+40$:	beqw	fb.drv(r4),50$		; has no driver
+	clr	fb.drv(r4)		; release our hold on it
+	call	rt.rel fb.spc(r4)	; unfetch the driver
+50$:	call	me.dlc fb.spc(r4)	; deallocate spec
+	call	me.dlc fb.buf(r4)	; deallocate buffer
+	clr	(r4)			; file closed
+60$:	mov	r2,r0			; report 
+	br	80$			;
+
+70$:	call	@fb.man(r4),r4,#fbCLO.	; manual close
+80$:	end
+
+.end

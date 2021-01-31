@@ -1,0 +1,69 @@
+.title	cccmd - process standard C command line
+.include "lib:crt.mac"
+$aldef
+smini$
+
+code	cc_cmd (cmd:*char, prg:*char) * vec
+
+;	o Adapted from DECUS-C $$gcmd (getcmd.mac)
+;	  Including the stack reverse algorithm
+;
+;	r0=0	invalid command (quotes mucked up)
+;	r0=n	points to area below:
+;
+;	.word	n		; argument count
+;	.blkw	n		; command vector
+;	.word	0		; double terminator
+;
+;	o The first argument points to the image name or a null string.
+;	o The image name can be specified with:
+;
+;	ccAimg : [] char = "myname"
+
+  proc	cc.cmd	<r2,r3>
+	p1	str,r1		; command string (impure)
+	p2	img		; image name
+	mov	sp,r3		; to reverse out vector later
+	psh	img(sp)		; image name is vec[0]
+
+				; next argument
+10$:	clr	r2		; not quoted
+20$:	movb	(r1)+,r0	; next character
+	beq	90$		; done
+	blosw	r0,#32.,20$	; skip whitespace
+	beqb	r0,#'',30$	; quoted
+	bneb	r0,#'",40$	; not quoted
+30$:	mov	r0,r2		; save quote char and set flag
+	br	50$		; And remember this argument
+40$:	dec	r1		; not quoted, back up
+50$:	mov	r1,-(sp)	; save start of argument
+				;
+				; process argument
+60$:	movb	(r1)+,r0	; next char of argument
+	beq	80$		; all over
+	bnew	r2,70$		; quoted
+	blosw	r0,#sp.,80$	; white space terminates it
+	br	60$		; keep skipping
+70$:	bneb	r0,r2,60$	; not the ending quote
+	clr	r2		; out of quotes
+80$:	bnew	r2,110$		; ended in quotes: exit r0 eq 0
+	clrb	-1(r1)		; terminate argument (replace space with zero)
+	bnew	r0,10$		; got more to go
+				;
+				; setup count and vector
+90$:	mov	r3,r0		; calculate byte size
+	sub	sp,r0		; r0 = size
+	mov	r0,r2		; r2 = count * 2
+	cmp	(r0)+,(r0)+	; counter and terminator required
+	call	me.alc r0	; allocate the memory
+	mov	r0,r1		; r0 = result
+	mov	r2,(r1)		; save the count 
+	asr	(r1)+		; byte count to word count result
+	mov	r3,r2		;
+100$:	mov	-(r2),(r1)+	; reverse fill
+	bnew	r2,sp,100$	; more to do
+	clr	(r1)+		; terminator
+110$:	mov	r3,sp		; reset the stack
+	end
+
+.end

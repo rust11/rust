@@ -1,0 +1,32 @@
+;***;	CTS:CCSTK - Allocate a stack at runtime
+.title	ccstk - relocate the rider/C stack
+.include "lib:crt.mac"
+$jbdef
+smini$
+.asect	
+	. = j$busp
+c$cusp::.word	c$cust
+.psect
+ccdat$	
+c$cusb:	.blkw	64.	; stack bottom
+c$cust::		; stack top
+
+cccod$
+
+;	cc_stk (len) - Allocate a new stack
+;
+;	Allocate a new stack and copy the old stack to it
+;	Used to avoid allocate image space to a stack
+;	And to get it outside the PSECT allocation process
+
+  proc	cc.stk
+	p1	len		; length requested (bytes)
+	call	me.acc len(sp)	; allocate the stack in r0
+	add	len(sp),r0	; top of new stack
+	mov	j$busp,r1	; top of existing stack
+10$:	mov	-(r1),-(r0)	; copy the stack
+	bnew	r1,sp,10$	; haven't copied them all
+	mov	r0,sp		; replace it
+  end
+
+.end

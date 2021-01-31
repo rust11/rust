@@ -1,0 +1,32 @@
+.title	fipos - file position
+.include "lib:crt.mac"
+fbdef$
+smini$
+
+;	fi_pos	: (*FILE) long			; get position
+;
+;	byte offset ranges from 0 to 512 (not 511)
+
+.macro	iob2p$	r0,r1		; r0=block, r1=byte
+	psh	r1		; (sp) = byt
+	mov	r0,r1		; r1 = blk
+	clrb	r0		;
+	swab	r0		; r0 = blk 8:15
+	swab	r1		; r1 = blk 0:7 in high byte
+	clrb	r1		;
+	asl	r1		;
+	rol	r0
+	add	(sp)+,r1	; r0=hop, r1=lop
+.endm
+
+  proc	fi.pos	<r4>
+	p1	fil,r4
+	bpsw	#fbMAN$,(r4),10$	; manual
+	mov	fb.blk(r4),r0		; return long position
+	mov	fb.byt(r4),r1		;
+	iob2p$	r0,r1			; r0=hop, r1=lop
+	br	20$			;
+10$:	call	@fb.man(r4),r4,#fbPOS.	;
+20$:	end				; r0/r1 = long file position
+
+.end

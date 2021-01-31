@@ -1,0 +1,536 @@
+	.title	$$dtoa	Convert floating to ASCII
+	.ident	/000009/
+;+
+;
+; Internal
+;
+; Index		Convert floating point to ASCII
+;
+; Usage
+;
+;	char *
+;	$$dtoa(buff, conv, field, dplace, value)
+;	char	*buff;		/* Where it goes	*/
+;	char	conv;		/* Conversion type	*/
+;	int	field;		/* Maximum field width	*/
+;	int	dplace;		/* Decimal part width	*/
+;	double	value;		/* What to convert	*/
+;
+; Description
+;
+;	$$dtoa() is called to do the conversion to Ascii
+;	The text is written to buff[].  $$dtoa() returns a pointer
+;	to the trailing null byte.
+;
+;	Field and dplace are the conversion parameters "f" and
+;	"d" in the format string "%f.df".
+;	Conv is 'e', 'f', or 'g' to define the format.  Note that
+;	the conversion character must be in lower-case.
+;
+;	$$dtoa() is called by printf to convert a double-precision value
+;	to Ascii.  The text is written to buff[].  Field and dplace are
+;	the conversion parameters "f" and "d" in the format string "%f.df"
+;	Conv is 'e', 'f', or 'g' to define the format.  Note:
+;	the conversion character must be in lower-case.
+;
+;	To use floating point conversion, the program must reference
+;	the $$fpu global as follows:
+;
+;		extern	int	$$fpu;
+;
+;	If this is not done, attempting to convert floating point
+;	will result in your program crashing.
+;
+; Bugs
+;
+;	The machine must support FPU floating point,
+;	which implies EIS.  No compile-time test for C$$EIS is done.
+;
+;	Note:  This routine uses the table in the DOUTAB module
+;	(Pashunfingaz supplies TENS.MAC to replace DOUTAB.MAC if missing.)
+;
+;-
+;
+; Edit history
+; 000000		Note that this is a complete rewrite of the
+;			$$dtoa in the first Decus-C submission.
+; 000001 23-Nov-81 SDR	Initial attempt, using Bruce Shimano's CVF, CVE, CVT,
+;			etc. routines (with some kludging)
+; 000002 08-Feb-82 MM	Merged into master library.  Removed compile-time
+;			test for C$$EIS.  Some documentation changes.
+;			The dtoa() entry was removed.
+; 000003 11-Feb-82 MM	Added $$fpu global to pull in from library.
+; 000004 15-Apr-82 SDR	Bug in "G" format max field width (10=>11)
+;			Deleted internal $$TENS table and made ref. to DOUTAB
+;			table.  Made DTOA return useful ptr to EOS (why not?)
+; 000005 12-Nov-84 DLE	Make it work with DOUBLE precision numbers
+;			Define DOUBLE if you want my mods
+; 000006 13-Nov-84 LRJB	Define DOUBLE. Change some defaults.
+; 000007 07-Jun-85 DLE	Use only .psect c$code & c$data.
+; 000008 19-Jan-87 JMC  Change .psect for I/D space.
+; 000009 15-Jan-02 BQT	Changed for I/D space
+;
+	.ENABLE GBL,LC
+
+	DOUBLE	= 1	;*******************************	;06
+	.ENABLE GBL,LC
+
+; Macro definitions
+
+	BUFFER	= 0	; DTOA parameter offsets (from R5)
+	CONV	= 2
+	FIELD	= 4
+	DPLACE	= 6
+	VALUE	= 10
+
+	AC0	= %0	;FLOATING POINT REGISTERS
+	AC1	= %1
+	AC2	= %2
+	AC3	= %3
+	AC4	= %4
+	AC5	= %5
+
+; Macro PUSH saves the given list of locations (e.g., registers) on the stack.
+; Macro POP restores them.  Null argument to POP just pops a word off the stack.
+; The arguments to PUSH and POP must be ordered (left to right) to correspond
+; to the sequence in which the stack operations take place.  Two special
+; arguments (.SMW,.MAP) are recognized by POP and PUSH for saving and restoring
+; the map window contents.
+
+.MACRO PUSH S1			;PUSH ARGUMENTS IN LIST ONTO STACK
+  .IRP R,<S1>			;REPEAT FOR EACH ARGUMENT
+    .IF NB R
+	MOV R,-(SP)		;IF ARG DEFINED, PUSH ON STACK
+    .IFF
+	CLR -(SP)		;IF ARG NOT DEFINED, PUSH #0 ONTO STACK
+    .ENDC
+  .ENDM
+  .IIF B <S1>,CLR -(SP)		;IF NO ARGS, PUSH #0 ONTO STACK
+.ENDM PUSH
+
+.MACRO POP S1			;POP STACK AND PUT VALUES INTO ARGUMENTS
+  .IRP R,<S1>			;REPEAT FOR EACH ARGUMENT
+    .IF NB R
+	MOV (SP)+,R		;IF ARG DEFINED, POP FROM STACK
+    .IFF
+	INC (SP)+		;IF ARG NOT DEFINED, THROW ARG AWAY
+    .ENDC
+  .ENDM
+  .IIF B <S1>,INC (SP)+		;IF NO ARGS, THROW TOP STACK ELEMENT AWAY
+.ENDM POP
+
+	.psect	c$code,i,ro
+
+	.if df DOUBLE
+	.save				;+05
+	.psect c$data,d,rw
+myfps:	.blkw	1
+	.restore			;-05
+					;+06
+..places = 12.				; default # places right of dec. point
+..width  = 25.				; maximum field width
+	.iff
+..places = 6.				; smaller for 'short' float
+..width  =19.				; [KTZ]
+					;-06
+	.endc
+
+$$FPU::
+$$DTOA::
+	JSR	R5,CSV$			; Establish linkage
+	.if df DOUBLE
+	stfps	myfps			; preserve caller's opinion of FP
+	SETD				;05
+	.iff
+	SETF				; Set single precision mode
+	.endc
+	SETI				;	float and integer
+
+	LDF	C$PMTR+VALUE(R5),AC0	; Load the value into AC0
+
+	MOV	C$PMTR+DPLACE(R5),R0	; Number of fraction digits
+	BGE	10$			;	Specified
+
+					;+06
+	MOV	#..places,R0		; Use default fraction size
+;;	MOV	#6,R0			;			[KTZ] deleted
+					;-06
+
+10$:	MOV	C$PMTR+FIELD(R5),R1	; Maximum field width
+	BLE	20$			;	None, use default
+					;+06
+	CMP	#..width,R1		; Too much?
+;;	CMP	#19.,R1			;			[KTZ] deleted
+					;-06
+	BLT	30$			;	No
+					;+06
+20$:	MOV	#..width.,R1		;	Yes, use max width
+;;20$:	MOV	#19.,R1			;			[KTZ] deleted
+					;-06
+
+30$:	MOV	C$PMTR+BUFFER(R5),R3	; Pointer to output string
+
+	CMPB	C$PMTR+CONV(R5),#'e	; "e" format?
+	BNE	40$			;	No
+	CALL	CVE			;	Yes
+	BR	60$			; Done
+
+40$:	CMPB	C$PMTR+CONV(R5),#'f	; "f" format?
+	BNE	50$			;	No
+	CALL	CVF			; 	Yes
+	BR	60$			; Done
+
+50$:	CALL	CVT			; Do g conversion
+60$:	MOV	R3,R0			; Return end-of-string pointer	;04
+					;	In case it's wanted	;04
+	.if df DOUBLE
+	ldfps	myfps			;05
+	.endc
+	JMP	CRET$			;	and exit.
+
+; CVF	- Floating point format to fixed ASCII format conversion routine
+
+; Purpose:  Converts the floating point number contained in AC0 to an ASCII
+;	string of the following fixed form:
+;
+;			  "   siiiii.ddd"
+;
+;	where the total number of characters written is defined to be the
+;	WIDTH of the output string and "ddd" are DIGITS number of decimal
+;	digits.  The sign of the number (s) is either " " or "-".  Extra
+;	space characters are packed before the sign to fill out the output
+;	string to the correct WIDTH.  If the number is too large to
+;	represent, the string is filled with "*" characters.
+;
+; On Entry:	AC0= number to be converted
+;		R0 = DIGITS value
+;		R1 = WIDTH value
+;		R3 = ptr to output string.
+;
+; On Exit:  	AC0,AC1,R0,R1 = trash
+;		R3 = points to a NULL which is placed after the end of
+;			the generated string
+
+;THE FOLLOWING ARE VALUES PUT ON THE STACK IN PREPARATION FOR CALLING CVX
+
+IR3	=14.	;INITIAL VALUE OF STRING POINTER
+MAXASC	=12.	; Maximum # of ascii characters to fill
+DDIG	=10.	;# OF DECIMAL DIGITS TO PRINT
+TDIG	=8.	;# OF DIGITS TO PRINT
+TOOMCH	=6.	; Number of excess characters (minus => field width too small)
+OVERF	=4.	;ROUNDING OVERFLOW FLAG:  1 = F FORMAT, 1 EXTRA DIGIT OVERFLOW
+		;  OK; 1000000 = OVERFLOW NOT ALLOWED; 0 = E FORMAT, OVERFLOW OK
+EXPON	=2.	;EXPONENT (NOT USED BY CVX)
+SIGN	=0.	;SIGN VALUE: 0 IF AC0 +, ELSE -1 IF AC0 -
+
+;START OF CODE
+
+CVF:	PUSH	<R2,R3,R1,R0>	;SAVE IR3,MAXASC,DDIG
+	SUB	#10.,SP		;	AND MAKE ROOM FOR OTHER VARIABLES
+
+	CALL	FPMSD		;R0 = EXPONENT OF MSD, R1 = SIGN INDICATOR
+	MOV	R1,(SP)		;SAVE SIGN INDICATOR
+
+	TST	R0		;NUMBER OF DIG FOR INTEGER PART
+	BGT	10$
+	MOV	#1,R0		;	ALWAYS PRINT AT LEAST 1 INTEGER DIGIT
+10$:	ADD	DDIG(SP),R0	;# OF DIG TO PRINT = # OF DEC DIG + # OF INT DIG
+	MOV	R0,TDIG(SP)
+
+	MOV	#1,OVERF(SP)	;ASSUME OVERFLOW OF 1 DIGIT OK
+	MOV	MAXASC(SP),R2	; Number of trailing spaces = # of ASCII
+	DEC	R2		;	CHAR TO OCCUPY - DECIMAL POINT
+	ADD	R1,R2		;	- POSSIBLE SPACE FOR "-" SIGN
+	SUB	R0,R2		;	- # OF DIGITS TO PRINT
+	MOV	R2,TOOMCH(SP)	; Save number of excess spaces
+	BGT	20$
+	MOV	#100000,OVERF(SP);	NO SPACE FOR OVERFLOW IF IT HAPPENS
+
+20$:	CALL	CVX		;CONVERT DIGITS OF NUMBER TO ASCII
+
+	ADD	#16.,SP		;CLEAR THE STACK
+	POP	<R2>
+	RETURN
+
+;END OF CVF
+
+; CVE	- Floating point to scientific notation ASCII conversion routine
+
+; Purpose:  Converts the floating point number contained in AC0 to an ASCII
+;	string of the following form:
+;
+;			  "   sd.dddEcee"
+;
+;	where the total number of characters written is defined to be the
+;	WIDTH of the output string and "DDD" are DIGITS number of decimal
+;	digits.  The sign of the number (s) is either " " or "-".  "ee" is
+;	the exponent (base 10) of the number and the sign of the exponent (c)
+;	is either printed as "+" or "-".   If the format is incorrect and
+;	the output will not fit within WIDTH, the string is filled with "*"
+;	characters.
+;
+; On Entry:	AC0= number to be converted
+;		R0 = DIGITS value
+;		R1 = WIDTH value
+;		R3 = ptr to output string.
+;
+; On Exit:  	AC0,AC1,R0,R1 = trash
+;		R3 = points to a NULL which is placed after the end of
+;			the generated string
+
+CVE:	PUSH	<R2,R3,R1,R0>	;SAVE IR3,MAXASC,DDIG
+	SUB	#10.,SP		;	AND MAKE ROOM FOR OTHER VARIABLES
+
+	CALL	FPMSD		;R0 = EXPONENT OF MSD, R1 = SIGN INDICATOR
+	MULF	$$TENS+10,AC1	; Shift everything left one digit	;04	
+	DEC	R0		;	and adjust exponent appropriately
+	MOV	R0,EXPON(SP)	;SAVE EXPONENT
+	MOV	R1,(SP)		;	AND THE SIGN INDICATOR
+	STF	AC1,AC0		; Use the scaled number, between .0 and .9
+
+	MOV	DDIG(SP),TDIG(SP);# OF DIGITS TO PRINT = # OF DECIMAL DIGITS
+	INC	TDIG(SP)	; One digit to left of decimal point
+
+	MOV	MAXASC(SP),R2	; Total # of excess ASCII characters to fill
+	SUB	#5,R2		;     = TOTAL - PLACES FOR EXPONENT - 1 DEC PT
+	ADD	R1,R2		;	- 1 POSSIBLE SPACE FOR "-" SIGN
+	SUB	TDIG(SP),R2	;	- PRINTED DIGITS
+	MOV	R2,TOOMCH(SP)	; Save it
+
+	CLR	OVERF(SP)	;INDICATE OVERFLOW OF 1 DIGIT OK
+	CALL	CVX		;CONVERT DIGITS OF NUMBER TO ASCII
+	BCS	30$		;	CONVERSION ERROR
+
+	TSTB	OVERF(SP)	;DID WE GET 1 MORE DIGIT THAN EXPECTED?
+	BEQ	10$		;	NO
+	INC	EXPON(SP)	;BUMP UP EXPONENT
+	DEC	R3		;CHOP OFF EXTRA TRAILING CHARACTER
+
+10$:	MOVB	#'E,(R3)+	;FOLLOW DIGITS BY EXPONENT
+	MOVB	#'+,(R3)+	;ASSUME ITS POSITIVE
+	MOV	EXPON(SP),R1	;EXPONENT VALUE
+	BPL	20$
+	MOVB	#'-,-1(R3)	;	ITS A NEGATIVE EXPONENT
+	NEG	R1
+20$:	CLR	R0		;COMPUTE TWO DIGITS OF EXPONENT
+	DIV	#10.,R0
+	ADD	#'0,R0		;AND PACK THEM
+	MOVB	R0,(R3)+
+	ADD	#'0,R1
+	MOVB	R1,(R3)+
+	CLRB	(R3)
+
+30$:	ADD	#16.,SP		;CLEAR THE STACK
+	POP	<R2>
+	RETURN
+
+;END OF CVE
+
+; CVT	- Floating point to truncated CVF or CVE format routine
+
+; Purpose:  This routine converts the floating point number contained in AC0
+;	to an ASCII string using either CVF or CVE format, depending upon the
+;	magnitude of the number.  If the number can be expressed to full
+;	significance using CVF format with a reasonable field width, CVF is
+;	used, otherwise the number is printed to full significance using CVE.
+;	In either mode, the output string is shorted by eliminating leading
+;	space characters and trailing zeros.
+;
+; On Entry:	AC0= number to be converted
+;		R3 = ptr to output string.
+;
+; On Exit:  	AC0 = trash
+;		R3 = points to a NULL which is placed after the end of
+;			the generated string
+
+CVT:	STF	AC1,-(SP)
+	PUSH	<R1,R0,R3>
+
+	STF	AC0,-(SP)	;DETERMINE MAGNITUDE OF NUMBER
+	CALL	FPMSD		;R0 = EXPONENT OF MSD
+	LDF	(SP)+,AC0
+				;+06
+	CMP	R0,#<..places+1>;IN RANGE FOR F FORMAT?
+;;	CMP	R0,#7		;			[KTZ] deleted
+				;-06
+	BGT	10$		;	NO, TOO BIG
+	CMP	R0,#-1
+	BLT	10$		;	NO, TOO SMALL
+
+				;+06
+	MOV	#<..places+5>,R1;PRINT USING CVF, WIDTH OF 10 ASC CHAR	;04
+;;	MOV	#11.,R1		;			[KTZ] deleted
+				;-06
+	NEG	R0		;# OF DEC DIGITS = 7 - EXPON OF MSD
+				;+06
+	ADD	#<..places+1>,R0;
+;;	ADD	#7,R0		;			[KTZ] deleted
+				;-06
+	CALL	CVF		;CONVERT TO CVF FORMAT
+	BR	20$
+
+				;+06
+10$:	MOV	#<..places+7>,R1;PRINT USING CVE FORMAT, WIDTH = 13.
+;;	MOV	#13.,R1		;			[KTZ] deleted
+	MOV	#..places,R0	;Decimal digits = 1.6/1.12 for full significance
+;;	MOV	#6,R0		;			[KTZ] deleted
+				;-06
+	CALL	CVE
+
+20$:	MOV	(SP),R3		;RESTORE PTR TO START OF STRING
+	MOV	R3,R0		;COMPRESS IGNORING LEADING SPACE CHARACTERS
+
+30$:	TSTB	(R0)+		; Scan mantissa (R0 scans with R3)
+	BEQ	40$		;	AT END OF STRING
+	CMPB	(R3)+,#'E	;END OF MANTISSA?
+	BNE	30$		;	NOPE
+
+	DEC	R3		;E FORMAT, LOP OFF 0'S FROM MANTISSA
+	CMPB	-(R3),#'0	;GOT A ZERO?
+	BEQ	.-4		;	LOP IT OFF
+	CMPB	-(R0),(R3)+	;PACK EXPONENT NOW, ADJUST POINTERS
+	MOVB	(R0)+,(R3)+
+	BNE	.-2
+	DEC	R3
+	BR	50$
+
+40$:	CMPB	-(R3),#'0	;LOP OFF ANY TRAILING 0'S IF PRINTED IN F FORMAT
+	BEQ	40$
+	INC	R3		;MARK END OF STRING
+	CLRB	(R3)
+
+50$:	POP	<,R0,R1>
+	LDF	(SP)+,AC1
+	RETURN
+
+;END OF CVT
+
+; SUBROUTINES FOR CVF, CVE, CVT:  CVX, CVXINT, FPMSD
+
+;CVX PRINTS THE SEQUENCE "     sIIIIII.DDDD" GIVEN A FLOATING POINT NUMBER
+;IN AC0 AND A DATA ARRAY ON THE STACK.  THE FLOATING POINT NUMBER IS ASSUMED
+;TO BE POSITIVE AND THE STACK VARIABLES (TOOMCH, SIGN, TDIG, DDIG, AND OVERF)
+;SPECIFY THE FORMAT OF THE OUTPUT STRING.  IN ADDITION, IF A FORMATING ERROR
+;OCCURS, THE STACK VARIABLES (IR3,MAXASC) SPECIFY THE STRING THAT IS TO BE
+;FILLED WITH "*" CHARACTERS.
+
+CVX:	MOV	TOOMCH+2(SP),R0	; Number of excess characters
+	BMI	40$		;	ERROR, NOT ENOUGH ROOM FOR DIGITS
+	
+	TST	SIGN+2(SP)	;NEED TO PUT IN NEGATIVE SIGN?
+	BPL	10$
+	MOVB	#'-,(R3)+	;	YES
+
+10$:	MOV	TDIG+2(SP),R1	;# OF DIGITS TO PRINT
+	MOV	DDIG+2(SP),R2	;# OF DECIMAL DIGITS TO PRINT
+	MOV	R1,R0
+	SUB	R2,R1		;# OF INTEGER DIGITS = TDIG-DDIG
+	INC	R1		;BUMP UP SO LOOP WORKS RIGHT
+	ASH	#3,R2		;MAKE ALL DIGITS LOOK LIKE INTEGER DIGITS ;04
+	MULF	$$TENS(R2),AC0
+	MOVB	OVERF+2(SP),R2	;SET THE ROUNDING OVERFLOW FLAG
+	CALL	CVXINT		;DO THE CONVERSION TO ASC RECURSIVELY
+	MOVB	R2,OVERF+2(SP)	;SAVE ROUNDING OVERFLOW INDICATOR
+	BPL	20$		;	NO OVERFLOW DURING ROUNDING
+	TST	OVERF+2(SP)	;OVERFLOW PERMITTED?
+	BMI	40$		;	NO, FORMAT ERROR, GO INDICATE IT
+
+20$:	DEC	R1		;NEED TO PUT "." AFTER LAST DIGIT?
+	BNE	30$		;	NO
+	MOVB	#'.,(R3)+
+30$:	CLRB	(R3)		;CLEAR ERROR FLAG AND MARK END OF STRING
+	BR	70$
+
+40$:	MOV	IR3+2(SP),R3	;ERROR, FILL ENTIRE AREA WITH "*"
+	MOV	MAXASC+2(SP),R0	;# OF CHARACTER SPACES TO FILL
+	BLE	60$
+50$:	MOVB	#'*,(R3)+
+	SOB	R0,50$
+60$:	CLRB	(R3)		;MARK END OF STRING
+	SEC			;SIGNAL ERROR
+
+70$:	RETURN
+
+;	[CONTINUED]
+
+;	[SUBROUTINES CONTINUED]
+
+;CVXINT RECURSIVELY CONSTRUCTS THE OUTPUT STRING BY LOPPING OFF LOW ORDER
+;INTEGER DIGIT AND ROUNDING UP.  ON ENTRY F.P. IN AC0, R0 = # OF DIGITS
+;TO PRINT R1 = # OF INTEGER DIGITS, R2 = ROUNDING OVERFLOW INDICATOR.
+
+CVXINT:	MODF	TENTH,AC0	;LOP OFF LEAST SIGNIFICANT DIGIT
+	MULF	#20.0,AC0	;SCALE UP FOR INTEGERIZING AND ROUNDING
+	STCFI	AC0,-(SP)	;INTEGERIZE
+	INC	(SP)		;ROUND UP
+	ASR	(SP)
+	CMP	(SP),#10.	;OVERFLOW TO NEXT MSD?
+	BLT	10$		;	NO
+	CLR	(SP)		;LSD BECOMES 0
+	ADDF	#1.0,AC1	;	AND ADD 1 TO REMAINING HIGH ORDER DIG
+10$:	ADD	#'0,(SP)	;CONVERT DIGIT TO ASCII
+	LDF	AC1,AC0		;GET READY FOR NEXT CONVERSION
+	DEC	R0		;LAST DIGIT INTEGERIZED?
+	BGT	20$		;	NO
+	CFCC			;CHECK IF ROUNDING OVERFLOW CREATED EXTRA DIG
+	BEQ	30$		;	NONE
+	ADD	R2,R1		;	AND DELAY PRINTING OF "."
+	COM	R2		;INDICATE ROUNDING OVERFLOW
+20$:	CALL	CVXINT		;GO LOP OFF THE NEXT DIGIT
+30$:	DEC	R1		;TIME TO PRINT "."?
+	BNE	40$
+	MOVB	#'.,(R3)+	;	YES
+40$:	MOVB	(SP)+,(R3)+	;SEND DIGIT TO OUTPUT STRING
+	RETURN
+
+;FPMSD COMPUTES THE EXPONENT REQUIRED TO NORMALIZE THE NUMBER IN AC0 TO
+;BETWEEN 0.0 AND 0.999999.  ON EXIT, THE EXPONENT IS LEFT IN R0, THE
+;ABSOLUTE VALUE OF THE NUMBER IS LEFT IN AC0, AND THE ABS NORMALIZED NUMBER
+;IS LEFT IN AC1.  IN ADDITION R1 = 0 IF THE NUMBER WAS POSITIVE, ELSE ITS
+;SET EQUAL TO -1.
+
+FPMSD:	PUSH	<>		;ASSUME NUMBER POSITIVE
+	CLR	R0		;SPECIAL CASE OF VALUE OF 0.0
+	LDF	AC0,AC1		;NUMBER +, - , OR 0.0
+	CFCC
+	BEQ	40$		;	0
+	BPL	10$		;	+
+	DEC	(SP)		;INDICATE NUMBER NEGATIVE
+	NEGF	AC0		;ABS NUMBER
+	STF	AC0,AC1		;NORMALIZE NUMBER IN AC1
+10$:	STF	AC1,-(SP)	;LOOK AT HIGH WORD TO NORMALIZE
+	MOV	(SP)+,R0	;USE HIGH WORD IN LINEAR APPROX TO 10^X
+	.if df DOUBLE
+	ADD	#6,SP		;05
+	.iff
+	TST	(SP)+
+	.endc
+	SUB	#104.,R0	;EXPON = (HIGH WORD-104)*154./2^16
+	BGE	20$
+	CLR	R0		;	BOY IS THIS A SMALL NUMBER
+20$:	MUL	#154.,R0	;THIS IS JUST LIKE A LOG ISN'T IT!
+	SUB	#38.,R0		;NORMALIZE BETWEEN -38 AND +38
+	MOV	R0,R1		;NOW NORMALIZE ORIGINAL NUMBER TO BE <1.0
+	ASH	#3,R1							;04	
+	BLE	30$
+	DIVF	$$TENS(R1),AC1	;SCALE DOWN
+	BR	35$
+30$:	NEG	R1
+	MULF	$$TENS(R1),AC1	;SCALE UP
+35$:	CMPF	#1.0,AC1	;STILL NOT NORMALIZED?
+	CFCC
+	BGT	40$		;	AOK
+	DIVF	#10.0,AC1	;WE BLEW IT, BUT THIS WILL FIX IT UP
+	INC	R0
+40$:	POP	<R1>		;RETURN SIGN INDICATOR
+	RETURN
+
+;END OF SUBROUTINES
+
+;DATA AREA
+
+	.psect	c$mwcn,d,ro						;08
+
+TENTH:	.FLT4	1E-1
+
+.END  ; End of $$DTOA

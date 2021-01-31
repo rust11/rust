@@ -1,0 +1,28 @@
+.title	ccccl - get initial command
+.include "lib:crt.mac"
+$jbdef
+
+;	cc_ccl - get initial command
+;
+;	cc_ccl (void) * char
+;
+;	Result is number of characters; 0 => no CCL command
+;
+;	Must be called early to avoid stack overwrite
+
+	.psect	c$code,i,ro
+cc.ccl::tstb	j$bcct		; point to count
+	beq	10$		; nothing to get
+	sub	#84.,sp		;
+	mov	sp,r1
+	.gtlin	#0,r1		; eat up command
+	add	#84.,sp		;
+10$:	movb	j$bcct,r1	; get it again
+	clrb	j$bcct		; once only
+	clrb	j$bcst(r1)	; terminate string
+	mov	#j$bcst,r0	; return pointer
+	return
+
+.end
+	
+

@@ -1,0 +1,42 @@
+.title	fisiz - get file length by spec
+.include "lib:crt.mac"
+fbdef$
+smini$
+ccstr$
+f$isiz:	.asciz	/r/
+	.even
+cccod$
+
+code	fi_siz (spc) size
+
+  proc	fi.siz	<r4>
+	p1	spc
+	call	fi.opn spc(sp), #f$isiz, 0
+	clr	r1		; for long 0 error result
+	beqw	r0,10$		; failed
+	psh	fb.len(r0)	; save length
+	call	fi.clo r4, #0	; close file
+	pop	r1		; * 512 (see filen)
+	clr	r0		; r0=00000000 00000000 r1=hhhhhhhh llllllll
+	swab	r1		; r0=00000000 00000000 r1=llllllll hhhhhhhh
+	bisb	r1,r0		; r0=00000000 hhhhhhhh r1=llllllll hhhhhhhh
+	clrb	r1		; r0=00000000 hhhhhhhh r1=llllllll 00000000
+	asl	r1		; r0=00000000 hhhhhhhh r1=lllllll0 00000000
+	rol	r0		; r0=0000000h hhhhhhhl r1=lllllll0 00000000
+10$:
+  end
+
+.end
+end file
+code	fi_siz (spc, msg) size
+
+  proc	fi.siz
+	p1	spc
+	p2	msg
+	call	fi.opn spc(sp), #f$isiz, #0
+	beqw	r0,10$
+	psh	fb.len(r0)
+	call	fi.clo r0, #0
+	pop	r0
+10$:
+  end
