@@ -1,0 +1,575 @@
+.title	KPTER	Terminal input
+.include "kps:kpmac.mac"
+.include "kps:kpkey.mac"
+aldef$
+set	csi. 155
+set	ss3. 143
+
+;	TT$LIN prm	Get line with prompt
+;	TT$CHA		Get character
+
+;	Immediate keys:
+;
+;		up	up line
+;		down	down line
+;		left	left character
+;		right	right character
+;
+;		delete	delete previous character
+;		ctrl/u	delete to start of line
+;		ctrl/w	repaint screen
+;		ctrl/z	return to system
+;
+code	TT$LIN	Line input
+
+;	tt$lin	prm
+;
+;	prm	prompt (asciz)
+;
+;
+;	In	r0 ->		dot
+;		r1		
+;		r4 ->		input plex
+;
+;	Out	r0		dot - updated perhaps
+;		r1		terminator
+;		r4 ->		first byte of data in line
+;		r5		byte count
+;
+;	Lines terminate with:
+;
+;	xxNL.	Newline
+;	xxFB.	FindBackward
+;	xxFF.	FindForward
+;	xxERR.	Error
+
+  proc	tt$lin	<r2,r3>
+	p1	lin			;-1 to get count
+	p2	prm,r2			;result line pointer
+;	p3	dat
+	mov	#l$icmd,r4		;point to the buffer
+	inc	c$oact			;command active
+	mov	r4,t$tnxt		;setup initial pointer
+	mov	r4,r5			;r5 -> data
+	clr	r3			;prompt count
+	whileb	(r2) ne			;got more
+		inc	r3		;count it
+	...	movb	(r2)+,(r5)+	;store it
+	clrb	(r5)			;terminate it
+	mov	r3,li.cnt(r4)		;r4 -> count 
+					;
+	mov	r4,t$tplx		;display needs plex
+	assume	li.cnt eq -int.		;
+	tst	-(r4)			;backup to count
+					;
+;	mov	dat(sp),r2		;initial data
+;	if	ne			;has initial data
+;		whileb (r2) ne		;move in initial data
+;		     movb (r2)+,(r5)+	;
+;		...  inc  (r4)		;
+;	...	clrb (r5)		;reterminate
+
+;	clr	t$tter			;assume not terminated
+;	call	tt$lst			;get any last line
+
+;	Major loop
+
+    repeat				;main loop
+	inc	d$ilin			;update line
+	clrb	(r5)			;terminate line
+	call	tt$cha	#0		;get character
+	call	ch$abt			;
+	if	cs			;command abort
+		mov	r3,(r4)		;reset base count
+		mov	r3,r5		;
+		add	r4,r5		;
+		add	#2,r5		;
+		clr	r0		;no terminator
+	...	leave
+
+	if	r0 eq #vfrub.!vfmsk$	;got a rubout
+	  if	(r4) gt r3		;something to delete
+		dec	(r4)		;count down
+	  ...	dec	r5		;backup pointer
+	...	next			;and do it again
+					;
+	if	r0 eq #ctrlu.		;delete line
+		mov	r3,(r4)		;reset base count
+		mov	r3,r5		;
+		add	r4,r5		;
+		add	#2,r5		;
+	...	next			;and do it again
+
+	if	lin(sp) eq #-1		;count
+		if	r0 lt #dig0.
+		or	r0 hi #dig9.
+			mov	r0,t$tpsh ; save it
+	...	...	leave		; we're done
+
+.if eq new$c
+	next	if r0 eq #cr.		;skip newline
+.endc
+	leave	if r0 eq #lf.		;end of it
+.if ne wrd$c
+	leave	if r0 mi		;
+.iff
+	leave	ifb r0 mi		;
+.endc
+					
+	mov	(r4),r2			;get length
+	sub	r3,r2			;
+	if	r2 hi li.max-li.cnt(r4)	;too many characters
+	...	next			;do the next
+					;
+	movb	r0,(r5)+		;store the character
+	clrb	(r5)			;terminate the line
+	inc	(r4)			;count the character
+    end					;input loop
+	mov	r0,r1			;return terminator
+
+;	Common exit code
+
+	sub	r3,(r4)			;fixup count
+	mov	(r4),r5			;result count
+	clr	(r4)+			;which we don't need anymore
+	add	r4,r3			;
+	mov	lin(sp),r2		;
+	if	r2 eq #-1		;count
+		clr	r5		;
+		whileb	(r3) ne
+			asl	r5	
+			psh	r5	
+			asl	r5	
+			asl	r5	
+			add	(sp)+,r5
+			movb	(r3)+,r2
+			sub	#dig0.,r2
+			add	r2,r5
+		end
+	else
+		repeat			;
+			movb (r3)+,(r2)+;squeeze out count
+		until	eq		;
+	end
+	pshs	<r5,r4,r1>
+	call	di$lin			;clear the display line
+	clr	c$oact			;
+	call	ch$abt			;retest abort
+	pops	<r1,r4,r5>
+	mov	p$odot,r0		;return dot
+  end					;r5 = byte count
+code	TT$CHA	Get terminal character
+
+;	p1 = -1		push response
+;	p1 = 0		don't follow up gold
+;	p2 = 1		do gold sequences, and push gold digit
+;
+;
+;	Out		next terminal character
+;
+;	t$tcas		Upper case conversion
+;
+;	get a character, update screen if none available
+;	in on-screen mode the update has already been done
+
+  proc	tt$cha
+	p1	opr
+     repeat
+	if	t$tpsh ne			;got one
+		mov	t$tpsh,r0		;
+		clr	t$tpsh			;
+	else					;
+	...	call	tt$nxt #0		;get the next
+	call	ch$abt
+	exit	if cs
+	if	opr(sp) eq #-1
+		mov	r0,t$tpsh
+	...	exit
+
+	if	r0 ne #vfgld.!vfmsk$		;gold key
+	...	exit				;
+
+	if	opr(sp) eq			;no gold key sequences
+	...	exit
+
+	call	tt$nxt #1			;get the next
+	if	r0 his #lowa.			;lower a
+	and	r0 los #lowz.			;lower z
+	...	sub	#lowa.-upra.,r0		;convert it
+	if	r0 his #upra.			;lower a
+	and	r0 los #uprz.			;lower z
+	   	sub	#upra.,r0		;convert it
+		add	#vkla.,r0		;
+	...	call	tt$fun #1		;
+	if	r0 his #dig0.
+	and	r0 los #dig9.
+		mov	r0,t$tpsh		;save it
+	...	mov	#vfcnt.!vfmsk$,r0	;pickup a count
+.if ne wrd$c
+	if	r0 pl				;not gold
+.iff
+	ifb	r0 pl				;not gold
+.endc 
+; error
+	...	next
+    endless
+  end
+
+	auto	mod				;wait mod
+  proc	tt$nxt
+	p1	gld
+
+	clr	(sp)				;do not wait first time
+	repeat					;ctrl/w
+		call	rt$ipt	(sp)		;get single character
+		call	ch$abt			;check aborts
+		exit	if cs			;command abort
+
+;	Nothing available on first time
+
+		if	r0 eq			;nothing doing
+			inc	(sp)		;once only
+			next	if #ttons$ seton t$tmod  ;on-screen mode
+			call	di$upd		;update screen
+		...	next			;go again
+
+.if ne new$c
+		next 	if r0 eq #cr.		;ignore return
+.endc
+						;
+		if	r0 eq #esc.		;escape
+		 or	r0 eq #csi.		;csi
+		 or	r0 eq #ss3.		;ss3
+			call	tt$esc gld(sp)	;handle the escape
+			next	if r0 eq	;
+		...	exit			;
+
+;	Convert to upper case if required
+
+;V4		if	t$tcas ne		;upper case
+;V4		 and	r0 his #lowa.		;lower a
+;V4		 and	r0 los #lowz.		;lower z
+;V4		 ...	sub	#lowa.-upra.,r0	;convert it
+
+		if	r0 lt #32		;control
+		and	r0 ne #lf.		;
+			call	tt$fun gld(sp)	;
+		   	next if r0 eq		;
+		...	exit			;
+		if	r0 eq #del.		;
+			mov	#vkrub.,r0	;
+			call	tt$fun gld(sp)	;
+		   	next if r0 eq		;
+		...	exit			;
+
+;	ISO character set replacement
+
+.if ne 0
+	ifb	r0 mi				;in the high range
+	 and	#bit0$ seton v$acvt		;and converting input
+		movbi	r0,r0			;zero extend it
+	...	movb	i$sipt-128(r0),r0	;get input replacement
+.endc
+	endless
+  end
+
+  proc	tt$fun
+	p1	gld
+	movb	r0,r0
+	asl	r0
+	add	gld(sp),r0
+	movb	v$kmap(r0),r0
+	bic	#^c255,r0
+.if ne wrd$c
+	bis	#vfmsk$,r0
+.endc
+  end
+
+  subr	tt$get
+	call	rt$ipt	#1
+  end
+code	TT$ESC	Escapes
+
+;	In	p1 		dot
+;
+;	Out	r0		new dot
+;
+;	Note	Invalid escape sequences are ignored
+;
+;		up	down	left	right
+;		-a	a	-j	j
+;
+;	gold	up	down	left	right
+;		b	e	-a	t
+
+	.enabl	lsb
+  proc	tt$esc	<r2,r3,r4>		;mod,num
+	p1	gld
+	mov	#t$tesc,r4		;assume that
+	ifb	r0 eq #csi.		;
+	...	br	20$		;
+	ifb	r0 eq #ss3.		;
+	...	br	10$		;
+	call	tt$get			;get another character
+	ifb	r0 eq #'?		;VT52 SS3
+	...	br	10$
+	ifb	r0 eq #lsqua.		;(esc)([) => CSI
+	...	br	20$		;csi
+	ifb	r0 eq #upro.		;ss3
+10$:		mov	#t$tss3,r4	;ss3 list
+		call	tt$get		;
+	...	br	40$		;
+	br	50$			;escape sequence
+
+;	CSI dig [dig] ~
+
+20$:	call	tt$cha			;get the first
+	cmp	r0,#'A			;cursor control?
+	bhis	40$			;yes
+	clr	r1			;
+30$:	sub	#'0,r0			;form the digit
+	cmp	r0,#9.			;too high?
+	bhi	50$			;
+	asl	r1			;
+	psh	r1			;
+	asl	r1			;
+	asl	r1			;
+	add	(sp)+,r1		;
+	add	r0,r1			;
+	call	tt$get			;get another
+	cmpb	r0,#'~			;end of numeric sequence?
+	bne	30$			;no
+	mov	r1,r0			;
+	mov	#t$tcsi,r4		;
+					;
+40$:	repeat				;search it
+		leave	ifb r0 eq (r4)	;got the character
+		add	#esgam.,r4	;next entry
+		next	ifb (r4) ne	;more
+50$:		clr	r0		;failure
+	...	exit			;it will be ignored
+					;
+	movb	es.key(r4),r0		;get the virtual key code
+	call	tt$fun gld(sp)		;map it
+  end
+	.dsabl	lsb
+
+;	Escape sequence interpretation
+;
+;		code	key
+
+  label t$tss3
+	.int	lowp.	vkkp0.
+	.int	lowq.	vkkp1.
+	.int	lowr.	vkkp2.
+	.int	lows.	vkkp3.
+	.int	lowt.	vkkp4.
+	.int	lowu.	vkkp5.
+	.int	lowv.	vkkp6.
+	.int	loww.	vkkp7.
+	.int	lowx.	vkkp8.
+	.int	lowy.	vkkp9.
+	.int	lowm.	vkmin.
+	.int	lowl.	vkcom.
+	.int	lown.	vkdot.
+	.int	uprm.	vkent.
+	.int	uprp.	vkpf1.
+	.int	uprq.	vkpf2.
+	.int	uprr.	vkpf3.
+	.int	uprs.	vkpf4.
+;	fall into escape table
+  label	t$tesc
+	.int	upra.	vkcup.	; up
+	.int	uprb.	vkcdn.	; down
+	.int	uprc.	vkcrt.	; right
+	.int	uprd.	vkclf.	; left
+	.int	0
+
+  label	t$tcsi
+	.int	1	vkfnd.	; find	
+	.int	2	vkins.	; insert here	
+	.int	3	vkrem.	; remove
+	.int	4	vksel.	; select
+	.int	5	vkprv.	; prev screen
+	.int	6	vknxt.	; next screen
+	.int	17	vkf6.	; F6
+	.int	18	vkf7.	; F7
+	.int	19	vkf8.	; F8
+	.int	20	vkf9.	; F9
+	.int	21	vkf10.	; F10
+	.int	23	vkf11.	; F11
+	.int	24	vkf12.	; F12
+	.int	25	vkf13.	; F13
+	.int	26	vkf14.	; F14
+	.int	28	vkhlp.	; Help
+	.int	29	vkdo.	; Do
+	.int	31	vkf17.	; F17
+	.int	32	vkf18.	; F18
+	.int	33	vkf19.	; F19
+	.int	34	vkf20.	; F20
+	.int	0
+
+.end
+
+	mov	es.mod(r4),r2			;command mode
+	mov	es.cnt(r4),r3			;command count
+	mov	p$odot,r0			;setup our dot
+	mov	r0,r1				;twice
+	call	@es.rou(r4) r1,r2,r3		;do whatever
+	mov	r1,p$odot			;restore dot
+						;
+;	inc	s$csam				;we have changed nothing
+	inc	d$iwin				;flag window update
+;	call	di$upd				;update window
+;	clr	s$csam				;reset flag
+;??
+	mov	p$odot,r0			;get back dot
+	mov	r0,r1				;return it in r1 too
+code	TT$LIN	Get new input line
+
+  proc	tt$lin
+	p1	prm,r3			;result line pointer
+	mov	#l$icmd,r4		;point to the buffer
+	mov	r4,t$tnxt		;setup initial pointer
+	if	v$apos ne		;update now
+		inc	d$iwin		;set the flag
+		call	di$upd		;display it
+	end				;
+	mov	r4,r5			;r5 -> data
+	clr	li.cnt(r4)		;r4 -> count 
+10$:	inc	li.cnt(r4)
+	movb	(r3)+,(r5)+
+	bne	10$
+	dec	r5
+	dec	li.cnt(r4)
+	call	tt$gen			;generic input
+  end
+.if ne 0
+code	TT$DCH	Delete character
+
+  subr	tt$dch
+	ifb	t$tmod gt			;immediate mode
+	 and	c$mctx ne			;and text mode
+		call	de$ons			;delete on-screen
+	...	exit				;done
+
+	exit	if (r4) eq			;nothing to delete
+	dec	(r4)				;count down
+	dec	r5				;backup pointer
+  end
+
+code	TT$DLN	Delete line
+
+  subr	tt$dln
+	sub	(r4),r5				;backup pointer
+	clr	(r4)				;no characters
+  end
+
+.endc
+code	CT$INP	Count input
+
+;	Accumulate typing statistics
+;
+;	Thousands of input characters
+;	Average correction rate
+
+;V4  subr	ct$inp
+;V4
+;V4	inc	c$tinp			;count it
+;V4	if	c$tinp his #1000.	;overflow
+;V4bug		inc	v$aT		;count thousands
+;V4		sub	#1000.,c$tinp	;adjust it
+;V4		add	c$tcor,v$aK	;count corrections
+;V4		asr$	1,v$aK		; per thousand
+;V4	...	clr	c$tcor		;start again
+;V4  end
+.if ne 0
+code	TT$MOR	Get more input
+
+;	Called by end of line in in-line command stream
+
+;V4  subr	tt$mor
+;V4	call	tt$app
+;V4	tran	ed$mor			;continue processing
+;V4  endless
+
+code	TT$APP	Append more input
+
+;	Out	t$tnxt ->	points to next input byte
+
+  subr	tt$app	all
+	mov	#l$icmd,r4		;command line
+	addi3	li.cnt(r4),r4,r5	;point to the last
+	mov	r5,t$tnxt		;nxtbyt
+	call	tt$gen			;generic input
+  end
+.endc
+
+.if ne 0
+page	Terminal input front-ends
+
+code	TT$NXT	Get next character
+
+;	Out	r4		next character (integer), lowercase if alpha
+;;V4		r5		uppercase if alpha (integer)
+;;V4			0	not alpha
+;
+;	Get next input character
+;	Pull in more terminal data if necessary
+
+  subr	tt$nxt
+	repeat					;get data
+		movbi	@t$tnxt,r4		;get a byte
+		leave	if ne			;got one
+		call	tt$app			;append more
+	end					;
+	inc	t$tnxt				;skip it
+;V4	mov	r4,r5				;get it in r5
+;V4	if	r5 his #lowa.			;lowercase
+;V4	 andb	r5 los #lowz.			;
+;V4		sub	#lowa.-upra.,r5		;make upper
+;V4	elsifb	r4 his #upra.			;check upper case
+;V4	 andb	r4 los #uprz.			;
+;V4		sub	#upra.-lowa.,r4		;make lower
+;V4	else					;
+;V4	...	clr	r5			;not alpha
+  end
+
+code	TT$ALP	Get next alpha
+
+  subr	tt$alp					;get alpha
+	call	tt$nxt				;get next
+	if	r5 eq				;oops
+	...	error				;
+  end
+
+.endc
+;???	move to line module
+code	TT$LST	Get last line
+
+;	Move last line into buffer
+;	Remove cr/lf
+;	Line feed flag not set
+
+  subr	tt$lst	<r2>
+;	In	r4 ->			;character count
+;		r5 ->			;next character
+
+	exit	if t$tlst eq		;no last line needed
+	clr	t$tlst			;once only
+					;
+	mova	s$vcmd,r2		;get the command
+	repeat				;move in the line
+		movb	(r2)+,(r5)	;get the next
+		leave	if eq		;that was it
+		leave	ifb (r5) eq #cr.;
+		leave	ifb (r5) eq #lf.;
+		inc	(r4)		;count it
+		inc	r5		;skip it
+	end				;
+	clrb	(r5)			;terminate it
+	call	di$all			;and update the lot
+  end
+
+.end
+

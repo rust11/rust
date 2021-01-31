@@ -1,0 +1,394 @@
+.title	KPGRA	Graphic support
+.include "kps:kpmac.mac"
+aldef$
+
+;	Graphic support is handled in a number of stages
+;
+;	Function keys	Insert graphic control sequences
+;
+;	Text		Graphic control sequences are inserted
+;
+;			~	replacement sequences
+;			{	begin graphic sequence
+;			}	end graphic sequence
+;
+;	Display 	Convert replacement characters to final character
+;			Convert graphic sequences to inline font information
+;			Insert duplicate line for double high characters
+;
+;	Screen		An alternate screen replace routine is used
+;			Maintain information about current font
+;			Change font when appropriate
+;			Convert tabs to spaces as necessary
+;			Screen updates handled by hardware module
+;
+;	Hardware	Hardware adaptor is responsible for actual changes
+;
+;			VT$FNT	font/attributes
+;			VT$BOX	lines, boxes and shading
+;			VT$EOL	end-of-line processing
+page	keys
+
+;	Keypad	
+;
+;	skp gra		skip past next graphic
+;	nxt gra		move to next graphic
+;	prv gra		move to previous graphic
+;	del gra		delete graphic
+; gold	del gra		delete graphic start and end
+;
+;	ovr/ins		overstrike/insert switch
+;	gra/cha		graphic/character mode switch
+;
+;	start		gold
+;	end		yellow
+;	delete		blue
+;
+;	und		underline
+;	sha		shade
+;	rev		reverse
+;
+;	bol		bold
+;	hea		header
+;	tit		title
+;
+;	gilt		gilt box
+;	opaq		opaque box
+;	wind		window box
+;
+;	ter		terminate nearest unterminated sequence
+; gold	unt		unterminate
+;
+;	nor		normal - terminal fonts/shading
+;
+;			pf1	pf2	pf3	pf4
+;			gold		ovr/ins	blue
+;
+;			7	8	9	-
+;			under	shade	revers	
+;			clrund	clrsha	clrrev
+;
+;			4	5	6	,
+;			bold	header	title	normal
+;
+;			1	2	3	enter
+;			window	opaque	gilt	finish
+;
+;			0		.
+;			skip		start
+;			direction	cancel	delete
+page	escape sequences
+
+;	f	foot
+;	z	setup line
+;		Compression=n, Section=n, Page=n
+;	d	default (initially printer)
+;		Proportional=n
+;		newpage, newchapter
+;		leftpage, rightpage, blankpage
+;		toppage sequence
+;		endpage sequence
+;		index, contents, footnote
+;
+;		{	a	bold	c	default	e	footnote
+;		  }	all	b	c	d	e	font
+;		{	A	B	C	D	E	F
+;		  }	A	B	C	D	E	F
+;
+;		{	g	header	italic	j	k	light*
+;		  }	g	h	i	j	k	l
+;		{	Gilt	H	Indent	J	K	L
+;		  }	G	H	I	J	K	L
+;
+;		{	medium	n	o	printer	q	r
+;		  }	m	n	o	p	q	r
+;		{	M	N	Opaque	P	Q	R
+;		  }	M	N	O	P	Q	R
+;
+;		{	s	title	u	v	w	x
+;		  }	s	t	u	v	w	x
+;		{	S	Title2	U	V	Window	Xline
+;		  }	S	T	U	V	W	Xline
+;
+;		{	y	zetup
+;		  }	y	z
+;		{	Ypage	Z
+;		  }	Ypage	Z
+;
+;	Fonts		bold	foot	header	light*	medium	printer	title
+;	Attributes	reverse	shaded	under
+;	Boxes		gilt	line	opaque	window
+;	Default		font
+;
+;	Zetup	s..s	Virtual column start-end
+;		r..r	Publish left margin
+;		u..u	Editor page width
+;
+;	Mixed	
+;		begin
+;			A	B	Chanum	D	E	F
+;			G	H	I	J	K	L
+;			M	N	O	Pagnum	Q	R
+;			S	T	U	V	W	Xsiz
+;			Ysiz	Z
+;		end
+;			A	B	Chanew	D	E	F
+;			G	H	I	J	K	L
+;			M	N	O	Pagout	Q	R
+;			S	T	U	V	W	Xpos
+;			Ypos	Z
+page	lines
+
+;
+;    	l-    -w-     -k	  -q-
+;    	|      |       |
+;
+;	|      |       |	   |
+;       t-    -n-     -u	   x
+;	|      |       |	   |
+;
+;    	!      |       |
+;       m-    -v-     -j	  -q-
+;
+;		   }w
+; {W	l-   -q-   -k
+; {w    x	    x
+; }W	m-   -q-   -j
+;
+data	Graphic control
+
+	table	g$rrou
+	pointer	<>	0			;null entry for tests
+	pointer	g$rsft	gr$sft			;set font
+	pointer	g$rsat	gr$sat			;set attributes
+	pointer	g$rcat	gr$cat			;clear attributes
+	pointer	g$rsah	gr$sah			;set attribute high
+	pointer	g$rcah	gr$cah			;clear attribute high
+	pointer	g$rnop	gr$nop			;nothing special
+
+	array	g$rval	52*2	byte.		;value array
+	array	g$ract	52*2	byte.		;act array
+	overlay
+
+	.macro	grlow$	let	srou	sval	crou	cval
+	.iif nb <srou>,	grent$	low'let'. lowa. 0  srou sval
+	.iif nb <crou>,	grent$	low'let'. lowa. 52 crou cval
+	.endm
+	.macro	grupr$	let	srou	sval	crou	cval
+	.iif nb <srou>,	grent$	upr'let'. upra. 26 srou sval
+	.iif nb <crou>,	grent$	upr'let'. upra. 78 crou cval
+	.endm
+
+	.macro	grent$	let bas off rou val=0
+		.=g$ract+let-bas+off
+			.byte	rou-g$rrou/addr.	;routine offset
+		.=g$rval+let-bas+off
+			.byte	val
+	.endm
+
+;		let	sact	sval		cact	cval
+	grlow$	b	g$rsft	fnbol.		g$rsft	
+	grlow$	d	g$rsft	fnprt.		g$rsft	
+;	grlow$	d	g$rsde	0		g$rcde
+	grlow$	f	g$rsft	fnfoo.		g$rsft
+	grlow$	h	g$rsft	fnhea.		g$rsft
+	grlow$	i	g$rsft	fnita.		g$rsft
+	grlow$	m	g$rsft	fnmed.		g$rsft
+	grlow$	p	g$rsft	fnprt.		g$rsft
+	grlow$	r	g$rsat	fnrev$		g$rcat	fnrev$
+	grlow$	s	g$rsat	fnsha$		g$rcat	fnsha$
+	grlow$	t	g$rsft	fntit.		g$rsft
+;	grupr$	T	g$rsft	fnti2.		g$rsft
+	grlow$	u	g$rsat	fnund$		g$rcat	fnund$
+
+	grupr$	G	g$rsat	fngib$		g$rsat	fngie$
+	grlow$	g	g$rsat	fngil$		g$rcat	fngil$!fngib$!fngie$
+	grupr$	O	g$rsah	fnopb$/256	g$rsah	fnope$/256
+	grlow$	o	g$rsah	fnopa$/256	g$rcah	fnopa$!fnopb$!fnope$/256
+	grupr$	W	g$rsah	fnwib$/256	g$rsah	fnwie$/256
+	grlow$	w	g$rsah	fnwin$/256	g$rcah	fnwin$!fnwib$!fnwie$/256
+
+	grupr$	I	g$rnop	
+	grlow$	z	g$rnop
+	align	end
+.if ne 0
+code	GR$REP	Replace character
+
+;	In	r0		prototype
+;
+;	Local	r1		table
+;
+;	Out	r0		replacement character
+;			0	if none found
+
+  subr 	gr$rep	r1
+
+	ifb	r0 los #space.		;controls not replaced
+		clr	r0		;not found
+	...	exit			;
+					;
+	mova	g$rrep,r1		;replacement table
+	repeat				;find entry
+		leave	ifb (r1)+ eq r0 ;found it
+		inc	r1		;skip replacement
+		next	ifb (r1) ne	;more to come
+		clr	r0		;forget it
+		exit			;
+	endless				;
+	movbi	(r1),r0			;return replacement
+  end					;
+
+data	G$RREP	Replacement characters
+
+	.macro	grrep$	let rep
+		.byte	let,rep
+	.endm
+
+	table	g$rrep
+		grrep$	uprA.	196		;A	~A
+		grrep$	uprE.	203		;E	~E
+		grrep$	uprO.	214		;O	~O
+		grrep$	uprU.	220		;U	~U
+		grrep$	uprs.	223		;S	~S
+		grrep$	lowA.	228		;a	~a
+		grrep$	lowE.	235		;e	~e
+		grrep$	lowO.	246		;o	~o
+		grrep$	lowU.	252		;u	~u
+		grrep$	lows.	223		;s	~s
+						;
+		grrep$	xclam.	161		;!	~!
+		grrep$	lowc.	162		;c	~c
+		grrep$	uprL.	163		;L	~L
+		grrep$	uprY.	165		;Y	~Y
+		grrep$	perct.	167		;%	~%
+		grrep$	atsgn.	168		;@	~@
+		grrep$	uprC.	169		;C	~C
+		grrep$	langl.	171		;<	~<
+		grrep$	astrx.	176		;*	~*
+		grrep$	plus.	177		;+	~+
+		grrep$	dig2.	178		;2	~2
+		grrep$	dig3.	179		;3	~3
+		grrep$	lowm.	181		;m	~m
+		grrep$	uprP.	182		;P	~P
+;		grrep$	dot.	183		;.	~.
+		grrep$	dig1.	185		;1	~1
+		grrep$	rangl.	187		;>	~>
+		grrep$	dig4.	188		;4	~4
+		grrep$	dig5.	189		;5	~5
+		grrep$	qmark.	191		;?	~?
+						;
+		grrep$	tilda.	tilda.		;~	~~
+		grrep$	lsqig.	lsqig.		;{	~{
+		grrep$	rsqig.	rsqig.		;}	~}
+		.byte	0			;
+		align
+
+.endc
+.if eq 0
+code	GR$SEQ	Convert sequence to escape 
+
+;	In	r0		prefix
+;		p1		pointer to second character
+;		r3		see di$put
+;		r5		see di$put
+;
+;	Out	r0		escape code
+;			0	unrecognised
+;
+;	``	tick escape
+
+  proc	gr$seq <r1>
+	p1	cha,r1			;second character pointer
+    begin				;fail block
+	movbi	(r1),r0			;get the next
+	skip	ifb -(r1) eq r0		;same code - and backup
+	if	r0 his #lowa.		;lower case
+	 and	r0 los #lowz.		;
+		sub	#lowa.,r0	;
+	elsifb	r0 his #upra.		;uppercase
+	  and	r0 los #uprz.		;
+		sub	#upra.-26,r0	;
+	else				;neither
+	...	skip			;not in range
+					;
+	ifb	(r1) eq #rsqig.		;end sequence?
+	...	add	#26*2,r0	;yes
+	exit	ifb g$ract(r0) ne	;no such entry
+    end					;fail block
+	clr	r0			;forget it
+  end
+.endc
+
+.if ne 0
+  subr	gr$seq
+    begin				;fail block
+	movbi	(r2),r0			;get the next
+	skip	ifb -(r2) eq r0		;same code
+	if	r0 his #lowa.		;lower case
+	 and	r0 los #lowz.		;
+		sub	#lowa.,r0	;
+	elsifb	r0 his #upra.		;uppercase
+	  and	r0 los #uprz.		;
+		sub	#upra.-26,r0	;
+	else				;neither
+	...	skip			;not in range
+					;
+	ifb	(r2) eq #rsqig.		;end sequence?
+	...	add	#26*2,r0	;yes
+	leave	ifb g$ract(r0) eq	;no such entry
+	cmpb	(r2)+,(r2)+		;this is for real
+	exit				;
+    end					;fail block
+	clr	r0			;forget it
+  end
+
+.endc
+; should check range (for corrupt text files)
+code	GR$ACT	Graphic escape
+
+;	In	r0		escape code
+;
+;???	Check r0 limit
+
+  subr	gr$act	<r1>
+	movbi	r0,r0			;sign extend it
+	movbi	g$ract(r0),r1		;get action routine
+;beq 10$
+	movb	g$rval(r0),r0		;get value
+	asl$	addr$l,r1		;get the offset
+	call	@g$rrou(r1)		;do the task
+10$:
+  end
+
+subr	gr$sft				;set font
+...	movb	r0,s$cfnt		;setup screen font
+
+subr	gr$sat				;set attributes
+...	bisb	r0,s$catt		;
+
+subr	gr$cat				;clear attributes
+...	bicb	r0,s$catt		;
+
+subr	gr$sah				;set attributes high
+...	bisb	r0,s$catt+byte.		;
+
+subr	gr$cah				;clear attributes high
+...	bicb	r0,s$catt+byte.		;
+
+subr	gr$nop				;nop
+...					;
+
+.if ne 0
+subr	gr$sde				;set default
+	movb	s$cfnt,s$cdef		;setup default font
+join
+subr	gr$cde				;init default
+	movb	#fnprt.,s$cdef		;setup printer default
+join
+subr	gr$def				;use default
+meet
+...	movb	s$cdef,s$cfnt		;use default
+.endc
+
+.end
+

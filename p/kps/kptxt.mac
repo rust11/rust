@@ -1,0 +1,178 @@
+.title	KPTXT	Text input
+.include "kps:kpmac.mac"
+code	TI$INP	Text input
+
+;	;c	repeat last string
+;	@vc	use addressed string
+;	$vc	use string variable
+;	c(nl)	terminal input
+;	c]	terminal input
+;	c]]	in-line input
+;	c...]	in-line input
+;
+;	In	p1 ->		target line
+;
+;	Out	r0		dot - may have changed during terminal input
+;		r4 ->		line
+;		r5		byte count
+
+  proc	ti$inp	
+	p1	lin,r5				;result line
+;	inc	c$mctx				;text - not command
+						;
+    begin					;end of line
+
+;	Repeated string
+
+;V4	if	c$mand ne			;repeat it
+;V4		add	li.cnt(r5),r5		;point to last
+;V4	...	skip				;
+
+;	Buffer address
+
+;V4	mov	c$madr,r4			;got an addressed string
+;V4	if	ne				;copy it out
+;V4		mov	li.max(r5),r0		;get a counter
+;V4		repeat				;
+;V4			leave	if r4 hi p$otop	;too far
+;V4			leave	if r0 eq	;no space
+;V4			dec	r0		;count it
+;V4			movb	(r4),(r5)+	;store another
+;V4		untilb	(r4)+ eq #lf.		;
+;V4	...	skip				;
+
+;	String variable
+
+;V4	mov	c$mstr,r4			;got a variable?
+;V4	if	ne				;yes
+;V4		repeat				;
+;V4			movb	(r4)+,(r5)+	;move them out
+;V4		until	eq			;
+;V4		dec	r5			;backup one for count
+;V4	...	skip				;
+						;
+;	Try for terminal or in-line	
+
+	call	ti$ter				;get terminal input
+;V4	exit	if r0 ne			;got it from terminal
+;V4	call	ti$inl				;get inline string
+    end						;end of line
+
+;	End of line
+
+;V4	mov	#1,t$tter			;line was terminal
+;V4	clrb	(r5)				;a real stopper
+;V4	mov	lin(sp),r4			;start of line
+;V4	sub	r4,r5				;r5 is the length
+;V4	mov	r5,li.cnt(r4)			;return the count
+;V4	mov	p$odot,r0			;return updated dot
+  end
+code	TI$TER	Get terminal input
+
+;	Terminal string
+;
+;	Out	r0	0	In-line
+;		r0 -> dot	Terminal input done
+
+  subr	ti$ter
+	clr	r0				;assume inline
+;V4	mov	t$tnxt,r4			;command input
+;V4	ifb	(r4) eq #cr.			;terminal
+;V4	 orb	(r4) eq #lf.			;terminal
+;V4	else					;
+;V4		if	v$amod ne #200.		;VT100
+;V4		  exit	ifb (r4) ne #bslas. 	;\ - not terminal
+;V4		else				;
+;V4		  exit	ifb (r4) ne #rsqua.	;]
+;V4		  exit	ifb byte.(r4) eq #rsqua.;not ]]
+;V4		...				;
+;V4	...	inc	t$tnxt			;skip \ or ]
+	call	tt$lin	r5			;terminal input
+						;r0 = p$odot
+  end						;
+code	TI$INL	In-line string
+
+;	In-line string
+;
+;	In	r4 ->		source - t$tnxt
+;		r5 ->		destination
+;
+;	Out	t$tnxt		updated past source
+;		r5 ->		past last stored
+;
+;		vt100	vt200
+;	command	c\	c]
+;		c[cr]	c[cr]
+;		c[lf]	c[lf]
+;	eos	\	]
+;	literal	|	|
+;	(cr)	|<	|<	
+;	(lf)	|^	|^
+;	|	||	||
+;	\	|\	|\
+;	]	]	|]
+;	]	]]	]]
+;
+
+  subr	ti$inl
+.if ne 0
+    repeat
+	movb	(r4),(r5)			;move the next
+						;
+	ifb	(r4) eq #vbar.			;|
+		inc	r4			;skip bar
+		next	ifb (r4) lo #space.	;ignore non-printing
+	  ifb	(r4) eq #langl.			;<
+		movb	#cr.,(r5)		;< is return
+	  elsifb (r4) eq #hat.			;^
+		movb	#lf.,(r5)		;^ is linefeed
+	  else					;
+	  ...	movb	(r4),(r5)		;take anything else
+		inc	r4			;skip them
+		inc	r5			;
+	...	next				;
+
+;	lf 	r4 ->	lf to catch end of command
+;		r5 ->	null - linefeed removed
+
+	leave	ifb (r4) eq			;should not happen, but does
+	leave	ifb (r4) eq #lf.		;end of string - keep lf
+						;
+	ifb	(r4) eq #cr.			;cr
+		cmpb	(r4)+,(r5)+		;skip them
+		movb	(r4),(r5)+		;move in lf - but keep it too
+	...	leave				;done
+
+	ifb	v$amod ne #200.			;vt100
+		ifb	(r4) eq #bslas.		;vt100 terminator
+			inc	r4		;skip it
+		...	leave			;
+	else					;vt200
+		ifb	(r4) eq #rsqua.		;]
+		  andb	(r4)+ ne (r4)		;not ]]
+	...	  ...	leave			;so its the end
+						;
+	inc	r4				;skip input
+	inc	r5				;retain output
+    end						;next character repeat
+	mov	r4,t$tnxt			;reset pointer
+.endc
+  end
+code	TI$NUL	
+
+;	Check for null input string
+;
+;	Used by search and file commands to repeat previous.
+;	Insert does not use this case.
+
+  subr	ti$nul
+	exit	ifb t$tmod gt			;in-line mode
+;V4	exit	if c$madr ne			;got an address
+;V4	exit	if c$mstr ne			;got a string
+;V4	ifb	@t$tnxt eq			;no input
+;V4	 orb	@t$tnxt eq #cr.			;
+;V4	...	inc	c$mand			;repeat last spec
+  end
+
+.end
+

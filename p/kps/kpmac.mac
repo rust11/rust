@@ -1,0 +1,327 @@
+wrd$c=1		; functions are words, not bytes
+new$c=1		; new formatting
+.sbttl	kpmac
+.nlist
+.if lt 65535.	; PDP-11 
+.include "lib:rust.mac"
+.endc
+.library "lib:sm.mlb"
+smini$
+asdef$
+	nl. = lf.
+vax$	$fabdef
+vax$	$rabdef
+.macro	error
+	tran	ed$err
+.endm
+
+.macro	stub	lab
+lab::	
+.endm
+
+meta <npgbl$ nam=npgbl><.psect nam rw,d,gbl>
+meta <nplcl$ nam=nplcl><.psect nam rw,d,lcl>
+meta <nproo$ nam=nproo><.psect nam rw,i,gbl>
+meta <npcod$><.csect>
+
+
+form	BS	buffer sizes
+
+pdp$	set	bstxt.	8192.+int.	;text buffer
+pdp$	set	bspas.	4096.+int.	;paste buffer
+vax$	set	bstxt.	16384.+int.	;text buffer
+vax$	set	bspas.	16384.+int.	;paste buffer
+
+
+form	CM	command & set mode flags
+
+series	<>	bits			; r2 and s$tflg
+	..	cmmin$			;- - minus
+	..	cmall$			;/ - all
+	..	cmmrk$			;. - mark
+	..	cmcha$			;, - character mode
+	..	cmspa$			;  - space mode
+	..	cmpar$			;  - paragraph position
+	..	cmf00$			;
+	..	cmf01$			;
+
+	..	stexa$
+	..	stend$
+	..	stbnd$
+	..	sttab$
+	..	stwrp$
+	..	stpag$
+	..	stsec$
+	..	stqui$
+
+series	<>	bits			; s$tflx
+	..	st132$
+	..	stdrk$
+	..	stsel$
+	..	stret$
+
+;	c$mcla	command class
+
+;	set	cmpla.	0		;plain command
+	set	cmtck.	lowa.-upra.	;tick class command
+	set	cmbox.	128-upra.	;box class command
+
+form	PO	Position information
+
+series	<>	bits
+	..	pobot$			;bottom
+	..	posol$			;start of line
+	..	poeol$			;end of line
+	..	potop$			;top
+
+	polim$	= ^o100000		;limbo select position
+form	OP	Operations
+
+series	<>
+	..	opunk.	0
+	..	opfnd.	1
+	..	opsel.	2
+
+plex	BL	Block processing
+	counter	bl.cnt
+	 set	blmor$	1
+	 set	blfre$	0
+	 set	blpop$	-1
+	pointer	bl.ptr
+	gamut	blgam.
+plex	ES	Escape processing
+	aligned
+	char	es.cod		;escape code
+	char	es.key		;virtual key
+	gamut	esgam.
+plex	FB	File plex
+
+	set	fbbuf.	512		;512 byte buffer
+	set	fbrec.	134		;134 byte record
+	set	fbnam.	32		;32 character name
+					;
+	flags	fb.flg			;flags
+	value	fb.chn			;channel
+	pointer	fb.fnm			;pointer to filename spec
+	size	fb.len			;file size
+	size	fb.ebk	pos=fb.len 	;same thing
+	index	fb.ffb			;first free byte
+	class	fb.typ			;file format type
+					;
+	index	fb.blk			;next block
+	counter	fb.cnt			;buffer bytes in use
+	size	fb.siz			;buffer size
+	pointer	fb.buf			;buffer base address
+	pointer	fb.pnt			;next character pointer
+					;
+	address	fb.get			;address of get routine
+	address	fb.put			;address of put routine
+					;
+	state	fb.var	typ=byte.	;variable record state - see below
+	state	fb.odd	typ=byte.	;variable odd record size flag
+	size	fb.rsz	typ=word.	;variable record size
+					;
+vax$	text	fb.tnm	long.		;temp name for vax
+	text	fb.nam	fbnam.		;asciz file name
+pdp$	area	fb.spc	word.*4		;rt-11 file spec
+					;
+	index	fr.num			;next record number
+	counter	fr.cnt			;record bytes in use
+	size	fr.siz			;record allocated size
+	pointer	fr.buf			;record buffer address
+	pointer	fr.pnt			;next character pointer
+					;
+	pointer	fb.pad			;output padding routine
+					;
+vax$	area	fb.fab	fab$c_bln	;file access block
+vax$	area	fb.rab	fab$c_bln	;record access block
+	value	fb.ps0			;in/out file position
+	value	fb.ps1			;for save etc
+	value	fb.alc			;create allocation
+	gamut	fbgam.			;
+
+series	fb.sta	bits			;file states
+	..	fbopn$			;file is open
+	..	fbeof$			;end of file seen
+	..	fberr$			;i/o error seen
+	..	fbcre$			;file is being created
+	..	fbdev$			;file is device rather than file
+	..	fbunx$			;unix stream file
+	..	fbvar$	pos=8		;variable length file
+	..	fblng$			;long record seen
+	..	fball$			;pass all mode
+	..	fblck$			;file is locked
+	..	fbgra$			;graphic output file
+	..	fbque$			;query - no file open
+	..	fbstm$			;stream file
+	..	fbprg$			;purge, don't close
+					;
+series	fb.var				;variable record states
+	..	fbcnt.	0		;need count state
+	..	fbdat.	1		;data state
+	..	fbter.	2		;return linefeed next time
+
+.macro	file$	nam
+	label	nam
+pdp$	.blkb	fbgam.
+vax$	.blkb	fb.fab
+vax$	$fab
+vax$	$rab
+.endm
+form	FN	Font information
+
+;	Font and attribute encoding
+
+;	center	line
+;	justify	line
+;	title	loop	<...>\nl
+;	var	ring	<...>
+;	xxx	hide
+;	etc	join
+;
+;	table	[vis] loop	
+;	rule	[vis]
+
+;	header
+;	row
+;	column #width
+;	col vis		visible column
+;	colzer		zero width column
+
+	set	gresc.	255		;graphic escape
+					;9
+	 set	fmclo.	10.		;control low
+	 set	fmblo.	10.		;break low
+	 set	fmllo.	10.		;line low
+	set	fmnew.	10.	;lf/nl	;newline - lf
+	set	fmhor.	11.		;horizontal rule
+	 set	fmlhi.	11.		;line high
+	set	fmsfb.	12.		;soft break (doesn't end paragraph)
+	set	fmspb.	13.	;cr	;space-break - cr
+	 set	fmbhi.	13.		;break high
+	 set	fmchi.	13.		;control high
+					;21
+
+	set	fmflo.	128		;format low
+					;
+	 set	fmplo.	128.		;line prefix low
+	set	fmnum.	128.		;numbered
+	set	fmbul.	129.		;bullet
+	  set	fmilo.	130.		;indent low
+	set	fmidt.	130.		;indent
+	set	fmiln.	131.		;single indented line (dl dd)
+	  set	fmihi.	131.		;
+	 set	fmphi.	131.		;
+	 set	fmrlo.	132.		;rendition low
+	set	fmbon.	132.		;bold on
+	set	fmbof.	133.		;bold off
+	set	fmuon.	134.		;underline on
+	set	fmuof.	135.		;underline off
+	set	fmion.	136.		;italic on
+	set	fmiof.	137.		;italic off
+	set	fmpon.	138.		;preformatted on
+	set	fmpof.	139.		;preformatted off
+	 set	fmrhi.	139.		;
+
+;	fonts should go in rendition area
+;	  one of: default, proportional, fixed
+;	  one of: default, small, large
+	set	fmh1.	140.		;header 1
+	set	fmh2.	141.		;
+	set	fmh3.	142.		;
+	set	fmh4.	143.		;
+	set	fmh5.	144.		;
+	set	fmh6.	145.		;header 6
+					;14
+;	set	fmdtm			;definition term
+;	set	fmdds.			;definition description
+					;
+	set	fmfhi.	159		;format high
+
+;			160		; upper half
+
+	set	fmbol$	bit8$
+	set	fmund$	bit9$
+	set	fmita$	bit10$
+	set	fmbul$	bit11$
+	set	fmnum$	bit12$
+	set	fmpre$	bit13$		; pre should be bit11$
+	set	fmfee$	bit14$		; 
+	set	fmnew$	bit15$		; bit15$ sometimes other things
+
+series	<>
+	..	fndef.	0		;default
+	..	fnprt.	1		;printer
+	..	fnmed.	2		;medium
+	..	fnbol.	3		;bold
+	..	fnhea.	4		;header
+	..	fntit.	5		;title
+	..	fnfoo.	6		;footnote
+	..	fnita.	7		;italic
+;	..	fnti2.	8		;title2 - second line
+
+series	<>	bits
+	..	fngib$	pos=0		;begin gilt
+	..	fngil$	pos=1		;gilt intermediate
+	..	fngie$	pos=2		;gilt end
+;	..		pos=3		;free
+;	..		pos=4		;free
+	..	fnund$	pos=5		;underlined
+	..	fnsha$	pos=6		;shaded
+	..	fnrev$	pos=7		;reverse
+	..	fnwib$	pos=8		;window begin
+	..	fnwin$	pos=9		;window intermediate
+	..	fnwie$	pos=10		;window end
+	..	fnopb$	pos=11		;opaque (shaded)
+	..	fnopa$	pos=12		;opaque intermediate
+	..	fnope$	pos=13		;opaque end
+plex	LI	Line plex
+
+	value	li.trm	pos=-<int.*4>	;terminator
+	size	li.max			;maximum line size
+	pointer	li.end			;end address
+	pointer	li.sav	pos=li.end	;save line pointer
+	counter	li.cnt			;current line count
+	text	li.dat	132.		;line data
+	gamut	ligam.
+
+;	set	liprm.	12		;max prompt size
+;	set	liipt.	132		;max input
+;	set	litot.	liprm.+liipt.	;total buffer size
+
+	.macro	line$	nam sav=0 siz=124.
+		value	<>	0	;terminator
+		size	<>	siz	;line size
+		pointer	<>	sav	;save block pointer
+		counter	<>	0	;byte count
+		text	NAM	siz+4	;text area
+	.endm
+plex	SC	Screen control
+
+	value	sc.cod			;check code
+	counter	sc.cnt			;character count
+	set	sctxs.	132		;text size
+	set	scovs.	4+4+int.	;text overflow size
+	text	sc.dat	sctxs.+scovs.	;string data
+	gamut	scgam.
+
+
+pdp$	set	sclct.	24		;line count - maximum
+vax$	set	sclct.	48		;line count - maximum
+;	set	scsiz. sclct.-1		;on-screen size
+;	set	scwsz.	sclct.-1	;buffer window size
+	set	scwlc.	sclct.-1	;window line count
+	set	scwll.	sclct.-2	;window last line number
+	set	sccln.	sclct.-1	;command line number
+form	TT	Terminal states
+
+	set	ttlin$	0	;eq => line mode
+	set	ttons$	bit0$	;gt => on-screen mode
+	set	ttstr$	bit7$	;mi => string mode
+				;le => line/string mode
+form	CA	Case control
+
+set	calow. 	0
+set	caupr.	1
+set	caivt.	2
+.list

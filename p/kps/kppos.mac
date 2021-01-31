@@ -1,0 +1,555 @@
+.title	KPPOS	Position
+.include "kps:kpmac.mac"
+;code	PO$POS	Compute position
+
+;	In	edit environment
+;
+;	Out	r0		current position
+;		r1		target position
+
+  subr	po$cmd
+	call	po$pos
+	mov	r1,p$odot
+  end
+
+  subr	po$cmx
+	if	v$asel ne
+		call	po$sel
+	else
+	...	call	po$pos
+	mov	r1,p$odot
+  end
+
+  subr	po$pos
+	if	#cmmin$ seton r2		;got -1
+		mov	#-1,p$oadj		;setup adjust
+		mov	p$obot,p$oext		;
+	else					;
+		mov	#1,p$oadj		;
+	...	mov	p$otop,p$oext		;
+						;
+    begin					;adjust block
+	if	c$mspa ne			;whitespace operation
+	or	#cmspa$ seton r2		;
+		if	#cmmin$ setoff r2	;forward
+			call	po$swf		;space word forward
+		else				;
+		...	call	po$swb		;space word backward
+	...	skip				;align newline
+						;
+;V4	if	cmmrk$ seton r2			;.
+;V4		call	mk$cvt			;get the mark
+;V4		mov	(r3),r1			;get it
+;V4	...	skip				;
+						;
+	if	#cmall$ seton r2		;/
+		mov	p$otop,r1		;assume forward
+		skip	if #cmmin$ setoff r2	;right
+		mov	p$obot,r1		;-/
+	...	skip				;
+
+;	Plain advance or jump
+
+	if	c$mcha ne			;character mode
+	...	bis	#cmcha$,r2		;set that up
+	call	po$mov	r1,r2,r3		;move
+	clr	r3				;that cleared number
+	exit					;po$mov handled adjust
+    end						;adjust block
+	call	po$new	p$oadj			;adjust for newline
+  end
+
+code	PO$SEL - Position at select area
+
+  proc	po$sel
+	clr	r0				;assume no select area
+	if	v$asel eq
+	...	exit
+	mov	p$odot,r0			;
+	mov	m$ksel,r1			;
+	if	r0 hi r1			;
+		mov	r1,r0			;
+	...	mov	p$odot,r1		;
+  end
+code	PO$REP - report column position
+
+;	In	r1 	current position
+;
+;	Out	r0	column
+
+   proc	po$rep	<r1,r2>
+	mov	r1,r2
+	call	po$sol			; back to start of line
+.if ne new$c
+	call	wp$idt	r1
+.iff
+	clr	r0
+.endc
+	while	r1 ne p$otop
+	and	r1 ne r2
+		ifb	(r1) his #fmrlo.
+		andb	(r1) los #fmrhi.
+			inc	r1
+		...	next
+
+		inc	r0		;
+.if ne new$c
+		ifb	(r1) eq #fmbul.	;
+		orb	(r1) eq #fmidt.	;
+		...	add	#3,r0	;
+.endc
+		next ifb (r1)+ ne #ht.	;
+		add	#7,r0		;
+		bic	#7,r0		;
+	end
+  end
+
+code	PO$CUR - position cursor
+
+  proc	po$cur
+	p1	col
+	call	po$mov r1,r2,r3			; move
+	if	col(sp) ne #-1			;
+	...	call	po$col col(sp)		; position at column in line
+	mov	r1,p$odot			;
+  end
+
+code	PO$COL - position at column in line
+
+;	Assumes that column is currently lower than target
+;	Call with target=-1 to position at end of line
+;
+;	In	r1	current position
+;
+;	Out	r1	new position
+
+  proc	po$col	<r0,r2>
+	p1	col,r2			; target column
+.if ne new$c
+	call	wp$idt	r1		; get opening indent
+.iff
+	clr	r0			;
+.endc
+      while r1 ne p$otop		;
+.if ne new$c
+	leave	if r0 his r2		; at target
+	ifb	(r1) his #fmrlo.
+	andb	(r1) los #fmrhi.
+		inc	r1
+	...	next
+	ifb	(r1) eq #fmbul.		;
+	andb	(r1) eq #fmidt.		;
+		inc	r1		;
+		add	#4,r0		;
+	...	next			;
+;	leave	ifb (r1) eq #lf.	; at end of line
+	ifb	(r1) his #fmblo.
+	andb	(r1) los #fmbhi.
+	...	leave
+.iff	
+	leave	if r0 eq r2		; at target
+	leave	ifb (r1) eq #cr.	; at end of line
+.endc
+	inc	r0			;
+	next	ifb (r1)+ ne #ht.	;
+	leave	if r0 his #72		; too wide
+	add	#7,r0			;
+	bic	#7,r0			;
+      end
+	call	po$ren			; skip rendition opening
+  end
+
+code	PO$NEW	Newline
+
+;	Position outside newline and graphic sequences
+;
+;	r1 ->	current position
+
+  proc	po$new	<r0>
+	p1	adj				;adjustment (1 or -1)
+	whileb	(r1) his #fmplo.		;prefix follows
+	andb	(r1) los #fmphi.		;
+	and	r1 ne p$otop
+		add	adj(sp),r1
+	end
+	call	po$ren
+  end
+
+  proc	po$ren
+      repeat
+	ifb	(r1) his #fmrlo.	; rendition coming
+	andb	(r1) los #fmrhi.	;
+		ifb	#1 setoff (r1)	; even are openings
+		and	r1 lt p$otop	;
+			inc  r1		; step inside rendition
+	...	...	next		; 
+      endless
+  end
+code	PO$INF - get position information
+
+  subr	po$inf
+	clr	r0
+	if	r1 eq p$obot
+		bis	#pobot$,r0
+.if ne new$c
+	elsifb	-1(r1) his #fmblo.
+	andb	-1(r1) los #fmbhi.
+.iff
+	elsifb	-1(r1) eq #lf.
+	orb	-1(r1) eq #cr.
+.endc
+	...	bis	#posol$,r0
+	if	r1 eq p$otop
+		bis	#potop$,r0
+.if ne new$c
+	elsifb	(r1) his #fmblo.
+	andb	(r1) los #fmbhi.
+.iff
+	elsifb	(r1) eq #cr.
+	orb	(r1) eq #lf.
+.endc
+	...	bis	#poeol$,r0
+  end
+
+code	po$sol - position at start of line
+
+  subr	po$sol
+.if ne new$c
+	repeat
+		exit	if r1 eq p$obot
+	  	ifb	-1(r1) his #fmblo.
+	  	andb	-1(r1) los #fmbhi.
+		...	exit
+		dec	r1
+.iff
+	while	r1 ne p$obot
+	andb	-1(r1) ne #lf.
+		dec 	r1
+.endc
+	end
+  end
+
+code	po$sop - position at start of paragraph
+
+.if ne new$c
+  proc	po$sop
+	while	r1 hi p$obot
+	  leave	ifb -1(r1) eq #lf.
+	  leave	ifb -1(r1) eq #fmhor.
+	  dec	r1
+	end
+  end
+.endc
+
+code	po$eol - position at end of line
+
+  subr	po$eol
+.if ne new$c
+	repeat
+	  exit	if r1 eq p$otop
+	  ifb	(r1) his #fmblo.
+	  andb	(r1) los #fmbhi.
+	  ...	leave
+	  inc	r1
+	end
+.iff
+	while	r1 ne p$otop
+	andb	(r1) ne #cr.
+		inc 	r1
+	end
+.endc
+  end
+code	PO$MOV	Internal moves
+
+;	This routine can be handled with five lines of code.
+;	But, this little loop executes billions of times.
+;
+;	The default is one character or one line
+;
+;	Out	r1		new position
+
+  proc	po$mov	<r0,r2,r3,r4>
+	p1	dot,r1				;origin
+	p2	mod,r2				;mode
+	p3	cnt				;count
+	mov	p3(sp),r3			;get the count
+	if	eq				;is none
+	...	inc	r3			;force one
+	if	#cmmin$ setoff r2		;forwards
+		mov	p$otop,r4		;top ends it
+bigv		exit	if r1 eq r4		;all over
+		if	#cmcha$ seton r2	;character mode
+.if ne new$c
+			while	r1 lo r4
+			  ifb	(r1)+ his #fmflo.
+			  andb	-1(r1) los #fmfhi.
+			  ...	next
+			count	r3
+.iff
+			add	r3,r1		;compute end
+			if	r1 hi r4	;too far
+			...	mov	r4,r1	;replace with top
+
+.endc
+			call	po$new #1	;adjust it
+		...	exit			;done
+		while	r1 ne r4		;more to do
+.if ne new$c
+			movb	(r1)+,r0	;
+			ifb	r0 eq #lf. 	;a line
+			orb	r0 eq #fmhor.	;a line
+			elsif	#cmpar$ setoff r2
+			andb	r0 eq #cr.	;
+			else			;
+			...	next		;
+.iff
+			next	ifb (r1)+ ne #lf. ;
+.endc
+		count	r3			;get them all
+		exit				;
+	else					;backwards
+		mov	p$obot,r4		;bottom ends it
+		exit	if r1 eq r4		;all over
+		if	#cmcha$ seton r2	;character mode
+.if ne new$c
+			while	r1 hi r4
+			  ifb	-(r1) his #fmflo.
+			  andb	(r1) los #fmfhi.
+			  ...	next
+			count	r3
+.iff
+			sub	r3,r1		;compute end
+			if	r1 lo r4	;too far
+			...	mov	r4,r1	;replace with top
+.endc
+			call	po$new #-1	;adjust it
+		...	exit			;done
+
+		dec	r1			;first one back
+		while	r1 ne r4		;more to do
+.if ne new$c
+			movb	-1(r1),r0	;
+			ifb	r0 eq #lf. 	;a line
+			orb	r0 eq #fmhor.	;a line
+			elsif	#cmpar$ setoff r2
+			andb	r0 eq #cr.	;
+			else			;
+				dec	r1	;
+			...	next		;
+			dec	r3		;
+			leave	if r3 eq	;
+			dec	r1		;
+		end				;
+.iff
+			next	ifb -(r1) ne #lf. ;not a line
+		count	r3			;get them all
+.endc
+.if eq new$c
+		ifb	(r1) eq #lf.		;went too far?
+		 and	r1 ne p$otop		;and have the space
+		...	inc	r1		;fix it up
+.endc
+	end
+  end
+code	PO$OPN	Open area
+
+;	In	r0 ->		one end
+;		r1 ->		other end
+;
+;	Out	r4 ->		start end
+;		r5 ->		end end
+;		r1		same as r0
+
+  subr	po$opn	
+	if	r0 lo r1			;which way
+		mov	r0,r4			;ascending
+		mov	r1,r5			;
+	else					;
+		mov	r0,r5			;descending
+	...	mov	r1,r4			;
+	mov	r0,r1				;dot and spot same
+  end
+
+code	PO$CLO	Close area
+
+;	r0 ->		dot - updated
+;	r4 ->		start of area to delete
+;	r5 ->		end of area
+;
+;	Update markers
+;	Delete everything between r4 and r5
+
+  subr	po$clo	<r3>
+	mov	r4,r0			;return new dot
+	exit	if r4 eq r5		;nothing to do
+	mov	#m$kbot,r3		;get the pointers
+	repeat				;
+	 if	 (r3) his r4		;will be moved
+	     if	 (r3) lo r5		;will be removed
+	  	 mov	p$obot,(r3)	;reset to base
+	  	 if	r3 eq #m$ksel	;mark 7 is special
+	  	 ...	clr	v$asel	;disable quote
+	     else			;
+	  	 add	r4,(r3)		;adjust it
+	 ... ... sub	r5,(r3)		;
+		 tst	(r3)+		;get the next
+	until	r3 his #m$ktop		;till all done
+
+;	Move the text down
+
+	subi3	r5,p$otop,r3		;get the count
+	if	ne			;not at end of buffer
+		inc	v$anew		;changed
+		repeat			;
+			movb (r5)+,(r4)+;move it all down
+	...	count	r3		;count them
+
+;	Return new top
+
+	mov	r4,p$otop		;reset the top
+	inc	d$iwin			;force window update
+  end
+
+code	PO$SWF	Space word forward
+
+;	Whitespace position rules
+;
+;	.CCC  CCC	CCC .CCC
+;	 CCC. CCC	CCC .CCC
+;	 CCC .CCC	CCC  CCC.
+;
+;	p$oext	end of move
+;	r1	-> next character
+
+  subr	po$swf	<r0,r2,r3>
+
+;	Skip newline
+
+	mov	p$oext,r3			;end of it
+	exit	if r1 his r3			;forget it
+	ifb	(r1) eq #lf.			;end of line
+.if eq new$c
+	 orb	(r1) eq #cr.			;
+.endc
+		inc	r1			;skip it
+	...	exit				;done
+
+;	Skip non-whitespace
+
+	repeat					;skip the next 
+		exit	if r1 his r3		;end of it
+		movb	(r1),r0			;get the next
+.if ne new$c
+		leave	ifb r0 eq #cr.		;got a space
+.endc
+		leave	ifb r0 eq #space.	;got a space
+		leave	ifb r0 eq #ht.		;got tab
+		ifb	r0 eq #lf.		;return
+.if eq new$c
+		 orb	r0 eq #cr.		;
+.endc
+		...	exit			;
+		inc	r1			;skip it
+	end					;
+
+;	Skip whitespace
+
+	repeat					;skip the next 
+		exit	if r1 his r3		;end of it
+		movb	(r1)+,r0		;get the next
+.if ne new$c
+		next	ifb r0 eq #cr.		;got a space
+.endc
+		next	ifb r0 eq #space.	;got a space
+		next	ifb r0 eq #ht.		;got tab
+		dec	r1			;got it
+	endless
+  end
+code	PO$SWB	Space word back
+
+;	Whitespace position rules
+;
+;	.CCC  CCC	CCC .CCC
+;	 CCC. CCC	CCC .CCC
+;	 CCC .CCC	CCC  CCC.
+;
+;	p$oext	end of move
+;	r1	-> next character
+
+  subr	po$swb	<r0,r2,r3>
+
+;	Skip newline
+
+	mov	p$oext,r3			;end of it
+	exit	if r1 los r3			;forget it
+	ifb	-(r1) eq #lf.			;end of line
+.if eq new$c
+	 orb	(r1) eq #cr.			;
+.endc
+	...	exit				;done
+
+;	Skip whitespace
+
+	inc	r1				;forwardup
+	repeat					;skip the next 
+		exit	if r1 los r3		;end of it
+		movb	-(r1),r0		;get the next
+.if ne new$c
+		next	ifb r0 eq #cr.		;got a space
+.endc
+		next	ifb r0 eq #space.	;got a space
+		next	ifb r0 eq #ht.		;got tab
+		inc	r1			;got it
+	endless
+
+;	Skip non-whitespace
+
+	repeat					;skip the next 
+		exit	if r1 los r3		;end of it
+		movb	-(r1),r0		;get the next
+.if ne new$c
+		leave	ifb r0 eq #cr.		;got a space
+.endc
+		leave	ifb r0 eq #space.	;got a space
+		leave	ifb r0 eq #ht.		;got tab
+		leave	ifb r0 eq #lf.		;got line
+.if eq new$c
+		ifb	r0 eq #cr.		;return
+		...	exit			;
+.endc
+	end					;
+	inc	r1				;forward up
+  end
+
+.end
+code	PO$NEW	Newline
+
+;	Position outside newline and graphic sequences
+;
+;	r1 ->	current position
+
+  proc	po$new	<r0>
+	p1	adj				;adjustment (1 or -1)
+;	exit	if v$ajus eq			;no justification
+;	exit	if r1 eq p$otop			;at extreme
+;	exit	if r1 eq p$obot			;at start
+    begin					;adjust block
+.if eq new$c
+	ifb	(r1) eq #lf.			;not in linefeed
+	 andb	-byte.(r1) eq #cr.		;not preceded by line feed
+	...	skip				;position outside
+.iff
+	whileb	(r1) his #fmplo.
+	andb	(r1) los #fmphi.
+	and	r1 ne p$otop
+		add	adj(sp),r1
+	end
+.endc
+
+;	exit	if v$agra eq			;not graphic mode
+;	movbi	-byte.(r1),r0			;check graphic
+;	exit					;forget it
+    endless					;
+;	add	adj(sp),r1			;adjust it
+  end
+

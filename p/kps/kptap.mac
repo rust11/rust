@@ -1,0 +1,81 @@
+tap$c=1
+.title	kptap - tape editor
+.include "kps:kpmac.mac"
+.if eq tap$c
+.endc
+.iif eq tap$c, .end
+
+;	Keypad currently treats files as tape-like structures.
+;	In order to move backward to a preceding page, the entire
+;	file is written out, the file is "rewound" and the 
+;	preceding page is found. It's cheap, nasty and slow.
+;	But, since Keypad is designed to edit small files it 
+;	usually doesn't matter. KED is slow too.
+
+npgbl$	nptapg
+t$pset:	.word	1
+t$pfnd:	.word	1
+t$pps0:	.word	0
+t$pps1:	.word	0
+npcod$
+
+code	tp$set	record current position
+
+  subr	tp$end
+	inc	t$pset
+	inc	t$pfnd
+  end
+
+  subr	tp$beg
+	clr	t$pset
+	inc	t$pfnd
+  end
+
+  proc	tp$set	r4
+	p1	fil,r4
+	exit	if t$pset ne
+	inc	t$pset
+	mov	fb.ps0(r4),t$pps0	; save text position
+	mov	fb.ps1(r4),t$pps1
+  end
+
+  proc	tp$chk	r4
+	p1	fil,r4
+	p2	dot
+	exit	if t$pfnd ne
+	blow	fb.ps0(r4),t$pps0,10$	; compare with saved position
+	blow	fb.ps1(r4),t$pps1,10$
+	mov	dot(sp),p$odot		; got it
+	inc	t$pfnd			; once only
+10$:	end
+
+  proc	tp$rst
+;	exit	if t$pfnd ne
+	clr	t$pfnd			; start comparison engine
+	call	cm$rea			;
+      repeat
+	exit	if t$pfnd ne		; found
+	call	cm$nxt #1
+	skip	if r0 eq
+      end
+  end
+
+  proc	tp$prv			; previous page
+	sub	#1,t$pps0	; now push back behind the form feed
+	sbc	t$pps1		; vf$prv does the rest
+	bpl	10$		;
+	clrw	t$pps0		; was at first page
+	clrw	t$pps1		;
+10$:	end
+
+  proc	tp$clo
+	call	cm$clo #1	; write file - don't close it
+  end
+
+  proc	tp$edi
+	p1	flg
+	call	fi$swi flg(sp)	; switch files about
+  end
+
+.end
+

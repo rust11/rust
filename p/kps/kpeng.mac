@@ -1,0 +1,60 @@
+.title	kpeng - np engine
+.include "kps:kpmac.mac"
+
+code	ED$ERR	Error processor
+
+  proc	ed$err
+	mov	e$dosp,sp		;reset the stack
+	if	#stqui$ setoff s$tflg	;not quiet
+	...	do	sc$bel		;ring the bell
+  fall	ed$rst				;and do some more
+
+code	ED$RST	Restart editor
+
+  entry	ed$rst				;restart editor
+	inc	d$iini			;
+	inc	d$iwin			;update window
+	inc	d$ista			;update status
+	mov	e$dosp,sp		;reset the stack
+	clr	t$tpsh			;
+	call	tp$end			;
+	mov	#^o100001,v$fcnt	;
+	bic	#ttons$,t$tmod		;reset that
+	call	di$upd			;update the screen
+	mov	p$odot,r0		;get back dot
+					;
+  entry	ed$cmd
+	push	#ed$cmd			;setup return address
+	mov	r0,p$odot		;save current position
+					;
+	clr	t$tmod			;out of on-screen mode
+
+    repeat				;skipped commands
+	call	tt$cha	#1		;get next input character
+	call	vf$fun			;do function
+    end
+  end
+
+.end
+;	Sent	r0	dot
+;		r1	spot
+;		r2	mode
+;		r3	number
+;		r4	input character - used by cm$dig
+;		r5	dispatch variable - unreliable
+;
+;	Return	r0	updated dot
+;		r1:r5	futch
+;
+;	ed$con	r0	updated
+;		r1	futch
+;		r2:r3	updated
+;		r4:r5	futch
+
+	mov	r0,r1			;supply dot in r1 too
+	asl$	addr$l,r5		;shift it
+
+;jmp	cm$ons
+;	jmp	@c$mvec(r5)		;dispatch it
+    endless				;long repeat
+

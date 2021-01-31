@@ -1,0 +1,354 @@
+.title	kpcom - command processor
+.include "kps:kpmac.mac"
+
+	map	co.mod,,0
+	map	co.fun
+	map	co.str
+	
+	.macro	vcom$	fun, mod, str
+	  .if	nb fun
+		.int	mod
+		.addr	fun
+		.asciz	str
+		.even
+	  .iff
+		.int	0
+	  .endc
+	.endm
+
+	set	coter.	<-1>
+	set	cotab.	1
+	set	comor.	2
+	set	coany.	3
+	set	coval.	4
+
+c$ocom:	vcom$	c$oclr	cotab.	/CLE*AR/
+	vcom$	vc$clo	coter.	/CLO*SE/
+	vcom$	vc$exi	coter.	/EX*IT/
+;	vcom$	vc$fil	comor.	/FI*LL/
+;	vcom$	vc$lrn	comor.	/LE*ARN/
+	vcom$	vc$opn	comor.	/O*PEN/
+	vcom$	vc$qui	coter.	/Q*UIT/
+	vcom$	c$oset	cotab.	/S*ET/
+	vcom$
+c$oclr:	vcom$	vc$clp	coter.	/PA*STE/
+	vcom$	
+c$oset:	vcom$	c$oent	cotab.	/ENT*ITY/
+	vcom$	c$oscr	cotab.	/SC*REEN/
+	vcom$	vc$tab	comor.	/TA*BS/
+	vcom$	vc$ntb	coter.	/NOTA*BS/
+	vcom$	vc$wrp	comor.	/WR*AP/
+	vcom$	vc$nwr	coter.	/NOWR*AP/
+	vcom$	vc$qui	coter.	/QU*IET/
+	vcom$	coSnqu	coter.	/NOQU*IET/
+	vcom$	c$olft	cotab.	/LE*FT/
+	vcom$	c$orgt	cotab.	/RI*GHT/
+	vcom$	vc$wid	coval.	/WI*DTH/
+;	vcom$
+c$oent:	vcom$	c$osea	cotab.	/SE*ARCH/
+	vcom$	vc$pag	comor.	/PA*GE/
+	vcom$	vc$sec	comor.	/SEC*TION/
+c$oscr:	vcom$	vc$80	coter.	/80*/
+	vcom$	vc$132	coter.	/132*/
+	vcom$	vc$drk	coter.	/DA*RK/
+	vcom$	vc$lgt	coter.	/LI*GHT/
+	vcom$
+c$olft:	vcom$	vc$lft	coval.	/MA*RGIN/
+	vcom$
+c$orgt:	vcom$	vc$rgt	coval.	/MA*RGIN/
+	vcom$
+c$osea:	vcom$	vc$gen	coter.	/GE*NERAL/
+	vcom$	vc$exa	coter.	/EX*ACT/
+	vcom$	vc$beg	coter.	/BE*GIN/
+	vcom$	vc$end	coter.	/EN*D/
+	vcom$	vc$bnd	coter.	/BO*UNDED/
+	vcom$	vc$unb	coter.	/UNBO*UNDED/
+	vcom$	vc$sel	coter.	/SEL*ECT/
+	vcom$	vc$nsl	coter.	/NOSEL*ECT/
+	vcom$	vc$ret	coter.	/RET*URN/
+	vcom$	vc$nrt	coter.	/NORET*URN/
+
+c$oval:	.word	0
+c$osym:	.blkb	32.
+	.even
+.sbttl	dispatch commands
+
+;	r4 ->	command line
+;	r3 ->	table entry
+
+  subr	co$dis
+;sic	inc	c$oact			; command active
+;sic	call	tt$lin	#l$icom,#c$oprm	; get a command
+;sic	clr	c$oact			;
+	clr	r0			;
+	exit	ifb l$icom eq		;
+	mov	#l$icom,r4		; command line
+	call	co$trn	#c$ocom		;
+	mov	co.fun(r3),r0		;
+;sic	tran	@co.fun(r3)		; root dispatchs for overlays
+  end
+
+  proc	co$trn
+	p1	tab,r3
+      repeat
+	call	co$par #c$osym
+	call	co$fnd r3,#c$osym
+	if	(r3) eq #cotab.
+		mov	co.fun(r3),r3
+	...	next			
+	call	co$ter
+      endless
+  end
+
+;	in	r4	command line
+;		sym,r2	symbol
+
+  proc	co$par	<r0, r2>
+	p1	sym,r2
+	clr	r0			; assume nothing found
+	whileb	(r4) eq #32		; skip leading spaces
+	...	inc	r4		;
+     repeat				;
+	leave 	ifb (r4) eq		;
+	leave	ifb (r4) eq #32		; got a space
+	movb	(r4)+,(r2)+		; move another
+	inc	r0			; we got something
+     end				;
+	whileb	(r4) eq #32		; skip spaces
+	...	inc	r4		;
+	clrb	(r2)			; terminate string
+	if	r0 eq			; oops
+	...	error			;
+  end
+
+;	out	r3	table entry
+
+  proc	co$fnd	<r4,r5>
+	p1	tab,r3			; table
+	p2	sym,r2
+	call	ca$str r2,#caupr.	; make it upper case
+     repeat
+	if	(r3) eq			; not found
+	...	error			;
+	mov	r3,r5			;
+	add	#co.str,r5		;
+	mov	sym(sp),r2		; get the target
+	clr	r1			;
+      repeat				;
+	ifb	(r5) eq #'*		; made it?
+		inc	r1		;
+		inc	r5		; skip it
+	...	next			; check remainder
+	ifb	(r2) eq			; end of candidate
+		leave ifb (r5) eq	; end of model
+		leave ifb r1 ne		; got minimum
+		clr	r1		; no chop
+	...	leave			;
+	ifb	(r5) eq
+		clr	r1		; not found
+	...	leave			;
+	next	ifb (r2)+ eq (r5)+	; still matching
+	clr	r1			;
+      endless				;
+	exit	if r1 ne		; found it
+
+	whileb	(r5)+ ne		; skip string
+	end				;
+	inc	r5			; round up
+	bic	#1,r5			;
+	mov	r5,r3
+     end
+	call	st$rep	#s$tinv, #0
+  end
+
+;	In	r3 -> symbol
+;		r4 -> command line remainder
+
+  proc	co$ter	<r0,r1,r2>
+	if	(r3) eq #comor.
+	andb	(r4) eq
+	...	error
+	if	(r3) eq #coter.
+	andb	(r4) ne
+	...	error
+	if	(r3) eq #coval.
+		clr	r0
+		clr	r2
+	     repeat
+		ifb	(r4) lt #dig0.
+		orb	(r4) hi #dig9.
+		...	leave
+		movb	(r4)+,r1
+		sub	#dig0.,r1
+		asl	r0
+		psh	r0
+		asl	r0
+		asl	r0
+		add	(sp)+,r0
+		add	r1,r0
+		inc	r2
+	     end
+		if	r2 eq
+		...	error
+		mov	r0,c$oval
+	end
+  end
+;	fill
+;	learn
+;
+code	commands
+
+  subr	vc$fil
+  end
+  subr	vc$lrn
+  end
+
+  subr	vc$qui
+	tran	vf$qui
+  end
+
+  subr	vc$exi
+	tran	vf$exi
+  end
+
+  subr	vc$clp
+	clr	v$asel
+  end
+
+	nproo$	npcomr
+  subr	vc$opn
+	call	fi$abd
+	call	co$par	#f$istr		; get the filespec
+	call	co$ter			; must be it
+	call	cm$edi	#1
+  end
+
+  subr	vc$clo
+	call	co$ter
+	call	cm$clo	#0
+  end
+	npcod$
+;	[no]tabs
+;	entity/section
+;	wrap
+;	132
+;
+code	set commands
+
+
+;  subr	vc$clr			; CLEAR PASTE
+;  end
+
+  subr	vc$gen			; GENERAL
+	bic	#stexa$,s$tflg
+  end
+  subr	vc$exa			; EXACT
+	bic	#stexa$,s$tflg
+  end
+  subr  vc$beg			; BEGIN
+	bic	#stend$,s$tflg
+  end
+  subr	vc$end			; END
+	bis	#stend$,s$tflg
+  end
+  subr	vc$bnd			; BOUNDED
+	bis	#stbnd$,s$tflg
+  end
+  subr	vc$unb			; UNBOUNDED
+	bic	#stbnd$,s$tflg
+  end
+  subr	vc$sel			; SELECT
+	bis	#stsel$,s$tflx
+  end
+  subr	vc$nsl			; NOSELECT
+	bic	#stsel$,s$tflx
+  end
+  subr	vc$ret			; RETURN
+	bis	#stret$,s$tflx
+  end
+  subr	vc$nrt			; NORETURN
+	bic	#stsel$,s$tflx
+  end
+
+  subr	vc$tab			; TABS
+	bis	#sttab$,s$tflg
+  end
+
+  subr	vc$ntb			; NOTABS
+	bic	#sttab$,s$tflg
+  end
+
+  subr	vc$wrp			; WRAP
+	bis	#stwrp$,s$tflg
+  end
+
+  subr	vc$nwr			; NOWRAP
+	bic	#stwrp$,s$tflg
+  end
+
+  subr	coSqui			; QUIET
+	bis	#stqui$,s$tflg
+  end
+  subr	coSnqu			; NOQUIET
+	bic	#stqui$,s$tflg
+  end
+  subr	vc$pag			; PAGE
+	bis	#stpag$,s$tflg
+  end
+  subr	vc$sec			; SECTION
+	bis	#stsec$,s$tflg
+  end
+
+  subr	vc$80			; 80
+	bic	#st132$,s$tflx
+	mov	#80,v$awid
+	call	vt$wid #0	
+	inc	d$iini
+  end
+  subr	vc$132			; 132
+	bis	#st132$,s$tflx
+	mov	#132,v$awid
+	call	vt$wid #1	
+	inc	d$iini
+  end
+  subr	vc$wid			; WIDTH
+	mov	c$oval,v$awid
+	inc	d$iini
+  end
+
+  subr	vc$lft			; LEFT MARGIN
+	mov	c$oval,v$alft
+	inc	d$iini
+  end
+
+  subr	vc$rgt			; RIGHT MARGIN
+	mov	c$oval,v$argt
+	inc	d$iini
+  end
+
+	nproo$	npcomr
+  subr	vc$drk			; DARK
+	bis	#stdrk$,s$tflx
+	call	vt$hue #1
+  end
+  subr	vc$lgt			; LIGHT
+	bic	#stdrk$,s$tflx
+	call	vt$hue #0
+  end
+	npcod$
+
+.end
+.end
+
+ SET [ENTITY] PAGE|SECTION "string"
+ SET [ENTITY] PAGE|SECTION integer LINES
+ SET [ENTITY] SEARCH GENERAL|EXACT|BEGIN|END|[UN]BOUNDED
+
+ SET [SCREEN] 80
+ SET [SCREEN] 132
+ SET [SCREEN] DARK
+ SET [SCREEN] LIGHT
+ SET [NO]QUIET
+
+ SET WRAP [column-number]
+ SET NOWRAP

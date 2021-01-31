@@ -1,0 +1,138 @@
+.title	KPINS	Insert routines
+.include "kps:kpmac.mac"
+
+i$nfmt:	.blkb	32.
+
+code	IN$CHA 	Insert character
+
+;	r0	dot
+;	r1 	character
+;
+;	r0	dot
+
+  proc	in$cha	<r4,r5>
+.if ne new$c
+	ifb	r1 eq #lf.		;
+	orb	r1 eq #fmhor.		;
+		call	in$fmt r1,r0	;
+	...	exit			;
+.endc
+	psh	r1
+	mov	sp,r4			;point to it
+	mov	#1,r5			;count
+	call	in$buf			;insert it
+	pop	r1
+  end
+
+.if ne new$c
+  proc	in$fmt
+	p1	cha,r0
+	p2	dot,r1
+
+	if	r1 ne p$obot		;not at start of buffer
+	andb	-1(r1) eq #fmbul.	;and got a bullet
+	 if	r1 eq p$otop		;
+	 orb 	(r1) eq #lf.		;
+	       	call	de$exp r1, #-1	;delete the bullet
+		mov	r1,r0		;
+		dec	r0		;
+	 ...	exit			;
+	...
+	call	po$sop			;
+	mov	#i$nfmt,r4		;
+	mov	r4,r5
+	movb	cha(sp),(r5)+
+	whileb	(r1) eq #fmbul.
+	orb	(r1) eq #fmidt.
+		movb	(r1)+,(r5)+
+	end
+	sub	r4,r5
+	mov	dot(sp),r0
+	call	in$buf
+  end
+
+.endc
+
+
+.if ne 0
+code	IN$LIN 	Insert line
+
+;	r0	dot
+;	r4 ->	line
+;
+;	r0	dot
+
+  proc	in$lin
+	psh	r4			;
+	mov	li.cnt(r4),r5		;get the count
+	add	#li.dat,r4		;point to data
+???	mov	sp,r4			;point to it
+	call	in$buf			;insert it
+	pop	r4			;
+  end
+.endc
+;???	shift redundant
+code	IN$BUF	Raw insert
+
+;	In	r0 ->		current position
+;		r4 ->		text to insert
+;		r5		byte count
+;;V4		p1	0	insert
+;;V4			n	move text - same as r0
+;
+;	Out	r0 ->		past insert
+;;V4		r4 ->		past moved
+;
+;	Local	r2		remember byte count
+
+
+  proc	in$buf	<r2,r3>
+;V4	p1	shf				;shift flag
+
+	mov	r5,r2				;r2 = byte count
+	exit	if eq				;nothing to move
+	mov	sp,v$anew			;remember new data
+	mov	p$otop,r3			;r3 -> top of buffer
+	add	r3,r5				;r5 -> new top of buffer
+	if	r5 his p$olim			;too far
+	...	error				;
+	mov	r5,p$otop			;reset top of buffer
+						;
+	cmpb	(r3)+,(r5)+			;setup
+	repeat					;make a hole
+		movb	-(r3),-(r5)		;move another
+	until	r0 his r3			;dot is higher
+
+;	Update mark pointers
+;
+;	r0 ->	start of insert area
+;	r2 =	bytes to move
+;	r1 ->	start of insert area for shift/quote
+;	r4 ->	text to insert
+;	r5 ->	end of insert area
+
+	mov	#m$kbot,r3			;update markers
+	repeat					;
+		if	(r3) ne p$obot		;not at the start 
+		 and	(r3) hi r0		;and above area moved
+		 ...	add	r2,(r3)		;adjust it
+		tst	(r3)+			;skip it
+	until	r3 hi #m$ktop			;all done
+						;
+;V4	inc	d$iwin				;refresh
+	exit	if r0 his r5			;insane
+
+	repeat					;move the data
+		movb	(r4)+,(r0)+		;move them in
+	until	r0 his r5			;r0 his r5
+	inc	d$ifmt				;
+  end
+
+.end
+/soverstrike mode
+;
+;	cr	newline
+;	rubout	bs-space-bs
+;	delete	space 
+;	.x.\nl	overstrike
+;	..x\nl	insert

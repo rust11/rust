@@ -1,0 +1,68 @@
+.title	KPBRK	break paragraphs
+.include "kps:kpmac.mac"
+$aldef
+
+
+;	Break entire page
+
+  proc	br$pag
+	call	br$sec p$obot, p$otop, v$awid
+  end
+code	 br$sec	break section
+
+	auto	spc
+  proc	br$sec	<r1,r2,r3,r4,r5>
+	p1	bot,r4
+	p2	top,r5
+	p3	wid
+	mov	wid(sp),r3		; start width
+
+     while r4 lo r5
+	clr	spc(sp)			;
+	clr	r2			; line count
+      while	r4 lo r5
+	movb	(r4),r0			; get next
+	ifb	(r4) eq #cr.		; soft break
+	...	movb	#space.,(r4)	; restore it
+	ifb	(r4) eq #space.		; got a space?
+	...	mov	r4,spc(sp)	; remember position
+	movb	(r4)+,r0		;
+	ifb	r0 eq #fmbul.		;
+	orb	r0 eq #fmidt.		;
+	...	sub	#4,r3		; decrease width
+	ifb	r0 eq #lf.		; end of line
+		mov	wid(sp),r3	; reset width
+	...	leave			;
+	inc	r2			;
+	if	r2 ge r3		; gone too far?
+		mov	spc(sp),r0	; got a soft break?
+		if	ne		;
+		   	movb	#cr.,(r0)+ ; yep - break it
+			mov	r0,r4	; start again
+	...	...	leave		; do next line
+      end
+     end
+  end
+
+.end
+;	Called after a buffer operation to rebreak modified areas.
+;
+;	For an insertion or set operation we need the count
+;	For a delete, the count is zero
+
+  proc	br$pos
+	p1	dot			; 
+	p2	cnt			; number to be inserted
+	mov	dot(sp),		; get the first area
+	call				;
+	if	r0 ge cnt(sp)		; envelopes extent?
+	...	clr	cnt(sp)		;
+	call				; rebreak that
+	mov	cnt(sp),		; anymore?
+	exit	if eq			; nope
+	add	dot(sp),		;
+	call				;
+	call				;
+  end
+
+

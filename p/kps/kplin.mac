@@ -1,0 +1,41 @@
+.title	KPLIN	Line routines
+.include "kps:kpmac.mac"
+aldef$
+
+code	LI$SAV	Save line
+
+;	Null lines are not saved
+;???	Program mode is difficult
+
+  proc	li$sav	<r1,r2>
+	p1	src,r1				;r1 -> input line
+	mov	li.sav(r1),r2			;r2 -> save line
+	call	li$mov				;move the line
+  end	
+
+code	LI$RES	Restore line
+
+  proc	li$res	<r1,r2>
+	p1	dst,r2
+	mov	li.sav(r2),r1
+	call	li$mov
+  end
+
+code	LI$MOV	Move line
+
+;	In	r1 ->		source
+;		r2 ->		destination
+;	Local	r3		scratch
+
+  subr	li$mov	<r3>
+	mov	li.cnt(r1),r3			;get the source size
+	exit	if le				;nothing to move
+	mov	r3,li.cnt(r2)			;copy the count
+	repeat					;move them
+		movb	(r1)+,(r2)+		;one more
+	count	r3				;count them
+	clrb	(r2)				;terminate it again
+  end
+
+.end
+

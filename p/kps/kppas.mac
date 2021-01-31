@@ -1,0 +1,127 @@
+.title	KPPAS	Paste buffer operations
+.include "kps:kpmac.mac"
+
+data	PA	Paste buffer data
+
+	npgbl$	nppasg
+	pointer	p$abot			;bottom of it
+	pointer	p$atop			;last used
+	pointer	p$aend			;end of it
+	npcod$
+
+;	pa$ini	Init paste
+;	pa$sel	Select
+;	pa$all	Select All
+;	pa$uns	Unselect
+;	pa$rep	Replace select area
+;	pa$pas	Paste buffer
+
+code	PA$INI	Init paste buffer
+
+  subr	pa$ini
+	call	me$alc	m$epbs		;get some space
+	mov	r0,p$abot		;setup the pointer
+	mov	r0,p$atop		;current top
+	add	m$epbs,r0		;point at end
+	subi3	#int.,r0,p$aend		;remember truncated end
+  end
+
+code	PA$ALL - Select all
+
+  proc	pa$all
+	mov	#1,v$asel
+	mov	p$obot,p$odot
+	mov	p$otop,m$ksel
+  end
+
+code	PA$SWI - Switch select
+
+  proc	pa$swi
+	if	v$asel ne
+		call	pa$uns
+	else
+	...	call	pa$sel
+  end
+
+code	PA$SEL - Select
+
+  proc	pa$sel
+	mov	#1,v$asel
+	mov	p$odot,m$ksel
+  end
+
+code	PA$UNS - Unselect
+
+  proc	pa$uns
+	clr	v$asel
+  end
+
+code	PA$PAS	Paste buffer 
+
+  subr	pa$rep
+	call	de$sel			;delete select area
+  entry	pa$pas
+	mov	p$odot,r0		;get dot
+	mov	p$abot,r4		;where to start
+	subi3	r4,p$atop,r5		;get the size
+;V4	exit	if eq			;forget it
+	call	in$buf	;V4#0		;insert it
+	mov	r0,p$odot		;
+	inc	d$iwin			;r0 is new dot
+  end
+code	PA$APP	Append to paste buffer
+
+;	pa$app	Append to paste buffer
+;	pa$apc	Append to paste buffer and delete
+;	pa$cop	Copy to paste buffer
+;	pa$cut	Copy to paste buffer and delete
+
+  subr	pa$cop	
+	call	pa$gen	#0, #0
+  end
+
+  subr	pa$cut
+	call	pa$gen	#1, #0
+	mov	r0,p$odot
+  end
+
+  subr	pa$app
+	call	pa$gen #0, #1
+  end
+
+  subr	pa$apc				
+	call	pa$gen #1, #1
+  end
+
+	auto	pos	
+  proc	pa$gen
+	p1	cut
+	p2	app
+	if	v$asel eq		;
+	...	exit			;nothing to do
+	mov	p$abot,pos(sp)		;
+	if	app(sp) ne
+	...	mov	p$atop,pos(sp)	;from top
+	call	po$sel			;setup position
+	call	po$opn			;open it up
+	subi3	r4,r5,r1		;get the size
+	add	pos(sp),r1		;add in top
+	if	cs			;overflowed
+	or	r1 his p$aend		;too much for buffer
+	...	call	st$rep #s$tcut #0
+					;
+	clr	v$asel			;unselect
+					;
+	mov	r4,r0			;
+	mov	pos(sp),r1		;get the start of it
+	while	r0 lo r5		;
+	...	movb	(r0)+,(r1)+	;move them in
+	mov	r1,p$atop		;remember it
+	if	cut(sp) ne		;
+	...	call	po$clo		;delete the r4/r5 area, setup r0
+	mov	r0,p$odot		;reset dot
+	inc	d$ifmt			;
+  end
+
+.end
+

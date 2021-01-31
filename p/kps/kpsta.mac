@@ -1,0 +1,309 @@
+.title	KPSTA	Status
+.include "kps:kpmac.mac"
+aldef$
+
+code	CH$NEW	Check new data
+code	CL$NEW	Clear new data
+
+  proc	ch$new	r4
+	exit	if v$anew eq		;no new data
+	mov	f$iipt,r4
+	call	st$qry	#q$rmod, fb.fnm(r4)
+	clr	v$anew
+  end
+
+  subr	cl$new
+	clr	v$anew			;no new data
+  end
+
+code	CH$ABT	Check abort
+
+  subr	ch$abt	
+	clc
+	exit	if #bit15$ setoff s$tabt	;we have not aborted
+	sec
+	exit	if c$oact ne			;command active
+	clr	s$tabt				;clear the status
+	call	rt$emp				;empty input
+	error					;and quit
+  end
+
+code	CH$FIL	Check file status
+
+  proc	ch$fil	<r4>
+	p1	fil,r4				;file block
+	if	#fbopn$ seton (r4)		;file is open
+	 and	#fbeof$!fberr$ setoff (r4)	;
+	...	exit				;fine
+	if	#fbopn$ setoff (r4)		;not open
+	...	bis	#fbque$ (r4)		;say what happened
+	error					;
+  end
+
+code	CH$GRA	Change graphic mode
+
+  proc	ch$gra	<r0>
+	p1	new,r0				;new mode
+	exit	if r0 eq v$amle			;same
+	if	r0 ne				;set
+	 and	v$amle ne			;already set
+	...	exit				;
+	mov	r0,v$amle			;change it
+	inc	d$iini				;force screen init
+  end
+code	ST$QRY - prompt for yes/no
+
+data
+line$	s$tlin siz=64
+s$tstr:	.blkb	64.
+s$tfnf::.asciz	/EFile not found: [%s]%c/
+s$tcon:	.asciz	/; Continue? /
+s$tqry:	.asciz	| (Y/N)? |
+s$tfnc::.asciz	/EError creating file: [%s]%c/
+s$trea::.asciz	/EError reading: [%s]%c/
+s$twri::.asciz	/EError writing: [%s]%c/
+s$tclo::.asciz	/EError closing: [%s]%c/
+s$tinv::.asciz	/EInvalid command/
+s$tcut::.asciz	/EPaste buffer too small%c/
+s$tbuf::.asciz	/EBuffer full%c/
+s$teof::.asciz	/PEnd of file%c/
+q$rmod:	.asciz	/QAbandon changes to [%s]%q/
+	.even
+s$tpsh::.word	0
+code
+
+  proc	st$qry r1
+	p1	msg
+	p2	obj
+	call	st$rep	msg(sp),obj(sp)
+	exit	ifb s$tlin eq #lowy.
+	exit	ifb s$tlin eq #upry.
+	tran	ed$rst
+  end
+
+code	ST$REP	Report status
+
+  proc	st$rep	<r0,r1,r2>
+	p1	msg
+	p2	obj
+	mov	msg(sp),r0
+	ifb	(r0) eq <#'P>		; push message?
+		mov	r0,s$tpsh
+	...	exit
+	mov	#s$tstr,r1
+	inc	r0
+10$:	movb	(r0)+,(r1)		
+	beq	40$		
+	bneb	(r1)+,<#'%>,10$
+	dec	r1
+	mov	r0,r2
+	mov	obj(sp),r0
+	beqb	(r2),<#'s>,20$
+	mov	#s$tcon,r0
+	beqb	(r2),<#'c>,20$
+	mov	#s$tqry,r0
+	bneb	(r2),<#'q>,30$
+20$:	movb	(r0)+,(r1)+
+	bne	20$
+	dec	r1
+30$:	mov	r2,r0
+	inc	r0
+	br	10$
+40$:	call	tt$lin #s$tlin,#s$tstr
+	exit	ifb @msg(sp) ne #uprE.
+	tran	ed$rst
+  end
+
+code	ST$FAT	Fatal error
+
+  proc	st$fat	
+	p1	str
+	call	rt$opt	str(sp)		;say why
+	tran	ed$exi			;and exit
+  end
+code	ST$UPD	Update status display
+
+;	Display file names for the curious
+;	Only one name displayed if input and output are the same
+;
+;	$ <|! in:input.ext out:output.ext $!|>
+;
+;	$	document mode
+;
+;	<	input file open
+;	>	output file open
+;	|	end of file
+;	!	hard error
+;	~	approximately
+;	.	variable length file
+;	+	record too long
+;	#	output file in use by another editor
+;	?	file not open
+;
+;	.	graphics enabled
+;	.  .	graphics trace
+;	.{g.	graphic sequence
+;
+;	Y/X	position report
+
+  proc	st$upd	all
+.if ne 0
+	p1	fil				;file update flag
+	mov	f$iipt,r2			;input plex
+	mov	f$iopt,r3			;output plex
+	mov	#v$efil,r5			;output area
+	if	fil(sp) ne			;want files too
+	...	call	st$ovf			;setup overflow status
+	begin					;decision box
+		skip	if d$ista ne		;something changed
+		if	v$agra eq #2		;want graphic stuff
+			skip ifb s$tesc ne s$tpes ;escape changed
+		...	skip ifb s$tgra ne s$tpgr ;graphic changed
+		if	v$apos ne		;want position
+			skip if d$iX ne s$tX	;X has changed
+		...	skip if d$iY ne s$tY	;Y has changed
+big		exit				;nothing has changed
+	end					;
+						;
+	if	#fbopn$ seton (r2)		;it is open
+	...	movb	#langl.,(r5)+		;input is open
+	if	#fbeof$ seton (r2)		;end of file
+	...	movb	#vbar.,(r5)+		;
+	if	#fberr$ seton (r2)		;hard error
+	...	movb	#xclam.,(r5)+		;
+	if	#fbvar$ seton (r2)		;variable length
+	...	movb	#dot.,(r5)+		;
+	if	#fbque$ seton (r2)		;not open
+	...	movb	#qmark.,(r5)+		;
+	movb	#space.,(r5)+			;a space
+	
+;	Display input file name
+
+	mov	fb.fnm(r2),r0			;input filename
+	mov	r0,r1				;get a copy
+	whileb	(r1) ne				;the file name
+	...	movb	(r1)+,(r5)+		;move that in
+	ifb	-byte.(r5) ne #space.		;separate it
+	...	movb	#space.,(r5)+		;and a space
+
+;	Compare input and output file names
+
+	mov	fb.fnm(r3),r2			;r2 -> output filename
+	mov	r2,r1				;a copy
+	repeat					;look for difference
+		ifb	(r0) eq			;input ended
+		 andb	(r1) eq			;output ended
+		...	leave			;same - no new name
+		next	ifb (r0)+ eq (r1)+	;try again
+		whileb	(r2) ne			;the file name
+		...	movb	(r2)+,(r5)+	;move that in
+		movb	#space.,(r5)+		;
+	endless					;
+						;
+	if	#fbque$ seton (r3)		;not open
+	...	movb	#qmark.,(r5)+		;
+	if	#fbgra$	seton (r3)		;graphic
+	...	movb	#dolar.,(r5)+		;say so
+	if	#fbvar$ seton (r3)		;variable length
+	...	movb	#dot.,(r5)+		;
+	if	#fblng$	seton (r3)		;long record seen
+	...	movb	#plus.,(r5)+		;
+	if	#fberr$ seton (r3)		;hard error
+	...	movb	#xclam.,(r5)+		;
+	if	#fbeof$ seton (r3)		;end of file
+	...	movb	#vbar.,(r5)+		;
+	if	#fblck$ seton (r3)		;locked
+	...	movb	#hash.,(r5)+		;
+	if	#fbopn$ seton (r3)		;output open
+	...	movb	#rangl.,(r5)+		;
+						;
+	if	s$tovf ne			;overflowing
+		if	gt			;nearly overflowing
+		...	movb	#tilda.,(r5)+	;
+	...	movb	#vbar.,(r5)+		;
+						;
+	if	v$agra ne			;graphic edit
+		movb	#space.,(r5)+		;
+	...	movb	#dot.,(r5)+		;start it
+						;
+	if	v$agra eq #2			;show it
+	   ifb	s$tesc ne			;got a graphic escape
+		movb	#tilda.,(r5)+		;the escape
+		movb	s$tesc,(r5)+		;twice so it shows
+	   	movb	s$tgra,(r5)+		;
+	   else					;no escape
+		movb	#space.,(r5)+		;pad it out
+	   ...	movb	#space.,(r5)+		;
+	...	movb	#dot.,(r5)+		;close it
+						;
+	if	v$apos ne			;want position
+		movb	#space.,(r5)+		;
+		movb	#space.,(r5)+		;
+		addi3	#1,d$iY,r1		;get Y
+		if	r1 lo #10.		;only one digit 
+		...	movb	#space.,(r5)+	;pad it
+;V4***		call	va$asc	r1,r5		;write Y
+						;r0 -> past number
+		movb	#slash.,(r0)+		;r0 has it now
+		addi3	#1,d$iX,r1		;get X
+;V4***		call	va$asc	r1,r0		;write X
+	...	mov	r0,r5			;get back r5
+						;
+	movb	s$tesc,s$tpes			;save these
+	movb	s$tgra,s$tpgr			;
+	mov	d$iX,s$tX			;save them
+	mov	d$iY,s$tY			;
+	movb	#cr.,(r5)+			;terminate it
+	movb	#lf.,(r5)+			;
+	movb	#cr.,(r5)+			;
+	movb	#lf.,(r5)+			;
+	mov	r5,l$iver+li.end		;remember the end
+.endc
+  end
+code	ST$OVF	Check overflow
+
+;???	No check required for non-file output devices
+;	Overflow check not relevant for VMS.
+;
+;	In	r2 ->		input plex
+;		r3 ->		output plex
+
+  subr	st$ovf			
+
+.if ne 0
+.if ne smpdp.
+	clr	r0				;assume not open
+	if	#fbopn$ seton (r3)		;got output file
+		subi3	p$obot,p$otop,r0	;buffer content
+		if	#fbopn$ seton (r2)	;got an input file
+		...	add	fb.cnt(r2),r0	;add in input buffer
+		add	fb.cnt(r3),r0		;add in output buffer
+		add	#511.,r0		;round up to a block
+		asr$	9,r0			;shift it down
+		bic	#$77600,r0		;clean it up
+		if	#fbopn$ seton (r2)	;got an input file
+		 and	#fball$ setoff (r2)	;not in passall mode
+			sub	v$area,r0	;subtract blocks read
+		...	add	v$aisz,r0	;add in input size
+		sub	v$awri,r0		;forget written
+		add	v$aosz,r0		;add in actual size
+						;
+		if 	r0 gt #1		;adjust it
+			clr	r0		;big enough
+		else				;
+		    if	r0 mi			;
+			mov	#-1,r0		;make the signal
+		    else			;
+		... ...	mov	#1,r0		;
+	end					;computation block
+	if	r0 ne s$tovf			;same as previous?
+		inc	d$ista			;yes - change display
+		mov	r0,s$tovf		;setup the flag
+		if	mi			;overflow
+	...	...	error			;error first time
+.endc
+.endc
+  end
+
+.end
+

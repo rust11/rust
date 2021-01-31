@@ -1,0 +1,98 @@
+.title	KPUTL	utilities
+.include "kps:kpmac.mac"
+$aldef
+
+code	ca$str - convert string
+;
+;	in	p1	points to string
+;		p2	calow., caupr. or caivt.
+;
+;	out	string is converted
+
+	set	cacas$ <^o40>
+
+  proc	ca$str	<r0,r1,r2>
+	p1	str,r2
+	p2	cas,r1
+      repeat
+	movb	(r2),r0
+	leave	if eq
+	call	ca$cha	r1
+	movb	r0,(r2)+
+      end
+  end
+
+code	ca$cha - convert character
+;
+;	in	r0	has character
+;		p1	calow., caupr. or caivt.
+;
+;	out	r0 is converted
+
+  proc	ca$cha	<r1>
+	p1	cas,r1
+	ifb	r0 his #upra.
+	andb	r0 los #uprz.
+		if	r1 eq #calow.
+		or	r1 eq #caivt.
+		...	bisb	#cacas$,r0
+	elsifb	r0 his #lowa.
+	andb	r0 los #lowz.
+		if	r1 eq #caupr.
+		or	r1 eq #caivt.
+		...	bicb	#cacas$,r0
+	end
+  end
+code	character routines
+
+  proc	ch$aln
+	p1	cha,r0
+	p2	cas
+	call	ch$alp cha(sp),cas(sp)
+	bnew	r0,10$
+	call	ch$dig cha(sp)
+	inc	r0
+	beq	10$
+	movb	cha(sp),r0
+10$:	end
+
+  proc	ch$alp
+	p1	cha
+	p2	cas
+	movb	cha(sp),r0
+	ifb	r0 his #upra.
+	andb	r0 los #uprz.
+		; nothing
+	elsifb	r0 his #lowa.
+	andb	r0 los #lowz.
+		if	cas(sp) ne
+		...	bicb	#cacas$,r0
+	else
+		clr	r0
+	end
+  end
+
+  proc	ch$dig
+	p1	cha
+	movb	cha(sp),r0
+	ifb	r0 his #dig0.
+	andb	r0 los #dig9.
+		movb	r0,r0
+		sub	#dig0.,r0	; digit
+	else
+	...	mov	#-1,r0
+  end
+
+  proc	ch$hex	
+	p1	cha
+	call	ch$dig	cha(sp)
+	if	r0 mi
+		call	ch$alp, cha(sp),#1
+		if	r0 ne
+		andb	r0 his #upra.
+		andb	r0 los #uprf.
+			sub	#upra.-10.,r0
+		else
+	...	...	mov	#-1,r0
+  end
+.end

@@ -1,0 +1,61 @@
+.title	KPVTT	VT tables
+.include "kps:kpmac.mac"
+data	V$TCOR	VT test table
+
+;	VTxxx OLD/NEW correlation matrix
+
+	.macro	vtcor$	c	d
+		.byte	c*addr.
+	.if nb <d>
+		.byte	d*addr.
+	.endc
+	.endm
+
+; forward	1, 1,2 2,3 3,4 4,5/ 5
+;		2, 1,3 2,4 3,5/ 4 5
+
+nplcl$	npvttl
+v$tcor::
+	ne	=	0
+	ner	=	1
+
+.rept	scwlc.
+		nw	=	ne
+		ol	=	0
+	.BYTE	NW
+	.rept	scwlc.-ne
+		vtcor$	\ol	\nw
+		ol	=	ol+1
+		nw	=	nw+1
+	.endr
+	.BYTE	-1
+	.rept	ne
+		vtcor$	\ol
+		ol	=	ol+1
+	.endr
+	.BYTE	-1
+		ne	=	ne+1
+
+;	reverse scroll check
+
+	nwr	=	scwlc.-ner
+	olr	=	scwlc.
+	.BYTE	-ner
+	.rept	scwlc.-ner
+		vtcor$	\olr	\nwr
+		olr	=	olr-1
+		nwr	=	nwr-1
+	.endr
+	.BYTE	-1
+	.rept	ner
+		vtcor$	\olr
+		olr	=	olr-1
+	.endr
+	.BYTE	-1
+		ner	=	ner+1
+.endr
+	.BYTE	128.				;stopper
+	.even
+
+.end
+

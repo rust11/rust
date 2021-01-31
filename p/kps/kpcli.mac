@@ -1,0 +1,172 @@
+.title	KPCLI	CLI
+.include "lib:rust.mac"
+$aldef
+$jbdef
+$jsdef
+.include "kps:kpmac.mac"
+
+;	a	=> a=a
+;	a/i	=> =a
+;	b=a
+;	b=
+;
+;	/I	Inspect
+;	/C	Create
+;	/Y	Noquery
+;	/A:n	Allocate=n
+;
+;	/N	Nocommand
+
+map	clins$,,1
+map	clcre$,,2
+;ap	clncm$,,
+map	clnqy$,,4
+map	clalc$,,8
+
+c$lalc:	.word	0
+c$lf00:	.blkw	3*5
+c$lf03:	.blkw	6*4
+c$lare:	.blkw	5
+c$ltyp:	.rad50	/            /
+c$lipt:	.word	0
+c$lopt:	.word	0
+c$lfac:	.ascii	/?KEYPAD-/<128>
+c$lidt:	.asciz	/I-RUST keypad editor KEYPAD.SAV V3.1/<128>
+c$linv:	.asciz	/E-Invalid command/<128>
+c$lopn:	.asciz	/E-Error opening file: /<128>
+c$lcre:	.asciz	/E-Error creating file: /<128>
+c$lswi:	.asciz	&E-Invalid switch: /&<128>
+c$lcha:	.ascii	/?/<200>
+c$lnew:	.byte	0
+	.even
+c$llin:	.blkb	84.
+
+  proc	cl$cli
+	inc	c$lact			; inhibit error messages
+	psh	@#j$bjsw		; save that
+	mov	#jsovr$,@#j$bjsw	;
+	mov	sp,r5			;
+	br	cl$agn			;
+cl$err:
+cl$inv:	call	cl$msg #c$linv,#0	;
+	br	cl$agn			;
+cl$idt:	call	cl$msg #c$lidt,#0	; ident
+cl$agn:	mov	r5,sp			;
+	.sreset				;
+	.csispc	#c$lf00,#c$ltyp,#0,#c$llin ; get a command
+	bcs	cl$inv			;
+	beqb	c$llin,cl$idt		; ident
+cl$swi:	tst	(sp)+			; skip count
+	clr	c$lalc			; no allocation size
+	clr	r4			;
+10$:	beqw	sp,r5,40$		; all done?
+	clr	r1			;
+	mov	(sp)+,r0		; switch
+	bpl	20$			;
+	mov	(sp)+,r1		; value
+20$:	mov	#clins$,r2		;
+	beqb	r0,#'I,30$		; inspect
+	asl	r2			;
+	beqb	r0,#'C,30$		; create
+;	asl	r2			;
+;	beqb	r0,#'N,30$		; nocommand
+	asl	r2			;
+	beqb	r0,#'Y,30$		; noquery
+	asl	r2			;
+	bneb	r0,#'A,cl$err		; oops
+	mov	r2,c$lalc		; allocate size
+	br	20$			;
+30$:	bis	r0,r4			; save flag
+	br	10$			;
+35$:	movb	r0,c$lcha		;
+	call	cl$msg #c$lswi,#0
+	br	cl$agn			;
+
+40$:	beqw	c$llin,<#'*>,cl$don	; edit *
+	call	cl$spc			;
+	bpsw	#clcre$!clins$,r4,50$	; explicit command
+	bneb	@c$lopt,50$		; explicit output
+	mov	c$lipt,c$lopt		; assume edit
+	beqb	@c$lipt,90$		; neither spec
+
+50$:	bpsw	#clcre$,r4,70$		; create only
+	mov	c$lipt,r1		;
+	bneb	(r1),60$		; got a spec
+	bpsw	#clins$,r4,cl$inv	; inspect - no spec
+	br	70$			;
+60$:	call	cl$cvt r1		;
+	call	cm$isp			; open it
+	call	cl$chk	#c$lopn,c$lipt	;
+65$:	beqw	r0,cl$agn		;
+					;
+70$:	bpsw	#clins$,r4,90$		; inspect only
+	mov	c$lopt,r1		;
+	bneb	(r1),80$		; got a spec
+	bpsw	#clcre$,r4,cl$inv	; create - no spec
+	br	90$			;
+80$:	call	cl$cvt r1		;
+	call	cm$new	c$lalc		; create it
+	call	cl$chk	#c$lcre,c$lopt	;
+	beqw	r0,65$ ;cl$agn		;
+90$:
+cl$don:	clr	c$lact			;
+	mov	r5,sp
+	pop	@#j$bjsw
+	end
+
+  proc	cl$rea
+;	beqb	@c$lipt,10$
+	call	cm$rea
+10$:	end
+code	get specs from command line
+
+  proc	cl$spc
+	mov	#c$llin,r1		;
+	clr	c$lopt			;
+10$:	mov	r1,c$lipt		; assume output spec
+20$:	beqb	(r1),50$		; all over
+	beqb	(r1),#equal.,40$	; end of output
+	bneb	(r1),#slash.,30$	; not a qualifier
+	clrb	(r1)			; dump it
+30$:	tstb	(r1)+			; continue
+	br	20$			;
+40$:	clrb	(r1)+			; skip =
+	bneb	c$lopt,70$		; invalid command
+	mov	c$lipt,c$lopt		;
+	br	10$			;
+50$:	bnew	c$lopt,60$		; got spec
+	mov	r1,c$lopt		; setup null spec
+60$:	tst	(pc)+			;
+70$:	sec				;
+	end
+
+  proc	cl$cvt	<r0,r1>
+	p1	spc,r0
+	mov	#f$istr,r1
+10$:	movb	(r0)+,(r1)+
+	bne	10$
+  end
+
+  proc	cl$chk
+	p1	msg
+	p2	obj
+	bnew	r0,10$
+	call	cl$msg msg(sp),obj(sp)
+10$:	end
+
+
+  proc	cl$msg	<r0,r1>
+	p1	msg
+	p2	obj
+	.print	#c$lfac
+	.print	msg(sp)
+	beqw	obj(sp),10$
+	.print	obj(sp)
+	br	20$
+10$:	.print	#c$lnew
+20$:	end
+
+.end
+code	cl$scr - run script
+
+  subr	cl$scr

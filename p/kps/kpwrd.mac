@@ -1,0 +1,364 @@
+.title	KPWRD	Word processing functions
+.include "kps:kpmac.mac"
+
+  proc	vf$fil			; fill
+				; not implemented
+  end
+
+code	indents
+
+  proc	vf$idt
+	call	wp$opn			; get first in region
+	while	r0 ne			;
+		call	wp$ins #fmidt.	; indent
+		call	wp$adv		; next line
+	end
+  end
+
+  proc	vf$odt
+	call	wp$opn			; get first in region 
+	while	r0 ne			;
+		if	r0 ne p$obot	;
+		andb	-1(r0) eq #fmidt.; pointing at indent
+			dec	r0	;
+		...	call	wp$del	; remove it
+		call	wp$adv		; next line
+	end
+  end
+code	bullet and numbered lists
+
+;	[line] [ring] |-> idt... bul/num ren ...
+
+  proc	vf$bul
+	call	wp$lst	#fmbul.,#fmnum.
+  end
+
+  proc	vf$num
+	call	wp$lst	#fmnum.,#fmbul.
+  end
+
+	auto	all
+  proc	wp$lst
+	p1	typ
+	p2	alt
+	call	wp$opn			; get first paragraph
+	clr	all(sp)			;
+      while r0 ne
+	leave	if r0 eq p$otop		;
+	clr	all(sp)			;
+	leave	ifb (r0) ne typ(sp)	; this one not invoked
+	inc	all(sp)			;
+	call	wp$adv			;
+      end
+	mov	r3,r4			;
+     if	all(sp) ne			; all invoked, switch them off
+	mov	r4,r1			;
+	call	wp$ski			;
+      while r0 ne			; check for invoked on each line
+	call	wp$del			; delete it
+	call	wp$adv			;
+      end				;
+     else				;
+	call	wp$ext			; extend range
+      while r0 ne
+	if	r0 eq p$otop		; at end of buffer
+		call	wp$ins typ(sp)	;
+	elsifb	(r0) ne typ(sp)		; or not anything yet
+	andb	(r0) ne alt(sp)		;
+		call	wp$ins typ(sp)	; make it true
+	else				;
+	...	movb	typ(sp),(r0)	; retain or swap
+	call	wp$adv			;
+      end				;
+     end
+  end
+code	rendition
+
+;	bold....
+;	fonts
+
+map	wr.flg,,0
+map	wr.enb 1
+map	wr.dsb 1
+map	wr.ter
+map	wr.bbs
+
+w$pbol:	.word	fmbul$
+	.byte	fmbon.,fmbof.,0,0
+w$pund:	.word	fmund$
+	.byte	fmuon.,fmuof.,0,0
+w$pita:	.word	fmita$
+	.byte	fmion.,fmiof.,0,0
+w$ppre:	.word	fmpre$
+	.byte	fmpon.,fmpof.,0,0
+
+  proc	vf$bol
+	call	wp$ren	#w$pbol
+  end
+
+  proc	vf$und
+	call	wp$ren	#w$pund
+  end
+
+  proc	vf$ita
+	call	wp$ren	#w$pita
+  end
+
+  proc	vf$pre
+	call	wp$ren	#w$ppre
+  end
+
+	auto	reg
+  proc	wp$ren
+	p1	ren,r2
+	if	v$asel eq		; not a region
+		call	wp$pnt r2	; handle a single point
+	...	exit			;
+.if ne 0
+	call	wp$opn			;
+	call	wp$pre	r1,r1		;
+	mov	r0,r3			; r3 = rendition at start
+	if	(r2) seton r3
+		call	is$sol		;
+		locate and delete 
+
+      while r4 lo r5
+
+	call	wp$skp			;
+.endc
+  end
+
+  proc	wp$pnt				; rendition point
+	p1	ren,r2
+	call	wp$opn			; open up
+	call	wp$pre	r1,p$odot	; get attributes at dot
+	mov	r0,r3			; r3 = attribute mask
+	call	wp$skp			; skip all prefixes
+	if	p$odot hi r0		;
+	...	mov	p$odot,r0	;
+	mov	wr.enb(r2),r2		;
+	if	(r2) seton r3		; disabling
+	...	swab	r2		; so reverse sequence
+	call	wp$ins	r2		;
+	swab	r2			;
+	call	wp$ins	r2		;
+	dec	p$odot			; position between them
+  end
+code	map the current region
+
+; 	r0 ->	start of line past rings
+;	r1 ->	start of line
+;	r3	region start - permanent
+;	r4	region start - incremental
+;	r5	region end
+
+  proc	wp$opn
+	if	v$asel ne		; selected area
+	...	bis	#polim$,v$asel	; now in limbo
+	call	wp$reg			; r1 -> line, r4..r5 => area
+	mov	r4,r1			;
+	call	po$sop			; r1 -> start of first paragraph
+	mov	r1,r3			; that's the region start
+	mov	r1,r4			; that's the region start
+	call	wp$ski			; r1,r0 -> line, data
+  end
+
+  proc	wp$ext				; extend region
+	mov	r3,r4			; reset it
+	mov	r4,r1			;
+     repeat				;
+	call	wp$prv			;
+	leave	if r0 eq
+	ifb	(r0) eq #fmbul.
+	orb	(r0) eq #fmnum.
+		mov	r1,r4
+	...	next
+      endless
+	mov	r5,r1
+      repeat
+	call	wp$nxt
+	leave	if r0 eq
+	ifb	(r0) eq #fmbul.
+	orb	(r0) eq #fmnum.
+		mov	r1,r5
+	...	next
+      endless
+	mov	r4,r1
+	mov	r4,r3
+	call	wp$ski
+  end
+
+  proc	wp$adv
+	clr	r0			; assume all done
+	exit	if r4 his r5		;
+	mov	r4,r1			;
+	call	wp$nxt			;
+	exit	if r0 eq		;
+	mov	r1,r4			;
+	call	wp$ski			;
+  end
+
+  proc	wp$skp				; skip prefixes (indent, bullet etc) 
+	call	wp$ski			; skip indents
+	while	r0 lo p$otop		;
+	andb	(r0) his #fmplo.	;
+	andb	(r0) los #fmphi.	;
+		inc	r0		;
+	end				;
+  end
+
+  proc	wp$ski				; skip indent
+	mov	r1,r0			; r0 -> data
+	if	r4 hi r5		;
+	...	clr	r0		;
+	exit	if r0 eq		;
+	while	r0 lo p$otop		;
+	andb	(r0) his #fmilo.	;
+	andb	(r0) los #fmihi.	;
+		inc	r0		;
+	end				;
+  end
+
+  proc	wp$reg
+	mov	p$odot,r0
+	mov	r0,r1
+	if	v$asel ne
+	...	mov	m$ksel,r1	; r0..r1 => unordered area
+	call	po$opn			; r0,r1 -> line, r4..r5 => area
+	mov	r4,r3			; r3 -> area
+  end
+
+  proc	wp$prv
+	if	r1 eq p$obot		;
+		clr	r0		;
+	...	exit			;
+	call	po$mov	r1,#cmmin$!cmpar$,#1	; r1 -> previous line
+	call	wp$ski			; r1,r0 -> line,data
+  end
+
+  proc	wp$nxt
+	if	r1 eq p$otop		;
+		clr	r0		;
+	...	exit			;
+	call	po$mov	r1,#cmpar$,#1	; r1 -> next line, if any
+	if	r1 eq p$otop		;
+	andb	-1(r1) ne #lf.		;
+		clr	r0		;
+	else				;
+	...	call	wp$ski		; r1,r0 -> line,data
+  end
+code	insert, delete
+
+;	r0 -> position
+;	r4/r5	select region
+
+  proc	wp$ins	r1
+	p1	cha,r1
+;	if	v$asel ne
+;	and	m$ksel his p$odot
+;	and	m$ksel his r0
+;	...	inc	m$ksel
+	if	p$odot his r0
+	...	inc	p$odot
+	if	r4 his r0
+	...	inc	r4
+	if	r5 his r0
+	...	inc	r5
+	call	in$cha
+  end
+
+  proc	wp$del
+	if	v$asel ne
+	and	m$ksel his p$odot
+	and	m$ksel hi r0
+	...	dec	m$ksel
+	if	p$odot hi r0
+	...	dec	p$odot
+	if	r5 hi r0
+	...	dec	r5
+	call	de$exp	r0,#1
+  end
+code	get prefix and rendition
+
+;	Also called by DI$CHG to get line history
+
+; 	r0	ren!idt
+
+  proc	wp$idt
+	p1	dot
+	call	wp$pre	dot(sp),dot(sp)
+	movb	r0,r0
+	asl	r0
+	asl	r0
+  end
+
+  proc	wp$pre	<r1,r2,r3>
+	p1	sta,r1
+	p2	dot,r2
+	clr	r0
+	call	po$sop
+	exit	if r1 eq sta(sp)	; is no history
+      while	r1 lo r2
+	movb	(r1)+,r3		; get the next
+	ifb	r3 eq #fmbul.
+	orb	r3 eq #fmnum.
+	orb	r3 eq #fmidt.
+		incb	r0
+	elsifb	r3 his #fmrlo.
+	andb	r3 los #fmrhi.
+		call	wp$att	r0,r3
+	else		
+	...	leave
+      end
+  end
+
+  proc	wp$att
+	p1	sta,r0
+	p2	cha,r1
+	bic	#255.,r1
+	asl	r1
+	mov	wp$att-<fmrlo.*2>(r1),r1
+	if	pl
+		bis	r1,r0
+	else
+	...	bic	r1,r0
+  end
+
+w$patt:	.word	fmbol$
+	.word	fmbol$!bit15$
+	.word	fmund$
+	.word	fmund$!bit15$
+	.word	fmita$
+	.word	fmita$!bit15$
+	.word	fmpre$
+	.word	fmpre$!bit15$
+
+.end
+
+code	wp$upd	update formatting
+
+;	wp$upd
+;
+;	Update formatting after buffer modification
+;
+;	1.	Rebreak paragraphs in region
+;	2.	Fixup trailing rendition 
+;	3.	
+
+  proc	wp$upd
+	p1	sta,
+	p2	ter
+
+		callb	wp$ins	wr.dsb(r2)
+		dec	p$odot		; position inside it
+	...	exit			;
+	callb	wp$ins	wr.dsb(r2)	; inserting disable point
+	while	r0 los p$otop		;
+	andb	(r0) lo #fmnlo.		;
+	andb	(r0) hi #fmnho.		;
+		ifb	(r0) eq wr.dsb
+
+
+  end
+
+

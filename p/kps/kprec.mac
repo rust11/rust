@@ -1,0 +1,343 @@
+;***;	KPS:KPREC.MAC - KEYPAD supports RSX/VMS text files
+.title	KPREC	Record
+.include "kps:kpmac.mac"
+
+code	GT$GEN	Get generic
+
+;	This routine is called to handle the initial character only.
+;	The first read is used on PDP-11 systems to determine file structure
+;	Graphic files, and wide files, are also detected here
+
+  subr	gt$gen
+	call	gt$rea				;read the first block
+	exit	if r0 eq			;
+	if	#fbstm$!fbvar$!fball$ setoff (r4) ;no mode so far
+		call	gt$rfm			;get record format
+		if	r0 ne			;variable length
+	...	...	bis	#fbvar$,(r4)	;variable
+						;
+	if	#fball$ seton (r4)		;pass all 
+		mova	gt$all,fb.get(r4)	;use that
+		clr	r0			;not graphic mode
+	elsif	#fbvar$	seton (r4)		;variable
+		mova	gt$var,fb.get(r4)	;use variable mode
+		movb	#fbcnt.,fb.var(r4)	;initial state
+		mov	fb.buf(r4),r0		;get the buffer
+		movb	word.(r0),r0		;get first character
+	else					;
+		mova	gt$stm,fb.get(r4)	;default to stream
+	...	movb	@fb.buf(r4),r0		;get first character
+						;
+	if	r0 ne #lsqig.			;not graphic
+		clr	r0			;
+	else					;
+	...	mov	#1,r0			;
+	call	ch$gra	r0			;reset graphic mode
+	call	@fb.get(r4)			;get first character
+  end
+
+code	GT$RFM	Get record format
+
+;	Out	r0=0	stream
+;		r1=1	variable format
+
+  subr	gt$rfm	<r1,r2>
+	clr	r0				;assume stream
+	mov	fb.buf(r4),r2			;point to the buffer
+	ifw	(r2) ne				;first has something
+		exit	ifb byte.(r2) ne	;high byte not zero - stream
+		exit	ifw word.(r2) eq	;no data - stream
+	else					;
+		addi3	fb.siz(r4),r2,r1	;setup top address
+		repeat				;
+			exit	if r2 hi r1	;all over - stream
+			tstw	(r2)+		;skip one
+	...	until	(r2) ne			;got something with a count
+	inc	r0				;variable
+  end
+code	PT$GEN	Put generic
+
+;	This routine is called to handle the initial character.
+
+  subr	pt$gen
+	if	#fbvar$ seton (r4)		;variable output
+		mova	pt$var,fb.put(r4)	;variable output
+		call	pt$ini			;init first record
+;V4	elsif	#fbgra$ seton (r4)		;graphic
+;V4;		if	e$dpub eq		;not available
+;V4;		...	error			;
+;V4		mova	pt$pub,fb.put(r4)	;publish output
+;V4		call	pb$ini			;create something
+	else					;
+	...	mova	pt$stm,fb.put(r4)	;stream/raw output
+	call	@fb.put(r4)			;do the first
+  end
+
+code	PT$PAD	Pad output file
+
+  subr	PT$PAD	r1
+
+	exit	if #fbopn$ setoff (r4)		;no file to close
+	if	#fbeof$ seton (r4)		;end of file seen
+	...	error				;
+						;
+	if	#fbvar$ seton (r4)		;variable mode
+	 and	fr.cnt(r4) his #word.		;still waiting
+		mov	#lf.,r1			;force end
+	...	call	pt$var			;dump it
+						;
+pdp$	while	fb.cnt(r4) ne			;more to do
+pdp$		clrb	r1			;one more
+pdp$		call	pt$raw			;put raw character
+pdp$	end					;
+						;
+vax$	if	fb.cnt(r4) ne			;more to do
+vax$	...	call	rt$wri	r4		;write last block
+  end
+code	GT$ALL	Get passall character
+
+;	Avoid all control characters except tab, ff, cr & lf
+
+  subr	gt$all
+;	out 	r0				;character
+						;
+	repeat					;
+		call	ch$abt			;check abort
+		call	gt$raw			;get another
+		leave	ifb r0 his #space.	;printable
+		leave	if r0 eq		;all over
+		leave	ifb r0 eq #tab.		;a tab
+		leave	ifb r0 eq #ff.		;formfeed
+		leave	ifb r0 eq #cr.		;a return
+		leave	ifb r0 eq #lf.		;linefeed
+	end					;get another
+  end
+code	GT$VAR	Get variable character
+
+;	fbcnt.	next word is count
+;	fbdat.	next byte is data
+;	fbter.	next is dummy lf
+; 
+;	Assumes reasonable size records
+;
+;???	Remove newline after formfeed
+
+  subr	gt$var
+    repeat					;till we get one
+	ifb	fb.var(r4) eq #fbcnt.		;need a count byte
+		call	gt$raw			;get it
+		exit	if r0 eq		;
+		movb	r0,fb.rsz(r4)		;store it
+		movb	r0,fb.odd(r4)		;remember if it was odd
+		call	gt$raw			;get another
+		movb	r0,fb.rsz+byte.(r4)	;
+		movb	#fbdat.,fb.var(r4) 	;setup data flag
+	...	next				;
+	ifb	fb.var(r4) eq #fbdat.		;got data
+		ifw	fb.rsz(r4) ne		;got more
+			decw	fb.rsz(r4)	;decrement it
+			call	gt$raw		;get another
+			exit	if r0 eq	;end of file
+			next	ifb r0 eq	;crap
+		...	exit			;and quit
+		ifb	#1 seton fb.odd(r4) 	;an odd record
+		...	call	gt$raw		;skip it
+.if ne new$c
+		movb	#nl.,r0			;newline
+		movb	#fbcnt.,fb.var(r4)	;count next time
+.iff
+		movb	#cr.,r0			;return a return
+		movb	#fbter.,fb.var(r4)	;line feed next time
+.endc
+	...	exit				;
+.if eq new$c
+	ifb	fb.var(r4) eq #fbter.		;need a line feed
+		mov	#lf.,r0			;return one
+		movb	#fbcnt.,fb.var(r4)	;count next time
+	...	exit				;
+.endc
+	error					;should never occur
+    end						;
+  end
+code	GT$RAW	Get next raw input character
+
+;	Get next input character. Also stream input.
+;	Toss delete & nulls.
+;
+;	Out	r0		next character
+;			0	no more characters or input error
+
+  subr	gt$stm
+	call	gt$raw
+  end
+
+	auto	prv
+  proc	gt$raw
+	clr	prv(sp)
+     repeat					;for null characters
+	if	#fbopn$ setoff (r4)		;no input
+	 or	#fbeof$!fberr$ seton (r4)	;or end of file
+		clr	r0			;no more
+	...	exit				;quit
+.if ne smvax.					;
+	if	#fbdev$ setoff (r4)		;not a device
+	 and	fb.ebk(r4) eq fb.blk(r4)	;and at endblock
+		subl3	fb.cnt(r4),fb.siz(r4),r0;get current byte
+		if	r0 his fb.ffb(r4)	;past end of file
+			bis	#fbeof$,(r4)	;setup end of file
+			clr	r0		;end of file
+	...	...	exit			;
+.endc						;
+	if	fb.cnt(r4) le			;no more here
+		call	gt$rea			;read another block
+	...	next				;check status
+						;
+	movbi	@fb.pnt(r4),r0			;get it
+	if	eq				;no more
+	...	call	ch$abt			;check aborts
+
+.if ne new$c
+	ifb	prv(sp) eq #cr.			;previous was cr
+	andb	r0 ne #lf.			;and this ain't lf
+	and	#fbvar$ setoff (r4)		;and not variable mode
+		mov	#lf.,r0			;fudge new line
+	...	exit				;stream CR format
+	mov	r0,prv(sp)			;save it
+.endc
+
+	inc	fb.pnt(r4)			;skip it
+	dec	fb.cnt(r4)			;count it
+	if	#fbvar$ seton (r4)		;
+		bis	#bit8$,r0		;flag byte o.k.
+		ifb	r0 eq #-1		;network end of file
+			clr	r0		;say so
+		...	bis	#fbeof$,(r4)	;set end of file
+	...	exit				;no other checks
+	next	ifb r0 eq 			;skip nulls
+
+;	stream file
+
+.if ne new$c
+	next	ifb r0 eq #cr.			;they're irrelevant
+.endc
+	next	ifb r0 eq #127.			;skip delete
+	next	ifb r0 eq #128.			;that too
+	next	ifb r0 eq #255.			;those as well
+    endless					;got character
+  end
+code	GT$REA	Read next block
+
+;	In	r4 ->		file plex
+
+  subr	gt$rea
+	clr	fb.cnt(r4)			;
+	call	rt$rea	r4			;read the next 
+	if	r0 le				;some error
+	or	#fbeof$ seton (r4)		;end of file
+	   	clr	fb.cnt(r4)		;no data in buffer	
+		clr	r0			;
+	...	exit
+	mov	fb.siz(r4),fb.cnt(r4)		;read next buffer
+;	mov	r0,fb.cnt(r4)			;
+	mov	fb.buf(r4),fb.pnt(r4)		;setup the pointer
+	inc	fb.blk(r4)			;next block
+	mov	fb.blk(r4),v$area		;save read block
+  end
+;???	Error reporting
+code	PT$STM	Put stream
+code	PT$RAW	Put raw character
+
+;	in	r1				;character
+;		r4				;fcb
+;	out	r0	0			;error
+
+  subr	pt$stm
+.if ne new$c
+	ifb	r1 eq #nl.			;
+	andb	#fbunx$ setoff (r4)		;and not unix
+		mov	#cr.,r1			;
+		call	pt$raw			;
+	...	mov	#lf.,r1			;
+.endc
+  entry	pt$raw
+	if	#fbopn$ setoff (r4)		;not open
+	 or	#fbeof$!fberr$ seton (r4)	;some error
+		clr	r0			;forget it
+	...	exit				;
+						;
+	mov	sp,r0				;assume success
+	if	fb.cnt(r4) his fb.siz(r4)	;block is full
+		call	pt$blk			;write the block
+	...	exit	if r0 eq		;forget it
+						;
+	movb	r1,@fb.pnt(r4)			;store it
+	inc	fb.pnt(r4)			;step it up
+	inc	fb.cnt(r4)			;count it
+	if	fb.cnt(r4) his fb.siz(r4)	;just overflowed?
+	...	call	pt$blk			;yes
+  end
+code	PT$VAR	Put variable character
+
+;	Accumulate variable length record
+;	Long lines are aborted
+;	Short lines are forced out
+
+  subr	pt$var	<r1,r2,r3>
+
+	if	#fbopn$ setoff (r4)		;not open
+	 or	#fbeof$!fberr$ seton (r4)	;some error
+		clr	r0			;forget it
+	...	exit				;
+						;
+.if eq new$c
+	exit	ifb r1 eq #cr.			;ignore returns
+.endc
+	ifb	r1 ne #lf.			;not end of line
+		if	fr.cnt(r4) his fr.siz(r4)
+			bis	#fblng$,(r4)	;too long
+		...	error			;
+						;
+		movb	r1,@fr.pnt(r4)		;no - store it
+		inc	fr.pnt(r4)		;skip it
+		inc	fr.cnt(r4)		;count it
+	...	exit				;done here
+
+;	Move out completed line
+
+	mov	fr.buf(r4),r2			;point to buffer
+	mov	fr.cnt(r4),r3			;get the count
+	if	#bit0$ seton r3			;it was odd
+	...	clrb	@fr.pnt(r4)		;clear last byte
+	movw	r3,(r2)				;store the count
+	subw	#word.,(r2)			;minus header overhead
+	inc	r3				;round it up
+	bic	#bit0$,r3			;even it
+	repeat					;
+		movb	(r2)+,r1		;get the next
+		call	pt$raw			;dump it
+		exit	if r0 eq		;forget it
+	count	r3				;do them all
+	call	pt$ini				;init record buffer
+  end
+
+code	PT$INI	Init record
+
+  subr	pt$ini
+	mov	#word.,fr.cnt(r4)		;setup count
+	addi3	#word.,fr.buf(r4),fr.pnt(r4) 	;setup pointer
+  end
+code	PT$BLK	Write next block
+
+  subr	pt$blk
+;	in	r4				;file block pointer
+;	out	r0	0			;error
+	call	rt$wri	r4			;write it
+	exit	if r0 le			;some error
+	mov	fb.buf(r4),fb.pnt(r4)		;reset pointer
+	clr	fb.cnt(r4)			;clear counter
+	inc	fb.blk(r4)			;next block
+	mov	fb.blk(r4),v$awri		;tell them about it
+  end
+
+.end
+

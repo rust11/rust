@@ -1,0 +1,48 @@
+.title	kpcas - case operations
+.include "kps:kpmac.mac"
+
+;	supports iso 8859-1 conversions
+
+  subr	vf$cas			; switch case
+	call	cm$cas #caivt.
+  end
+  subr	vf$upr			; upper case
+	call	cm$cas #caupr.
+  end
+  subr	vf$low			; lower case
+	call	cm$cas #calow.
+  end
+
+  proc	cm$cas			; case
+	p1	opr
+	bis	#cmcha$,r2	;
+	call	po$cmx		; position with select area
+	call	po$opn		;
+	while	r4 ne r5	;
+		movb	(r4),r0
+		ifb	r0 his #128
+			call	ca$iso opr(sp)
+		else		;
+		...	call	ca$cha opr(sp)
+		movb	r0,(r4)+
+	end
+  end
+
+  proc	ca$iso	<r1>
+	p1	cas,r1
+	ifb	r0 his #192.
+	andb	r0 los #222.
+	andb	r0 ne #215		; x
+		if	r1 eq #calow.
+		or	r1 eq #caivt.
+		...	bisb	#32.,r0
+	elsifb	r0 his #224.
+	andb	r0 los #254.
+	andb	r0 ne #247		; /
+		if	r1 eq #caupr.
+		or	r1 eq #caivt.
+		...	bicb	#32.,r0
+	end
+  end
+
+.end

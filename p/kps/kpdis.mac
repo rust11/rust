@@ -1,0 +1,428 @@
+att$c=1
+fmt$c=1
+iso$c=0
+sts$c=0
+.title	KPDIS	Display front-end
+.include "kps:kpmac.mac"
+aldef$
+page	Display front-ends
+
+;	Choose window, line or nothing
+;	Store new data in NEW array
+;	Code the differences
+;	Move in the new data
+;	Flush the display
+
+
+	SBD. = 1
+	CBD. = 52+1
+	SUN. = lowu.-lowa.
+	CUN. = 52 + SUN.
+	SRV. = lowr.-lowa.
+	CRV. = 52 + SRV.
+
+	dibol$ = 1
+	diund$ = 2
+	direv$ = 4
+	diclr$ = 128.
+
+d$igra:	.byte	SBD.,CBD.,SUN.,CUN.,SRV.,CRV.,SRV.,CRV.
+
+d$iflg:	.byte	<fmbol$/256.>
+	.byte	<fmbol$/256.>!128.
+	.byte	<fmund$/256.>
+	.byte	<fmund$/256.>!128.
+	.byte	<fmita$/256.>
+	.byte	<fmita$/256.>!128.
+	.byte	<fmpre$/256.>
+	.byte	<fmpre$/256.>!128.
+
+d$iatt:					;\ attributes (high byte)
+d$iidt:	.word	0			;/ indent (low byte)
+f$mbul:	.asciz	/ o  /
+f$midt:	.asciz	/    /
+	.even
+
+code	DI$RPT	Repaint screen
+
+  entry	di$rpt
+	inc	d$iini			;init screen
+
+code	DI$ALL	Force complete update
+
+  entry	di$all				;do them all
+	inc	d$iwin			;force window
+	inc	d$ista			;force status
+	fall	di$upd			;update it
+
+code	DI$UPD	Update display front-end
+
+  subr	di$upd	all			;
+	if	d$iini ne		;init screen
+		call	sc$ini		;init it
+		inc	d$iwin		;force window
+		inc	d$ista		;and status
+		inc	d$ifmt		;
+	...	clr	d$iini		;
+	if	d$iwin ne		;
+		if	d$ifmt ne	;
+			clr	d$ifmt	;
+		...	call	br$pag	
+		call	di$win		;update window
+	elsif	d$ilin ne		;
+	...	call	di$lin		;update line
+  end
+page	Update window, line, status
+
+code	DI$WIN	Update window
+
+  subr	di$win
+     if c$oact eq
+	clr	d$iwin			;clear window flag
+	clr	s$clin			;whole screen
+	clr	d$ifnd			;cursor not found yet
+	clrb	s$tesc			;no escape yet
+	clrb	s$tgra			;
+
+;	Compute first line of display
+
+	mov	p$odot,r1		;get current position
+	mov	v$amid,r3		;r3 is midline row number
+.if ne new$c
+	ifb	-byte.(r1) his #lf.	;sitting on a line feed
+	andb	-byte.(r1) los #cr.	;sitting on a line feed
+.iff
+	ifb	-byte.(r1) eq #lf.	;sitting on a line feed
+.endc
+	 ...	dec	r3		;so one row less
+	call	po$mov	r1,#cmmin$,r3	;move back to it
+					;r1 -> first line to display
+
+	call	wp$pre	r1,r1		;get the prefix
+					;r0 = indent/attribute prefix
+	call	di$chg	#0,#scwlc.,r1,p$otop,r0 ;update the display
+     end
+
+code	DI$LIN	Update line
+
+  entry	di$lin
+;	if	d$ilin eq
+;		call	op$flu
+;	...	exit
+
+	clr	d$ilin				;line display done
+	clr	r2				;assume no line
+	mov	t$tplx,r1			;get current line plex
+	if	ne				;got something
+	...	addi3	li.cnt(r1),r1,r2	;r2 -> end of line
+
+	call	di$chg	#sccln.,#1,r1,r2,#0 	;change command line
+
+
+;	Update screen, position cursor & flush
+
+	if	c$oact ne
+		call	sc$chg	#sccln.		;change the screen
+	else
+		call	sc$chg	#0		;change the screen
+		mov	d$iX,r4			;X position
+		mov	d$iY,r5			;Y position
+		call	sc$pos			;position cursor
+	end
+	call	op$flu				;flush output
+  end
+code	DI$CHG	Change display area
+
+;	r4 ->	last byte usable in r3 string (screen buffer)
+;	r5	column
+;							bot
+;		bot	bot				top
+;	R2->start	top	bot	bot=top	
+;		top		top		bot
+;						top
+	auto	ctl				;control character
+	auto	sel				;in select area
+	auto	bot				;select bottom
+	auto	top				;select top
+	auto	brk
+  proc	di$chg	<r4>
+	p1	fst,r1				;first line offset
+	p2	cnt				;number of lines to change
+	p3	sta,r2				;start of buffer
+	p4	end				;end of buffer
+	p5	att				;opening attributes
+
+	mov	att(sp),d$iatt
+	asl$	addr$l,r1			;tso
+						;
+	clr	sel(sp)				;assume not in select
+	clr	brk(sp)				;assume no break coming
+	if	v$asel ne			;
+	and	p$odot ne m$ksel		;
+		mov	p$odot,bot(sp)		;
+		mov	m$ksel,top(sp)		;
+		if	bot(sp) his top(sp)	;
+			mov	m$ksel,bot(sp)	;
+		...	mov	p$odot,top(sp)	;
+		if	r2 his bot(sp)		;
+		and	r2 lo top(sp)		;
+			com	sel(sp)		;in select area
+		...	mov	top(sp),brk(sp)	;break at top
+		if	r2 lo bot(sp)		;
+	...	...	mov	bot(sp),brk(sp)	;break at bottom
+
+    repeat					; lines loop
+	dec	cnt(sp)				; count down
+    big	leave	if mi	 			; all done- do not update r1
+
+	addi3	#sc.dat,s$cnew(r1),r3		; point to line data
+	addi3	v$awid,r3,r4			; r4->end of line buffer
+						; before extension area
+	clr	r5				; X position in line
+	if	sel(sp) ne			; in select area
+	...	call	di$sbd			; start bold
+	if	d$iatt ne			; got attributes
+	...	call	di$pre			; do prefix
+
+      repeat				; character loop
+	if	r3 his r4		; ran out of room
+		call	di$ovr		; handle overflow
+    big	...	leave			; and quit
+					;
+	call	di$dot			; position cursor
+					;
+    big	leave	if r2 his end(sp)	; all done
+					;
+	if	r2 eq brk(sp)		; select break?
+		com sel(sp)		; switch it
+		if ne			; switch on
+		    call di$sbd		;
+		    mov top(sp),brk(sp)	;
+		else			; switch off
+	...	... call di$cbd		; clear bold
+
+	movb	(r2)+,r0		; get the next character
+	ifb	r0 lo #32		; control
+		next ifb r0 eq		; ignore those
+	  	call	di$ctl		; handle control
+	else				;
+	 ifb	r0 los #127		; printing
+		next if eq		; ignore delete (127)
+		call	di$put		; the common case
+	 else				; upper 128
+	  ifb	r0 lo #128+32		;
+		call	di$fmt		; format stuff					; upper control
+	  else				;
+	  ...	call	di$iso		; check for ISO
+	 end
+	end
+
+	ifb	r0 his #fmblo.		; return
+	andb	r0 los #fmbhi.		;
+		ifb	r0 ne #cr.	;
+		...	clr d$iidt	;
+	...	leave
+
+  big end				;
+;	End of line
+;
+;	SC$CHG needs a zero aligned integer at end
+
+.if ne att$c
+	ifb	r0 eq #lf.
+	...	clr	d$iatt
+.endc
+
+	clrb	(r3)+			;pad zeroes
+	clrb	(r3)+			;
+	clrb	(r3)+			;
+vax$	clrl	(r3)			;plus another
+	add	#addr.,r1		;next line
+big end					;line loop
+  end
+
+
+di$sbd:
+;	movb	#'[,(r3)+
+	psh	#SBD.
+	br	di$esc
+di$cbd:	psh	#CBD.
+;	movb	#'],(r3)+
+di$esc:	movb	#gresc.,(r3)+		;
+	movb	(sp)+,(r3)+		;
+	add	#2,r4
+; check for overflow
+	return
+
+  subr	di$ctl
+	beqb	r0,#tab.,80$		;
+	beqb	r0,#ff.,30$		;
+;	beqw	v$afmt,20$		; not formatted
+	bneb	r0,#fmhor.,10$		;
+5$:	movb	#lf.,r0			;
+	bhisw	r3,r4,100$		;
+	bhisw	r5,v$awid,100$		;
+	movb	#minus.,r0		;
+	call	di$put			;
+	br	5$			;
+10$:	blob	r0,#fmclo.,30$		; control low
+	blosb	r0,#fmchi.,100$		; control high
+	br	30$			;
+20$:	beqb	r0,#cr.,100$		;
+	beqb	r0,#lf.,100$		;
+30$:	psh	r0			;
+	movb	#hat.,r0		; a hat
+	call	di$put			; display that
+	pop	r0			;
+	add	#atsgn.,r0		; make it uppercase
+80$:	call	di$put			; display that
+90$:	tst	(pc)+			;
+100$:	sec
+	return
+	end
+
+di$fmt:	bneb	r0,#fmbul.,20$		;
+	call	di$typ #f$mbul		; bullet
+	inc	d$iidt			;
+	br	90$			;
+20$:	bneb	r0,#fmidt.,30$		;
+	call	di$typ #f$midt		; bullet
+	inc	d$iidt			;
+30$:	blob	r0,#fmrlo.,90$		; rendition
+	bhib	r0,#fmrhi.,90$		;
+	add	#2,r4			;
+	movb	#gresc.,(r3)+		;
+	bic	#^c255,r0		;
+	movb	d$igra-fmrlo.(r0),(r3)+
+	movb	d$iflg-fmrlo.(r0),-(sp)
+	bmi	40$
+	bisb	(sp)+,d$iatt+1		;
+	br	90$
+40$:	bicb	(sp)+,d$iatt+1		;
+90$:	return
+
+di$att:	bpcw	#dibol$,d$iatt,10$	;
+	add	#2,r4			;
+	movb	#gresc.,(r3)+		;
+	movb	#SBD.,(r3)+		;
+10$:	bpcw	#diund$,d$iatt,20$	;
+	add	#2,r4			;
+	movb	#gresc.,(r3)+		;
+	movb	#SUN.,(r3)+		;
+20$:	bpcw	#direv$,d$iatt,30$	;
+	add	#2,r4			;
+	movb	#gresc.,(r3)+		;
+	movb	#SRV.,(r3)+		;
+30$:	return
+
+di$iso:
+.if ne iso$c
+	beqw	#stiso$,s$tflx		; no ISO conversion
+	movb	r0,r0			;
+	movb	i$sopt-128(r0),r0	; get replacement
+.endc
+10$:	call	di$put			; store it
+	return
+code	DI$PUT	Put character
+
+;	In	r0		character
+;	Inout	r3 ->		output character
+;		r4 ->		end of storage line
+;		r5		column number
+
+  proc	di$typ	<r0,r1>
+	p1	str,r1
+	whileb	(r1) ne
+		movb	(r1)+,r0
+		call	di$put
+	end
+  end
+
+  subr	di$pre	<r0,r1>
+	movb	d$iidt,r1
+	while	r1 ne
+		dec	r1
+		call	di$typ #f$midt		; indent
+	end
+	if	#fmbol$ seton d$iatt
+		add	#2,r4			;
+		movb	#gresc.,(r3)+
+	...	movb	#SBD.,(r3)+
+	if	#fmund$ seton d$iatt
+		add	#2,r4			;
+		movb	#gresc.,(r3)+
+	...	movb	#SUN.,(r3)+
+  end
+
+  subr	di$put
+	if	r3 his r4			;no space to store
+		call	di$ovr			;handle overflow
+	...	exit				;and quit
+	if	r0 eq #ht.			;a tab
+	 if	d$ifil ne			;and space filling
+	 or	d$itab ne #7			;not regular tabs
+		repeat				;space fill area
+			exit	if r5 hi v$awid	;forget it
+			mov	#space.,r0	;fill
+			call	di$put		;
+		until	d$itab setoff r5	;till all done
+	... ...	exit				;
+						;
+	if	r5 hi v$awid			;too far?
+	...	exit				;yes
+	if	eq				;at the edge
+		call	di$ovr			;handle overflow
+	else					;
+	...	movb	r0,(r3)+		;otherwise store it
+	inc	r5				;next column
+	exit	ifb r0 ne #ht.			;not tab
+	add	d$itab,r5			;compute tab position
+	bic	d$itab,r5			;
+  end
+
+code	DI$OVR	Handle overflow
+
+;	Backup and insert tilda
+;
+;	Handle graphic sequences
+;
+;	r3 ->	output string
+;	r5	X position
+
+  subr	di$ovr	<r0,r1>
+.if ne 0
+	if	r5 eq v$awid			; at the edge
+	    repeat				;
+		dec	r3			; backup one
+		leave	ifb -byte.(r3) ne #gresc. ; previous a graphic?
+		dec	r3			; drop the escape
+		next				; do it again
+	    end					;
+		mov	#30,r0			; maximum
+		mov	r3,r1			; in case we fail
+	    repeat
+		ifb -(r3) eq #space.		; found a place to break
+		    inc	 r3			; skip the space
+		    ... whileb -(r2) ne #space.	;
+		    inc r2
+		... exit			;
+	    count r0				;
+		mov	r1,r3			; restore character break
+	end					;
+.endc
+	movb	#tilda.,(r3)+			; store tilda
+  end
+
+code	DI$DOT	Record cursor position
+
+  subr di$dot
+	exit	if r2 ne p$odot			;not at dot
+	exit	if d$ifnd ne			;already found it
+	inc	d$ifnd				;found the cursor
+	mov	r5,d$iX				;the x cursor
+	mov	r1,d$iY				;y*int.
+	asr$	addr$l,d$iY			;shift it
+  end
+
+.end
+

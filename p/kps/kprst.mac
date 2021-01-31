@@ -1,0 +1,267 @@
+;	e$dhyp		hyphenate available
+;	e$dpro		proportional available
+;	e$dpub		publish output available
+;
+.title	KPRST	RUST runtime
+.include "kps:kpmac.mac"
+vax$	.error	;PDP-11 module
+form	RT-11 constants
+.radix	8
+$jbdef
+$jsdef
+$rmdef
+.radix	10
+
+data	ASECT	Setup overlay etc
+
+.save
+.asect
+;V4	.=j$busp
+;V4	.word	p$ebot
+;V4	.=j$busa
+;V4	.word	e$dusr
+	.=j$bjsw
+	.word	jsrst$!jsovr$!jstts$!jsttl$
+.restore
+
+data	Runtime data
+
+	array	r$tcsi	3	word.*5		;3 output specs
+	array	r$tspc	6	word.*4		;6 input specs
+	array	r$ttyp	4	word.		;4 default file types
+code	RT$INI	Runtime init
+
+;	In	r5		Image activate r5
+
+	auto	are	5*word.		;
+  subr	rt$ini				;
+;V4	if	r5 eq #<^rshp>		;SHAREplus
+;V4		inc	e$dshp		;remember it
+;V4	else				;RT-11
+;V4	...	mov	#e$dsma,j$btop	;make small editor
+	.serr				;catch request errors
+	.scca	sp,#s$tabt		;and the occasional ^C
+  end
+
+code	RT$CLI	Get CLI command
+
+  task	rt$cli	<r1,r2>
+	p1	lin,r1				;input line
+	movbi	j$bcct,r2			;got a count?
+	if	r2 le #1			;no command
+	...	exit false			;
+	clr	j$bcct				;once-only
+	.gtlin	r1				;clear monitor buffer
+	mova	j$bcst,r0			;get the pointer
+	whileb	(r0) ne				;got more
+		movb	(r0)+,(r1)+		;
+	count	r2				;count it
+	clrb	(r1)				;terminate it
+	mov	r1,r0				;point at last
+  end
+
+code	RT$EXI	Exit editor
+
+;	Write out database to image file
+
+  subr	rt$exi
+;V4	.writw	sp,#15.,#p$ebot,#p$etop-p$ebot/word.,#p$ebot/512.
+	clr	j$bcct			;no chain
+	mov	sp,r0			;no reset
+	.exit				;quit
+  endless
+code	ME$INI	Init memory structures
+
+  subr	me$ini
+	addi3	#word.,j$btop,r0	;adjust top address
+	mov	r0,m$ebot		;save it
+	.settop	#-2			;get all there is
+	sub	#int.,r0		;round it down
+	mov	r0,m$etop		;save it
+	call	me$rst
+  end
+
+  subr	me$rst
+	mov	m$ebot,m$ecur		;reset memory
+	subi3	m$ecur,m$etop,m$eavl	;remember whats available
+  end
+
+code	ME$ALC	Allocate memory
+
+  proc	me$alc	r1
+	p1	siz,r1
+;	out	r0			;base address
+;			0		;failed
+					;
+	if	r1 hi m$eavl		;no space
+	...	call	st$fat	#e$rmem	;fatal error
+	mov	m$ecur,r0		;
+	add	r1,m$ecur		;
+	sub	r1,m$eavl		;
+  end
+page	Terminal support
+
+code	RT$EMP	Empty terminal input ring
+
+  subr	rt$emp
+	bis	#jstts$!jsttr$,j$bjsw	;setup single character mode
+	.rctrlo				;make sure we get some
+	repeat				;flush it
+		.ttinr			;get another
+	until	cs			;until no more
+	bic	#jsttr$,j$bjsw		;turn off return mode
+  end
+
+code	RT$IPT	Input next character
+
+  proc	rt$ipt	
+	p1	mod			;0 => nowait, 1 => wait
+;	out	r0			;character
+;			0		;none available
+					;
+	if	mod(sp) eq		;nowait
+		bis	#jsttr$,j$bjsw	;
+		.ttinr			;get a character
+		if	cs		;got nothing
+		...	clr	r0	;say so
+	else				;wait
+		bic	#jsttr$,j$bjsw	;
+	...	.ttyin			;wait for one
+  end
+
+code	RT$OPT	Output string
+
+	auto	tmp			;save a character
+  proc	rt$opt	<r0,r1>
+	p1	buf			;asciz buffer
+	p2	cnt			;character count
+	addi3	cnt(sp),buf(sp),r1	;point at last
+	movb	(r1),(sp)		;save last character
+	movb	#128.,(r1)		;terminate it
+	.print	buf(sp)			;display it
+	movb	(sp),(r1)		;restore it
+  end
+code	RT$OPN	Raw open
+
+	auto	sys	5*int.			;system call area
+  proc	rt$opn	<r1,r4>
+	p1	fbl,r4				;file block
+	p2	dum				;(matches alc below)
+;	out	r0	0			;some error
+						;
+	call	rt$spc				;get the filespec
+	.lookup	sp,fb.chn(r4),#r$tspc,#0	;look it up
+  join
+
+code	RT$CRE	Raw create
+
+	auto	sys	5*int.			;system call area
+  proc	rt$cre	<r1,r4>
+	p1	fbl,r4				;file block
+	p2	alc,r1
+						;
+	call	rt$spc				;get the filespec
+	.enter	sp,fb.chn(r4),#r$tspc,r1,#0	;look it up
+  meet
+	if	r$tspc+2 eq			;device open
+	...	bis	#fbdev$,(r4)		;record that
+	if	cs				;some error
+		clr	r0			;say so
+	...	exit				;
+	bis	#fbopn$,(r4)			;file is open
+	mov	r0,fb.len(r4)			;save the length
+	mov	#1,r0				;fine
+  end
+code	RT$PRG	Purge file
+code	RT$CLO	Close file
+
+  proc	rt$prg	<r4>
+	p1	fil,r4				;file plex
+	if	#fbopn$ seton (r4)		;file is open
+	...	.purge	fb.chn(r4)		;purge it
+	clr	(r4)				;not open
+  end
+
+  proc	rt$clo	<r4>
+	p1	fil,r4
+	if	#fbprg$ seton (r4)		;wants purge
+		call	rt$prg r4		;
+	...	exit				;
+	if	#fbopn$ seton (r4)		;file is open
+	...	.close	fb.chn(r4)		;purge it
+	clr	(r4)				;not open
+  end
+code	RT$REA	Raw read routine
+code	RT$WRI	Raw write routine
+
+	auto	sys	5*int.			;system call area
+  proc	rt$rea	r1
+	p1	fbl,r4				;file block
+	if	#fbeof$!fberr$ seton (r4)	;
+		bis	#fberr$,(r4)		;
+	...	call st$rep #s$trea, fb.fnm(r4)	;
+	if	fb.blk(r4) ge fb.len(r4)
+		bis	#fbeof$,(r4)
+		clr	r0
+	...	exit
+	mov	fb.siz(r4),r1			;get the size
+	clc					;
+	ror	r1				;sic] word count - never 32kb
+	.readw	sp,fb.chn(r4),fb.buf(r4),r1,fb.blk(r4)
+	if	cs
+		ifb	@#j$berr ne		;not just eof
+	...	...	call st$rep #s$trea, fb.fnm(r4)	;
+	asl	r0
+	mov	r0,fb.cnt(r4)			;perhaps truncate
+	if	eq
+	...	bis	#fbeof$,(r4)
+  end
+
+	auto	sys	5*int.			;system call area
+  proc	rt$wri	r1
+	p1	fbl,r4				;file block
+	mov	fb.siz(r4),r1			;get the size
+	clc					;
+	ror	r1				;sic] word count - never 32kb
+	.writw	sp,fb.chn(r4),fb.buf(r4),#256,fb.blk(r4)
+	if	cs				;
+	   	bis	#fberr$,(r4)		;error
+	...	call	st$rep	s$twri, fb.fnm(r4)	;
+	mov	#1,r0				;
+  end
+code	RT$NVL	New volume
+
+  proc	rt$nvl
+	p1	fil			;file block pointer - unused
+	.lock				;get the usr complete
+	mov	j$bsys,r2		;point to USR buffer
+	clr	rm.blk(r2)		;clear the cache flag
+	.unlock				;done
+  end
+code	RT$SPC	Convert file spec
+
+;	RT-11 CUSPs use CSISPC to convert filenames.
+;	This adds support for RSTS extensions and other things
+;	The driver, if any, is loaded by a failed lookup
+;
+;	In	r4 ->		File block
+;	Out	r$tspc		Translated filespec
+
+  subr	rt$spc	<r1,r2>
+
+	mov	sp,r2				; save this
+	.csispc	#r$tcsi,#r$ttyp,fb.fnm(r4)	; convert it
+	mov	r2,sp				; restore it
+	bcs	30$				; some error
+						;
+	beqw	c$lact,20$			; cli not active	
+	.fetch	m$ecur, #r$tspc			; fetch initial drivers
+	bcs	30$				; buggered
+	sub	m$ecur,r0			; get what we took
+	call	me$alc r0			; and allocate it
+20$:	mov	(pc)+,r0
+30$:	clr	r0
+  end
+
+.end
+

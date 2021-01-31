@@ -1,0 +1,70 @@
+.title	KPDEL	Delete routines
+.include "kps:kpmac.mac"
+code	DE$GEN - delete generic
+
+;	DE$PRV	Delete previous character(s)
+;	DE$CHA	Delete characters
+;	DE$GEN	Delete generic (default is lines)
+;
+;	In	r2	mode
+;		r3	number
+;
+;	Out	area deleted
+;		r0	deletion point
+
+  subr	de$cmd
+	call	de$gen
+	mov	r0,p$odot
+  end
+
+  proc	de$exp	<r0,r1,r2,r3,r4,r5>	; explicit delete
+	p1	dot,r0
+	p2	cnt,r1
+	add	r0,r1
+	call	de$rng			; delete range
+  end
+
+  subr	de$sel				;delete selected area
+	if	v$asel eq		;nothing selected
+	...	exit
+	call	po$sel			;position at it
+	clr	v$asel			;
+  join	
+  subr	de$prv				;delete previous
+	bis	#cmmin$,r2		;minus mode
+  entry	de$cha				;delete characters
+	inc	c$mcha			;character command
+  entry	de$gen				;delete generic
+	call	po$pos			;get other position
+  entry	de$rng				;delete r0/r1 range
+  meet
+	call	po$opn			;open up the area
+	mov	r4,r0			;result dot
+	subi3	r4,r5,r2		;count number to delete
+	exit	if eq			;nothing to delete
+					;
+	mova	l$iund,r1		;undelete buffer
+	clr	li.cnt(r1)		;nothing
+	if	r2 lo li.max(r1)	;it will fit in buffer
+		inc	v$anew		;data changed
+		mov	r2,li.cnt(r1)	;store the count
+		mov	r4,r0		;get a pointer
+		repeat			;
+			movb	(r0)+,(r1)+ ;save it
+	...   	count	r2		;
+					;
+	call	po$clo			;close the area
+	inc	d$iwin			;refresh screen
+	inc	d$ifmt			;
+  end
+
+code	DE$UND	Undelete
+
+  subr	de$und	<r0>			;finger is not moved
+	mova	l$iund,r4		;get the buffer
+	mov	li.cnt(r4),r5		;get the size
+	exit	if eq			;nothing to do
+	call	in$buf	#0		;insert it
+  end
+.end
+

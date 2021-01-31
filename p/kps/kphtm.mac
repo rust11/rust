@@ -1,0 +1,1007 @@
+;+++;	KPHTM - support H1/H2/H3 (and CREOLE as the model)
+;***;	KPHTM - needs <PRE> support for raw text
+.title	kphtm - HTML support
+.include "kps:kpmac.mac"
+$aldef
+
+	fmbas. = 128.
+
+map	hobol$,,bit8$
+map	hound$,,bit9$
+map	hoita$,,bit10$
+map	hobul$,,bit11$
+map	honum$,,bit12$
+map	hopre$,,bit13$
+map	hofee$,,bit14$
+map	honew$,,bit15$
+
+h$ohea:	.ascii	"<HTML><HEAD></HEAD><STYLE>"<lf.>
+	.ascii	"ul, ol, dl, hr, h1, h2, h3, h4, h5, h6 "
+	.ascii	"{margin-top: 0px; margin-bottom: 0px}"<lf.>
+	.asciz	"</STYLE><BODY>"<lf.>
+h$olow:	.byte	34.,38.,60.,61.,0	; lower half entities
+h$oend:	.asciz	"</BODY></HTML>"<lf.>
+h$ohor:	.asciz	"<HR>"
+h$onew:	.asciz	"<BR>"<lf.>
+h$ofee:	.asciz	"<PRE>&#12;</PRE>"
+h$oidt:	.asciz	"DIR"
+h$olin:	.ascii	"LI"
+	.even
+
+map	ho.ctl,,0
+map	ho.flg
+map	ho.sig
+
+h$obul:	.word	fmbul.
+	.word	hobul$
+	.asciz	/UL/<0>
+h$onum:	.word	fmnum.
+	.word	honum$
+	.asciz	/OL/<0>
+
+h$obol:	.byte	fmbon.,fmbof.
+	.word	hobol$
+	.asciz	/B/
+h$ound:	.byte	fmuon.,fmuof.
+	.word	hound$
+	.asciz	/U/
+h$oita:	.byte	fmion.,fmiof.
+	.word	hoita$
+	.asciz	/I/
+h$opre:	.byte	fmpon.,fmpof.
+	.word	hopre$
+	.asciz	/PRE/
+; fun	bold off etc
+; fun	sections
+; fun	positioning after delete etc
+; opt	bold on/off etc
+; ipt	parser
+; key	mode flags
+; key	size, speed
+;
+code	HT$OPT	Output HTML
+
+;	Convert from buffer format to HTML
+
+  proc	ht$opt	<r0,r1,r2,r3,r4,r5>
+	call	ht$spl			; split the buffer
+	mov	r0,r5			; input
+	mov	p$obot,r4		; output
+	mov	r4,p$odot
+	call	ho$typ	#h$ohea
+	clr	r2			;
+ho$lin:	mov	r2,r3			; r3 = previous line
+	clr	r2			; r2 = current line
+10$:	bhisw	r5,p$oend,55$		; all over
+	mov	r5,r0			;
+	sub	#10,r0			;
+	bhisw	r4,r0,55$		; no room
+	clr	r0			;
+	bisb	(r5)+,r0		; get the next
+	bmi	100$			; upper half
+	blow	r0,#32.,60$		; control
+	bhiw	r0,#62.,30$		; ordinary character
+	mov	#h$olow,r1		;
+20$:	beqb	(r1)+,r0,40$		;
+	bneb	(r1),20$		;
+30$:	beqb	r0,#ampsd.,40$		;
+	beqb	r0,#langl.,40$		;
+	beqb	r0,#rangl.,40$		;
+	movb	r0,(r4)+		; character
+	br	10$			;
+40$:	call	ho$ent			; character entity
+	br	10$			;
+50$:	call	ho$str			; string
+	br	10$			;
+55$:	call	ho$typ	#h$oend		;
+	mov	r4,p$otop		;
+	inc	d$ifmt			; rebreak
+	clr	v$afmt			; not formatted
+    big	exit
+
+;	control
+
+60$:	bneb	r0,#cr.,70$		;
+	movb	#space.,r0		;
+	br	30$			;
+70$:	mov	#hofee$,r1
+	beqb	r0,#ff.,90$		;
+	mov	#honew$,r1		;
+	bneb	r0,#lf.,40$		;
+90$:	bis	r1,r2			; newline/formfeed pending
+	br	ho$eol
+
+;	upper character set
+
+100$:	bhisw	r0,#128.+32.,40$	; upper character set
+	bneb	r0,#fmhor.,110$		; not a horizontal line
+	call	ho$typ	#h$ohor		; <HR>
+	bneb	(r5),#lf.,10$		; should be one
+	inc	r5			; skip it
+	br	10$			;
+110$:	call	ho$ren	#h$obol
+	call	ho$ren	#h$ound
+	call	ho$ren	#h$oita
+	call	ho$ren	#h$opre
+	br	10$
+
+;	end of line - examine next line prefixes
+
+ho$eol:
+10$:	beqw	r5,p$oend,100$		; nothing more to come
+	movb	(r5)+,r0		; get next
+	bneb	r0,#fmidt.,20$		; not indent
+	incb	r2			; count them
+	br	10$			;
+20$:	bneb	r0,#fmbul.,30$		; not a bullet
+	bis	#hobul$,r2		;
+	br	10$			;
+30$:	bneb	r0,#fmbon.,40$		;
+	bis	#hobol$,r2		;
+	br	10$			;
+40$:	bneb	r0,#fmuon.,50$		;
+	bis	#hound$,r2		;
+	br	10$
+50$:
+90$:	dec	r5			; not ours
+
+100$:	call	ho$end #h$obol,#0	; font trailing edges
+	call	ho$end #h$ound,#0	;
+	call	ho$end #h$obul,#1	; bullet 
+	call	ho$end #h$onum,#1	; numbered
+	bpcw	#honew$,r2,120$		;
+	call	ho$typ	#h$onew		; break time
+120$:	bpcw	#hofee$,r2,125$		;
+	call	ho$typ	#h$ofee		;
+	movb	#lf.,(r4)+		;
+125$:	bhisb	r2,r3,130$		;
+	call	ho$clo	#h$oidt		;
+	decb	r3			;
+	br	125$			;
+130$:	blosb	r2,r3,140$		;
+	call	ho$opn	#h$oidt		;
+	incb	r3			;
+	br	130$			;
+140$:	call	ho$beg #h$onum,#1	;
+	call	ho$beg #h$obul,#1	;
+	call	ho$beg #h$obol,#0	;
+	call	ho$beg #h$ound,#0	;
+	jmp	ho$lin			; do next line
+  end
+
+  proc	ho$beg	r1
+	p1	ctl,r1
+	p2	lin
+	assume	ho.flg eq 2		;
+	tst	(r1)+			;
+	bpcw	(r1),r2,20$		; not in new line
+	bpsw	(r1),r3,10$		; already setup
+	assume	ho.sig eq 4		;
+	tst	(r1)+			;
+	call	ho$opn	r1		;
+10$:	beqw	lin(sp),20$
+	call	ho$opn	#h$olin		;
+20$:	end
+
+	bic	#honew$,r2		; that handles EOL
+	movb	#lf.,(r4)+		; format result
+  proc	ho$end	r1
+	p1	ctl,r1
+	p2	lin
+	assume	ho.flg eq 2		;
+	tst	(r1)+			;
+
+	bpcw	(r1),r3,20$		; not in previous state
+	beqw	lin(sp),10$		; not line oriented
+	call	ho$clo	#h$olin		; terminate line
+10$:	bpsw	(r1),r2,20$		; in this state too
+	assume	ho.sig eq 4		;
+	tst	(r1)+			;
+	call	ho$clo	r1		;
+	tst	-(r1)
+
+20$:	bpcw	(r1),r2,40$		; not in new line
+	bpcw	#honew$,r2,40$		; no newline pending
+	beqw	lin(sp),40$		; not line oriented
+	bic	#honew$,r2		; it will insert new line
+	bpcw	(r1),r3,40$		; not in previous line
+	movb	#lf.,(r4)+		; format HTML content
+40$:	end
+
+  proc	ho$ren	r1
+	p1	ctl,r1
+	bneb	r0,(r1),10$		; not a opener
+	tst	(r1)+			;
+	bis	(r1)+,r3		; set flag
+	call	ho$opn r1		;
+	br	20$			;
+10$:	bneb	r0,1(r1),20$		;
+	tst	(r1)+			;
+	bic	(r1)+,r3		;
+	call	ho$clo r1
+20$:	end
+
+code	output support routines
+
+ho$opn:	tst	(pc)+
+ho$clo:	sec
+  proc	ho$bra	r1
+	p1	str,r1
+	movb	#'<,(r4)+
+	bcc	10$
+	movb	#'/,(r4)+
+10$:	call	ho$str
+	movb	#'>,(r4)+
+	end
+
+  subr	ho$ent	<r2,r3>
+	movb	#'&,(r4)+	; prefix
+	movb	#'#,(r4)+	; prefix
+	mov	r0,r1		;
+	mov	#h$oent,r3	;
+	clr	r2		; set number flag
+20$:	mov	#-1,r0		; look for a digit
+30$:	inc	r0		; step up dividend
+	sub	(r3),r1		; subtract
+	bcc	30$		; go again
+	add	(r3)+,r1	; bumb it back to positive
+	bnew	r0,40$		; got something
+	beqw	r2,50$		;
+40$:	mov	#'0,r2		;
+	add	r2,r0		;
+	movb	r0,(r4)+
+50$:	bnew	(r3),20$	;any more to do ?
+	movb	#';,(r4)+	;
+	end
+h$oent:	.word	100.,10.,1,0
+
+  proc	ho$typ	r1
+	p1	str,r1
+	call	ho$str
+  end
+
+  subr	ho$str
+10$:	movb	(r1)+,(r4)+	; string
+	bne	10$		;
+	dec	r4		;
+  end
+
+data	input entities
+
+map	hi.bra,1,0
+map	hi.val,1
+map	hi.nam
+
+.macro	ent	nam,val,?lab
+.if b nam
+	.byte	0
+.iff
+	.byte	lab-.
+	.byte	val
+	.asciz	"nam"
+lab:
+.endc
+.endm
+
+h$ient:	.word	h$ieta,h$ietb,h$ietc,h$ietd,h$iete,h$ietf
+	.word	h$ietg,h$ieth,h$ieti,h$ietj,h$ietk,h$ietl
+	.word	h$ietm,h$ietn,h$ieto,h$ietp,h$ietq,h$ietr
+	.word	h$iets,h$iett,h$ietu,h$ietv,h$ietw,h$ietx
+	.word	h$iety,h$ietz
+
+h$ieta:	ent	amp	38	; ampersand
+	ent	Agrave 192	; latin capital letter A with grave
+	ent	Aacute 193	; latin capital letter A with acute
+	ent	aacute 225	; latin small letter a with acute
+	ent	Acirc  194	; latin capital letter A with circumflex
+	ent	AElig  198	; latin capital letter AE
+	ent	Aring  197	; latin capital letter A with ring above
+	ent	Atilde 195	; latin capital letter A with tilde
+	ent	Auml   196	; latin capital letter A with diaeresis
+	ent	agrave 224	; latin small letter a with grave
+	ent	acirc  226	; latin small letter a with circumflex
+	ent	atilde 227	; latin small letter a with tilde
+	ent	auml   228	; latin small letter a with diaeresis
+	ent	aring  229	; latin small letter a with ring above
+	ent	aelig  230	; latin small letter ae
+	ent	acute  180	; acute accent = spacing acute
+	ent
+h$ietb:	ent	brvbar 166	; broken bar = broken vertical bar
+	ent
+h$ietc:	ent	cent   162	; cent sign, U+00A2 ISOnum 
+	ent	curren 164	; currency sign, U+00A4 ISOnum 
+	ent	copy   169	; copyright sign, U+00A9 ISOnum 
+	ent	Ccedil 199	; latin capital letter C with cedilla
+	ent	ccedil 231	; latin small letter c with cedilla
+	ent	cedil  184	; cedilla = spacing cedilla, U+00B8 ISOdia 
+	ent
+h$ietd:	ent	deg    176	; degree sign, U+00B0 ISOnum 
+	ent	divide 247	; division sign, U+00F7 ISOnum 
+	ent
+h$iete:	ent	ETH    208	; latin capital letter ETH, U+00D0 ISOlat1 
+	ent	Egrave 200	; latin capital letter E with grave
+	ent	Eacute 201	; latin capital letter E with acute
+	ent	Ecirc  202	; latin capital letter E with circumflex
+	ent	Euml   203	; latin capital letter E with diaeresis
+	ent	egrave 232	; latin small letter e with grave
+	ent	eacute 233	; latin small letter e with acute
+	ent	ecirc  234	; latin small letter e with circumflex
+	ent	eth    240	; latin small letter eth, U+00F0 ISOlat1 
+	ent	euml   235	; latin small letter e with diaeresis
+	ent
+h$ietf:	ent	frac14 188	; vulgar fraction one quarter
+	ent	frac12 189	; vulgar fraction one half
+	ent	frac34 190	; vulgar fraction three quarters
+	ent
+h$ietg:	ent	gt	62	; greater than
+h$ieth:	ent
+h$ieti:	ent	iquest 191	; inverted question mark
+	ent	Igrave 204	; latin capital letter I with grave
+	ent	Iacute 205	; latin capital letter I with acute
+	ent	Icirc  206	; latin capital letter I with circumflex
+	ent	Iuml   207	; latin capital letter I with diaeresis
+	ent	iexcl  161	; inverted exclamation mark, U+00A1 ISOnum 
+	ent	igrave 236	; latin small letter i with grave
+	ent	iacute 237	; latin small letter i with acute
+	ent	icirc  238	; latin small letter i with circumflex
+	ent	iuml   239	; latin small letter i with diaeresis
+	ent
+h$ietj:
+h$ietk:	ent
+h$ietl:	ent	lt	60	; less than
+	ent	laquo  171	; left-pointing double angle quotation mark
+	ent
+h$ietm:	ent	macr   175	; macron = spacing macron = overline
+	ent	micro  181	; micro sign, U+00B5 ISOnum 
+	ent	middot 183	; middle dot = Georgian comma
+	ent
+h$ietn:	ent	Ntilde 209	; latin capital letter N with tilde
+	ent	ntilde 241	; latin small letter n with tilde
+	ent	nbsp    32	; no-break space = non-breaking space
+	ent	not    172	; not sign, U+00AC ISOnum 
+	ent
+h$ieto:	ent	Ograve 210	; latin capital letter O with grave
+	ent	Oacute 211	; latin capital letter O with acute
+	ent	Ocirc  212	; latin capital letter O with circumflex
+	ent	Otilde 213	; latin capital letter O with tilde
+	ent	Ouml   214	; latin capital letter O with diaeresis
+	ent	ordm   186	; masculine ordinal indicator
+	ent	Oslash 216	; latin capital letter O with stroke
+	ent	ograve 242	; latin small letter o with grave
+	ent	oacute 243	; latin small letter o with acute
+	ent	ocirc  244	; latin small letter o with circumflex
+	ent	otilde 245	; latin small letter o with tilde
+	ent	ouml   246	; latin small letter o with diaeresis
+	ent	oslash 248	; latin small letter o with stroke
+	ent	ordf   170	; feminine ordinal indicator, U+00AA ISOnum 
+	ent
+h$ietp:	ent	para   182	; pilcrow sign = paragraph sign
+	ent	plusmn 177	; plus-minus sign = plus-or-minus sign,
+	ent	pound  163	; pound sign, U+00A3 ISOnum 
+	ent
+h$ietq:	ent	quot	34	; quote
+	ent
+h$ietr:	ent	raquo  187	; right-pointing double angle quotation mark
+	ent	reg    174	; registered sign = registered trade mark sign
+	ent
+h$iets:	ent	sect   167	; section sign, U+00A7 ISOnum 
+	ent	shy    173	; soft hyphen = discretionary hyphen,
+	ent	sup2   178	; superscript two = superscript digit two
+	ent	sup3   179	; superscript three = superscript digit three
+	ent	sup1   185	; superscript one = superscript digit one
+	ent	szlig  223	; latin small letter sharp s = ess-zed
+	ent
+h$iett:	ent	times  215	; multiplication sign, U+00D7 ISOnum 
+	ent	THORN  222	; latin capital letter THORN,
+	ent	thorn  254	; latin small letter thorn
+	ent
+h$ietu:	ent	uml    168	; diaeresis = spacing diaeresis
+	ent	Ugrave 217	; latin capital letter U with grave
+	ent	Uacute 218	; latin capital letter U with acute
+	ent	Ucirc  219	; latin capital letter U with circumflex
+	ent	Uuml   220	; latin capital letter U with diaeresis
+	ent	ugrave 249	; latin small letter u with grave
+	ent	uacute 250	; latin small letter u with acute
+	ent	ucirc  251	; latin small letter u with circumflex
+	ent	uuml   252	; latin small letter u with diaeresis
+	ent
+h$ietv:
+h$ietw:
+h$ietx:	ent
+h$iety:	ent	Yacute 221	; latin capital letter Y with acute
+	ent	yacute 253	; latin small letter y with acute
+	ent	yuml   255	; latin small letter y with diaeresis
+	ent	yen    165	; yen sign = yuan sign, U+00A5 ISOnum 
+	ent
+h$ietz:	ent
+	.even
+data	input tags
+
+;	Creole:
+;
+;	Bold Underline Italic
+;	Bullet and numbered lists
+;	<PRE>
+
+;	--- horizontal line
+;	\\ force linebreak
+;
+; ???	title
+
+set	himax. 32.
+h$inam:	.blkb	himax.
+.if ne 0
+set	hibol$	hobol$/256.
+set	hiund$	hound$/256.
+set	hiita$	hoita$/256.
+set	hibul$	hobul$/256.
+set	hinum$	honum$/256.
+set	hipre$	hopre$/256.
+set	hifee$	hofee$/256.
+set	hinew$	<honew$/256.>;&255.
+.endc
+
+set	hitag.	0
+set	hiblk.	1
+set	hibrk.	2
+set	hipar.	3
+set	hihor.	4
+set	hiquo.	5
+
+set	hiidt.	6
+set	hibul.	7	
+set	hinum.	8
+set	hipre.	9
+set	hibol.	10
+set	hiund.	11
+set	hiita.	12
+set	hihea.	13
+
+set	hisec.	14
+set	hilin.	15
+set	hiiln.	16
+set	hidiv.	17	
+set	histy.	18
+
+set	hiclo$	bit7$		; </xxx> flag
+set	hinew$	bit15$		; newline pending
+
+map	hr.flg,,0
+map	hr.cod
+map	hr.bbs
+
+h$iren:	.word	hobol$,fmbon.
+	.word	hound$,fmuon.
+	.word	hoita$,fmion.
+	.word	hopre$,fmpon.
+	.word	0
+
+h$itag:	.word	h$itga,h$itgb,h$itgc,h$itgd,h$itge,h$itgf
+	.word	h$itgg,h$itgh,h$itgi,h$itgj,h$itgk,h$itgl
+	.word	h$itgm,h$itgn,h$itgo,h$itgp,h$itgq,h$itgr
+	.word	h$itgs,h$itgt,h$itgu,h$itgv,h$itgw,h$itgx
+	.word	h$itgy,h$itgz
+
+.macro	tag val=ign,nam,?lab
+.if b nam
+	.byte	0
+.iff
+	.byte	lab-.
+	.byte	hi'val'.
+	.asciz	"nam"
+lab:
+.endc
+.endm
+
+			; S E E D D Optional, Forbidden
+			; T N M E T Empty, Deprecated
+			; A D P P D Loose DTD, Frameset DTD
+			; R   T R
+			; T   Y A
+h$itga:
+;;; tag, A	    	;           anchor 
+;;; tag, ABBR		;           abbreviated form (WWW, HTTP) 
+;;; tag, ACRONYM	;             
+;;; tag, ADDRESS	;           information on author 
+tag blk, APPLET		;       D L Java applet 
+;;; tag, AREA		;   F E     client-side image map area 
+tag
+h$itgb:
+tag bol, B		;           bold text style 
+;;; tag, BASEFONT	;   F E D L base font size 
+;;; tag, BASE		;   F E     document base URI 
+;;; tag, BDO		;           I18N BiDi over-ride 
+tag bol, BIG		;           large text style 
+tag idt, BLOCKQUOTE	;           long quotation 
+;;; tag, BODY		; O O       document body 
+tag brk, BR		;   F E     forced line break 
+;;; tag, BUTTON		;           push button 
+tag
+h$itgc:
+tag tag, CAPTION	;           table caption 
+tag div, CENTER		;       D L shorthand for DIV align=center 
+tag ita, CITE		;           citation 
+;;; tag, CODE		;           computer code fragment 
+;;; tag, COL		;   F E     table column 
+;;; tag, COLGROUP	;   O       table column group 
+tag
+h$itgd:
+tag iln, DD		;   O       definition description 
+tag blk, DEL		;           deleted text 
+tag blk, DFN		;???        instance definition 
+tag idt, DIR		;       D L directory list 
+tag div, DIV		;           generic language/style container 
+tag sec, DL		;           definition list 
+tag lin, DT		;   O       definition term 
+tag
+h$itge:
+tag bol, EM		;           emphasis 
+tag
+h$itgf:
+tag blk, FIELDSET	;           form control group 
+;;; tag, FONT		;       D L local change to font 
+tag blk, FORM		;           interactive form 
+tag blk, FRAMESET	;         F window subdivision 
+;;; tag, FRAME		;   F E   F subwindow 
+tag
+h$itgg:
+h$itgh:
+tag hea, H1		;           heading 
+tag hea, H2		;           heading 
+tag hea, H3		;           heading 
+tag hea, H4		;           heading 
+tag hea, H5		;           heading 
+tag hea, H6		;           heading 
+tag blk, HEAD		; O O       document head 
+tag hor, HR		;   F E     horizontal rule 
+;;; tag, HTML		; O O       document root element 
+tag
+h$itgi:
+tag ita, I		;           italic text style 
+;;; tag, IFRAME		;         L inline subwindow 
+;;; tag, IMG		;   F E     Embedded image 
+;;; tag, INPUT		;   F E     form control 
+;;; tag, INS		;           inserted text 
+;;; tag, ISINDEX 	;   F E D L single line prompt 
+tag
+h$itgj:
+h$itgk:
+;;; tag, KBD		;           text to be entered by the user 
+;;;
+h$itgl:
+tag blk, LABEL		;           form field label text 
+tag blk, LEGEND		;           fieldset legend 
+tag lin, LI		;   O       list item 
+;;; tag, LINK		;   F E     a media-independent link 
+tag
+h$itgm:
+tag blk, MAP		;           client-side image map 
+tag idt, MENU		;       D L menu list 
+;;; tag, META		;   F E     generic metainformation 
+;;; tag, NOFRAMES	;         F alternate container for non frame
+;;; tag, NOSCRIPT	;           alternate container for non script
+tag
+h$itgn:
+h$itgo:
+tag blk, OBJECT		;           generic embedded object 
+tag num, OL		;           ordered list 
+tag blk, OPTGROUP	;           option group 
+tag blk, OPTION		;   O       selectable choice 
+tag
+h$itgp:
+tag par, P		;   O       paragraph 
+;;; tag, PARAM		;   F E     named property value 
+tag pre, PRE		;           preformatted text 
+tag
+h$itgq:
+tag quo, Q		;           short inline quotation 
+tag
+h$itgr:
+h$itgs:
+;;; tag, S		;       D L strike-through text style 
+;;; tag, SAMP		;           sample program output, scripts, etc. 
+tag blk, SCRIPT		;           script statements 
+tag blk, SELECT		;           option selector 
+;;; tag, SMALL		;           small text style 
+;;; tag, SPAN		;           generic language/style container 
+;;; tag, STRIKE		;       D L strike-through text 
+tag bol, STRONG		;           strong emphasis 
+tag sty, STYLE		;           style info 
+;;; tag, SUB		;           subscript 
+;;; tag, SUP		;           superscript 
+tag
+h$itgt:
+;;; tag, TABLE		;             
+;;; tag, TBODY		; O O       table body 
+;;; tag, TD		;   O       table data cell 
+tag blk, TEXTAREA	;           multi-line text field 
+;;; tag, TFOOT		;   O       table footer 
+;;; tag, TH		;   O       table header cell 
+;;; tag, THEAD		;   O       table header 
+tag lin, TITLE		;???        document title 
+;;; tag, TR		;   O       table row 
+;;; tag, TT		;           teletype or monospaced text style 
+tag
+h$itgu:
+tag und, U		;       D L underlined text style 
+tag bul, UL		;           unordered list 
+tag
+h$itgv:
+;;; tag, VAR		; 	    instance of variable or argument
+;;;
+h$itgw:
+h$itgx:
+h$itgy:
+h$itgz:
+tag
+code	HT$IPT	Input HTML
+
+;	Convert from HTML to buffer format
+
+  proc	ht$ipt	<r0,r1,r2,r3,r4,r5>
+	call	ht$spl			; split the buffer
+	mov	r0,r5			; r5 -> input
+	mov	p$obot,r4		; r4 -> output
+	mov	r4,p$odot		; result is start of page
+	clr	r2			;
+	clr	r3			; attribute state
+hi$lin:
+10$:	bhisw	r5,p$oend,30$		; all over
+	mov	r5,r0			; make sure we have enough
+	sub	#100,r0			; output space
+	bhisw	r4,r0,30$		; no room
+20$:	call	hi$nxt			; handle next entity
+	br	10$			;
+30$:	mov	r4,p$otop		; result end of buffer
+	inc	d$ifmt			; rebreak it
+	inc	v$afmt			; text is formatted
+	end				; back to command central
+
+  proc	hi$nxt				; process next syntactic element
+10$:;	clr	r0			;
+;	bhisw	r5,p$oend,40$		; all over
+	movb	(r5)+,r0		; get the next
+	beq	40$			;
+	bneb	r0,#langl.,20$		; not a tag
+	call	hi$tag			; get a tag
+	call	hi$int			; take care of it
+	br	40$			;
+20$:	bneb	r0,#ampsd.,30$		;
+	call	hi$ent			; get entity
+	br	40$			;
+30$:	bneb	r0,#lf.,35$		; not white space
+	movb	#space.,r0		; replace those with soft spaces
+35$:	call	hi$put r0		; store result
+40$:	end
+
+  proc	hi$ent				; character entity
+	ifb	(r5)+ ne #hash.		; not &#
+		dec	r5		; so &alpha;
+		call	hi$nam #0	; get the name (case sensitive)
+		call	hi$fnd #h$ient	; look it up
+		if	r0 ne		;
+		...	movb hi.val(r0),r0
+	elsifb	(r5) eq #lowx.		;
+	orb	(r5) eq #uprx.		;
+		inc	r5		;
+		call	hi$hex
+		exit	if r0 eq
+		mov	r1,r0
+	else
+		call	hi$num
+		exit	if r0 eq
+	...	mov	r1,r0
+	call	hi$put r0
+	call	hi$skp	#semi.
+  end
+
+  proc	hi$tag	r1
+	clr	r1			;
+	bicb	#hiclo$,r3		; assume opening
+	call	hi$skp	#slash.		; got a slash?
+	if	r0 ne			; yep
+	...	bis	#hiclo$,r3	; remember that
+	call	hi$nam	#1		; parse name (uppercase)
+	call	hi$loc	#rangl.		; skip the rest of it
+	call	hi$fnd	#h$itag		; find it
+  end
+
+  proc	hi$nam	r1			; parse entity/tag name
+	p1	cas			; #1 => convert to upper
+	mov	#h$inam,r1		; r1 -> name buffer
+10$:	call	hi$get			; get next
+	beqw	r0,30$			; are no more
+	beqb	r0,#minus.,15$		; for CSS
+	call	ch$aln r0,cas(sp)	; get next alphanumeric
+	beqw	r0,20$			; are no more
+15$:	bhisw	r1,#h$inam+himax.-1.,10$; no room for it
+	movb	r0,(r1)+		; store it
+	br	10$			;
+20$:	dec	r5			; backup
+30$:	clrb	(r1)			; terminate string
+	beqw	r1,#h$inam,40$		; got nothing
+	blow	r1,#h$inam+himax.-1.,40$; wasn't too long
+	inc	r0			; got something
+40$:	end
+
+	.enabl	lsb
+  proc	hi$fnd	<r1,r2>
+	p1	tab,r2
+	if	#1 seton r2		; no lookup
+		bic	#1,r2		;
+	else				;
+	 call	ch$alp h$inam,#1	; convert first to upper
+	 beqw	r0,20$			; not a letter - skip tag
+	 sub	#upra.,r0		; index into table of pointers
+	 asl	r0			;
+	 add	tab(sp),r0		;
+	 mov	(r0),r2			; r2 -> first entry
+	end				;
+10$:	beqb	(r2),20$		; table is done
+	mov	#h$inam,r0		; r0 -> name
+	mov	r2,r1			;
+	add	#hi.nam,r1		; r1 -> entry name
+	call	hi$sam			; match them
+	bnew	r0,30$			; got a match
+	movb	(r2),r0			; offset to next entry
+	add	r0,r2			; skip it
+	br	10$			; try again
+20$:	clr	r2			; failed
+30$:	mov	r2,r0			; return result
+	.dsabl	lsb
+  end
+
+
+  proc	hi$sam
+10$:	bneb	(r0),(r1)+,20$		; no match
+	bneb	(r0)+,10$		; more to go
+	mov	(pc)+,r0		; got a match
+20$:	clr	r0
+  end
+
+  proc	hi$get	
+	if	r5 lo p$oend		; got more
+		movb	(r5)+,r0	; get it
+	else				;
+	...	clr	r0		; no more
+  end
+
+  proc	hi$skp	
+	p1	cha,r0			; skip this character
+10$:	bhisw	r5,p$oend,20$		; nothing more
+	beqb	(r5)+,#space.,10$	; skip spaces (a bit loose here)
+	bneb	-(r5),cha(sp),20$	; not this guy
+	inc	r5			; skip it
+	mov	(pc)+,r0		; say we did that
+20$:	clr	r0
+  end
+	
+  proc	hi$loc	
+	p1	cha,r0			; locate this character
+10$:	bhisw	r5,p$oend,20$		; nothing more
+	bneb	(r5)+,r0,10$		; this ain't it
+	mov	(pc)+,r0		; say we found it
+20$:	clr	r0
+  end
+
+  proc	hi$num	r2
+	clr	r1
+	clr	r2
+10$:	callb	ch$dig	(r5)
+	bmiw	r0,20$	
+	inc	r5
+	asl	r1
+	psh	r1
+	asl	r1
+	asl	r1
+	add	(sp)+,r1
+	add	r0,r1
+	inc	r2
+	br	10$
+20$:	mov	r2,r0
+	end
+
+  proc	hi$hex	r2
+	clr	r1
+	clr	r2
+10$:	callb	ch$hex	(r5)
+	bmiw	r0,20$
+	inc	r5
+	asl	r1
+	asl	r1
+	asl	r1
+	asl	r1
+	add	r0,r1
+	inc	r2
+	br	10$
+20$:	mov	r2,r0
+	end
+code	HI$INT	Tag interpreter
+
+hi$int:	mov	r0,r1			;
+	beq	20$			; nothing happening
+	movb	hi.val(r1),r0		; get the flags
+	asl	r0			; word offset
+	psh	h$iint(r0)		; do it
+	movb	r3,r0			;
+	aslb	r0			; c=1 => closing
+10$:	call	@(sp)+			;
+20$:	return
+
+h$iint:	.word	hx$tag, hx$blk, hx$brk, hx$par, hx$hor, hx$quo
+	.word	hx$idt, hx$bul, hx$num, hx$pre, hx$bol, hx$und
+	.word	hx$ita, hx$hea, hx$sec, hx$lin, hx$iln, hx$div	
+	.word	hx$sty
+
+hx$sty:
+hx$blk:	bcs	20$			; closing
+10$:	call	hi$loc #langl.		;
+	beqw	r0,20$			;
+	call	hi$tag			;
+	bnew	r0,r1,10$		;
+	bpcb	#hiclo$,r3,10$		;
+20$:
+hx$tag:	return
+
+hx$par:	bcc	hi$nop			; ignore opening
+	call	(pc)			; two breaks on close
+hx$brk:	call	hi$put	#lf.		; break
+	return
+
+hx$hor:	return
+hx$quo:	call	hi$put #squot.
+	return
+
+hx$idt:	bcs	10$
+	beqb	r2,#15.,20$
+	incb	r2
+	br	20$
+10$:	beqb	r2,20$
+	decb	r2
+20$:	return
+
+hx$bul:	mov	#hobul$,r0
+	br	hi$ren
+hx$num:	mov	#honum$,r0
+	br	hi$ren
+hx$pre:
+return
+	mov	#hopre$,r0
+	br	hi$ren
+hx$bol:	mov	#hobol$,r0
+	br	hi$ren
+hx$und:	mov	#hound$,r0
+	br	hi$ren
+hx$ita:	mov	#hoita$,r0
+	br	hi$ren
+
+hi$ren:	bcs	10$
+	bis	r0,r2
+	call	hi$ron
+	br	20$
+10$:	bic	r0,r2
+	call	hi$rof
+	beqw	r0,#hobul$,hi$new
+	beqw	r0,#honum$,hi$new
+20$:	return
+
+hx$hea:	
+hx$tli:	bcs	hi$new		; trailing line break
+	return
+hx$iln:	bcc	10$		; indented line
+	decb	r2
+	return
+10$:	incb	r2
+	br	hi$new
+hx$lin:	bcc	hi$new		; leading line break
+	br	hi$nop
+hx$div:	bcc	hi$nop
+hx$sec:
+hi$new:	bis	#hinew$,r3
+hi$nop:	return
+
+  proc	hi$put	r0
+	p1	cha,r0
+	exit	ifb r0 eq		; got nothing
+	exit	if r4 his r5		; got no space
+	ifb	r0 eq #space.		; compress spaces
+	 if	r4 eq p$obot		;
+	 orb	-1(r4) eq #space.	;
+	 orb	-1(r4) eq #lf.		;
+	 or	#hinew$ seton r3	;
+	 ...	exit			;
+	end				;
+	if	#hinew$ seton r3	; newline
+		bic	#hinew$,r3	;
+		movb	#lf.,(r4)+	;
+		ifb	r0 eq #space.	;
+		orb	r0 eq #lf.	;
+	...	...	exit		;
+	if	r4 eq p$obot		;
+	orb	-1(r4) eq #lf.		;
+	...	call	hi$eol		; do newline
+	ifb	r0 ne			;
+	... 	movb	r0,(r4)+	; store it
+  end
+
+  proc	hi$eol	r0
+	movb	r2,r0
+	whileb	r0 ne			;
+		movb	#fmidt.,(r4)+	;
+		decb	r0		;
+	end				;
+	if	#hobul$ seton r2	;
+	or	#honum$ seton r2	;
+	...	movb	#fmbul.,(r4)+	;
+
+	mov	r2,r0
+	call	hi$ron
+  end
+
+  subr	hi$ron
+	mov	#h$iren,r1
+	while	(r1) ne
+	  if	(r1) seton r0
+	  ...	movb	hr.cod(r1),(r4)+
+	  cmp	(r1)+,(r1)+
+	end
+  end
+
+  subr	hi$rof
+	mov	#h$iren,r1
+	while	(r1) ne
+	  if	(r1) seton r0
+	  	movb	hr.cod(r1),(r4)
+	  ...	incb	(r4)+
+	  cmp	(r1)+,(r1)+
+	end
+  end
+code	HT$SPL	Split buffer
+
+  subr	ht$spl	<r1,r2>
+	mov	p$oend,r0
+	mov	p$otop,r1
+	mov	p$obot,r2
+	exit	if r0 eq r2		;empty buffer
+	while	r1 ne r2		;
+		movb	-(r1),-(r0)	;
+	end				;
+  end
+.end
+code	HX$STY	Style processor
+
+;	All we're looking for is "ul... margin-top 0px"
+
+	htPIX.	= uprp.*256.+uprx.
+
+  subr	hx$sty	<r2,r3>
+	exit	if cs			; was </style>
+	clr	r2			; counter
+      repeat
+	call	hi$get			;
+	leave	if r0 eq		;
+	ifb	r0 eq #langl.		;
+		call hi$tag		;
+		leave if r0 eq r1	;
+	...	exit			;
+	call	ch$alp r0		;
+	if	r0 ne			;
+		call	hi$nam #1	; get the name
+		call	hi$fnd #h$isty+1; look it up
+		if	r0 ne		;
+		...	inc	r2	;
+	...	next			;
+	next	ifb r0 ne #dig0.	;
+	call	hi$nam			;
+	next	if h$inam ne htPIX.	; 0px
+	next	if r2 lt 6		;
+	inc	h$izer			; zero top/bottom margin input
+      end
+
+  end
+
+.end
+TF_____|____|
+TB n,n,n
+
+TRxxx;xxx;xxx;

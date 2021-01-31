@@ -1,0 +1,592 @@
+upd$c=1
+.title	KP100	VT100 support module
+.include "kps:kpmac.mac"
+aldef$
+
+data	VT100 data
+
+	.macro	vtcsi$	lab dat
+	byte	lab	<esc.,lsqua.,dat,eos.>
+	.endm
+
+	.macro	vtesc$	lab dat
+	byte	lab	<esc.,dat,eos.>
+	.endm
+
+	.macro	vtctl$	lab dat
+	.if nb <dat>
+		byte	lab	<dat,eos.>
+	.iff
+		byte	lab	<eos.>
+	.endc
+	.endm
+
+	set	eos.	128
+	set	sp.	space.
+	vtcsi$	v$tcsc	<uprJ.>				;clear to end of screen
+	vtcsi$	v$tcli	<uprK.>				;clear to end of line
+	vtcsi$	v$thom	<uprH.>				;home
+	vtesc$	v$tsup	<uprD.>			;lf	;scroll up
+	vtesc$	v$tsdn	<uprM.>				;scroll down
+	vtctl$	v$tsol	<cr.>				;start of line
+	vtctl$	v$tlf	<lf.>				;start of line
+	vtctl$	v$tbs	<bs.>				;start of line
+	vtctl$	v$tnop
+	vtesc$	v$tcsi	<lsqua.>			;CSI preface
+	vtcsi$	v$tful	<dig1.,semi.,dig2.,dig4.,lowr.>	;full scroll region
+							;
+	vtcsi$	v$tcup	<dig1.,uprA.>			;cursor up
+	vtcsi$	v$tcdn	<dig1.,uprB.>			;cursor down
+	vtcsi$	v$tcrt	<dig1.,uprC.>			;cursor right
+	vtcsi$	v$tclf	<dig1.,uprD.>			;cursor left
+
+	vtcsi$	v$t80	<qmark.,dig3.,lowl.>		;80 character line
+	vtcsi$	v$t132	<qmark.,dig3.,lowh.>		;132 character line
+	vtcsi$	v$sdrk	<qmark.,dig5.,lowl.>		;dark
+	vtcsi$	v$slgt	<qmark.,dig5.,lowh.>		;light
+	vtcsi$	v$t100	<dig6.,dig1.,dquot.,lowp.>	;vt100 mode
+;	vtcsi$	v$t200	<dig6.,dig2.,dquot.,lowp.> 	;vt200, 8-bit controls
+	vtcsi$	v$t200	<dig6.,dig2.,semi.,dig1.,dquot.,lowp.> 	;vt200 7-bit
+	vtcsi$	v$call	<dig0.,lowm.>			;reset attributes
+	vtcsi$	v$sbol	<dig1.,lowm.>			;set bold
+	vtcsi$	v$cbol	<dig2.,dig2.,lowm.>		;clear bold
+	vtcsi$	v$sund	<dig4.,lowm.>			;set underline
+	vtcsi$	v$cund	<dig2.,dig4.,lowm.>		;clear underline
+	vtcsi$	v$sblk	<dig5.,lowm.>			;set blinking
+	vtcsi$	v$cblk	<dig2.,dig5.,lowm.>		;clear blinking
+	vtcsi$	v$srev	<dig7.,lowm.>			;set reverse
+	vtcsi$	v$crev	<dig2.,dig7.,lowm.>		;clear reverse
+	vtesc$	v$swid	<hash.,dig6.>			;set wide
+	vtesc$	v$stop	<hash.,dig3.>			;high top
+	vtesc$	v$sbot	<hash.,dig4.>			;high bottom
+	vtesc$	v$cbig	<hash.,dig5.>			;clear big
+;	vtctl$	v$cnop	<>				;nop
+
+v$tapp:	.ascii	<esc.>"="		;application keypad
+	.byte	eos.
+
+;	Setup VT100 terminal
+
+v$tini::.ascii	<esc.>"<"		;go into ANSII mode
+	.ascii	<esc.>|[62;1"p|		;vt200 mode
+;	.ascii	<esc.>|[61"p|		;vt200 mode
+	.ascii	<esc.>"="		;application keypad
+;	.ascii	<esc.>" F"		;7-bit controls
+;	.ascii	<esc.>" G"		;8-bit controls
+;;	.ascii	<esc.>"[?4l"		;jump not scroll
+;;	.ascii	<esc.>"[?7l"		;no wrap-around
+;;	.ascii	<esc.>"[?8h"		;auto-repeat on
+	.ascii	<esc.>"[1;23r"	 	;limited scroll region
+	.ascii	<esc.>"="		;application keypad
+	.byte	eos.
+	.even
+v$texi::.ascii	<esc.>"[1;24r"		;full scroll region
+	.ascii	<esc.>">"		;numeric keypad
+;	.ascii	<esc.>/[61"p/		;vt100 mode
+	.ascii	<esc.>/[62;1"p/		;vt200 mode, 7-bit controls
+	.byte	eos.
+	.even
+;	VT100/VT200 notes
+;
+;	7-bit controls are necessary because SS3 is ^O
+;	which can't be intercepted by RT-11 programs.
+;
+;	Terminal uses 1 as origin - MLE uses 0 as origin
+;
+;	Scroll region function resets X=0, Y=top line
+;
+;	top		physical top of screen
+;	bottom		physical bottom of screen
+;	scroll up	text scrolls up screen physically
+;	scroll down	text scrolls down screen physically
+;
+;	VT200 converts bottom half of double high to wide if not
+;	preceded by line with top half.
+form	VT	VT attributes
+
+plex	VT	VT attribute update
+	state	vt.att
+	pointer	vt.set
+	pointer	vt.clr
+	gamut	vtgam.
+
+	.macro	vtatt$	att set clr
+		.int	att
+		.addr	set
+		.addr	clr
+	.endm
+
+series	vt	bits
+	..	vtund$	pos=1
+	..	vtbol$
+	..	vtrev$
+	..	vtwid$
+	..	vttop$
+	..	vtbot$
+	..	vtfil$
+	set	vtpad$	vtrev$!vtund$
+
+data	V$TGRA	Graphic control
+
+;	Set font/attribute
+
+	npgbl$	npdisg
+	state	v$tfnt			;current public font
+	state	v$tatt			;current public attributes
+					;
+	state	v$tfat			;font attributes
+	state	v$taat			;attribute attributes
+	state	v$tnat			;combined new attributes
+	state	v$tcat			;current attributes
+
+
+	nplcl$	npdisl
+	table	v$tfas			;font attributes
+		.byte	0		;default
+		.byte	0		;printer
+		.byte	0		;medium
+		.byte	vtbol$		;bold
+		.byte	vtwid$		;header
+		.byte	vttop$		;title
+		.byte	vtbot$		;footnote
+		.byte	0		;italic
+;		.byte	vtbot$		;title2
+		align
+
+	table	v$taas			;attribute attributes
+
+		logil$=fngil$!fngib$!fngie$
+		loopa$=fnopa$!fnopb$!fnope$
+
+		.int	fnund$!fnwin$!fnwib$!fnwie$,	vtund$		;under
+		.int	fnsha$!logil$!loopa$,		vtrev$		;shaded
+		.int	fnrev$,				vtrev$!vtbol$	;reverse
+		.int	0
+
+	table	v$tupd
+		vtatt$	vtund$	v$sund	v$cund
+		vtatt$	vtrev$	v$srev	v$crev
+		vtatt$	vtbol$	v$sbol	v$cbol
+		vtatt$	vttop$	v$stop	v$cbig
+		vtatt$	vtbot$	v$sbot	v$cbig
+		vtatt$	vtwid$	v$swid	v$cbig
+		.int	0
+	npcod$
+code	VT$LIN	Replace graphic line
+
+;	In	r1		line offset
+;		s$csam		arrow operation - data has not changed
+;		r2 ->		new line
+;		r3 ->		old line
+
+	auto	old				;old attributes
+  subr	vt$lin
+    begin					;update block
+	mov	sc.cnt(r3),r0			;get old attributes
+	mov	r0,old(sp)			;
+.if ne 0
+	clr	r0
+	clr	v$tcat
+.iff
+	bic	#^c<vttop$!vtbot$!vtwid$>,r0	;isolate permanent attributes
+	bic	#<vttop$!vtbot$!vtwid$>,v$tcat	;eliminate them there
+	bis	r0,v$tcat			;combine for current attributes
+.endc
+						;
+	add	#sc.dat,r2			;new data
+	add	#sc.dat,r3			;old data
+	clr	r4				;the x position
+	mov	r1,r5				;the y position
+	asr$	addr$l,r5			;tso
+	repeat					;
+		movb	(r3),r0			;get old data
+		leave	if eq			;end of line
+		leave	ifb (r2) ne r0		;different
+		ifb	r0 eq #gresc.		;this a font change?
+			leave	ifb 1(r3) ne 1(r2);yes - but different
+			inc	r2		;twice 
+			inc	r3		;
+			movb	(r2),r0		;get the code
+			call	gr$act		;do it
+			inc	r2		;
+			inc	r3		;
+		else				;
+			inc	r4		;move across
+			inc	r2		;skip
+			inc	r3		; all 
+			next	ifb r0 ne #ht.	;not tab
+			add	d$itab,r4	;next tab stop
+		...	bic	d$itab,r4	;
+	end					;
+	call	vt$fnt				;setup current font
+	bisb	(r2),r0				;check same
+	skip	if r0 eq			;nothing to do
+						;
+	call	sc$pos				;position first
+	ifb	(r3) ne				;there was more before
+	 or	#vtpad$ seton old(sp)		;or it was padded
+		bic	#vtpad$,old(sp)		;we turn it off
+.if ne upd$c
+	 	call	vt$cli			;clear to end of line
+	 ...	call	vt$upd			;update font
+.iff
+		call	vt$upd			;update font first
+	 ...	call	vt$cli			;clear to end of line
+.endc
+						;
+	repeat					;change the line
+		movb	(r2)+,r0		;get the next
+		leave	if eq			;no more
+		ifb	r0 eq #gresc.		;a sequence
+			movb	(r2)+,r0	;get the code
+			call	gr$act		;define pen
+			call	vt$fnt		;and update the font
+		...	next			;do the next
+		if	v$tnat ne v$tcat	;time to change
+		...	call	vt$upd		;update font
+		ifb	r0 eq #ht.		;a tab
+			repeat			;write spaces
+				call	op$put #space.
+				inc	r4	;
+			until	d$itab setoff r4;
+		...	next			;
+		inc	r4			;next X position
+		movb	r0,@o$pptr		;store it
+		inc	o$pptr			;skip it
+		dec	o$pcnt			;count it
+		if	eq			;full
+		...	call	op$emp		;force it out
+	end					;
+	mov	r4,s$cX				;save position
+    end						;done line block
+						;
+;	Handle end of line
+
+	mov	s$cold(r1),r2			;old line
+	clr	sc.cnt(r2)			;once-only 
+	mov	s$cnew(r1),r3			;new line
+	mov	v$tnat,sc.cnt(r3)		;record current
+						;
+	if	#vtpad$ seton v$tnat		;needs filling
+	   if	#vtpad$ setoff old(sp)		;not already filled
+	    and	r4 lo v$awid			;and can fill
+			call	sc$pos		;setup position
+			call	vt$upd		;update font
+		while	r4 lo v$awid		;fill it
+			inc	r4		;another space
+		...	call	op$put	#space.	;fill it
+	    ...	mov	r4,s$cX			;update it
+	else					;
+		if	#vtpad$ seton old(sp)	;the old one did pad
+			call	sc$pos		;
+	...	...	call	vt$cli		;yes - clear line
+						;
+	if	#vttop$!vtbot$!vtwid$ seton v$tcat
+	 and	#vttop$!vtbot$!vtwid$ setoff v$tnat
+		if	r5 ne s$cY		;wrong line
+			clr	r4		;dont blink out in the open
+		...	call	sc$pos		;get the right line
+	...	call	op$prt	#v$cbig		;clear big chars
+						;
+	mov	#-1,v$tfnt			;force font change
+	mov	#-1,v$tatt			;and attributes
+	bic	#vtwid$!vttop$!vtbot$,v$tcat	;lost after line
+	clr	v$tnat				;no new attributes
+	clr	s$cfnt				;reset font
+	clr	s$catt				;and attributes
+    end						;done block
+code	VT$FNT	Setup font/attributes
+
+  subr	vt$fnt	<r0,r1,r2>
+;.if eq new$c
+	if	s$cfnt ne v$tfnt			;font is wrong
+		mov	s$cfnt,r0			;get the new font
+		mov	r0,v$tfnt			;make it current
+	...	movb	v$tfas(r0),v$tfat		;get font attributes
+;.endc
+							;
+	if	s$catt ne v$tatt			;different attributes
+		mov	s$catt,v$tatt			;get them
+		mova	v$taas,r0			;search for it
+		clr	v$taat				;clear internal
+		while	(r0) ne				;
+			if	(r0)+ seton s$catt	;this is set
+			...	bis	(r0) v$taat	;set that
+			add	#int.,r0		;
+	...	end					;
+							;
+	mov	v$tfat,v$tnat				;setup new attributes
+	bis	v$taat,v$tnat				;combine with other
+  end
+
+  subr	vt$upd	<r0>
+	exit	if v$tnat eq v$tcat			;the same
+	mova	v$tupd,r0				;update list
+	repeat						;
+		if	(r0) seton v$tnat		;new is on
+		  if	(r0) setoff v$tcat		;old is off
+		  ...	call	op$prt	vt.set(r0)	;
+		else					;new is off
+		  if	(r0) seton v$tcat		;old is on
+		  ...	call	op$prt	vt.clr(r0)	;
+		end					;
+		add	#vtgam.,r0			;next entry
+	until	(r0) eq					;do them all
+	mov	v$tnat,v$tcat				;reset it
+  end
+code	VT$POS	Position cursor
+
+;	In	r4		new X position
+;		r5		new Y position
+;
+;	Inout	s$cX		current X position
+;		s$cY		current Y position
+;
+;	The cursor should not jump around during the screen update.
+
+;		routine	X	Y
+v$tmap:	.word	v$tnop,	0,	0
+	.word	v$tcrt,	1,	0
+	.word	v$tbs,	-1,	0
+	.word	v$tcdn,	0,	1	; LF goes to SOL in V11
+	.word	v$tcup,	0,	-1
+	.word	0
+
+map	mp.rou,,0
+map	mp.x
+map	mp.y
+map	mp.bbs
+
+  subr	vt$pos
+  entry	sc$pos
+	pshs	<r3,r2,r0>
+	mov	r4,r2
+	mov	r5,r3
+	sub	s$cX,r2
+	sub	s$cY,r3
+	mov	#v$tmap,r0
+10$:	bnew	mp.x(r0),r2,20$
+	beqw	mp.y(r0),r3,30$
+20$:	add	#mp.bbs,r0
+	bnew	(r0),10$
+	call	vt$adr
+	br	40$
+30$:	call	op$prt	(r0)
+40$:	mov	r4,s$cX
+	mov	r5,s$cY
+	pops	<r0,r2,r3>
+
+.if ne 0
+	begin					;Y block
+	   if	r5 ne s$cY			;different Y posiiton
+		if	r5 eq			;
+			if	r4 eq		;want home
+				call	vt$hom	;
+		...	...	exit		;
+		inc	s$cY			;maybe one down?
+		if	r5 eq s$cY		;was that it?
+			call	op$put	#lf.	;down one
+		...	skip			;to X block
+		dec	s$cY			;adjust it back
+		dec	s$cY			;adjust it back
+		if	r5 eq s$cY		;was that it?
+			call	op$put	#v$tcup.;up one
+		...	skip			;to X block
+		inc	s$cY			;adjust it back
+		call	vt$adr			;do full address
+	   ...	exit				;done
+	end					;Y block
+						;
+	exit	if r4 eq s$cX			;same X, done
+	if	r4 eq				;start of line
+		call	vt$sol			;start of line
+	...	exit				;done
+	inc	s$cX
+	if	r4 eq s$cX			;
+		call	op$put #v$trgt
+	...	exit
+	sub	#2,s$cX
+	if	r4 eq s$cX
+		call	op$put #bs.
+	...	exit
+	inc	s$cX
+	call	vt$adr				;do full address
+.endc
+  end
+
+;	Full address
+;
+;	(esc)([)row(;)col(H)
+
+  subr	vt$adr	<r0,r1,r4,r5>
+
+	mov	r4,s$cX				;reset X position
+	mov	r5,s$cY				;and Y position
+	mov	v$awid,r0			;get X length
+	dec	r0				;one less
+	if	r4 hi r0			;too high
+	...	mov	r0,r4			;yes - reset it
+	call	vt$pai	#uprH.			;do a pair
+  end
+code	VT$PAI	VT100 parameter pair
+
+  proc	vt$pai	<r0,r1>
+	p1	ter				;terminator character
+	call	op$prt	#v$tcsi			;setup header
+	mov	r5,r1				;do the first
+	call	vt$par				;write it
+	call	op$put	#semi.			;semicolon
+	mov	r4,r1				;do the first
+	call	vt$par				;write it
+	call	op$put	ter(sp)			;and complete it
+  end
+
+code	VT$PAR	VT100 parameter
+
+;	Some computers do not have divide hardware
+;	Optimise this one with a lookup table
+
+  subr	vt$par
+
+	inc	r1				;plus one for VT100
+	if	r1 his #100			;a large number
+		mov	#dig0.,r0		;start it off
+		while	r1 his #100		;got another
+			inc	r0		;next one
+		...	sub	#100,r1		;down
+		call	op$put	r0		;high order
+		movb	v$thgh(r1),r0		;get the high order
+		call	op$put	r0		;store that
+	else					;
+		movb	v$thgh(r1),r0		;get the high order
+		ifb	r0 ne #dig0.		;got one
+	...	...	call	op$put	r0	;store it
+	movb	v$tlow(r1),r0			;get the low order guy
+	call	op$put	r0			;dump that
+  end
+
+;	High order digit table 0,0,...0,0,1,1,...
+
+  label	v$thgh
+	.irpc	$,<0123456789>
+		.rept	10.
+			.byte	dig0.+$
+		.endr
+	.endr
+
+;	Low order digit table 0,1,2,3...,9,0,1,2,..
+
+  label	v$tlow
+	.rept	10.
+		.irpc	$,<0123456789>
+			.byte	dig0.+$
+		.endr
+	.endr
+code	VT$INI	Init screen
+
+  subr	vt$ini
+	call	op$prt	#v$tini			;init screen
+
+call op$flu
+
+	call	op$prt	#v$call			;clear all attributes
+;call op$prt #v$t100
+;call op$prt #v$tapp
+;	if	v$amod eq #200.			;vt200
+;	...	call	op$prt	#v$t200		;make a vt200
+	if	v$awid le #80.			;80 column mode
+	...	call	op$prt	#v$t80		;80 columns
+	if	v$awid gt #80.			;132 column mode
+	...	call	op$prt	#v$t132		;
+	clr	v$tfnt				;no font
+	clr	v$tatt				;no attributes
+	clr	v$tcat				;current attributes
+  end
+
+code	VT$CLI	Clear line
+
+  subr	vt$cli
+  ...	call	op$prt	#v$tcli
+
+code	VT$CSC	Clear screen
+
+  subr	vt$csc
+  ...	call	op$prt	#v$tcsc
+
+code	VT$HOM	Go home
+
+  subr	vt$hom
+	if	s$cX eq			;already there?
+	 and	s$cY eq			;yes
+	...	exit			;quit
+	call	op$prt	#v$thom		;display it
+	clr	s$cX			;clear position
+  ...	clr	s$cY			;
+
+code	VT$LF.	Line feed
+
+  subr	vt$lf.
+	exit	if s$cY his #24.	;too far
+	call	op$put	#lf.		;one more
+  ...	inc	s$cY			;remember it
+
+code	VT$SOL	Start of line
+
+  subr	vt$sol
+	call	op$put	#cr.		;start of line
+  ...	clr	s$cX			;remember it
+
+code	VT$REG	Setup scroll region
+
+  proc	vt$reg	<r4,r5>
+	p1	top,r5			;top line
+	p2	bot,r4			;bottom line
+	clr	s$cX			;VT100 resets it
+	mov	r5,s$cY			;and that too
+	call	vt$pai	#lowr.		;setup the region
+  end
+
+code	VT$FUL	Set full region
+
+  subr	vt$ful
+	clr	s$cX			;gets cleared
+	clr	s$cY			;that does too
+  ...	call	op$prt	#v$tful		;full region
+
+code	VT$HUE	Dark or light screen
+
+  proc	vt$hue
+	p1	mod
+	if	mod(sp) ne
+		call	op$prt	#v$sdrk
+	else
+	...	call	op$prt	#v$slgt
+  end
+
+code	VT$WID	Screen width
+
+  proc	vt$wid
+	p1	mod
+	if	mod(sp) eq
+		call	op$prt	#v$t80
+	else
+	...	call	op$prt	#v$t132
+  end
+
+code	VT$CAN	Cancel graphics
+
+  subr	vt$can	r1
+	exit	if v$tcat eq			;nothing to do
+	call	op$prt	#v$call			;cancel all
+  end
+
+.end
+.if ne new$c	
+		ifb	r0 his #fmrlo.		;rendition
+		andb	r0 los #fmrhi.		;
+			movb	v$tren(r0),r0
+			if	pl
+				bisb	r0,s$c
+			else
+			...	bicb	r0,
+.iff

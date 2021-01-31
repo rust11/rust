@@ -1,0 +1,756 @@
+.title	KPFIL	File front-end
+.include "kps:kpmac.mac"
+aldef$
+	rxTEN. = ^rten
+	rxBAK. = ^rbak
+
+code	FI$PRE	Setup ACP environment
+
+;	ACP environment command setup
+;
+;	In	command environment
+;
+;	Local	ACP environment
+;
+;		r0	character usually
+;		r1	random
+;		r2	command mode always
+;		r3	
+;		r4	plex pointer
+;		r5
+;
+;	Out	command environment
+
+  subr	fi$pre
+	inc	d$iwin			;refresh everything
+	inc	d$ista			;most change status
+	call	ch$abt			;check for abort
+  end
+
+code	FI$INI	Map buffers
+
+  subr	fi$ini	<r4,r5>
+	call	fi$alc	#f$brea,#f$iipt	;input file file
+	call	fi$alc	#f$bwri,#f$iopt	;output file
+	call	fi$alc	#f$binc,#f$iinc	;include file
+	inc	d$ista			;update it
+  end
+
+  proc	fi$alc	<r4,>
+	p1	fil,r4			;file block
+	p2	ptr			;pointer
+	clr	(r4)			;not open
+	call	me$alc	#fbbuf.+fbrec.+int. ;allocate a buffer
+	mov	r0,fb.buf(r4)		;buffer base address
+	mov	#fbbuf.,fb.siz(r4)	;setup buffer size
+	add	#fbbuf.,r0		;point to record
+	mov	r0,fr.buf(r4)		;record buffer address
+	mov	#fbrec.,fr.siz(r4)	;setup record size
+	addi3	#fb.nam,r4,fb.fnm(r4)	;setup file name pointer
+pdp$	mov	f$ichn,fb.chn(r4)	;setup channel number
+pdp$	inc	f$ichn			;next next time
+	mov	r4,@ptr(sp)		;store pointer
+  end
+;	doesn't use allocate
+code	CM$EDI	EDIT command
+
+;	Open the output file before the input file
+
+  proc	cm$edi
+	p1	rea
+	call	fi$pre				;setup environment
+	call	fi$abd				;abandon file
+						;
+	call	fi$str				;get a filespec string
+	call	fi$par	f$iipt			;parse input spec
+	call	fi$par	f$iopt			;parse output spec
+	call	fi$cre	f$iopt, #0		;open output file
+	call	fi$opn	f$iipt			;open input file
+
+	if	rea(sp) ne			;wants a read
+	...	call	cm$rea			;read the first page
+;	if	#fbvar$ seton @f$iipt		;variable input
+;	...	bis	#fbvar$,@f$iopt		;make variable output
+  end
+
+code	fi$swi switch files about
+
+;	Called after file save to reopen the (new) input file
+
+  proc	fi$swi	<r3,r4>
+	p1	flg
+	mov	f$iipt,r3
+	mov	f$iopt,r4
+	psh	(r3)
+	call	rt$prg r3		; purge input file
+	call	fi$clr r3		; clean up input file block
+	pop	(r3)			;
+	bic	#fbeof$!fberr$,(r3)	;
+	bis	#fbprg$,(r3)		; force purge later
+	movb	fb.chn(r3),-(sp)	; switch channels
+	movb	fb.chn(r4),fb.chn(r3)	;
+	movb	(sp)+,fb.chn(r4)	;
+	mov	fb.blk(r4),fb.len(r3)	; setup input file size
+	mov	fb.len(r3),v$aisz	; remember the length
+	clr	v$area			; none read
+	mova	gt$gen,fb.get(r4)	; setup for first get
+	call	fi$cre r4,fb.alc(r4)	; create the file again
+   end
+code	CM$ISP	INSPECT command
+
+  subr	cm$isp
+	call	fi$abd
+	call	fi$pre				;setup environment						;
+	call	fi$str				;get filespec string
+	call	fi$par	f$iipt			;get input spec
+	call	fi$opn	f$iipt			;open it
+  end
+
+code	FI$OPN	Internal file open
+
+  proc	fi$opn	r4
+	p1	fil,r4				;file plex
+	clr	v$aisz				;no input
+	clr	v$area				;none read
+	call	rt$prg	r4			;
+	call	rt$opn	r4			;look it up
+	if	r0 le				;failed
+		clr	r0			;
+		if 	c$lact ne		;cli active
+		...	exit			;
+	...	call	st$rep #s$tfnf, fb.fnm(r4) 
+	mov	fb.len(r4),v$aisz		;remember the length
+	mova	gt$gen,fb.get(r4)		;setup for first get
+	mov	sp,r0				;fine
+  end
+code	CM$INC	INCLUDE command
+
+.if ne 0
+;	INCLUDE spec
+
+	auto	lin	134.			;line area
+  proc	cm$inc	<r3,r4,r5>
+	assume	lin eq 0			;
+	inc	d$iwin				;reset that
+	mov	f$iinc,r4			;get include file
+	call	fi$str				;setup string
+	call	fi$par	r4			;parse it
+	call	fi$opn	r4			;open it
+	repeat					;
+		mov	sp,r3			;a pointer
+		clr	r5			;a counter
+		repeat				;
+			leave	if #fbeof$!fberr$ seton (r4)
+			call	@fb.get(r4)	;get another
+			movb	r0,(r3)+	;
+			leave	if eq		;no more
+			inc	r5		;count it
+		until	r5 eq #132.		;enough
+		mov	p$odot,r0		;setup dot
+;V4		exit	if r5 eq		;all done
+		mov	sp,r4			;point again
+		call	in$buf	;V4#0		;insert it
+		mov	r0,p$odot		;reset it
+		mov	f$iinc,r4		;get that back
+	until	#fbeof$!fberr$ seton (r4)	;
+  end
+.endc
+code	CM$NEW	NEW command
+
+  proc	cm$new
+	p1	alc
+	call	fi$abd
+	call	fi$pre				;setup
+	call	fi$str				;get the filespec string
+	call	fi$par	f$iopt			;parse spec
+	call	fi$cre	f$iopt, alc(sp)		;create the file
+  end
+
+code	FI$CRE	Internal file create
+
+  proc	fi$cre	r4
+	p1	fil,r4				;file plex
+	p2	alc				;
+	call	fi$clr	r4			;
+	clr	v$aosz				;no output file
+	clr	v$awri				;none written
+						;
+	call	rt$prg	r4			;
+	mov	alc(sp),fb.alc(r4)		;
+	call	rt$cre	r4, alc(sp) ;#rxTEN.	;create the file
+	if	r0 eq				;some error
+		if 	c$lact ne		;cli active
+		...	exit			;
+	...	call	st$rep #s$tfnc, fb.fnm(r4) 
+	mov	fb.len(r4),v$aosz		;setup output file size
+	mova	pt$gen,fb.put(r4)		;setup for first write
+						;
+	mov	sp,r0				;fine
+  end
+code	CM$NXT	Next Command
+
+  proc	cm$nxt
+	p1	tap				;tape call
+	call	fi$pre				;setup environment
+	call	ch$fil	f$iopt			;must have output file
+	if	#fberr$ seton @f$iopt		;input file must be ok
+	...	call	ch$fil	f$iipt		;is not
+	call	fi$nxt				;do next page
+	if	r0 eq ;le			;end of file or overrun
+	and	tap(sp) eq			;and not doing taping
+	      	call	st$rep #s$teof #0	;end of file
+	...	error
+;	if	r0 le
+;	...	clr	r0
+  end
+
+;	Internal Next
+;
+;	Next		needs input and output
+;	File searchs	needs input
+;	File exit	needs output
+;
+;	Out	r0	bytes read
+
+  subr	fi$nxt	<r1,r4>
+	clr	v$asel				;clear mark
+	if	#fbopn$ seton @f$iopt		;output file open
+	...	call	fi$wrp			;write current page
+	mov	p$otop,p$ocho			;remember where we chopped
+	mov	p$obot,p$otop			;reset page
+	mov	p$obot,p$odot			;
+	mov	f$iipt,r4			;setup the plex
+	clr	r0				;assume not open
+	if	#fbopn$ setoff (r4)		;no input file
+	...	bis	#fbeof$,(r4)		;so set EOF
+;	exit	if #fbopn$ setoff (r4)		;no input file
+	exit	if #fbeof$ seton (r4)		;end of file
+	call	fi$rea				;read the next
+  end
+code	CM$REA	Read command
+
+  subr	cm$rea	<r1,r4>
+	call	fi$pre				;check things
+	mov	f$iipt,r4			;point to the plex
+;	call	ch$fil	r4			;check file open
+	mov	p$otop,r1			;where to read it in
+	mov	r1,p$odot			;result dot
+	if	#fbopn$ setoff (r4)		; file not open
+		clr	r0			;
+	...	exit				;
+	call	fi$rea				;do one read
+   end
+
+code	FI$REA	Internal read
+
+;	In	r4 ->		file plex
+;
+;	Out	r0		number of bytes read
+;			0	end of file
+;			-1	overrun
+;		r1 ->		last byte read
+;
+;	File exit (`x) ignores most error conditions.
+
+	auto	lin				;line limit
+	auto	sol				;start of line
+	auto	raw				;raw limit
+  subr	fi$rea
+	call	ch$abt				;check for abort
+	inc	d$ifmt				;rebreak
+	clr	v$afmt				;text isn't formatted
+	mov	p$otop,r1			;where to start reading
+	mov	r1,p$odot			;where to point when done
+	clr	r0				;assume no file
+	exit	if #fbopn$ setoff (r4)		;no file open
+	subi3	#64.,p$olim,raw(sp)		;raw limit
+	subi3	#132.,p$olim,lin(sp)		;line limit
+	mov	r1,sol(sp)			;remember start of line
+	repeat					;
+		if	r1 his raw(sp)		;no more space
+			mov	#-1,r0		;say so
+		...	exit			;
+		call	@fb.get(r4)		;get another
+		skip	if r0 eq		;end of file
+		call	tp$chk r4,r1		;check for tape position
+		movb	r0,(r1)+		;store the character
+		mov	r1,p$otop		;reset that
+		add	#1,fb.ps0(r4)		;update position
+		adc	fb.ps1(r4)		;
+		skip	if r0 eq #ff.		;formfeed ends it
+		next	if r0 ne #lf.		;not line feed
+		if	r1 his lin(sp)		;above line limit
+			mov	#-1,r0		;say so
+		...	exit			;
+		call	fi$fee			;check for HTML formfeed
+		skip	if r0 ne		;found one
+	end					;
+	subi3	p$odot,r1,r0			;return byte count
+	ifb	@p$odot eq #langl.		;
+	...	call	ht$ipt			;
+
+; should only be on first read!
+;	if	#fbvar$ seton @f$iipt		;variable input
+;	...	bis	#fbvar$,@f$iopt		;make variable output
+  end
+
+  proc	fi$fee	r1
+	p1	lin,r1
+	mov	#f$ifee,r0
+10$:	bneb	(r0)+,(r1)+,20$		; no match
+	bneb	(r0)+,10$		; more to go
+	mov	(pc)+,r0		; got a match
+20$:	clr	r0
+  end
+f$ifee:	.asciz	"<PRE>&#12;</PRE>"	; HTML formfeed
+	.even
+code	CM$WRI	Write command
+
+.if ne 0
+  proc	cm$wri	<r3,r4,r5>
+	call	fi$pre
+	call	po$pos				;setup position
+	call	po$opn				;open it up
+	mov	r4,r3				;r3 -> start of area
+	mov	f$iopt,r4			;output plex
+	call	fi$wri
+  end
+.endc
+
+code	FI$WRP	Write page
+
+  proc	fi$wrp	<r3,r4,r5>
+	mov	f$iopt,r4			;output plex
+	mov	p$obot,r3			;write out current buffer
+	mov	p$otop,r5			;bottom to top
+	call	fi$wri
+  end
+
+code	FI$WRI	Internal write
+
+;	In	r3 ->		start of area
+;		r5 ->		end of area
+;		r4 ->		file plex
+;
+;	Local	r1		output character
+;
+;	Errors abort
+
+  proc	fi$wri	r1
+	call	ch$fil	r4			;must be open & o.k.
+	exit	if r3 hi r5			;nonsense
+	sub	r3,r5				;r5 = size to read
+	repeat					;write loop
+		leave	if #fbeof$!fberr$ seton (r4) ;some error
+		movb	(r3),r1			;get the next
+.if ne new$c
+		ifb	r1 eq #cr.		;soft eol?
+		...	movb	#space.,r1	;yep - replace it
+.endc
+		if	r3 eq p$odot		;we're at dot
+		...	call	tp$set r4	;set position
+		skip	if r5 eq		;here so tp$set is called first
+		if	r3 ne			;something real
+		...	call	@fb.put(r4)	;put it
+		leave	if r0 eq		;some error
+		inc	r3			;skip the character
+		add	#1,fb.ps0(r4)		;update position
+		adc	fb.ps1(r4)		;
+	count	r5				;do them all
+	exit	if r5 eq			;success
+
+	mov	r3,p$odot			;where we failed
+	call	ch$abt				;cancel errors
+	call	st$rep #s$twri r4		;report error
+  end
+code	CM$CLO	Close file
+
+;	SAVE
+;
+;	In	edit environment
+
+  proc	cm$clo	r4
+	p1	swi
+	call	fi$pre
+	call	ch$fil	f$iopt			;must have output file
+	clr	m$ksel				;clear mark
+	mov	f$iipt,r4			;get the plex
+	repeat					;
+		call	fi$nxt			;next page
+	until	#fbeof$!fberr$ seton (r4)	;
+	if	#fberr$ seton (r4)		;hardware error
+	...	error				;forget it
+	call	fi$nxt				;write last page
+	mov	f$iopt,r4			;get the plex
+	call	pt$pad	r4			;pad out the file
+	if	#fberr$!fbeof$ seton (r4)	;some error
+	...	error				;forget it
+	if	swi(sp) eq
+	...	call	rt$clo	r4		;close it
+	if	#fberr$!fbeof$ seton (r4)	;some error
+	...	call	st$rep	#s$tclo r4	;error closing
+	call	cl$new				;clear new data
+  end
+
+code	CM$PUR Purge command
+
+;	PURGE
+
+  subr	fi$abd	r4
+	exit	if c$lact ne			;initial CLI
+;root;	call	ch$new
+	mov	f$iopt,r4			;
+	if	(r4) ne
+	...	call	rt$prg r4
+	clr	v$asel
+	mov	p$obot,p$otop			;zap page
+	mov	p$obot,p$odot			;
+;root;	call	di$rpt
+  end
+
+  subr	cm$pur	r4
+	call	fi$pre
+	mov	f$iopt,r4			;
+	exit	if (r4) eq			;no output file
+	call	rt$prg r4
+  end
+code	TK$PRG	Purge files
+.if ne 0
+;	`P	Purge files
+
+  subr	tk$prg
+	call	fi$pre
+	clr	v$anew			;no new characters
+	call	rt$prg	f$iipt		;purge read
+	call	rt$prg	f$iopt		;purge write 
+	clr	@f$iipt			;clear all flags
+	clr	@f$iopt			;
+	call	rt$nvl	f$iipt		;reset that
+	call	rt$nvl	f$iopt		;and that
+	call	cl$new			;clear new data
+  end
+
+.endc
+code	FI$PAR	Parse file spec
+
+  proc	fi$par
+	p1	fil,r4				;file plex pointer
+;V4bigv	exit	if c$mnum ne			;position command
+	call	fi$clr	r4			;clear file block
+;V4	exit	if c$mand ne			;not a repeat
+	call	fi$mrg				;merge file specs
+  end
+
+  proc	fi$clr	r4
+	p1	fil,r4
+	if	#fbopn$ seton (r4)		;
+	...	call	rt$prg	r4		;purge it first
+	clr	(r4)				;zap the lot
+	clr	fb.blk(r4)			;cleanup things
+	clr	fb.cnt(r4)			;
+	clr	fb.len(r4)			;clear the length
+	clr	fb.ps0(r4)			;rewind position
+	clr	fb.ps1(r4)			;
+vax$	clr	fb.ebk(r4)			;no end block
+vax$	clr	fb.ffb(r4)			;no first free byte
+	clr	fb.alc(r4)			;
+	mov	fb.buf(r4),fb.pnt(r4)		;
+  end
+						;
+code	FI$STR	Clean up file spec
+
+; check null input spec				;
+
+  subr	fi$str	<r0,r1>
+	mov	#f$istr,r0			;r4 -> input string
+	whileb	(r0) ne				;get lower case string
+		movb	(r0),r1			;get the next
+		ifb	r1 his #lowa.		;upper case
+		 andb	r1 los #lowz.		;
+		...	add	#upra.-lowa.,r1 ;convert it
+		movb	r1,(r0)+		;store it
+	end					;
+  end
+code	FI$MRG	Merge file specs
+
+;	In	f$istr		File spec string
+;		r2		Mode - c$mall clears name/type fields
+;		r4 ->		File plex
+;
+;	Out	fb.nam()	Parsed file spec string
+;		
+;	.	@	$	[
+;	MAC	COM	DOC	MAS
+;
+;	r2	mode
+;	r3 	old file spec
+;	r4	new file spec
+;	r5	result file spec
+
+big
+  subr	fi$mrg	all
+	mov	fb.fnm(r4),r5			;r5 -> result string
+	call	fi$mov	#f$istr,#0		;previous to default
+.if ne 0
+
+;	Copy out previous file spec string
+
+	if	#cmcha$ seton r2		;alternate file
+		mov	fb.fnm(r4),r5		;output area
+		mov	f$iipt,r0		;assume input
+		if	r4 eq r0		;is input
+		...	mov	f$iopt,r0	;so use output
+		call	fi$mov	fb.fnm(r0),#0	;use other name
+	...	exit				;done
+						;
+	mov	fb.fnm(r4),r0			;assume normal
+	mova	f$idef,r3			;r3 -> default spec
+	mov	r3,r5				;setup for move
+	call	fi$mov	r0,#0			;previous to default
+						;
+	mov	fb.fnm(r4),r5			;r5 -> result string
+	mova	f$istr,r4			;get input string
+	ifb	(r4) eq #space.			;input space
+	...	inc	r4			;skip it
+
+;	Process device field
+
+	call	fi$loc	r4,#colon.,#0		;find a colon
+	if	r0 ne				;device in spec
+		call	fi$mov	r4,r0		;move it out
+		mov	r0,r4			;update pointer
+		call	fi$loc	r3,#colon.,#0	;find it in default
+		if	r0 ne			;found it
+		...	mov	r0,r3		;skip it
+	else					;not in spec
+		call	fi$loc	r3,#colon.,#0	;try default
+		if	r0 ne			;found it
+			call	fi$mov	r3,r0	;move it out
+			mov	r0,r3		;skip it
+		else				;neither
+	...	...	call	fi$mov	#f$idev,#0 ;use default
+
+;	Process directory field
+
+
+;	Process file name field
+
+	if	#cmall$ seton r2		;want the device
+		clrb	(r5)			;that was all
+	...	exit				;done
+						;
+	movb	(r4),r1				;get the next
+	call	fi$let	#0			;check for file letter
+	if	r1 ne				;got one
+		call	fi$loc	r4,#dot.,#0	;look for dot
+		if	r0 ne			;found it
+		...	dec	r0		;back up
+		call	fi$mov	r4,r0		;move it out
+		if	r0 ne			;found a dot before
+		...	mov	r0,r4		;update pointer
+		call	fi$loc	r3,#dot.,#0	;find dot in default
+		if	r0 ne			;found it
+		...	subi3	#1,r0,r3	;update it
+	else					;try default
+		call	fi$loc	r3,#dot.,#0	;find dot in default
+		if	r0 ne			;found it
+			dec	r0		;back up
+			call	fi$mov	r3,r0	;move in default
+			mov	r0,r3		;update default
+		else				;no default
+	...	...	exit			;so quit
+
+;	Process file type field
+
+	call	fi$typ				;look for builtin type
+	exit	if r0 ne			;found it
+	ifb	(r4) eq #dot.			;spec has type
+;		call	fi$loc	r4,#0,#0	;locate end of string
+		call	fi$mov	r4,r0		;move the remainder
+	else					;
+		ifb	(r3) eq #dot.		;default type
+	...	...	call	fi$mov	r3,#0	;move it out
+.endc
+  end
+page	Merge utilities
+.if ne 0
+
+code	FI$TYP	Process file types
+
+;	In	r4 ->		model
+;		r5 ->		output area
+;
+;	Out	r0	0	not found
+
+  subr	fi$typ
+
+	clr	r0				;assume not found
+	exit	ifb byte.(r4) ne		;something real happening
+	mova	f$ityp,r0			;get the list
+	repeat					;look for it
+		leave	ifb (r0) eq #-1		;forget it
+		ifb	(r4) eq (r0)+		;got it
+			movb	#dot.,(r5)+	;start if off
+			call	fi$mov	r0,#0	;move it in
+			exit			;done
+		else				;
+			whileb	(r0)+ ne	;skip string
+		...	end			;
+	end					;
+	clr	r0				;not found
+  end						;
+
+data	F$ITYP	File types
+
+pdp$	string	f$ityp	<".mac">	ter=0
+vax$	string	f$ityp	<".mar">	ter=0
+	string	<>	<"@com">	ter=0
+	string	<>	<"$doc">	ter=0
+	string	<>	<"[mas">	ter=0
+	byte	<>	-1
+	align
+
+code	FI$LOC	Locate character
+
+  proc	fi$loc	r1
+	p1	str,r0				;string to search
+	p2	cha				;character to locate
+	p3	cla				;class list
+;	out	r0 ->				;last character moved
+;			0			;not found
+						;
+	whileb	(r0) ne				;more to go
+		movb	(r0)+,r1		;get the character
+		exit	ifb r1 eq cha(sp)	;got it
+;		call	fi$let	cla(sp)		;check it
+		next	ifb r1 ne		;
+	endless					;not found
+	clr	r0				;not found
+  end
+
+code	FI$LET	Check file letter
+
+  proc	fi$let	<r0>
+ 	p1	cla			;special list
+	ifb	r1 his #lowa.		;alpha
+	...	exit	ifb r1 los #lowz.;
+	ifb	r1 his #dig0.		;digit
+	...	exit	ifb r1 los #dig9.;
+vax$	exit	ifb r1 eq #dolar.	;logical names
+vax$	exit	ifb r1 eq #under.	;
+	mov	cla(sp),r0		;get the class list
+	if	ne			;got one
+		whileb	(r0) ne		;more
+	...	...	exit	ifb (r0)+ eq r1
+	clr	r1			;invalid
+  end
+
+;	string	f$idir	</,]/>	ter=0	;directory
+;	string	f$ityp	<.>	ter=0	;filetype
+	align
+
+.endc
+
+code	FI$MOV	Move field
+
+  proc	fi$mov	<r0,r1>
+	p1	str,r0				;string pointer
+	p2	lim,r1				;string limit
+;		dst,r5				;destination string
+						;
+	if	r1 eq				;default
+	...	mov	#-1,r1			;is all of string
+	while	r0 lo r1			;more to go
+		movb	(r0)+,(r5)+		;move it out
+		if	eq			;end of string
+			dec	r5		;backup
+		...	leave			;done
+	end					;
+	clrb	(r5)				;terminate it
+  end
+
+.end
+.end
+code	FI$PRV	Previous page
+
+;	+-------+ fb.i0
+;	|input	|
+;	|file	|
+;	|	| 
+;	+-------+ fb.i4
+;	|	|
+;	|	|
+;	|	|
+;	+-------+ fb.i5
+;
+;	+-------+ fb.o2
+;	|output	|
+;	|	|
+;	+-------+ fb.o3
+;	.	.
+;	.	.
+;	+-------+ fb.o4
+;	|	|
+;	+-------+ fb.o5
+;	|	|
+;	+-------+ fb.o6
+;
+;	f$ihwm	high water mark of input file
+;
+;	f$ilwm	low water mark of temp file
+;
+;	Previous:
+;	push current buffer on to temp file stack
+;	drill back into temp file output
+;
+;	Next:
+;	Pop from temp file stack.
+;	Read from input file if pop fails.
+;
+;	Close:
+;	Next until done.
+
+
+;	Calculate length of buffer
+;	Write to temp file
+;	Set low water mark in temp file
+;
+;	Read backwards to end of buffer
+;	Slide down
+
+
+  subr	fi$sav
+
+	inc	fb.sav(r4)
+	mov	p$otop,r1
+	mov	#p$obot,r2
+	sub	r2,r1
+	mov	r1,-(r2)
+	add	#2,r1
+	add	#511,r1
+	bic	#511,r1
+	asr	r1			; number of blocks required
+	mov	fb.len(r),r3		;
+
+;
+  subr	fi$res
+	call	read
+	mov	(x)+,r1
+	if	fb.rcl(r4) eq		;
+	...	exit			; nothing to recall
+	dec	fb.sav(r4)
+	if	r1 le #510		; already have it
+		sub	#510,r1		; calculate remainder
+		asr	r1		;
+		call	read		;
+
+	
+
+code	fi$rev - reverse up file
+
+;	split buffer in two
+;	push upper half
+;	move lower half to top
+;	drill backward 
+;	move lower half down
+

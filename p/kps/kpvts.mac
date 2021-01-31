@@ -1,0 +1,487 @@
+; optimise sc$lin to avoid graphic line updates
+bel$c=0 ; bell currently off
+sts$c=1
+sts=0
+;???	Move primitives to VT modules
+.title	KPVTS	Video terminal server
+.include "kps:kpmac.mac"
+
+;???	Isolate scroll region by moving in from top and bottom
+;???	Support long screens
+;
+;	Worst-case is optimised - specific optimisations for usual case.
+;
+;	Assume 3 commands and 15 characters per second input.
+;	Assume 960 characters per second output with scroll, tabs, skip
+;	Buffers: 2*24*(80+4)=>4032=>2k words
+;
+;	Two arrays of pointers to lines are used.
+;
+;		OLD array describes current screen
+;		NEW array describes desired screen
+;
+;	A correlation of OLD/NEW works out possible scrolls.
+;	A checksum of each line is used for the correlation.
+;	Checksum errors are caught in the actual screen update.
+;
+;	Blinking cursor marks current text position on page.
+;	(.) or (") used as command or text input prompt.
+;
+;	Only the command line needs altering for D$ILIN updates.
+;	The status line is always updated first after the scroll.
+;
+;	Old and new pointer tables
+;
+;	s$cold:	addr$	s$co1,s$co2, s$co3 ...
+;	s$cnew:	addr$	...
+page	Init & exit screen
+
+code	SC$INI	Init screen
+
+  subr	sc$ini	all
+
+;	Get the buffer space first time
+
+	if	s$conc eq			;once only
+		call	me$alc	#sclct.*2*scgam.;get some space
+		mov	r0,s$cobp		;setup old buffer pointer
+		addi3	#sclct.*scgam.,r0,s$cnbp;new buffer pointers
+	...	inc	s$conc			;done
+						;
+	clr	s$csam				;init same state
+	call	sc$arr	#s$cold,s$cobp		;init old array
+	call	sc$arr	#s$cnew,s$cnbp		;init new array
+	call	vt$ini				;init the screen
+	call	sc$hom				;go home
+	call	vt$csc				;clear screen
+	call	op$flu				;flush it
+;???
+	call	sc$hom				;home again
+	call	vt$cli				;clear to end of line
+	call	op$flu				;flush it
+	call	vt$reg #0,#scwll.		;setup edit window
+  end
+
+code	SC$ARR	Build array
+
+  proc	sc$arr	<r1,r2,r3>
+	p1	ptr,r1				;pointer array
+	p2	buf,r2				;first buffer element
+	mov	s$clct,r3			;number of lines
+	repeat					;
+		mov	r2,(r1)+		;setup pointer
+		clr	(r2)			;code
+		clr	sc.cnt(r2)		;count
+		clr	sc.dat(r2)		;data
+		add	#scgam.,r2		;next
+	count	r3				;
+	clr	(r1)				;terminate pointer array
+	clr	s$cbmp				;clear front bumper
+  end
+
+code	SC$EXI	Screen exit
+
+;	Blank screen with newline to handle crazy terminals
+
+  subr	sc$exi
+	call	sc$ini				;set it up first
+	call	op$prt	#v$texi			;print exit string
+	addi3	#1,s$clct,r1			;get loop counter
+	repeat					;position at end of screen
+		call	op$put	#cr.		;cr
+		call	op$put	#lf.		;lf
+	count	r1				;count it
+	call	op$flu				;flush it
+  end
+.if ne 0
+code	VT$CRS	Setup correlation map
+
+;nw,nwr	r0	
+;ol,olr	r1
+;ne	r2	top line	
+;ner	r3	reverse line
+;	r4	temp count
+;	r5	output pointer
+;	(sp)	outer loop counter
+;
+; forward	1, 1,2 2,3 3,4 4,5/ 5
+;		2, 1,3 2,4 3,5/ 4 5
+
+	auto	cnt
+  proc	vt$crs	<r0,r1,r2,r3,r4,r5>
+	p1	siz			;screen size
+	mov	s$ccor,r5		;where to put it
+	clr	r2			;
+	mov	#1,r3			;
+;v4	sub	#2,siz(sp)		;adjust for status lines
+	subi3	#3,siz(sp),cnt(sp)	;outer loop
+					;
+    while cnt(sp) ne			;
+	mov	r2,r0			;
+	clr	r1			;
+					;
+	movb	r0,(r5)+		;store new window
+					;
+	subi3	r2,siz(sp),r4		;
+	while	r4 ne			;
+		movb	r1,(r5)+	;old line
+		movb	r0,(r5)+	;
+		inc	r1		;
+		inc	r0		;
+	count 	r4			;
+	movb	#-1,(r5)+		;terminate it
+					;
+	mov	r2,r4			;
+	while	r4 ne			;
+		movb	r1,(r5)+	;store old line
+		inc	r1		;
+	count	r4			;
+					;
+	movb	#-1,(r5)+		;terminate it
+	inc	r2			;
+					;
+	subi3	r3,siz(sp),r0		;setup start values
+	mov	siz(sp),r1		;
+					;
+	movb	r3,(r5)+		;
+	negb	(r5)			;negate it
+	inc	r5			;skip it
+					;
+	subi3	r3,siz(sp),r4		;
+	while	r4 ne			;
+		movb	r1,(r5)+	;
+		movb	r0,(r5)+	;
+		dec	r1		;
+		dec	r0		;
+	count	r4			;
+	movb	#-1,(r5)+		;
+					;
+	mov	r3,r4			;
+	while	r4 ne			;
+		movb	r1,(r5)+	;
+		inc	r1		;
+	count	r4			;
+					;
+	movb	#-1,(r5)+		;
+	inc	r3			;
+	dec	cnt(sp)			;
+    end					;
+  end					;
+.endc
+code	SC$CHG	Change screen
+
+;	Calculates all the codes for new
+;	Counts the number of misses
+;
+;	In	s$clin 		first line number offset
+;???	non-blank logic
+
+	auto	mis				;miss count
+	auto	nbl				;non-blank count
+  proc	sc$chg					;
+	p1	lin,r1				;line number
+	assume	mis eq 0			;
+	clr	mis(sp)				;no misses yet
+	mov	#^o22,nbl(sp)			;non-blank check
+;	mov	s$clin,r1			;get the line number offset
+	asl$	addr$l,r1			;tso
+	repeat					;for all lines
+		mov	s$cnew(r1),r3		;get the next line
+		leave	if eq			;done lines
+		add	#sc.dat,r3		;point to the data
+		clr	r0			;accumulate code
+		repeat				;code
+			mov	(r3)+,r5	;get the next
+			leave	if eq		;done
+			xor	r5,r0		;xor it in
+			asl$	1,r0		;rotate it
+			add	#129.,r0	;add in some stuff
+		end				;
+						;
+		mov	r0,@s$cnew(r1)		;store the code
+		if	eq			;blank
+		 or	@s$cold(r1) eq		;other is blank
+			dec	nbl(sp)		;one less non-blank line
+		else				;
+			if	r0 ne @s$cold(r1) ;different
+		...	...	inc	mis(sp)	;count miss
+		add	#addr.,r1		;next entry
+	end					;another line
+
+;	Lines compared - determine action
+
+	mov	r0,r2
+	if	mi
+	...	neg	r2
+	if	mis(sp) hi #2			;more than two to change
+		call	sc$cor			;correlate scroll
+		if	r1 lo mis(sp)		;lower than misses
+		 and	r1 los nbl(sp)		;and not just blanks
+		 and	r0 ne			;and at least one
+		 and	r2 lt #scwlc.-2		;and not a ridiculous scroll
+			call	sc$scr		;scroll it first
+		end				;
+	end					;
+	call	sc$rep				;replace the screen
+  end
+code	SC$COR	Correlate scroll move
+
+;	48 different scroll tests are made
+;	Usually one of these alone will yield a good result
+;
+;	Out	r0	scroll count - may be negative
+;		r1	number of lines missed by scroll
+;		r2:r5	burnt
+
+	auto	res
+  subr	sc$cor	<r2>
+	mov	s$ccor,r2			;get the test list
+	mov	#100.,r1			;for the test
+	clr	(sp)				;clear result scroll count
+						;
+	repeat					;
+		cvtbi	(r2)+,r5		;get the scroll i.d.
+		leave	ifb r5 eq #128.		;done it
+		clr	r4			;the accumulator
+		repeat				;
+			cvtbi	(r2)+,r3	;get next compare
+			leave	if mi		;end of compare
+			cvtbi	(r2)+,r0	;get the other
+			next	if @s$cnew(r3) eq @s$cold(r0) ;same
+			inc	r4		;count the miss
+		end				;
+						;
+		repeat				;
+			cvtbi	(r2)+,r3	;get the next addend
+			leave	if mi		;all done
+			next	if @s$cold(r3) eq ;this blank ?
+			inc	r4		;count non-blank
+		end				;
+						;
+		next	if r4 his r1		;no better than we had
+		mov	r5,(sp)			;save best scroll move
+		mov	r4,r1			;reset best match count
+	until	r1 lo #2			;until we get a hit
+	mov	(sp),r0				;best scroll count
+  end
+code	SC$SCR	scroll screen & OLD array
+
+;	Setup and scroll screen
+;	Reflect screen scroll in OLD array for replace compare
+;
+;	In	r0		scroll count - may be negative
+;			0,24	never occur
+
+	auto	cnt
+  subr	sc$scr
+	mov	r0,(sp)				;save scroll count
+	mov	r0,r2				;get a copy
+	if	pl				;not a negative move
+
+;	Scroll up
+;
+;	Position at bottom and move screen contents up
+
+.if ne 0
+		clr	r4			;X
+		mov	#22.,r5			;Y
+		call	vt$pos			;position
+		call	vt$csc			;clear screen
+		mov	#s$cold+<22.*addr.>,r1	;clear bottom two lines
+		mov	(r1)+,r0		;get the next line
+		clr	(r0)			;clear the check
+		clr	sc.dat(r0)		;and the data
+		mov	(r1)+,r0		;get the next line
+		clr	(r0)			;clear the check
+		clr	sc.dat(r0)		;and the data
+.iff
+		clr	r4			;now position 
+		mov	#scwll.,r5		;position at window bottom
+		call	vt$pos			;
+.endc						;
+
+;	Move the cursor up 
+
+		repeat				;
+			call	op$prt	#v$tsup	;scroll up
+		count	r2			;until done
+
+;	Discard removed lines
+
+		mov	(sp),r1			;get the scroll count
+		mov	r1,r5			;save it for later
+;		subi3	r1,#21.,r2		;get the difference
+		subi3	r1,#scwlc.,r2		;get the difference
+		mov	#s$cold,r3		;save some
+		mov	r3,r4			;we need it down the road
+		repeat				;save removed lines
+			push	(r3)+		;save another
+		count	r1			;count them
+
+;	Move up lines
+
+		repeat				;move up lines
+			mov	(r3)+,(r4)+	;move another
+		count	r2			;more
+
+;	Add discarded lines to end
+
+		repeat				;append lines
+			pop	r1		;get the next
+			clr	(r1)		;no code
+			clr	sc.cnt(r1)	;no count
+			clr	sc.dat(r1)	;no data
+			mov	r1,(r4)+	;store the pointer
+		count	r5			;count it
+
+	else
+
+;	Scroll down
+;
+;	Already positioned at home
+
+		clr	r4
+		clr	r5
+		call	vt$pos
+		neg	r2			;get a counter
+		mov	r2,r1			;need it again later
+		repeat				;
+			call	op$prt	#v$tsdn	;scroll down
+		count	r2			;more
+						;
+		mov	r1,r5			;save it
+		subi3	r1,#scwlc.,r2		;get the difference
+		mov	#s$cold+<scwlc.*addr.>,r3 ;save some
+		mov	r3,r4
+
+;	Discard and save
+
+		repeat				;
+			push	-(r3)		;save it
+		count	r1			;more
+
+;	Move the others
+
+		repeat				;
+			mov	-(r3),-(r4)	;move it
+		count	r2			;
+
+;	Get back discarded
+
+		repeat				;
+			pop	r1		;get the next
+			clr	(r1)		;clear it
+			clr	sc.cnt(r1)	;no count
+			clr	sc.dat(r1)	;no data
+			mov	r1,-(r4)	;store it
+		count	r5			;
+	end					;
+;	call	vt$ful				;restore full screen
+  end
+code	SC$REP	Replace screen data
+
+;	Paint command/status area first for aesthetics
+;	Check each line for detailed changes
+
+  subr	sc$rep
+	call	sc$lin #sccln.,#1	;do the command line
+;	if	s$clin eq		;not just a command line update
+	if	c$oact eq		;not just a command line update
+	...	call sc$lin #0,#scwlc.	;do the buffer
+	call	op$flu			;flush output
+  end
+code	SC$LIN	Replace one line
+
+;	In	r1		line offset
+;		s$csam		arrow operation - data has not changed
+;	Out	r1		next line offset
+;	Local	r1		line offset
+;		r2 ->		old line
+;		r3 ->		new line
+;		r4/r5		cursor position
+
+  proc	sc$lin
+	p1	lin,r1
+	p2	cnt
+	asl$	addr$l,r1			;tso
+    while cnt(sp) ne
+	dec	cnt(sp)				;
+	mov	s$cnew(r1),r2			;get the next one
+bigv	exit	if eq				;all done
+	mov	s$cold(r1),r3			;get the old version
+     begin					;done block
+	if	v$agra	ne			;doing graphics
+		call	vt$lin			;do it there
+	...	skip				;
+;	if	s$csam eq			;not arrow operation
+;	 or	(r2) ne (r3)			;or different line codes
+						;
+		add	#sc.dat,r2		;step up to the text
+		add	#sc.dat,r3		;for the compare loop
+		clr	r4			;the x position
+		mov	r1,r5			;the y position
+		asr$	addr$l,r5		;tso
+		repeat				;
+			movb	(r3),r0		;get r3
+			leave	if eq		;end of line
+			leave	ifb (r2) ne r0	;different
+			inc	r2		;skip
+			inc	r3		; all 
+			inc	r4		;  this
+			next	ifb r0 ne #ht.	;not tab
+			add	d$itab,r4	;next tab stop
+			bic	d$itab,r4	;
+		end				;
+;???	optimise				;
+		bisb	(r2),r0			;check same
+		skip	if eq			;nothing to do
+						;
+		call	sc$pos			;position here
+		ifb	(r3) ne			;needs clearing
+		...	call	vt$cli		;clear line
+						;
+		repeat				;change the line
+			movb	(r2)+,r0	;get the next
+			leave	if eq		;no more
+			inc	r4		;next X position
+			ifb	r0 eq #ht.	;a tab
+				add	d$itab,r4 ;position that
+			...	bic	d$itab,r4 ;
+			movb	r0,@o$pptr	;store it
+			inc	o$pptr		;skip it
+			dec	o$pcnt		;count it
+			if	eq		;full
+			...	call	op$emp	;force it out
+		end				;
+		mov	r4,s$cX			;save position
+call op$put <#'}>
+		mov	r5,s$cY			;
+;	end					;
+     end					;done block
+
+;	Screen updated, swap line pointers
+
+	mov	s$cold(r1),r2			;get the old line
+	mov	s$cnew(r1),s$cold(r1)		;replace it
+	mov	r2,s$cnew(r1)			;replace new
+	add	#addr.,r1			;next element
+    end
+  end
+code	SC$HOM	Force home
+
+  subr	sc$hom
+	inc	s$cX			;force home
+	call	vt$hom			;do it
+  end
+
+code	SC$BEL	Ring bell
+
+  subr	sc$bel
+.if ne bel$c
+	call	op$put	#bell.		;ring the bell
+	call	op$flu			;and flush it
+.endc
+  end
+
+.end
+

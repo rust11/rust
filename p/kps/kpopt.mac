@@ -1,0 +1,64 @@
+.title	KPOPT	Terminal output
+.include "kps:kpmac.mac"
+data	Terminal output
+
+	set	oplen.	128
+	npgbl$	npoptg
+	text	o$pbuf	oplen.+2
+	label	o$pend
+	counter	o$pcnt	oplen.
+	pointer	o$pptr	o$pbuf
+	npcod$
+
+code	OP$PUT	Output character in r0
+
+  proc	op$put
+	p1	cha
+	movb	cha(sp),@o$pptr			;store it
+	inc	o$pptr				;
+	dec	o$pcnt				;count it
+	if	eq				;done it
+	...	call	op$emp			;empty it
+  end
+
+code	OP$FLU	Flush buffer
+
+  subr	op$flu
+	exit	if o$pptr eq #o$pbuf		;nothing to do
+
+code	OP$EMP	Force buffer empty
+
+  entry	op$emp	r0				;force empty
+	movb	#128.,@o$pptr			;terminate it
+	subi3	o$pcnt,#oplen.,r0		;setup count
+	call	rt$opt	#o$pbuf,r0		;print the buffer
+	mov	#o$pbuf,o$pptr			;reset the pointer
+	mov	#oplen.,o$pcnt			;and the counter
+  end
+
+code	OP$PRT	Output string
+
+  proc	op$prt	<r0,r1>
+	p1	str,r1				;string pointer
+	repeat					;
+		movb	(r1)+,r0		;get the next
+		leave	if eq			;end of it - add newline
+		if	mi			;negative
+			exit	ifb r0 eq #128.	;end of string
+			if	v$amod lo #200.	;not VT200
+		...	...	bic	#bit7$,r0 ;clean it up
+		movb	r0,@o$pptr		;store it
+		inc	o$pptr			;past it
+		dec	o$pcnt			;count it
+		next	if ne			;got more
+		call	op$emp			;display it
+	end					;
+
+;	add newline
+
+	call	op$put	#cr.			;a newline
+	call	op$put	#lf.			;
+  end
+
+.end
+

@@ -1,0 +1,81 @@
+cli$c=1
+.title	KPROO	KP root
+.include "kps:kpmac.mac"
+aldef$
+code	START	Start editor
+
+;	My little editor
+
+native	
+  subr	start
+;	.close	#15			;close image channel
+	mov	sp,e$dosp		;save orginal sp
+	inc	e$donc			;once-only flag
+	if	ne			;second time
+		clr	@f$iipt		;no files open
+		clr	@f$iopt		;
+		call	di$rpt		;display the lot
+	...	tran	ed$rst		;restart
+.if ne cli$c
+;	call	cl$cli			;
+.iff
+	mova	s$vcmd,r1		;get command line
+	call	rt$cli	r1		;get runtime command
+	if	r0 ne			;
+		inc	e$dcli		;got a command
+		cmpb	-(r1),-(r1)	;backup
+		sub	r1,r0		;get the count
+	...	movb	r0,li.cnt(r1)	;setup the count
+.endc
+					;
+	mov	#1,v$ajus		;default to newline adjustment
+	clr	v$anew			;no new characters yet
+	clr	v$asel			;nothing selected
+	mov	#8,v$atab		;reset tabs
+	mov	#7,d$itab		;and tab alignment
+	mov	#v$efil,l$iver+li.end	;setup the end of string
+	call	me$ini			;initialize memory
+	call	fi$ini			;init file stuff
+	call	cl$cli			;
+	call	rt$ini			;
+	call	sc$ini			;setup scope
+.if ne smpdp.				;
+	mov	m$eavl,r1		;get available
+	bic	#31.,r1			;round it a bit
+	clc				;
+	ror	r1			;half of it
+	mov	r1,m$etbs		;
+	asr	r1			;again
+	add	r1,m$etbs		;
+	mov	r1,m$epbs		;paste buffer size
+.endc					;
+	call	pa$ini			;setup paste buffer
+	call	me$alc	m$etbs		;get the buffer setup
+	mov	r0,p$obeg		;setup initial pointers
+	mov	r0,p$obot		;
+	mov	r0,p$odot		;
+	mov	r0,p$otop		;
+	add	m$etbs,r0		;end of buffer
+	sub	#int.,r0		;back off one
+	mov	r0,p$olim		;limit
+	mov	#-1,(r0)		;setup limit guard
+	mov	r0,p$oend		;official end of buffer
+	clr	m$ksel			;clear mark
+;	if	e$dcli			;got a command
+;	...	call	ed$cli		;handle it
+	call	cl$rea			;maybe read a page
+	tran	ed$rst			;hit the restart point
+  endless
+code	TK$ZAP	Zap edior
+code	CM$EXI	Exit editor
+
+  entry	tk$zap			;exit editor
+  entry	cm$exi			;
+	call	ch$new	;c$mcha	;check new data
+  entry ed$exi			;exit editor
+	call	sc$exi		;exit screen
+	tran	rt$exi		;exit via runtime
+
+.end	start
+.end	start
+

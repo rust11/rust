@@ -1,0 +1,189 @@
+.title	KPSEA	Search
+.include "kps:kpmac.mac"
+code	File search front-ends
+
+code	SE$PAR	Parse search command
+
+;	In	r0 ->		buffer area (p$odot)
+;		r2		mode
+;		r3		number
+;		r4 ->		model - from gt$txt
+;
+;	Out	r0 ->		start of located string
+;		r1 ->		end of located string
+;			0	not found
+;
+;	Local	r1		intermediate buffer area
+;		r5		alternate model
+
+  subr	se$par	r0
+
+	mov	#l$isea,r4
+	mov	r0,s$edot			;save our friendly dot
+	mov	r3,s$ecnt			;search repeat count
+;V4	call	ti$nul				;check null text string
+;V4	bis	#ttstr$,t$tmod			;string input
+;V4	call	ti$inp	#l$isea			;r4 -> string
+;V4	bic	#ttstr$,t$tmod			;r5 =  byte count
+	mov	r4,s$emod			;setup model pointer
+;V4	ifb	l$isea-byte.(r5) eq #lf.	;got a line feed
+;V4	...	sub	#byte.*2,r5		;forget cr/lf
+;V4	clrb	l$isea(r5)			;terminate it
+
+;	Build alternate search string
+
+	mov	#l$ialt,r5			;setup alternate string
+	repeat					;
+		movb	(r4)+,r0		;get the next
+		movb	r0,(r5)+		;store it
+		leave	if eq			;all done
+.if ne new$c
+		ifb	r0 eq #space.		;space?
+		...	movb	#cr.,-byte.(r5)	;yes - soft break matches
+.endc
+		next	if #stexa$ seton r2	;exact case required
+		ifb	r0 his #upra.		;check upper case
+		 andb	r0 los #uprz.		;
+			add	#lowa.-upra.,r0	;get alternate
+			movb	r0,-byte.(r5)	;store it
+		...	next			;
+		ifb	r0 his #lowa.		;check upper case
+		 andb	r0 los #lowz.		;
+			add	#upra.-lowa.,r0	;get alternate
+			movb	r0,-byte.(r5)	;store it
+		...	next			;
+	end
+  end
+code	SE$NXT	Find next occurrence
+
+;	SEARCH "string"
+;	REPEAT SEARCH
+;	SEARCH DOWN
+;	SEARCH UP
+;
+;	r2	command flags
+
+  proc	se$nxt
+	mov	r0,s$edot			;save our friendly dot
+	mov	r3,s$ecnt			;search repeat count
+						;
+	if	@s$emod eq			;no search string
+		mov	r0,r1			;start and end the same
+	...	exit				;
+	repeat					;search pages
+		if	#cmmin$ setoff r2	;
+			call	se$for	;pos(sp);search forward
+		else				;
+		...	call	se$rev	;pos(sp);search reverse
+		leave	if r1 ne		;found it
+		if	#stbnd$ seton r2	;bounded
+		  or	#cmmin$ seton r2	;or backwards
+			if #stret$ seton s$tflx	;want dot return?
+			... mov s$edot,p$odot	;yep
+		...	error			;forget it
+		clr	s$edot			;find anything now
+		call	fi$nxt			;next page
+		if	r0 eq			;end of file
+		...	error			;not found
+		mov	p$odot,r0		;start of page
+	end
+
+;	Found string
+
+	inc	d$iwin				;force display
+	if	#stend$ seton r2		;want end position
+	...	mov	r1,r0			;that's what they get
+  end
+code	SE$FOR	Search buffer forward
+
+;	In	r0 ->	buffer
+;
+;	Out	r0 ->		start of located string
+;		r1 ->		end of located string
+;			0	not found
+
+  proc	se$for
+;	p1	pos				;position after search
+						;
+	mov	p$otop,r3			;end of search
+	repeat					;major loop
+		movb	@s$emod,r4		;restore these
+		movb	@s$ealt,r5		;
+		clr	r1			;assume fail
+		repeat				;search for first character
+			exit	if r0 eq r3	;nowhere to go
+			leave	ifb (r0) eq r4	;got the first
+			next	ifb (r0)+ ne r5	;got first alternate
+			dec	r0		;backup
+		endless				;
+		mov	r0,r1			;now do the lot
+		mov	s$emod,r4		;restore these
+		mov	s$ealt,r5		;
+		repeat				;
+			leave	ifb (r4) eq	;all done
+			leave	if r1 his r3	;outside page
+			ifb	(r1) eq (r4)+	;match first
+				inc	r1	;skip it
+				inc	r5	;
+			...	next		;
+			next	ifb (r1)+ eq (r5)+ ;match alternate
+			dec	r4		;backup for fail test
+		endless				;
+		ifb	(r4) ne			;not found
+			inc	r0		;next character
+		...	next			;try again
+;		if	pos(sp) eq		;position at start
+;		 and	r0 eq s$edot		;and did not move
+		if	r0 eq s$edot		;and did not move
+			inc	r0		;next character
+		...	next			;next big loop
+						;
+		dec	s$ecnt			;count the occurrence
+		if	gt			;more to go
+			if	r0 ne r3	;must be anyway
+			...	inc	r0	;forward
+		...	next			;
+	endless					;
+  end
+code	SE$REV	Search buffer reverse
+
+;	In	r0 ->	buffer
+;
+;	Out	r0 ->		start of located string
+;		r1 ->		end of located string
+;			0	not found
+
+  proc	se$rev
+;	p1	pos				;position after search
+						;
+	mov	p$obot,r3			;end of search
+	repeat					;major loop
+		movb	@s$emod,r4		;restore these
+		movb	@s$ealt,r5		;
+		clr	r1			;assume not found
+		repeat				;search for first character
+			exit	if r0 eq r3	;no way back
+			leave	ifb -(r0) eq r4	;got the first
+			next	ifb (r0) ne r5	;got first alternate
+		endless				;
+		mov	r0,r1			;now do the lot
+		mov	s$emod,r4		;restore these
+		mov	s$ealt,r5		;
+		repeat				;
+			leave	ifb (r4) eq	;all done
+			leave	if r1 his p$otop;outside page
+			ifb	(r1) eq (r4)+	;match first
+				inc	r1	;skip it
+				inc	r5	;
+			...	next		;
+			next	ifb (r1)+ eq (r5)+ ;match alternate
+			dec	r4		;backup for fail test
+		endless				;
+		next	ifb (r4) ne		;not found
+;		if	pos(sp) ne		;end of string search
+;		...	next	if r1 eq s$edot	;we did not move
+		dec	s$ecnt			;count the occurrence
+	until	le				;get them all
+  end
+.end
+
