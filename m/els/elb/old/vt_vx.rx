@@ -1,0 +1,530 @@
+/* file -  vt_vx - VX native directories/files ACP */
+#include "c:\m\elb\vtmod.h"
+#include "c:\m\rid\medef.h"
+#include "c:\m\rid\stdef.h"
+#define CABS  1
+int vxVreq = 0;
+int vxVtra = 0;
+#define vxTvab struct vxTvab_t 
+struct vxTvab_t
+{ elTwrd Vfun ;
+  elTwrd Vcid ;
+  elTwrd Vsta ;
+  elTwrd Vlen ;
+  elTwrd Vdbc ;
+  elTwrd Afna [4];
+  elTwrd Afnb [4];
+  elTwrd Vvid ;
+  elTbyt Vjid ;
+  elTbyt Vjcn ;
+  elTwrd Vhck ;
+  elTwrd Vdck ;
+  elTwrd Vblk ;
+  elTwrd Vrwc ;
+  elTwrd Vtwc ;
+  elTwrd Vfmt ;
+  elTwrd Vsid ;
+  elTwrd Vsjn ;
+   };
+/* code -  functions */
+#define vxABO  0
+#define vxREA  1
+#define vxWRI  2
+#define vxLOO  3
+#define vxENT  4
+#define vxCLO  5
+#define vxDEL  6
+#define vxREN  7
+/* code -  Vsta */
+#define vxEOF  1
+#define vxFNF  1
+#define vxIOX  2
+#define vxCSW_ (1 << 8)
+#define vxFNA_ (2 << 8)
+#define vxDAT_ (4 << 8)
+#define vxSDA_ (8 << 8)
+#define vxDIR_ (16 << 8)
+#define vxSPU_ (32 << 8)
+int vxAfun [] =  {
+  (vxREA | vxCSW_|vxDAT_),
+  (vxWRI | vxCSW_|vxDAT_|vxSDA_),
+  (vxCLO | vxCSW_|vxSPU_),
+  (vxDEL | vxCSW_|vxFNA_|vxSPU_),
+  (vxLOO | vxCSW_|vxFNA_|vxSPU_|vxDIR_),
+  (vxENT | vxCSW_|vxFNA_|vxSPU_|vxDIR_),
+  (vxREN | vxCSW_|vxFNA_|vxSPU_),
+  };
+char *vtAtra [] =  {
+  "Error", "Read", "Write", "Lookup", "Enter","Close", "Delete", "Rename",
+  };
+typedef int vxTfun (vtTqel *,vxTvab *);
+vxTfun vt_vx_ren ;
+vxTfun vt_vx_rea ;
+vxTfun vt_vx_wri ;
+vxTfun vt_vx_clo ;
+vxTfun vt_vx_del ;
+vxTfun vt_vx_loo ;
+vxTfun vt_vx_ent ;
+vxTfun vt_vx_ren ;
+vxTfun *vxAact [] =  {
+  vt_vx_ren,
+  vt_vx_rea,
+  vt_vx_wri,
+  vt_vx_loo,
+  vt_vx_ent,
+  vt_vx_clo,
+  vt_vx_del,
+  vt_vx_ren,
+  };
+/* code -  file blocks */
+FILE *vxAfil [256]= {0};
+/* code -  vt_vx_iop - vamp device */
+int vt_vx_pre (vtTqel *,vxTvab *);
+int vt_vx_win (vtTqel *,vxTvab *);
+vt_vx_pos (vtTqel *,vxTvab *);
+vt_vx_iop(
+vtTqel *qel ,
+int req )
+{ vxTvab vab = {0};
+  vt_vx_pre (qel, &vab);
+  vt_vx_win (qel, &vab);
+  vxAact[REQ(vab.Vfun)](qel,&vab);
+  vt_vx_pos (qel, &vab);
+} 
+/* code -  vt_vx_exi - exit handler */
+/* code -  vt_vx_pre - preprocess i/o request */
+vt_vx_pre(
+vtTqel *qel ,
+vxTvab *vab )
+{ rtTchn *chn ;
+  elTwrd *buf ;
+  elTwrd *nam ;
+  char spc [16];
+  int req = 0;
+  int fun = 0;
+  int flg = 0;
+  spc[0] = 0;
+  vab->Vsta = 0;
+  vab->Vdbc = 0;
+  vab->Vsid = 0;
+  chn = ADR(qel->Vcsw);
+  vab->Vcid = chn->Vblk;
+  if ( (req = REQ(qel->Vfun)) != 0) {
+    ++req;
+  } else if ( qel->Vcnt & 0100000) {
+    ++req;
+    qel->Vcnt = -qel->Vcnt; }
+  flg = vxAfun[req];
+  vab->Vfun = flg;
+  fun = REQ(flg);
+  if ( vxVtra) {PUT("IOT VX %d %s ", fun, vtAtra[fun]) ;}
+  if ( flg & vxFNA_) {
+    vab->Vblk = qel->Vblk;
+    nam = vab->Afna + 1;
+    buf = (elTwrd *)ADR(qel->Vqbu);
+    *nam++ = *buf++;
+    *nam++ = *buf++;
+    *nam++ = *buf++;
+    if ( fun == vxREN) {
+      *nam++ = *buf++;
+      *nam++ = *buf++;
+      *nam++ = *buf++;
+      *nam++ = *buf++; }
+    vab->Afna[0] = *buf++;
+    vab->Vjid = buf[1]&0xff;
+    vab->Vjcn = buf[1]>>8;
+    vr_unp (vab->Afna, spc, -4);
+    if ( vxVtra) {PUT("spec=[%s] ", spc) ;} }
+  if ( vxVtra) {PUT("\n") ;}
+  if ( fun == vxENT) {
+    vab->Vlen = qel->Vcnt; }
+  if( fun != vxCLO)return 1;
+  vab->Vlen = chn->Vuse;
+  if( chn->Vlen == -1)return 0;
+  if( chn->Vlen == 0)return 0;
+  return 1;
+} 
+/* code -  vt_vx_win - setup transfer window */
+vt_vx_win(
+vtTqel *qel ,
+vxTvab *vab )
+{ rtTchn *chn = ADR(qel->Vcsw);
+  if( !(vab->Vfun & vxDAT_))return 1;
+#if CABS
+  vab->Vjcn = (chn->Vblk);
+  vab->Vjcn = 4096;
+#else 
+  vab->Vjcn = (chn->Vblk - 1000) & 0xff;
+#endif 
+  vab->Vblk = qel->Vqbl;
+  if( !(vab->Vfun & vxSDA_))return 1;
+  vab->Vdbc = vab->Vtwc * 2;
+  return 1;
+} 
+/* code -  vt_vx_pos - post process i/o request */
+#define PUTW(a,v)  el_swd(a,v)
+#define GETW(a)  el_fwd(a)
+vt_vx_pos(
+vtTqel *qel ,
+vxTvab *vab )
+{ rtTchn *chn = ADR(qel->Vcsw);
+  elTwrd ptr ;
+  if (( vab->Vfun & vxSPU_)
+  &&(vab->Vsta)) {
+    vab->Vsta = vxFNF; }
+  if ( vab->Vsta == vxIOX) {
+     chn->Vcsw |= chHER_;return; }
+  if ( vab->Vfun & vxDIR_) {
+    chn->Vcsw |= 0200;
+    chn->Vblk = vab->Vcid;
+    chn->Vlen = vab->Vlen;
+    qel->Vcnt = chn->Vlen;
+    if ( REQ(vab->Vfun) == vxLOO) {
+      chn->Vuse = vab->Vfmt;
+      chn->Vcsw &= ~(0200); } }
+  if ( vab->Vfun & vxSPU_) {
+    PUTW(_rmon+spusr, vab->Vsta);
+    return; }
+  if( vab->Vsta != vxEOF)return;
+  chn->Vcsw |= chEOF_;
+} 
+/* code -  vt_vx_loo - lookup */
+#include "c:\m\rid\lndef.h"
+vt_vx_vax (vtTqel *,vxTvab *);
+vt_vx_rta (vtTqel *,vxTvab *,cabTcab *);
+char vt_looAbuf [1024]= {0};
+void vt_vx_trn(
+char *spc )
+{ char log [20];
+  char trn [128];
+  char *col ;
+  char *src = spc;
+  char *dst ;
+  if( (col = st_fnd (":", spc)) == NULL)return;
+  dst = st_cop ("rt_", log);
+  while ( src != col) {*dst++ = *src++ ;}
+  *dst = 0;
+  if( !ln_trn (log,trn,0))return;
+  st_ins ("rt_", spc);
+} 
+vt_vx_loo(
+vtTqel *qel ,
+vxTvab *vab )
+{ char spc [20];
+  char tmp [16];
+  FILE *fil = NULL;
+  int len = 0;
+  cabTcab *cab ;
+  int typ = cabLOO;
+  rtTchn *chn ;
+  vr_unp (vab->Afna, spc, -4);
+  if ( st_sam (spc, "VX0:PIP.SAV")) {
+    st_cop ("sy:pip.sav", spc); }
+  vt_vx_trn (spc);
+  vab->Vfmt = 0;
+  if( vt_vx_vax (qel, vab))return 1;
+  if ( !vab->Afna[1]) {
+    typ = cabDEV;
+    vab->Vlen = 0xffff;
+    } else {
+    fil = fi_opn (spc, "rb+", NULL);
+    if( !fil){ vab->Vsta = vxFNF ; return 0;}
+    vab->Vlen =(fi_len(fil)+511)/512; }
+  chn = ADR(qel->Vcsw);
+  chn->Vcsw &= (~0200);
+#if CABS
+  cab = cab_cre (vab->Vjcn, fil, spc, cabLOO, 0);
+  vab->Vcid = cab->Vseq;
+  if ( typ == cabDEV) {
+    cab->Vtyp = cabREP;
+    cab_rep (cab, vt_looAbuf, 0, 1024); }
+#else 
+  vxAfil[vab->Vjcn] = fil;
+  vab->Vcid = vab->Vjcn + 1000;
+#endif 
+  return 1;
+} 
+/* code -  vt_vx_ent - enter */
+vt_vx_ent(
+vtTqel *qel ,
+vxTvab *vab )
+{ char spc [20];
+  FILE *fil = NULL;
+  int len = 0;
+  char buf [4]= {0};
+  cabTcab *cab ;
+  vr_unp (vab->Afna, spc, -4);
+  vt_vx_trn (spc);
+  vab->Vfmt = 0;
+  fil = fi_opn (spc, "wb+", NULL);
+  if( !fil){ vab->Vsta = vxFNF ; return 0;}
+#if CABS
+  cab = cab_cre (vab->Vjcn, fil, spc, cabENT, 0);
+  vab->Vcid = cab->Vseq;
+#else 
+  vxAfil[vab->Vjcn] = fil;
+  vab->Vcid = vab->Vjcn + 1000;
+#endif 
+  if ( !vab->Vlen) {
+    vab->Vlen = 1000;
+  } else if ( vab->Vlen == 65535) {
+    vab->Vlen = 65000;
+    } else {
+    fi_see (fil, (vab->Vlen*512)-1);
+    fi_wri (fil, buf, 1);
+     }
+  return 1;
+} 
+/* code -  vt_vx_rea - read */
+vt_vx_rea(
+vtTqel *qel ,
+vxTvab *vab )
+{ cabTcab *cab ;
+  FILE *fil ;
+  char *buf = ADR(qel->Vqbu);
+  int blk = vab->Vblk;
+  int cnt = qel->Vcnt*2;
+  int eod ;
+  int eof ;
+  int fst = blk * 512;
+  int lst = fst + cnt;
+  int rem = 0;
+  int len ;
+  int hgh =(lst+511)/512;
+  vab->Vlen = 0;
+  cab = cab_opn (vab->Vcid);
+  if( !cab){ vt_io_her (qel) ; return 0;}
+  vt_vx_rta (qel, vab, cab);
+  if ( cab->Vtyp == cabREP) {
+    if( (cnt = cab_rea (cab, buf, blk, cnt)) == 0){ vt_io_eof (qel) ; return 0;}
+     vab->Vlen = cnt/2;return 1;
+    } else {
+    fil = cab->Pfil; }
+  if( !fil){ vt_io_her (qel) ; return 0;}
+  if (( hgh > cab->Vhgh)
+  &&(cab->Vtyp == cabENT)) {
+    fi_see (fil, lst-1);
+    if( (fi_wri (fil, vtApad, 1)) == 0){ vt_io_her (qel) ; return 0;}
+    cab->Vhgh = hgh; }
+  eod = fi_len (fil);
+  eof = (eod + 511) & (~511);
+  if ( fst >= eof) {
+     vt_io_her (qel);return 0; }
+  if ( lst > eof) {
+    vt_io_eof (qel);
+    cnt = (eof - fst);
+    lst = eof; }
+  if ( lst > eod) {
+    rem = lst - eod;
+    cnt = eod - fst;
+  } 
+  fi_see (fil, fst);
+  if( (fi_rea (fil, buf, cnt)) == 0){ vt_io_her (qel) ; return 0;}
+  if ( rem) {me_clr (buf+cnt, rem) ;}
+  vab->Vlen = cnt/2;
+  return 1;
+} 
+/* code -  vt_vx_wri - write */
+vt_vx_wri(
+vtTqel *qel ,
+vxTvab *vab )
+{ cabTcab *cab ;
+  FILE *fil ;
+  elTwrd *buf ;
+  ULONG blk ;
+  ULONG cnt ;
+  ULONG rem ;
+  int hgh ;
+  cab = cab_opn (vab->Vcid);
+  if (( !cab)
+  ||(cab->Vflg & cabRON_)
+  ||(!cab->Pfil)) {
+     vt_io_her (qel);return 0; }
+  fil = cab->Pfil;
+  buf = ADR(qel->Vqbu);
+  cnt = qel->Vcnt * 2;
+  blk = vab->Vblk;
+  if( !fil){ vt_io_her (qel) ; return 0;}
+  if( (fi_see (fil, blk*512)) == 0){ vt_io_eof (qel) ; return 0;}
+  if( (fi_wri (fil, buf, cnt)) == 0){ vt_io_her (qel) ; return 0;}
+  vab->Vlen = cnt;
+  if ( (rem = cnt & 511) != 0) {
+    if( (fi_wri (fil, vtApad, 512-rem)) == 0){ vt_io_her (qel) ; return 0;} }
+  hgh = blk + ((cnt+511)/512);
+  if ( hgh > cab->Vhgh) {cab->Vhgh = hgh ;}
+  return 1;
+} 
+/* code -  vt_vx_clo - close */
+vt_vx_clo(
+vtTqel *qel ,
+vxTvab *vab )
+{ FILE *fil ;
+#if CABS
+  cab_clo (vab->Vcid);
+#else 
+  fil = vxAfil[vab->Vjcn];
+  fi_clo (fil, NULL);
+  vxAfil[vab->Vjcn] = 0;
+#endif 
+  return 1;
+} 
+/* code -  vt_vx_del - delete */
+vt_vx_del(
+vtTqel *qel ,
+vxTvab *vab )
+{ char spc [16];
+  FILE *fil = NULL;
+  int len = 0;
+  vr_unp (vab->Afna, spc, -4);
+  if (( st_sam (spc, "VX7:SRESET.JOB"))
+  ||(st_sam (spc, "VX7:JRESET.JOB"))) {
+    return 1; }
+  vt_vx_trn (spc);
+  vab->Vfmt = 0;
+  if( (fi_del (spc, NULL)) == 0){ vab->Vsta = vxFNF ; return 0;}
+  return 1;
+} 
+/* code -  vt_vx_ren - rename */
+vt_vx_ren(
+vtTqel *qel ,
+vxTvab *vab )
+{ char src [20];
+  char dst [20];
+  FILE *fil = NULL;
+  int len = 0;
+  vr_unp (vab->Afna, src, -4);
+  vt_vx_trn (src);
+  vab->Afnb[0] = vab->Afna[0];
+  vr_unp (vab->Afnb, dst, -4);
+  vt_vx_trn (dst);
+  vab->Vfmt = 0;
+  if( (fi_ren (src, dst, NULL)) == 0){ vab->Vsta = vxFNF ; return 0;}
+  return 1;
+} 
+/* code -  vt_vx_vax - check VAX directory */
+vt_vx_vax(
+vtTqel *qel ,
+vxTvab *vab )
+{ cabTcab *cab ;
+  cabTrep *rep ;
+  drTdir *dir ;
+  drTent *ent ;
+  elTwrd buf [256]= {0};
+  elTwrd *seg ;
+  char spc [20];
+  int len = 0;
+  int alc ;
+  int sum ;
+  int blk = 0;
+  int nth = 0;
+  int rem ;
+  if (( vab->Afna[0] != radVX7)
+  ||(vab->Afna[2] != radDIR)) {
+    return 0; }
+  vr_unp (vab->Afna+1, spc, 1);
+  st_app (":", spc);
+  vt_vx_trn (spc);
+  dir = dr_scn (spc, drNOR_,drNAM);
+  cab = cab_cre (vab->Vjcn, NULL, spc, cabREP, cabRON_|cabVAX_);
+  vab->Vcid = cab->Vseq;
+  seg = buf, rem = 512;
+  while ( (ent = dr_nxt (dir)) != 0) {
+    len = st_len (ent->Pnam);
+    if( ent->Vatr & drDIR_)continue;
+    alc = (len + 1) & ~(1);
+    sum = 6 + alc + 8;
+    if ( sum >= (rem - 2)) {
+      while ( rem) {*seg++ = -1, rem -= 2 ;}
+      cab_rep (cab,buf,blk,512);
+      ++blk;
+      me_clr (buf, 512);
+      seg = buf, rem = 512; }
+    rem -= sum;
+    *seg++ = 4 + alc + 8;
+    *seg++ = 0, *seg++ = len<<8;
+    st_upr (ent->Pnam);
+    me_cop (ent->Pnam, seg, len);
+    seg += alc / 2;
+    *seg++ = 1, *seg++ = 0;
+    *seg++ = 0, *seg++ = 0;
+  } 
+  if ( rem < 512) {
+    while ( rem) {*seg++ = -1, rem -= 2 ;}
+    cab_rep (cab,buf,blk,512); }
+  vab->Vlen = blk + 1;
+  dr_dlc (dir);
+  return 1;
+} 
+/* code -  vt_vx_rta - check RT-11 directory */
+vt_vx_rta(
+vtTqel *qel ,
+vxTvab *vab ,
+cabTcab *cab )
+{ cabTrep *rep ;
+  drTdir *dir ;
+  drTent *ent ;
+  elTwrd buf [1024]= {0};
+  elTwrd *seg ;
+  char *spc ;
+  elTwrd fna [4];
+  int len = 0;
+  int blk = 6;
+  int nxt = 1;
+  int nth = 0;
+  int tim ;
+  int dat ;
+  ULONG siz ;
+  if (( vab->Vblk != 6)
+  ||(cab->Vtyp != cabREP)
+  ||(cab->Vflg & cabDIR_)) {
+    return 0; }
+  dir = dr_scn (cab->Aspc, drNOR_,drNAM);
+  cab->Vflg |= cabRON_|cabRTA_;
+  vab->Vcid = cab->Vseq;
+  vab->Vlen = 100;
+  cab_rep (cab, buf, 0, 1024);
+  seg = buf, nth = 0;
+  while ( (ent = dr_nxt (dir)) != 0) {
+    if( ent->Vatr & drDIR_)continue;
+    if( st_fnd ("/", ent->Pnam))continue;
+    spc = vr_pck_spc (ent->Pnam, fna, 0, 3);
+    if( *spc)continue;
+    if ( nth == 0) {
+      *seg++ = 31;
+      if( nxt == 32)break;
+      *seg++ = ++nxt;
+      *seg++ = 31;
+      *seg++ = 0;
+      *seg++ = 6 + (31 * 2); }
+    vr_tim (&ent->Itim, &tim, &dat);
+    siz = (ent->Vsiz + 511) >> 9;
+    *seg++ = 02000;
+    *seg++ = fna[1];
+    *seg++ = fna[2];
+    *seg++ = fna[3];
+    *seg++ = siz;
+    *seg++ = 0;
+    *seg++ = dat;
+    if( ++nth != 71)continue;
+    *seg = 04000;
+    cab_rep (cab, buf, blk, 1024);
+    me_clr (buf, 1024);
+    seg = buf, blk += 2, nth = 0;
+  } 
+  if ( nth == 0) {
+    seg = buf;
+    *seg++ = 31;
+    *seg++ = 0;
+    *seg++ = nxt;
+    *seg++ = 0;
+    *seg++ = 6 + (31 * 2);
+    *seg = 04000;
+    } else {
+    buf[1] = 0;
+    *seg = 04000; }
+  cab_rep (cab, buf, blk, 1024);
+  rep = cab_loc (cab, 6);
+  rep->Abuf[4] = nxt;
+  dr_dlc (dir);
+  return 1;
+} 

@@ -1,0 +1,424 @@
+/* file -  eldsk - disk emulators */
+#include "f:\m\elb\elmod.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\cldef.h"
+#include "f:\m\rid\evdef.h"
+#include "f:\m\rid\imdef.h"
+#include "f:\m\rid\dbdef.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\mxdef.h"
+#include "f:\m\rid\ctdef.h"
+#include "f:\m\rid\codef.h"
+#include "f:\m\rid\tidef.h"
+#include "f:\m\rid\wcdef.h"
+#include "f:\m\rid\lndef.h"
+/* code -  devices */
+elTvec elAvec [] =  {
+  {elCON, 0, 0, 0, 0, 0, 0, 0},
+  {elCLK, 0, elENB_, 0, veCLK, 0, 0, 6*32},
+  {elKBD, elTKS, elENB_, elRDY_, veKBD, 100, 0, 4*32},
+  {elTER, elTPS, elENB_, elRDY_, veTER, 0, 0, 4*32},
+  {elHDD, hdCSR, elENB_, 0, hdVEC, 100, 0, 5*32},
+  {elDLD, rlCSR, elENB_, 0, rlVEC, 10, 0, 5*32},
+  {elRKD, rkCSR, elENB_, 0, rkVEC, 100, 0, 5*32},
+  {-1,0,0,0,0},
+  };
+int elVvsz =  sizeof(elAvec);
+/* code -  generic disk list */
+elTdev elAdsk [] =  {
+  {elHDD, 0, 0, 0, 0, 0, NULL, ""},
+  {elHDD, 0, 0, 0, 0, 0, NULL, ""},
+  {elHDD, 0, 0, 0, 0, 0, NULL, ""},
+  {elHDD, 0, 0, 0, 0, 0, NULL, ""},
+  {elHDD, 0, 0, 0, 0, 0, NULL, ""},
+  {elHDD, 0, 0, 0, 0, 0, NULL, ""},
+  {elHDD, 0, 0, 0, 0, 0, NULL, ""},
+  {elHDD, 0, 0, 0, 0, 0, NULL, ""},
+  };
+int elVdsz =  sizeof(elAdsk);
+char *elAopr [] =  {
+#define elRES 0
+  "Reset",
+#define elREA 1
+  "Read",
+#define elWRI 2
+  "Write",
+#define elSIZ 3
+  "Size",
+#define elSEE 4
+  "Seek",
+#define elNOP 5
+  "Nop",
+  };
+/* code -  terminal */
+int elVtks = 0;
+int elVtkb = 0;
+int elVtpp = 0;
+void el_hdx (void );
+void el_rlx (void );
+void el_dyx (void );
+void el_rkx (void );
+el_hom (elTdev *);
+/* code -  el_mnt - mount disk */
+el_mnt(
+elTdev *dev ,
+int uni ,
+char *nam )
+{ FILE *fil ;
+  elTdev *dsk = dev + uni;
+  dsk->Pfil = 0;
+  dsk->Vsts = 0;
+  dsk->Vuni = uni;
+  st_cop (nam, dsk->Aspc);
+  fi_trn (nam, dsk->Anam, 0);
+  if ( elFvrb) {PUT("LD%d:=[%s]\n", uni, dsk->Anam) ;}
+  if( (fil = fi_opn (nam, "r+b", "")) == 0)return ( 0 );
+  dsk->Pfil = fil;
+  dsk->Vext = dsk->Vsiz = fi_siz(nam)/512;
+  if (( dsk->Vsiz > 65535)
+  &&(elFsma)) {
+    PUT("?V11-W-LD%o: [%s] truncated from %d to 65535 blocks\n",uni, dsk->Anam, dsk->Vsiz);
+    dsk->Vsiz = 65500; }
+  el_hom (dsk);
+  return 1;
+} 
+/* code -  el_chg - check for disk changes */
+void el_chg()
+{ if ( ev_chk (evDEV)) {el_rmt () ;}
+} 
+/* code -  el_rmt - remount disks */
+void el_rmt()
+{ int uni = 0;
+  elTdev *dev ;
+  while ( uni <= 7) {
+    dev = elAdsk + uni;
+    if ( dev->Pfil) {fi_clo (dev->Pfil, NULL) ;}
+    ++uni;
+  } 
+  el_aut ();
+} 
+/* code -  el_aut - automount disks */
+void el_aut()
+{ int uni = 0;
+  char nam [256];
+  char trn [256];
+  while ( uni <= 7) {
+    DMP("a");
+    if ( !uni && elAsys[0]) {fi_def (elAsys, "pdp:.dsk", nam) ;} else {
+      FMT(nam, "LD%d", uni) ; }
+    DMP("b");
+    fi_trn (nam, trn, 0);
+    DMP("c");
+    if ( fi_exs (trn, NULL)) {
+      el_mnt (elAdsk, uni, nam);
+    } else if ( !uni && elAsys[0]) {
+      im_rep ("F-No such system disk [%s]", trn); }
+    DMP("c");
+    ++uni;
+  } 
+} 
+/* code -  el_chd - check disk */
+el_chd(
+int uni ,
+int msg )
+{ elTdev *dev = elAdsk + uni;
+  if( dev->Pfil)return 1;
+  PUT("?V11-W-No such disk LD%d:=[%s]\n", uni, dev->Anam);
+  return 0;
+} 
+/* code -  el_lsd - list disks */
+void el_lsd()
+{ int uni = 0;
+  elTdev *dev ;
+  PUT("\n");
+  while ( uni <= 7) {
+    dev = elAdsk + uni;
+    if ( dev->Anam[0]) {
+      PUT("LD%d:=[%s]", uni, dev->Anam);
+      if ( !dev->Pfil) {PUT(" (Unmounted)") ;}
+      PUT("\n"); }
+    ++uni;
+  } 
+} 
+/* code -  el_hom - search for home block */
+el_hom(
+elTdev *dsk )
+{ FILE *fil = dsk->Pfil;
+  char buf [512];
+  int blk = 1;
+  if( !elFsma)return 1;
+  while ( blk < 20) {
+    if( !fi_see (fil, blk*512))break;
+    if( !fi_rea (dsk->Pfil, buf, 512))break;
+    if( !me_cmp (buf+0760, "DEC", 3)){ ++blk ; continue;}
+    if( blk == 1)return 1;
+    dsk->Vbas = blk - 1;
+    PUT("?V11-W-LD%o: [%s] home block is block %d.\n",dsk->Vuni, dsk->Anam, blk);
+    return 1;
+  } 
+  if (( fi_see (fil, 0))
+  &&(fi_rea (dsk->Pfil, buf, 512))
+  &&(buf[0] == 0240)
+  &&(buf[1] == 0)) {
+    return 1; }
+  PUT("?V11-W-LD%o: [%s] DEC home block not located\n",dsk->Vuni, dsk->Anam);
+  return 0;
+} 
+/* code -  el_dkx - generic disk dispatcher */
+int dyVbuf ;
+#define rlRDY_  0200
+#define rkACT_  1
+char *elPdev = "BO";
+void el_dkx()
+{ if ( *MNW(hdCSR) & hdACT_) {el_hdx () ;}
+  if ( !(*MNW(rlCSR) & rlRDY_)) {el_rlx () ;}
+  if ( *MNW(rkCSR) & rkACT_) {el_rkx () ;}
+} 
+/* code -  el_trn - generic transfers */
+elTdev *el_trn(
+int uni ,
+ULONG buf ,
+int cnt ,
+int blk ,
+int fun ,
+int hid )
+{ elTdev *dev = elAdsk + uni;
+  FILE *fil = dev->Pfil;
+  size_t vir = blk + dev->Vbas;
+  int err = 0;
+  size_t rem ;
+  size_t siz ;
+  cnt &= 0xffff;
+  el_chg ();
+  if ( !fil) {
+    dev->Vsts = hdERR_;
+    return ( dev); }
+  if ( !hid && bgVdsk) {
+    PUT("%o	", PC);
+    PUT ("%s	", elAopr[fun]);
+    PUT("%s%d: ", elPdev, uni);
+    PUT("Blk=%o|%d. ", blk, blk);
+    PUT("Buf=%lo Wct=%d. ", buf, cnt/2);
+    PUT("Bct=%o", cnt), el_new (); }
+  switch ( fun) {
+  case elRES:
+    dev->Vsts = 0;
+   break; case elREA:
+    if( !fi_see (fil, vir * 512)){ ++err ; break;}
+    if( !fi_rea (fil, PNB(buf), cnt)){ ++err ; break;}
+   break; case elWRI:
+    if( !elFwri){ PUT("Disk write ignored\n") ; break;}
+    if( !fi_see (fil, vir * 512)){ ++err ; break;}
+    if( !fi_wri (fil, PNB(buf), cnt)){ ++err ; break;}
+    if( dev->Vtyp != elHDD)break;
+    if( !(cnt & 511))break;
+    rem = 512 - (cnt & 511);
+    if( !fi_wri (fil, elAzer, rem)){ ++err ; break;}
+   break; case elSIZ:
+    if( dev->Vtyp != elHDD)break;
+    el_swd (buf, dev->Vsiz);
+   break; case elNOP:
+    ;
+     }
+  if ( err) {dev->Vsts |= hdERR_ ;} else {
+    dev->Vsts &= (~hdERR_) ; }
+  return ( dev);
+} 
+/* code -  el_hdx - HD: hard disk emulator */
+void el_hdx()
+{ elTwrd csr = el_fmw (hdCSR);
+  int uni = (csr >> 9) & 7;
+  ULONG buf = el_fmw (hdBUF) & 0xffff;
+  int cnt = el_fmw (hdCNT) & 0xffff;
+  int blk = el_fmw (hdBLK) & 0xffff;
+  elTdev *dev ;
+  int fun = (csr >> 1) & 7;
+  elPdev = "HD";
+  if( !(csr & hdACT_))return;
+  csr &= (~(hdACT_|hdRDY_|hdERR_));
+  el_smw (hdBUF, buf + cnt);
+  el_smw (hdCNT, 0);
+  buf = buf | ((csr&060)<<(16-4));
+  dev = el_trn (uni, buf, cnt, blk, fun,0);
+  csr |= hdRDY_;
+  if ( dev->Vsts & hdERR_) {csr |= hdERR_ ;}
+  el_smw (hdCSR, csr);
+  if ( csr & elENB_) {el_sch (elHDD) ;}
+} 
+/* code -  el_rlx - RL01/RL02 DL: disk emulator */
+#define rlCYL  256
+#define rlRL2  2
+#define rlSpT  40
+#define rlHDS  2
+#define rlBpS  256
+#define rlBpT  rlBpS * rlSpT
+#define rlBpC  rlBpT * rlHDS
+#define rlS01  rlBpC * rlCYL
+#define rlSO2  rlS01 * rlRL2
+#define rlRL1  10240
+#define rlRL2  20480
+#define rlDKS  rlCSR
+#define rlERR_  0100000
+#define rlUNI_  01400
+#define rlRDY_  0200
+#define rlENB_  0100
+#define rlEXT_  060
+#define rlFUN_  016
+#define rlDRV_  01
+#define rlNOP  0
+#define rlWTC  1
+#define rlSTA  2
+#define rlSEE  3
+#define rlRHD  4
+#define rlWRI  5
+#define rlREA  6
+#define rlRDX  7
+#define rlBH_  010
+#define rlMsec(x) ((x) & 077)
+#define rlMtrk(x) (((x) >> 6) & 01777)
+#define rlMcyl(x) (((x)>>7) &0777)
+void el_rlx()
+{ elTwrd csr = el_fmw (rlCSR);
+  int uni = (csr >> 8) & 3;
+  int fun = (csr >> 1) & 7;
+  elTdev *dev = elAdsk + uni;
+  FILE *fil = dev->Pfil;
+  ULONG buf = el_fmw (rlBUF) & 0xffff;
+  elTwrd wct = el_fmw (rlCNT);
+  int cnt = (-wct * 2) & 0xffff;
+  elTwrd trk = el_fmw (rlBLK);
+  elTwrd ext = elFdlx ? el_fmw (rlEXT): 0;
+  int tmp = 0;
+  int blk ;
+  int cyl ;
+  int hea ;
+  int sec ;
+  int opr = elNOP;
+  elPdev = "DL";
+  csr &= (~(rlRDY_|rlDRV_|rlERR_));
+  opr = elRES;
+  switch ( fun) {
+  case rlNOP:
+   break; case rlWTC:
+   break; case rlSTA:
+    if ( !fil) {
+      wct = 040;
+      } else {
+      wct = 035;
+      if ( dev->V0 & BIT(6)) {wct |= BIT(6) ;}
+      if ( dev->Vsiz > rlRL1) {wct |= BIT(7) ;} }
+    el_smw (rlCNT, wct);
+   break; case rlSEE:
+   break; case rlRHD:
+    el_smw (rlBLK, 0);
+   break; case rlREA:
+  case rlRDX:
+  case rlWRI:
+    opr = (fun == rlWRI) ? elWRI: elREA;
+    cyl = (trk >> 7);
+    hea = (trk >> 6) & 1;
+    sec = trk & 077;
+    blk = ((cyl * rlBpC) + (hea * rlBpT) + (sec * rlBpS)) / 512;
+    if ( !ext) {
+      buf = buf | ((csr&rlEXT_)<<(16-4));
+      } else {
+      buf = buf | ((ext & 033) << 16);
+    } 
+    dev = el_trn (uni, buf, cnt, blk, opr, 0);
+    buf += cnt;
+    csr = (csr&~(rlEXT_)) | ((buf>>(16-4))&rlEXT_);
+    el_smw (rlBUF, buf);
+    el_smw (rlCNT, 0);
+    el_smw (rlEXT, 0);
+    if ( dev->Vsts & hdERR_) {csr |= rlERR_ ;}
+     }
+  csr |= rlRDY_ |rlDRV_;
+  el_smw (rlCSR, csr);
+  if ( csr & rlENB_) {el_sch (elDLD) ;}
+} 
+/* code -  el_rkx - RK05 RK: disk emulator */
+#define rkSOK_  BIT(8)
+#define rkDRD_  BIT(7)
+#define rkRWR_  BIT(6)
+#define rkHIP_  BIT(4)
+#define rkSTA_  rkSOK_|rkDRD_|rkRWR_|rkHIP_
+#define rkSEC_  017
+#define rkDER_  BIT(15)
+#define rkSEE_  BIT(12)
+#define rkERR_  BIT(15)
+#define rkRDY_  BIT(7)
+#define rkENB_  BIT(6)
+#define rkFUN_  016
+#define rkACT_  BIT(0)
+#define rkRES  0
+#define rkWRI  1
+#define rkREA  2
+#define rkWCK  3
+#define rkSEE  4
+#define rkRCK  5
+#define rkDRS  6
+#define rkWLK  7
+#define rkCYL  203
+#define rkSEC  12
+el_rka (elTdev *,int ,ULONG );
+void el_rk5 (void );
+void el_rkx()
+{ elTwrd csr = el_fmw (rkCSR);
+  if( !(csr & elACT_))return;
+  el_rk5 ();
+} 
+void el_rk5()
+{ elTwrd csr = el_fmw (rkCSR);
+  elTwrd adr = el_fmw (rkADR);
+  int uni = (adr >> 13) & 7;
+  int fun = (csr >> 1) & 7;
+  int trk = (adr >> 4) & 0777;
+  int sec = (adr & 017);
+  int blk = (trk*12) + sec;
+  ULONG buf = el_fmw (rkBUF) & 0xffff;
+  elTwrd wct = el_fmw (rkCNT);
+  int cnt = (-wct * 2) & 0177777;
+  int opr ;
+  elTdev *dev ;
+  int upd = 0;
+  elPdev = "RK";
+  csr &= ~(rkRDY_|rkERR_|rkACT_);
+  opr = elREA;
+  switch ( fun) {
+  case rkRES:
+    opr = elRES;
+   break; case rkDRS:
+    opr = elRES;
+   break; case rkWLK:
+    opr = elNOP;
+   break; case rkSEE:
+    opr = elSEE;
+   break; case rkWRI:
+  case rkWCK:
+    opr = elWRI;
+  case rkREA:
+  case rkRCK:
+    buf = buf | ((csr&060)<<(16-4));
+    upd = 1;
+     }
+  el_smw (rkSTA, rkSTA_);
+  el_smw (rkBUF, buf + cnt);
+  el_smw (rkCNT, 0);
+  dev = el_trn (uni, buf, cnt, blk, opr,0);
+  csr |= rkRDY_;
+  if ( dev->Vsts & hdERR_) {csr |= rkERR_ ;}
+  el_smw (rkCSR, csr);
+  if ( upd) {
+    blk = blk+((cnt+511)/512);
+    trk = blk/12;
+    sec = blk-(trk*12);
+    adr = (trk<<4)|sec;
+    el_smw (rkADR, adr); }
+  if ( fun == rkRES) {
+    el_smw (rkERR, 0);
+    el_smw (rkCSR, elRDY_);
+    el_smw (rkBUF, 0);
+    el_smw (rkADR, 0); }
+  if ( csr & rkENB_) {el_sch (elRKD) ;}
+} 

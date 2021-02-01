@@ -1,0 +1,138 @@
+/* file -  vt_vx - VX native directories/files ACP */
+#include "c:\m\elb\vtmod.h"
+#include "c:\m\rid\medef.h"
+#include "c:\m\rid\stdef.h"
+#include "c:\m\rid\vxdef.h"
+#include "c:\m\rid\cadef.h"
+#define CABS  1
+#define V4  1
+int vxVreq = 0;
+int vxVtra = 0;
+char *vtAtra [] =  {
+  "Error", "Read", "Write", "Lookup", "Enter","Close", "Delete", "Rename",
+  };
+int vxAfun [] =  {
+  (vxREA | vxCSW_|vxDAT_),
+  (vxWRI | vxCSW_|vxDAT_|vxSDA_),
+  (vxCLO | vxCSW_|vxSPU_),
+  (vxDEL | vxCSW_|vxFNA_|vxSPU_),
+  (vxLOO | vxCSW_|vxFNA_|vxSPU_|vxDIR_),
+  (vxENT | vxCSW_|vxFNA_|vxSPU_|vxDIR_),
+  (vxREN | vxCSW_|vxFNA_|vxSPU_),
+  };
+int vxVflg = 0;
+/* code -  file blocks */
+/* code -  vt_vx_iop - vamp device */
+int vt_vx_pre (vtTqel *,vxTvab *);
+int vt_vx_win (vtTqel *,vxTvab *);
+vt_vx_pos (vtTqel *,vxTvab *);
+vt_vx_iop(
+vtTqel *qel ,
+int req )
+{ vxTvab vab = {0};
+  vt_vx_pre (qel, &vab);
+  vt_vx_win (qel, &vab);
+  vx_ser (&vab);
+  vt_vx_pos (qel, &vab);
+} 
+/* code -  vt_vx_exi - exit handler */
+/* code -  vt_vx_pre - preprocess i/o request */
+vt_vx_pre(
+vtTqel *qel ,
+vxTvab *vab )
+{ rtTchn *chn ;
+  elTwrd *buf ;
+  elTwrd *nam ;
+  char spc [16];
+  int req = 0;
+  int fun = 0;
+  int flg = 0;
+  spc[0] = 0;
+  vab->Vsta = 0;
+  vab->Vdbc = 0;
+  chn = ADR(qel->Vcsw);
+  vab->Vcid = chn->Vblk;
+  if ( (req = REQ(qel->Vfun)) != 0) {
+    ++req;
+  } else if ( qel->Vcnt & 0100000) {
+    ++req;
+    qel->Vcnt = -qel->Vcnt; }
+  flg = vxAfun[req];
+  vxVflg = flg;
+  vab->Vfun = flg;
+  fun = REQ(flg);
+  if ( flg & vxFNA_) {
+    vab->Vblk = qel->Vblk;
+    nam = vab->Afna + 1;
+    buf = (elTwrd *)ADR(qel->Vqbu);
+    *nam++ = *buf++;
+    *nam++ = *buf++;
+    *nam++ = *buf++;
+    if ( fun == vxREN) {
+      *nam++ = *buf++;
+      *nam++ = *buf++;
+      *nam++ = *buf++;
+      *nam++ = *buf++; }
+    vab->Afna[0] = *buf++;
+    vab->Vjid = buf[1]&0xff;
+    vab->Vjcn = buf[1]>>8;
+    vr_unp (vab->Afna, spc, -4);
+    if ( vxVtra) {PUT("spec=[%s] ", spc) ;} }
+  if ( vxVtra) {PUT("\n") ;}
+  if ( fun == vxENT) {
+    vab->Vlen = qel->Vcnt; }
+  if( fun != vxCLO)return 1;
+  vab->Vlen = chn->Vuse;
+  if( chn->Vlen == -1)return 0;
+  if( chn->Vlen == 0)return 0;
+  return 1;
+} 
+/* code -  vt_vx_win - setup transfer window */
+vt_vx_win(
+vtTqel *qel ,
+vxTvab *vab )
+{ rtTchn *chn = ADR(qel->Vcsw);
+  if( !(vxVflg & vxDAT_))return 1;
+#if CABS
+  vab->Vjcn = (chn->Vblk);
+  vab->Vjcn = 4096;
+#else 
+  vab->Vjcn = (chn->Vblk - 1000) & 0xff;
+#endif 
+  vab->Vblk = qel->Vqbl;
+#if V4
+  vab->Vrwc = qel->Vcnt;
+  vab->Vtwc = qel->Vcnt;
+  vxPbuf = (char *)ADR(qel->Vqbu);
+#endif 
+  if( !(vxVflg & vxSDA_))return 1;
+  vab->Vdbc = vab->Vtwc * 2;
+  return 1;
+} 
+/* code -  vt_vx_pos - post process i/o request */
+#define PUTW(a,v)  el_swd(a,v)
+#define GETW(a)  el_fwd(a)
+vt_vx_pos(
+vtTqel *qel ,
+vxTvab *vab )
+{ rtTchn *chn = ADR(qel->Vcsw);
+  elTwrd ptr ;
+  if (( vxVflg & vxSPU_)
+  &&(vab->Vsta)) {
+    vab->Vsta = vxFNF; }
+  if ( vab->Vsta == vxIOX) {
+     chn->Vcsw |= chHER_;return; }
+  if ( vxVflg & vxDIR_) {
+    chn->Vcsw |= 0200;
+    chn->Vblk = vab->Vcid;
+    chn->Vlen = vab->Vlen;
+    qel->Vcnt = chn->Vlen;
+    if ( REQ(vab->Vfun) == vxLOO) {
+      chn->Vuse = vab->Vfmt;
+      chn->Vcsw &= ~(0200); } }
+  if ( vxVflg & vxSPU_) {
+    PUTW(_rmon+spusr, vab->Vsta);
+    return; }
+  if( vab->Vsta != vxEOF)return;
+  chn->Vcsw |= chEOF_;
+} 

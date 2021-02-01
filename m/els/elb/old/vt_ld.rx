@@ -1,0 +1,155 @@
+/* file -  vt_ld - VRT logical disks */
+#include "c:\m\elb\vtmod.h"
+#include "c:\m\rid\fidef.h"
+#include "c:\m\rid\medef.h"
+#include "c:\m\rid\stdef.h"
+#include "c:\m\rid\lndef.h"
+#define vt_ldTlab struct vt_ldTlab_t 
+struct vt_ldTlab_t
+{ elTwrd Vsta ;
+  elTwrd Vchn ;
+  elTwrd Vlen ;
+  elTwrd Afna [4];
+  char Anam [82];
+   };
+#define vt_ldALL_  1
+#define vt_ldACT_  2
+#define vt_ldNWR_  4
+#define vt_ldFOR_  8
+vt_ldTlab vt_ldAlab [8]= {0};
+FILE *vt_ldAfil [8]= {0};
+#define vt_ldTiop struct vt_ldTiop_t 
+struct vt_ldTiop_t
+{ vtTqel *Pqel ;
+  vt_ldTlab *Plab ;
+  FILE *Pfil ;
+  int Vuni ;
+  elTwrd Vbuf ;
+  char *Pbuf ;
+   };
+void vt_ld_trn (vt_ldTiop *,int );
+void vt_ld_qio (vt_ldTiop *);
+int vt_ld_mnt (vt_ldTiop *);
+int vt_ld_opn (vt_ldTiop *,vt_ldTlab *,int );
+/* code -  vt_ld_iop - ld i/o processing */
+vt_ld_iop(
+vtTqel *qel ,
+int req )
+{ vt_ldTiop iop = {0};
+  vt_ldTlab *lab ;
+  iop.Pqel = qel;
+  iop.Vuni = qel->Vuni & 7;
+  lab = vt_ldAlab + iop.Vuni;
+  iop.Plab = lab;
+  iop.Pfil = vt_ldAfil[iop.Vuni];
+  iop.Vbuf = qel->Vqbu;
+  iop.Pbuf = ADR(iop.Vbuf);
+  el_swd (_dvsiz+ldslot,lab->Vlen);
+  switch ( req) {
+  case vtREA:
+    vt_ld_trn (&iop, vtREA);
+   break; case vtWRI:
+    vt_ld_trn (&iop, vtWRI);
+   break; case vtQIO:
+    vt_ld_qio (&iop);
+     }
+} 
+/* code -  vt_ld_qio - acp functions */
+void vt_ld_qio(
+vt_ldTiop *iop )
+{ int req ;
+  vtTqel *qel = iop->Pqel;
+  vt_ldTlab *lab = iop->Plab;
+  FILE *fil ;
+  char log [4];
+  char nam [128];
+  switch ( qel->Vfun & 0xff) {
+  case 0373:
+    *(elTwrd *)iop->Pbuf = lab->Vlen;
+    return;
+   break; case 0374:
+    vt_ld_mnt (iop);
+    me_cop (iop->Plab, iop->Pbuf,  sizeof(vt_ldTlab));
+    return;
+   break; case 0376:
+  case 0375:
+    vt_ld_mnt (iop);
+    if ( lab->Vsta & vt_ldALL_) {
+      fi_clo (iop->Pfil, NULL);
+      FMT(log, "LD%d", iop->Vuni);
+      ln_und (log, 0);
+      lab->Vsta = 0; }
+    if( qel->Vfun == 0376)return;
+    me_cop (iop->Pbuf, lab,  sizeof(vt_ldTlab));
+    if( (vt_ld_opn (iop, lab, 1)) == 0)break;
+    el_swd (iop->Vbuf, lab->Vsta);
+    el_swd (_dvsiz+ldslot, lab->Vlen);
+    return;
+   break; default: 
+    return;
+     }
+  st_cop ("Error opening logical disk", iop->Pbuf+ sizeof(vt_ldTlab));
+  vt_io_her (qel);
+} 
+/* code -  vt_ld_trn - transfer functions */
+void vt_ld_trn(
+vt_ldTiop *iop ,
+int req )
+{ int sta = 0;
+  vtTqel *qel = iop->Pqel;
+  vt_ldTlab *lab = iop->Plab;
+  int cnt ;
+  if ( !vt_ld_mnt (iop)) {
+     vt_io_her (qel);return; }
+  cnt = ABS(qel->Vqwc) * 2;
+  if( (fi_see (iop->Pfil, qel->Vblk*512)) == 0){ vt_io_her (qel) ; return;}
+  switch ( req) {
+    if ( cnt & 0xff) {PUT("cnt=%d\n", cnt) ;}
+  case vtREA:
+    sta = fi_rea (iop->Pfil, iop->Pbuf, cnt);
+    if ( !sta) {PUT("LD: read error cnt=%d\n", cnt) ;}
+   break; case vtWRI:
+    if( lab->Vsta & vt_ldNWR_){ vt_io_her (qel) ; return;}
+    sta = fi_wri (iop->Pfil, iop->Pbuf, cnt);
+    if ( !sta) {PUT("LD: write error cnt=%d\n", cnt) ;}
+     }
+  if ( !sta) {vt_io_her (qel) ;}
+} 
+/* code -  vt_ld_mnt - mount unit */
+vt_ld_mnt(
+vt_ldTiop *iop )
+{ vt_ldTlab *lab ;
+  int uni = iop->Vuni;
+  char log [4];
+  lab = vt_ldAlab + uni;
+  if( lab->Vsta & vt_ldALL_)return 1;
+  FMT(log, "LD%d", uni);
+  if( (ln_trn (log, lab->Anam, 0)) == 0)return ( 0 );
+  return ( vt_ld_opn (iop, lab, 0));
+} 
+/* code -  vt_ld_opn - open associated image file */
+vt_ld_opn(
+vt_ldTiop *iop ,
+vt_ldTlab *lab ,
+int def )
+{ int uni = iop->Vuni;
+  FILE *fil ;
+  char log [4];
+  char nam [128];
+  ln_trn (lab->Anam, lab->Anam, 0);
+  nam[0] = 0;
+  if ( !st_fnd (":", lab->Anam)) {st_app ("sy:", nam) ;}
+  st_app (lab->Anam, nam);
+  if ( !*st_lst (nam) == ':') {
+    if ( !st_fnd (".", lab->Anam)) {st_app (".dsk", nam) ;} }
+  if ( st_len (nam) < 82) {st_cop (nam, lab->Anam) ;}
+  if( (fil = fi_opn (nam, "rb+", NULL)) == 0)return ( 0 );
+  vt_ldAfil[uni] = fil;
+  iop->Pfil = fil;
+  if( (lab->Vlen = fi_len (fil) / 512) == 0)return ( 0 );
+  lab->Vsta |= vt_ldALL_;
+  if( !def)return 1;
+  FMT(log, "LD%d", uni);
+  ln_def (log, lab->Anam, 0);
+  return 1;
+} 

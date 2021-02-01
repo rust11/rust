@@ -1,0 +1,331 @@
+/* file -  elter - terminal emulation */
+#include <windows.h>
+#include "f:\m\els\elb\elmod.h"
+#include "f:\m\els\elb\ekdef.h"
+#include "f:\m\rid\vtdef.h"
+#include "f:\m\rid\chdef.h"
+#include "f:\m\rid\cldef.h"
+#include "f:\m\rid\codef.h"
+#include "f:\m\rid\ctdef.h"
+#include "f:\m\rid\kbdef.h"
+#include "f:\m\rid\imdef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\prdef.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\tidef.h"
+#include "f:\m\rid\shdef.h"
+#include "f:\m\rid\nfcab.h"
+#include "f:\m\rid\dbdef.h"
+int vt_hoo (kbTcha *);
+static int ttVtra = 0;
+int ttVpau = 0;
+/* code -  vt_ini - initiate keyboard thread and hook */
+#define ENABLE_VIRTUAL_TERMINAL_PROCESSING  0x4
+#define ENABLE_VIRTUAL_TERMINAL_INPUT  0x200
+#define ENABLE_PROCESSED_OUTPUT  0x1
+void vt_ini()
+{ void *han ;
+  ULONG mod = 0;
+  ek_ini (&vt_hoo);
+  if( !elFvtx)return;
+  han = GetStdHandle (STD_INPUT_HANDLE);
+  GetConsoleMode (han, &mod);
+  if( !db_lst ("IPT"))return;
+  mod = ENABLE_VIRTUAL_TERMINAL_INPUT;
+  SetConsoleMode (han, mod);
+  if( !db_lst ("VTT"))return;
+  han = GetStdHandle (STD_OUTPUT_HANDLE);
+  GetConsoleMode (han, &mod);
+  if( !db_lst ("OPT"))return;
+  mod = ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+  mod |= ENABLE_PROCESSED_OUTPUT;
+  SetConsoleMode (han, mod);
+  if( !db_lst ("VTT"))return;
+} 
+/* code -  vt_ast - check abort */
+void vt_ast()
+{ if ( elVsch & elEXI_) {el_exi () ;}
+  if ( elVsch & elCTC_) {
+    elVsch &= ~(elCTC_); }
+} 
+/* code -  vt_hoo - keyboard thread hook */
+vt_hlp ();
+vt_sho ();
+extern int nfFtra ;
+vt_hoo(
+kbTcha *cha )
+{ int flg = cha->Vflg;
+  int ord = cha->Vord;
+  PUT("%o ", ord);
+  elVsch |= elCON_;
+  if ( (flg & ~(kbSYS_)) == (kbALT_|kbASC_)) {
+    switch ( ch_upr (ord)) {
+    case 'A':
+      if ( elVall) {elVall = 1 ;}
+      elVall = !elVall;
+      if ( elVall) {elVemt = 1 ;}
+      nfFtra = 1;
+      return 1;
+     break; case 'B':
+      ++bgVcth;
+      elVsch |= elPAS_;
+       cha->Vord = -1;return 0;
+     break; case 'C':
+      PUT("\n"), el_exi ();
+     break; case 'D':
+       elVdbg = !elVdbg;return 1;
+     break; case 'E':
+       elVemt = !elVemt;return 1;
+     break; case 'F':
+       cab_rpt ();return 1;
+     break; case 'H':
+       vt_hlp ();return 1;
+     break; case 'I':
+       bgVdsk = !bgVdsk;return 1;
+     break; case 'J':
+      elVall = 2;
+      elVemt = 1;
+      return 1;
+     break; case 'L':
+       el_lsd ();return 1;
+     break; case 'M':
+       elVmai = !elVmai;return 1;
+     break; case 'N':
+      ttVtra = !ttVtra;
+       nf_tra (ttVtra);return 1;
+     break; case 'P':
+      elVpau = !elVpau;
+      if( elVpau)return 1;
+      elVsch |= elPAS_;
+       cha->Vord = -1;return 0;
+     break; case 'Q':
+      el_flg ();
+     break; case 'S':
+       vt_sho ();return 1;
+     break; case 'T':
+       bgVcpu = !bgVcpu;return 1;
+     break; case 'V':
+       bgVter = !bgVter;return 1;
+     break; case 'W':
+       el_win ();return 1;
+     break; case 'Y':
+      if ( bgVtpb != '\n') {PUT("\n") ;}
+      im_exe ("root:she.exe", "/s=V11>", 0);
+     break; case 'Z':
+      bgVzed = ~bgVzed;
+       } }
+  if (( ttVpau)
+  &&(flg == (kbCTL_|kbASC_))
+  &&(ord == 3)) {
+    elVsch |= elPAS_; }
+  return 0;
+} 
+/* code -  vt_hlp - display help */
+vt_hlp()
+{ 
+  PUT("\n");
+  PUT("Alt-A	All  	Trace-All toggle\n");
+  PUT("Alt-B	Break	Trigger debugger\n");
+  PUT("Alt-C	Cancel	Exit emulator\n");
+  PUT("Alt-D	Debug	Enable BPTs toggle\n");
+  PUT("Alt-E	EMTs	Trace EMTs toggle\n");
+  PUT("Alt-F	Files	Report open NF files\n");
+  PUT("Alt-H	Help	Display this\n");
+  PUT("Alt-I	I/O	Disk I/O trace toggle\n");
+  PUT("Alt-L	Logical	List logical disks\n");
+  PUT("Alt-M	Maint	Catch everything toggle\n");
+  PUT("Alt-N	Net	NF operations trace toggle\n");
+  PUT("Alt-P	Pause	Screen pause toggle\n");
+  PUT("Alt-S	Show	Show current settings\n");
+  PUT("Alt-T	Traps	Catch bus/address traps toggle\n");
+  PUT("Alt-V	VT100	VT100 operations trace toggle\n");
+  PUT("Alt-W   Windows Show Windows dependencies\n");
+  PUT("Alt-Y	Shell	Interrupt emulator\n");
+} 
+/* code -  vt_sho - show items */
+vt_itm (char *,int );
+vt_sho()
+{ PUT("\n");
+  vt_itm ("All", elVall);
+  vt_itm ("Debug", elVdbg);
+  vt_itm ("EMTs", elVemt);
+  vt_itm ("I/O", bgVdsk);
+  vt_itm ("Maint", elVmai);
+  PUT("\n");
+  vt_itm ("Net", ttVtra);
+  vt_itm ("Pause", elVpau);
+  vt_itm ("Traps", bgVcpu);
+  vt_itm ("VT100", bgVter);
+  PUT("\n");
+} 
+vt_itm(
+char *tit ,
+int flg )
+{ PUT("%s=", tit);
+  if ( flg) {PUT("On ") ;} else {
+    PUT("Off ") ; }
+} 
+/* code -  el_tkb - pdp tks/tkb - machine in */
+elTwrd elVtkp = 0;
+void el_tkb()
+{ int asc ;
+  if (( TKS & elRDY_)
+  &&(!(elVsch & BIT(elKBD)))) {
+    if (( !(elVtkp & elENB_))
+    &&((TKS & elENB_))) {
+      el_sch (elKBD); }
+    elVtkp = TKS;
+    return; }
+  elVtkp = TKS;
+  if( TKS & elRDY_)return;
+  if( (asc = el_get ()) == 0)return;
+  if( asc == 255)return;
+  if ( elFupr) {asc = ch_upr (asc) ;}
+  elVtks = 0, elVtkb = 1;
+  TKB = asc, TKS |= elRDY_;
+  el_sch (elKBD);
+} 
+/* code -  el_tpb - pdp tps/tpb - machine out */
+void el_tpb()
+{ int val ;
+  val = TPB & (elF7bt ? 127: 255);
+  el_sig (val);
+  if (( !elPcmd)
+  &&(val && (val != 127))) {
+    el_put (val); }
+  bgVtpb = val;
+  TPB=0, TPS|=elRDY_, el_sch (elTER);
+} 
+/* code -  el_sig */
+void el_sig(
+int cha )
+{ if( !elPsig)return;
+  if ( elPsig[elVsig] != cha) {
+     elVsig = 0;return; }
+  if( elPsig[++elVsig])return;
+  elPsig = 0;
+} 
+/* code -  el_get - terminal input */
+int el_ctl (kbTcha ,int *);
+#define xxABT  0
+#define xxCHA  1
+#define xxINT  2
+#define xxOTH  3
+#define xxIGN  4
+el_flu()
+{ kbTcha cha ;
+  while ( ek_get (&cha, kbGET_)) {;}
+} 
+el_get()
+{ kbTcha cha ;
+  int asc ;
+  int typ ;
+  for(;;)  {
+    if ( elPcmd && !elPsig) {
+      asc = *elPcmd++;
+      if ( !asc) {asc = '\r', elPcmd = NULL ;}
+      return ( asc); }
+    if ( vtPipt) {
+      if ( (asc = *vtPipt++) != 0) {
+        if ( asc == '$') {asc = 033 ;}
+        return ( asc); }
+      vtPipt = NULL; }
+    if( !ek_get (&cha, kbGET_))return 0;
+    if( cha.Vflg == -1)continue;
+    typ = el_ctl (cha, &asc);
+    switch ( typ) {
+    case xxINT:
+    case xxABT:
+      return 0;
+    case xxIGN:
+      continue;
+       }
+    if( typ != xxOTH)return ( asc );
+  } 
+} 
+/* code -  el_ctl - process control characters */
+el_ctl(
+kbTcha cha ,
+int *res )
+{ int flg = cha.Vflg;
+  int ord = cha.Vord;
+  int asc = 0;
+  elTwrd pc = PC;
+  if ( (flg == kbASC_) && (ord == 8)) {
+     *res = 127;return 1; }
+  if (( flg == kbASC_)
+  ||(flg == (kbASC_|kbSHF_))
+  ||(flg == (kbASC_|kbCTL_))) {
+     *res = ord;return 1; }
+  PUT("flg=%o ord=%d ", flg, ord);
+  if ( (flg == kbSYS_|kbVIR_)) {
+    flg = (flg & ~(kbSYS_)) || (kbALT_|kbASC_); }
+  if (( (flg & ~(kbSYS_)) == (kbALT_|kbASC_))
+  ||((flg == kbALT_|kbVIR_))) {
+    asc = ch_upr (ord);
+    if( asc == 'B')return ( xxABT );
+    return ( xxIGN); }
+  if( flg == -1)return ( xxIGN );
+  return ( xxOTH);
+} 
+/* code -  el_put - terminal output */
+int elVlst = 0;
+int elVlin = 0;
+int elVscr = 24;
+void *elHopt = 0;
+void el_put(
+int cha )
+{ char buf [128];
+  ULONG res ;
+  if( !cha)return;
+  if ( elHopt == 0) {
+    elHopt = GetStdHandle (STD_OUTPUT_HANDLE); }
+  elVlst = cha;
+  buf[0] = cha;
+  WriteConsole (elHopt, buf, 1, &res, NULL);
+  if ( elVlog) {fi_opt (elPlog, &cha, 1) ;}
+  bgVtpb = cha;
+  if( !elVpau)return;
+  if ( cha == '\n') {++elVlin ;}
+  if( elVlin < elVscr)return;
+  elVlin = 0;
+  ttVpau = 1;
+  el_prm ("More? ", buf);
+  ttVpau = 0;
+  vt_ast ();
+} 
+void el_new()
+{ el_put ('\n');
+} 
+void el_sol()
+{ if ( elVlst != '\n') {el_new () ;}
+} 
+/* code -  el_prm - prompt for input */
+static coTlin *elPlin = {0};
+el_prm(
+char *prm ,
+char *buf )
+{ coTlin *lin = co_lin (&elPlin, prm);
+  kbTcha cha ;
+  int ctl ;
+  elTwrd pc = PC;
+  for(;;)  {
+    if ( elVsch & (elBRK_|elEXI_|elCTC_|elPAS_)) {
+       vt_ast ();return 0; }
+    if( !(*coPget)(&cha, kbWAI_|kbPEE_))return 0;
+    if ( elVsch & (elBRK_|elEXI_|elCTC_|elPAS_)) {
+       vt_ast ();return 0; }
+    if( !(*coPget)(&cha, kbWAI_))return 0;
+    if( cha.Vflg == -1)continue;
+    switch ( el_ctl (cha, &ctl)) {
+    case xxABT:
+      return 0;
+     break; case xxIGN:
+      continue;
+     break; case xxINT:
+      continue;
+       }
+    if( (co_edt (lin, &cha)) == 0)continue;
+     co_cop (lin, buf);return 1;
+  } 
+} 

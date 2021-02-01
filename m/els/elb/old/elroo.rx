@@ -1,0 +1,614 @@
+/* file -  elroo - PDP-11 root */
+#include "c:\m\elb\elmod.h"
+#include "c:\m\rid\medef.h"
+#include "c:\m\rid\fidef.h"
+#include "c:\m\rid\cldef.h"
+#include "c:\m\rid\imdef.h"
+#include "c:\m\rid\dbdef.h"
+#include "c:\m\rid\stdef.h"
+#include "c:\m\rid\mxdef.h"
+#include "c:\m\rid\ctdef.h"
+#include "c:\m\rid\codef.h"
+#include "c:\m\rid\tidef.h"
+#include "c:\m\rid\wcdef.h"
+#include "c:\m\rid\shdef.h"
+int elFlsi = 0;
+int elFmap = 1;
+int elVclk = 0;
+int elFvrt = 1;
+int elVmmu = 0;
+int elVmai = 0;
+int elVdbg = 0;
+int elVctc = 0;
+int elVlog = 0;
+FILE *elFlog = NULL;
+int elVpau = 0;
+int elVdsk = 0;
+int elVemt = 0;
+int elVxdp = 0;
+int elFwri = -1;
+int elVsma = 1;
+int elF7bt = 0;
+char *elPcmd = NULL;
+int elVebd = 0;
+main(
+int cnt ,
+char *(*vec ))
+{ char cmd [mxLIN];
+  int par = 0;
+  char *ptr ;
+  im_ini ("VRT");
+  cl_lin (cmd);
+  ptr = cmd;
+  while ( *ptr) {
+    if( *ptr++ != ' ')continue;
+    if( *ptr == ' ')continue;
+    if( *ptr++ == '/')continue;
+    elPcmd = --ptr;
+     *--ptr = 0;break;
+  } 
+  if ( vec[1]) {
+    st_low (cmd);
+    st_trm (cmd);
+    if (( st_fnd ("/?", cmd))
+    ||(st_fnd ("/he", cmd))) {
+      PUT("VRT\n");
+      PUT("/help	Display help\n");
+      PUT("/noclock   Disable clock\n");
+      PUT("/ctrlc	CtrlC mode\n");
+      PUT("/debug	Debug mode\n");
+      PUT("/disk	Trace disk operations\n");
+      PUT("/emt	Trace emt operations\n");
+      PUT("/log       Log output to pdplog.txt\n");
+      PUT("/lsi       LSI-11 emulation\n");
+      PUT("/maint     Maintence debug mode\n");
+      PUT("/mmu       Memory Management mode\n");
+      PUT("/pause	Pause screen output\n");
+      PUT("/pdp	Run PDP-11 emulation\n");
+      PUT("/xxdp	Trace XXDP operations\n");
+      PUT("/7bit	Mask terminal output to seven bits\n");
+      PUT("/[no]write	Enable/Disable disk writes\n");
+      return; }
+    if ( st_fnd ("/ct", cmd)) {elVctc=1, ++par ;}
+    if ( st_fnd ("/nocl", cmd)) {elVclk=0, ++par ;}
+    if ( st_fnd ("/de", cmd)) {elVdbg=1, ++par ;}
+    if ( st_fnd ("/ma", cmd)) {elVmai=1, ++par ;}
+    if ( st_fnd ("/pd", cmd)) {elFvrt=0, ++par ;}
+    if ( st_fnd ("/vr", cmd)) {elFvrt=1, ++par ;}
+    if ( st_fnd ("/lo", cmd)) {elVlog=1, ++par ;}
+    if ( st_fnd ("/ls", cmd)) {elFlsi=1, ++par ;}
+    if ( st_fnd ("/mm", cmd)) {elFmap=1, ++par ;}
+    if ( st_fnd ("/pa", cmd)) {elVpau=1, ++par ;}
+    if ( st_fnd ("/di", cmd)) {elVdsk=1, ++par ;}
+    if ( st_fnd ("/em", cmd)) {elVemt=1, ++par ;}
+    if ( st_fnd ("/xx", cmd)) {elVxdp=1, ++par ;}
+    if ( st_fnd ("/nosm", cmd)) {elVsma=0, ++par ;}
+    if ( st_fnd ("/wr", cmd)) {elFwri=1, ++par ;}
+    if ( st_fnd ("/nowr", cmd)) {elFwri=0, ++par ;}
+    if ( st_fnd ("/7", cmd)) {elF7bt=0, ++par ;}
+    if ( elVmai) {elVdbg=3 ;}
+    if ( elVdbg) {bgVfst = 0 ;}
+    if ( elVlog) {elFlog = fi_opn ("pdplog.txt", "wb", NULL) ;}
+  } 
+  db_ini ();
+  co_att (NULL);
+  if ( elVctc) {co_ctc (coDSB) ;}
+  el_ini ();
+  el_dis ();
+} 
+/* code -  exit */
+void el_exi()
+{ im_exi ();
+  if ( elVlog) {fi_clo (elFlog, "") ;}
+  PUT("exit\n");
+} 
+/* code -  cpu data */
+#if MEMARR
+#define elMAR  "Array"
+elTbyt elPmem [elMEM];
+#else 
+#define elMAR  "Pointer"
+elTbyt *elPmem = NULL;
+#endif 
+elTbyt *elPmch = NULL;
+elTwrd *elPreg = NULL;
+elTwrd elVpsw = 0;
+elTwrd elVpsr = 0;
+elTwrd elVpss = 0;
+char elAzer [512]= {0};
+jmp_buf elIjmp = {0};
+elTadr elVevn = ~(0);
+elTwrd elVopc = 0;
+int elVsch = 0;
+elTadr elVswa = 0;
+elTadr elVdwa = 0;
+elTadr elVsba = 0;
+elTadr elVdba = 0;
+elTadr elVtwa = 0;
+elTadr elVtba = 0;
+elTwrd elVswv = 0;
+elTbyt elVsbv = 0;
+elTwrd elVdwv = 0;
+elTbyt elVdbv = 0;
+elTwrd elVtwv = 0;
+elTbyt elVtbv = 0;
+elTlng elVtlv = 0;
+elTlng elVdlv = 0;
+elTlng elVslv = 0;
+/* code -  devices */
+elTvec elAvec [] =  {
+  {elCON, 0, 0, 0, 0, 0},
+  {elCLK, 0100, 0xffff, 0100, 0, 0},
+  {elKBD, elTKS, elENB_, 060, 0, 0},
+  {elTER, elTPS, elENB_, 064, 2, 0},
+  {elDSK, elDKS, elENB_, dkVEC, 0, 0},
+  {elDLD, 0174400,elENB_, 0160, 10, 0},
+  {0,0,0,0,0},
+  };
+elTdev elAdsk [] =  {
+  {elDSK, 0, 0, NULL, ""},
+  {elDSK, 0, 0, NULL, ""},
+  {elDSK, 0, 0, NULL, ""},
+  {elDSK, 0, 0, NULL, ""},
+  {elDSK, 0, 0, NULL, ""},
+  {elDSK, 0, 0, NULL, ""},
+  {elDSK, 0, 0, NULL, ""},
+  {elDSK, 0, 0, NULL, ""},
+  };
+/* code -  terminal */
+int elVtks = 0;
+int elVtkb = 0;
+int elVtpp = 0;
+int elVtkc = 0;
+/* code -  debugger */
+int bgVuni = 0;
+int bgVhlt = 0;
+int bgVstp = 0;
+int bgVcnt = 0;
+int bgVreg = 0;
+int bgVval = 0;
+int bgVdsk = 0;
+int bgVfst = 1;
+elTwrd bgVbpt = 0;
+int bgVbus = 0;
+int bgVcpu = 0;
+int bgVcty = 0;
+elTwrd bgVwat = 0;
+elTwrd bgVwad = 0;
+elTwrd bgVwvl = 0;
+int bgVzed = 0;
+int bgVprv = 0;
+/* code -  instruction history */
+int hiVput = 0;
+int hiVget = 0;
+elTwrd hiAhis [hiLEN]= {0};
+void hi_put()
+{ int idx = hiVput;
+  hiAhis[idx] = PC;
+  if ( ++idx >= hiLEN) {idx = 0 ;}
+  hiVput = hiVget = idx;
+  hiAhis[idx] = 0;
+} 
+elTwrd hi_prv()
+{ int idx = hiVget - 1;
+  elTwrd val ;
+  if ( idx < 0) {idx = hiLEN-1 ;}
+  hiVget = idx;
+  return ( hiAhis[idx]);
+} 
+elTwrd hi_nxt()
+{ int idx = hiVget + 1;
+  elTwrd val ;
+  if ( idx >= hiLEN) {idx = 0 ;}
+  hiVget = idx;
+  return ( hiAhis[idx]);
+} 
+/* code -  el_mnt - mount disk */
+el_mnt(
+elTdev *dev ,
+int uni ,
+char *nam )
+{ FILE *fil ;
+  elTdev *dsk = dev + uni;
+  if( (fil = fi_opn (nam, "r+b", "")) == 0)return ( 0 );
+  dsk->Pfil = fil;
+  dsk->Vsts = 0;
+  dsk->Vsiz = fi_siz (nam) / 512;
+  fi_trn (nam, dsk->Anam, 0);
+  return 1;
+} 
+void el_aut()
+{ int uni = 0;
+  char nam [256];
+  int sys = 0;
+  if ( !elFvrt && elPcmd && *elPcmd && (*elPcmd != '/')) {sys = 1 ;}
+  while ( uni <= 7) {
+    if ( !uni && sys) {fi_def (elPcmd, "pdp:.dsk", nam) ;} else {
+      FMT(nam, "LD%d", uni) ; }
+    if ( fi_exs (nam, NULL)) {el_mnt (elAdsk, uni, nam) ;}
+    ++uni;
+  } 
+  if( !sys || elAdsk[0].Pfil)return;
+  im_rep ("F-No such system disk [%s]", elPcmd);
+} 
+/* code -  el_trn - transfers etc */
+elTdev *el_trn(
+int uni ,
+elTwrd buf ,
+elTwrd cnt ,
+elTwrd blk ,
+int fun )
+{ elTdev *dev = elAdsk + uni;
+  FILE *fil = dev->Pfil;
+  int err = 0;
+  size_t rem ;
+  size_t siz ;
+  cnt &= 0xffff;
+  if ( !fil) {
+    dev->Vsts = dkERR_;
+    return ( dev); }
+  if ( elVdsk && ((fun == elREA) || (fun == elWRI))) {
+    PUT("%6o ", PC);
+    PUT ("%s ", fun == elREA ? "Read ": "Write");
+    PUT("Unit=%d Blk=%o|%d ", uni, blk, blk);
+    PUT("Buf=%o Cnt=%d. ", buf, cnt);
+    PUT("EMT=%o", elVebd), el_new (); }
+  switch ( fun) {
+  case elRES:
+    dev->Vsts = 0;
+   break; case elREA:
+    if( !fi_see (fil, blk * 512)){ ++err ; break;}
+    if( !fi_rea (fil, PNB(buf), cnt)){ ++err ; break;}
+   break; case elWRI:
+    if( !elFwri){ PUT("Disk write ignored\n") ; break;}
+    if( !fi_see (fil, blk * 512)){ ++err ; break;}
+    if( !fi_wri (fil, PNB(buf), cnt)){ ++err ; break;}
+    if( dev->Vtyp != elDSK)break;
+    if( !(cnt & 511))break;
+    rem = 512 - (cnt & 511);
+    if( !fi_wri (fil, elAzer, rem)){ ++err ; break;}
+   break; case elSIZ:
+    if( dev->Vtyp != elDSK)break;
+    el_swd (buf, dev->Vsiz);
+     }
+  if ( err) {dev->Vsts |= dkERR_ ;} else {
+    dev->Vsts &= (~dkERR_) ; }
+  return ( dev);
+} 
+/* code -  el_dsk - disk interface */
+void el_dsk()
+{ elTwrd csr = el_fmw (dkCSR);
+  int uni = (csr >> 9) & 7;
+  elTwrd buf = el_fmw (dkBUF);
+  elTwrd cnt = el_fmw (dkCNT);
+  elTwrd blk = el_fmw (dkBLK);
+  elTdev *dev ;
+  int fun = (csr >> 1) & 7;
+  if( !(csr & dkACT_))return;
+  csr &= (~(dkACT_|dkRDY_|dkERR_));
+  dev = el_trn (uni, buf, cnt, blk, fun);
+  csr |= dkRDY_;
+  if ( dev->Vsts & dkERR_) {csr |= dkERR_ ;}
+  el_smw (dkCSR, csr);
+  if ( csr & elENB_) {el_sch (elDSK) ;}
+} 
+/* code -  el_rlx - RL01/02 DL: disk driver */
+#define rlCYL  256
+#define rlRL2  2
+#define rlSpT  40
+#define rlHDS  2
+#define rlBpS  256
+#define rlBpT  rlBpS * rlSpT
+#define rlBpC  rlBpT * rlHDS
+#define rlS01  rlBpC * rlCYL
+#define rlSO2  rlS01 * rlRL2
+#define rlRL1  10240
+#define rlRL2  20480
+#define rlVEC  0160
+#define rlPRI  0240
+#define rlDKS  rlCSR
+#define rlERR_  0100000
+#define rlUNI_  01400
+#define rlRDY_  0200
+#define rlENB_  0100
+#define rlEXT_  060
+#define rlFUN_  016
+#define rlACT_  01
+#define rlNOP  0
+#define rlWTC  1
+#define rlSTA  2
+#define rlSEE  3
+#define rlRHD  4
+#define rlWRI  5
+#define rlREA  6
+#define rlRDX  7
+#define rlBH_  010
+#define rlMsec(x) ((x) & 077)
+#define rlMtrk(x) (((x) >> 6) & 01777)
+#define rlMcyl(x) (((x)>>7) &0777)
+el_rla (elTdev *,int ,ULONG );
+void el_rlx()
+{ elTwrd csr = el_fwd (rlCSR);
+  int uni = (csr >> 8) & 3;
+  int fun = (csr >> 1) & 7;
+  elTdev *dev = elAdsk + uni;
+  FILE *fil = dev->Pfil;
+  elTwrd buf = el_fwd (rlBUF);
+  elTwrd wct = el_fwd (rlCNT);
+  elTwrd cnt = -wct * 2;
+  elTwrd trk = el_fwd (rlBLK);
+  int tmp = 0;
+  int blk ;
+  int cyl ;
+  int hea ;
+  int sec ;
+  int opr ;
+  csr &= (~(rlRDY_|rlERR_));
+  opr = elRES;
+  switch ( fun) {
+  case rlNOP:
+   break; case rlWTC:
+   break; case rlSTA:
+    if ( !fil) {
+      wct = 040;
+      } else {
+      wct = 035;
+      if ( dev->V0 & BIT(6)) {wct |= BIT(6) ;}
+      if ( dev->Vsiz > rlRL1) {wct |= BIT(7) ;} }
+    el_swd (rlCNT, wct);
+   break; case rlSEE:
+   break; case rlRHD:
+    el_swd (rlBLK, 0);
+   break; case rlREA:
+  case rlRDX:
+  case rlWRI:
+    opr = (fun == rlWRI) ? elWRI: elREA;
+    cyl = (trk >> 7);
+    hea = (trk >> 6) & 1;
+    sec = trk & 077;
+    blk = ((cyl * rlBpC) + (hea * rlBpT) + (sec * rlBpS)) / 512;
+     }
+  dev = el_trn (uni, buf, cnt, blk, opr);
+  csr |= rlRDY_ |rlACT_;
+  if ( dev->Vsts & rlERR_) {csr |= rlERR_ ;}
+  el_swd (rlCSR, csr);
+  if ( csr & rlENB_) {el_sch (elDLD) ;}
+  if ( bgVdsk) {bg_dsk () ;}
+} 
+#if 0
+/* code -  el_rla - RL disk address logic */
+el_rla(
+elTdev *dev ,
+int fun ,
+ULONG cnt )
+{ ULONG cur = dev->V0;
+  ULONG cyl = (cur >> 7);
+  ULONG hea = (cur >> 6) & 1;
+  ULONG sec = cur & 077;
+  ULONG dar = el_fwd (rlBLK);
+  ULONG dif ;
+  switch ( fun) {
+  case rlSTA:
+    el_swd (rlCNT, dev->Pfil ? 035: 040);
+   break; case rlSEE:
+    hea = (dar>>4) & 1;
+    dif = dar >> 7;
+    if ( dar & BIT(2)) {dif = -dif ;}
+    cyl = (cyl + dif) & 0777;
+    dev->V0 = sec | (hea<<6) | (cyl<<7);
+   break; case rlRHD:
+    el_swd (rlBLK, cur), dev->V1 = 3;
+   break; case rlWRI:
+  case rlREA:
+  case rlRDX:
+    cur = el_fwd (rlBLK);
+    cyl = (cur>>7) & 0777;
+    hea = (cur>>4) & 1;
+    sec = cur & 077;
+    dev->V0 = (cur &~(077)) | ((sec + (cnt/256)) % 40);
+    return ( ((cyl*rlBpC)+(hea*rlBpT)+(sec*rlBpS)) / 512);
+     }
+} 
+#endif 
+/* code -  el_int - interrupt dispatch */
+void el_int(
+elTwrd vec )
+{ if ( elFvrt) {
+    el_psh (PS);
+    el_psh (PC);
+    SP += 4;
+    if( vr_int (vec))return;
+  } 
+  if (( vec == veBPT)
+  &&(el_fwd (veBPT) == 0)) {
+     el_dbg ("bpt");return; }
+  if ( vec == 030) {elVebd = OP ;}
+  if ( elVxdp && elVemt) {xx_int (vec) ;}
+  el_psh (PS);
+  el_psh (PC);
+  PC = el_fwd (vec);
+  NEWPS(el_fwd (vec+2));
+  if ( vec != veBPT) {el_trc () ;}
+} 
+/* code -  generic trap handler */
+void el_trp(
+elTwrd pc ,
+elTwrd ps )
+{ el_psh (PS);
+  el_psh (PC);
+  PC = pc;
+  NEWPS(ps);
+  el_trc ();
+} 
+/* code -  el_bus - bus trap */
+void el_bus()
+{ if( bgVhlt){ PUT("Invalid address\n") ; return;}
+  if ( bgVcpu) {el_dbg ("Bus") ;}
+  elVsch |= elABT_;
+  el_int (veBUS);
+} 
+/* code -  el_cpu - invalid instruction */
+void el_cpu()
+{ if ( bgVcpu) {el_dbg ("Cpu") ;}
+  elVsch |= elABT_;
+  el_int (veCPU);
+} 
+/* code -  el_trc - trace trap */
+void el_trc()
+{ if( !TBIT)return;
+  el_dbg ("Trace");
+  el_int (veBPT);
+} 
+/* code -  el_sch - schedule interrupt */
+void el_sch(
+int dev )
+{ elTvec *vec = elAvec + dev;
+  vec->Vcnt = vec->Vlat;
+  elVsch |= BIT(dev);
+} 
+/* code -  el_pol - poll interrupts */
+void el_pol()
+{ elTvec *vec = elAvec + 1;
+  if ( elVsch & (elMMU_|elABT_|elBRK_)) {
+    if ( elVsch & elBRK_) {el_dbg ("brk") ;}
+    if( !(elVsch &= ~(elBRK_)))return;
+    if( !(elVsch &= ~(elABT_)))return;
+    if ( elVpsr) {PUT("psr ") ;}
+    if ( elVpsr) {elVpsw=elVpss, elVpsr=0 ;}
+    el_mmu (0);
+    if( (elVsch &= ~(elMMU_)) == 0)return; }
+  if ( elVsch & elCON_) {
+    elVsch &= ~(elCON_);
+    if ( *MNW(dkCSR) & dkACT_) {el_dsk () ;}
+    if ( !(*MNW(rlCSR) & dkRDY_)) {el_rlx () ;}
+    el_kbd ();
+    if ( elVtpp) {
+      elVtpp = 0;
+      el_put (TPB & (elF7bt ? 0377: 0177));
+      TPB = 0, TPS |= elDON_, el_sch (elTER); } }
+  if( !elVsch)return;
+  while ( vec->Vdev) {
+    if ( elVsch & BIT(vec->Vdev)) {
+      if (( vec->Vcnt)
+      ||(PS & 0200)) {
+        if ( vec->Vcnt) {--vec->Vcnt ;}
+         ++vec;continue; }
+      elVsch &= (~BIT(vec->Vdev));
+      if ( el_fwd (vec->Vcsr) & vec->Venb) {
+        el_int (vec->Vvec); } }
+    ++vec;
+  } 
+} 
+/* code -  el_clk - clock interrupt */
+void el_clk()
+{ if ( elVclk) {el_sch (elCLK) ;}
+} 
+/* code -  el_tti - ttyin */
+el_tti()
+{ kbTcha cha ;
+  int asc ;
+  if ( elPcmd) {
+    asc = *elPcmd++;
+    if ( !asc) {asc = '\r', elPcmd = NULL ;}
+    } else {
+    if( !co_get (&cha, kbGET_))return 0;
+    if ( cha.Vflg & kbASC_) {
+      asc = cha.Vord;
+    } else if (( cha.Vflg & kbVIR_)
+    &&(cha.Vord == 121)) {
+      if ( cha.Vflg & kbALT_) {el_dbg ("tti") ;}
+       ++bgVcty, bgVfst = 0;return 0;
+      } else {
+      return 0; } }
+  switch ( asc) {
+  case 8:
+    asc = 127;
+     }
+  return ( asc);
+} 
+/* code -  el_kbd - keyboard */
+void el_kbd()
+{ int asc ;
+  if( ++elVtkc < 1000)return;
+  elVtkc = 0;
+  if( (asc = el_tti ()) == 0)return;
+  elVtks = 0, elVtkb = 1;
+  TKB = asc, TKS |= elDON_;
+  el_sch (elKBD);
+} 
+/* code -  el_ini - init cpu */
+void el_ini()
+{ FILE *fil ;
+#if !MEMARR
+  elPmem = me_alc (elMEM+512);
+  elPmem = (void *)((ULONG )(elPmem+511) & ~(511));
+#endif 
+  if ( elFlsi) {elVevn = ~(1) ;}
+  elPmch = PNB(elMCH);
+  elPreg = PNW(elREG);
+  if ( elVdbg) {bgVstp = 1 ;}
+  if( elFvrt && vr_boo ())return;
+  el_aut ();
+  if ( elVmai) {el_dbg ("ini") ;}
+  el_boo (0);
+} 
+/* code -  el_rst - reset cpu */
+void el_rst()
+{ if( elFvrt)return;
+  TKS = TKB = TPB = DKS = RLS = 0, TPS = 0x80;
+  elVsch = elVtks = elVtkb = 0;
+} 
+/* code -  el_boo - boot RT-11 or whatever */
+void el_boo(
+int uni )
+{ int dat ;
+  int tim ;
+  bgVuni = uni;
+  me_clr (elPmem, elMEM);
+  el_reset ();
+  el_swd (dkCSR, uni << 9);
+  el_swd (rlCSR, uni << 8);
+  el_trn (uni, 0, 512, 0, elREA);
+  PC = 0, PS = 0340;
+  if ( elVsma) {
+    PC = 2, el_swd (0, 0);
+    el_tim (&tim, &dat);
+    el_swd (05000, tim>>16);
+    el_swd (05002, tim);
+    el_swd (05004, dat);
+    if ( (el_fwd (02) == 0407)) {
+      if ( elFwri == -1) {elFwri = 0 ;}
+      elVclk = 0; } }
+  ti_sig (16, &el_clk);
+  if( !elVmai)return;
+  el_dbg ("boo");
+} 
+/* code -  el_tim - get RT-11 time */
+void el_tim(
+int *tim ,
+int *dat )
+{ tiTval val ;
+  tiTplx plx ;
+  ti_clk (&val);
+  ti_plx (&val, &plx);
+  *tim = ((plx.Vhou*3600) + (plx.Vmin*60) + plx.Vsec) * 60;
+  *dat = ((plx.Vmon+1)<<10) | (plx.Vday<<5) | ((plx.Vyea-1972) & 0x1f);
+} 
+/* code -  el_put - output character with /pause and /log */
+int elVlin = 0;
+int elVscr = 24;
+void el_put(
+int cha )
+{ char buf [128];
+  if( !cha)return;
+  PUT("%c", cha);
+  if ( elVlog) {fi_opt (elFlog, &cha, 1) ;}
+  if( !elVpau)return;
+  if( cha != '\n')return;
+  if( ++elVlin < elVscr)return;
+  elVlin = 0;
+  cl_cmd ("More? ", buf);
+} 
+void el_new()
+{ el_put ('\n');
+} 

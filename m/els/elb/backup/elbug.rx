@@ -1,0 +1,405 @@
+/* file -  elbug - VRT debugger */
+#include "c:\m\elb\elmod.h"
+#include "c:\m\rid\chdef.h"
+#include "c:\m\rid\medef.h"
+#include "c:\m\rid\fidef.h"
+#include "c:\m\rid\cldef.h"
+#include "c:\m\rid\imdef.h"
+#include "c:\m\rid\dbdef.h"
+#include "c:\m\rid\stdef.h"
+#include "c:\m\rid\mxdef.h"
+#include "c:\m\rid\ctdef.h"
+#include "c:\m\rid\codef.h"
+#include "c:\m\rid\tidef.h"
+#include "c:\m\rid\wcdef.h"
+#include "c:\m\rid\shdef.h"
+void vr_unp (elTwrd *,char *,int );
+bg_dmp (char *,char *,int );
+bg_mmu ();
+bg_map (elTadr );
+elTfun bg_inf ;
+void bg_hlp (void );
+int bgVpsw = 0;
+int bgVovr = 0;
+elTwrd bg_fwd (elTadr );
+void bg_swd (elTadr ,elTwrd );
+/* code -  el_dbg - debugger */
+bg_val (char **,elTwrd *,int *,char *);
+void bg_res (void );
+int el_dbg(
+char *rea )
+{ char buf [mxLIN];
+  char r50 [4];
+  char *cmd ;
+  elTadr adr = PC;
+  elTwrd opc ;
+  elTwrd val ;
+  int lng ;
+  int pol ;
+  int alp ;
+  int dig ;
+  int que ;
+  elTwrd v1 ;
+  elTwrd v2 ;
+  int cas ;
+  elTrev rev ;
+  elTwrd nxt ;
+  char str [32];
+  int exi = 0;
+  int snd ;
+  if( bgVhlt)return 1;
+  bgVhlt = 1;
+  bgVcnt = 0;
+  bgVpsw = PS;
+  if ( bgVovr && adr == bgVbpt) {
+    bgVovr = 0, rea = NULL; }
+  if ( rea) {PUT("%s: PC=%0o OP=%0o\n",rea,PC,OP) ;}
+  for(;;)  {
+    rev.Vloc = adr;
+    rev.Vopc = opc = bg_fwd (adr);
+    rev.Vlen = 1;
+    elVprb = 1;
+    rev.Adat[1] = v1 = bg_fwd(adr+2);
+    rev.Adat[2] = v2 = bg_fwd(adr+4);
+    elVprb = 0;
+    el_rev (&rev);
+    if ( bg_adr (adr) || bgVval) {
+      vr_unp (&opc, r50, 1);
+      bg_dmp (((char *)&opc),str,2);
+      PUT (" %0o %d. %s [%s]",opc,opc,r50,str);
+      nxt = 2;
+      } else {
+      nxt = rev.Vlen * 2;
+      PUT(" %0o", opc);
+      PUT("%s", rev.Astr); }
+    cmd = buf;
+    cl_cmd (" | ", cmd);
+    st_trm (cmd);
+    if ( !*cmd) {
+      if( adr == elPSW)continue;
+       adr += nxt;continue; }
+    while ( *cmd) {
+      dig = alp = que = val = 0;
+      pol = -1;
+      while ( *cmd && *cmd == ' ') {++cmd ;}
+      if ( *cmd == '-') {pol = 0, ++cmd ;}
+      if ( *cmd == '+') {pol = 1, ++cmd ;}
+      dig = bg_val (&cmd, &val, &lng, NULL);
+      if ( (pol >= 0) && !dig && !*cmd) {
+        dig = 1, val = 2; }
+      if ( (pol >= 0) && dig) {
+        if ( pol) {adr += val ;} else {
+          adr -= val ; }
+        adr &= 0xffff;
+        continue; }
+      if ( dig & !*cmd) {adr = val ;}
+      if( !*cmd)break;
+      if ( *cmd == '?') {que = 1, ++cmd ;}
+      if ( ct_alp (*cmd)) {cas = alp = ch_low (*cmd++) ;} else {
+        cas = *cmd++ ; }
+      snd = ch_low (*cmd);
+      if ( que && alp) {
+        switch ( alp) {
+        case 'a':
+          bg_sho ();
+         break; case 'b':
+          bg_byt ();
+         break; case 'd':
+          bg_dev ();
+         break; case 'm':
+          bg_mmu ();
+         break; case 'p':
+          PUT("Instruction count: %o\n", bgVict);
+         break; case 'w':
+          bg_wrd ();
+           }
+      } else if ( (pol >= 0) && alp) {
+        switch ( alp) {
+        case 'a':
+          bgVbus = pol;
+         break; case 'b':
+          el_boo (dig ? val: bgVuni);
+         break; case 'c':
+          elVclk = pol;
+         break; case 'd':
+          bgVdsk = pol;
+         break; case 'f':
+          bgVfst = pol;
+         break; case 'i':
+          bgVcpu = pol;
+         break; case 'r':
+          bgVreg = pol;
+           }
+        } else {
+        switch ( cas) {
+        case 'a':
+          bgVval = 0;
+         break; case 'b':
+          if ( dig && val == 0) {
+            bgVbpt=0;
+            } else {
+            if ( dig) {bgVbpt=val ;} else {
+              bgVbpt=adr ; } }
+          bgVovr = 0;
+         break; case 'g':
+          if ( dig) {PC = val ;}
+           bg_res ();return 1;
+         break; case 'j':
+          PC = adr;
+         break; case 'h':
+          bg_hlp ();
+         break; case 'k':
+          bgVpsw = 0;
+         break; case 'l':
+          adr = hi_prv ();
+         break; case 'm':
+          if ( !dig) {val = adr ;}
+          bg_map (val);
+         break; case 'n':
+          adr = hi_nxt ();
+         break; case 'p':
+          bg_res ();
+          bgVict = 0;
+          if ( dig) {bgVcnt = lng ;}
+          return 1;
+         break; case 'r':
+          if ( snd == 's') {
+            adr = elPSW, ++cmd;
+          } else if ( ct_dig(*cmd)) {
+            adr = ((*cmd++ - '0')*2) + elREG;
+            } else {
+            bg_reg (); }
+         break; case 's':
+          if ( snd == 'p') {
+            adr = elREG + (6*2);
+             ++cmd;continue;
+          } else if ( snd == 'o') {
+            ++cmd, bg_res ();
+            bgVbpt=PC+(rev.Vlen*2);
+            bgVstp=0, bgVovr=1;
+            } else {
+            bg_res ();
+            if ( dig) {bgVcnt = val ;} else {
+              bgVcnt = 1 ; }
+            bgVstp=1; }
+          return 1;
+         break; case 't':
+          return 0;
+         break; case 'u':
+          bgVpsw = 0140000;
+         break; case 'v':
+          bgVval = 1;
+         break; case 'w':
+          bgVwat = pol;
+          if ( pol) {bgVwad=adr, bgVwvl=opc ;}
+         break; case 'x':
+          el_exi ();
+         break; case 'z':
+          bgVzed = val;
+         break; case '@':
+          adr = bg_fwd (adr);
+         break; case '=':
+          if ( dig) {adr = val ;}
+          if( (bg_val (&cmd, &val, &lng, "")) == 0)continue;
+          el_swd (adr, val);
+          adr += 2;
+         break; case '!':
+          *cmd = 0;
+         break; case ' ':
+          ;
+         break; case '\t':
+          ;
+         break; default: 
+          PUT("?VRT-W-Invalid command [%s]\n", &alp);
+           }
+      } 
+    } 
+  } 
+} 
+elTwrd el_fwd (elTadr );
+void el_swd (elTadr ,elTwrd );
+elTwrd bg_fwd(
+elTadr adr )
+{ elTwrd ps = PS;
+  elTwrd val ;
+  NEWPS(bgVpsw);
+  val = el_fwd (adr);
+  NEWPS(ps);
+  return ( val);
+} 
+void bg_swd(
+elTadr adr ,
+elTwrd val )
+{ elTwrd ps = PS;
+  NEWPS(bgVpsw);
+  el_swd (adr, val);
+  NEWPS(ps);
+} 
+bg_map(
+elTadr adr )
+{ elTwrd ps = PS;
+  NEWPS(bgVpsw);
+  el_map (adr, 0);
+  NEWPS(ps);
+} 
+void bg_hlp()
+{ 
+} 
+/* code -  bg_val - get value */
+bg_val(
+char *(*cmd ),
+elTwrd *val ,
+int *lng ,
+char *msg )
+{ char *ptr = *cmd;
+  if ( !ct_dig (*ptr)) {
+    if ( msg) {
+      PUT(*msg ? msg: "?VRT-No value specified\n"); }
+    return 0; }
+  SCN(ptr, "%o", lng);
+  *val = *(elTwrd *)lng;
+  while ( ct_dig(*ptr)) {++ptr ;}
+  *cmd = ptr;
+  return 1;
+} 
+/* code -  bg_res - resume operation */
+void bg_res()
+{ bgVfst=0, bgVhlt=0;
+  bgVcnt=0, bgVstp=0;
+  bgVovr=0;
+} 
+/* code -  display routines */
+#if 0
+void bg_inf()
+{ PUT("SP=%0o ", elPreg[6]);
+  PUT("PC=%0o ", elPreg[7]);
+  PUT("PS=%0o ", PS);
+  PUT((TBIT) ? "t": "");
+  PUT((NBIT) ? "n": "_");
+  PUT((ZBIT) ? "z": "_");
+  PUT((VBIT) ? "v": "_");
+  PUT((CBIT) ? "c": "_");
+  PUT("\n");
+} 
+#endif 
+void bg_reg()
+{ PUT("R0=%0o ", elPreg[0]);
+  PUT("R1=%0o ", elPreg[1]);
+  PUT("R2=%0o ", elPreg[2]);
+  PUT("R3=%0o ", elPreg[3]);
+  PUT("R4=%0o ", elPreg[4]);
+  PUT("R5=%0o ", elPreg[5]);
+  PUT("SP=%0o ", elPreg[6]);
+  PUT("PC=%0o ", elPreg[7]);
+  PUT("PS=%0o ", PS);
+  PUT((TBIT) ? "t": "");
+  PUT((NBIT) ? "n": "_");
+  PUT((ZBIT) ? "z": "_");
+  PUT((VBIT) ? "v": "_");
+  PUT((CBIT) ? "c": "_");
+  PUT("\n");
+} 
+void bg_wrd()
+{ PUT("OP=%0o ", elVopc);
+  PUT("SWA=%0o ", elVswa);
+  PUT("DWA=%0o ", elVdwa);
+  PUT("SWV=%0o ", elVswv);
+  PUT("DWV=%0o ", elVdwv);
+  PUT("TWV=%0o ", elVtwv);
+  PUT("\n");
+} 
+void bg_byt()
+{ PUT("OP=%0o ", elVopc);
+  PUT("SBA=%0o ", elVsba);
+  PUT("DBA=%0o ", elVdba);
+  PUT("SBV=%0o ", elVsbv);
+  PUT("DBV=%0o ", elVdbv);
+  PUT("TBV=%0o ", elVtbv);
+  PUT("\n");
+} 
+bg_adr(
+elTadr adr )
+{ int reg = (adr - elREG) / 2;
+  if ( (reg >= 0) && (reg <= 5)) {
+     PUT("R%d", reg);return 1; }
+  if( reg == 6){ PUT("SP") ; return 1;}
+  if( reg == 7){ PUT("PC") ; return 1;}
+  if( reg == 8){ PUT("PS") ; return 1;}
+  if( adr == elPSW){ PUT("PS") ; return 1;}
+  switch ( adr) {
+  case elTKS:
+    PUT("TKS ");
+   break; case elTKB:
+    PUT("TKB ");
+   break; case elTPS:
+    PUT("TPS ");
+   break; case elTPB:
+    PUT("TPB ");
+   break; case hdCSR:
+    PUT("DKS ");
+   break; case hdCNT:
+    PUT("DBC ");
+   break; case hdBLK:
+    PUT("DBL ");
+   break; case hdBUF:
+    PUT("DBU ");
+   break; default: 
+    PUT("%0o", adr);
+    if ( bgVpsw & 0140000) {PUT("u") ;}
+    return 0;
+     }
+  PUT("%0o", adr);
+  return 1;
+} 
+void bg_dev()
+{ int uni = 0;
+  elTdev *dev = elAdsk;
+  while ( uni < 8) {
+    if ( dev->Anam[1]) {
+      PUT("VH%d: %s\n", uni, dev->Anam); }
+    ++uni, ++dev;
+  } 
+} 
+void bg_dsk()
+{ PUT("Disk: Csr=%0o ", el_fwd (hdCSR));
+  PUT("Buf=%0o ", el_fwd (hdBUF));
+  PUT("Cnt=%0o ", el_fwd (hdCNT));
+  PUT("Blk=%0o\n", el_fwd (hdBLK));
+} 
+void bg_sho()
+{ PUT("Debug: ");
+  PUT("Bus=%d ", bgVbus);
+  PUT("Cpu=%d ", bgVcpu);
+  PUT("Reg=%d ", bgVreg);
+  PUT("Bpt=%0o ", bgVbpt);
+  PUT("Disk=%0o ", bgVdsk);
+  PUT("Watch=%0o:", bgVwad);
+  PUT("%0o ", bgVwvl);
+  PUT("\n");
+  PUT("Terminal: TKS=%0o ", TKS);
+  PUT("TKB=%0o ", TKB);
+  PUT("TPS=%0o ", TPS);
+  PUT("TPB=%0o\n", TPB);
+  PUT("\n");
+  bg_dsk ();
+  PUT("Interrupts: ");
+  if ( elVsch & BIT(elCLK)) {PUT("Clock ") ;}
+  if ( elVsch & BIT(elKBD)) {PUT("Keyboard ") ;}
+  if ( elVsch & BIT(elTER)) {PUT("Screen ") ;}
+  if ( elVsch & BIT(elHDD)) {PUT("Disk ") ;}
+  PUT("\n");
+} 
+/* code -  bg_dmp - dump ascii */
+bg_dmp(
+char *src ,
+char *dst ,
+int cnt )
+{ int cha ;
+  while ( cnt--) {
+    cha = *src;
+    if ( (cha >= 32) && (cha < 127)) {*dst++ = cha ;} else {
+      *dst++ = '.' ; }
+    if ( *src) {++src ;}
+  } 
+  *dst = 0;
+} 

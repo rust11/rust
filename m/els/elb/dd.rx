@@ -1,0 +1,692 @@
+/* file -  dd - windows tu58 dd: server */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\abdef.h"
+#include "f:\m\rid\cldef.h"
+#include "f:\m\rid\codef.h"
+#include "f:\m\rid\dbdef.h"
+#include "f:\m\rid\dddef.h"
+#include "f:\m\rid\evdef.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\imdef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\mxdef.h"
+#include "f:\m\rid\stdef.h"
+#include <windows.h>
+int ddFvrb = 0;
+int ddFlog = 0;
+int ddFmnt = 0;
+int ddFdet = 0;
+int ddFhid = 0;
+int ddFboo = 0;
+int ddFlda = 0;
+int ddFech = 0;
+int ddFhlp = 0;
+int ddFlst = 0;
+int ddVbau = 9600;
+char ddAdev [mxLIN];
+#define ddTdsk struct ddTdsk_t 
+struct ddTdsk_t
+{ FILE *Pfil ;
+  WORD Vlen ;
+   };
+ddTdsk ddAdsk [8];
+ddTdsk *dsk ;
+#define ddTchn struct ddTchn_t 
+struct ddTchn_t
+{ int Vtrn ;
+  int Vchk ;
+  int Vodd ;
+   };
+int ddVerr = 0;
+int ddVrea = ddTRN;
+int dd_cmd (char **,char *);
+int dd_con (char *);
+int dd_opn (char *,int );
+int dd_mnt (int );
+int dd_err (int );
+int dd_sho (char *);
+dd_lst ();
+dd_hlp ();
+int sl_opn (char *);
+int sl_brk (void );
+int sl_rdy (void );
+int sl_err (void );
+#define slRDY  1
+#define slERR  -1
+int sl_get (void );
+int sl_put (int );
+int sl_prg (int );
+#define slIPT  0
+#define slOPT  1
+int sl_flu (void );
+int tu_clr (void );
+int tu_zap (void );
+int tu_brk (void );
+int tu_rdy (void );
+int tu_get (void );
+int tu_put (int );
+int tu_ptw (int );
+int tu_rcv (int );
+int tu_sta (int ,int );
+int tu_snd (ddTpkt *);
+int ck_zap (void );
+int ck_rcv (void );
+int ck_snd (void );
+int ck_add (ddTchn *,int );
+int dd_eng (void );
+int dd_dat (void );
+int dd_ctl (void );
+int dd_ini (void );
+int dd_boo (void );
+int dd_lda (void );
+int dd_ech (void );
+int dd_ack (int ,int );
+int dd_snd (int );
+int dd_rcv (int );
+int dd_uni (int );
+ddTpkt pkt = {0};
+ddTpkt ack = {0};
+ddTchn get = {0};
+ddTchn put = {0};
+dd_hlp()
+{ 
+  PUT("RUST Windows DD server DD.EXE\n");
+  PUT("\n");
+  PUT(".dd [device]/switches\n");
+  PUT("\n");
+  PUT("Device:\n");
+  PUT("  Optional comm port device name\n");
+  PUT("\n");
+  PUT("Switches:\n");
+  PUT("  /  \n");
+  PUT("  /4800	    Operate at 4800 baud\n");
+  PUT("  /19200    Operate at 19200 baud\n");
+  PUT("  /BOot	    Send bootstrap to client\n");
+  PUT("  /DEtach   Run DD in detached process\n");
+  PUT("  /ECho	    Echo characters received (loopback test)\n");
+  PUT("  /HElp     Display this help\n");
+  PUT("  /HIde     Run without a terminal\n");
+  PUT("  /LDA	    Send paper tape LDA format bootstrap to client\n");
+  PUT("  /LIst     List available comm ports\n");
+  PUT("  /LOg      Log operations\n");
+  PUT("  /VErbose  Log operations in detail\n");
+} 
+/* code -  main */
+mainx(
+int cnt ,
+char *(*vec ))
+{ char spc [mxLIN];
+  int con = 0;
+  spc[0] = 0;
+  co_ctc (coENB);
+  im_ini ("DD");
+  if (( !dd_cmd (vec, spc))
+  ||(!dd_con (spc))) {
+    im_exi (); }
+  if ( ddFhlp) {dd_hlp (), im_exi () ;}
+  if ( ddFlst) {dd_lst (), im_exi () ;}
+  if ( ddFhid || ddFdet) {FreeConsole () ;}
+  if ( ddFdet) {AllocConsole () ;}
+  dd_mnt (1);
+  tu_zap ();
+  if ( ddFech) {dd_ech () ;}
+  if ( ddFboo) {dd_boo () ;}
+  if ( ddFlda) {dd_lda () ;}
+  dd_eng ();
+} 
+/* code -  dd_cmd - parse command */
+dd_cmd(
+char *(*vec ),
+char *spc )
+{ char cmd [mxLIN];
+  int par = 0;
+  char *ptr ;
+  int cnt = 0;
+  if( !vec[1])return 1;
+  cl_lin (cmd);
+  ptr = cmd;
+  while ( *ptr) {
+    if( *ptr == '/'){ ++cnt, ++ptr ; continue;}
+    if( *ptr++ != ' ')continue;
+    if( *ptr == ' ')continue;
+    if( *ptr == '/')continue;
+    st_cop (ptr, spc);
+     *--ptr = 0;break;
+  } 
+  st_low (cmd);
+  st_trm (cmd);
+  if ( st_fnd ("/lo", cmd)) {ddFlog=1, --cnt ;}
+  if ( st_fnd ("/ve", cmd)) {ddFvrb=1, --cnt ;}
+  if ( st_fnd ("/ma", cmd)) {ddFmnt=1, --cnt ;}
+  if ( st_fnd ("/hi", cmd)) {ddFhid=1, --cnt ;}
+  if ( st_fnd ("/de", cmd)) {ddFdet=1, --cnt ;}
+  if ( st_fnd ("/bo", cmd)) {ddFboo=1, --cnt ;}
+  if ( st_fnd ("/ld", cmd)) {ddFlda=1, --cnt ;}
+  if ( st_fnd ("/48", cmd)) {ddVbau = 4800, --cnt ;}
+  if ( st_fnd ("/19", cmd)) {ddVbau = 19200, --cnt ;}
+  if ( st_fnd ("/ec", cmd)) {ddFech=1, --cnt ;}
+  if ( st_fnd ("/li", cmd)) {ddFlst=1, --cnt ;}
+  if ( st_fnd ("/he", cmd)) {ddFhlp=1, --cnt ;}
+  if ( ddFvrb) {ddFlog = 1 ;}
+  if ( ddFmnt) {ddFlog = 1 ;}
+  if( !cnt)return 1;
+  if( cnt){ im_rep ("E-Invalid command", NULL) ; return 0;}
+} 
+dd_con(
+char *spc )
+{ if ( spc[0]) {
+    if( dd_opn (spc, 0))return 1;
+     im_rep ("F-Port open failed [%s]", spc);return 0; }
+  if (( !dd_opn ("Com1", 1))
+  &&(!dd_opn ("Com2", 1))
+  &&(!dd_opn ("Com3", 1))
+  &&(!dd_opn ("Com4", 1))) {
+     im_rep ("F-No port located", NULL);return 0; }
+  if ( ddFlog) {im_rep ("I-Port located [%s]", ddAdev) ;}
+  return 1;
+} 
+dd_lst()
+{ int uni = 0;
+  char spc [16];
+  int cnt = 0;
+  while ( uni <= 4) {
+    FMT(spc, "Com%d", uni);
+    if ( dd_opn (spc, 1)) {
+      if ( !cnt) {im_rep("I-Ports available:", NULL) ;}
+      PUT("%s\n", spc);
+      ++cnt; }
+    ++uni;
+  } 
+  if ( !cnt) {im_rep("I-No ports located\n", NULL) ;}
+} 
+dd_opn(
+char *spc ,
+int rep )
+{ if( !sl_opn (spc))return 0;
+   st_cop (spc, ddAdev);return 1;
+} 
+dd_mnt(
+int upd )
+{ char spc [mxLIN];
+  ddTdsk *dsk ;
+  int uni ;
+  int loc = 0;
+  if ( ev_chk (evDEV)) {
+    if ( ddFlog) {im_rep ("I-Disk change", NULL) ;}
+    ++upd; }
+  dsk = ddAdsk, uni = 0;
+  while ( upd && uni != 8) {
+    if ( dsk->Pfil) {fi_clo (dsk->Pfil, NULL) ;}
+    ++uni, ++dsk;
+  } 
+  dsk = ddAdsk, uni = 0;
+  while ( upd && uni != 8) {
+    FMT(spc, "dd%c:", '0'+uni);
+    if ( (dsk->Pfil = fi_opn (spc, "rb+", NULL)) != 0) {
+      ++loc;
+      dsk->Vlen = fi_len (dsk->Pfil) /512; }
+    ++uni, ++dsk;
+  } 
+  if ( !ddAdsk[0].Pfil) {
+    im_rep("W-DD0: disk file not found", NULL); }
+  if ( !loc) {
+    im_rep ("W-No disk unit files located", NULL); }
+  return 1;
+} 
+/* code -  command packets */
+dd_err(
+int cod )
+{ if ( ddFlog) {PUT("?DD-W-Invalid command packet [%d]\n", cod) ;}
+} 
+dd_eng()
+{ register int cha ;
+  for(;;)  {
+    ck_zap ();
+    ddVerr = 0;
+    ddVrea = ddTRN;
+    cha = tu_get ();
+    switch ( cha) {
+    case ddDAT:
+      tu_get ();
+     break; case ddCTL:
+      dd_ctl ();
+     break; case ddINI:
+      dd_ini ();
+     break; case ddBOO:
+      dd_boo ();
+     break; case ddCON:
+      ;
+     break; case ddXON:
+      ;
+     break; case ddXOF:
+      ;
+     break; case ddLOO:
+      dd_ech ();
+     break; default: 
+      ;
+       }
+  } 
+} 
+dd_ini()
+{ int cha ;
+  sl_prg (slOPT);
+  cha = sl_get ();
+  if ( ddFvrb) {PUT("?DD-I-Init\n") ;}
+  sl_prg (slIPT);
+  if ( cha == ddBOO) {dd_boo () ;}
+  if( cha != ddINI)return 0;
+  sl_put (ddCON);
+  sl_flu ();
+} 
+dd_boo()
+{ int cnt = 512;
+  if ( ddFlog) {PUT("?DD-I-Boot\n") ;}
+  if( !dd_uni (0))return 0;
+  put.Vtrn = 0;
+  fi_see (dsk->Pfil, 0);
+  while ( cnt--) {tu_put (fi_gtb (dsk->Pfil)) ;}
+  if ( ddFvrb) {fi_chk (dsk->Pfil, "") ;}
+} 
+dd_lda()
+{ int cnt = 512+6;
+  int seg = 4;
+  if ( ddFlog) {PUT("?DD-I-Boot Loader\n") ;}
+  if( !dd_uni (0))return 0;
+  put.Vtrn = 0;
+  fi_see (dsk->Pfil, 0);
+  put.Vchk = 0;
+  tu_ptw (1);
+  tu_ptw (512+6);
+  tu_ptw (0);
+  while ( cnt--) {
+    tu_put (fi_gtb (dsk->Pfil)); }
+  tu_put (put.Vchk);
+  put.Vchk = 0;
+  tu_ptw (1);
+  tu_ptw (6);
+  tu_ptw (0);
+  tu_put (put.Vchk);
+  if ( ddFlog) {fi_chk (dsk->Pfil, "") ;}
+} 
+dd_ech()
+{ int val ;
+  int sta ;
+  char buf []= "|ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789\n";
+  char *ptr = buf;
+  int cha ;
+  if ( ddFlog) {PUT("?DD-I-Echo Loop\n") ;}
+  for(;;)  {
+    ddVerr = 0;
+    sta = sl_rdy ();
+    if ( sta == slERR) {
+      PUT("?");
+    } else if ( sta == slRDY) {
+      cha = sl_get ();
+      if ( (cha > 32) & (cha < 128)) {PUT("%c", cha) ;} else {
+        PUT(".") ; } }
+    tu_put (*ptr++);
+    if ( !*ptr) {ptr = buf ;}
+  } 
+} 
+/* code -  control packets */
+dd_ctl()
+{ int cha ;
+  WORD len ;
+  if (( !tu_rcv (1))
+  ||(pkt.Vcnt !=  sizeof(ddTpkt)-4)) {
+    dd_ack (ddEND, 0); }
+  if ( !dd_uni (pkt.Vuni)) {
+     dd_ack (ddEND, 0);return 0; }
+  switch ( pkt.Vopr) {
+  case ddNOP:
+    dd_ack (ddNOP,1);
+   break; case ddRST:
+    if ( pkt.Vseq == ddCXT) {
+      pkt.Vblk = dsk->Vlen; }
+    dd_ack (ddNOP,1);
+   break; case ddREA:
+    dd_snd (0);
+   break; case ddWRI:
+    dd_rcv (0);
+   break; case ddPOS:
+    dd_ack (ddEND,1);
+   break; case ddDIA:
+    dd_ack (ddEND,1);
+   break; case ddGST:
+    ;
+   break; case ddSST:
+    ;
+   break; case ddXOF:
+    ;
+   break; default: 
+    ;
+     }
+} 
+dd_ack(
+int opr ,
+int sts )
+{ if ( !sts && ddFlog) {PUT("?DD-W-Transmission error\n") ;}
+  ack.Vtyp = ddCTL;
+  ack.Vcnt =  sizeof(ddTpkt) - 4;
+  ack.Vopr = opr;
+  ack.Vsts = sts ? 0: -17;
+  ack.Vuni = pkt.Vuni;
+  ack.Vbct = pkt.Vbct;
+  ack.Vblk = pkt.Vblk;
+  ack.Vseq = ddSXT;
+  tu_snd (&ack);
+} 
+/* code -  dd_rcv - respond to client write requests */
+dd_rcv(
+int ext )
+{ int cnt = pkt.Vbct;
+  int seg ;
+  char buf [1024];
+  char *ptr ;
+  int acc = 0;
+  int sho = 0;
+  int err = 0;
+  int sts = 0;
+  if ( pkt.Vuni == 7) {sho = 1, cnt = 0 ;}
+  if ( ddFlog) {PUT("?DD-I-Write DD%d: block=%d words=%d\n",pkt.Vuni, pkt.Vblk, cnt/2) ;}
+  fi_see (dsk->Pfil, pkt.Vblk*512);
+  while ( cnt) {
+    if ( !acc) {ptr = buf, me_clr (buf, 1024) ;}
+    seg = (cnt < 128) ? cnt: 128;
+    cnt -= seg;
+    acc += seg;
+    tu_put (ddCON);
+    ck_zap ();
+    if( tu_get () != ddDAT)break;
+    if( tu_get () != seg)break;
+    if ( ddFmnt) {PUT(".") ;}
+    while ( seg--) {
+      if( tu_sta (0,1))break;
+      *ptr++ = tu_get ();
+    } 
+    if( !ck_rcv ())break;
+    if ( !cnt || (acc == 1024)) {
+      acc = (acc + 511) & ~(511);
+      if( (fi_wri (dsk->Pfil, buf, acc)) == 0)break;
+      acc = 0; }
+    sts = 1;
+  } 
+  if ( !sho && !fi_chk (dsk->Pfil, "")) {sts = 0 ;}
+  if ( ddFmnt && !sts) {PUT("?") ;}
+  dd_ack (ddEND, sts);
+} 
+/* code -  dd_snd - respond to client read requests */
+int dd_nul (char *,int );
+dd_snd(
+int ext )
+{ int cnt = pkt.Vbct;
+  int seg ;
+  int sts = 0;
+  char buf [128];
+  char *ptr ;
+  int sho = 0;
+  if ( ddFlog) {PUT("?DD-I-Read  DD%d: block=%d words=%d\n",pkt.Vuni, pkt.Vblk, cnt/2) ;}
+  if ( pkt.Vuni == 7) {
+    ++sho;
+    cnt = dd_sho (buf);
+    if ( pkt.Vblk != 8) {cnt = 0 ;}
+    } else {
+    fi_see (dsk->Pfil, pkt.Vblk*512); }
+  while ( cnt) {
+    sts = 0;
+    seg = (cnt < 128) ? cnt: 128;
+    cnt -= seg;
+    if ( !sho) {fi_rea (dsk->Pfil, buf, seg) ;}
+    ck_zap ();
+    ptr = buf;
+    if (( pkt.Vseq == ddCXT)
+    &&(dd_nul (ptr, seg))) {
+      if( !tu_put (ddNUL))break;
+      if( !tu_put (seg))break;
+      if ( ddFmnt) {PUT("0") ;}
+      } else {
+      if ( ddFmnt) {PUT(".") ;}
+      if( !tu_put (ddDAT))break;
+      if( !tu_put (seg))break;
+      while ( seg--) {
+        if( !tu_put (*ptr++))break; } }
+    ck_snd ();
+    sts = 1;
+  } 
+  if ( !sho && !fi_chk (dsk->Pfil, "")) {sts = 0 ;}
+  if ( ddFmnt && !sts) {PUT("?") ;}
+  dd_ack (ddEND, sts);
+} 
+dd_nul(
+char *ptr ,
+int cnt )
+{ while ( cnt--) {
+    if( *ptr++)return 0;
+  } 
+  return 1;
+} 
+dd_uni(
+int uni )
+{ if( uni == 7)return 1;
+  if( uni & ~(7))return 0;
+  dsk = ddAdsk+uni;
+  return ( dsk->Pfil != 0);
+} 
+/* code -  dd_sho - return system information */
+#include "f:\m\rid\tidef.h"
+typedef WORD elTwrd ;
+#define vxTsho struct vxTsho_t 
+struct vxTsho_t
+{ elTwrd Vgua ;
+  elTwrd Vtok ;
+  elTwrd Vlen ;
+  elTwrd Vyea ;
+  elTwrd Vmon ;
+  elTwrd Vday ;
+  elTwrd Vhou ;
+  elTwrd Vmin ;
+  elTwrd Vsec ;
+  elTwrd Vmil ;
+  elTwrd Vzon ;
+  elTwrd Vdst ;
+  elTwrd Vcpu ;
+  elTwrd Vops ;
+  char Aser [12];
+   };
+int dd_sho(
+char *buf )
+{ vxTsho *sho = (void *)buf;
+  tiTval val ;
+  tiTplx clk ;
+  sho->Vgua = -1;
+  sho->Vlen =  sizeof(vxTsho);
+  ti_clk (&val);
+  ti_plx (&val, &clk);
+  sho->Vyea = clk.Vyea;
+  sho->Vmon = clk.Vmon;
+  sho->Vday = clk.Vday;
+  sho->Vhou = clk.Vhou;
+  sho->Vmin = clk.Vmin;
+  sho->Vsec = clk.Vsec;
+  sho->Vmil = clk.Vmil;
+  sho->Vdst = clk.Vdst;
+  sho->Vcpu = 0;
+  sho->Vops = 0;
+  st_cop ("ANON", sho->Aser);
+  return ( 128);
+} 
+/* code -  TU58 utilities */
+int ckVwrd = 0;
+tu_zap()
+{ ULONG msk ;
+  tu_rdy ();
+} 
+tu_brk()
+{ int cnt ;
+  for(;;)  {
+    cnt = 132;
+    while ( cnt--) {
+      if( sl_err ())return 1;
+      tu_put (ddINI);
+    } 
+    ti_wai (2000);
+  } 
+} 
+tu_sta(
+int rdy ,
+int err )
+{ int sta = sl_rdy ();
+  if( !sta)return 0;
+  if ( sta > 0) {ddVerr |= rdy ;} else {
+    ddVerr |= err ; }
+  return ( ddVerr);
+} 
+#if 0
+tu_err(
+int err )
+{ tuVerr = err;
+  return 0;
+} 
+#endif 
+tu_rdy()
+{ return ( sl_rdy ());
+} 
+tu_get()
+{ int cha ;
+  if( ddVerr)return 0;
+  ++get.Vtrn;
+  cha = sl_get ();
+  cha &= 255;
+  ck_add (&get, cha);
+  return ( cha);
+} 
+tu_ptw(
+int wrd )
+{ if( !tu_put (wrd))return 0;
+  return ( tu_put (wrd>>8));
+} 
+tu_put(
+int cha )
+{ int rdy = tu_rdy ();
+  if( ddVerr)return 0;
+  ++put.Vtrn;
+  cha &= 255;
+  ck_add (&put, cha);
+  if( !sl_put (cha))return 0;
+  return ( !rdy);
+} 
+tu_rcv(
+int mod )
+{ char *ptr = (char *)&pkt+mod;
+  int cnt =  sizeof(ddTpkt)-2-mod;
+  while ( cnt--) {
+    if( sl_err ())return 0;
+    *ptr++ = tu_get ();
+  } 
+  if( !ck_rcv ())return 0;
+  if( pkt.Vcnt !=  sizeof(ddTpkt)-4)return 0;
+  return 1;
+} 
+tu_snd(
+ddTpkt *pkt )
+{ char *ptr = (char *)pkt;
+  int cnt =  sizeof(ddTpkt)-2;
+  ck_zap ();
+  while ( cnt--) {
+    if( !tu_put (*ptr++))return 0;
+  } 
+  return ( ck_snd ());
+} 
+/* code -  checksums */
+ck_zap()
+{ get.Vchk = get.Vodd = get.Vtrn = 0;
+  put.Vchk = put.Vodd = put.Vtrn = 0;
+  tu_zap ();
+} 
+ck_rcv()
+{ int chk = get.Vchk;
+  get.Vchk = 0;
+  tu_get (), tu_get ();
+  if( chk == get.Vchk)return 1;
+  if ( ddFvrb) {PUT("?DD-W-Receive checksum error (%o,%o)\n", chk, get.Vchk) ;}
+  return 0;
+} 
+ck_snd()
+{ int chk = put.Vchk;
+  tu_put (chk);
+  return ( (tu_put (chk>>8)));
+} 
+ck_add(
+ddTchn *chn ,
+int val )
+{ if ( !chn->Vodd) {
+    ckVwrd = val;
+    chn->Vchk += val;
+    } else {
+    ckVwrd |= (val<<8);
+    chn->Vchk += val<<8;
+    if ( chn->Vchk > 0xffff) {++chn->Vchk ;}
+    chn->Vchk &= 0xffff; }
+  chn->Vodd = !chn->Vodd;
+} 
+/* code -  windows serial line */
+HANDLE prt = NULL;
+sl_opn(
+char *nam )
+{ DCB dcb = {0};
+  COMMTIMEOUTS tim = {0};
+  if ( prt) {CloseHandle (prt), prt = NULL ;}
+  prt = CreateFile (nam, GENERIC_READ|GENERIC_WRITE, 0,NULL, OPEN_EXISTING, 0, NULL);
+  if( prt == INVALID_HANDLE_VALUE)return 0;
+  switch ( ddVbau) {
+  case 4800:
+    dcb.BaudRate = CBR_4800;
+   break; case 9600:
+    dcb.BaudRate = CBR_9600;
+   break; case 19200:
+    dcb.BaudRate = CBR_19200;
+     }
+  dcb.ByteSize = 8;
+  dcb.Parity = NOPARITY;
+  dcb.StopBits = ONESTOPBIT;
+  if( (SetCommState(prt, &dcb)) == 0){ db_lst (0) ; return 0;}
+  if( (SetCommTimeouts (prt, &tim)) == 0){ db_lst (0) ; return 0;}
+  return 1;
+} 
+sl_brk()
+{ int cnt = 4;
+  SetCommBreak (prt);
+  while ( cnt--) {sl_put (0) ;}
+  ClearCommBreak (prt);
+} 
+sl_err()
+{ return ( sl_rdy () == slERR);
+} 
+sl_rdy()
+{ ULONG err ;
+  COMSTAT sta ;
+  ClearCommError (prt, &err, &sta);
+  if( err)return ( ++ddVerr, slERR );
+  if( sta.cbInQue)return ( slRDY );
+  return 0;
+} 
+sl_get()
+{ int cha = 255;
+  ULONG cnt = 0;
+  if( (ReadFile (prt, &cha, 1, &cnt, 0)) == 0 || !cnt){ db_lst (0) ; return 0;}
+  return ( cha);
+} 
+sl_put(
+int cha )
+{ ULONG cnt ;
+  if( (WriteFile (prt, &cha, 1, &cnt, 0)) == 0){ db_lst (0) ; return 0;}
+  return 1;
+} 
+sl_prg(
+int mod )
+{ 
+  PurgeComm (prt, ((mod == slIPT) ? PURGE_RXCLEAR: PURGE_TXCLEAR));
+} 
+sl_flu()
+{ FlushFileBuffers (prt);
+} 

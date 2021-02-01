@@ -1,0 +1,68 @@
+/* file -  elvap - V11 API */
+#include "f:\m\els\elb\elmod.h"
+#include "f:\m\rid\imdef.h"
+#include "f:\m\rid\lndef.h"
+#include "f:\m\rid\drdef.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\nfcab.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\prdef.h"
+#define VAD(a) (PNB(VPR((long )((a)&0xffff))))
+void el_vap()
+{ elTwrd cod = el_fwd (SP);
+  elTwrd a1 = el_fwd (SP+2);
+  elTwrd a2 = el_fwd (SP+4);
+  elTwrd a3 = el_fwd (SP+6);
+  char *p1 = (char *)VAD(a1);
+  char *p2 = (char *)VAD(a2);
+  char *p3 = (char *)VAD(a3);
+  nfTvab *vab ;
+  char log [128];
+  char spc [128];
+  char *lst ;
+  int tim ;
+  int dat ;
+  int era ;
+  switch ( cod) {
+  case vrNFI:
+    vab = (nfTvab *)(p1+nfETH+4);
+    nfPbuf = (char *)vab + nfVAB;
+    nf_ser (vab);
+   break; case vrNFW:
+    R0 = (nf_drv ((rtTqel *)(p1),a2,a3));
+   break; case vrMKD:
+    R0 = (dr_mak (p1));
+   break; case vrDEF:
+    st_cop (p1, log);
+    lst = st_lst (log);
+    if ( *lst == ':') {*lst = 0 ;}
+    fi_def (p2, p3, spc);
+    R0 = (ln_def (log, spc, 0));
+    el_rmt ();
+    cab_res (cabIRS);
+   break; case vrDET:
+    R0 = vrPDP;
+   break; case vrVCL:
+    SEC;
+    if (( elVcmd & elRDY_)
+    &&(!elVrsx)) {
+      el_exi ();
+    } else if ( elVcmd & elENB_) {
+      st_cop (elAcmd, (char *)(PNB(R0)));
+      CLC;
+      elVcmd = elRDY_; }
+   break; case vrPAU:
+    pr_slp (1);
+   break; case vrEXI:
+    im_exi ();
+   break; case vrHTZ:
+    if ( R0) {el_htz (R0) ;}
+    R0 = elVhtz;
+   break; case vrTIM:
+    el_tim (&tim, &dat, &era);
+    el_swd (R0+0, dat);
+    el_swd (R0+2, tim>>16);
+    el_swd (R0+4, tim);
+    el_swd (R0+6, era);
+     }
+} 

@@ -1,0 +1,95 @@
+/* file -  vrutl */
+#include "c:\m\elb\vrmod.h"
+#include "c:\m\rid\ctdef.h"
+#include "c:\m\rid\chdef.h"
+#include "c:\m\rid\medef.h"
+/* code -  vr_unp - unpack rad50 */
+char vrAunp [41] =  {
+  " ABCDEFGHIJKLMNOPQRSTUVWXYZ$%*0123456789",
+  };
+void vr_unp(
+elTwrd *rad ,
+char *asc ,
+int maj )
+{ int div ;
+  int wrd ;
+  int spc = 0;
+  int rem ;
+  if ( maj == -4) {maj = 4, spc = 1 ;}
+  while ( maj--) {
+    wrd = *rad++;
+    div = 40 * 40;
+    while ( div && wrd) {
+      rem = wrd / div;
+      wrd -= rem * div;
+      *asc++ = vrAunp[rem];
+      div /= 40;
+    } 
+    if( !spc)continue;
+    if ( maj == 3) {*asc++ = ':' ;}
+    if ( maj == 1) {*asc++ = '.' ;}
+  } 
+  *asc++ = 0;
+} 
+/* code -  vr_pck - pack word */
+char *vr_pck(
+char *str ,
+elTwrd *res ,
+int all )
+{ int cnt = 3;
+  int cha ;
+  elTwrd wrd = 0;
+  int dig ;
+  while ( cnt--) {
+    cha = *str;
+    dig = 0;
+    if ( cha == '%') {
+      if ( all) {dig = cha - 011, ++str ;}
+    } else if ( cha == '*') {
+      if ( all) {dig = cha - 015, ++str ;}
+    } else if ( cha == '_') {
+      if ( all) {dig = cha - 0137, ++str ;}
+    } else if ( ct_dig (cha)) {
+      dig = cha - 022, ++str;
+    } else if ( ct_alp (cha)) {
+      dig = ch_upr (cha) - 0100, ++str; }
+    wrd = wrd * 40 + dig;
+  } 
+  *res = wrd;
+  return ( str);
+} 
+/* code -  vr_pck_spc - pack filespec */
+char *vr_pck_spc(
+char *spc ,
+elTwrd *nam ,
+int mod ,
+int cnt )
+{ elTwrd wrd ;
+  int nth ;
+  me_clr (nam, 8);
+  spc = vr_pck (spc, &wrd, mod);
+  if ( cnt == 4) {
+    if ( *spc == ':') {
+      *nam++ = wrd, ++spc;
+      spc = vr_pck (spc, &wrd, mod);
+      } else {
+      *nam++ = 0; } }
+  *nam++ = wrd;
+  *nam++ = wrd;
+  spc = vr_pck (spc, nam++, mod);
+  if ( *spc == '.') {
+    spc = vr_pck (++spc, nam,mod); }
+  return ( spc);
+} 
+/* code -  vr_tim - convert date/time */
+void vr_tim(
+tiTval *val ,
+int *tim ,
+int *dat )
+{ tiTval loc ;
+  tiTplx plx ;
+  if ( !val) {val = &loc, ti_clk (val) ;}
+  ti_plx (val, &plx);
+  *tim = ((plx.Vhou*3600) + (plx.Vmin*60) + plx.Vsec) * 60;
+  *dat = ((plx.Vmon+1)<<10) | (plx.Vday<<5) | ((plx.Vyea-1972) & 0x1f);
+} 

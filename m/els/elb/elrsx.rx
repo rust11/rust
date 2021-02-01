@@ -1,0 +1,373 @@
+/* file -  elrsx - RSX extensions */
+#include "f:\m\els\elb\elmod.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\rtutl.h"
+#define rsCNX  16
+#define rsTemt struct rsTemt_t 
+struct rsTemt_t
+{ char *Pnam ;
+  char *Parg ;
+   };
+#define rsTdir struct rsTdir_t 
+struct rsTdir_t
+{ rsTemt *Pemt ;
+  elTwrd Vadr ;
+  elTwrd Vpsw ;
+  elTwrd Vdir ;
+  int Vdic ;
+  int Vcnt ;
+  elTwrd Apar [rsCNX];
+   };
+rs_dis (rsTdir *);
+rs_nam (rsTdir *);
+rs_flt (rsTdir *);
+rs_spn (rsTdir *);
+/* code -  emt list */
+rsTemt rsAemt [] =  {
+  "qio", "hQfun-lOmod0OlunlOefnOisbOast0|O p1O p2O p3O p4O p5O p6",
+  "qiow", "hQfun-lOmod0OlunlOefnOisbOast0|O p1O p2O p3O p4O p5O p6",
+  "glun", "lOlunObuf",
+  "alun", "lOlunDdev",
+  "altp", "",
+  "rqst", "Ttsk,,,,UuiclOevt-hOxstAastAstsAcmdOlenOvirTter|",
+  "exec", "",
+  "schd", "",
+  "run", "Ttsk,,,Uuic.smg.snt.rmg.rnt",
+  "sync", "",
+  "srra", "",
+  "mrkt", "!%lOefnOtmgOtntOast",
+  "csrq", "Ntsk",
+  "cmkt", "%",
+  "exst", "Osts",
+  "clef", "*lOefn",
+  "setf", "*lOefn",
+  "decl", "",
+  "rdef", "",
+  "rdaf", "*Obuf",
+  "wtse", "*lOefn",
+  "wtlo", "*OgrpOmsk",
+  "spnd", "",
+  "rsum", "Ntsk",
+  "wsig", "!%",
+  "exit", "",
+  "exif", "lOefn",
+  "crrg", "",
+  "atrg", "",
+  "dtrg", "",
+  "gtim", "Obuf",
+  "gtsk", "Obuf",
+  "gprt", "Oprt,Obuf",
+  "gcom", "",
+  "sref", "",
+  "sdat", "",
+  "sdrq", "",
+  "rcvd", "Ttsk,Obuf",
+  "rcvx", "Ttsk,Obuf",
+  "rcvs", "",
+  "rref", "",
+  "abrt", "Ntsk",
+  "fix", "",
+  "ufix", "",
+  "extk", ".pgs",
+  "dsbl", "",
+  "enbl", "",
+  "dscp", "",
+  "encp", "",
+  "dsar", "!%",
+  "enar", "!%",
+  "svdb", "",
+  "svtk", "AadrOlen",
+  "srda", "",
+  "spra", "",
+  "sfpa", "",
+  "gmcx", "",
+  "astx", "!%",
+  "craw", "",
+  "elaw", "",
+  "map", "",
+  "umap", "",
+  "gssw", "",
+  "gmcr", "Abuf!",
+  "cint", "",
+  "stop", "",
+  "ustp", "",
+  "stse", "lOefn",
+  "stlo", "OgrpOmsk",
+  "rcst", "",
+  "sdrc", "",
+  "cnct", "",
+  "elep", "",
+  "emst", "",
+  "crvt", "",
+  "elvt", "",
+  "srfr", "",
+  "scal", "",
+  "crgf", "",
+  "elgf", "",
+  "staf", "",
+  "rmaf", "",
+  "spea", "",
+  "srea", "Aast",
+  "gin", "",
+  "smsg", "",
+  "cli", "",
+  "swst", "",
+  "feat", "",
+  "dic", "",
+  "dic", "",
+  "dic", "",
+  "dic", "",
+  "dic", "",
+  "dic", "",
+  "dic", "",
+  "dic", "",
+  "dic", "",
+  "dic", "",
+  "dic", "",
+  "msds", "",
+  "mvts", "",
+  "cpcr", "",
+  "name", "",
+  "anon", "",
+  };
+#define rsEMX  208
+/* code -  rsAfun - QIO functions */
+#define ioFNA  011
+#define ioRNA  013
+#define rsTfun struct rsTfun_t 
+struct rsTfun_t
+{ char *Pnam ;
+  int Vflg ;
+   };
+#define rsNAM_  1
+#define rsFID_  2
+#define rsALL_  4
+rsTfun rsAfun [] =  {
+  "kil", 0,
+  "wlb", rsALL_,
+  "rlb", rsALL_,
+  "att", rsALL_,
+  "det", rsALL_,
+  "fn5", 0,
+  "fn6", 0,
+  "fn7", 0,
+  "fn8", 0,
+  "fna", rsNAM_,
+  "ulk", 0,
+  "rna", rsNAM_,
+  "ena", rsNAM_,
+  "acr", rsFID_,
+  "acw", rsFID_,
+  "ace", rsFID_,
+  "dac", rsFID_,
+  "rvb", rsALL_,
+  "wvb", rsALL_,
+  "ext", rsFID_,
+  "cre", rsFID_,
+  "del", rsFID_,
+  "rat", rsFID_,
+  "wat", rsFID_,
+  "apc", 0,
+  "apv", 0,
+  };
+#define rsFUN  32
+/* code -  trace RSX emt */
+void rs_emt(
+elTwrd adr ,
+elTwrd cod )
+{ rsTdir dir ;
+  rsTemt *emt ;
+  elTwrd *par = dir.Apar;
+  elTwrd ptr ;
+  elTwrd dic ;
+  int cnt ;
+  int idx = 0;
+  if( (OP & 0377) != 0377)return;
+  dir.Vadr = adr;
+  dir.Vpsw = PS;
+  ptr = SP;
+  dic = el_fwd (ptr);
+  if ( !(dic & 1)) {
+    ptr = dic;
+    dic = el_fwd (ptr); }
+  dir.Vdir = ptr;
+  cnt = (dic>>8) & 0377;
+  dic = (dic & 0376);
+  if ( cnt > rsCNX) {cnt = rsCNX ;}
+  if ( dic > rsEMX) {dic = rsEMX ;}
+  dir.Vcnt = cnt;
+  dir.Vdic = dic;
+  while ( idx <= cnt) {
+    par[idx++] = el_fwd (ptr);
+    ptr += 2;
+  } 
+  dir.Pemt = &rsAemt[dic/2];
+  if( !rs_flt (&dir))return;
+  rs_dis (&dir);
+} 
+/* code -  display emt */
+rs_dis(
+rsTdir *dir )
+{ elTwrd *par = dir->Apar;
+  rsTemt *emt = dir->Pemt;
+  char *arg = emt->Parg;
+  rsTfun *fun = NULL;
+  char nam [6];
+  int cnt = dir->Vcnt;
+  int idx = 0;
+  int val ;
+  int typ ;
+  int nln = 0;
+  char cmd [mxLIN];
+  elTwrd cpt ;
+  int spn = 0;
+  el_sol ();
+  PUT("%o%s\t",dir->Vadr,el_mod(dir->Vpsw));
+  if ( elVall) {
+    PUT("%o\t", dir->Vdir&0xffff); }
+  if ( st_sam (emt->Pnam, "rqst")) {
+    spn = (cnt == 7) ? 0: 1;
+    PUT("%s\t", spn ? "rqst": "spwn");
+    } else {
+    PUT("%s\t", emt->Pnam); }
+  while ( ++idx < cnt) {
+    if ( *arg == '!') {
+      if( idx != 1)break;
+      ++arg; }
+    if ( *arg == '*') {++arg ;}
+    if ( *arg == '|') {++arg, ++nln ;}
+    if ( *arg != '-') {++par ;} else {
+      --idx, ++arg ; }
+    if ( !*arg) {
+      if ( *par&0xffff) {
+        if ( nln) {PUT("\n\t\t\t"), nln=0 ;}
+        PUT("p%d=%o ",idx,*par&0xffff); }
+      continue; }
+    if( *arg == ','){ ++arg ; continue;}
+    if( *arg == '!')break;
+    typ = *arg++;
+    val = *par & 0xffff;
+    switch ( typ) {
+    case 'h':
+      val = (val>>8)&0xff;
+    case 'l':
+      val = val &0xff;
+      typ = *arg++;
+       }
+    me_cop (arg, nam, 3);
+    arg +=3, nam[3]=0;
+    if ( *arg == '0') {++arg ;}
+    if( !val && (idx > 1))continue;
+    if ( nln) {PUT("\n\t\t\t"), nln=0 ;}
+    if ( *nam == ' ') {PUT("%s=", nam+1) ;} else {
+      PUT("%s=", nam) ; }
+    switch ( typ) {
+    case 'O':
+      PUT("%o ", val);
+     break; case '.':
+      PUT("%d ", val);
+     break; case 'A':
+      PUT("%o ", (dir->Vdir+(idx*2))&0xffff);
+     break; case 'D':
+      me_cop(par, nam, 2);
+      nam[2] = 0;
+      PUT("[%s", nam);
+      val = par[1] & 0377;
+      if ( val) {PUT("%d", val) ;}
+      PUT("] ");
+      ++par, ++idx;
+     break; case 'Q':
+      PUT("%o=", val);
+      if ( val >= rsFUN) {
+        PUT("(???) ");
+        } else {
+        fun = &rsAfun[val];
+        PUT("(%s) ", fun->Pnam); }
+     break; case 'T':
+      rt_unp (par, nam, 2);
+      PUT("%s ", nam);
+     break; case 'U':
+      PUT("[%o,%o] ", (val>>8)&0xff, val&0xff);
+     break; default: 
+      PUT("%o ", *par&0xffff);
+       }
+  } 
+  if ( fun && (fun->Vflg & rsNAM_)) {rs_nam (dir) ;}
+  if ( spn) {rs_spn (dir) ;}
+  el_new ();
+} 
+/* code -  rs_flt - filter emts */
+rs_flt(
+rsTdir *dir )
+{ elTwrd *par = dir->Apar;
+  rsTemt *emt = dir->Pemt;
+  char *arg = emt->Parg;
+  rsTfun *fun = NULL;
+  int val ;
+  if( elVall == 2)return 1;
+  if (( *arg == 'h')
+  &&(par[0] == 023)) {
+    return 1; }
+  if (( *arg == 'h')
+  &&(par[7] == 1)) {
+    return 0; }
+  if( *arg == '!')return 0;
+  if( elVall)return 1;
+  if( *arg == '*')return 0;
+  if( *arg == '%')return 0;
+  if( *arg++ != 'h')return 1;
+  if( *arg++ != 'Q')return 1;
+  if( (val = (dir->Apar[1]>>8)&0xffff) >= rsFUN)return 1;
+  fun = &rsAfun[val];
+  if( fun->Vflg & rsALL_)return 0;
+  return 1;
+} 
+/* code -  rs_nam - decode nam block */
+#define rsTfid struct rsTfid_t 
+struct rsTfid_t
+{ elTwrd Vidx ;
+  elTwrd Vseq ;
+  elTwrd Vres ;
+   };
+#define rsTnam struct rsTnam_t 
+struct rsTnam_t
+{ rsTfid Ifid ;
+  elTwrd Anam [3];
+  elTwrd Atyp [1];
+  elTwrd Aver ;
+  elTwrd Vsta ;
+  elTwrd Vnxt ;
+  rsTfid Idid ;
+  char Adev [2];
+  elTwrd Vuni ;
+   };
+rs_nam(
+rsTdir *dir )
+{ rsTnam nam ;
+  char str [32];
+  el_fmm (dir->Apar[11], &nam,  sizeof(rsTnam));
+  PUT("nam=[");
+  if ( nam.Adev[0]) {
+    PUT("%c%c%d:", nam.Adev[0],nam.Adev[1], nam.Vuni); }
+  if ( nam.Anam[0]) {
+    rt_unp (nam.Anam, str, 3);
+    PUT("%s.", str);
+    rt_unp (nam.Atyp, str, 1);
+    PUT("%s", str);
+  } 
+  PUT("] ");
+  PUT("fid=%o/%o did=%o/%o ",nam.Ifid.Vidx,nam.Ifid.Vseq,nam.Idid.Vidx,nam.Idid.Vseq);
+} 
+/* code -  rs_spn - display spawn command */
+rs_spn(
+rsTdir *dir )
+{ rsTnam nam ;
+  char lin [mxLIN];
+  int len = dir->Apar[11];
+  PUT("\n\t\t\t");
+  len = (len < mxLIN-1) ? len: (mxLIN-1);
+  el_fmm (dir->Apar[10], lin, len);
+  lin[len] = 0;
+  PUT("cmd=[%s]", lin);
+} 

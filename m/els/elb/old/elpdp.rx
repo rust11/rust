@@ -1,0 +1,937 @@
+/* file -  elpdp - PDP-11 engine */
+#include "c:\m\elb\elmod.h"
+#include "c:\m\rid\dbdef.h"
+int el_mma (elTadr ,int ,elTwrd *);
+/* code -  el_dis - instruction dispatch loop */
+typedef elTfun *elTdis [];
+elTdis elAxx____ ;
+elTdis elA00xx__ ;
+elTdis elA0000xx ;
+elTdis elA0002xx ;
+elTdis elA07xx__ ;
+elTdis elA10xx__ ;
+void el_fst ();
+void el_dis()
+{ int prv = 0;
+  if ( !elVdbg) {el_fst () ;}
+  for(;;)  {
+    for(;;)  {
+      elVsch |= 1;
+      if ( elVsch && !elFvrt) {el_pol () ;}
+      if ( !elFvrt) {el_kbd () ;}
+      if( PC & 1){ PC += 2, el_bus () ; continue;}
+      if ( !bgVfst) {
+        if (( bgVwat)
+        &&(el_fwd (bgVwad) != bgVwvl)) {
+          bgVwat = 0, el_dbg ("Watch");
+        } else if ( bgVbpt && (PC == bgVbpt)) {
+          el_dbg ("Break");
+        } else if ( bgVstp) {
+          el_dbg (NULL);
+        } else if ( bgVcnt == 1) {
+          el_dbg ("Count");
+        } else if ( bgVcty) {
+          bgVcty = 0;
+          el_dbg ("Console");
+          } else {
+          if ( bgVcnt) {--bgVcnt ;} }
+        hi_put ();
+      } 
+      prv = PC;
+      OP = el_fwd (PC);
+      PC = (PC + 2);
+      (elAxx____[(OP >> 12) & 0xf])();
+      bgVprv = prv;
+    } 
+  } 
+} 
+/* code -  el_fst - register mode */
+void el_fst()
+{ if ( elFvrt) {
+    for(;;)  {
+      OP = el_fwd (PC);
+      PC = (PC + 2);
+      (elAxx____[(OP >> 12) & 0xf])();
+    } 
+    } else {
+    for(;;)  {
+      el_kbd ();
+      el_pol ();
+      OP = el_fwd (PC);
+      PC = (PC + 2);
+      (elAxx____[(OP >> 12) & 0xf])();
+    } 
+  } 
+} 
+/* code -  sub dispatchers */
+void el_00xx__()
+{ (elA00xx__[(OP >> 6) & 077])();
+} 
+void el_0000xx()
+{ (elA0000xx[OP & 077])();
+} 
+void el_0002xx()
+{ (elA0002xx[OP & 077])();
+} 
+void el_07xx__()
+{ (elA07xx__[(OP >> 6) & 077])();
+} 
+void el_10xx__()
+{ (elA10xx__[(OP >> 6) & 077])();
+} 
+/* code -  el_fwd - fetch word */
+elTadr el_vpr (elTadr );
+#define SCHCON (elVsch |= elCON_)
+elTwrd el_fwd(
+elTadr adr )
+{ elTwrd val ;
+  if( (adr & 1) && !elFlsi){ INVADR ; return;}
+  if ( !elFvrt) {adr = VPR(adr) ;}
+  val = *PNW(adr & elVevn);
+  if( adr < elHWM)return ( val );
+  if( elFvrt)return ( val );
+  if( adr >= elREG)return ( val );
+  elVsch |= elCON_;
+  switch ( NMX(adr)) {
+  case elTKS:
+    elVtks = 1;
+   break; case elTKB:
+    elVtkb = 0, TKS &= (~0200);
+   break; case elTPS:
+   break; case elTPB:
+   break; case elPSW:
+    if ( elFlsi) {INVADR ;} else {
+      val = PS ; }
+   break; case dkCSR:
+   break; case dkCNT:
+   break; case dkBLK:
+   break; case dkBUF:
+   break; case rlCSR:
+   break; case rlBUF:
+   break; case rlBLK:
+   break; case rlCNT:
+   break; default: 
+    if ( !el_mma (adr, 0, &val)) {INVADR ;}
+     }
+  return ( val & elWRD_);
+} 
+/* code -  el_fbt - fetch sbyte */
+elTbyt el_fbt(
+elTadr adr )
+{ elTbyt val ;
+  if ( !elFvrt) {adr = VPR(adr) ;}
+  val = *PNB(adr);
+  if( adr < elHWM)return ( val );
+  if( elFvrt)return ( val );
+  if( adr >= elREG)return ( val );
+  elVsch |= elCON_;
+  switch ( NMX(adr)) {
+  case elTKS:
+    elVtks = 1;
+   break; case elTKB:
+    elVtkb = 0, TKS &= (~0200);
+   break; case elTPS:
+    if ( val & 0100) {el_sch (elTER) ;}
+   break; case elTPB:
+   break; case elPSW:
+    if ( elFlsi) {INVADR ;} else {
+      val = PS ; }
+   break; case dkCSR:
+   break; case dkCNT:
+   break; case dkBLK:
+   break; case dkBUF:
+   break; case rlCSR:
+   break; case rlBUF:
+   break; case rlBLK:
+   break; case rlCNT:
+   break; case elTKS+1:
+   break; case elTKB+1:
+   break; case elTPS+1:
+   break; case elTPB+1:
+   break; default: 
+    if ( !el_mma (adr, 0, (elTwrd *)&val)) {INVADR ;}
+     }
+  return ( val & elBYT_);
+} 
+/* code -  el_swd - store word */
+void el_swd(
+elTadr adr ,
+elTwrd val )
+{ if( (adr & 1) && !elFlsi){ INVADR ; return;}
+  if ( !elFvrt) {adr = VPW(adr) ;}
+  *PNW(adr & elVevn) = val;
+  if( adr < elHWM)return;
+  if( elFvrt)return;
+  if( adr >= elREG)return;
+  elVsch |= elCON_;
+  switch ( NMX(adr)) {
+  case elTKS:
+    elVtks = 1;
+   break; case elTKB:
+   break; case elTPS:
+    TPS|=0200;
+    if ( TPS & 0100) {el_sch (elTER) ;}
+   break; case elTPB:
+    TPS &= (~0200), elVtpp = 1;
+   break; case elPSW:
+    if ( elFlsi) {INVADR ;} else {
+      NEWPS(val & (~elT_)) ; }
+   break; case dkCSR:
+   break; case dkCNT:
+   break; case dkBLK:
+   break; case dkBUF:
+   break; case rlCSR:
+   break; case rlBUF:
+   break; case rlBLK:
+   break; case rlCNT:
+   break; default: 
+    if ( !el_mma (adr, 0 ,&val)) {INVADR ;}
+    *PNW(adr & elVevn) = val;
+    *MNW(0172356) = (elQIO>>6);
+    *MNW(0172376) = (elQIO>>6);
+    *MNW(0177656) = (elQIO>>6);
+    *MNW(0177676) = (elQIO>>6);
+     }
+} 
+/* code -  el_sbt - store sbyte */
+void el_sbt(
+elTadr adr ,
+elTbyt val )
+{ if ( !elFvrt) {adr = VPW(adr) ;}
+  *PNB(adr) = val;
+  if( adr < elHWM)return;
+  if( elFvrt)return;
+  if( adr >= elREG)return;
+  elVsch |= elCON_;
+  switch ( NMX(adr)) {
+  case elTKS:
+    elVtks = 1;
+   break; case elTKB:
+   break; case elTPS:
+    TPS|=0200;
+    if ( TPS & 0100) {el_sch (elTER) ;}
+   break; case elTPB:
+    TPS &= (~0200), elVtpp = 1;
+   break; case elPSW:
+    if ( elFlsi) {INVADR ;} else {
+      NEWPS(val & (~elT_)) ; }
+   break; case dkCSR:
+   break; case dkCNT:
+   break; case dkBLK:
+   break; case dkBUF:
+   break; case rlCSR:
+   break; case rlBUF:
+   break; case rlBLK:
+   break; case rlCNT:
+   break; case elTKS+1:
+   break; case elTKB+1:
+   break; case elTPS+1:
+   break; case elTPB+1:
+   break; default: 
+    if ( !el_mma (adr, 0, (elTwrd *)&val)) {INVADR ;}
+    *PNW(adr) = val;
+     }
+} 
+/* code -  el_fpc - fetch from pc */
+elTwrd el_fpc()
+{ int val ;
+  val = el_fwd (PC);
+  PC += 2, PC &= 0177777;
+  return ( val & elWRD_);
+} 
+/* code -  el_psh - push stack */
+void el_psh(
+elTwrd val )
+{ SP -= 2;
+  el_swd (SP, val);
+} 
+/* code -  el_pop - pop stack */
+elTwrd el_pop()
+{ elTwrd val ;
+  val = el_fwd (SP);
+  SP += 2;
+  return ( val & elWRD_);
+} 
+/* code -  el_swa - get source word address */
+void el_swa()
+{ ULONG reg = (OP >> 6) & 7;
+  ULONG mod = (OP >> 9) & 7;
+  ULONG idx ;
+  ULONG tmp = elPreg[reg];
+  switch ( mod) {
+  case 0:
+    elVswa = elREG + (reg * 2);
+   break; case 1:
+    elVswa = tmp;
+   break; case 2:
+    elVswa = tmp;
+    elPreg[reg] = (tmp + 2);
+   break; case 3:
+    elPreg[reg] = (tmp + 2);
+    elVswa = el_fwd (tmp);
+   break; case 4:
+    elPreg[reg] = elVswa = (tmp - 2) & elWRD_;
+   break; case 5:
+    elPreg[reg] = tmp - 2;
+    elVswa = el_fwd ((tmp - 2) & elWRD_);
+   break; case 6:
+    idx = el_fpc ();
+    elVswa = (elPreg[reg] + idx) & elWRD_;
+   break; case 7:
+    idx = el_fpc ();
+    elVswa = el_fwd ((elPreg[reg] + idx) & elWRD_);
+     }
+} 
+/* code -  el_dwa - get destination word address */
+void el_dwa()
+{ ULONG reg = OP & 7;
+  ULONG mod = (OP >> 3) & 7;
+  ULONG idx ;
+  ULONG tmp = elPreg[reg];
+  switch ( mod) {
+  case 0:
+    elVdwa = elREG + (reg * 2);
+   break; case 1:
+    elVdwa = tmp;
+   break; case 2:
+    elVdwa = tmp;
+    elPreg[reg] = (tmp + 2);
+   break; case 3:
+    elPreg[reg] = (tmp + 2);
+    elVdwa = el_fwd (tmp);
+   break; case 4:
+    elPreg[reg] = elVdwa = (tmp - 2) & elWRD_;
+   break; case 5:
+    elPreg[reg] = tmp - 2;
+    elVdwa = el_fwd ((tmp - 2) & elWRD_);
+   break; case 6:
+    idx = el_fpc ();
+    elVdwa = (elPreg[reg] + idx) & elWRD_;
+   break; case 7:
+    idx = el_fpc ();
+    elVdwa = el_fwd ((elPreg[reg] + idx) & elWRD_);
+     }
+} 
+/* code -  el_sba - get source sbyte address */
+void el_sba()
+{ ULONG reg = (OP >> 6) & 7;
+  ULONG mod = (OP >> 9) & 7;
+  ULONG stp = (reg < 6) ? 1: 2;
+  ULONG idx ;
+  ULONG tmp = elPreg[reg];
+  switch ( mod) {
+  case 0:
+    elVsba = elREG + (reg * 2);
+   break; case 1:
+    elVsba = tmp;
+   break; case 2:
+    elVsba = tmp;
+    elPreg[reg] = (tmp + stp);
+   break; case 3:
+    elPreg[reg] = (tmp + 2);
+    elVsba = el_fwd (tmp);
+   break; case 4:
+    elPreg[reg] = elVsba = (tmp - stp) & elWRD_;
+   break; case 5:
+    elPreg[reg] = tmp - 2;
+    elVsba = el_fwd ((tmp - 2) & elWRD_);
+   break; case 6:
+    idx = el_fpc ();
+    elVsba = (elPreg[reg] + idx) & elWRD_;
+   break; case 7:
+    idx = el_fpc ();
+    elVsba = el_fwd ((elPreg[reg] + idx) & elWRD_);
+     }
+} 
+void el_dba()
+{ ULONG reg = OP & 7;
+  ULONG mod = (OP >> 3) & 7;
+  ULONG stp = (reg < 6) ? 1: 2;
+  ULONG idx ;
+  ULONG tmp = elPreg[reg];
+  switch ( mod) {
+  case 0:
+    elVdba = elREG + (reg * 2);
+   break; case 1:
+    elVdba = tmp;
+   break; case 2:
+    elVdba = tmp;
+    elPreg[reg] = (tmp + stp);
+   break; case 3:
+    elPreg[reg] = (tmp + 2);
+    elVdba = el_fwd (tmp);
+   break; case 4:
+    elPreg[reg] = elVdba = (tmp - stp) & elWRD_;
+   break; case 5:
+    elPreg[reg] = tmp - 2;
+    elVdba = el_fwd ((tmp - 2) & elWRD_);
+   break; case 6:
+    idx = el_fpc ();
+    elVdba = (elPreg[reg] + idx) & elWRD_;
+   break; case 7:
+    idx = el_fpc ();
+    elVdba = el_fwd ((elPreg[reg] + idx) & elWRD_);
+     }
+} 
+/* code -  el_sra - get source register address */
+void el_sra()
+{ elTwrd reg = (OP >> 6) & 7;
+  elVswa = elREG + (reg * 2);
+} 
+void el_dra()
+{ elTwrd reg = OP & 7;
+  elVdwa = elREG + (reg * 2);
+} 
+/* code -  instruction set */
+void el_movw()
+{ SWF, DWA, CLV, RWNZ(SWV), DWS(SWV); }
+void el_movb()
+{ SBF, DBA, CLV, RBNZ(SBV), DBS(SBV);
+  if ( REGMOD) {*DBH = ((SBV & 0x80) ? 0xff: 0) ;} }
+void el_cmpw()
+{ SWF, DWF, TWV = SWV - DWV, CLV, RWNZ(TWV);
+  RXC(SWV < DWV), RXV(0x8000 & ((SWV ^ DWV) & ((~DWV) ^ TWV))); }
+void el_cmpb()
+{ SBF, DBF, TBV = SBV - DBV, CLV, RBNZ(TBV);
+  RXC(SBV < DBV), RXV(0x80 & ((SBV ^ DBV) & ((~DBV) ^ TBV))); }
+void el_bitw()
+{ SWF, DWF, TWV = DWV & SWV, CLV, RWNZ(TWV); }
+void el_bitb()
+{ SBF, DBF, TBV = DBV & SBV, CLV, RBNZ(TBV); }
+void el_bicw()
+{ SWF, DWF, TWV = DWV & (~SWV), CLV, RWNZ(TWV), TWS; }
+void el_bicb()
+{ SBF, DBF, TBV = DBV & (~SBV), CLV, RBNZ(TBV), TBS; }
+void el_bisw()
+{ SWF, DWF, TWV = DWV | SWV, CLV, RWNZ(TWV), TWS; }
+void el_bisb()
+{ SBF, DBF, TBV = DBV | SBV, CLV, RBNZ(TBV), TBS; }
+void el_addw()
+{ SWF, DWF, TWV = SWV + DWV, CLV, RWNZ(TWV);
+  RXC(TWV < SWV), RXV(0x8000 & ((~SWV ^ DWV) & (SWV ^ TWV))), TWS; }
+void el_subw()
+{ SWF, DWF, TWV = DWV - SWV, CLV, RWNZ(TWV);
+  RXC(DWV < SWV), RXV(0x8000 & ((SWV ^ DWV) & (~SWV ^ TWV))), TWS; }
+void el_clrw()
+{ DWA, CLC, CLV, CLN, SEZ, DWS(0); }
+void el_clrb()
+{ DBA, CLC, CLV, CLN, SEZ, DBS(0); }
+void el_comw()
+{ DWF, TWV = ~DWV, SEC, CLV, RWNZ(TWV), TWS; }
+void el_comb()
+{ DBF, TBV = ~DBV, SEC, CLV, RBNZ(TBV), TBS; }
+void el_incw()
+{ DWF, TWV = DWV+1, RXV(TWV == 0x8000), RWNZ(TWV), TWS; }
+void el_incb()
+{ DBF, TBV = DBV+1, RXV(TBV == 0x80), RBNZ(TBV), TBS; }
+void el_decw()
+{ DWF, TWV = DWV-1, RXV(TWV == 077777), RWNZ(TWV), TWS; }
+void el_decb()
+{ DBF, TBV = DBV-1, RXV(TBV == 0177), RBNZ(TBV), TBS; }
+void el_negw()
+{ DWF, TWV = -DWV, RXV(TWV == 0x8000), RXC(!ZBIT), RWNZ(TWV), TWS; }
+void el_negb()
+{ DBF, TBV = -DBV, RXV(TBV == 0x80), RXC(!ZBIT), RBNZ(TBV), TBS; }
+void el_adcw()
+{ DWF, TWV = DWV + CBIT, RWNZ(TWV), RXV(CBIT && (TWV == 0x8000));
+  RXC(CBIT & ZBIT), TWS; }
+void el_adcb()
+{ DBF, TBV = DBV + CBIT, RBNZ(TBV), RXV(CBIT && (TBV == 0x80));
+  RXC(CBIT & ZBIT), TBS; }
+void el_sbcw()
+{ DWF, TWV = DWV - CBIT, RWNZ(TWV), RXV(CBIT && (TWV == 077777));
+  RXC(CBIT && (TWV == 0177777)), TWS; }
+void el_sbcb()
+{ DBF, TBV = DBV - CBIT, RBNZ(TBV), RXV(CBIT && (TBV == 0177));
+  RXC(CBIT && (TBV == 0377)), TBS; }
+void el_tstw()
+{ DWF, CLC, CLV, RWNZ(DWV); }
+void el_tstb()
+{ DBF, CLC, CLV, RBNZ(DBV); }
+void el_rorw()
+{ DWF, TWV = ((DWV >> 1) & 077777) | (CBIT << 15);
+  RXC(DWV & 1), RWNZ(TWV), RXV(NBIT ^ CBIT), TWS; }
+void el_rorb()
+{ DBF, TBV = ((DBV >> 1) & 0177) | (CBIT << 7);
+  RXC(DBV & 1), RBNZ(TBV), RXV(NBIT ^ CBIT), TBS; }
+void el_rolw()
+{ DWF, TWV = (DWV << 1) | CBIT, RXC(DWV & 0x8000);
+  RWNZ(TWV), RXV(NBIT ^ CBIT), TWS; }
+void el_rolb()
+{ DBF, TBV = (DBV << 1) | CBIT, RXC(DBV & 0x80);
+  RBNZ(TBV), RXV(NBIT ^ CBIT), TBS; }
+void el_asrw()
+{ DWF, TWV = ((DWV >> 1) & 077777) | (DWV & 0x8000);
+  RXC(DWV & 1), RWNZ(TWV), RXV(NBIT ^ CBIT), TWS; }
+void el_asrb()
+{ DBF, TBV = ((DBV >> 1) & 0177) | (DBV & 0x80);
+  RXC(DBV & 1), RBNZ(TBV), RXV(NBIT ^ CBIT), TBS; }
+void el_aslw()
+{ DWF, TWV = DWV << 1, RXC(DWV & 0x8000);
+  RWNZ(TWV), RXV(NBIT ^ CBIT), TWS; }
+void el_aslb()
+{ DBF, TBV = DBV << 1, RXC(DBV & 0x80);
+  RBNZ(TBV), RXV(NBIT ^ CBIT), TBS; }
+void el_swab()
+{ DWF, TWV = ((DWV>>8) & 0xff) | (DWV<<8), CLC, CLV;
+  RBNZ(TWV & 0xff), TWS; }
+void el_jsr()
+{ if( REGMOD){ (elFlsi ? INVINS: INVADR) ; return;}
+  DWA, SRF, PSH(SWV), SWS(PC), PC = elVdwa; }
+void el_jmp()
+{ if( REGMOD){ (elFlsi ? INVINS: INVADR) ; return;}
+  DWA, PC = elVdwa; }
+#define BRANCH (PC += (OP & 0x80) ? ((OP|0xff00)*2): ((OP&0xff)*2))
+void el_bra()
+{ BRANCH; }
+void el_sob()
+{ SRA, *SWP = *SWP - 1;
+  if ( *SWP) {PC -= (OP & 077) * 2 ;} }
+void el_bne()
+{ if ( !ZBIT) {BRANCH ;} }
+void el_beq()
+{ if ( ZBIT) {BRANCH ;} }
+void el_bge()
+{ if ( !(NBIT ^ VBIT)) {BRANCH ;} }
+void el_blt()
+{ if ( (NBIT ^ VBIT)) {BRANCH ;} }
+void el_bgt()
+{ if ( !(ZBIT | (NBIT ^ VBIT))) {BRANCH ;} }
+void el_ble()
+{ if ( (ZBIT | (NBIT ^ VBIT))) {BRANCH ;} }
+void el_bpl()
+{ if ( !NBIT) {BRANCH ;} }
+void el_bmi()
+{ if ( NBIT) {BRANCH ;} }
+void el_bhi()
+{ if ( !(CBIT | ZBIT)) {BRANCH ;} }
+void el_blos()
+{ if ( (CBIT | ZBIT)) {BRANCH ;} }
+void el_bvc()
+{ if ( !VBIT) {BRANCH ;} }
+void el_bvs()
+{ if ( VBIT) {BRANCH ;} }
+void el_bcc()
+{ if ( !CBIT) {BRANCH ;} }
+void el_bcs()
+{ if ( CBIT) {BRANCH ;} }
+void el_emt()
+{ el_int (veEMT); }
+void el_trap()
+{ el_int (veTRP); }
+void el_bpt()
+{ el_int (veBPT); }
+void el_iot()
+{ el_int (veIOT); }
+void el_reset()
+{ el_rst (); }
+void el_rts()
+{ DRF, PC = DWV, DWS(POP); }
+void el_ccc()
+{ elTwrd msk = OP & 017;
+  PS &= (~msk); }
+void el_scc()
+{ elTwrd msk = OP & 017;
+  PS |= msk; }
+void el_xor()
+{ SRF, DWF, TWV=SWV^DWV, CLV, RWNZ(TWV), DWS(TWV); }
+void el_sxt()
+{ DWA, TWV = ((NBIT) ? 0xffff: 0), CLV, RWZ(TWV), TWS; }
+void el_mark()
+{ SP=PC+(OP&077)*2, PC=R5, R5=POP; }
+void el_mtps()
+{ DBF, NEWPS(DBV & (~elT_)); }
+void el_mfps()
+{ DBA, TBV=PS, CLV, RBNZ(TBV), DBS(TBV);
+  if ( REGMOD) {*DBH = ((TBV & 0x80) ? 0xff: 0) ;} }
+void el_mul()
+{ long val ;
+  SRF, DWF, val = (long )(word )SWV * (long )(word )DWV, CCC, RLNZ(val);
+  RXC((val >= (1<<15)-1) || (val < -(1<<15)));
+  *RP0 = val>>16, *RP1 = val;
+} 
+void el_div()
+{ long val ;
+  long div ;
+  long quo ;
+  long rem ;
+  SRA, DWF, CCC;
+  div = (word )DWV;
+  val = *RP0<<16 | (*RP1 & 0xffff);
+  if( !div){ SEC, SEV ; return;}
+  if( (val == 0x80000000) && (div == 0xffff)){ SEC, SEV ; return;}
+  if( ABS((word )*RP0) > ABS((word )div)){ CLC, SEV ; return;}
+  quo = val / div;
+  rem = val - (quo * div);
+  RLNZ(quo);
+  *RP0 = quo, *RP1 = rem;
+} 
+WORD elAash [16] =  {
+  0100000, 0140000, 0160000, 0170000,
+  0174000, 0176000, 0177000, 0177400,
+  0177600, 0177700, 0177740, 0177760,
+  0177770, 0177774, 0177776, 0177777,
+  };
+void el_ash()
+{ int cnt ;
+  long val ;
+  int ovr = 0;
+  int prv = 0;
+  WORD tmp = 0;
+  WORD msk = 0;
+  int src ;
+  SRF, DWF, CCC;
+  cnt = DWV & 077;
+  val = SWV;
+  src = val;
+#if 0
+  if ( val & 0x8000) {val |= 0xffff0000 ;}
+  if ( cnt & 040) {
+    val >>= -(cnt | ~(077))-1;
+    prv = val&1;
+    val>>=1;
+    } else {
+    while ( --cnt >= 0) {
+      prv = val & 0100000, val<<=1;
+      if ( (val & 0100000) != prv) {SEV ;} } }
+  if ( prv) {SEC ;}
+#else 
+  if ( cnt & 040) {
+    if ( val & 0x8000) {val |= 0xffff0000 ;}
+    val >>= -(cnt | ~(077))-1;
+    prv = val&1;
+    val>>=1;
+    if ( prv) {SEC ;}
+    } else {
+    tmp = (val & 0x8000) ? (val) & 0xffff: ~(val) & 0xffff;
+    if ( cnt >= 16) {
+      if ( val) {SEV ;}
+      if ( (cnt == 16) && (val & BIT(0))) {SEC ;}
+      val = 0;
+      } else {
+      if ( val & BIT(16-cnt)) {SEC ;}
+      msk = elAash[cnt];
+      if ( (tmp & msk) != msk) {SEV ;}
+      val <<= cnt; } }
+#endif 
+  RWNZ(val & 0xffff), SWS(val);
+} 
+void el_ashc()
+{ int shf ;
+  long val ;
+  long prv = 0;
+  SRA, DWF, CCC;
+  shf = DWV & 077;
+  val = *RP0<<16 | (*RP1 & 0xffff);
+  if ( shf & 040) {
+    val >>= -(shf | ~(077))-1;
+    prv = val&1;
+    val>>=1;
+    } else {
+    while ( --shf >= 0) {
+      prv = val & 0x80000000, val<<=1;
+      if ( (val & 0x80000000) != prv) {SEV ;} } }
+  if ( prv) {SEC ;}
+  if ( val < 0) {SEN ;}
+  if ( val == 0) {SEZ ;}
+  *RP0 = val>>16, *RP1 = val;
+} 
+void el_fis()
+{ INVINS; }
+void el_cis()
+{ INVINS; }
+void el_tstset()
+{ if ( elFlsi || REGMOD) {INVINS ;}
+  DWF, R0=DWV, CLV, RWNZ(R0), DWS(R0); }
+void el_wrtlck()
+{ if ( elFlsi || REGMOD) {INVINS ;}
+  DWA, CLV, RWNZ(R0), DWS(R0); }
+void el_halt()
+{ if ( KERMOD) {el_dbg ("Halt") ;} else {
+    INVADR ; }
+} 
+void el_wait()
+{ ; }
+void el_rtt()
+{ elTwrd ps = PS;
+  PC = POP, NEWPS(POP);
+  if( elFlsi || KERMOD)return;
+  NEWPS ((PS & ~(0340)) | (ps & 0174340)); }
+void el_rti()
+{ el_rtt (), el_trc ();
+} 
+void el_spl()
+{ if ( elFlsi) {INVINS ;}
+  NEWPS((PS & (~0x340)) | ((OP & 7) << 5)); }
+void el_csm()
+{ elTwrd sp ;
+  elTwrd ps ;
+  if ( elFlsi || !(MM3 & 010) || KERMOD) {INVINS ;}
+  DWF, elAstk[1] = SP, ps = PS;
+  NEWPS (040000 | (ps & 0140000>>2) | (ps & 07757)), MMU;
+  PSH(ps&0340), PSH(PC), PSH(DWV);
+  el_dbg ("csm");
+} 
+el_mod(
+int ps ,
+int mod )
+{ int val = ps >> (mod ? 14: 12);
+  if ( val == 2) {val = 3 ;}
+  return ( val);
+} 
+void el_mfpi()
+{ if ( elFlsi) {INVINS ;}
+  CURPRV, DWA, CLV;
+  if ( (OP&7) == 6) {PUT("MF ") ;}
+  if ( REGMOD && ((OP&07) == 6) && (CUR != PRV)) {TWV=STK(PRV) ;} else {
+    PRVMOD, DWG, CURMOD, TWV=DWV ; }
+  if ( !ABT) {PSH(TWV), RWNZ(TWV) ;} }
+void el_mtpi()
+{ if ( elFlsi) {INVINS ;}
+  CURPRV, DWA, TWV=TOP, CLV;
+  if ( (OP&7) == 6) {PUT("MT ") ;}
+  if ( REGMOD && ((OP&07) == 6) && (CUR != PRV)) {STK(PRV)=TWV ;} else {
+    PRVMOD, DWS(TWV), CURMOD ; }
+  if ( !ABT) {POP, RWNZ(TWV) ;} }
+void el_mfpd()
+{ el_mfpi (); }
+void el_mtpd()
+{ el_mtpi (); }
+void el_mfpt()
+{ if ( elFlsi) {INVINS ;}
+  R0 = 5;
+} 
+/* code -  PDP-11 dispatch tables */
+elTdis elAxx____  =  {
+  el_00xx__,
+  el_movw,
+  el_cmpw,
+  el_bitw,
+  el_bicw,
+  el_bisw,
+  el_addw,
+  el_07xx__,
+  el_10xx__,
+  el_movb,
+  el_cmpb,
+  el_bitb,
+  el_bicb,
+  el_bisb,
+  el_subw,
+  el_cpu,
+  };
+elTdis elA00xx__  =  {
+  el_0000xx,
+  el_jmp,
+  el_0002xx,
+  el_swab,
+  el_bra,el_bra,el_bra,el_bra,
+  el_bne,el_bne,el_bne,el_bne,
+  el_beq,el_beq,el_beq,el_beq,
+  el_bge,el_bge,el_bge,el_bge,
+  el_blt,el_blt,el_blt,el_blt,
+  el_bgt,el_bgt,el_bgt,el_bgt,
+  el_ble,el_ble,el_ble,el_ble,
+  el_jsr,el_jsr,el_jsr,el_jsr,el_jsr,el_jsr,el_jsr,el_jsr,
+  el_clrw,
+  el_comw,
+  el_incw,
+  el_decw,
+  el_negw,
+  el_adcw,
+  el_sbcw,
+  el_tstw,
+  el_rorw,
+  el_rolw,
+  el_asrw,
+  el_aslw,
+  el_mark,
+  el_mfpi,
+  el_mtpi,
+  el_sxt,
+  el_csm,
+  el_tstset,
+  el_wrtlck,
+  el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,
+  };
+elTdis elA0000xx  =  {
+  el_halt,el_wait,el_rti,el_bpt,el_iot,el_reset,el_rtt,el_mfpt,
+  el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,
+  el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,
+  el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,
+  el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,
+  el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,
+  el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,
+  el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,
+  };
+elTdis elA0002xx  =  {
+  el_rts,el_rts,el_rts,el_rts,el_rts,el_rts,el_rts,el_rts,
+  el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,
+  el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,
+  el_spl,el_spl,el_spl,el_spl,el_spl,el_spl,el_spl,el_spl,
+  el_ccc,el_ccc,el_ccc,el_ccc,el_ccc,el_ccc,el_ccc,el_ccc,
+  el_ccc,el_ccc,el_ccc,el_ccc,el_ccc,el_ccc,el_ccc,el_ccc,
+  el_scc,el_scc,el_scc,el_scc,el_scc,el_scc,el_scc,el_scc,
+  el_scc,el_scc,el_scc,el_scc,el_scc,el_scc,el_scc,el_scc,
+  };
+elTdis elA07xx__  =  {
+  el_mul,el_mul,el_mul,el_mul,el_mul,el_mul,el_mul,el_mul,
+  el_div,el_div,el_div,el_div,el_div,el_div,el_div,el_div,
+  el_ash,el_ash,el_ash,el_ash,el_ash,el_ash,el_ash,el_ash,
+  el_ashc,el_ashc,el_ashc,el_ashc,el_ashc,el_ashc,el_ashc,el_ashc,
+  el_xor,el_xor,el_xor,el_xor,el_xor,el_xor,el_xor,el_xor,
+  el_fis,el_cis,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,
+  el_cpu, el_cpu, el_cpu, el_cpu, el_cpu, el_cpu, el_cpu,
+  el_sob,el_sob,el_sob,el_sob,el_sob,el_sob,el_sob,el_sob,
+  };
+elTdis elA10xx__  =  {
+  el_bpl,el_bpl,el_bpl,el_bpl,el_bmi,el_bmi,el_bmi,el_bmi,
+  el_bhi,el_bhi,el_bhi,el_bhi,
+  el_blos,el_blos,el_blos,el_blos,
+  el_bvc,el_bvc,el_bvc,el_bvc,
+  el_bvs,el_bvs,el_bvs,el_bvs,
+  el_bcc,el_bcc,el_bcc,el_bcc,
+  el_bcs,el_bcs,el_bcs,el_bcs,
+  el_emt,el_emt,el_emt,el_emt,
+  el_trap,el_trap,el_trap,el_trap,
+  el_clrb,
+  el_comb,
+  el_incb,
+  el_decb,
+  el_negb,
+  el_adcb,
+  el_sbcb,
+  el_tstb,
+  el_rorb,
+  el_rolb,
+  el_asrb,
+  el_aslb,
+  el_mtps,
+  el_mfpd,
+  el_mtpd,
+  el_mfps,
+  el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,el_cpu,
+  };
+/* code -  memory management */
+int elV22b = 1;
+ULONG elApar []= {0172340,0172240,0,0177640};
+ULONG elApdr []= {0172300,0172200,0,0177600};
+elTwrd *elPpar = 0;
+elTwrd *elPpdr = 0;
+elTwrd elVmmd = 0;
+elTwrd elVspm = 0;
+el_mma(
+elTadr adr ,
+int mod ,
+elTwrd *val )
+{ adr = adr & 0xffff;
+  if( elFlsi)return 0;
+  if (( ((adr >= (ULONG )0172340) && (adr < (ULONG )0172360)))
+  ||(((adr >= (ULONG )0172240) && (adr < (ULONG )0172260)))
+  ||(((adr >= (ULONG )0177640) && (adr < (ULONG )0177660)))
+  ||(((adr >= (ULONG )0172300) && (adr < (ULONG )0172320)))
+  ||(((adr >= (ULONG )0172200) && (adr < (ULONG )0172220)))
+  ||(((adr >= (ULONG )0177600) && (adr < (ULONG )0177620)))) {
+    return 1; }
+  if( adr == 0177570)return 1;
+  switch ( adr) {
+  case 0177572:
+     el_mmu (0);return 1;
+   break; case 0177574:
+    return 1;
+   break; case 0177576:
+    return 1;
+   break; case 0172516:
+    return 1;
+   break; case 0177766:
+    if( mod){ *val = 0 ; return 1;}
+   break; case 0177772:
+    return 1;
+   break; case 0177546:
+    return 1;
+   break; case 0177750:
+    if ( !mod) {*val=0174021 ;}
+   break; case 0177746:
+    return 1;
+   break; case 0177752:
+    return 1;
+   break; case 0177744:
+    return 1;
+   break; default: 
+    return 0;
+     }
+  return 1;
+} 
+/* code -  el_mmu - setup memory management */
+void el_mmu(
+int mod )
+{ if( elFlsi)return;
+  if( (elVmmu = (MM0 & elMAP_) | elVpsr) == 0)return;
+  elV22b = MM3 & el22b_;
+  if ( mod) {elVsch |= elMMU_ ;}
+  if ( mod) {mod = (PS>>12)&3 ;} else {
+    mod = (PS>>14)&3 ; }
+  elVmmd = mod;
+  elPpar = MNW(elApar[mod]);
+  elPpdr = MNW(elApdr[mod]);
+} 
+/* code -  el_psw - change psw and stack */
+void el_psw(
+elTwrd val )
+{ if( elFlsi){ PS = val ; return;}
+  elAstk[(PS>>14)&3] = SP;
+  PS = val;
+  SP = elAstk[(PS>>14)&3];
+  elVspm = (PS>>14)&3;
+} 
+/* code -  el_mmx - mmu exception */
+void el_mmx(
+int cod )
+{ 
+  PUT("***");
+  ;
+} 
+/* code -  el_vpr - virtual to physical, read */
+elTadr el_xpr (elTadr );
+elTadr el_vpr(
+elTadr va )
+{ 
+  if( !elFlsi && elFmap)return ( el_xpr (va) );
+  if( va >= elREG)return ( va );
+  if ( !elVmmu) {
+    if( va < 0170000)return ( va );
+    return ( elHWM|va);
+  } 
+  el_dbg ("adr");
+} 
+/* code -  el_xpr - virtual to physical for read access */
+elTadr el_xpr(
+elTadr va )
+{ elTadr pa ;
+  elTadr apr ;
+  elTadr off ;
+  elTadr len ;
+  elTadr blk ;
+  if( va >= elREG)return ( va );
+  if ( !(elVmmu | elVpsr)) {
+    if( va < elVIO)return ( va );
+    return ( elHWM|va);
+  } 
+  apr = (va >> 13) & 7;
+  off = va & 017777;
+  len = (elPpdr[apr]>>2)&017700;
+  blk = va & 017700;
+  pa = (elPpar[apr]<<6)+off;
+  if( elV22b || pa >= elVIO)return ( pa );
+  return ( pa &= 0777777);
+} 
+void el_map(
+elTadr va ,
+int ps )
+{ int apr = (va>>13) & 7;
+  int off = va & 017777;
+  int bas = elPpar[apr];
+  int pa = (bas << 6) + off;
+  PUT("va=%o apr=%d off=%o bas=%o pa=%o ", va, apr, off, bas, pa);
+  PUT("s0=%o s3=%o psw=%o cur=%o spm=%o\n", MM0, MM3, PS, elVmmd, elVspm);
+} 

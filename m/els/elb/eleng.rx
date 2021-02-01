@@ -1,0 +1,200 @@
+#define vrt$c  0
+/* file -  eleng - PDP-11 engine */
+#include "f:\m\els\elb\elmod.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\cldef.h"
+#include "f:\m\rid\imdef.h"
+#include "f:\m\rid\dbdef.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\mxdef.h"
+#include "f:\m\rid\ctdef.h"
+#include "f:\m\rid\codef.h"
+#include "f:\m\rid\tidef.h"
+#include "f:\m\rid\wcdef.h"
+#include "f:\m\rid\prdef.h"
+#include "f:\m\rid\shdef.h"
+#include "f:\m\rid\rtutl.h"
+#include "f:\m\rid\vtdef.h"
+int elVtps = 0;
+int elVtct = 0;
+/* code -  el_ini - init cpu */
+void el_ini()
+{ el_htz (elVhtz);
+  DMP("a");
+#if !MEMARR
+  elPmem = me_alc (elMEM+512);
+  elPmem = (void *)((ULONG )(elPmem+511) & ~(511));
+#endif 
+  if ( elFlsi) {elVevn = ~(1) ;}
+  elPmch = PNB(elMCH);
+  elPreg = PNW(elREG);
+  if ( elFstp) {bgVstp = 1 ;}
+  DMP("B");
+  vt_ini ();
+  DMP("C");
+  el_aut ();
+  DMP("D");
+  el_boo (0);
+  DMP("e");
+  ti_sig (1, &el_clk);
+  DMP("F");
+} 
+/* code -  el_rst - reset cpu */
+void el_rst()
+{ elTvec *vec = elAvec + 1;
+  elVsch = elVtks = elVtkb = 0;
+  MM0 &= ~(1);
+  while ( vec->Vdev != -1) {
+    if ( vec->Vcsr && vec->Venb) {
+      *MNW(vec->Vcsr) = 0; }
+    ++vec;
+  } 
+  TPB = 0, TPS = 0x80;
+} 
+el_pri(
+int pri )
+{ 
+} 
+/* code -  el_boo - boot system */
+elTwrd elAxdp []= {0407,06,0,012};
+elTwrd elAdos []= {012700, 024, 016701, 0162};
+void el_boo(
+int uni )
+{ char hom [512];
+  int dat ;
+  int tim ;
+  int era ;
+  DMP("M");
+  bgVuni = uni;
+  me_clr (elPmem, elMEM);
+  el_reset ();
+  PS = 0340;
+  el_smw (hdCSR, uni << 9);
+  el_smw (rlCSR, uni << 8);
+  if ( !el_chd (uni, 1)) {el_exi () ;}
+  el_trn (uni, 0, 512, 1, elREA,1);
+  me_mov (PNB(0), hom, 512);
+  el_trn (uni, 0, 512, 0, elREA,0);
+  SP = 010000, PC = 0;
+  PS = 0340, R0 = uni;
+  if ( elFsma) {
+    el_swd (1000, 0);
+    if (( me_fnd ("BOOT-U",6,PNB(0),01000,NULL))
+    ||(me_cmp(hom+0760,"DECRT11A",9))) {
+      PC = 2, el_swd (0, 0);
+      el_tim (&tim, &dat, &era);
+      el_swd (05000, tim>>16);
+      el_swd (05002, tim);
+      el_swd (05004, dat);
+      el_swd (05006, 021021);
+      el_swd (05010, era);
+      el_swd (05012, 0);
+    } else if ( me_cmp (hom+0760, "DECFILE11A", 10)) {
+      elVrsx = 1;
+      elPsig = ">@ <EOF>\r\r\n>";
+    } else if ( me_cmp (elAdos,PNB(0),8)) {
+      elVdos = 1;
+      elFupr = 1;
+      el_ddt ();
+    } else if ( me_cmp (elAxdp,PNB(2),8)) {
+      DMP("j");
+      elVxdp = 1;
+      elVclk = 0; } }
+  DMP("k");
+  if ( elFstp) {el_dbg ("boo") ;}
+  DMP("l");
+  DMP("m");
+} 
+/* code -  el_tim - get RT-11 time */
+void el_tim(
+int *clk ,
+int *dat ,
+int *era )
+{ tiTval val ;
+  ti_clk (&val);
+  rt_clk (&val, clk, elVhtz);
+  rt_dat (&val, dat, elFy2k);
+  if ( era != NULL) {rt_era (&val, era) ;}
+} 
+/* code -  el_bus - bus/address trap */
+void el_bus(
+int lab )
+{ if( ABT)return;
+  if ( bgVhlt) {
+    if( elVprb)return;
+     PUT("?V11-I-Invalid address\n");return; }
+  elVsch |= elABT_|elBUS_;
+} 
+/* code -  el_cpu - invalid instruction */
+void el_cpu()
+{ if( elFsma && (OP == 0170011))return;
+  elVsch |= elABT_|elCPU_;
+} 
+/* code -  el_clk - clock interrupt */
+int xxx = 0;
+int yyy = 0;
+int zzz = 0;
+void el_clk()
+{ if( ++elVtct < elVtps)return;
+  elVtct = 0;
+  if( bgVhlt)return;
+  if ( elVclk) {el_sch (elCLK) ;}
+} 
+el_htz(
+int htz )
+{ elVhtz = htz;
+  elVtps = (htz == 50) ? 20: 16;
+} 
+/* code -  el_trp - trap dispatch */
+void el_trp(
+elTwrd vec )
+{ elTwrd opc ;
+  elTwrd ops ;
+  elTwrd ps ;
+  int trc = 0;
+  if ( vec == veTRC) {++trc, vec = veBPT ;}
+  if (( elFiot && (vec == veIOT))
+  &&(el_fwd (PC) == vrSIG)) {
+     PC += 2, el_vap ();return; }
+  if ( (vec == veBPT) && !trc) {
+    if( !elVdbg)return;
+    if ( (elVmai || !*PNW(veBPT))) {
+      if( el_dbg ("bpt"))return; }
+    if( elFsma && !*PNW(veBPT))return; }
+  if ( (vec == veBPT) && trc) {
+    if( !elVdbg)return;
+     }
+  if ( vec == veEMT) {
+    elVebd = OP;
+    elVepc = PC;
+    if ( elVemt) {
+      if ( elVrsx) {rs_emt (PC, OP) ;}
+      if ( elVxdp) {xx_emt (PC, OP) ;}
+      if ( elVdos) {ds_emt (PC, OP) ;} } }
+  if ( vec == veTRP) {
+    elVebd = OP;
+    elVepc = PC;
+    if ( elVtrp) {
+      if ( elVxdp) {xx_trp (PC, OP) ;} } }
+  if ( bgVcpu || elVmai) {
+    switch ( vec) {
+    case veBUS:
+      el_dbg ("Bus");
+     break; case veMMU:
+      el_dbg ("Mmu");
+     break; case veCPU:
+      el_dbg ("Cpu");
+       } }
+  ops = PS, opc = PC;
+  if ( elVpsr) {ops = elVpss ;}
+  NEWPS(0);
+  PC = el_fwd (vec);
+  ps = el_fwd (vec+2);
+  ps = ps & ~(0030000);
+  ps |= (ops>>2) & 0030000;
+  NEWPS(ps);
+  if ( SP < 20) {SP = 20, el_dbg ("STK") ;}
+  el_psh (ops);
+  el_psh (opc);
+} 

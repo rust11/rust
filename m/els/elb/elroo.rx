@@ -1,0 +1,235 @@
+/* file -  elroo - PDP-11 root */
+#include "f:\m\els\elb\elmod.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\cldef.h"
+#include "f:\m\rid\imdef.h"
+#include "f:\m\rid\dbdef.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\mxdef.h"
+#include "f:\m\rid\ctdef.h"
+#include "f:\m\rid\codef.h"
+#include "f:\m\rid\tidef.h"
+#include "f:\m\rid\wcdef.h"
+#include "f:\m\rid\shdef.h"
+#include "f:\m\rid\rtutl.h"
+#include "f:\m\rid\vtdef.h"
+#include "f:\m\rid\lndef.h"
+#include "f:\m\rid\drdef.h"
+int el_cmd (char *);
+el_inf ();
+/* code -  main */
+main(
+int cnt ,
+char *(*vec ))
+{ char cmd [mxLIN];
+  int par = 0;
+  char *ptr = cmd;
+  im_ini ("V11");
+  cl_lin (cmd);
+  el_cmd (cmd);
+  if ( vec[1]) {
+    st_low (cmd);
+    st_trm (cmd);
+    if (( st_fnd ("/?", cmd))
+    ||(st_fnd ("/he", cmd))) {
+       el_hlp ();return; }
+    if ( st_fnd ("/in", cmd)) {
+       el_inf ();return; }
+    if ( st_fnd("/nocl", cmd)) {elVclk=0, ++par ;}
+    if ( st_fnd ("/de", cmd)) {elVdbg=1, ++par ;}
+    if ( st_fnd ("/di", cmd)) {bgVdsk=1, ++par ;}
+    if ( st_fnd("/nodl", cmd)) {elFdlx=0, ++par ;}
+    if ( st_fnd ("/do", cmd)) {elVdos=1, ++par ;}
+    if ( st_fnd ("/ei", cmd)) {elFeis=2, ++par ;}
+    if ( st_fnd ("/em", cmd)) {elVemt=1, ++par ;}
+    if ( st_fnd ("/ho", cmd)) {elFhog=1, ++par ;}
+    if ( st_fnd("/noio", cmd)) {elFiot=1, ++par ;}
+    if ( st_fnd ("/lo", cmd)) {elVlog=1, ++par ;}
+    if ( st_fnd ("/ls", cmd)) {elFlsi=1, ++par ;}
+    if ( st_fnd ("/nolt", cmd)) {elFltc=0, ++par ;}
+    if ( st_fnd ("/ma", cmd)) {elVmai=1, ++par ;}
+    if ( st_fnd("/nomm", cmd)) {elFmap=0, ++par ;}
+    if ( st_fnd ("/pa", cmd)) {elVpau=1, ++par ;}
+    if ( st_fnd ("/rs", cmd)) {elVrsx=1, ++par ;}
+    if ( st_fnd("/nosm", cmd)) {elFsma=0, ++par ;}
+    if ( st_fnd ("/st", cmd)) {elFstp=1, ++par ;}
+    if ( st_fnd ("/tr", cmd)) {elVtrp=1, ++par ;}
+    if ( st_fnd ("/tw", cmd)) {elFold=1, ++par ;}
+    if ( st_fnd ("/wr", cmd)) {elFwri=1, ++par ;}
+    if ( st_fnd("/nowr", cmd)) {elFwri=0, ++par ;}
+    if ( st_fnd ("/un", cmd)) {elFuni=1, ++par ;}
+    if ( st_fnd ("/up", cmd)) {elFupr=1, ++par ;}
+    if ( st_fnd ("/ve", cmd)) {elFvrb=1, ++par ;}
+    if ( st_fnd ("/novt", cmd)) {elFvtx=0, ++par ;}
+    if ( st_fnd ("/xx", cmd)) {elVxdp=1, ++par ;}
+    if ( st_fnd ("/50", cmd)) {elVhtz=50,++par ;}
+    if ( st_fnd ("/60", cmd)) {elVhtz=60,++par ;}
+    if ( st_fnd ("/7", cmd)) {elF7bt=1, ++par ;}
+    if ( st_fnd ("/vt52", cmd)) {vt_mod (52) ;}
+    if ( elFuni) {
+      elVhwm = elUAS;
+      elVnmx = _256k; }
+    if ( elFlsi) {
+      elVvio = 0170000;
+      elFmap = 0; }
+    if ( elFlsi && (elFeis == 1)) {
+      elFeis = 0; }
+    if ( elVmai) {elVdbg = 3 ;}
+    if ( elVdbg) {bgVfst = 0 ;}
+    if ( elVlog) {elPlog = fi_opn ("v11.txt", "wb", NULL) ;}
+  } 
+  db_ini ();
+  DMP("6");
+  el_ini ();
+  DMP("7");
+  el_dis ();
+  DMP("8");
+} 
+/* code -  exit */
+void el_exi()
+{ im_exi ();
+} 
+/* code -  verbose output */
+el_vrb(
+char *str )
+{ if ( elFvrb) {PUT(str) ;}
+} 
+/* code -  el_cmd - edit command */
+el_cmd(
+char *cmd )
+{ char *ptr ;
+  char *dst ;
+  ptr = cmd;
+  while ( *ptr == ' ') {++ptr ;}
+  if ( *ptr == '/') {
+    while ( *ptr) {
+      if( *ptr++ != ' ')continue;
+      if( *ptr == ' ')continue;
+      if( *ptr++ == '/')continue;
+      --ptr;
+      ptr[-1] = 0;
+      break;
+    }  }
+  dst = elAsys;
+  while ( *ptr && (*ptr != ' ')) {
+    *dst++ = *ptr++;
+  } 
+  *dst = 0;
+  if( !*ptr)return;
+  while ( *ptr == ' ') {++ptr ;}
+  if( !*ptr)return;
+  st_cop (ptr, elAcmd);
+  elPcmd = elAcmd;
+  elVcmd = elENB_;
+} 
+/* code -  el_ddt - insert DOSBATCH command */
+el_ddt()
+{ char cmd [64];
+  tiTval val ;
+  tiTplx plx ;
+  char *ptr = cmd;
+  ti_clk (&val);
+  ti_plx (&val, &plx);
+  plx.Vyea = 98;
+  *ptr++ = ' ';
+  ti_dmy (&plx, ptr);
+  ptr = st_end (ptr);
+  *ptr++ = '\r';
+  *ptr++ = ' ';
+  ti_hmt (&plx, ptr);
+  ptr = st_end (ptr);
+  if ( elPcmd) {
+    *ptr++ = '\r';
+    } else {
+    elPcmd = elAcmd; }
+  *ptr++ = 0;
+  st_ins (cmd, elPcmd);
+} 
+/* code -  el_hlp - help */
+char *elAhlp [];
+el_hlp()
+{ char *(*hlp )= elAhlp;
+  char *(*lft );
+  char *(*rgt );
+  int len = 0;
+  lft = hlp;
+  while ( *hlp++) {++len ;}
+  rgt = lft + (len /= 2);
+  PUT("\n");
+  PUT("V11.EXE - RUST PDP-11 emulator.  ");
+  PUT("\n\n");
+  while ( len--) {
+    PUT("%-40s", *lft++);
+    PUT("%s\n", *rgt++);
+  } 
+  PUT("\n");
+  PUT("Disk defaults: PDP:.DSK.  ");
+  PUT("Use ALT-H for runtime help.  ");
+  PUT("Use ALT-C to abort V11.");
+  PUT("\n");
+} 
+char *elAhlp [] =  {
+  "V11 [/options] disk [command]",
+  "",
+  "/noclock  Disable clock",
+  "/debug    Debug mode",
+  "/dos      System is DOS/Batch (for /emt)",
+  "/disk     Trace disk I/O operations",
+  "/nodlx    Disable DL: extended address",
+  "/eis      LSI emulation with EIS",
+  "/emt      Trace EMT instructions",
+  "/help /?  Display help",
+  "/info     Displays boot information",
+  "/noiot    Disable special V11 IOTs",
+  "/log      Log output to v11.txt",
+  "/lsi      LSI-11 emulation",
+  "/noltc    Remove line time clock",
+  "/maint    Maintenance debug mode",
+  "/nommu    Disable Memory Management",
+  "/pause    Pause screen output",
+  "/report   Display startup debug info",
+  "/rsx      System is RSX (for /emt)",
+  "/nosmarts Disable O/S date setup etc",
+  "/stop     Stop before execution",
+  "/traps    Trace TRAPs (with /XXDP)",
+  "/twenty   PDP-11/20 emulation",
+  "/unibus   Unibus model",
+  "/upper    Upper-case terminal",
+  "/xxdp     System is XXDP (for /emt)",
+  "/nowrite  Disable disk writes",
+  "/60       60 hertz clock",
+  "/7bit     Force 7 bit terminal output",
+  NULL,
+  };
+/* code -  el_inf - boot info */
+el_inf()
+{ PUT("DOS      LOGIN 1,1 |RUN PIP |^C |KILL(then hangs)\n");
+  PUT("RT-11    No login required\n");
+  PUT("RSX-11   No login required\n");
+  PUT("RSTS     Not supported (needs FPU)\n");
+  PUT("RUST/SJ  No login required\n");
+  PUT("UNIX-5   @unix |login: root |#ls -l\n");
+  PUT("UNIX-6   @unix |login: root |#ls -l\n");
+  PUT("UNIX-7   @unix |rl(0,0)rl2unix\n");
+  PUT("UNIX-7   @unix |rk(0,0)rkunix |STTY -LCASE\n");
+} 
+/* code -  el_win - show windows dependencies */
+el_lnp (char *);
+el_win()
+{ PUT("\n");
+  el_lnp ("NF7");
+  el_lnp ("PDP");
+  el_lnp ("RUST");
+} 
+/* code -  el_lnp - logical name path */
+el_lnp(
+char *pth )
+{ char eqv [mxSPC];
+  if ( !ln_trn (pth, eqv, 0)) {
+     PUT("%s not defined\n", pth);return;
+    } else {
+    PUT("%s:=[%s] (", pth, eqv); }
+  if ( !dr_avl (pth)) {PUT("not ") ;}
+  PUT("available)\n");
+} 

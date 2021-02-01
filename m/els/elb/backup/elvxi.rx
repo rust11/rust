@@ -1,0 +1,34 @@
+/* file -  elvxi - virtual interconnect */
+#include "c:\m\elb\elmod.h"
+#include "c:\m\elb\vtmod.h"
+#include "c:\m\rid\vxdef.h"
+#include "c:\m\rid\lndef.h"
+#include "c:\m\rid\drdef.h"
+#include "c:\m\rid\stdef.h"
+#include "c:\m\rid\cadef.h"
+#define VAD(a) (PNB(VPR((long )((a)&0xffff))))
+void el_vxi()
+{ elTwrd cod = el_fwd (SP);
+  elTwrd a1 = el_fwd (SP+2);
+  elTwrd a2 = el_fwd (SP+4);
+  char *p1 = (char *)VAD(a1);
+  char *p2 = (char *)VAD(a2);
+  vxTvab *vab ;
+  char log [128];
+  char *lst ;
+  switch ( cod) {
+  case vxVMP:
+    vab = (vxTvab *)(p1+vxETH+4);
+    vxPbuf = (char *)vab + vxVAB;
+    vx_ser (vab);
+   break; case vxMKD:
+    R0 = (dr_mak (p1));
+   break; case vxDEF:
+    st_cop (p1, log);
+    lst = st_lst (log);
+    if ( *lst == ':') {*lst = 0 ;}
+    R0 = (ln_def (log, p2, 0));
+    if ( !elFvrt) {el_rmt () ;}
+    if ( elFvrt) {vt_ld_rst () ;}
+     }
+} 

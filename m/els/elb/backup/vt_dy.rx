@@ -1,0 +1,176 @@
+/* file -  vt_dy - vrt floppy support */
+#include <windows.h>
+#include "c:\m\elb\vtmod.h"
+#include "c:\m\rid\fidef.h"
+#include "c:\m\rid\medef.h"
+#include "c:\m\rid\stdef.h"
+#include "c:\m\rid\lndef.h"
+#include "c:\m\rid\dbdef.h"
+#include "c:\m\rid\vwdef.h"
+#define vt_dyTlab struct vt_dyTlab_t 
+struct vt_dyTlab_t
+{ elTwrd Vsta ;
+  elTwrd Vchn ;
+  elTwrd Vlen ;
+  elTwrd Afna [4];
+  char Anam [82];
+   };
+#define vt_dyALL_  1
+#define vt_dyACT_  2
+#define vt_dyNWR_  4
+#define vt_dyFOR_  8
+vt_dyTlab vt_dyAlab [8]= {0};
+FILE *vt_dyAfil [8]= {0};
+#define vt_dyTiop struct vt_dyTiop_t 
+struct vt_dyTiop_t
+{ vtTqel *Pqel ;
+  vt_dyTlab *Plab ;
+  FILE *Pfil ;
+  int Vuni ;
+  elTwrd Vbuf ;
+  char *Pbuf ;
+   };
+void vt_dy_trn (vt_dyTiop *,int );
+void vt_dy_qio (vt_dyTiop *);
+int vt_dy_mnt (vt_dyTiop *);
+int vt_dy_opn (vt_dyTiop *,vt_dyTlab *,int );
+int vt_dy_skw (int );
+/* code -  vt_dy_iop - dy i/o processing */
+void *vt_dyHhan = 0;
+vt_dy_iop(
+vtTqel *qel ,
+int req )
+{ vt_dyTiop iop = {0};
+  vt_dyTlab *lab ;
+  if ( !vt_dyHhan) {
+#define dyVWN  "\\\\.\\vwin32"
+    vt_dyHhan = CreateFile (dyVWN, 0, 0, NULL, 0, FILE_FLAG_DELETE_ON_CLOSE, 0);
+    if ( vt_dyHhan == INVALID_HANDLE_VALUE) {db_lst ("CreateFile") ;}
+    if( !vt_dyHhan){ vt_io_her (qel) ; return;}
+  } 
+  iop.Pqel = qel;
+  iop.Vuni = qel->Vuni & 7;
+  lab = vt_dyAlab + iop.Vuni;
+  iop.Plab = lab;
+  iop.Pfil = vt_dyAfil[iop.Vuni];
+  iop.Vbuf = qel->Vqbu;
+  iop.Pbuf = ADR(iop.Vbuf);
+  el_swd (_dvsiz+dyslot,lab->Vlen);
+  switch ( req) {
+  case vtREA:
+    vt_dy_trn (&iop, vtREA);
+   break; case vtWRI:
+    vt_dy_trn (&iop, vtWRI);
+   break; case vtQIO:
+    vt_dy_qio (&iop);
+     }
+} 
+/* code -  vt_dy_qio - acp functions */
+void vt_dy_qio(
+vt_dyTiop *iop )
+{ int req ;
+  vtTqel *qel = iop->Pqel;
+  vt_dyTlab *lab = iop->Plab;
+  FILE *fil ;
+  char log [4];
+  char nam [128];
+  switch ( qel->Vfun & 0xff) {
+  case 0373:
+    *(elTwrd *)iop->Pbuf = lab->Vlen;
+    return;
+   break; case 0374:
+    vt_dy_mnt (iop);
+    me_cop (iop->Plab, iop->Pbuf,  sizeof(vt_dyTlab));
+    return;
+   break; case 0376:
+  case 0375:
+    vt_dy_mnt (iop);
+    if ( lab->Vsta & vt_dyALL_) {
+      fi_clo (iop->Pfil, NULL);
+      FMT(log, "DY%d", iop->Vuni);
+      ln_und (log, 0);
+      lab->Vsta = 0; }
+    if( qel->Vfun == 0376)return;
+    me_cop (iop->Pbuf, lab,  sizeof(vt_dyTlab));
+    if( (vt_dy_opn (iop, lab, 1)) == 0)break;
+    el_swd (iop->Vbuf, lab->Vsta);
+    el_swd (_dvsiz+dyslot, lab->Vlen);
+    return;
+   break; default: 
+    return;
+     }
+  st_cop ("Error opening logical disk", iop->Pbuf+ sizeof(vt_dyTlab));
+  vt_io_her (qel);
+} 
+/* code -  vt_dy_trn - transfer functions */
+void vt_dy_trn(
+vt_dyTiop *iop ,
+int req )
+{ vwTreg reg ;
+  int sta = 0;
+  vtTqel *qel = iop->Pqel;
+  vt_dyTlab *lab = iop->Plab;
+  ULONG cnt = ABS(qel->Vqwc) * 2;
+  ULONG fun = (req == vtREA) ? 2: 3;
+  ULONG cb ;
+  reg.Veax = iop->Vuni;
+  reg.Vebx = (ULONG )iop->Pbuf;
+  reg.Vecx = cnt / 512;
+  reg.Vedx = vt_dy_skw (qel->Vblk);
+  DeviceIoControl (vt_dyHhan, fun, &reg,  sizeof(reg), &reg,  sizeof(reg), &cb, 0);
+} 
+/* code -  vt_dy_mnt - mount unit */
+vt_dy_mnt(
+vt_dyTiop *iop )
+{ vt_dyTlab *lab ;
+  int uni = iop->Vuni;
+  char log [4];
+  lab = vt_dyAlab + uni;
+  if( lab->Vsta & vt_dyALL_)return 1;
+  FMT(log, "DY%d", uni);
+  if( (ln_trn (log, lab->Anam, 0)) == 0)return ( 0 );
+  return ( vt_dy_opn (iop, lab, 0));
+} 
+/* code -  vt_dy_opn - open associated image file */
+vt_dy_opn(
+vt_dyTiop *iop ,
+vt_dyTlab *lab ,
+int def )
+{ int uni = iop->Vuni;
+  FILE *fil ;
+  char log [4];
+  char nam [128];
+  ln_trn (lab->Anam, lab->Anam, 0);
+  nam[0] = 0;
+  if ( !st_fnd (":", lab->Anam)) {st_app ("sy:", nam) ;}
+  st_app (lab->Anam, nam);
+  if ( !*st_lst (nam) == ':') {
+    if ( !st_fnd (".", lab->Anam)) {st_app (".dsk", nam) ;} }
+  if ( st_len (nam) < 82) {st_cop (nam, lab->Anam) ;}
+  if( (fil = fi_opn (nam, "rb+", NULL)) == 0)return ( 0 );
+  vt_dyAfil[uni] = fil;
+  iop->Pfil = fil;
+  if( (lab->Vlen = fi_len (fil) / 512) == 0)return ( 0 );
+  lab->Vsta |= vt_dyALL_;
+  if( !def)return 1;
+  FMT(log, "DY%d", uni);
+  ln_def (log, lab->Anam, 0);
+  return 1;
+} 
+/* code -  vt_dy_skw - get sector skew */
+int vt_dyAr33 [] =  {
+  0, 5, 1, 6, 2, 7, 3, 8, 4, 9,
+  12, 17, 13, 18, 14, 19, 15, 10, 16, 11,
+  24, 29, 25, 20, 26, 21, 27, 22, 28, 23,
+  36, 31, 37, 32, 38, 33, 39, 34, 30, 35,
+  48, 43, 49, 44, 40, 45, 41, 46, 42, 47,
+  };
+vt_dy_skw(
+int sec )
+{ int skw = sec % 50;
+  return ( sec);
+  PUT("[%d = ", sec);
+  sec = (sec - skw) + vt_dyAr33[skw];
+  PUT("[%d\n", sec);
+  return ( sec);
+} 

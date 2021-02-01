@@ -1,0 +1,126 @@
+/* file -  vtiop - I/O processor */
+#include "c:\m\elb\vtmod.h"
+vtTiop *vtAdev [] =  {
+  &vt_no_iop,
+  &vt_vx_iop,
+  &vt_nl_iop,
+  &vt_ld_iop,
+  &vt_dy_iop,
+  &vt_no_iop,
+  &vt_no_iop,
+  &vt_no_iop,
+  &vt_no_iop,
+  &vt_no_iop,
+  &vt_no_iop,
+  &vt_no_iop,
+  &vt_no_iop,
+  &vt_no_iop,
+  &vt_no_iop,
+  };
+/* code -  vt_qel - display queue element */
+void vt_qel(
+vtTqel *qel )
+{ 
+  return;
+  PUT("Qel=%o Lnk=%o CSW=%o Blk=%o Fun=%o Uni=%o\n",R5, qel->Vlnk, qel->Vcsw, qel->Vblk, qel->Vfun, qel->Vuni);
+  PUT("Buf=%o Cnt=%o Ast=%o\n", qel->Vbuf, qel->Vcnt, qel->Vast);
+} 
+/* code -  vt_io_xxx - I/O dispatch */
+/* code -  vt_io_rea - read */
+void vt_io_rea()
+{ vtTqel *qel = ADR(R5);
+  qel->Vfun = 0;
+  vt_trn (qel, vtREA);
+} 
+/* code -  vt_io_wri - write */
+void vt_io_wri()
+{ vtTqel *qel = ADR(R5);
+  qel->Vcnt = -qel->Vcnt;
+  qel->Vfun = 0;
+  vt_trn (qel, vtWRI);
+} 
+/* code -  vt_io_qio - lookup/enter/delete/rename/close */
+void vt_io_qio()
+{ vtTqel *qel = ADR(R5);
+  vt_trn (qel, vtQIO);
+} 
+/* code -  vt_trn - i/o dispatcher */
+void vt_trn(
+vtTqel *qel ,
+int fun )
+{ rtTmon *mon = ADR(vtKmon);
+  rtTchn *chn ;
+  int tmp ;
+  vt_qel (qel);
+  mon->Vchk = 0;
+  tmp = qel->Vcsw = qel->Vqa8;
+  chn = ADR(tmp);
+  qel->Vblk = qel->Vqbl + chn->Vblk;
+  qel->Vbuf = qel->Vqbu;
+  qel->Vuni = chn->Vuni;
+  qel->Vqx3 = chn->Vuse;
+  tmp = (chn->Vcsw & chIDX_) >> 1;
+  (*vtAdev[tmp]) (qel, fun);
+  vt_io_set (qel, 0);
+} 
+/* code -  vt_io_set - set return status */
+void vt_io_set(
+vtTqel *qel ,
+int sta )
+{ rtTchn *chn = ADR(qel->Vcsw);
+  chn->Vcsw |= sta;
+  qel->Vqr0 = chn->Vcsw;
+} 
+/* code -  vt_io_eof - set end-of-file status */
+void vt_io_eof(
+vtTqel *qel )
+{ vt_io_set (qel, chEOF_);
+} 
+/* code -  vt_io_her - set hard error status */
+void vt_io_her(
+vtTqel *qel )
+{ vt_io_set (qel, chHER_);
+} 
+/* code -  vt_io_nop - don't set status */
+void vt_io_nop(
+vtTqel *qel )
+{ vt_io_set (qel, 0);
+} 
+/* code -  vt_no_iop - no device */
+vt_no_iop(
+vtTqel *qel ,
+int fun )
+{ vt_io_her (qel);
+} 
+/* code -  vt_nl_iop - null device */
+vt_nl_iop(
+vtTqel *qel ,
+int fun )
+{ switch ( fun) {
+  case vtREA:
+    vt_io_eof (qel);
+   break; case vtWRI:
+    vt_io_nop (qel);
+   break; case vtQIO:
+    vt_io_nop (qel);
+   break; default: 
+    vt_io_her (qel);
+     }
+} 
+/* code -  vt_chn - return channel address */
+/* code -  vt_chn - return channel address */
+#if 0
+rtTmon rtImon = {0};
+rtTchn *vt_chnx(
+int idx )
+{ rtTmon *mon = &rtImon;
+  if( idx >= 17)return 0;
+  return ( mon->Achn + idx);
+} 
+#endif 
+rtTchn *vt_chn(
+int idx )
+{ rtTmon *mon = ADR(_rmon);
+  if( idx >= 17)return 0;
+  return ( mon->Achn + idx);
+} 

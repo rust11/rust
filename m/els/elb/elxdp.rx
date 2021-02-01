@@ -1,0 +1,246 @@
+/* file -  elxdp -- xxdp extensions */
+#include "f:\m\els\elb\elmod.h"
+#include "f:\m\rid\dbdef.h"
+#include "f:\m\rid\stdef.h"
+#define xxIGN  0
+#define xxSHO  1
+#define xxONC  2
+int xxVsho = xxSHO;
+int xxVign = xxIGN;
+int xxVonc = xxONC;
+int xxVprv = 0;
+char *xx_spc (elTadr ,char *);
+#define IGN(s,x) (msk = xxVign)
+#define DSP(s,x) (cap = s)
+#define SPC(s) (spc = xx_spc (s, asc))
+void xx_emt(
+elTwrd adr ,
+elTwrd emt )
+{ char *cap = "";
+  int msk = 1;
+  char asc [14];
+  char *spc = NULL;
+  int cas = OP & 0377;
+  switch ( cas) {
+  case 000:
+    DSP("GCmdSt", "GetLin");
+   break; case 001:
+    DSP("GToken", "ParFld");
+   break; case 002:
+    IGN("PLine", "TypMon");
+   break; case 003:
+    IGN("TypMsg", "TypStr");
+   break; case 004:
+    IGN("PutChr", "PutChk");
+   break; case 005:
+    IGN("CKybd", "GetAvl");
+   break; case 006:
+    IGN("GetChr", "GetChk");
+   break; case 007:
+    IGN("CrLf", "NewLin");
+   break; case 010:
+    IGN("Tabs", "PutTab");
+   break; case 011:
+    DSP("GetNum", "ParOct");
+   break; case 012:
+    DSP("Open", "OpnFil"), SPC(R0);
+   break; case 013:
+    DSP("Close", "CloFil");
+   break; case 014:
+    DSP("Load", "LoaLDA"), SPC(R0);
+   break; case 015:
+    IGN("GetWrd", "ReaWrd");
+   break; case 016:
+    IGN("GetByt", "ReaByt");
+   break; case 017:
+    IGN("OneChr", "PutCha");
+   break; case 020:
+    DSP("NxtBlk", "ReaNxt");
+   break; case 021:
+    DSP("BkRead", "ReaBlk");
+   break; case 022:
+    DSP("SetErr", "SetAbt");
+   break; case 023:
+    DSP("Error", "JmpAbt");
+   break; case 024:
+    IGN("CmpNam", "CmpSpc");
+   break; case 025:
+    IGN("UpkNam", "R50Asc");
+   break; case 026:
+    DSP("KSwitch","SetLin");
+   break; case 027:
+    DSP("Date", "GetDat");
+   break; case 030:
+    DSP("IToA", "OctAsc");
+   break; case 031:
+    DSP("Default","DevNam");
+   break; case 032:
+    DSP("RToken", "SetFld");
+   break; case 033:
+    DSP("LinePtr","RedTer");
+   break; case 034:
+    DSP("NoPrtr", "RstTer");
+   break; case 035:
+    DSP("Autoloa","LoaSup");
+   break; case 036:
+    DSP("GetDec", "ParDec");
+   break; case 037:
+    DSP("Fill", "PutPad");
+   break; case 040:
+    DSP("PutScp", "BatMod");
+   break; case 041:
+    DSP("CChain", "TerMod");
+   break; case 042:
+    DSP("Comm", "GetCSR");
+   break; case 043:
+    DSP("RDrive", "GetDrv");
+   break; case 044:
+    DSP("FrcTyp", "TypSpc");
+   break; case 045:
+    DSP("ChkCC", "");
+   break; case 046:
+    DSP("Emt46", "");
+   break; case 047:
+    DSP("Emt47", "");
+   break; case 050:
+    DSP("Lkup", "");
+   break; case 051:
+    DSP("WrtODv", "");
+   break; case 052:
+    DSP("ClsFil", "");
+   break; case 053:
+    DSP("ReadBin","");
+   break; case 054:
+    DSP("ReadAsc","");
+   break; case 055:
+    DSP("WriteA", "");
+   break; case 056:
+    DSP("LdProg", "");
+   break; default: 
+    DSP("???", "");
+     }
+  switch ( msk) {
+  case xxIGN:
+    return;
+   break; case xxONC:
+    if( xxVprv == cas)return;
+     }
+  xxVprv = cas;
+  el_sol ();
+  PUT("%o	emt=%-4o ", PC&0177777, OP&0377);
+  PUT("%-7s", cap);
+  PUT(" r0=%-6o", R0);
+  PUT(" r1=%-6o", R1);
+  PUT(" r5=%-6o", R5);
+  if ( spc) {PUT(" spc=[%s]", spc) ;}
+  el_new ();
+} 
+char *xx_spc(
+elTadr adr ,
+char *spc )
+{ char *ptr = spc;
+  int cnt = 10;
+  int cha ;
+  int blk = 0;
+  while ( cnt--) {
+    cha = el_fbt (adr++);
+    if( !blk && !cha)continue;
+    *ptr++ = cha, ++blk;
+  } 
+  *ptr = 0;
+  return ( spc);
+} 
+/* code -  xx_trp - xxdp traps */
+void xx_trp(
+elTwrd adr ,
+elTwrd emt )
+{ char *cap = "";
+  int msk = 1;
+  char asc [14];
+  char *spc = NULL;
+  int cas = OP & 0377;
+  switch ( cas) {
+  case 000:
+    cap = "???";
+   break; case 001:
+    cap = "TypRad";
+   break; case 002:
+    cap = "Bcdcv";
+   break; case 003:
+    cap = "DatUpk";
+   break; case 004:
+    cap = "BytFil";
+   break; case 005:
+    cap = "ClrBMp";
+   break; case 006:
+    cap = "BkRead";
+   break; case 007:
+    cap = "RdDat";
+   break; case 010:
+    cap = "WrtDat";
+   break; case 011:
+    cap = "BlkWrt";
+   break; case 012:
+    cap = "WrtLc";
+   break; case 013:
+    cap = "ClrBuf";
+   break; case 014:
+    cap = "PakNam";
+   break; case 015:
+    cap = "TypNam";
+   break; case 016:
+    cap = "MBufAd";
+   break; case 017:
+    cap = "ChkSum";
+   break; case 020:
+    cap = "BMove";
+   break; case 021:
+    cap = "Trap21";
+   break; case 022:
+    cap = "DtDel";
+   break; case 023:
+    cap = "Boot";
+   break; case 024:
+    cap = "ClrMap";
+   break; case 025:
+    cap = "AlocBk";
+   break; case 026:
+    cap = "Alloc";
+   break; case 027:
+    cap = "ReadMp";
+   break; case 030:
+    cap = "ClsMap";
+   break; case 031:
+    cap = "WrtMap";
+   break; case 032:
+    cap = "Trap32";
+   break; case 033:
+    cap = "StufDs";
+   break; case 034:
+    cap = "Close";
+   break; case 035:
+    cap = "DalSbk";
+   break; case 036:
+    cap = "DalLnk";
+   break; case 037:
+    cap = "DalCtg";
+   break; case 040:
+    cap = "StMaps";
+     }
+  switch ( msk) {
+  case xxIGN:
+    return;
+   break; case xxONC:
+    if( xxVprv == cas)return;
+     }
+  xxVprv = cas;
+  el_sol ();
+  PUT("%o	trap=%-3o ", PC&0177777, OP&0377);
+  PUT("%-7s", cap);
+  PUT(" r0=%-6o", R0);
+  PUT(" r1=%-6o", R1);
+  PUT(" r5=%-6o", R5);
+  if ( spc) {PUT(" spc=[%s]", spc) ;}
+  el_new ();
+} 
+/* code -  xx_loo - detect loop */

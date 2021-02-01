@@ -1,0 +1,876 @@
+/* file -  eldbg - V11 debugger */
+#include "f:\m\els\elb\elmod.h"
+#include "f:\m\rid\rvpdp.h"
+#include "f:\m\rid\chdef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\cldef.h"
+#include "f:\m\rid\imdef.h"
+#include "f:\m\rid\dbdef.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\mxdef.h"
+#include "f:\m\rid\ctdef.h"
+#include "f:\m\rid\codef.h"
+#include "f:\m\rid\tidef.h"
+#include "f:\m\rid\wcdef.h"
+#include "f:\m\rid\shdef.h"
+#include "f:\m\rid\rtutl.h"
+bg_dmp (char *,char *,int );
+bg_mmu ();
+bg_map (elTadr );
+elTfun bg_inf ;
+void bg_hlp (void );
+int bgVpsw = 0;
+int bgVovr = 0;
+int bgVovp = 0;
+int bgVsto = 0;
+int bgVtop = 0;
+int bgVban = 0;
+elTwrd bg_fwd (elTadr );
+void bg_swd (elTadr ,elTwrd );
+bg_tra (elTadr );
+bg_adr (elTadr );
+bg_wat ();
+elTadr bg_vpx (elTadr );
+#define bgTmch struct bgTmch_t 
+struct bgTmch_t
+{ elTwrd Vopc ;
+  elTwrd Vnxt ;
+  elTwrd Vadr ;
+   };
+bg_msv (bgTmch *);
+bg_mrs (bgTmch *);
+bg_val (char **,elTwrd *,int *,char *);
+void bg_res (void );
+int bgVsch = 0;
+int bgVwid = 2;
+int bgVrad = 0;
+int bgVtra = 0;
+bgTtrg bgIbpt = {0};
+bgTtrg bgIwat = {0};
+bgTtrg bgIfee = {0};
+bg_inv(
+char *str ,
+char *lst )
+{ *lst = 0;
+  PUT("?V11-W-Invalid command [%s]\n", str);
+} 
+/* code -  commands (may be out of date) */
+/* code -  el_dbg - debugger */
+int el_dbg(
+char *rea )
+{ char buf [mxLIN];
+  char sav [mxLIN];
+  char r50 [4];
+  char *rep ;
+  char *cmd ;
+  elTadr adr = PC;
+  elTwrd opc ;
+  elTwrd val ;
+  int lng ;
+  int pol ;
+  int alp ;
+  int dig ;
+  int que ;
+  elTwrd v1 ;
+  elTwrd v2 ;
+  int cas ;
+  rvTpdp rev = {0};
+  elTwrd nxt ;
+  char str [32];
+  int exi = 0;
+  int snd ;
+  elThis his ;
+  bgTmch mch ;
+  int inv = 0;
+  if ( !st_sam (rea, "zap")) {
+    if( bgVhlt)return 1; }
+  bgVhlt = 1;
+  bgVcnt = 0;
+  bgVpsw = PS;
+  el_sol ();
+  if ( st_sam (rea, "step") && !bgVtra) {
+    bgVstp = 0;
+    if ( bgVban) {bg_reg () ;}
+  } else if ( st_sam (rea, "over")) {
+    bgVovr = 0;
+  } else if ( st_sam (rea, "Felt")) {
+    PUT("Feel: %o\n", bgVfel);
+  } else if ( rea || bgVtra) {
+    PUT("%s: PC=%0o OP=%0o",rea,PC,OP);
+    if ( bgIwat.Venb) {bg_wat () ;}
+    PUT("\n"); }
+  if ( bgVtra) {
+    if( st_sam (rea, "step")){ bgVstp=1, bgVcnt=1 ; return 1;}
+    bgVtra = 0, bgVstp = 0; }
+  *sav = 0;
+  for(;;)  {
+    rev.Vloc = adr;
+    if ( adr == elPSW) {rev.Vopc = opc = PS ;} else {
+      rev.Vopc = opc = bg_fwd (adr) ; }
+    rev.Vlen = 1;
+    elVprb = 1;
+    rev.Adat[1] = v1 = bg_fwd(adr+2);
+    rev.Adat[2] = v2 = bg_fwd(adr+4);
+    elVprb = 0;
+    rv_pdp (&rev);
+    if ( bg_mem (adr) || bgVval) {
+      rt_unp (&opc, r50, 1);
+      bg_dmp (((char *)&opc),str,2);
+      if ( !bgVrad) {
+        PUT ("\t%0o\t%3o  %3o  %3s [%s]",opc,(opc>>8)&255,opc&255,r50,str);
+        } else {
+        PUT ("\t%0d.\t%3d. %3d. %3s [%s]",opc,(opc>>8)&255,opc&255,r50,str); }
+      nxt = bgVwid;
+      if ( adr & 1) {nxt = 1 ;}
+      } else {
+      nxt = rev.Vlen * 2;
+      PUT("\t%0o\t", opc);
+      PUT("%s", rev.Astr); }
+    cmd = buf;
+    cl_cmd (" | ", cmd);
+    st_trm (cmd);
+    st_low (cmd);
+    if ( *cmd == -1) {++cmd ;}
+    if ( !*cmd) {
+      if (( adr == elPSW)
+      ||(adr == (elREG + 8*2))) {
+        adr = elREG;
+        continue; }
+       adr += nxt;continue; }
+    if ( *cmd == ';') {
+      st_cop (sav, cmd);
+      } else {
+      st_cop (cmd, sav); }
+    while ( *cmd) {
+      dig = alp = que = val = 0;
+      pol = -1;
+      while ( *cmd && *cmd == ' ') {++cmd ;}
+      rep = cmd;
+      if ( *cmd == '-') {pol = 0, ++cmd ;}
+      if ( *cmd == '+') {pol = 1, ++cmd ;}
+      dig = bg_val (&cmd, &val, &lng, NULL);
+      if ( (pol >= 0) && !dig && !*cmd) {
+        dig = 1, val = bgVwid;
+        if ( adr & 1) {dig = 1, val = 1 ;} }
+      if ( (pol >= 0) && dig) {
+        if ( pol) {adr += val ;} else {
+          adr -= val ; }
+        adr &= 0xffff;
+        continue; }
+      if ( dig & !*cmd) {adr = val ;}
+      if( !*cmd)break;
+      if ( *cmd == '?') {que = 1, ++cmd ;}
+      if ( ct_alp (*cmd)) {cas = alp = ch_low (*cmd++) ;} else {
+        cas = *cmd++ ; }
+      snd = ch_low (*cmd);
+      inv = 0;
+      if ( que && alp) {
+        switch ( alp) {
+        case 'a':
+          bg_sho ();
+         break; case 'b':
+          bg_byt ();
+         break; case 'd':
+          bg_dev ();
+         break; case 'p':
+          PUT("Instruction count: %o\n", bgVict);
+         break; case 'w':
+          bg_wrd ();
+           }
+      } else if ( (pol >= 0) && alp) {
+        switch ( alp) {
+        case 'a':
+          bgVbus = pol;
+         break; case 'b':
+          bgIbpt.Venb = pol;
+         break; case 'c':
+          elVclk = pol;
+         break; case 'd':
+          bgVdsk = pol;
+         break; case 'f':
+          bgVfst = pol;
+         break; case 't':
+          bgVcpu = pol;
+         break; case 'r':
+          bgVreg = pol;
+         break; case 'p':
+          elVpau = pol;
+         break; case 'w':
+          bgIwat.Venb = pol;
+           }
+        } else {
+        switch ( cas) {
+        case '\\':
+          bgVval = ~bgVval;
+         break; case '/':
+          bgVrad = ~bgVrad;
+         break; case 'b':
+          if ( !dig) {val = adr ;}
+          bg_set (&bgIbpt,val,bgVpsw);
+          bgVovr = 0;
+         break; case 'c':
+          if ( snd == 'b') {
+            bgIbpt.Venb = 0;
+             ++cmd;continue; }
+          if ( snd == 'f') {
+            bgIfee.Venb = 0;
+             ++cmd;continue; }
+          if ( snd == 'u') {
+            bgVund = 0;
+             ++cmd;continue; }
+          if ( snd == 'w') {
+            bgIwat.Venb = 0;
+            bgIwat.Vflg = 0;
+             ++cmd;continue; }
+          inv = 1;
+         break; case 'd':
+          pol = 0;
+        case 'e':
+          if ( cas == 'e') {pol = 1 ;}
+          if( !snd)break;
+          switch ( snd) {
+          case 'a':
+            bgVbus = pol;
+           break; case 'b':
+            bgIbpt.Venb = pol;
+           break; case 'c':
+            elVclk = pol;
+           break; case 'd':
+            bgVdsk = pol;
+           break; case 'f':
+            bgVfst = pol;
+           break; case 't':
+            bgVcpu = pol;
+           break; case 'r':
+            bgVreg = pol;
+           break; case 'p':
+            elVpau = pol;
+           break; case 'w':
+            bgIwat.Venb = pol;
+           break; default: 
+            inv = 1;
+             }
+          if ( !inv) {++cmd ;}
+         break; case 'f':
+          if ( dig) {bgVfad=val ;} else {
+            bgVfad=adr ; }
+          bgVfen = 1;
+          bgVfel = 0;
+         break; case 'g':
+          if ( dig) {PC = val ;} else {
+            PC = adr ; }
+          adr = PC;
+          if( *cmd)continue;
+           bg_res ();return 1;
+         break; case 'h':
+          bg_hlp ();
+         break; case 'k':
+          bgVpsw = 0;
+         break; case 'l':
+          hi_prv (&his);
+          adr = his.Vloc;
+          bgVpsw = his.Vmod;
+         break; case 'm':
+          if ( snd == 'a') {
+            if ( dig) {adr = val ;}
+            adr |= elQIO;
+          } else if ( snd == 'r') {
+            if ( bg_mrs (&mch)) {
+              opc = mch.Vopc;
+              nxt = mch.Vnxt;
+              adr = mch.Vadr; }
+puts ("#el_dbg.a");
+          } else if ( snd == 's') {
+            mch.Vopc = opc;
+            mch.Vnxt = nxt;
+            mch.Vadr = adr;
+            bg_msv (&mch);
+            } else {
+            inv = 1;
+          } 
+          if ( !inv) {++cmd ;}
+         break; case 'n':
+          hi_nxt (&his);
+          adr = his.Vloc;
+          bgVpsw = his.Vmod;
+         break; case 'o':
+          bg_res ();
+          bgVovp=adr+(rev.Vlen*2);
+          bgVstp=0, bgVovr=1;
+          return 1;
+         break; case 'p':
+          if ( snd == 'c') {
+            adr = elREG + (7*2);
+             ++cmd;continue; }
+          if ( snd == 's') {
+            adr = elPSW;
+             ++cmd;continue; }
+          bg_res ();
+          bgVict = 0;
+          if ( dig) {bgVcnt = lng ;}
+          return 1;
+         break; case 'r':
+          if ( snd == 's') {
+            adr = elPSW, ++cmd;
+          } else if ( ct_dig(*cmd)) {
+            adr = ((*cmd++ - '0')*2) + elREG;
+            } else {
+            bg_reg (); }
+         break; case 's':
+          if ( snd == 'p') {
+            adr = elREG + (6*2);
+             ++cmd;continue;
+          } else if ( snd == 'b') {
+            bgVwid = 1;
+             ++cmd;continue;
+          } else if ( snd == 'i') {
+            bg_res ();
+            if ( dig) {bgVcnt = val ;} else {
+              bgVcnt = 1 ; }
+            bgVstp=1;
+            if ( st_sam (rea,"bpt")) {++bgVstp ;}
+            return 1;
+          } else if ( snd == 'm') {
+            bg_mmu ();
+             ++cmd;continue;
+          } else if ( snd == 'o') {
+            bgVovp=adr+(rev.Vlen*2);
+            bgVstp=0, bgVovr=1;
+            return 1;
+          } else if ( snd == 's') {
+            bg_sho ();
+             ++cmd;continue;
+          } else if ( snd == 't') {
+            if ( !dig) {val = adr ;}
+            bg_map (val);
+             ++cmd;continue;
+          } else if ( snd == 'w') {
+            bgVwid = 2;
+             ++cmd;continue;
+          } else if ( snd == 'u') {
+            ++cmd;
+            if ( (bg_val (&cmd, &val, &lng, "")) == 0) {val = 0 ;}
+            bgVund = val;
+            continue; }
+          bg_res ();
+          if (( !dig)
+          &&((rev.Vopc & ~(070)) == 04707)) {
+            bgVovp=adr+(rev.Vlen*2);
+            bgVstp=0, bgVovr=1;
+            return 1; }
+          if ( dig) {bgVcnt = val ;} else {
+            bgVcnt = 1 ; }
+          bgVstp=1;
+          if ( st_sam (rea,"bpt")) {++bgVstp ;}
+          return 1;
+         break; case 't':
+          if ( snd == 'r') {
+            bg_res ();
+            if ( dig) {bgVcnt = val ;} else {
+              bgVcnt = 1 ; }
+            bgVstp = 1;
+            bgVtra = 1;
+            return 1; }
+          if( snd == 't')return 0;
+          bg_res ();
+          if ( dig) {bgVtop=val ;} else {
+            bgVtop=adr ; }
+          bgVsto = 1;
+          return 1;
+         break; case 'u':
+          bgVpsw = 0140000;
+         break; case 'v':
+          bgVval = 1;
+         break; case 'w':
+          if ( snd == 'v') {
+            bgIwat.Vmat = val;
+            bgIwat.Vflg = 1;
+             ++cmd;continue; }
+          if ( !dig) {val = adr ;}
+          bg_set (&bgIwat,val,bgVpsw);
+          bgIwat.Vval = bg_fwd (val);
+          bgIwat.Padr = PNW(bg_vpx (val));
+          bgVovr = 0;
+         break; case 'x':
+          el_exi ();
+         break; case 'y':
+          adr = bgVprv;
+         break; case 'z':
+          bgVzed = val;
+         break; case '@':
+          if ( dig) {adr = val ;}
+          adr = bg_fwd (adr);
+         break; case '>':
+          adr = rev.Vdst;
+         break; case '=':
+          if ( dig) {adr = val ;}
+          if( (bg_val (&cmd, &val, &lng, "")) == 0)continue;
+          bg_swd (adr, val);
+          if ( adr != 0177776) {
+            adr += 2; }
+         break; case '.':
+          adr = PC;
+         break; case '!':
+          *cmd = 0;
+         break; case ',':
+          ;
+         break; case ' ':
+          ;
+         break; case '\t':
+          ;
+         break; default: 
+          inv = 1;
+           }
+        if ( inv) {*cmd = 0, bg_inv (rep, cmd) ;}
+      } 
+    } 
+  } 
+} 
+/* code -  assists */
+#define bgTctx struct bgTctx_t 
+struct bgTctx_t
+{ int Vsch ;
+  int Vpsw ;
+   };
+bg_sav(
+bgTctx *ctx )
+{ ctx->Vsch = elVsch;
+  ctx->Vpsw = PS;
+  elVsch = 0;
+  NEWPS(bgVpsw);
+} 
+bg_rst(
+bgTctx *ctx )
+{ int sch = elVsch;
+  if (( sch & elMMX_)
+  &&(!elVprb)) {
+    PUT("?V11-I-Memory management exception\n"); }
+  elVsch = ctx->Vsch;
+  NEWPS(ctx->Vpsw);
+} 
+elTwrd bg_fwd(
+elTadr adr )
+{ bgTctx ctx ;
+  elTwrd val ;
+  if( adr >= elQIO)return ( *PNW(adr) );
+  bg_sav (&ctx);
+  if (( adr & 1)
+  ||((bgVwid == 1) && bgVval)) {
+    val = el_fbt (adr) & 0377;
+    } else {
+    val = el_fwd (adr); }
+  bg_rst (&ctx);
+  return ( val);
+} 
+void bg_swd(
+elTadr adr ,
+elTwrd val )
+{ bgTctx ctx ;
+  bg_sav (&ctx);
+  if ( adr & 1) {
+    el_sbt (adr, val);
+    } else {
+    el_swd (adr, val); }
+  bg_rst (&ctx);
+} 
+/* code -  bg_val - get value */
+bg_val(
+char *(*cmd ),
+elTwrd *val ,
+int *lng ,
+char *msg )
+{ char *ptr = *cmd;
+  if ( !ct_dig (*ptr)) {
+    if ( msg) {
+      PUT(*msg ? msg: "?V11-E-No value specified\n"); }
+    return 0; }
+  SCN(ptr, "%o", lng);
+  *val = *(elTwrd *)lng;
+  while ( ct_dig(*ptr)) {++ptr ;}
+  *cmd = ptr;
+  return 1;
+} 
+/* code -  bg_vpx - physical translation */
+elTadr bg_vpx(
+elTadr adr )
+{ bgTctx ctx ;
+  elTadr res ;
+  bg_sav (&ctx);
+  res = VPR(adr);
+  bg_rst (&ctx);
+  return ( res);
+} 
+/* code -  bg_res - resume operation */
+void bg_res()
+{ bgVfst=0, bgVhlt=0;
+  bgVcnt=0, bgVstp=0;
+  bgVovr=0, bgVsto=0;
+} 
+/* code -  bg_bpt - set breakpoint */
+bg_bpt(
+elTwrd adr ,
+int mod )
+{ bg_set (&bgIbpt, adr, mod);
+} 
+/* code -  bg_set - set address */
+bg_set(
+bgTtrg *trg ,
+elTwrd loc ,
+int mod )
+{ trg->Venb = 1;
+  trg->Vloc = loc;
+  trg->Vmod = mod & elCUR_;
+} 
+/* code -  bg_prb - setup memory probe */
+bg_prb(
+int opr )
+{ int res = 0;
+  switch ( opr) {
+  case bgPRB:
+    elVprb = 1;
+   break; case bgTST:
+    res = elVprb == -1;
+  case bgCLR:
+    elVprb = 0;
+   break; case bgERR:
+    if ( elVprb) {
+      elVprb=-1, res=1; }
+     }
+  return ( res);
+} 
+/* code -  display help */
+char *bgAhlp [];
+void bg_hlp()
+{ char *(*hlp )= bgAhlp;
+  char *(*lft )= hlp;
+  char *(*rgt );
+  int len = 0;
+  while ( *hlp++) {++len ;}
+  rgt = lft + (len /= 2);
+  PUT("\n");
+  while ( len--) {
+    PUT("%-41s", *lft++);
+    PUT("%s\n", *rgt++);
+  } 
+  PUT("\n");
+} 
+char *bgAhlp [] =  {
+  "#B    Set Breakpoint [here]",
+  " C    Clear: Break/Watch/Feel/Underflow",
+  " E/D  Enable/Disable: Bus/Cpu/Bpt/Traps",
+  "#F    Set Feelpoint [here]",
+  "nG    Goto n",
+  " H    Display help",
+  " K    Kernel mode",
+  " L    Open history previous (last)",
+  " M    Machine: Address/Save/Restore",
+  " N    Open history next",
+  " PC   Display PC",
+  " PS   Display PS",
+  "nP    Proceed [n steps]",
+  " Rn   Display register",
+  " R    Display all registers",
+  " SP   Display stack pointer",
+  " SB   Show bytes",
+  " SI   Step into",
+  " SO   Step over",
+  " SS   Show settings",
+  "nST   Show MMU Translation",
+  "nSU   Set Stack Underflow address",
+  " SW   Show words",
+  "nS    Step [n] inst's. Steps over JSR.",
+  " TT   Transfer trap",
+  "#T    Step to [here]",
+  " U    User mode",
+  "#W    Set Watchpoint [here]",
+  " X    Exit V11",
+  "",
+  " \\    Toggle assembler/value display",
+  " /    Toggle octal/decimal display",
+  "Enter Open next location",
+  ";     Repeat previous command",
+  ".     Open PC location",
+  "@     Indirect",
+  "+-n   Add/Subtract n from location",
+  "=n    Deposit n",
+  "     ",
+  "# default=location, n default=none",
+  NULL,
+  };
+/* code -  display routines */
+#if 0
+void bg_inf()
+{ PUT("SP=%0o ", elPreg[6]);
+  PUT("PC=%0o ", elPreg[7]);
+  PUT("PS=%0o ", PS);
+  PUT((TBIT) ? "t": "");
+  PUT((NBIT) ? "n": "_");
+  PUT((ZBIT) ? "z": "_");
+  PUT((VBIT) ? "v": "_");
+  PUT((CBIT) ? "c": "_");
+  PUT("\n");
+} 
+#endif 
+void bg_reg()
+{ PUT("R0=%0o ", elPreg[0]);
+  PUT("R1=%0o ", elPreg[1]);
+  PUT("R2=%0o ", elPreg[2]);
+  PUT("R3=%0o ", elPreg[3]);
+  PUT("R4=%0o ", elPreg[4]);
+  PUT("R5=%0o ", elPreg[5]);
+  PUT("SP=%0o ", elPreg[6]);
+  PUT("PC=%0o ", elPreg[7]);
+  PUT("PS=%0o ", PS);
+  PUT((TBIT) ? "t": "");
+  PUT((NBIT) ? "n": "_");
+  PUT((ZBIT) ? "z": "_");
+  PUT((VBIT) ? "v": "_");
+  PUT((CBIT) ? "c": "_");
+  PUT("\n");
+} 
+void bg_wrd()
+{ PUT("OP=%0o ", elVopc);
+  PUT("SWA=%0o ", elVswa);
+  PUT("DWA=%0o ", elVdwa);
+  PUT("SWV=%0o ", elVswv);
+  PUT("DWV=%0o ", elVdwv);
+  PUT("TWV=%0o ", elVtwv);
+  PUT("\n");
+} 
+void bg_byt()
+{ PUT("OP=%0o ", elVopc);
+  PUT("SBA=%0o ", elVsba);
+  PUT("DBA=%0o ", elVdba);
+  PUT("SBV=%0o ", elVsbv);
+  PUT("DBV=%0o ", elVdbv);
+  PUT("TBV=%0o ", elVtbv);
+  PUT("\n");
+} 
+bg_mem(
+elTadr adr )
+{ int reg = (adr - elREG) / 2;
+  if ( (reg >= 0) && (reg <= 5)) {
+     PUT("R%d", reg);return 1; }
+  if( reg == 6){ PUT("SP") ; return 1;}
+  if( reg == 7){ PUT("PC") ; return 1;}
+  if( reg == 8){ PUT("PS") ; return 1;}
+  if( adr == elPSW){ PUT("PS") ; return 1;}
+  switch ( adr) {
+  case elTKS:
+    PUT("TKS ");
+   break; case elTKB:
+    PUT("TKB ");
+   break; case elTPS:
+    PUT("TPS ");
+   break; case elTPB:
+    PUT("TPB ");
+   break; case hdCSR:
+    PUT("DKS ");
+   break; case hdCNT:
+    PUT("DBC ");
+   break; case hdBLK:
+    PUT("DBL ");
+   break; case hdBUF:
+    PUT("DBU ");
+   break; default: 
+    PUT("%0o%s", adr, el_mod (bgVpsw));
+    return 0;
+     }
+  PUT("%0o", adr);
+  return 1;
+} 
+void bg_dev()
+{ int uni = 0;
+  elTdev *dev = elAdsk;
+  while ( uni < 8) {
+    if ( dev->Anam[1]) {
+      PUT("LD%d: %-8d %s\n", dev->Vuni, dev->Vsiz, dev->Anam); }
+    ++uni, ++dev;
+  } 
+} 
+void bg_dsk()
+{ PUT("Disk: Csr=%0o ", el_fwd (hdCSR));
+  PUT("Buf=%0o ", el_fwd (hdBUF));
+  PUT("Cnt=%0o ", el_fwd (hdCNT));
+  PUT("Blk=%0o\n", el_fwd (hdBLK));
+} 
+void bg_sho()
+{ bgTtrg *bpt = &bgIbpt;
+  bgTtrg *wat = &bgIwat;
+  bgTtrg *fee = &bgIfee;
+  PUT("\n");
+  PUT("Debug:");
+  PUT(" Bus=%d", bgVbus);
+  PUT(" Cpu=%d", bgVcpu);
+  PUT(" Reg=%d", bgVreg);
+  PUT(" Bpt=%0o%s", bpt->Vloc, el_mod (bpt->Vmod));
+  if ( bpt->Venb) {PUT("+") ;}
+  PUT(" Disk=%0o", bgVdsk);
+  PUT(" Feel=%0o%s", fee->Vloc, el_mod (fee->Vmod));
+  if ( fee->Venb) {PUT("+") ;}
+  PUT(" Watch=%0o%s:", wat->Vloc, el_mod (wat->Vmod));
+  PUT("%0o", wat->Vval);
+  if ( wat->Venb) {PUT("+") ;}
+  PUT(" Value=%o", wat->Vmat);
+  if ( wat->Vflg) {PUT("+") ;}
+  el_new ();
+  PUT("Terminal: TKS=%0o ", TKS);
+  PUT("TKB=%0o ", TKB);
+  PUT("TPS=%0o ", TPS);
+  PUT("TPB=%0o\n", TPB);
+  bg_dsk ();
+  el_new ();
+  bg_dev ();
+  el_new ();
+  return;
+  if( elVsch)return;
+  PUT("Interrupts: ");
+  if ( elVsch & BIT(elCLK)) {PUT("Clock ") ;}
+  if ( elVsch & BIT(elKBD)) {PUT("Keyboard ") ;}
+  if ( elVsch & BIT(elTER)) {PUT("Screen ") ;}
+  if ( elVsch & BIT(elHDD)) {PUT("Disk ") ;}
+  el_new ();
+  el_new ();
+} 
+/* code -  bg_dmp - dump ascii */
+bg_dmp(
+char *src ,
+char *dst ,
+int cnt )
+{ int cha ;
+  while ( cnt--) {
+    cha = *src;
+    if ( (cha >= 32) && (cha < 127)) {*dst++ = cha ;} else {
+      *dst++ = '.' ; }
+    if ( *src) {++src ;}
+  } 
+  *dst = 0;
+} 
+bg_wat()
+{ bgTtrg *wat = &bgIwat;
+  PUT(" Watch: %o%s=%o/%d.",wat->Vloc,el_mod (wat->Vmod),wat->Vval,wat->Vval);
+} 
+/* code -  el_mod - get processor mode */
+char *elAmod [] =  {
+  "k", "s", "?", "u",
+  };
+char *el_mod(
+elTwrd mod )
+{ if( !elVmmu)return ( "" );
+  return ( elAmod[(mod>>14)&3]);
+} 
+/* code -  memory management display routines */
+bg_par(
+char *mod ,
+ULONG par ,
+int stk )
+{ elTwrd *ptr = MNW (par);
+  int cnt = 8;
+  PUT("%s: ", mod);
+  while ( cnt--) {
+    PUT("%o ", *ptr++ & 0xffff);
+  } 
+  PUT("sp=%o ", elAstk[stk]);
+  if ( elVpsr) {PUT("PSS=%o ", elVpss) ;}
+  PUT("\n");
+} 
+bg_mmu()
+{ PUT(KERMOD ? "*": " ");
+  bg_par ("K", 0172340, 0);
+  PUT(USPMOD ? "*": " ");
+  bg_par ("U", 0177640, 3);
+  PUT("PS=%o ", PS & 0xffff);
+  PUT("SR0=%o, SR3=%o, ", MM0, MM3);
+  if ( !elV22b) {PUT("18-bit") ;} else {
+    PUT("22-bit") ; }
+  PUT("\n");
+} 
+bg_map(
+elTadr adr )
+{ bgTctx ctx ;
+  elTwrd ps = PS;
+  bg_sav (&ctx);
+  bg_tra (adr);
+  bg_rst (&ctx);
+} 
+bg_tra(
+elTadr va )
+{ int apr = (va>>13) & 7;
+  int off = va & 017777;
+  int bas = elPpar[apr];
+  int pa = (bas << 6) + off;
+  PUT("par=%lx\n", elPpar);
+  PUT("va=%o apr=%d off=%o bas=%o pa=%o ", va, apr, off, bas, pa);
+  PUT("mmu0=%o mmu3=%o psw=%o", MM0, MM3, PS);
+  el_new ();
+} 
+/* code -  bg_msv - machine save */
+extern int elVdsz ;
+extern int elVvsz ;
+char bgAmsv [mxLIN]= {0};
+bg_msp (char *,char *,int );
+bg_msv(
+bgTmch *mch )
+{ FILE *fil ;
+  char spc [mxSPC];
+  char prm [mxLIN];
+  if( !bg_msp (spc, prm, 1))return 0;
+  cl_cmd (prm, bgAmsv);
+  fil = fi_opn (spc, "wb", "");
+  if (( fil != 0)
+  &&(fi_wri (fil, bgAmsv, mxLIN))
+  &&(fi_wri (fil, mch,  sizeof(bgTmch)))
+  &&(fi_wri (fil, elAdsk, elVdsz))
+  &&(fi_wri (fil, elAvec, elVvsz))
+  &&(fi_wri (fil, elAsys, mxSPC))
+  &&(fi_wri (fil, &hiIsto,  sizeof(hiTsto)))
+  &&(fi_wri (fil, elPmem, elMEM))
+  &&(fi_clo (fil, ""))) {
+    return 1; }
+   PUT("?V11-W-Error saving machine\n");return 0;
+} 
+/* code -  bg_mrs - machine restore */
+bg_mrs(
+bgTmch *mch )
+{ FILE *fil ;
+  char spc [mxSPC];
+  char prm [mxLIN];
+  if( !bg_msp (spc, prm, 0))return 0;
+  PUT("?V11-I-Restoring machine %s\n", spc);
+  fil = fi_opn (spc, "rb", "");
+puts ("#bg_mrs.a");
+  if (( fil != 0)
+  &&(fi_rea (fil, bgAmsv, mxLIN))
+  &&(fi_rea (fil, mch,  sizeof(bgTmch)))
+  &&(fi_rea (fil, elAdsk, elVdsz))
+  &&(fi_rea (fil, elAvec, elVvsz))
+  &&(fi_rea (fil, elAsys, mxSPC))
+  &&(fi_rea (fil, &hiIsto,  sizeof(hiTsto)))
+  &&(fi_rea (fil, elPmem, elMEM))
+  &&(fi_clo (fil, ""))) {
+    el_rmt ();
+    PUT("V11-I-Machine save note: %s\n", bgAmsv);
+    return 1; }
+   PUT("?V11-W-Error restoring machine %s\n", spc);return 0;
+} 
+/* code -  bg_msp - machine save/restore spec */
+bg_msp(
+char *spc ,
+char *prm ,
+int sav )
+{ char ver [12];
+  int cnt = 0;
+  int fnd = 0;
+  for(;;)  {
+    FMT(spc, "tmp:v11_%d.dmp", cnt);
+    if( fi_mis (spc, NULL))break;
+    ++cnt, ++fnd;
+  } 
+  if ( !sav && !fnd) {
+     PUT("V11-W-No machine save file found\n");return 0; }
+  if ( !sav) {--cnt ;}
+  FMT(spc, "TMP:V11_%d.DMP", cnt);
+  FMT(prm, "?V11-I-Machine save TMP:V11_%d.DMP note: ", cnt);
+  return 1;
+} 

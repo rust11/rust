@@ -1,0 +1,63 @@
+/* file -  elkbd - windows keyboard */
+#include "f:\m\sc\include\windows.h"
+#include "f:\m\elb\elmod.h"
+#include "f:\m\rid\codef.h"
+#include "f:\m\rid\ctdef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\thdef.h"
+#include "f:\m\elb\ekdef.h"
+/* code -  ek_ini - initialise the keyboard */
+kbTkbd *ekPkbd = NULL;
+thTthr *ekPthr = NULL;
+int ekVbrk = 0;
+ekThoo *ekPhoo = NULL;
+thTfun ek_kbd ;
+/* code -  ek_ini - create thread */
+void ek_ini(
+ekThoo *hoo )
+{ ekPhoo = hoo;
+  ekPthr = th_cre (&ek_kbd, NULL);
+} 
+void ek_can()
+{ kb_can (ekPkbd);
+} 
+void ek_brk()
+{ thTthr *thr = ekPthr;
+  ekVbrk = 1;
+  th_sig (ekPthr, 1);
+  ekVbrk = 0;
+} 
+/* code -  ek_kbd - keyboard thread */
+ek_kbd(
+thTthr *thr )
+{ kbTkbd *kbd ;
+  kbTcha cha ;
+  ekPkbd = kbd = kb_alc ();
+  coPget = &ek_get;
+  co_att (NULL);
+  co_ctc (coDSB);
+  for(;;)  {
+    if ( (co_get (&cha, kbWAI_)) != 0) {
+      if ( ekPhoo) {
+        if( (*ekPhoo)(&cha))continue; } }
+    kb_wri (kbd, &cha);
+    th_sig (thr, 1);
+  } 
+} 
+/* code -  ek_get - get next character */
+int ekVcnt = 0;
+int ek_get(
+kbTcha *cha ,
+int mod )
+{ thTthr *thr = ekPthr;
+  kbTkbd *kbd = ekPkbd;
+  if ( elFvrb && (ekVcnt++ < 2)) {PUT(" ekVcnt=%d ", ekVcnt) ;}
+  for(;;)  {
+    th_sig (thr, 0);
+    if( ekVbrk)return 0;
+    if( (kb_rea (kbd, cha, mod)) != 0)return ( 1 );
+    if( !(mod & kbWAI_))return 0;
+    th_wai (thr);
+  } 
+} 

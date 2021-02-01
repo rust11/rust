@@ -1,0 +1,142 @@
+/* file -  elint - interrupts */
+#include "f:\m\els\elb\elmod.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\cldef.h"
+#include "f:\m\rid\imdef.h"
+#include "f:\m\rid\dbdef.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\mxdef.h"
+#include "f:\m\rid\ctdef.h"
+#include "f:\m\rid\codef.h"
+#include "f:\m\rid\tidef.h"
+#include "f:\m\rid\wcdef.h"
+#include "f:\m\rid\prdef.h"
+#include "f:\m\rid\shdef.h"
+#include "f:\m\rid\rtutl.h"
+#include "f:\m\rid\vtdef.h"
+/* code -  el_sch - schedule interrupt */
+void el_sch(
+int dev )
+{ elTvec *vec = elAvec + dev;
+  if ( !((dev == elCLK) && vec->Vcnt)) {
+    vec->Vcnt = vec->Vlat;
+    } else {
+  } 
+  elVsch |= BIT(dev)|elCON_;
+} 
+/* code -  el_wai - pause during wait */
+el_wai()
+{ return 1;
+  pr_slp (1);
+} 
+/* code -  el_pol - poll interrupts */
+#define CLR(p) (elVsch &= (~(p)))
+#define TST(p) (elVsch & p)
+#define SET(p) (elVsch |= p)
+void el_pol()
+{ elTvec *vec = elAvec + 1;
+  int val ;
+  int pri ;
+  CLR(elGEN_);
+  vt_ast ();
+  el_tkb ();
+  CLR(elPAS_);
+  if ( TST(elABT_|elBRK_|elMMU_|elCPU_|elMMX_)) {
+    if ( TST(elMMX_)) {CLR(elMMX_), el_trp(veMMU) ;}
+    if ( TST(elBUS_)) {CLR(elBUS_), el_trp(veBUS) ;}
+    if ( TST(elCPU_)) {CLR(elCPU_), el_trp(veCPU) ;}
+    if ( TST(elBRK_)) {CLR(elBRK_), el_dbg("brk") ;}
+    if ( elMMU_) {
+      if ( elVpsr) {el_dbg("psr ") ;}
+      if ( elVpsr) {PS=elVpss, elVpsr=0 ;}
+      el_mmu (0); }
+    CLR(elABT_|elMMU_);
+    if( !elVsch)return; }
+  if ( TST(elCON_)) {
+    CLR(elCON_);
+    el_dkx ();
+    if ( elVtks) {el_tkb () ;}
+    if ( elVtpp) {el_tpb (), elVtpp=0 ;} }
+  if( !elVsch)return;
+  pri = PS & 0340;
+  if ( (elFlsi && (pri & 200))) {pri = 0340 ;}
+  while ( vec->Vdev != -1) {
+    if ( elVsch & BIT(vec->Vdev)) {
+      if ( vec->Vcnt) {--vec->Vcnt ;}
+      if (( vec->Vcnt)
+      ||(vec->Vpri <= pri)) {
+        SET(elCON_);
+         ++vec;continue; }
+      elVsch &= (~BIT(vec->Vdev));
+      if ( vec->Vvec == veCLK) {
+        if (( elFlsi||(*MNW(elLTC)&elENB_))
+        &&(elVclk && !(bgVstp||bgVovr))
+        &&(*PNW(veCLK))) {
+          el_trp (vec->Vvec); }
+      } else if (( vec->Vcsr)
+      &&(*MNW(vec->Vcsr) & vec->Venb)) {
+        if (( !vec->Vrdy)
+        ||(*MNW(vec->Vcsr) & vec->Vrdy)) {
+          el_trp (vec->Vvec); } } }
+    ++vec;
+  } 
+  if ( TST(elRTI_|elRTT_)) {
+    if ( TST(elRTI_)) {
+      CLR(elRTI_), el_trp (veTRC);
+    } else if ( TST(elRTT_)) {
+      CLR(elRTT_), elVsch |= elRTI_; } }
+} 
+/* code -  el_flg - display sticky controller flags */
+#define elTflg struct elTflg_t 
+struct elTflg_t
+{ char *Pstr ;
+  int Vval ;
+   };
+elTflg elAflg [];
+el_flg()
+{ int flg = elVsch;
+  elTflg *ptr = elAflg;
+  int cnt = 32;
+  return 1;
+  PUT("?V11-E-Sticky controller flags %x ", elVsch);
+  while ( cnt) {
+    if ( ptr->Vval & flg) {PUT("%s ", ptr->Pstr) ;}
+    ++ptr, --cnt;
+  } 
+  PUT("\n");
+} 
+elTflg elAflg [] =  {
+  "CON", BIT(0),
+  "CLK", BIT(1),
+  "KBD", BIT(2),
+  "TER", BIT(3),
+  "HDD", BIT(4),
+  "DLD", BIT(5),
+  "RKD", BIT(6),
+  "DYD", BIT(7),
+  "B08", BIT(8),
+  "B09", BIT(9),
+  "B10", BIT(10),
+  "B11", BIT(11),
+  "B12", BIT(12),
+  "B13", BIT(13),
+  "B14", BIT(14),
+  "B15", BIT(15),
+  "B16", BIT(16),
+  "B17", BIT(17),
+  "B18", BIT(18),
+  "B19", BIT(19),
+  "B20", BIT(20),
+  "CPU", BIT(21),
+  "BUS", BIT(22),
+  "PAS", BIT(23),
+  "GEN", BIT(24),
+  "EXI", BIT(25),
+  "CTC", BIT(26),
+  "RTI", BIT(27),
+  "RTT", BIT(28),
+  "BRK", BIT(29),
+  "ABT", BIT(30),
+  "MMU", BIT(31),
+  };

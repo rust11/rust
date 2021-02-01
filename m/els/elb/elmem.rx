@@ -1,0 +1,254 @@
+/* file -  elmem - memory */
+#include "f:\m\elb\elmod.h"
+/* code -  el_fwd - fetch word */
+#define SCHCON (elVsch |= elCON_)
+elTwrd el_fwd(
+elTadr adr )
+{ elTwrd val ;
+  if( (adr & 1) && !elFlsi){ INVADR(0) ; return;}
+  adr = VPR(adr);
+  val = *PNW(adr & elVevn);
+  if( adr < elVhwm)return ( val );
+  if( adr >= elREG)return ( val );
+  elVsch |= elCON_;
+  switch ( NMX(adr)) {
+  case elTKS:
+    elVtks = 1;
+   break; case elTKB:
+    elVtkb = 0, TKS &= ~(elRDY_);
+   break; case elTPS:
+    val |= elRDY_;
+   break; case elTPB:
+   break; case elPSW:
+    if ( elFlsi) {INVADR(2) ;} else {
+      val = PS ; }
+   break; case hdCSR:
+   break; case hdCNT:
+   break; case hdBLK:
+   break; case hdBUF:
+   break; case hdXX0:
+   break; case hdXX1:
+   break; case hdBAE:
+   break; case hdBAE+2:
+   break; case rlCSR:
+   break; case rlBUF:
+   break; case rlBLK:
+   break; case rlCNT:
+   break; case rlEXT:
+    if ( !elFdlx) {INVADR(3) ;}
+   break; case rkSTA:
+    val |= rkRK5_;
+   break; case rkERR:
+   break; case rkCSR:
+    val = val & ~(hdACT_);
+    val |= elRDY_;
+   break; case rkCNT:
+   break; case rkBUF:
+   break; case rkADR:
+   break; case rkDAT:
+   break; case rkDAT+2:
+   break; case elLTC:
+    if ( !elFltc) {INVADR(3) ;}
+   break; case elMP0:
+   break; case elMP1:
+   break; case elMP2:
+   break; case elMP3:
+   break; case elMP4:
+   break; case elMP5:
+   break; case elMP6:
+   break; case elMP7:
+   break; default: 
+    if ( !el_mma (adr, 0, &val)) {INVADR(3) ;}
+     }
+  return ( val & elWRD_);
+} 
+/* code -  el_fbt - fetch sbyte */
+elTbyt el_fbt(
+elTadr adr )
+{ elTbyt val ;
+  adr = VPR(adr);
+  val = *PNB(adr);
+  if( adr < elVhwm)return ( val );
+  if( adr >= elREG)return ( val );
+  elVsch |= elCON_;
+  switch ( NMX(adr)) {
+  case elTKS:
+    elVtks = 1;
+   break; case elTKB:
+    elVtkb = 0, TKS &= (~elRDY_);
+   break; case elTPS:
+    val |= elRDY_;
+   break; case elTPB:
+   break; case elPSW:
+    if ( elFlsi) {INVADR(6) ;} else {
+      val = PS ; }
+   break; case hdCSR:
+   break; case hdCNT:
+   break; case hdBLK:
+   break; case hdBUF:
+   break; case hdXX0:
+   break; case hdXX1:
+   break; case hdBAE:
+   break; case hdBAE+2:
+   break; case rlCSR:
+   break; case rlBUF:
+   break; case rlBLK:
+   break; case rlCNT:
+   break; case rlEXT:
+    if ( !elFdlx) {INVADR(3) ;}
+   break; case rkSTA:
+   break; case rkERR:
+   break; case rkCSR:
+   break; case rkCSR+1:
+   break; case rkCNT:
+   break; case rkBUF:
+   break; case rkADR:
+   break; case rkDAT:
+   break; case rkDAT+2:
+   break; case elTKS+1:
+   break; case elTKB+1:
+   break; case elTPS+1:
+   break; case elTPB+1:
+   break; case elLTC:
+    if ( !elFltc) {INVADR(3) ;}
+   break; case elMP0:
+   break; case elMP1:
+   break; case elMP2:
+   break; case elMP3:
+   break; case elMP4:
+   break; case elMP5:
+   break; case elMP6:
+   break; case elMP7:
+   break; default: 
+    if ( !el_mma (adr, 0, (elTwrd *)&val)) {INVADR(7) ;}
+     }
+  return ( val & elBYT_);
+} 
+/* code -  el_swd - store word */
+void el_swd(
+elTadr adr ,
+elTwrd val )
+{ elTwrd old ;
+  if( (adr & 1) && !elFlsi){ INVADR(8) ; return;}
+  adr = VPW(adr);
+  if( elVsch & elMMX_)return;
+  old = *PNW(adr & elVevn);
+  *PNW(adr & elVevn) = val;
+  if( adr < elVhwm)return;
+  if( adr >= elREG)return;
+  elVsch |= elCON_;
+  switch ( NMX(adr)) {
+  case elTKS:
+    elVtks = 1, TKS = ((val&elENB_)|(old&elRDY_)) & 0300;
+    if ( (old == 0200) && (val&elENB_)) {el_sch (elKBD_) ;}
+   break; case elTKB:
+   break; case elTPS:
+    TPS = ((val&(elENB_|1))|(old&elRDY_)) & 0301;
+    if ( TPS & elENB_) {el_sch (elTER) ;}
+   break; case elTPB:
+    if ( elTPB & 0xff) {TPS &= ~(elRDY_), elVtpp = 1 ;}
+   break; case elPSW:
+    if ( elFlsi) {INVADR(10) ;} else {
+      NEWPS(val & (~elT_)) ; }
+   break; case hdCSR:
+   break; case hdCNT:
+   break; case hdBLK:
+   break; case hdBUF:
+   break; case hdXX0:
+   break; case hdXX1:
+   break; case hdBAE:
+   break; case hdBAE+2:
+   break; case rlCSR:
+   break; case rlBUF:
+   break; case rlBLK:
+   break; case rlCNT:
+   break; case rlEXT:
+    if ( !elFdlx) {INVADR(3) ;}
+   break; case rkSTA:
+   break; case rkERR:
+   break; case rkCSR:
+   break; case rkCNT:
+   break; case rkBUF:
+   break; case rkADR:
+   break; case rkDAT:
+   break; case rkDAT+2:
+   break; case elLTC:
+    if ( !elFltc) {INVADR(3) ;}
+   break; case elMP0:
+   break; case elMP1:
+   break; case elMP2:
+   break; case elMP3:
+   break; case elMP4:
+   break; case elMP5:
+   break; case elMP6:
+   break; case elMP7:
+   break; default: 
+    if ( !el_mma (adr, 0 ,&val)) {INVADR(11) ;}
+    *PNW(adr & elVevn) = val;
+     }
+} 
+/* code -  el_sbt - store sbyte */
+void el_sbt(
+elTadr adr ,
+elTbyt val )
+{ elTbyt old ;
+  adr = VPW(adr);
+  if( elVsch & elMMX_)return;
+  old = *PNB(adr);
+  *PNB(adr) = val;
+  if( adr < elVhwm)return;
+  if( adr >= elREG)return;
+  elVsch |= elCON_;
+  switch ( NMX(adr)) {
+  case elTKS:
+    elVtks = 1, TKS = ((val&elENB_)|(old&elRDY_)) & 0300;
+    if ( (old == 0200) && (val&elENB_)) {el_sch (elKBD_) ;}
+   break; case elTKB:
+   break; case elTPS:
+    TPS = ((val&(elENB_|1))|(old&elRDY_)) & 0301;
+    if ( TPS & elENB_) {el_sch (elTER) ;}
+   break; case elTPB:
+    if ( elTPB & 0xff) {TPS &= ~(elRDY_), elVtpp = 1 ;}
+   break; case elPSW:
+    if ( elFlsi) {INVADR(13) ;} else {
+      NEWPS((PS&0xff00) | (val&(0x00ff & ~elT_))) ; }
+   break; case hdCSR:
+   break; case hdCNT:
+   break; case hdBLK:
+   break; case hdBUF:
+   break; case hdXX0:
+   break; case hdXX1:
+   break; case hdBAE:
+   break; case hdBAE+2:
+   break; case rlCSR:
+   break; case rlBUF:
+   break; case rlBLK:
+   break; case rlCNT:
+   break; case rlEXT:
+    if ( !elFdlx) {INVADR(3) ;}
+   break; case rkSTA:
+   break; case rkERR:
+   break; case rkCSR:
+   break; case rkCNT:
+   break; case rkBUF:
+   break; case rkADR:
+   break; case rkDAT:
+   break; case rkDAT+2:
+   break; case elTKS+1:
+   break; case elTKB+1:
+   break; case elTPS+1:
+   break; case elTPB+1:
+   break; case elLTC:
+    if ( !elFltc) {INVADR(3) ;}
+   break; case elMP0:
+   break; case elMP1:
+   break; case elMP2:
+   break; case elMP3:
+   break; case elMP4:
+   break; case elMP5:
+   break; case elMP6:
+   break; case elMP7:
+   break; default: 
+    if ( !el_mma (adr, 0, (elTwrd *)&val)) {INVADR(14) ;}
+     }
+} 

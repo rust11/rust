@@ -1,0 +1,196 @@
+#define infC  1
+/* file -  nfdev - NF native directories/files ACP */
+#include "f:\m\elb\vpmod.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\nfdef.h"
+#include "f:\m\rid\nfcab.h"
+#include "f:\m\rid\rtutl.h"
+int nfVtra = 0;
+int nfVflg = 0;
+int nfAfun [] =  {
+  (nfREA | nfCSW_|nfDAT_),
+  (nfWRI | nfCSW_|nfDAT_|nfSDA_),
+  (nfCLO | nfCSW_|nfSPU_),
+  (nfDEL | nfCSW_|nfFNA_|nfSPU_),
+  (nfLOO | nfCSW_|nfFNA_|nfSPU_|nfDIR_),
+  (nfENT | nfCSW_|nfFNA_|nfSPU_|nfDIR_),
+  (nfREN | nfCSW_|nfFNA_|nfSPU_),
+  (nfPUR | nfCSW_|nfSPU_),
+  (nfINF | nfCSW_|nfFNA_|nfSPU_),
+  (nfCLZ | nfCSW_|nfSPU_),
+#if infC
+  (nfSIZ | nfCSW_|nfSPU_),
+#endif 
+  };
+#define spREN  5
+#define spINF  8
+int nf_pre (vpTqel *,nfTvab *,elTwrd );
+int nf_win (vpTqel *,nfTvab *);
+nf_pos (vpTqel *,nfTvab *);
+#define REQ(x) (x & 0xff)
+/* code -  nf_iop - nf i/o processor */
+nf_com(
+vpTqel *qel ,
+nfTvab *vab ,
+elTwrd cid ,
+elTwrd flg )
+{ vab->Vflg = flg;
+  if( (nf_pre (qel, vab, cid)) == 0)return 1;
+  nf_win (qel, vab);
+  nf_ser (vab);
+  nf_pos (qel, vab);
+  return ( !vab->Vsta);
+} 
+/* code -  nf_iop - VRT entry point */
+nf_iop(
+vpTqel *qel ,
+int req )
+{ nfTvab vab = {0};
+  nf_com (qel, &vab, 0, 0);
+} 
+/* code -  RUST/SJ NFW: entry point */
+nf_drv(
+rtTqel *ioq ,
+elTwrd cid ,
+elTwrd flg )
+{ nfTvab vab = {0};
+  vpTqel qel = {0};
+  rtTchn *chn ;
+  chn = ADR(ioq->Vcsw);
+  if ( flg & (nfINI_|nfINP_)) {
+    cab_res (cabIRS); }
+  flg &= (nfWLK_|nfSUB_|nfDSK_);
+  qel.Vcnt = ioq->Vcnt;
+  qel.Vqbu = ioq->Vbuf;
+  qel.Vcsw = ioq->Vcsw;
+  qel.Vfun = ioq->Vfun;
+  if ( !qel.Vfun) {
+    if ( !(flg & nfDSK_)) {
+      qel.Vblk = ioq->Vblk - chn->Vblk;
+      } else {
+      qel.Vblk = ioq->Vblk; }
+    qel.Vqbl = qel.Vblk;
+    } else {
+    qel.Vblk = ioq->Vblk; }
+  vab.Vjid = ioq->Vuni>>3;
+  vab.Vjcn = chn->Vuse>>8;
+  if( !nf_com (&qel, &vab, cid, flg))return 0;
+  if (( nfVflg & nfDIR_)
+  ||(REQ(vab.Vfun) == nfINF)) {
+    ioq->Vcnt = qel.Vcnt; }
+  return 1;
+} 
+/* code -  nf_pre - preprocess i/o request */
+#define rxXVX  0114610
+nf_pre(
+vpTqel *qel ,
+nfTvab *vab ,
+elTwrd cid )
+{ rtTchn *chn ;
+  elTwrd *buf ;
+  elTwrd *nam ;
+#if infC
+  elTwrd *inf ;
+#endif 
+  char spc [16];
+  int req = 0;
+  int flg = 0;
+  int fun = 0;
+  spc[0] = 0;
+  vab->Vsta = 0;
+  vab->Vdbc = 0;
+  chn = ADR(qel->Vcsw);
+  if ( cid) {vab->Vcid = cid ;} else {
+    vab->Vcid = chn->Vblk ; }
+  req = REQ(qel->Vfun);
+  if ( req > spINF) {
+    return 0;
+  } else if ( req != 0) {
+    ++req;
+  } else if ( qel->Vcnt & 0100000) {
+    ++req;
+    qel->Vcnt = -qel->Vcnt; }
+  if ( req == spINF) {
+    qel->Vblk -= chn->Vblk; }
+  flg = nfAfun[req];
+  nfVflg = flg;
+  vab->Vfun = flg;
+  fun = REQ(flg);
+  if ( flg & nfFNA_) {
+    vab->Vblk = qel->Vblk;
+    nam = vab->Afna + 1;
+    buf = (elTwrd *)ADR(qel->Vqbu);
+    *nam++ = *buf++;
+    *nam++ = *buf++;
+    *nam++ = *buf++;
+    if ( fun == nfREN) {
+      *nam++ = *buf++;
+      *nam++ = *buf++;
+      *nam++ = *buf++;
+      *nam++ = *buf++; }
+#if infC
+    if ( fun == nfINF) {
+      vab->Vlen = qel->Vcnt; }
+#endif 
+    vab->Afna[0] = *buf++;
+    if ( *buf == rxXVX) {
+      vab->Vjcn = buf[1]>>8;
+      } else {
+      vab->Vjcn = chn->Vuse>>8;
+      chn->Vuse = 0; }
+    rt_unp (vab->Afna, spc, -4);
+    if ( nfVtra) {PUT("spec=[%s] ", spc) ;} }
+  if ( nfVtra) {PUT("\n") ;}
+  if ( fun == nfENT) {
+    vab->Vlen = qel->Vcnt; }
+  if( fun != nfCLO)return 1;
+  vab->Vlen = chn->Vuse;
+  return 1;
+} 
+/* code -  nf_win - setup transfer window */
+nf_win(
+vpTqel *qel ,
+nfTvab *vab )
+{ rtTchn *chn = ADR(qel->Vcsw);
+  if( !(nfVflg & nfDAT_))return 1;
+  vab->Vblk = qel->Vqbl;
+  vab->Vrwc = qel->Vcnt;
+  vab->Vtwc = qel->Vcnt;
+  nfPbuf = (char *)ADR(qel->Vqbu);
+  if( !(nfVflg & nfSDA_))return 1;
+  vab->Vdbc = vab->Vtwc * 2;
+  return 1;
+} 
+/* code -  nf_pos - post process i/o request */
+nf_pos(
+vpTqel *qel ,
+nfTvab *vab )
+{ rtTchn *chn ;
+  elTwrd ptr ;
+  if( vab->Vcid == 0117740)return;
+  chn = ADR(qel->Vcsw);
+  if (( nfVflg & nfSPU_)
+  &&(vab->Vsta)) {
+    vab->Vsta = nfFNF; }
+  if ( vab->Vsta == nfIOX) {
+     chn->Vcsw |= chHER_;return; }
+  if ( nfVflg & nfDIR_) {
+    chn->Vcsw |= 0200;
+    chn->Vblk = vab->Vcid;
+    chn->Vlen = vab->Vlen;
+    qel->Vcnt = vab->Vlen;
+    if ( REQ(vab->Vfun) == nfLOO) {
+      chn->Vuse = vab->Vfmt;
+      chn->Vcsw &= ~(0200); } }
+#if infC
+  if ( REQ(vab->Vfun) == nfINF) {
+    chn->Vlen = vab->Vblk;
+    qel->Vcnt = vab->Vblk; }
+#endif 
+  if ( nfVflg & nfSPU_) {
+    el_swd ((el_fwd (sysptr) + spusr),vab->Vsta);
+    return; }
+  if( vab->Vsta != nfEOF)return;
+  chn->Vcsw |= chEOF_;
+} 

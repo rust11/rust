@@ -1,0 +1,283 @@
+/* file -  elroo - PDP-11 root */
+#include "c:\m\elb\elmod.h"
+#include "c:\m\rid\medef.h"
+#include "c:\m\rid\fidef.h"
+#include "c:\m\rid\cldef.h"
+#include "c:\m\rid\imdef.h"
+#include "c:\m\rid\dbdef.h"
+#include "c:\m\rid\stdef.h"
+#include "c:\m\rid\mxdef.h"
+#include "c:\m\rid\ctdef.h"
+#include "c:\m\rid\codef.h"
+#include "c:\m\rid\tidef.h"
+#include "c:\m\rid\wcdef.h"
+#include "c:\m\rid\shdef.h"
+/* code -  el_dbg - debugger */
+void vr_unp (elTwrd *,char *,int );
+bg_swi (int ,int );
+shTshe *elPshe = NULL;
+elTfun bg_inf ;
+void el_dbg(
+char *rea )
+{ char buf [mxLIN];
+  char r50 [4];
+  char *cmd ;
+  elTadr adr = PC;
+  elTwrd opc ;
+  elTwrd val ;
+  int num ;
+  int dig ;
+  elTwrd v1 ;
+  elTwrd v2 ;
+  int pol ;
+  int cas ;
+  elTrev rev ;
+  elTwrd nxt ;
+  if( bgVhlt)return;
+  if ( rea) {PUT("%s: PC=%0o OP=%0o\n", rea, PC, OP) ;}
+  bgVhlt = 1;
+  bgVcnt = 0;
+  if ( bgVreg) {bg_reg () ;}
+  for(;;)  {
+    rev.Vloc = adr;
+    rev.Vopc = opc = el_fwd (adr);
+    rev.Vlen = 1;
+    rev.Adat[1] = v1 = el_fwd (adr + 2);
+    rev.Adat[2] = v2 = el_fwd (adr + 4);
+    el_rev (&rev);
+    if ( bg_adr (adr) || bgVval) {
+      vr_unp (&opc, r50, 1);
+      PUT (" %0o %d. %s", opc, opc, r50);
+      nxt = 2;
+      } else {
+      nxt = rev.Vlen * 2;
+      PUT("%s", rev.Astr); }
+    cmd = buf;
+    cl_cmd (" | ", cmd);
+    st_trm (cmd);
+    if( !*cmd){ adr += nxt ; continue;}
+    while ( *cmd) {
+      dig = 0;
+      val = 0;
+      pol = -1;
+      if ( *cmd == '-') {pol = 0, ++cmd ;}
+      if ( *cmd == '+') {pol = 1, ++cmd ;}
+      num = SCN(cmd, "%o", &val);
+      dig = ct_dig (*cmd);
+      while ( ct_dig (*cmd)) {++cmd ;}
+      if ( *cmd == '-') {pol = 0, ++cmd ;}
+      if ( *cmd == '+') {pol = 1, ++cmd ;}
+      if ( (pol >= 0) && !num && !*cmd) {
+        num = 1, val = 2; }
+      if ( num && (pol >= 0)) {
+        PUT("pol=%d num=%d\n", pol, num);
+        if ( pol) {adr += val ;} else {
+          adr -= val ; }
+        adr &= 0177777;
+        continue; }
+      if ( num & !*cmd) {adr = val ;}
+      if( !*cmd)break;
+      cas = *cmd++;
+      switch ( cas) {
+      case 'c':
+        if ( pol >= 0) {bgVcpu = pol ;}
+       break; case 'd':
+        bgVdsk = pol;
+       break; case 'e':
+        if ( !dig) {val = adr ;}
+        el_map (val, 0);
+       break; case 'f':
+        if( pol >= 0){ bgVfst = pol, bgVhlt = 0 ; break;}
+         bgVfst = 1, bgVhlt = 0, bgVcnt = 0, bgVstp = 0;return;
+       break; case 'b':
+        el_boo (pol ? val: bgVuni);
+      case 'g':
+         bgVfst = 0, bgVhlt = 0, bgVcnt = 0, bgVstp = 0;return;
+       break; case 'j':
+        PC = adr;
+       break; case 'h':
+        PUT("bus cpu go jump help last\n");
+        PUT("next regs step wOrd bYte trace @ = / - ?\n");
+       break; case 'i':
+        bg_inf ();
+       break; case 'l':
+        adr = hi_prv ();
+       break; case 'm':
+        bg_dev ();
+       break; case 'n':
+        adr = hi_nxt ();
+       break; case 'o':
+        bg_wrd ();
+       break; case 'p':
+         bgVhlt = 0, bgVfst = 0, bgVcnt = 3000000, bgVstp = 0;return;
+       break; case 'r':
+        if( pol >= 0){ bgVreg = pol ; break;}
+        if( *cmd == 's'){ adr = elPSW, ++cmd ; break;}
+        if( !ct_dig (*cmd)){ bg_reg () ; break;}
+        adr = ((*cmd++ - '0')*2) + elREG;
+       break; case 's':
+        bgVstp = 0, bgVfst = 0;
+        if ( num) {bgVcnt = val ;} else {
+          bgVcnt = 1 ; }
+         bgVhlt = 0, bgVstp = 1;return;
+       break; case 't':
+        if( !pol){ bgVbpt = 0 ; break;}
+        if ( num) {bgVbpt = val ;} else {
+          bgVbpt = adr ; }
+       break; case 'u':
+        adr = bgVprv;
+       break; case 'v':
+        bgVval = bg_swi (bgVval, pol);
+       break; case 'w':
+        bgVwat = pol;
+        if ( pol) {bgVwad = adr, bgVwvl = opc ;}
+       break; case 'x':
+        el_exi ();
+       break; case 'y':
+        bg_byt ();
+       break; case 'z':
+        PUT("cnt=%d\n", elAvec[elTER].Vcnt);
+        bgVzed = val;
+       break; case '@':
+        adr = el_fwd (adr);
+       break; case '=':
+        el_swd (adr, val);
+      case '+':
+        adr += 2;
+       break; case '-':
+        adr -= 2;
+       break; case '!':
+        *cmd = 0;
+       break; case ' ':
+        ;
+       break; case '\t':
+        ;
+       break; case 'q':
+        bg_sho ();
+       break; default: 
+        PUT("Error %d\n", num), *cmd = 0;
+         }
+    } 
+  } 
+} 
+void bg_inf()
+{ PUT("SP=%0o ", elPreg[6]);
+  PUT("PC=%0o ", elPreg[7]);
+  PUT("PS=%0o ", PS);
+  PUT((TBIT) ? "t": "");
+  PUT((NBIT) ? "n": "_");
+  PUT((ZBIT) ? "z": "_");
+  PUT((VBIT) ? "v": "_");
+  PUT((CBIT) ? "c": "_");
+  PUT("\n");
+} 
+void bg_reg()
+{ PUT("R0=%0o ", elPreg[0]);
+  PUT("R1=%0o ", elPreg[1]);
+  PUT("R2=%0o ", elPreg[2]);
+  PUT("R3=%0o ", elPreg[3]);
+  PUT("R4=%0o ", elPreg[4]);
+  PUT("R5=%0o ", elPreg[5]);
+  PUT("SP=%0o ", elPreg[6]);
+  PUT("PC=%0o ", elPreg[7]);
+  PUT((TBIT) ? "t": "");
+  PUT((NBIT) ? "n": "_");
+  PUT((ZBIT) ? "z": "_");
+  PUT((VBIT) ? "v": "_");
+  PUT((CBIT) ? "c": "_");
+  PUT("\n");
+} 
+void bg_wrd()
+{ PUT("OP=%0o ", elVopc);
+  PUT("SWA=%0o ", elVswa);
+  PUT("DWA=%0o ", elVdwa);
+  PUT("SWV=%0o ", elVswv);
+  PUT("DWV=%0o ", elVdwv);
+  PUT("TWV=%0o ", elVtwv);
+  PUT("\n");
+} 
+void bg_byt()
+{ PUT("OP=%0o ", elVopc);
+  PUT("SBA=%0o ", elVsba);
+  PUT("DBA=%0o ", elVdba);
+  PUT("SBV=%0o ", elVsbv);
+  PUT("DBV=%0o ", elVdbv);
+  PUT("TBV=%0o ", elVtbv);
+  PUT("\n");
+} 
+bg_adr(
+elTadr adr )
+{ int reg = (adr - elREG) / 2;
+  if ( (reg >= 0) && (reg <= 5)) {
+     PUT("r%d", reg);return 1; }
+  if( reg == 6){ PUT("sp") ; return 1;}
+  if( reg == 7){ PUT("pc") ; return 1;}
+  if( reg == elPSW){ PUT("ps") ; return 1;}
+  switch ( adr) {
+  case elTKS:
+    PUT("TKS ");
+   break; case elTKB:
+    PUT("TKB ");
+   break; case elTPS:
+    PUT("TPS ");
+   break; case elTPB:
+    PUT("TPB ");
+   break; case dkCSR:
+    PUT("DKS ");
+   break; case dkCNT:
+    PUT("DBC ");
+   break; case dkBLK:
+    PUT("DBL ");
+   break; case dkBUF:
+    PUT("DBU ");
+   break; default: 
+     PUT("%0o", adr);return 0;
+     }
+   PUT("%0o", adr);return 1;
+} 
+void bg_dev()
+{ int uni = 0;
+  elTdev *dev = elAdsk;
+  while ( uni < 8) {
+    if ( dev->Anam[1]) {
+      PUT("VH%d: %s\n", uni, dev->Anam); }
+    ++uni, ++dev;
+  } 
+} 
+void bg_dsk()
+{ PUT("Disk: Csr=%0o ", el_fwd (dkCSR));
+  PUT("Buf=%0o ", el_fwd (dkBUF));
+  PUT("Cnt=%0o ", el_fwd (dkCNT));
+  PUT("Blk=%0o\n", el_fwd (dkBLK));
+} 
+void bg_sho()
+{ PUT("Debug: ");
+  PUT("Bus=%d ", bgVbus);
+  PUT("Cpu=%d ", bgVcpu);
+  PUT("Reg=%d ", bgVreg);
+  PUT("Bpt=%0o ", bgVbpt);
+  PUT("Disk=%0o ", bgVdsk);
+  PUT("Watch=%0o:", bgVwad);
+  PUT("%0o ", bgVwvl);
+  PUT("\n");
+  PUT("Terminal: TKS=%0o ", TKS);
+  PUT("TKB=%0o ", TKB);
+  PUT("TPS=%0o ", TPS);
+  PUT("TPB=%0o\n", TPB);
+  PUT("\n");
+  bg_dsk ();
+  PUT("Interrupts: ");
+  if ( elVsch & BIT(elCLK)) {PUT("Clock ") ;}
+  if ( elVsch & BIT(elKBD)) {PUT("Keyboard ") ;}
+  if ( elVsch & BIT(elTER)) {PUT("Screen ") ;}
+  if ( elVsch & BIT(elDSK)) {PUT("Disk ") ;}
+  PUT("\n");
+} 
+/* code -  bg_swi - switch a value */
+bg_swi(
+int val ,
+int pol )
+{ if( pol != -1)return ( pol );
+  if( val)return 0;
+  return 1;
+} 

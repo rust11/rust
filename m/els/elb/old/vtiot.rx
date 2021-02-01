@@ -1,0 +1,445 @@
+/* file -  vriot - VRT IOT handler */
+#include "c:\m\elb\vtmod.h"
+#include "c:\m\rid\cldef.h"
+elTwrd vtVjsw = 0;
+elTfun vt_io_wri ;
+elTfun vt_sy_ctf ;
+elTfun vt_sy_ass ;
+elTfun vt_sy_sre ;
+elTfun vt_sp_clo ;
+elTfun vt_sy_alc ;
+elTfun vt_sy_ccr ;
+elTfun vt_co_snd ;
+elTfun vt_sy_fvo ;
+elTfun vt_sy_frc ;
+elTfun vt_co_sda ;
+elTfun vt_me_sda ;
+elTfun vt_sy_lvo ;
+elTfun vt_sy_tim ;
+elTfun vt_sy_loo ;
+elTfun vt_io_rea ;
+elTfun vt_io_qio ;
+elTfun vt_to_syn ;
+elTfun vt_tt_rco ;
+elTfun vt_tt_ini ;
+elTfun vt_to_tto ;
+elTfun vt_ti_tti ;
+elTfun vt_sy_sto ;
+elTfun vt_sy_tik ;
+elTfun vt_sy_gt3 ;
+elTfun vt_jo_ref ;
+elTfun vt_rt_cal ;
+elTfun vt_sy_pee ;
+elTfun vt_sy_pok ;
+elTfun vt_sy_ons ;
+elTfun vt_sy_imc ;
+elTfun *vtAiot [] =  {
+  vt_io_wri,
+  vt_sy_ctf,
+  vt_sy_ass,
+  vt_sy_sre,
+  vt_sp_clo,
+  vt_sy_alc,
+  vt_sy_ccr,
+  vt_co_snd,
+  vt_sy_fvo,
+  vt_sy_frc,
+  vt_co_sda,
+  vt_me_sda,
+  vt_sy_lvo,
+  vt_sy_tim,
+  vt_sy_loo,
+  vt_io_rea,
+  vt_io_qio,
+  vt_to_syn,
+  vt_tt_rco,
+  vt_tt_ini,
+  vt_to_tto,
+  vt_ti_tti,
+  vt_sy_sto,
+  vt_sy_tik,
+  vt_sy_gt3,
+  vt_jo_ref,
+  vt_rt_cal,
+  vt_sy_pee,
+  vt_sy_pok,
+  vt_sy_ons,
+  vt_sy_imc,
+  };
+elTfun vt_sy_pti ;
+elTfun vt_sy_boo ;
+elTfun vt_sy_tab ;
+elTfun vt_sy_jba ;
+elTfun vt_sp_pro ;
+elTfun vt_sy_lic ;
+elTfun vt_sy_stj ;
+elTfun vt_sy_mat ;
+elTfun vt_sy_uba ;
+elTfun vt_sy_peb ;
+elTfun vt_sy_pob ;
+elTfun vt_sy_ser ;
+elTfun vt_xm_nop ;
+elTfun vt_sy_set ;
+elTfun *vtAsys [] =  {
+  vt_sy_pti,
+  vt_sy_boo,
+  vt_sy_tab,
+  vt_sy_pee,
+  vt_sy_pok,
+  vt_sy_jba,
+  vt_sp_pro,
+  vt_sy_lic,
+  vt_sy_stj,
+  vt_sy_mat,
+  vt_sy_uba,
+  vt_sy_peb,
+  vt_sy_pob,
+  vt_sy_ser,
+  vt_xm_nop,
+  vt_xm_nop,
+  vt_xm_nop,
+  vt_sy_set,
+  };
+/* code -  vr_int - emulator interrupt bypass */
+int vtVlck = 0;
+vr_int(
+elTwrd vec )
+{ switch ( vec) {
+  case veBUS:
+    return 0;
+   break; case veCPU:
+    return 0;
+   break; case veIOT:
+    return ( vt_iot ());
+   break; case veEMT:
+    return ( vt_emt ());
+     }
+  return 0;
+} 
+/* code -  vt_iot - iot trap */
+void vt_tim ();
+elTfun *vtAiot [];
+vt_iot()
+{ elTwrd val ;
+  rtTmon *mon = ADR(_rmon);
+  val = el_fpc ();
+  if ( PC >= 0140000) {
+     vtAiot[val/4]();return 1; }
+  if ( val != r50sys) {
+     PC -= 2;return 0; }
+  val = -el_fpc ();
+   vtAsys[val/4]();return 1;
+} 
+/* code -  IOT routines */
+int vtVtra = 1;
+int vtVall = 0;
+int vtVnov = 1;
+/* code -  vt_sy_ctf - check tentative file */
+void vt_sy_ctf()
+{ rtTchn *chn = vt_chn (R0);
+  if ( vtVtra && vtVall) {PUT("IOT sy_ctf: \n") ;}
+  if (( !R1 && (R0 < 17))
+  &&(chn->Vcsw & chTEN_)
+  &&(chn->Vcsw & chACT_)) {
+    R0 = chn->Vcsw & 076;
+    R0 |= (chn->Vuni & 7) << 8;
+    R1 = chn->Vblk;
+    } else {
+    R0 = R1 = 0; }
+} 
+/* code -  vt_sy_ass - auto-assign names */
+void vt_ass ();
+void vt_sy_ass()
+{ char nam [mxSPC];
+  elTwrd *rad = &R0;
+  vt_ass ();
+  vr_unp (rad, nam, 1);
+  if ( vtVtra && vtVall) {PUT("IOT sy_ass: Assign [%s]\n", nam) ;}
+} 
+/* code -  vt_sy_tim - get system time */
+void vt_sy_tim()
+{ int dat ;
+  int tim ;
+  vtTqel *qel = ADR(R5);
+  if ( vtVtra & vtVall) {PUT("IOT sy_tim: \n") ;}
+  el_tim (&tim, &dat);
+  qel->Vqa3 = 1;
+  qel->Vqa4 = dat;
+  qel->Vqa5 = tim>>16;
+  qel->Vqa6 = tim;
+} 
+/* code -  vt_sy_tik - get ticks */
+void vt_sy_tik()
+{ int dat ;
+  int tim ;
+  if ( vtVtra & vtVall) {PUT("IOT sy_tik: \n") ;}
+  el_tim (&tim, &dat);
+  R0 = tim>>16;
+  R1 = tim;
+} 
+void vt_sy_loo()
+{ R0 = 0;
+  if ( vtVtra) {PUT("IOT sy_loo: \n") ;}
+} 
+/* code -  vt_sy_sto - suspend */
+void vt_sy_sto()
+{ if ( vtVnov) {PUT("IOT sy_sto: \n") ;}
+} 
+/* code -  terminal */
+#include "c:\m\rid\codef.h"
+#include "c:\m\rid\cldef.h"
+#include "c:\m\rid\stdef.h"
+#include "c:\m\rid\imdef.h"
+#include "c:\m\rid\medef.h"
+vtTter vtSter  = {0};
+int vtVctc = 0;
+/* code -  vt_ti_tti - terminal input */
+void vt_ti_tti()
+{ vtTter *ter = &vtSter;
+  elTwrd asc ;
+  int jsw = JSW;
+  int cha ;
+  char *ptr ;
+  for(;;)  {
+    if ( (cha = ter->Vnxt) != 0) {
+      ter->Vnxt = 0;
+    } else if ( (cha = ter->Abuf[ter->Vget]) != 0) {
+      ++ter->Vget;
+    } else if ( jsw & ttspc_) {
+      cha = el_tti ();
+      } else {
+      cl_cmd ("", ter->Abuf);
+      ptr = st_end (ter->Abuf);
+      *ptr++ = '\r';
+      *ptr++ = 0;
+      ter->Vget = 0;
+      cha = ter->Abuf[ter->Vget++];
+    } 
+    if ( cha == 'Y'-'@') {el_exi () ;}
+    if( cha == 'G'-'@'){ el_dbg ("Console") ; continue;}
+    if ( cha == '\r') {ter->Vnxt = '\n' ;}
+     JR0 = cha;return;
+  } 
+} 
+/* code -  vt_to_tto - terminal output */
+void vt_to_tto()
+{ int cha = R0 & 0xff;
+  if (( vtVtra && vtVall)
+  &&(cha < 32)
+  &&(cha != 0)
+  &&(!((cha >= 9) && (cha <= 13)))) {
+    PUT("[cha=%d]", cha);
+  } 
+  el_put (R0);
+  CLC;
+} 
+/* code -  vt_tt_ini - soft reset */
+void vt_tt_rco()
+{ if ( vtVtra & vtVall) {PUT("IOT tt_rco: \n") ;}
+} 
+void vt_tt_ini()
+{ vtTter *ter = &vtSter;
+  if ( vtVtra & vtVall) {PUT("IOT tt_ini: \n") ;}
+  ter->Vget = 0;
+  ter->Abuf[ter->Vget] = 0;
+  ter->Vnxt = 0;
+} 
+void vt_sy_sre()
+{ if ( vtVtra && vtVall) {PUT("IOT to_sre: \n") ;}
+  vt_tt_ini ();
+} 
+void vt_to_syn()
+{ if ( vtVtra) {PUT("IOT to_syn: \n") ;}
+} 
+/* code -  vt_emt - steal output emts */
+vt_emt()
+{ elTwrd adr ;
+  elTbyt val ;
+  rtTmon *mon = ADR(_rmon);
+  rtTchn *chn ;
+  if ( OP == emTTO) {
+    el_put (R0);
+     CLC;return 1;
+  } else if ( OP == emPRI) {
+    adr = R0;
+    for(;;)  {
+      val = el_fbt (adr++);
+      if( val == 0200){ CLC ; return 1;}
+      if( val){ el_put (val) ; continue;}
+       CLC, el_put ('\n');return 1;
+    } 
+  } else if ( el_fwd (_smon) & vtSter.Vonc) {
+    el_exi ();
+  } else if (( (OP&0xff) == 0375)
+  &&((*(elTbyt *)ADR(R0+1) & 0xff) == 042)) {
+     CLC;return 1;
+  } else if (( (OP&0xff) == 0374)
+  &&((R0>>8) == 3)) {
+    chn = vt_chn (R0 & 0xff);
+  } 
+  return 0;
+} 
+/* code -  IOT system traps */
+void vt_sy_pti()
+{ if ( vtVtra) {PUT("IOT sy_pti: \n") ;}
+} 
+void vt_sy_boo()
+{ if ( vtVtra) {PUT("IOT sy_boo: \n") ;}
+  el_exi ();
+} 
+void vt_sy_tab()
+{ elTwrd adr ;
+  if ( vtVtra) {PUT("IOT sy_tab: \n") ;}
+  R0 = 0;
+  el_swd (_chkey+_rmon, 0);
+  adr = el_fwd (j_buff+6+_rmon);
+  el_swd (adr, 0);
+  el_swd (adr+2, 0);
+  el_swd (adr+4, -1);
+} 
+void vt_sy_pee()
+{ R0 = 0;
+  if ( vtVtra) {PUT("IOT sy_pee: \n") ;}
+} 
+void vt_sy_pok()
+{ R0 = 0;
+  if ( vtVtra) {PUT("IOT sy_pok: \n") ;}
+} 
+void vt_sy_jba()
+{ R0 = j_buff+_rmon;
+  el_swd (_chkey+_rmon, 0);
+  if ( vtVtra && vtVall) {PUT("IOT sy_jba: \n") ;}
+} 
+void vt_sp_pro()
+{ R0 = -1;
+  if ( vtVtra) {PUT("IOT sy_pro: \n") ;}
+} 
+void vt_sy_lic()
+{ ;
+  if ( vtVtra) {PUT("IOT sy_lic: \n") ;}
+} 
+void vt_sy_stj()
+{ ;
+  if ( vtVtra) {PUT("IOT sy_stj: \n") ;}
+} 
+#define r50enf  020566
+void vt_sy_mat()
+{ R0 = r50enf;
+  if ( vtVtra) {PUT("IOT sy_mat: \n") ;}
+} 
+void vt_sy_uba()
+{ R0 = j_buff+_rmon;
+  el_swd (_chkey+_rmon, 0);
+  if ( vtVtra) {PUT("IOT sy_uba: \n") ;}
+} 
+void vt_sy_peb()
+{ ;
+  if ( vtVtra) {PUT("IOT sy_peb: \n") ;}
+} 
+void vt_sy_pob()
+{ ;
+  if ( vtVtra) {PUT("IOT sy_pob: \n") ;}
+} 
+void vt_sy_ser()
+{ R0 = -1;
+  if ( vtVtra) {PUT("IOT sy_ser: \n") ;}
+} 
+void vt_xm_nop()
+{ R0 = -1;
+  if ( vtVtra) {PUT("IOT xm_nop: \n") ;}
+} 
+void vt_sy_set()
+{ R0 = 0;
+  if ( vtVtra) {PUT("IOT sy_set: \n") ;}
+} 
+/* code -  IOT nops */
+void vt_sy_ons()
+{ ;
+} 
+void vt_sy_imc()
+{ ;
+} 
+void vt_sp_clo()
+{ ;
+} 
+void vt_sy_ccr()
+{ ;
+} 
+void vt_sy_fvo()
+{ if ( vtVlck) {el_dbg ("fvo") ;}
+  ;
+} 
+void vt_me_sda()
+{ ;
+} 
+void vt_sy_lvo()
+{ if ( vtVlck) {el_dbg ("lvo") ;}
+  ;
+} 
+void vt_sy_alc()
+{ ;
+} 
+void vt_co_snd()
+{ ;
+} 
+void vt_sy_frc()
+{ ;
+} 
+void vt_sy_gt3()
+{ ;
+} 
+void vt_jo_ref()
+{ ;
+} 
+void vt_co_sda()
+{ ;
+} 
+void vt_rt_cal()
+{ ;
+} 
+/* code -  auto-assign */
+#include "c:\m\rid\lndef.h"
+#include "c:\m\rid\ctdef.h"
+#define radVX  0106500
+#define rad0  036
+void vt_ass()
+{ vtTqel *qel = ADR(R5);
+  char spc [20];
+  char trn [128];
+  elTwrd *nam ;
+  elTwrd *log ;
+  elTwrd *phy ;
+  elTwrd *slt ;
+  elTwrd pat ;
+  int cnt ;
+  nam = ADR(_pname);
+  while ( nam < ADR(_hentr)) {
+    if( !*nam++)continue;
+    if( (pat = nam[-1] - R0) == 0)return;
+    if( pat < 0)break;
+    pat -= rad0;
+    if( pat < 0)continue;
+    if( pat <= 7)return;
+  } 
+  vr_unp (&R0, spc, 1);
+  if (( spc[0] == 'L')
+  &&(spc[1] == 'D')
+  &&(ct_dig(spc[2]))) {
+    return; }
+  st_ins ("rt_", spc);
+  if ( !ln_trn (spc,trn,0)) {
+    if( (ln_trn (spc+3,trn,0)) == 0)return; }
+  log = ADR(_unam2);
+  phy = ADR(_unam1);
+  cnt = 31;
+  while ( *phy) {
+    if( !--cnt)return;
+    ++phy, ++log;
+  } 
+  slt = &qel->Vqa8;
+  if ( qel->Vqcm == vtREN) {
+    slt = &qel->Vqx0; }
+  if( *slt != R0)return;
+  *log = *slt = R0;
+  *phy = R0 = radVX;
+} 

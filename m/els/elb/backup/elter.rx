@@ -1,0 +1,141 @@
+/* file -  elter - terminal emulation */
+#include <windows.h>
+#include "c:\m\elb\elmod.h"
+#include "c:\m\rid\medef.h"
+#include "c:\m\rid\fidef.h"
+#include "c:\m\rid\cldef.h"
+#include "c:\m\rid\imdef.h"
+#include "c:\m\rid\dbdef.h"
+#include "c:\m\rid\stdef.h"
+#include "c:\m\rid\mxdef.h"
+#include "c:\m\rid\ctdef.h"
+#include "c:\m\rid\codef.h"
+#include "c:\m\rid\tidef.h"
+#include "c:\m\rid\wcdef.h"
+#include "c:\m\rid\shdef.h"
+/* code -  el_kbd - polled keyboard */
+void el_kbd()
+{ int asc ;
+  if( ++elVtkc < 1000)return;
+  elVtkc = 0;
+  if( (asc = el_tti ()) == 0)return;
+  elVtks = 0, elVtkb = 1;
+  TKB = asc, TKS |= elRDY_;
+  el_sch (elKBD);
+} 
+/* code -  el_tti - ttyin */
+el_tti()
+{ kbTcha cha ;
+  int asc ;
+  if ( elPcmd) {
+    asc = *elPcmd++;
+    if ( !asc) {asc = '\r', elPcmd = NULL ;}
+    } else {
+    if( !co_get (&cha, kbGET_))return 0;
+    if ( cha.Vflg & kbASC_) {
+      asc = cha.Vord;
+    } else if (( cha.Vflg & kbVIR_)
+    &&(cha.Vord == 0x7b)) {
+      if ( cha.Vflg & kbALT_) {im_exi() ;}
+      el_dbg ("Break");
+      } else {
+      return 0; } }
+  switch ( asc) {
+  case 8:
+    asc = 127;
+     }
+  return ( asc);
+} 
+/* code -  el_put - output character with /pause and /log */
+int elVlin = 0;
+int elVscr = 24;
+void el_put(
+int cha )
+{ char buf [128];
+  if( !cha)return;
+  PUT("%c", cha);
+  if ( elVlog) {fi_opt (elPlog, &cha, 1) ;}
+  if( !elVpau)return;
+  if( cha != '\n')return;
+  if( ++elVlin < elVscr)return;
+  elVlin = 0;
+  cl_cmd ("More? ", buf);
+} 
+void el_new()
+{ el_put ('\n');
+} 
+/* code -  terminal */
+#include "c:\m\elb\vtmod.h"
+#include "c:\m\rid\codef.h"
+#include "c:\m\rid\cldef.h"
+#include "c:\m\rid\stdef.h"
+#include "c:\m\rid\imdef.h"
+#include "c:\m\rid\medef.h"
+#include "c:\m\rid\stdef.h"
+vtTter vtSter  = {0};
+int vtVctc = 0;
+/* code -  vt_ti_tti - terminal input */
+void vt_ti_tti()
+{ vtTter *ter = &vtSter;
+  elTwrd asc ;
+  int jsw = JSW;
+  int cha ;
+  char *ptr ;
+  for(;;)  {
+    if ( (cha = ter->Vnxt) != 0) {
+      ter->Vnxt = 0;
+    } else if ( (cha = ter->Abuf[ter->Vget]) != 0) {
+      ++ter->Vget;
+    } else if ( jsw & ttspc_) {
+      cha = el_tti ();
+      } else {
+      cl_cmd ("", ter->Abuf);
+      ptr = st_end (ter->Abuf);
+      *ptr++ = '\r';
+      *ptr++ = 0;
+      ter->Vget = 0;
+      cha = ter->Abuf[ter->Vget++];
+    } 
+    if ( cha == 'Y'-'@') {el_exi () ;}
+    if( cha == 'G'-'@'){ el_dbg ("Console") ; continue;}
+    if ( cha == '\r') {ter->Vnxt = '\n' ;}
+     JR0 = cha;return;
+  } 
+} 
+extern int vtVtra ;
+extern int vtVall ;
+/* code -  vt_to_tto - terminal output */
+void vt_to_tto()
+{ int cha = R0 & 0xff;
+  if (( vtVtra && vtVall)
+  &&(cha < 32)
+  &&(cha != 0)
+  &&(!((cha >= 9) && (cha <= 13)))) {
+    PUT("[cha=%d]", cha);
+  } 
+  el_put (R0);
+  CLC;
+} 
+/* code -  vt_tt_ini - soft reset */
+void vt_tt_rco()
+{ 
+} 
+void vt_tt_ini()
+{ vtTter *ter = &vtSter;
+  ter->Vget = 0;
+  ter->Abuf[ter->Vget] = 0;
+  ter->Vnxt = 0;
+} 
+#include "c:\m\elb\vtmod.h"
+LRESULT CALLBACK vt_kb_prc(
+int cod ,
+WPARAM wrd ,
+LPARAM lng )
+{ 
+puts ("#vt_kb_prc.a");
+  return 0;
+} 
+void vt_kb_hoo()
+{ 
+  SetWindowsHookEx (WH_KEYBOARD, (void *)vt_kb_prc, NULL, GetCurrentThreadId ());
+} 
