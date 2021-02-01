@@ -1,0 +1,874 @@
+#define rst_c  1
+/* file -  she - my sea shell */
+#include "f:\m\rid\rider.h"
+#if Win
+#include <time.h>
+#include <stdio.h>
+#include <stdlib.h>
+#endif 
+#include "f:\m\rid\imdef.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\mxdef.h"
+#include "f:\m\rid\iodef.h"
+#include "f:\m\rid\osdef.h"
+#include "f:\m\rid\dfdef.h"
+#include "f:\m\rid\chdef.h"
+#include "f:\m\rid\cldef.h"
+#include "f:\m\rid\ctdef.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\codef.h"
+#if Win
+#include "f:\m\rid\abdef.h"
+#include "f:\m\rid\drdef.h"
+#include "f:\m\rid\evdef.h"
+#include "f:\m\rid\lndef.h"
+#include "f:\m\rid\prdef.h"
+#include "f:\m\rid\shdef.h"
+#endif 
+int sh_sin (char *);
+shTshe *shPshe = NULL;
+/* code -  constants */
+#define PUT  printf
+#define shEXP  1024
+#define _shQUA  '/'
+#define _shCMT  '!'
+#define _shPRM  "o "
+#if Vms
+#define _shCOM  NULL
+#define _shBAT  ".com"
+#define _shRUN  "mcr "
+#define _shSPC  "AD$_:[].;*%"
+#define _shDEF  "sys$login:she.def"
+#elif  Dos || Win
+#define _shCOM  ".com"
+#define _shBAT  ".bat"
+#define _shRUN  ""
+#define _shSPC  "AD_:\\.*?`~"
+#if rst_c
+#define _shROO  "c:\\rust"
+#define _shDEF  "root:she.def"
+#define _shSHO  "root:show.exe"
+#define _shSPN  "root:she.exe"
+#else 
+#define _shDEF  "@INI@:she.def"
+#define _shSHO  "@INI@:show.exe"
+#define _shSPN  "@INI@:she.exe"
+#endif 
+#endif 
+/* code -  variables */
+int shVini = 0;
+int shVprc = 0;
+int shVsin = 0;
+char *shPsin = NULL;
+int shVexp = 0;
+char *shPexp = NULL;
+int shVver = 0;
+int shVlog = 0;
+int shVdbg = 0;
+int shVexi = 0;
+int shVerr = 0;
+char *shPspc = _shSPC;
+dfTctx *shPdef = NULL;
+char *shPspn = _shSPN;
+/* code -  routines */
+int sh_swi (shTshe *,char *);
+int sh_ovr (char *,char *);
+int sh_def (char *,char *);
+int sh_kwd (char *,char *);
+void sh_run (char *,char *);
+void sh_spn (char *,char *);
+void sh_hst (char *,char *);
+void sh_prc (char *,char *);
+int sh_get (char *);
+dfTctx *ut_def ();
+void ut_upt (void );
+int ut_img (char *,char *);
+int ut_spc (char *,char *,char *);
+int ut_mor (char *);
+void ut_inv (void );
+void ut_rep (char *,char *);
+void ut_lst (char **);
+void ut_tim (void );
+int cd_chg (char *);
+int cd_sho (void );
+/* code -  keyword routines */
+void kw_cop (char *);
+void kw_del (char *);
+void kw_ren (char *);
+void kw_typ (char *);
+void kw_def (char *);
+void kw_und (char *);
+void kw_exi (char *);
+void kw_hst (char *);
+void kw_hlp (char *);
+void kw_run (char *);
+void kw_res (char *);
+int kw_roo (char *);
+void kw_set (char *);
+void kw_sho (char *);
+void kw_spn (char *);
+void kw_tim (char *);
+void kw_chg (char *);
+void kw_dis (char *);
+shTkwd shAkwd [] =  {
+  kw_cop, "co*py",
+  kw_def, "def*ine",
+  kw_del, "del*ete",
+  kw_exi, "ex*it",
+  kw_hlp, "he*lp",
+  kw_hst, "ho*st",
+  kw_ren, "rename",
+  kw_exi, "qu*it",
+  kw_res, "reset*",
+  kw_run, "ru*n",
+  kw_sho, "sh*ow",
+  kw_set, "se*t",
+  kw_typ, "ty*pe",
+  kw_und, "undef*ine",
+  kw_chg, "cd",
+  kw_dis, "dis*play",
+  NULL, NULL,
+  };
+/* code -  messages */
+#define E_MisImgSpc  "E-Missing image spec"
+#define E_ErrActImg  "E-Error activating image [%s]"
+#define E_TooManExp  "E-Too many expansions [%s]"
+#define E_MisPrcSpc  "E-Missing procedure spec"
+#define E_ErrAccPrc  "E-Error accessing procedure [%s]"
+#define W_IgnJnkLin  "W-Ignored junk on line [%s]"
+#define E_InvSetItm  "E-No such set item [%s]"
+/* code -  about */
+char *shAabo [] =  {
+  "SHE Command Shell V2.0",
+  "",
+  "	she [command]",
+  "",
+  NULL,
+  };
+/* code -  help */
+char *shAhlp [] =  {
+  "name := .. Define definition",
+  "name :=    Delete definition",
+  "@file      Execute procedure file.she",
+  "copy       Copy files",
+  "cd         Change directory",
+  "define     Define logical name",
+  "delete     Delete files",
+  "directory  List directory",
+  "display    Display string or calculation",
+  "exit       End procedure or exit SHE",
+  "help       Display help",
+  "host       Execute host command",
+  "quit       End procedure or exit SHE",
+  "reset      Reset logical names",
+  "rename     Rename files",
+  "run        Execute image (default)",
+  "set        Set default,prompt,[no]verify",
+  "show       Show commands, ...",
+  "type       Display files",
+  "undefine   Delete logical name",
+  NULL,
+  };
+/* code -  she main */
+sh_mai(
+int cnt ,
+char *(*vec ))
+{ shTshe *she ;
+  char buf [mxLIN];
+  char *lin = buf;
+  int flg = 0;
+  if ( !st_sam (imPfac, "NONAME")) {
+    flg = shSHE_;
+    im_ini ("SHE"); }
+  if (( cnt == 2)
+  &&(st_scn ("/?", vec[1]))) {
+    ut_lst (shAabo);
+    im_exi (); }
+  she = sh_ini ();
+  she->Vflg |= flg;
+  if (( cnt >= 2)
+  &&(sh_swi (she, vec[1]))) {
+    --cnt, ++vec; }
+  *lin = 0;
+  while ( --cnt > 0) {
+    st_app (*++vec, lin);
+    st_app (" ", lin);
+  } 
+  st_trm (lin);
+  she->Plin = lin;
+  kw_res (NULL);
+  cd_chg ("");
+  sh_cmd (she);
+  im_exi ();
+} 
+/* code -  sw_swi - get command switches */
+sh_swi(
+shTshe *she ,
+char *str )
+{ char *val ;
+  char *ptr ;
+  int swi ;
+  int cnt ;
+  int rep ;
+  if( *str != '/')return 0;
+  for(;;)  {
+    rep = 0;
+    if( !*str)return 1;
+    if( *str++ != '/')break;
+    if( (swi = ch_low (*str++)) == 0)break;
+    val = NULL, cnt = mxLIN-1;
+    if ( *str == '=') {
+      val = ptr = ++str;
+      while (( *str && (*str != '/'))
+      &&(--cnt)) {
+        *ptr++ = *str++;
+      } 
+      if( !cnt)return 0;
+      rep = *str, *str = 0;
+    } 
+    if( !cnt)break;
+    switch ( swi) {
+    case 'p':
+      if ( !val) {val = "O" ;}
+      if( st_len (val) > mxSPC)return 0;
+      st_cop (val, she->Aprm);
+     break; case 'r':
+      if ( !val) {val = _shROO ;}
+      kw_roo (val);
+     break; case 'd':
+      if ( !val) {val = _shROO ;}
+      cd_chg (val);
+     break; default: 
+      break;
+       }
+    if ( val) {*str = rep ;}
+  } 
+   ut_inv ();return 1;
+} 
+/* code -  sh_cmd - process commands */
+int sh_cmd(
+shTshe *she )
+{ char cmd [mxLIN];
+  char buf [mxLIN];
+  char *lin = buf;
+  char *sin = she->Plin;
+  char *ptr ;
+  if ( !(she->Vflg & shCTC_)) {
+    co_ctc (coDSB); }
+  if ( *sin) {shPsin=sin, shVsin=1 ;} else {
+    shVsin = 0 ; }
+  she->Vsts = 0;
+  for(;;)  {
+    if ( she->Vflg & shSHE_) {
+      if( she->Vflg & shEXI_)break;
+      } else {
+      if( she->Vflg & shFIN_)break; }
+    if( (sh_get (buf)) == 0)break;
+    lin = buf;
+    st_rem ("$", lin);
+    if ( cl_scn ("@", lin)) {
+      if( (ut_spc (lin, cmd, E_MisPrcSpc)) == 0)break;
+      if ( st_fnd (".", cmd) == NULL) {
+        if (( !ut_img (cmd, ".she"))
+        &&(ut_img (cmd, _shBAT))) {
+          sh_hst (cmd, lin); }
+        } else {
+        st_app (".she", cmd); }
+       sh_prc (cmd, lin);continue; }
+    if ( st_fnd (":=", lin) != NULL) {
+      df_def (ut_def (), lin);
+       ev_sig (evCMD);continue; }
+    if ( st_fnd ("=>", lin) != NULL) {
+      ptr = st_rep ("=>", " ", lin);
+      ptr = st_skp (ptr);
+      if ( !*ptr) {kw_und (lin) ;} else {
+        kw_def (lin) ; }
+      continue; }
+    if ( she->Pdis) {
+      she->Pcmd = lin;
+      if( (*she->Pdis) (she))continue; }
+    if( !*lin)continue;
+    ut_spc (lin, cmd, NULL);
+    if( sh_def (cmd, lin))continue;
+    if( sh_kwd (cmd, lin))continue;
+    if ( ut_img (cmd, ".she")) {
+       sh_prc (cmd, lin);continue; }
+    if (( ut_img (cmd, _shCOM))
+    ||(ut_img (cmd, ".exe"))) {
+       sh_run (cmd, lin);continue; }
+    sh_hst (cmd, lin);
+  } 
+  return ( she->Vsts | (she->Vflg & shFIN_));
+} 
+/* code -  sh_exi - setup exit */
+void sh_abt()
+{ shPshe->Vflg |= shABT_;
+} 
+void sh_exi()
+{ shPshe->Vflg |= shEXI_;
+} 
+void sh_ter()
+{ if ( ab_chk()) {shPshe->Vflg&=shTER_ ;}
+} 
+/* code -  sh_ini - init definitions etc */
+shTshe *sh_ini()
+{ shTshe *she ;
+#if 0
+  char cmd [mxLIN];
+  char buf [mxLIN];
+  char *lin = buf;
+#endif 
+  if( shVini)return ( shPshe );
+  shPshe = she = me_acc ( sizeof(shTshe));
+  ++shVini;
+  st_cop (_shPRM, she->Aprm);
+  ab_dsb ();
+  abVboo = 1;
+  shPexp = me_acc (shEXP);
+  shPdef = df_alc ();
+  df_ctx (_shDEF, dfEPH_);
+  return ( she);
+} 
+/* code -  ut_def - see if the definition have changed */
+dfTctx *ut_def()
+{ if ( ev_chk (evCMD)) {
+    df_dlc (shPdef);
+    shPdef = df_ctx(_shDEF,dfEPH_); }
+  return ( shPdef);
+} 
+/* code -  ut_img - determine if image exists */
+int ut_img(
+char *spc ,
+char *typ )
+{ int res = 0;
+  FILE *fil ;
+  char *app ;
+  if( typ == NULL)return 0;
+  if ( st_fnd (".", spc) != NULL) {
+    if( (st_fnd (typ, spc)) == NULL)return 0;
+    } else {
+    st_cop (typ, (app = st_end (spc))); }
+  if ( (fil = fi_opn (spc, "r", NULL)) != NULL) {
+    ++res;
+    fi_clo (fil, NULL);
+    } else {
+    if ( app != NULL) {*app = 0 ;} }
+  return ( res);
+} 
+/* code -  sh_ovr - set/show overrides */
+int sh_ovr(
+char *pre ,
+char *rem )
+{ char itm [mxLIN];
+  char lin [mxLIN];
+  char cmd [mxLIN];
+  st_cop (rem, lin);
+  ut_spc (lin, itm, NULL);
+  st_cop (pre, cmd);
+  st_app (itm, cmd);
+  return ( sh_def (cmd, lin));
+} 
+/* code -  sh_def - check definition */
+int sh_def(
+char *cmd ,
+char *rem )
+{ char buf [mxLIN*2];
+  char *exp = shPexp;
+  dfTctx *ctx = ut_def ();
+  dfTdef *def ;
+  char *rep ;
+  if( (def = df_loo (ctx, cmd)) == NULL)return 0;
+  if ( (df_exp (ctx, def, rem, buf, mxLIN, '^', 0)) > 0) {
+    if ( (st_len(buf) + st_len(exp)) > shEXP-4) {
+      sh_abt ();
+      ut_rep (E_TooManExp, cmd);
+      return 1; }
+    if ( shVexp) {st_ins ("\n",exp) ;} else {
+      *exp=0, ++shVexp ; }
+    st_ins (buf, exp);
+    shVexp = 1; }
+  ut_rep ("L-Definition [%s]",cmd);
+  return 1;
+} 
+/* code -  sh_kwd - check for keyword */
+int sh_kwd(
+char *cmd ,
+char *rem )
+{ shTkwd *ent = shAkwd;
+  while ( ent->Pkwd != NULL) {
+    if ( cl_mat (cmd, ent->Pkwd)) {
+      (*ent->Pfun)(rem);
+      return 1; }
+    ++ent;
+  } 
+  return 0;
+} 
+/* code -  kw_res - reset things */
+void kw_res(
+char *rem )
+{ char def [mxSPC];
+  ln_exi ();
+  return;
+  if( (ln_trn ("default", def, 0)) == 0)return;
+  dr_set (def, 0);
+} 
+/* code -  kw_exi - exit shell */
+void kw_exi(
+char *rem )
+{ sh_exi ();
+} 
+/* code -  kw_hlp - display help */
+void kw_hlp(
+char *rem )
+{ char *(*hlp )= shAhlp;
+  char *(*lft );
+  char *(*rgt );
+  int len = 0;
+  if( sh_ovr ("help_", rem))return;
+  if ( *rem) {
+     sh_hst ("help", rem);return; }
+  PUT("%s\n\n", shAabo[0]);
+  lft = hlp;
+  while ( *hlp++) {++len ;}
+  rgt = lft + (len /= 2);
+  while ( len--) {
+    printf ("%-40s", *lft++);
+    puts (*rgt++);
+  } 
+} 
+/* code -  kw_dis - display text */
+void kw_dis(
+char *rem )
+{ char *lst ;
+  if ( ct_dig (*rem)) {
+    sh_hst ("root:calc", rem);
+    } else {
+    if ( *rem == '"') {st_del (rem, 1) ;}
+    lst = st_lst (rem);
+    if ( *lst == '"') {*lst = 0 ;}
+    PUT("%s\n", rem); }
+} 
+/* code -  kw_xxx - abbreviation front ends */
+void sh_lc1 (char *,char *);
+void sh_lc2 (char *,char *);
+void kw_hst(
+char *rem )
+{ sh_hst (rem, "");
+} 
+void kw_run(
+char *rem )
+{ char spc [mxLIN];
+  if( (ut_spc (rem, spc, E_MisImgSpc)) == 0)return;
+  if ( ut_img (spc, _shCOM) == 0) {
+    ut_img (spc, ".exe"); }
+  sh_run (spc, rem);
+} 
+void kw_cop(
+char *rem )
+{ sh_lc2 ("copy", rem);
+} 
+void kw_ren(
+char *rem )
+{ sh_lc2 ("rename", rem);
+} 
+void sh_lc2(
+char *cmd ,
+char *rem )
+{ char src [mxLIN];
+  char dst [mxLIN];
+  if (( ut_spc (rem, src, NULL))
+  &&(ut_spc (rem, dst, NULL))) {
+    fi_loc (src, src);
+    fi_loc (dst, dst);
+    st_app (" ", src);
+    st_app (dst, src);
+    rem = src; }
+  sh_hst (cmd, rem);
+} 
+void kw_del(
+char *rem )
+{ sh_hst ("del", rem);
+} 
+void kw_typ(
+char *rem )
+{ sh_hst ("type", rem);
+} 
+void sh_lc1(
+char *cmd ,
+char *rem )
+{ char dst [mxLIN];
+  if ( ut_spc (rem, dst, NULL)) {
+    fi_loc (dst, dst);
+    rem = dst; }
+  sh_hst (cmd, rem);
+} 
+void kw_tim(
+char *rem )
+{ st_cop ("time", rem);
+  sh_run (_shSHO, rem);
+} 
+void kw_def(
+char *rem )
+{ st_ins ("define ", rem);
+  cl_red (rem);
+  sh_hst ("root:logi.exe", rem);
+} 
+void kw_und(
+char *rem )
+{ st_ins ("undefine ", rem);
+  cl_red (rem);
+  sh_hst ("root:logi.exe", rem);
+} 
+/* code -  kw_set - set things */
+char *shAset [] =  {
+#define stDEF 0
+  "def*ault",
+#define stPRM 1
+  "pr*ompt",
+#define stDBG 2
+  "*deb*ug",
+#define stROO 3
+  "ro*ot",
+#define stVER 4
+  "*ve*rify",
+  NULL,
+  };
+void kw_set(
+char *rem )
+{ shTshe *she = shPshe;
+  char itm [mxLIN]= {0};
+  int pol ;
+  if( sh_ovr ("set_", rem))return;
+  ut_spc (rem, itm, NULL);
+  if ( she->Pset) {
+    she->Prem = rem;
+    she->Pcmd = itm;
+    if( (*she->Pset)(she))return; }
+  switch ( cl_loo (itm, shAset, &pol)) {
+  case stDEF:
+    cd_chg (rem);
+   break; case stROO:
+    kw_roo (rem);
+   break; case stVER:
+    shVlog = pol;
+    shVver = pol;
+   break; case stPRM:
+    st_cop (rem,she->Aprm);
+    st_app (" ",she->Aprm);
+   break; default: 
+    ut_rep (E_InvSetItm, itm);
+     }
+} 
+/* code -  kw_sho - show things */
+char *shAsho [] =  {
+#define shCOM 0
+  "co*mmands",
+#define shDEF 1
+  "de*fault",
+#define shLOG 2
+  "lo*gicals",
+#define shROO 3
+  "ro*ot",
+#define shSET 4
+  "se*tup",
+#define shTIM 5
+  "ti*me",
+  NULL,
+  };
+static void ut_sho (char *);
+void kw_sho(
+char *rem )
+{ shTshe *she = shPshe;
+  char itm [mxLIN];
+  char lin [mxLIN];
+  if( sh_ovr ("show_",rem))return;
+  st_cop (rem, lin);
+  ut_spc (rem, itm, NULL);
+  if ( she->Psho) {
+    she->Prem = rem;
+    she->Pcmd = itm;
+    if( (*she->Psho)(she))return; }
+  if ( itm[0]) {
+    switch ( cl_loo (itm, shAsho, NULL)) {
+    case shCOM:
+       ut_sho (rem);return;
+     break; case shDEF:
+       cd_sho ();return;
+     break; case shLOG:
+      st_ins ("show ", rem);
+       sh_hst ("root:logi.exe", rem);return;
+     break; case shROO:
+       kw_roo (NULL);return;
+     break; case shSET:
+      break;
+     break; case shTIM:
+       ut_tim ();return;
+     break; default: 
+       ut_inv ();return;
+       }
+  } 
+  PUT("default = ");
+  cd_sho ();
+  kw_roo (NULL);
+  st_cop ("setup = ", lin);
+  if ( shVver == 0) {st_app ("no", lin) ;}
+  st_app ("verify ", lin);
+  PUT ("%s\n", lin);
+} 
+/* code -  ut_sho - show definitions */
+void ut_sho(
+char *rem )
+{ dfTdef *def ;
+  char tar [mxLIN*2];
+  char *src ;
+  char *dst ;
+  int cnt = 0;
+  int mor = 0;
+  if ( !*rem) {rem = "*" ;}
+  ut_def ();
+  if( (def = (ut_def ())->Proo) == NULL)return;
+  while ( def != NULL) {
+    src = def->Pnam;
+    dst = tar;
+    while ( *src) {
+      if (( *src != '*')
+      &&(*src != '?')) {
+        *dst++ = *src; }
+      ++src; }
+    *dst = 0;
+    if ( st_wld (rem, tar)) {
+      if( !cl_mor (&mor))return;
+      PUT("%-10s := %s\n",def->Pnam, def->Pbod); }
+    def = def->Psuc;
+  } 
+} 
+/* code -  kw_roo - set/show root */
+kw_roo(
+char *rem )
+{ char roo [mxSPC];
+  if ( !rem) {
+    ev_get ("Root", roo, mxSPC);
+    PUT("root = %s\n", roo);
+    return 1; }
+  ev_set ("Root", rem);
+} 
+/* code -  sh_run - run program */
+void sh_run(
+char *spc ,
+char *rem )
+{ shTshe *she = she;
+  int msg ;
+  int sts ;
+  void *han ;
+  if ( shVlog) {
+    PUT("?SHE-I-Run %s %s\n", spc, rem); }
+  st_upr (spc);
+  return ( (sh_hst (spc, rem)));
+  st_ins (" ", rem);
+  ab_enb ();
+  han = cl_foc (0);
+  she->Vsts |= (sts = im_exe (spc, rem, 0));
+  ab_dsb ();
+  cl_foc (han);
+  if ( sts < 0) {
+    ut_rep (E_ErrActImg, spc); }
+  if ( shVlog != 0) {
+    printf ("%%SHE-I-Status = %d\n", sts); }
+} 
+/* code -  sh_hst - execute host command */
+void sh_hst(
+char *cmd ,
+char *rem )
+{ shTshe *she = shPshe;
+  char img [mxLIN];
+  char lin [mxLIN];
+  int sts ;
+  void *han ;
+  fi_loc (cmd, img);
+  st_cop (img, lin);
+  if ( *rem) {
+    st_app (" ", lin);
+    st_app (rem, lin); }
+  if ( shVlog != 0) {
+    ut_rep ("I-Host [%s]", lin); }
+  han = cl_foc (0);
+  she->Vsts |= pr_cmd (lin);
+  co_ctc (coDSB);
+  ab_dsb ();
+  cl_foc (han);
+  if ( shVlog != 0) {
+    printf ("%%SHE-I-Status = %d\n", she->Vsts); }
+} 
+/* code -  sh_prc - initiate command procedure */
+void sh_prc(
+char *spc ,
+char *lin )
+{ if ( io_src (spc, "") == 0) {
+    ut_rep (E_ErrAccPrc, spc);
+    } else {
+    ++shVprc; }
+} 
+/* code -  sh_get - get next command line */
+int sh_get(
+char *lin )
+{ shTshe *she = shPshe;
+  char *exp = shPexp;
+  char *ptr ;
+  for(;;)  {
+    if ( abVcan|abVabt) {shVexp = 0 ;}
+    if ( shVexp != 0) {
+      if ( (ptr = st_fnd ("\n", exp)) == NULL) {
+        st_cop (exp, lin);
+        *exp = 0;
+        } else {
+        *ptr++ = 0;
+        st_cop (exp, lin);
+        st_mov (ptr, exp); }
+      if ( *exp == 0) {shVexp = 0 ;}
+      break; }
+    if ( shVprc != 0) {
+      if ( io_get (lin) != 0) {
+        if( abVcan|abVabt)continue;
+        if ( shVver != 0) {
+          printf ("%s\n", lin); }
+        sh_ter ();
+        break; }
+      shVprc = 0; }
+    sh_ter ();
+    if ( shVsin != 0) {
+      if( shVsin < 0)return 0;
+      shVsin = -1;
+      st_cop (shPsin, lin);
+      break; }
+    sh_sin (lin);
+    if ( st_mem (3, lin) || abVabt) {
+      sh_abt ();
+      *lin = 0; }
+    return 1;
+  } 
+   cl_red (lin);return 1;
+} 
+/* code -  sh_sin - get a single keyboard command */
+int sh_sin(
+char *lin )
+{ shTshe *she = shPshe;
+  if ( she->Vflg & shMAN_) {shVsin = -1 ;}
+  if ( she->Pprm) {(*she->Pprm)(she) ;}
+  cl_prm (stdin, she->Aprm, lin, mxLIN);
+  return ( cl_red (lin));
+} 
+/* code -  parsers, errors */
+/* code -  ut_spc - filter filespec */
+int ut_spc(
+char *lin ,
+char *spc ,
+char *msg )
+{ st_ext ("-fe", _shSPC, lin, spc);
+  if( *spc)return 1;
+  if ( msg != NULL) {ut_rep (msg, NULL) ;}
+  return 0;
+} 
+/* code -  ut_mor - check more on line */
+int ut_mor(
+char *lin )
+{ if( *lin == 0)return 0;
+  ut_rep (W_IgnJnkLin, lin);
+  return 1;
+} 
+/* code -  ut_inv - invalid command */
+void ut_inv()
+{ im_rep ("E-Invalid command", NULL);
+} 
+/* code -  ut_rep - report and set status */
+void ut_rep(
+char *msg ,
+char *obj )
+{ if( *msg == 'L' && shVlog == 0)return;
+  im_rep (msg, obj);
+  if ( *msg == 'F') {im_exi () ;}
+  if ( *msg == 'E') {++shVerr ;}
+} 
+/* code -  ut_lst - print array of text */
+void ut_lst(
+char *(*tab ))
+{ while ( *tab != NULL) {
+    printf ("%s\n", *tab++);
+  } 
+} 
+/* code -  kw_chg - change directory */
+void kw_chg(
+char *rem )
+{ if ( *rem) {cd_chg (rem) ;} else {
+    cd_sho () ; }
+} 
+/* code -  cd_chg - change directory */
+cd_chg(
+char *dir )
+{ char loc [mxLIN];
+  char buf [mxLIN];
+  int dep = 0;
+  int rep = 0;
+  int cnt ;
+  int aut = 0;
+  if ( *dir == 0) {
+    if ( (ev_get ("Default", loc, mxLIN-20)) == 0) {st_cop (_shROO, loc) ;}
+    } else {
+    fi_loc (dir, loc);
+  } 
+  while ( dep < 4) {
+    buf[0] = 0;
+    for (cnt = (1); cnt<=(dep); ++cnt) {
+      ++rep;
+      st_app ("..\\", buf); }
+    st_app (loc, buf);
+    if ( dr_set (buf, 0)) {
+      ln_def ("default", buf, 0);
+      ev_set ("Default", buf);
+      if ( rep) {cd_sho () ;}
+      return 1; }
+    ++dep;
+  } 
+  im_rep ("W-Error setting current directory [%s]", loc);
+  return 0;
+} 
+/* code -  cd_sho - show current */
+cd_sho()
+{ char lin [mxLIN];
+  char buf [mxLIN];
+  char equ [mxLIN];
+  char *pth = buf;
+  int nth = 0;
+  dr_sho (pth, drPTH);
+  st_low (pth);
+  FMT(lin, "%s", buf);
+  while ( ++nth < 3) {
+    if( !ln_rev (buf,equ,nth))break;
+    if( st_sam(equ,"default"))continue;
+    FMT(st_end (lin)," (%s:)",equ);
+    break;
+  } 
+  PUT("%s\n", lin);
+} 
+/* code -  ut_tim - show time */
+#define tiTplx  struct tm
+char *tiAday [] =  {
+  "Sunday", "Monday", "Tuesday", "Wednesday",
+  "Thursday", "Friday", "Saturday",
+  };
+char *tiAmon [] =  {
+  "Jan", "Feb", "Mar", "Apr", "May", "Jul",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  };
+void ut_tim()
+{ time_t tim ;
+  tiTplx *plx ;
+  char *day ;
+  char *mon ;
+  tim = time (NULL);
+  plx = localtime (&tim);
+  day = tiAday[plx->tm_wday];
+  mon = tiAmon[plx->tm_mon];
+  printf ("%s %02d-%s-%4d",day,plx->tm_mday,mon,plx->tm_year + 1900);
+  printf (" %02d:%02d:%02d\n",plx->tm_hour,plx->tm_min,plx->tm_sec);
+} 

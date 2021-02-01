@@ -1,0 +1,113 @@
+/* file -  drdos - dos directory operations */
+#include "m:\rid\rider.h"
+#include "m:\rid\medef.h"
+#include "m:\rid\mxdef.h"
+#include "m:\rid\stdef.h"
+#include "m:\rid\drdef.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <dos.h>
+#include <direct.h>
+#include "m:\rid\dsmod.h"
+static int dr_fun (char *,int ,int *);
+/* code -  dr_avl - check directory available */
+dr_avl(
+char *spc )
+{ dsTreg reg ;
+  int atr = 0;
+  int drv ;
+  if( *spc == 0)return 0;
+  if( (drv = ds_TrnDrv (spc)) == 0)return 0;
+  BX = drv, ds_r21 (0x4409);
+  if( CF)return 0;
+  if( dr_roo (spc))return 1;
+  dr_fun (spc, 0x4300, &atr);
+  return ( (atr & drDIR_) != 0);
+} 
+/* code -  dr_sho - current drive/directory */
+dr_sho(
+char *pth ,
+int cas )
+{ char drv [mxLIN];
+  drv[0] = ds_GtCDrv()+('A'-1);
+  drv[1] = ':', drv[2] = 0;
+  if ( (cas == drPTH) || (cas == drDRV)) {
+    pth = st_cop (drv, pth); }
+  if ( (cas == drPTH) || (cas == drDIR)) {
+    ds_GtCDir (drv, pth); }
+  return 1;
+} 
+/* code -  dr_fre - get free space */
+dr_fre(
+char *pth ,
+drTfre *fre )
+{ size_t siz = ds_GetFre (pth);
+  if( siz == (~1))return 0;
+   *fre = siz;return 1;
+} 
+/* code -  dr_mak - make a directory */
+dr_mak(
+char *spc )
+{ return ( dr_fun (spc, 0x3900, NULL));
+} 
+/* code -  dr_rem - remove directory */
+dr_rem(
+char *spc )
+{ return ( dr_fun (spc, 0x3a00,NULL));
+} 
+/* code -  dr_fun - dos directory function */
+static int dr_fun(
+char *spc ,
+int fun ,
+int *res )
+{ char pth [mxSPC];
+  dsTseg seg ;
+  dsTreg reg ;
+  ds_seg (&seg);
+  dr_spc (spc, NULL, pth);
+  DS = SEG(pth), DX = OFF(pth);
+  if( ds_s21 (fun), CF)return 0;
+  if ( res != NULL) {*res = CX ;}
+  return 1;
+} 
+/* code -  dr_enu - enumerate */
+#define drTfnd  struct FIND
+#define First  findfirst
+#define Next  findnext
+#define attr  attribute
+drTent *dr_enu(
+drTdir *dir ,
+drTent *ent ,
+int atr ,
+int nth )
+{ drTfnd *nxt ;
+  tiTdos tim ;
+  for(;;)  {
+    if ( nth <= 0) {nxt = First (dir->Ppth, atr) ;} else {
+      nxt = Next () ; }
+    if( !nxt)return ( NULL );
+    nth = 1;
+    if( nxt->attr & drDIR_)break;
+  if( dr_mat (dir, nxt->name))break; }
+  if ( !ent) {
+    if( (ent = malloc ( sizeof(drTent))) == NULL){ ++dir->Vovr ; return 0;} }
+  me_clr (ent,  sizeof(drTent));
+  ent->Vatr = nxt->attr;
+  ent->Vsiz = nxt->size;
+  tim.Vdat = nxt->date;
+  tim.Vtim = nxt->time;
+  ti_fds (&tim, &ent->Itim);
+  if( (ent->Pnam = malloc (14)) == NULL){ ++dir->Vovr ; return 0;}
+  me_cop (nxt->name, ent->Pnam,13);
+  ent->Pnam[13] = 0;
+  st_low (ent->Pnam);
+  ent->Palt = 0;
+  ent->Icre = 0;
+  ent->Iacc = 0;
+  return ( ent);
+} 
+/* code -  dr_don - end enumeration */
+void dr_don(
+drTdir *dir )
+{ ;
+} 

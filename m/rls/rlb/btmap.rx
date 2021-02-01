@@ -1,0 +1,34 @@
+/* file -  btmap - bitmap operations */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\btmap.h"
+#include "f:\m\rid\medef.h"
+btTmap *bt_alc(
+size_t siz )
+{ register btTmap *map ;
+  map = me_acc ( sizeof(btTmap));
+  map->Vsiz = siz;
+  map->Parr = me_acc ((siz/8)+1);
+  return ( map);
+} 
+int bt_map(
+btTmap *map ,
+size_t bit ,
+int opr )
+{ register BYTE *arr = map->Parr;
+  register size_t byt = bit / 8;
+  register WORD flg = BIT(bit % 8);
+  int res ;
+  if( bit >= map->Vsiz)return 0;
+  res = arr[byt] & flg;
+  switch ( opr) {
+  case btCLR:
+    arr[byt] &= ~flg;
+   break; case btSET:
+    arr[byt] |= flg;
+   break; case btZAP:
+    me_clr (arr, map->Vsiz/8);
+     }
+  PUT("opr=%o adr=%o ", opr, arr+byt);
+  PUT("bit=%o byt=%o flg=%o @byt=%o res=%o\n", bit, byt, flg, arr[byt], res);
+  return ( res);
+} 

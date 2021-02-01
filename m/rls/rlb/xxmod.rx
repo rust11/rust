@@ -1,0 +1,554 @@
+/* file -  rdmod - RT-11 directory toolkit */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\imdef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\rxdef.h"
+#include "f:\m\rid\rtutl.h"
+#include "f:\m\rid\hodef.h"
+#include "f:\m\rid\rtbad.h"
+#include "f:\m\rid\rtdir.h"
+#define rt_ftm(ent,siz)  
+#include "f:\m\rid\rddef.h"
+mnt$c=0;
+#define P(x) ((char *)(x))
+#define V(x) ((void *)(x))
+#define E(x) ((rtTent *)(x))
+#define W(x) ((WORD )(x))
+#define END(x) (x->Vsta & rtEND_)
+#define EMP(x) (x->Vsta & rtEMP_)
+#define PER(x) (x->Vsta & rtPER_)
+#define NXT(s,x)  E(P(V(x)) + s->Vsiz)
+static void rd_emp (rtTent *);
+rd_upd (rdTseg *);
+rd_lnk (rdTseg *);
+rd_bad (bdTbad *,WORD ,WORD );
+/* code -  segment allocation */
+rdTseg *rd_alc(
+register rdTseg *seg ,
+FILE *fil )
+{ if ( !seg) {seg = me_acc ( sizeof(rdTseg)) ;}
+  seg->Pfil = fil;
+  return ( seg);
+} 
+rdTseg *rd_sec(
+register rdTseg *seg )
+{ 
+  return ( (seg->Psec = rd_alc (seg->Psec, seg->Pfil)));
+} 
+void rd_dlc(
+register rdTseg *seg )
+{ me_dlc (seg->Psec);
+  me_dlc (seg);
+} 
+void rd_clr(
+rdTseg *seg )
+{ FILE *fil = seg->Pfil;
+  me_clr (seg,  sizeof(rdTseg));
+  seg->Pfil = fil;
+} 
+void rx_hoo()
+{ 
+} 
+/* code -  entry routines */
+rtTent *rd_fst(
+register rdTseg *seg )
+{ register rtTent *ent = seg->Aent;
+  seg->Pcur = ent;
+  seg->Vblk = seg->Vbas;
+  seg->Vacc = seg->Vbas;
+  if ( !END(ent)) {seg->Vacc += ent->Vlen ;}
+  return ( ent);
+} 
+rtTent *rd_nxt(
+register rdTseg *seg ,
+register rtTent *ent )
+{ if( END(ent))return 0;
+  ent = NXT(seg, ent);
+  if( P(ent) - P(seg) >= 1024)return 0;
+  seg->Vblk = seg->Vacc;
+  if ( !END(ent)) {seg->Vacc += ent->Vlen ;}
+  seg->Pcur = ent;
+  return ( ent);
+} 
+rtTent *rd_end(
+register rdTseg *seg )
+{ register rtTent *ent = seg->Aent;
+  while ( !END(ent)) {
+    ent = NXT(seg, ent); }
+  return ( ent);
+} 
+void rd_mov(
+rdTseg *seg ,
+rtTent *src ,
+rtTent *dst )
+{ me_mov (src, dst, seg->Vsiz);
+} 
+/* code -  rd_tem - construct entry template */
+rtTent *rd_tem(
+rdTseg *seg ,
+register rtTent *ent ,
+register char *spc ,
+int len )
+{ register char *ptr ;
+  if ( !ent) {ent = &seg->Item ;}
+  if ( (ptr = st_fnd (":", spc)) != 0) {
+    spc = ptr + 1; }
+  while ( (ptr = st_fnd ("\\", spc)) != 0) {
+    spc = ptr + 1; }
+  rx_scn (spc, (WORD *)ent);
+  ent->Vsta = rtPER_;
+  rt_ftm (ent, seg->Vsiz);
+  ent->Vlen = len;
+  return ( ent);
+} 
+/* code -  rd_emp - make empty entry */
+#define rx_EM  0325
+#define rxPTY  063471
+#define rxFIL  023364
+void rd_emp(
+register rtTent *ent )
+{ ent->Vsta = rtEMP_;
+  if( ent->Anam[0])return;
+  ent->Anam[0] = rx_EM;
+  ent->Anam[1] = rxPTY;
+  ent->Anam[2] = rxFIL;
+} 
+/* code -  segment routines */
+rd_val(
+rdTseg *seg )
+{ return ( seg->Vval);
+} 
+rd_suc(
+register rdTseg *seg )
+{ return ( rd_get (seg, seg->Vsuc));
+} 
+rd_get(
+register rdTseg *seg ,
+register int idx )
+{ if ( !seg->Vval || (idx != seg->Vidx)) {
+    if( !rd_upd (seg))return 0;
+    seg->Vval = 0;
+    if( !idx)return 0;
+    if( (rt_rea (seg->Pfil, rd_s2b(idx), P(seg), 512, rtWAI)) == 0){ ++seg->Verr ; return 0;}
+    ++seg->Vval; }
+  seg->Vidx = idx;
+  seg->Vsiz = rtRTA + seg->Vext;
+  rd_red (seg);
+  return 1;
+} 
+rd_upd(
+register rdTseg *seg )
+{ if( !seg->Vupd)return 1;
+  return ( rd_put (seg, 0));
+} 
+rd_put(
+register rdTseg *seg ,
+register int idx )
+{ if ( !idx) {idx = seg->Vidx ;}
+  seg->Vupd = 0;
+  if( (rt_wri (seg->Pfil, rd_s2b(idx), P(seg), 512, rtWAI)) == 0){ ++seg->Verr ; return 0;}
+  return 1;
+} 
+rd_s2b(
+int idx )
+{ return ( ((idx - 1) * 2) + 6);
+} 
+rd_sta(
+rdTseg *seg )
+{ return ( !seg->Verr);
+} 
+rd_rep(
+rdTseg *seg ,
+char *msg )
+{ if( !seg->Verr)return 1;
+  if( !msg)return 0;
+  return 0;
+} 
+/* code -  rd_red - reduce segment */
+rd_red(
+register rdTseg *seg )
+{ register rtTent *ent = rd_fst (seg);
+  register rtTent *nxt = ent;
+  while ( !END(nxt)) {
+    if ( ent != nxt) {
+      rd_mov (seg, nxt, ent); }
+    nxt = NXT(seg, nxt);
+    while ( !PER(ent) && !PER(nxt)) {
+      if( END(nxt))break;
+      ent->Vlen += nxt->Vlen;
+      nxt = NXT(seg, nxt);
+    } 
+    ent = NXT(seg, ent);
+  } 
+  ent->Vsta = nxt->Vsta;
+  return ( rd_cal (seg));
+} 
+/* code -  rd_cal - calculate segment parameters */
+rd_cal(
+register rdTseg *seg )
+{ register rtTent *ent = rd_fst (seg);
+  seg->Vsiz = rtRTA + seg->Vext;
+  seg->Vavl = (1024/(word )seg->Vsiz) - 1;
+  while ( !END(ent)) {
+    --seg->Vavl;
+    ent = rd_nxt (seg, ent); }
+  rd_fst (seg);
+  return 1;
+} 
+/* code -  rd_exp - expand segment to create new entry */
+rtTent *rd_exp(
+register rdTseg *seg ,
+register rtTent *ent ,
+int req ,
+int emp )
+{ rtTent *nxt ;
+  int len ;
+  if ( seg->Vavl < req) {
+    if( (ent = rd_spl (seg, ent)) == 0)return ( 0 ); }
+  len = P(rd_end(seg))-P(ent)+2;
+  nxt = NXT(seg, ent);
+  me_mov (P(ent), P(nxt), len);
+  rd_emp (nxt);
+  nxt->Vlen = 0;
+  --seg->Vavl;
+  return ( ent);
+} 
+/* code -  rd_spl - split segment */
+rtTent *rd_spl(
+register rdTseg *pri ,
+rtTent *tar )
+{ register rdTseg *sec = rd_sec (pri);
+  rtTent *hlf = E(P(pri) + 512);
+  rtTent *ent ;
+  rtTent *emp ;
+  rtTent *src ;
+  rtTent *dst ;
+  register rtTent *nxt ;
+  int rel = 0;
+  int dif ;
+  WORD siz = pri->Vsiz;
+  if( (emp = rd_nxt (pri, tar)) == 0)return 0;
+  nxt = rd_fst (pri);
+  while ( (nxt < hlf)) {
+    if( (nxt = rd_nxt (pri, nxt)) == 0)return 0; }
+  if ( nxt == emp) {
+    if( (nxt = rd_nxt (pri, nxt)) == 0)return 0; }
+  hlf = nxt;
+  if( !rd_lnk (pri))return 0;
+  sec->Vbas = pri->Vblk;
+  src = nxt, dst = sec->Aent;
+  while ( !END(src)) {
+    if ( tar == src) {tar = dst, ++rel ;}
+    rd_mov (pri, src, dst);
+    src = NXT(pri, src);
+    dst = NXT(sec, dst);
+  } 
+  nxt->Vsta = src->Vsta;
+  dst->Vsta = src->Vsta;
+  if( !rd_put (sec, 0))return 0;
+  if( !rd_put (pri, 0))return 0;
+  if ( rel) {
+    me_mov (&pri->Item, &sec->Item,  sizeof(rtTent));
+    me_mov (sec, pri,  sizeof(rdTseg));
+    dif = P(tar) - P(sec->Aent);
+    tar = E(P(pri->Aent) + dif); }
+  rd_cal (pri);
+  nxt = rd_fst (pri);
+  while ( nxt && (nxt != tar)) {
+    nxt = rd_nxt (pri, nxt); }
+  return ( tar);
+} 
+/* code -  rd_lnk - link in new segment */
+rd_lnk(
+register rdTseg *pri )
+{ register rdTseg *sec = rd_sec (pri);
+  register rtTent *ent ;
+  WORD idx ;
+  if ( pri->Vidx == 1) {
+    if( pri->Vlst >= pri->Vtot)return 0;
+    idx = ++pri->Vlst;
+    } else {
+    if( !rd_get (sec, 1))return 0;
+    if( sec->Vlst >= sec->Vtot)return 0;
+    idx = ++sec->Vlst;
+    if( !rd_put (sec, 1))return 0;
+  } 
+  me_cop (pri, sec,  sizeof(rtThdr));
+  sec->Vsiz = pri->Vsiz;
+  sec->Vsuc = pri->Vsuc;
+  sec->Vidx = idx;
+  pri->Vsuc = idx;
+  ent = sec->Aent;
+  rd_emp (ent);
+  ent->Vlen = 0;
+  ent = NXT(sec, ent);
+  ent->Vsta = rtEND_;
+  rd_cal (sec);
+  pri->Vupd = 1;
+  sec->Vupd = 1;
+  return 1;
+} 
+/* code -  rd_cre - create file at specific block */
+rtTent *rd_cre(
+register rdTseg *seg ,
+rtTent *tem ,
+int blk ,
+int upd )
+{ register rtTent *ent ;
+  rtTent *nxt ;
+  WORD len = tem->Vlen;
+  int dif ;
+  int siz =  sizeof(rtTent);
+  if( (ent = rd_loc (seg, blk)) == 0)return ( 0 );
+  if( !EMP(ent))return 0;
+  if ( seg->Vsiz < siz) {siz = seg->Vsiz ;}
+  if ( blk > seg->Vblk) {
+    if( (ent = rd_exp (seg, ent, 2, 1)) == 0)return ( 0 );
+    nxt = NXT(seg, ent);
+    dif = blk - seg->Vblk;
+    nxt->Vlen = ent->Vlen-dif;
+    ent->Vlen = dif;
+    ent = rd_nxt (seg, ent); }
+  if ( len != ent->Vlen) {
+    if( (ent = rd_exp (seg, ent, 1, 1)) == 0)return ( 0 );
+    nxt = NXT(seg, ent);
+    nxt->Vlen = ent->Vlen-len;
+    ent->Vlen = len; }
+  me_clr (ent, seg->Vsiz);
+  me_mov (tem, ent, siz);
+  ++seg->Vupd;
+  return ( ent);
+} 
+/* code -  rd_siz - change entry size_t */
+rd_siz(
+register rdTseg *seg ,
+register rtTent *ent ,
+int len )
+{ int dif = len - ent->Vlen;
+  if( !dif)return 1;
+  if( dif > 0)return ( rd_ext (seg, ent, dif) );
+  return ( rd_tru (seg, ent, -dif));
+} 
+/* code -  rd_ext - extend entry */
+rd_ext(
+rdTseg *seg ,
+rtTent *ent ,
+register int len )
+{ register rtTent *nxt ;
+  if( (nxt = rd_nxt (seg, ent)) == 0)return ( 0 );
+  if( !EMP(nxt))return 0;
+  if( nxt->Vlen < len)return 0;
+  ent->Vlen += len;
+  nxt->Vlen -= len;
+  seg->Vupd = 1;
+  return 1;
+} 
+/* code -  rd_tru - truncate entry */
+rd_tru(
+rdTseg *seg ,
+rtTent *ent ,
+int len )
+{ rtTent *nxt ;
+  if( (nxt = rd_nxt (seg, ent)) == 0)return ( 0 );
+  if ( !EMP(nxt)) {
+    if( (nxt = rd_exp (seg, ent, 1, 1)) == 0)return ( 0 );
+    nxt = rd_nxt (seg, nxt); }
+  nxt->Vlen += nxt->Vlen + len;
+  ent->Vlen -= len;
+  seg->Vupd = 1;
+  return 1;
+} 
+/* code -  rd_fnd - find entry via name */
+rtTent *rd_fnd(
+register rdTseg *seg ,
+WORD *nam )
+{ register rtTent *ent ;
+  if( !rd_get (seg, 1))return 0;
+  while ( rd_val (seg)) {
+    ent = rd_fst (seg);
+    while ( !END(ent)) {
+      if (( PER(ent))
+      &&(me_cmp (nam, ent->Anam, 6))) {
+        return ( ent); }
+      ent = rd_nxt (seg, ent);
+    } 
+    if( !rd_suc (seg))return 0;
+  } 
+  return 0;
+} 
+/* code -  rd_loc - locate entry via block number */
+rtTent *rd_loc(
+register rdTseg *seg ,
+int blk )
+{ register rtTent *ent ;
+  if (( seg->Vval)
+  &&(blk >= seg->Vbas)) {
+    rd_fst (seg);
+    } else {
+    if( !rd_get (seg, 1))return 0; }
+  while ( rd_val (seg)) {
+    ent = rd_fst (seg);
+    while ( !END(ent)) {
+      if (( W(blk) >= seg->Vblk)
+      &&(W(blk) < seg->Vacc)) {
+        return ( ent); }
+      ent = rd_nxt (seg, ent);
+    } 
+    if( !rd_suc (seg))return 0;
+  } 
+  return 0;
+} 
+/* code -  rd_ini - initialize directory */
+rd_ini(
+register rdTseg *seg ,
+int tot ,
+int len ,
+int ext ,
+int wri )
+{ register rtTent *ent ;
+  seg->Vidx = 1;
+  seg->Vsiz = rtRTA + ext;
+  seg->Vtot = tot;
+  seg->Vsuc = 0;
+  seg->Vlst = 1;
+  seg->Vext = ext;
+  seg->Vbas = (tot*2) + 6;
+  ent = seg->Aent;
+  ent->Anam[0]=0;
+  rd_emp (ent);
+  rt_ftm (ent, seg->Vsiz);
+  ent->Vlen = len - seg->Vbas;
+  ent = NXT(seg, ent);
+  ent->Vsta = rtEND_;
+  rd_cal (seg);
+  ++seg->Vupd;
+  if( wri)return ( rd_put (seg, 1) );
+  return 1;
+} 
+/* code -  rd_sav - save directory */
+rd_sav(
+rdTseg *seg ,
+WORD *buf )
+{ if( !rd_get (seg, 1))return 0;
+  me_mov (seg, buf, hoRES*2);
+  return 1;
+} 
+/* code -  rd_res - restore directory */
+rd_res(
+register rdTseg *seg ,
+WORD *buf ,
+int wri )
+{ if( !rd_get (seg, 1))return 0;
+  me_mov (buf, seg, hoRES*2);
+  seg->Vupd = 1;
+  if( !wri)return 1;
+  if( wri)return ( rd_upd (seg) );
+} 
+/* code -  rd_chk - check directory header */
+rd_det(
+rdTseg *seg )
+{ if( !rd_get (seg, 1))return 0;
+  return ( rd_chk (seg, 1));
+} 
+rd_chk(
+void *ptr ,
+WORD idx )
+{ register rdTseg *dir = ptr;
+  if (( idx == 0)
+  ||(idx > dir->Vtot)
+  ||(dir->Vtot == 0)
+  ||(dir->Vtot > 31)
+  ||(dir->Vsuc > 31)
+  ||(dir->Vlst == 0)
+  ||(dir->Vlst > 31)
+  ||(dir->Vext & 1)
+  ||(dir->Vext > 128)
+  ||((dir->Aent[0].Vsta & (rtTEN_|rtEMP_|rtPER_)) == 0)) {
+    return 0; }
+  if (( idx == 1)
+  &&((dir->Vbas != ((dir->Vtot*2)+6)))) {
+    return 0; }
+  return 1;
+} 
+/* code -  rd_blk - check for blank (initialized) directory */
+rd_blk(
+register rdTseg *seg )
+{ register rtTent *ent ;
+  register rtTent *nxt ;
+  if( !rd_get (seg, 1))return 0;
+  ent = rd_fst (seg);
+  nxt = rd_nxt (seg, ent);
+  if (( seg->Vsuc != 0)
+  ||((ent->Vsta & rtEMP_) == 0)
+  ||((nxt->Vsta & rtEND_) == 0)) {
+    return 0; }
+  return 1;
+} 
+/* code -  rd_dem - check volume demography */
+#define rxSYS  075273
+#define rxBAD  06254
+rd_dem(
+register rdTseg *seg ,
+register rdTdem *dem ,
+bdTbad *bad )
+{ register rtTent *ent ;
+  me_clr (dem,  sizeof(rdTdem));
+  if( !rd_get (seg, 1))return 0;
+  while ( rd_val (seg)) {
+    ent = rd_fst (seg);
+    while ( !END(ent)) {
+      if ( PER(ent)) {
+        dem->Vuse += ent->Vlen;
+        if ( ent->Vsta & rtPRO_) {++dem->Vpro ;}
+        if ( ent->Anam[2] == rxSYS) {++dem->Vsys ;}
+        if ( ent->Anam[2] == rxBAD) {++dem->Vbad ;}
+        if ( bad && (ent->Anam[2] == rxBAD)) {
+          rd_bad (bad, seg->Vblk, ent->Vlen); }
+        } else {
+        dem->Vemp += ent->Vlen; }
+      ent = rd_nxt (seg, ent);
+    } 
+    rd_suc (seg);
+  } 
+  return ( rd_sta (seg));
+} 
+/* code -  rd_bad - enter bad block into table */
+rd_bad(
+register bdTbad *bad ,
+WORD blk ,
+WORD cnt )
+{ register bdTrng *rec = &bad->Irec;
+  register bdTrec *ent ;
+  if ( rec->Vpnt >= rec->Vlim) {
+     bad->Vflg |= bdOVR_;return 0; }
+  ent = &bad->Arec[rec->Vpnt++];
+  ent->Vblk = blk;
+  ent->Vcnt = cnt;
+  return 1;
+} 
+/* code -  rd_dmp - maintenance dump */
+rd_dmp(
+register rdTseg *seg ,
+int cnt )
+{ register rtTent *ent ;
+  char nam [16];
+  if ( !cnt) {cnt = 100 ;}
+  PUT("\n");
+#if 1
+  PUT("idx=%d, cur=%o, avl=%d, siz=%d, blk=%d, acc=%d\n",seg->Vidx,seg->Pcur,seg->Vavl, seg->Vsiz, seg->Vblk, seg->Vacc);
+#endif 
+#if 0
+  PUT("val=%d, upd=%d, err=%d, pri=%o, sec=%o, fil=%o\n",seg->Vval,seg->Vupd,seg->Verr, seg->Ppri, seg->Psec, seg->Pfil);
+  PUT("tot=%d, suc=%d, lst=%d, ext=%d, bas=%o\n",seg->Vtot,seg->Vsuc,seg->Vlst, seg->Vext, seg->Vbas);
+#endif 
+  ent = seg->Aent;
+  while ( cnt-- && ent->Vsta) {
+    rx_fmt ("%r%r.%r", ent->Anam, nam);
+    PUT("%o:\t", ent);
+    PUT("sta=%o [%s] len=%d tim=%o dat=%o\n",ent->Vsta, nam, ent->Vlen, ent->Vtim, ent->Vdat);
+    if( END(ent))break;
+    ent = NXT(seg, ent);
+  } 
+} 

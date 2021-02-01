@@ -1,0 +1,38 @@
+/* file -  kbrng - keyboard ring */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\kbdef.h"
+#include "f:\m\rid\medef.h"
+/* code -  kb_alc - allocate a keyboard */
+kbTkbd *kb_alc()
+{ kbTkbd *kbd = me_acc ( sizeof(kbTkbd));
+  kbd->Lbuf = kbBUF;
+  return ( kbd);
+} 
+/* code -  kb_can - cancel input */
+void kb_can(
+kbTkbd *kbd )
+{ kbd->Vget = kbd->Vput;
+} 
+/* code -  kb_rea - get next character */
+kb_rea(
+kbTkbd *kbd ,
+kbTcha *cha ,
+int flg )
+{ if( kbd->Vget == kbd->Vput)return 0;
+  *cha = kbd->Abuf[kbd->Vget];
+  if( flg & kbPEE_)return 1;
+  if ( kbd->Vget != kbd->Lbuf) {++kbd->Vget ;} else {
+    kbd->Vget = 0 ; }
+  return 1;
+} 
+/* code -  kb_wri - put character in ring buffer */
+kb_wri(
+kbTkbd *kbd ,
+kbTcha *cha )
+{ int nxt = kbd->Vput + 1;
+  if ( nxt == kbd->Lbuf) {nxt = 0 ;}
+  if( nxt == kbd->Vget)return 0;
+  kbd->Abuf[kbd->Vput] = *cha;
+  kbd->Vput = nxt;
+  return 1;
+} 

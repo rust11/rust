@@ -1,0 +1,67 @@
+/* file -  qumod - queue operations */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\qudef.h"
+/* code -  qu_slf - queue to self */
+qu_slf(
+quTque *que )
+{ PRE(que) = que;
+  SUC(que) = que;
+} 
+/* code -  qu_nul - test for nul queue element */
+qu_nul(
+quTque *que )
+{ return ( PRE(que) == SUC(que));
+} 
+/* code -  qu_ins - insert queue element (before successor) */
+qu_ins(
+quTque *suc ,
+quTque *new )
+{ quTque *pre = PRE(suc);
+  SUC(pre) = new;
+  PRE(new) = pre;
+  SUC(new) = suc;
+  PRE(suc) = new;
+} 
+/* code -  qu_rem - remove queue element */
+quTque *qu_rem(
+quTque *que )
+{ quTque *pre = PRE(que);
+  quTque *suc = SUC(que);
+  SUC(pre) = suc;
+  PRE(suc) = pre;
+  qu_slf (que);
+  return ( que);
+} 
+/* code -  queues with queue header operations */
+qu_emp(
+quTque *hdr )
+{ return ( PRE(hdr) == SUC(hdr));
+} 
+qu_psh(
+quTque *hdr ,
+quTque *new )
+{ qu_ins (new, SUC(hdr));
+} 
+qu_app(
+quTque *hdr ,
+quTque *new )
+{ qu_ins (new, PRE(hdr));
+} 
+quTque *qu_pop(
+quTque *hdr )
+{ if( qu_emp (hdr))return 0;
+  return ( qu_rem (SUC(hdr)));
+} 
+/* code -  ordered queue insertion */
+qu_pos(
+quTque *hdr ,
+quTque *new )
+{ quTque *nxt = hdr;
+  int pos = new->Vpos;
+  for(;;)  {
+    nxt = SUC(nxt);
+    if( nxt == hdr)break;
+    if( pos <= nxt->Vpos)continue;
+  } 
+  qu_ins (new, nxt);
+} 

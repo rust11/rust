@@ -1,0 +1,68 @@
+/* file -  fsres - form resultant file spec */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\fsdef.h"
+#include "f:\m\rid\mxdef.h"
+#include "f:\m\rid\stdef.h"
+static char *ut_app (char *,char *,char *,int ,int );
+static int ut_ovr (char *);
+fs_res(
+register char *mod ,
+char *spc ,
+register char *res )
+{ 
+  res = ut_app (mod, spc, res, fsDEV_, 4);
+  res = ut_app (mod, spc, res, fsDIR_, 16);
+  res = ut_app (mod, spc, res, fsNAM_, 6);
+  res = ut_app (mod, spc, res, fsTYP_, 4);
+} 
+/* code -  ut_app - apply */
+#define PUTSS(s1,s2)  printf("s1=[%s] s2=[%s]\n", s1, s2)
+char *ut_app(
+register char *mod ,
+register char *spc ,
+register char *res ,
+int msk ,
+int lim )
+{ char rgt [mxNAM];
+  char lft [mxNAM];
+  int rem ;
+  PUTSS(mod,spc);
+  fs_ext (mod, lft, msk);
+  fs_ext (spc, rgt, msk);
+  mod = lft;
+  spc = rgt;
+  PUTSS(lft,rgt);
+  if ( !st_int (mod, "*%", NULL)) {
+    if ( !*mod) {mod = spc ;}
+    st_cop (mod, res);
+    return ( st_end (res)); }
+  if ( *spc == '.') {
+    *res++ = *spc++, --lim; }
+  if ( *mod == '.') {++mod ;}
+  while ( *mod && lim) {
+    switch ( *mod++) {
+    case '%':
+      if ( *spc) {*res++ = *spc++,--lim ;}
+     break; case '*':
+      rem = lim - st_len (mod);
+      while ( *spc && rem--) {
+        *res++ = *spc++, --lim; }
+     break; default: 
+      if ( *mod == *spc) {
+        *res++ = *spc++;
+         ++mod, --lim;continue; }
+      *res++ = mod[-1], --lim;
+      if ( *spc && ut_ovr (mod)) {++spc ;}
+       }
+  } 
+  *res = 0;
+  return ( st_end (res));
+} 
+/* code -  ut_ovr - overstrike check */
+ut_ovr(
+register char *str )
+{ while ( *str) {
+    if( *str++ == '*')return 0;
+  } 
+  return 1;
+} 

@@ -1,0 +1,96 @@
+/* file -  mtmod - metas */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\mxdef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\dfdef.h"
+#include "f:\m\rid\mtdef.h"
+#define _mtDEF  "xxx"
+#define _mtCOR  "F-Meta stack corrupted"
+#define _mtOVR  "F-Meta stack out of space"
+/* code -  mt_ini - init metas */
+mtTmet *mt_ini(
+char *spc ,
+size_t len )
+{ dfTctx *def ;
+  mtTmet *met ;
+  if ( !len) {len = mtLEN ;}
+  met = me_alc ( sizeof(mtTmet));
+  met->Ptop = (met->Pnxt = (met->Pexp = me_alc (len+2)) + len);
+  met->Pdef = (def = df_ctx (_mtDEF, dfSTA_|dfCAS_));
+  def->Vsep = ',';
+  def->Pbal = "\"\'(";
+  return ( met);
+} 
+/* code -  mt_exi - exit */
+mt_dlc(
+mtTmet *met )
+{ if ( met->Pdef) {df_dlc (met->Pdef) ;}
+  me_dlc (met->Pexp);
+} 
+/* code -  mt_def - check definition */
+mt_def(
+mtTmet *met ,
+char *idt ,
+char *rem )
+{ char txt [mxLIN];
+  if( mt_scn (":=", rem) == 0)return 0;
+  st_cop (idt, txt);
+  st_app (" := ", txt);
+  st_app (rem, txt);
+  df_def (met->Pdef, txt);
+  return 1;
+} 
+/* code -  mt_ref - check reference */
+int mt_ref(
+mtTmet *met ,
+char *idt ,
+char *rem )
+{ char buf [mxLIN*2];
+  dfTctx *ctx = met->Pdef;
+  dfTdef *def ;
+  if( (def = df_loo (ctx, idt)) == NULL)return 0;
+  if ( (df_exp (ctx, def, rem, buf, mxLIN, '%', 0)) > 0) {mt_ins (met, buf) ;}
+  return 1;
+} 
+/* code -  mt_get - get line from expansion buffer */
+int mt_get(
+mtTmet *met ,
+char *lin )
+{ char *exp = met->Pnxt;
+  char *ptr ;
+  if( met->Vexp == 0)return 0;
+  if ( (ptr = st_fnd ("\n", exp)) == NULL || ptr >= met->Ptop) {
+    mt_rep (met, _mtCOR, NULL); }
+  *ptr++ = 0;
+  st_cop (exp, lin);
+  met->Pnxt = ptr;
+  if ( ptr == met->Ptop) {met->Vexp = 0 ;}
+  return 1;
+} 
+/* code -  mt_ins - insert in expansion buffer */
+mt_ins(
+mtTmet *met ,
+char *buf )
+{ char *src ;
+  char *dst ;
+  int cha ;
+  unsigned len ;
+  src = dst = buf;
+  while ( (cha = *src) != 0) {
+    if ( cha == '"' || cha == '\'') {
+       mt_bal (&src, &dst);continue; }
+    if (( *src != '\\')
+    ||(*++src == '\\')) {
+      *dst++ = *src++;
+      } else {
+      *dst++ = '\n'; }
+  } 
+  if ( (len = st_len (buf) + 1) >= (unsigned )met->Vfre) {
+    mt_rep (met, _mtOVR, NULL);
+    return 1; }
+  met->Vfre -= len;
+  *(st_cop (buf, (met->Pnxt -= len))) = '\n';
+  met->Vexp = 1;
+  return 1;
+} 

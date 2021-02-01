@@ -1,0 +1,35 @@
+/* file -  tmmod - temp files */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\mxdef.h"
+#include "f:\m\rid\rndef.h"
+#include "f:\m\rid\tmdef.h"
+/* code -  tm_nam - create temporary name */
+tm_nam(
+register char *spc )
+{ register int rnd ;
+  int cnt = 1000;
+  while ( cnt--) {
+    rnd = rn_rnd ();
+    if ( rnd > 0) {rnd = ~rnd ;}
+    FMT(spc, "%o", rnd);
+    if( fi_exs (spc, NULL))continue;
+    return 1;
+  } 
+  return 0;
+} 
+/* code -  tm_opn - open temporary file */
+FILE *tm_opn(
+size_t siz )
+{ char spc [mxSPC];
+  if( !tm_nam (spc))return 0;
+  fi_def (spc, "tmp:.tmp", spc);
+  return ( fi_opn (spc, "wb", ""));
+} 
+/* code -  tm_pur - purge temporary file */
+tm_pur(
+FILE *fil )
+{ char *spc = fi_spc (fil);
+  fi_clo (fil, "");
+  fi_del (spc, "");
+} 

@@ -1,0 +1,234 @@
+/* file -  wvfil - wave file operations */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\imdef.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\mxdef.h"
+#include <windows.h>
+#include <stdio.h>
+#define WVDEF_LOCAL  1
+#include "f:\m\rid\wvdef.h"
+#include "f:\m\rid\wsdef.h"
+static FILE *wv_opn (char *,char *,char *);
+/* code -  wv_clo - close and deallocate buffer */
+wv_clo(
+wvTwav *wav )
+{  wv_dlc (wav);return 1;
+} 
+/* code -  wv_loa - load wave file */
+wv_imp (char *,char *,char *);
+int wv_red (wvTwav *);
+wvTwav *wv_loa(
+char *spc ,
+char *sto ,
+char *msg )
+{ char imp [mxSPC];
+  char atr [128];
+  wvTwav *wav = NULL;
+  wvThdr *hdr ;
+  size_t len = 0L;
+  size_t tot ;
+  size_t cnt ;
+  FILE *fil = NULL;
+  char *buf = NULL;
+  int cod = 0;
+  HGLOBAL gbl ;
+  for(;;)  {
+    if( !wv_imp (spc, imp, sto))break;
+    if( (len = fi_siz (imp)) == 0)break;
+    if( (fil = wv_opn (imp, ".wav", "rb")) == 0)break;
+    if( (wav = wv_alc (NULL, len)) == 0)break;
+    if( !fi_rea (fil, wav->Phdr, len))break;
+    if( !fi_clo (fil, ""))break;
+    if ( st_cmp (spc, imp)) {
+      fi_del (imp, NULL); }
+    if( !wv_red (wav))break;
+    hdr = wav->Phdr;
+    wav->Vchn = hdr->Vchn;
+    wav->Vwid = hdr->Vwid / 8;
+    wav->Vrat = hdr->Vrat;
+    wav->Vpnt = wav->Vchn * wav->Vwid;
+    wav->Vavg = wav->Vrat * wav->Vpnt;
+    tot = hdr->Vdsz;
+    if ( tot > (len -  sizeof(wvThdr))) {
+      tot = len -  sizeof(wvThdr); }
+    if ( tot && wav->Vpnt) {
+      cnt = tot / wav->Vpnt;
+      } else {
+      cnt = 0; }
+    wav->Vcnt = cnt;
+    wav->Vtot = cnt * wav->Vpnt;
+    wav->Vsiz = cnt;
+    return ( wav);
+   break;} 
+  if ( wav) {wv_dlc (wav) ;}
+  if ( fil) {fi_clo (fil, "") ;}
+  return ( NULL);
+} 
+/* code -  wv_sto -- store file */
+wv_sto(
+wvTwav *wav ,
+char *spc ,
+char *msg )
+{ FILE *fil ;
+  char *buf ;
+  size_t siz ;
+  if( !wav)return 0;
+  wv_nor (wav);
+  buf = (char *)wav->Phdr;
+  siz = wav->Vtot +  sizeof(wvThdr);
+  if (( (fil = wv_opn (spc, ".wav", "wb")) == 0)
+  ||(fi_wri (fil, buf, siz) == 0)) {
+    fi_rep (spc, msg, "");
+    fi_clo (fil, "");
+    return 0; }
+  fi_clo (fil, "");
+  wv_opt (wav, spc);
+  return 1;
+} 
+/* code -  wv_ipt - input attributes */
+wv_ipt(
+wvTwav *wav ,
+char *spc )
+{ char txt [512];
+  FILE *fil ;
+  wvTatr *(*lst )= &(wav->Patr);
+  wvTatr *atr ;
+  size_t beg ;
+  int siz ;
+  int typ ;
+  int flg ;
+  fil = wv_opn (spc, ".wat", "rb");
+  if( !fil)return 0;
+  for(;;)  {
+    if( (fscanf (fil, "%lx,%lx,%lx,%lx",&beg, &siz, &typ, &flg)) == 0)break;
+    fi_get (fil, txt, 126);
+    if( typ == wvEOF)break;
+    atr = me_acc ( sizeof(wvTatr));
+    atr->Vbeg = beg;
+    atr->Vsiz = siz;
+    atr->Vtyp = typ;
+    atr->Vflg = flg;
+    if ( flg & wvTXT_) {
+      if( (fi_get (fil, txt, 500)) == 0)break;
+      atr->Pdat = st_dup (txt); }
+    *lst = atr;
+    lst = &(atr->Psuc);
+  } 
+  fi_clo (fil, "");
+  return 1;
+} 
+/* code -  wv_opt - output attributes */
+wv_opt(
+wvTwav *wav ,
+char *spc )
+{ FILE *fil ;
+  wvTatr *atr = wav->Patr;
+  if ( !atr) {
+    return 1; }
+  fil = wv_opn (spc, ".wat", "wb");
+  while ( atr) {
+    fprintf (fil, "%lx,%lx,%lx,%lx",atr->Vbeg, atr->Vsiz,atr->Vtyp, atr->Vflg);
+    if ( atr->Vflg & wvTXT_) {
+      fi_put (fil, atr->Pdat); }
+    fi_put (fil, "\n");
+    atr = atr->Psuc;
+  } 
+  fi_clo (fil, "");
+  return 1;
+} 
+/* code -  wv_opn - open a wave file */
+FILE *wv_opn(
+char *spc ,
+char *typ ,
+char *mod )
+{ char nam [mxSPC];
+  st_cop (spc, nam);
+  if ( st_sam (typ, ".wat")) {
+    st_rep (".wav", ".wat", nam);
+  } else if ( st_sam (typ, ".wav")) {
+    st_rep (".wat", ".wav", nam); }
+  return ( fi_opn (nam, mod, ""));
+} 
+/* code -  wv_red - reduce wave file */
+#pragma  pack(2)
+#define wvTchk struct wvTchk_t 
+struct wvTchk_t
+{ char Alab [4];
+  ULONG Vsiz ;
+   };
+#define wvTrif struct wvTrif_t 
+struct wvTrif_t
+{ char Alab [4];
+  ULONG Vsiz ;
+  char Awav [4];
+  wvTchk Ichk ;
+   };
+wv_red(
+wvTwav *wav )
+{ wvTrif *rif = (void *)wav->Phdr;
+  wvTchk *chk = &rif->Ichk;
+  size_t rem = rif->Vsiz - 4;
+  size_t len ;
+  char *src = (void *)chk;
+  char *dst = src;
+  int dat ;
+  while ( rem > 0) {
+    chk = (void *)src;
+    len = chk->Vsiz +  sizeof(wvTchk);
+    if( (rem -= len) < 0)return 0;
+    dat = me_cmp (chk->Alab, "data", 4);
+    if ( me_cmp (chk->Alab, "fmt ", 4) || dat) {
+      me_cop (chk, dst, len);
+      dst += len;
+      if( dat)return 1; }
+    src += len;
+  } 
+  return 1;
+} 
+/* code -  wv_imp - import mp3 etc */
+#define wvFFM  "c:\\cusps\\ffmpeg\\bin\\ffmpeg.exe"
+#define wvTMI  "f:\\tmp\\soundsin.tmp"
+#define wvTMO  "f:\\tmp\\soundsout.wav"
+wv_imp(
+char *spc ,
+char *imp ,
+char *sto )
+{ char inp [mxSPC];
+  char opt [mxSPC];
+  char rem [(mxSPC*2)+8];
+  char *typ ;
+  int sts ;
+  st_cop (spc, imp);
+  if( st_fnd (".wav", spc))return 1;
+  if ( sto) {
+    st_cop (spc, sto);
+    typ = st_fnd (".", sto);
+    if ( typ) {st_cop (".wav", typ) ;}
+  } 
+  st_cop (spc, inp);
+  st_cop (spc, opt);
+  if ( st_fnd (" ", spc)) {
+    fi_del (wvTMI, NULL);
+    fi_del (wvTMO, NULL);
+    if( (fi_cop (spc, wvTMI, "", 0)) == 0)return ( 0 );
+    st_cop (wvTMI, inp);
+    st_cop (wvTMO, opt);
+    st_cop (wvTMO, imp); }
+  if( (typ = st_fnd (".", imp)) == 0)return ( 0 );
+puts ("#wv_imp.a");
+  st_cop (".wav", typ);
+  st_cop ("-loglevel quiet -i \"", rem);
+  st_app (inp, rem);
+  st_app ("\" \"", rem);
+  st_app (opt, rem);
+  st_app ("\"", rem);
+  PUT("[%s]\n", rem);
+puts ("#wv_imp.b");
+  sts = im_exe (wvFFM, rem, 0);
+puts ("#wv_imp.c");
+  if( sts < 0)return 0;
+puts ("#wv_imp.d");
+  return 1;
+} 

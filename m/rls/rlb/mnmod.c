@@ -1,0 +1,315 @@
+/* file -  mnmod - windows menu support */
+#include "m:\rid\wsdef.h"
+#include "m:\rid\mndef.h"
+#include "m:\rid\medef.h"
+#include "m:\rid\mxdef.h"
+#include "m:\rid\imdef.h"
+#include "m:\rid\stdef.h"
+#define mnMAX  64
+#define mnOPN_  BIT(0)
+#define mnTmen struct mnTmen_t 
+struct mnTmen_t
+{ int Vflg ;
+  int Vcnt ;
+  HMENU Hpop ;
+  char Anam [mxNAM];
+   };
+#define mnTctx struct mnTctx_t 
+struct mnTctx_t
+{ HMENU Hmen ;
+  int Vcnt ;
+  mnTmen *Pmen ;
+  mnTmen Atab [mnMAX];
+   };
+static mnTctx *mn_ini (void );
+mnTmen *mn_loo (mnTctx *,char *);
+/* code -  menu objects */
+#define mnTobj struct mnTobj_t 
+struct mnTobj_t
+{ int Vidt ;
+  HANDLE Hhan ;
+   };
+mnTobj mnAobj [] =  {
+#define bmUP0 0
+  OBM_UPARROW, NULL,
+#define bmUP1 2
+  OBM_UPARROWD, NULL,
+#define bmDN0 4
+  OBM_DNARROW, NULL,
+#define bmDN1 6
+  OBM_DNARROWD, NULL,
+#define bmLF0 8
+  OBM_LFARROW, NULL,
+#define bmLF1 10
+  OBM_LFARROWD, NULL,
+#define bmRG0 12
+  OBM_RGARROW, NULL,
+#define bmRG1 14
+  OBM_RGARROWD, NULL,
+#define bmRD0 16
+  OBM_REDUCE, NULL,
+#define bmRD1 18
+  OBM_REDUCED, NULL,
+#define bmZO0 20
+  OBM_ZOOM, NULL,
+#define bmZO1 22
+  OBM_ZOOMD, NULL,
+#define bmRS0 24
+  OBM_RESTORE, NULL,
+#define bmRS1 26
+  OBM_RESTORED, NULL,
+  };
+/* code -  mn_ini - setup menu context */
+mnTctx *mn_ini()
+{ wsTctx *srv = ws_ctx ();
+  mnTctx *ctx ;
+  if ( srv->Pmen == 0) {
+    ctx = (srv->Pmen = me_acc ( sizeof(mnTctx)));
+    ctx->Hmen = CreateMenu (); }
+  return ( srv->Pmen);
+} 
+/* code -  mn_loo - lookup menu */
+mnTmen *mn_loo(
+mnTctx *ctx ,
+char *nam )
+{ int idx ;
+  int cnt = ctx->Vcnt;
+  mnTmen *men = &ctx->Atab[0];
+  while ( cnt--) {
+    if ( st_sam (nam, men->Anam)) {
+      return ( men); }
+    ++men;
+  } 
+  if( ctx->Vcnt >= mnMAX)return ( NULL );
+  ++ctx->Vcnt;
+  st_cop (nam, men->Anam);
+  if ( st_sam (nam, "@SYSTEM")) {
+    men->Hpop = GetSystemMenu ((ws_ctx ())->Hwnd, 0);
+    men->Vflg |= mnOPN_;
+    men->Vcnt = 9; }
+  return ( men);
+} 
+/* code -  mn_beg - begin new menu */
+mn_beg(
+char *nam )
+{ mnTctx *ctx = mn_ini ();
+  mnTmen *men = mn_loo(ctx,nam);
+  int cnt ;
+  if( !men)return 0;
+  ctx->Pmen = men;
+  if ( (men->Vflg & mnOPN_) == 0) {
+    men->Vflg |= mnOPN_;
+    men->Hpop = CreatePopupMenu();
+    if ( *nam && *nam != '@') {
+      AppendMenu (ctx->Hmen,MF_ENABLED|MF_POPUP,(UINT )men->Hpop,nam); }
+    return 1; }
+  cnt = men->Vcnt;
+  while ( cnt--) {
+    DeleteMenu (men->Hpop, 0,MF_BYPOSITION);
+  } 
+  men->Vcnt = 0;
+  return 1;
+} 
+/* code -  mn_but - menu button */
+mn_but(
+int cod ,
+void *nam ,
+int msk )
+{ mnTctx *ctx = mn_ini ();
+  mnTmen *men = mn_loo(ctx,nam);
+  int cnt ;
+  int flg ;
+  if ( (msk & mnBMP_) & !nam) {
+    msk = 0;
+    nam = "???"; }
+  if ( msk & mnBMP_) {flg = MF_BITMAP ;} else {
+    flg = MF_STRING ; }
+  flg |= MF_ENABLED;
+  if( !men)return 0;
+  if ( (men->Vflg & mnOPN_) == 0) {
+    men->Vflg |= mnOPN_;
+    AppendMenu (ctx->Hmen,flg, cod, nam);
+    return 1; }
+  return 1;
+} 
+/* code -  mn_han - get bitmap handle */
+void *mn_han(
+int idt )
+{ mnTobj *obj = mnAobj + idt;
+  if ( obj->Hhan == 0) {
+    obj->Hhan = LoadBitmap (NULL, MAKEINTRESOURCE(obj->Vidt)); }
+  return ( (void *)obj->Hhan);
+} 
+/* code -  mn_sim - add simple menu item */
+mn_sim(
+int cod ,
+char *nam )
+{ mn_com (cod, nam, mnENB_);
+} 
+/* code -  mn_com - add complex menu item */
+mn_com(
+int cod ,
+char *nam ,
+int msk )
+{ mnTctx *ctx = mn_ini ();
+  mnTmen *men = ctx->Pmen;
+  mnTmen *sub ;
+  int flg = MF_STRING;
+  if ( msk & mnENB_) {
+    flg |= MF_ENABLED;
+    } else {
+    if ( msk & mnGRY_) {flg |= MF_GRAYED ;} else {
+      flg |= MF_DISABLED ; } }
+  if ( msk & mnCHK_) {flg |= MF_CHECKED ;}
+  if ( msk & mnUNC_) {flg |= MF_UNCHECKED ;}
+  if ( *nam == '@') {
+    sub = mn_loo (ctx, nam);
+    if( !sub)return 0;
+    cod = (UINT )sub->Hpop;
+    flg |= MF_POPUP;
+    ++nam; }
+  AppendMenu (men->Hpop, flg, cod, nam);
+  ++men->Vcnt;
+  return 1;
+} 
+/* code -  mn_skp - skip menu slot */
+mn_skp()
+{ mnTctx *ctx = mn_ini ();
+  mnTmen *men = ctx->Pmen;
+  AppendMenu (men->Hpop,MF_SEPARATOR, 0, "");
+  ++men->Vcnt;
+  return 1;
+} 
+/* code -  mn_sho - display menu */
+mn_sho()
+{ wsTctx *srv = ws_ctx ();
+  mnTctx *ctx = mn_ini ();
+  mnTmen *men = ctx->Pmen;
+  SetMenu (srv->Hwnd, ctx->Hmen);
+  DrawMenuBar (srv->Hwnd);
+  return 1;
+} 
+/* code -  mn_trk - track menu */
+mn_trk(
+wsTevt *evt )
+{ wsTctx *srv = ws_ctx ();
+  mnTctx *ctx = mn_ini ();
+  mnTmen *men = ctx->Pmen;
+  return 1;
+  TrackPopupMenu (men->Hpop, TPM_LEFTALIGN, 0,0,0,evt->Hwnd, NULL);
+} 
+/* code -  mn_alc - allocate a history */
+mnThis *mn_alc(
+int bas ,
+int cnt )
+{ mnThis *his ;
+  int idx = 0;
+  if( cnt <= 0)return 0;
+  if ( cnt > 20) {cnt = 20 ;}
+  his = me_acc ( sizeof(mnThis) + ( sizeof(char *) * cnt));
+  his->Vbas = bas;
+  his->Vcnt = cnt;
+  while ( cnt--) {
+    his->Atab[idx++] = me_acc (mxSPC); }
+  return ( his);
+} 
+/* code -  mn_dlc - deallocate a history */
+void mn_dlc(
+mnThis *his )
+{ int idx = 0;
+  if( !his)return;
+  for (idx = (0); idx<=(his->Vcnt-1); ++idx) {
+    me_dlc (his->Atab[idx]); }
+  me_dlc (his);
+} 
+/* code -  mn_new - enter new file */
+void mn_new(
+mnThis *his ,
+char *new )
+{ int cnt = his->Vcnt;
+  char *(*tab )= his->Atab;
+  char *lft ;
+  char *rgt ;
+  tab = his->Atab;
+  lft = tab[0];
+  while ( --cnt > 0) {
+    if( !*lft)break;
+    if( st_sam (new, lft))break;
+    rgt = tab[1];
+    tab[1] = lft;
+    lft = rgt;
+    ++tab;
+  } 
+  his->Atab[0] = lft;
+  st_cop (new, lft);
+} 
+/* code -  mn_dis - display entries */
+void mn_dis(
+mnThis *his )
+{ char *(*tab )= his->Atab;
+  char *ent ;
+  int cnt = his->Vcnt;
+  int cod = his->Vbas;
+  int fst = 0;
+  while ( cnt--) {
+    ent = *tab++;
+    if( !*ent)break;
+    if ( !fst++) {mn_skp () ;}
+    mn_sim (cod++, ent);
+  } 
+} 
+/* code -  mn_fil - filter base code */
+mn_fil(
+mnThis *his ,
+int cod )
+{ int idx ;
+  if( !his)return ( cod );
+  idx = cod - his->Vbas;
+  if( idx < 0)return ( cod );
+  if( idx >= his->Vcnt)return ( cod );
+  return ( his->Vbas);
+} 
+/* code -  mn_sel - return selected entry */
+char *mn_sel(
+mnThis *his ,
+int cod )
+{ return ( mn_enu (his, cod - his->Vbas));
+} 
+/* code -  mn_enu - enumerate entries */
+char *mn_enu(
+mnThis *his ,
+int cod )
+{ if( cod <  0|| !his)return ( NULL );
+  if( cod >= his->Vcnt)return ( NULL );
+  return ( his->Atab[cod]);
+} 
+/* code -  mn_loa - input menu history */
+mn_loa(
+mnThis *his ,
+dfTctx *def ,
+char *stb )
+{ char nam [mxLIN];
+  dfTdef *ent ;
+  int cnt = his->Vcnt;
+  while ( cnt >= 0) {
+    FMT((st_cop (stb, nam)), "%d", cnt--);
+    if( (ent = df_loo (def, nam)) == 0)continue;
+    mn_new (his, ent->Pbod);
+  } 
+  return 1;
+} 
+/* code -  mn_sto - store menu history */
+mn_sto(
+mnThis *his ,
+dfTctx *def ,
+char *stb )
+{ int idx = 0;
+  char nam [mxLIN];
+  char *str ;
+  for(;;)  {
+    if( (str = mn_enu (his, idx)) == NULL || !*str)break;
+    FMT((st_cop (stb, nam)), "%d", idx++);
+    df_ins (def, nam, str);
+  } 
+  return 1;
+} 

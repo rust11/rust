@@ -1,0 +1,783 @@
+/* file -  vtmod - vt100 emulation */
+#include <windows.h>
+#include "f:\m\rid\vtdef.h"
+#include "f:\m\rid\chdef.h"
+#include "f:\m\rid\ctdef.h"
+#include "f:\m\rid\stdef.h"
+#define vtTscr struct vtTscr_t 
+struct vtTscr_t
+{ int Vact ;
+  void *Vhan ;
+  char *Pseq ;
+  char Aseq [32];
+  int Vcnt ;
+  int Apar [2];
+  SMALL_RECT Ireg ;
+  COORD Isav ;
+  int Vcup ;
+  int Vmod ;
+  int Vint ;
+   };
+#define vtTctx struct vtTctx_t 
+struct vtTctx_t
+{ void *Pscr ;
+   };
+vtTscr vtIscr = {0};
+vtTctx vtIctx = {&vtIscr};
+char *vtPipt = NULL;
+char vtAipt [16]= {0};
+char *vtPopt = NULL;
+char vtAopt [16]= {0};
+int vt_rep (char *);
+int vt_scr (vtTctx *,int );
+vt_cup (vtTctx *,int );
+vt_act (vtTctx *,int ,int ,int ,int );
+int vtVseq = 0;
+#define vtV52  -1
+#define vtESC  0
+#define vtCSI  1
+#define vtDEC  2
+#define vtINT  3
+#define sRAW  0
+#define CSI  0233
+#define ESC  033
+#define SO  14
+#define SI  15
+#define LF  10
+extern int bgVter ;
+extern WORD bgVtpb ;
+vt_eol()
+{ ;
+} 
+vt_mod(
+int mod )
+{ vtTscr *scr = &vtIscr;
+  int cur ;
+  cur = scr->Vmod;
+  if ( mod) {scr->Vmod = mod ;}
+  return ( cur);
+} 
+el_dbg (char *);
+/* code -  vt_ipt - keyboard escape sequences */
+vt_ipt(
+kbTcha cha )
+{ char *str = NULL;
+  int flg = cha.Vflg;
+  int ord = cha.Vord;
+  vtTscr *scr = &vtIscr;
+  int v52 = scr->Vmod == 52;
+  flg &= (kbENH_|kbCTL_|kbSHF_|kbALT_|kbSYS_|kbVIR_|kbASC_|kbPAD_);
+  if ( v52 & (flg & kbPAD_)) {
+    switch ( ord) {
+    case 69:
+      str = "$?P";
+     break; case 53:
+      str = "$?Q";
+     break; case 55:
+      str = "$?R";
+     break; case 74:
+      str = "$?S";
+     break; case 78:
+      if ( flg & kbSHF_) {str = "$?m" ;} else {
+        str = "$?l" ; }
+     break; case 82:
+      str = "$?p";
+     break; case 79:
+      str = "$?q";
+     break; case 80:
+      str = "$?r";
+     break; case 81:
+      str = "$?s";
+     break; case 75:
+      str = "$?t";
+     break; case 76:
+      str = "$?u";
+     break; case 77:
+      str = "$?v";
+     break; case 71:
+      str = "$?w";
+     break; case 72:
+      str = "$?x";
+     break; case 73:
+      str = "$?y";
+     break; case 83:
+      str = "$?n";
+     break; case 28:
+      str = "$?M";
+       }
+  } else if ( flg & kbPAD_) {
+    switch ( ord) {
+    case 69:
+      str = "$OP";
+     break; case 53:
+      str = "$OQ";
+     break; case 55:
+      str = "$OR";
+     break; case 74:
+      str = "$OS";
+     break; case 78:
+      if ( flg & kbSHF_) {str = "$Om" ;} else {
+        str = "$Ol" ; }
+     break; case 82:
+      str = "$Op";
+     break; case 79:
+      str = "$Oq";
+     break; case 80:
+      str = "$Or";
+     break; case 81:
+      str = "$Os";
+     break; case 75:
+      str = "$Ot";
+     break; case 76:
+      str = "$Ou";
+     break; case 77:
+      str = "$Ov";
+     break; case 71:
+      str = "$Ow";
+     break; case 72:
+      str = "$Ox";
+     break; case 73:
+      str = "$Oy";
+     break; case 83:
+      str = "$On";
+     break; case 28:
+      str = "$OM";
+       }
+  } else if ( v52 && (flg == (kbENH_|kbVIR_))) {
+    switch ( ord) {
+    case 37:
+      str = "$D";
+     break; case 38:
+      str = "$A";
+     break; case 39:
+      str = "$C";
+     break; case 40:
+      str = "$B";
+       }
+  } else if ( flg == (kbENH_|kbVIR_)) {
+    switch ( ord) {
+    case 37:
+      str = "$[D";
+     break; case 38:
+      str = "$[A";
+     break; case 39:
+      str = "$[C";
+     break; case 40:
+      str = "$[B";
+     break; case 45:
+      str = "$[1~";
+     break; case 36:
+      str = "$[2~";
+     break; case 33:
+      str = "$[3~";
+     break; case 46:
+      str = "$[4~";
+     break; case 35:
+      str = "$[5~";
+     break; case 34:
+      str = "$[6~";
+       }
+  } 
+  return ( vt_rep (str));
+} 
+vt_rep(
+char *str )
+{ if( !str)return 0;
+  vtPipt = vtAopt;
+  st_cop (str, vtPipt);
+  return 1;
+} 
+/* code -  vt100 screen data */
+int vtVcup = 0;
+char *vtAv52 [] =  {
+#define vCUP 0
+  "A",
+#define vCDN 1
+  "B",
+#define vCRT 2
+  "C",
+#define vCLF 3
+  "D",
+#define eGRA 4
+  "F",
+#define lGRA 5
+  "G",
+#define vHOM 6
+  "H",
+#define vRLF 7
+  "I",
+#define vESC 8
+  "J",
+#define vELN 9
+  "K",
+#define vPOS 10
+  "Y@@",
+#define vIDT 11
+  "Z",
+#define eAKM 12
+  "=",
+#define lAKM 13
+  ">",
+#define eANS 14
+  "<",
+#define eAUT 15
+  "^",
+#define lAUT 16
+  "_",
+#define ePRT 17
+  "W",
+#define lPRT 18
+  "X",
+#define ePSC 19
+  "]",
+#define vPLN 20
+  "V",
+#define vUNK 21
+  "\\",
+  NULL,
+  };
+char *vtAesc [] =  {
+#define xHTR 0
+  "C",
+#define xSUP 1
+  "D",
+#define xSDN 2
+  "M",
+#define xNLN 3
+  "E",
+#define xSAV 4
+  "7",
+#define xRST 5
+  "8",
+#define xTOP 6
+  "#3",
+#define xBOT 7
+  "#4",
+#define cDBL 8
+  "#5",
+#define sDBL 9
+  "#6",
+#define xAPP 10
+  "=",
+#define xANS 11
+  "<",
+#define xNUM 12
+  ">",
+#define aDID 13
+  "Z",
+#define xRES 14
+  "c",
+#define xAG0 15
+  "(B",
+#define xAG1 16
+  ")B",
+#define xSG0 17
+  "(0",
+#define xSG1 18
+  ")0",
+  NULL,
+  };
+char *vtAcsi [] =  {
+#define xCSC 0
+  "J[J",
+#define aCSC 1
+  "J[0J",
+#define xCBS 2
+  "J[1J",
+#define xCSN 3
+  "J[2J",
+#define xCLI 4
+  "K[K",
+#define aCLI 5
+  "K[0K",
+#define xCBL 6
+  "K[1K",
+#define xCLN 7
+  "K[2K",
+#define cHOM 8
+  "H[H",
+#define rHOM 9
+  "f[f",
+#define xCUP 10
+  "A[@A",
+#define xCDN 11
+  "B[@B",
+#define xCRT 12
+  "C[@C",
+#define xCLF 13
+  "D[@D",
+#define cPOS 14
+  "H[@;@H",
+#define rPOS 15
+  "H[@;@H",
+#define xREG 16
+  "r[@;@r",
+#define aREG 17
+  "r[r",
+#define sIRM 18
+  "h[4h",
+#define cIRM 19
+  "h[4l",
+#define xDCH 20
+  "L[@L",
+#define xDLN 21
+  "L[@M",
+#define sKBL 22
+  "h[2h",
+#define cKBL 23
+  "h[2h",
+#define sSRM 24
+  "l[12l",
+#define cSRM 25
+  "h[12h",
+#define cALL 26
+  "m[0m",
+#define aALL 27
+  "m[m",
+#define sBOL 28
+  "m[1m",
+#define aBOL 29
+  "m[7;1m",
+#define cBOL 30
+  "m[22m",
+#define sUND 31
+  "m[4m",
+#define cUND 32
+  "m[24m",
+#define sBLK 33
+  "m[5m",
+#define cBLK 34
+  "m[25m",
+#define sREV 35
+  "m[7m",
+#define cREV 36
+  "m[27m",
+#define x100 37
+  "p[61:p",
+#define x200 38
+  "p[62;1:p",
+#define xDSR 39
+  "n[5n",
+#define xCPR 40
+  "n[6n",
+#define xSTR 41
+  "p[!p",
+#define xDAD 42
+  "c[c",
+#define xNOP 43
+  "q[q}",
+#define xNO2 44
+  "q[@q}",
+  NULL,
+  };
+char *vtAdec [] =  {
+#define xV52 0
+  "l[?2l",
+#define x80 1
+  "l[?3l",
+#define x132 2
+  "h[?3h",
+#define sJMP 3
+  "l[?4l",
+#define cJMP 4
+  "h[?4h",
+#define sLCK 5
+  "h[?6h",
+#define cLCK 6
+  "l[?6l",
+#define sWRP 7
+  "h[?7h",
+#define cWRP 8
+  "l[?7l",
+#define sNLM 9
+  "l[?20l",
+#define cNLM 10
+  "h[?20h",
+#define sAUT 11
+  "h[?8h",
+#define cAUT 12
+  "l[?8l",
+#define sCKM 13
+  "h[?1h",
+#define cCKM 14
+  "l[?1l",
+#define xDID 15
+  "c[?6c",
+  NULL,
+  };
+char *vt_num(
+int mod ,
+char *str ,
+int *res )
+{ *res = 0;
+  if ( mod == 52) {
+    if ( *str > 037) {
+      *res = *str++ - 037; }
+    } else {
+    while ( ct_dig (*str)) {
+      *res *= 10;
+      *res += *str++ - '0';
+    } 
+  } 
+  return ( str);
+} 
+/* code -  vt100 screen */
+vt_opt(
+int cha )
+{ 
+  if( vt_scr (NULL, cha))return 1;
+  return 0;
+} 
+vt_scr(
+vtTctx *ctx ,
+int cha )
+{ vtTscr *scr ;
+  char *(*lst )= vtAesc;
+  char *mod ;
+  char *seq ;
+  int *par ;
+  int ctl ;
+  int fnd ;
+  int act = -1;
+  int p1 ;
+  int p2 ;
+  int typ = vtESC;
+  if ( !ctx) {ctx = &vtIctx ;}
+  scr = ctx->Pscr;
+  if ( scr->Vmod == 52) {
+    lst = vtAv52;
+    typ = vtV52;
+    cha &= 0177; }
+  if( cha == SO)return 1;
+  if( cha == SI)return 1;
+  if (( cha == ESC)
+  ||(cha == CSI)) {
+    scr->Vint = cha;
+    scr->Vcnt = 0;
+    scr->Vact = 1;
+    scr->Aseq[0] = scr->Aseq[1] = scr->Aseq[2] = 0;
+    scr->Pseq = scr->Aseq;
+    return 1; }
+  if( !scr->Vact)return 0;
+  if ( scr->Vcnt++ >= 30) {
+     scr->Vact = 0;return 0; }
+  bgVtpb = 1;
+  if ( (typ == vtV52) && (cha == ' ')) {
+    cha = '1'; }
+  *scr->Pseq++ = cha;
+  *scr->Pseq = 0;
+  if ( scr->Aseq[0] == '[') {
+    if( !ct_alp (cha))return 1;
+    typ = vtCSI;
+    lst = vtAcsi;
+    if ( scr->Aseq[1] == '?') {
+      typ = vtDEC;
+      lst = vtAdec; } }
+  while ( *lst) {
+    ++act;
+    mod = *lst++;
+    if( typ >  0&& (*mod++ != cha))continue;
+    seq = scr->Aseq;
+    par = scr->Apar;
+    par[0] = par[1] = 0;
+    fnd = 1;
+    while ( *mod) {
+      if ( *mod == '@') {
+        if( !*seq)return 1;
+        seq = vt_num (scr->Vmod, seq, par++);
+         ++mod;continue; }
+      if (( (*mod == ':') && (*seq == '"'))
+      ||(*mod == *seq)) {
+         ++mod, ++seq;continue; }
+      if( !*seq && *mod)return 1;
+      break;
+    } 
+    if( *mod || *seq)continue;
+    if ( bgVter) {
+      mod = *--lst;
+      if ( typ) {++mod ;}
+      if ( ++vtVseq > 9) {vtVseq = 0 ;}
+      PUT("{%d:\"%s\"(%d,%d) %d,%d} ",vtVseq, scr->Aseq,scr->Apar[0],scr->Apar[1], typ, act);
+      } else {
+      vt_act (ctx, typ, act, scr->Apar[0], scr->Apar[1]); }
+    scr->Vact = 0;
+    return 1;
+  } 
+  if ( *mod && *seq) {
+    if ( ++vtVseq > 9) {vtVseq = 0 ;}
+    PUT("?%s", (typ == vtCSI) ? "C": "E");
+    PUT("{%d:\"%s\"} ", vtVseq, scr->Aseq); }
+  scr->Vact = 0;
+  return 1;
+} 
+el_vtt()
+{ ULONG mod = ENABLE_VIRTUAL_TERMINAL_INPUT;
+  SetConsoleMode ((GetStdHandle (STD_OUTPUT_HANDLE)), mod);
+} 
+/* code -  screen action */
+#define COMMON_LVB_UNDERSCORE  0x8000
+#define COMMON_LVB_REVERSE_VIDEO  0x4000
+#define ENABLE_INSERT_MODE  0x20
+#define ENABLE_EXTENDED_FLAGS  0x0080
+vt_act(
+vtTctx *ctx ,
+int typ ,
+int act ,
+int a1 ,
+int a2 )
+{ vtTscr *scr = ctx->Pscr;
+  void *han = scr->Vhan;
+  COORD coo ;
+  COORD cur ;
+  COORD siz ;
+  CONSOLE_SCREEN_BUFFER_INFO inf ;
+  SMALL_RECT win ;
+  SMALL_RECT reg ;
+  SMALL_RECT clp ;
+  ULONG dum ;
+  WORD att ;
+  WORD raw ;
+  CHAR_INFO fil ;
+  ULONG mod ;
+  int p1 = a1 ? a1: 1;
+  int p2 = a2 ? a2: 1;
+  scr->Vcup = 0;
+  if ( !han) {
+    han = scr->Vhan = GetStdHandle (STD_OUTPUT_HANDLE);
+    GetConsoleScreenBufferInfo (han, &inf);
+    scr->Ireg.Top=0, scr->Ireg.Bottom=23;
+  } 
+  GetConsoleScreenBufferInfo (han, &inf);
+  coo.X = p1, coo.Y = p2;
+  win = inf.srWindow;
+  reg = scr->Ireg;
+  cur = inf.dwCursorPosition;
+  att = inf.wAttributes;
+  siz = inf.dwSize;
+  raw = att & ~(COMMON_LVB_REVERSE_VIDEO|(FOREGROUND_INTENSITY|COMMON_LVB_UNDERSCORE));
+  while ( ShowCursor (0) >= 0) {;}
+  if ( typ == vtINT) {
+    switch ( act) {
+    case sRAW:
+      SetConsoleTextAttribute (han, raw);
+       }
+  } else if ( typ == vtV52) {
+    switch ( act) {
+    case vCUP:
+      vt_act (ctx, vtCSI, xCUP, a1, a2);
+     break; case vCDN:
+      vt_act (ctx, vtCSI, xCDN, a1, a2);
+     break; case vCRT:
+      vt_act (ctx, vtCSI, xCRT, a1, a2);
+     break; case vCLF:
+      vt_act (ctx, vtCSI, xCLF, a1, a2);
+     break; case eGRA:
+     break; case lGRA:
+     break; case vHOM:
+      vt_act (ctx, vtCSI, cHOM, a1, a2);
+     break; case vRLF:
+      vt_act (ctx, vtCSI, xSDN, a1, a2);
+     break; case vESC:
+      vt_act (ctx, vtCSI, xCSC, a1, a2);
+     break; case vELN:
+      vt_act (ctx, vtCSI, xCLI, a1, a2);
+     break; case vPOS:
+      vt_act (ctx, vtCSI, cPOS, a1, a2);
+     break; case vIDT:
+      vt_rep ("\033/Z");
+     break; case eANS:
+      scr->Vmod = 0;
+       }
+  } else if ( typ == vtESC) {
+    switch ( act) {
+    case xSUP:
+      vt_eol ();
+      if ( cur.Y != reg.Bottom) {
+         ++cur.Y, SetConsoleCursorPosition (han, cur);break; }
+      fil.Attributes = raw, fil.Char.AsciiChar = ' ';
+      coo.X = 0, coo.Y = 0;
+      win.Top = 1;
+      win.Bottom = reg.Bottom, win.Left = 0, win.Right = siz.X-1;
+      clp = win;
+      ScrollConsoleScreenBuffer (han, &win, NULL, coo, &fil);
+      coo.X = 0, coo.Y = reg.Bottom;
+      SetConsoleCursorPosition (han, coo);
+     break; case xSDN:
+      vt_eol ();
+      if ( cur.Y != 0) {
+         --cur.Y, SetConsoleCursorPosition (han, cur);break; }
+      fil.Attributes = raw, fil.Char.AsciiChar = ' ';
+      coo.X = 0, coo.Y = 1;
+      win.Top = 0;
+      win.Bottom = reg.Bottom-1, win.Left = 0, win.Right = siz.X-1;
+      clp = win;
+      ScrollConsoleScreenBuffer (han, &win, NULL, coo, &fil);
+      coo.X = 0, coo.Y = 0;
+      SetConsoleCursorPosition (han, coo);
+     break; case xNLN:
+      vt_eol ();
+      PUT("[%s]", scr->Aseq);
+     break; case xSAV:
+      scr->Isav = cur;
+     break; case xRST:
+      SetConsoleCursorPosition (han, scr->Isav);
+     break; case xTOP:
+     break; case xBOT:
+     break; case cDBL:
+     break; case sDBL:
+     break; case xAPP:
+     break; case xANS:
+     break; case xNUM:
+     break; case aDID:
+    case xRES:
+      PUT("[%s]", scr->Aseq);
+     break; case xAG0:
+    case xAG1:
+    case xSG0:
+    case xSG1:
+      ;
+     break; case xHTR:
+    case xSTR:
+      vt_act(ctx,vtCSI,cHOM,0,0);
+      vt_act(ctx,vtCSI,xCSN,0,0);
+       }
+  } else if ( typ == vtCSI) {
+    switch ( act) {
+    case xCSC:
+    case aCSC:
+      FillConsoleOutputAttribute (han, raw, 24*80, cur, &dum);
+      FillConsoleOutputCharacter (han, ' ', 24*80, cur, &dum);
+      SetConsoleTextAttribute (han, att);
+     break; case xCBS:
+    case xCSN:
+      PUT("[%s]", scr->Aseq);
+      coo.X = 1, coo.Y = 1;
+      SetConsoleCursorPosition (han, coo);
+      FillConsoleOutputAttribute (han, raw, 24*80, cur, &dum);
+      FillConsoleOutputCharacter (han, ' ', 24*80, cur, &dum);
+      SetConsoleCursorPosition (han, cur);
+      SetConsoleTextAttribute (han, att);
+     break; case xCLI:
+    case xCLN:
+    case aCLI:
+      vt_eol ();
+      FillConsoleOutputAttribute (han, raw, 80-cur.X, cur, &dum);
+      FillConsoleOutputCharacter (han, ' ', 80-cur.X, cur, &dum);
+      SetConsoleTextAttribute (han, att);
+     break; case xCBL:
+      PUT("[%s]", scr->Aseq);
+     break; case cHOM:
+      vt_eol ();
+      coo.X = 0, coo.Y = 0;
+      vt_eol ();
+      SetConsoleCursorPosition (han, coo);
+     break; case rHOM:
+      vt_eol ();
+      PUT("[%s]", scr->Aseq);
+     break; case xCUP:
+      if( (cur.Y-=p1) < 0)break;
+      vt_eol ();
+      SetConsoleCursorPosition (han, cur);
+      vtVcup = 1;
+     break; case xCDN:
+      if( (cur.Y+=p1) > 23)break;
+      vt_eol ();
+      SetConsoleCursorPosition (han, cur);
+     break; case xCRT:
+      if( (cur.X+=p1) > 79)break;
+      vt_eol ();
+      SetConsoleCursorPosition (han, cur);
+     break; case xCLF:
+      if( (cur.X-=p1) < 0)break;
+      SetConsoleCursorPosition (han, cur);
+     break; case cPOS:
+      vt_eol ();
+      cur.X = p2-1, cur.Y = p1-1;
+      SetConsoleCursorPosition (han, cur);
+     break; case rPOS:
+      vt_eol ();
+      PUT("[%s]", scr->Aseq);
+     break; case xREG:
+    case aREG:
+      scr->Ireg.Top = p1-1, scr->Ireg.Bottom = p2-1;
+      cur.X = 0, cur.Y = 0;
+      SetConsoleCursorPosition (han, cur);
+     break; case sIRM:
+      mod = GetConsoleMode (han, &mod);
+      mod |= ENABLE_INSERT_MODE|ENABLE_EXTENDED_FLAGS;
+      SetConsoleMode (han, mod);
+     break; case cIRM:
+      mod = GetConsoleMode (han, &mod);
+      mod &= ~(ENABLE_INSERT_MODE|ENABLE_EXTENDED_FLAGS);
+      SetConsoleMode (han, mod);
+     break; case xDCH:
+    case xDLN:
+    case sKBL:
+    case cKBL:
+    case sSRM:
+    case cSRM:
+      PUT("[%s]", scr->Aseq);
+     break; case cALL:
+    case aALL:
+      att &= ~(FOREGROUND_INTENSITY);
+      att &= ~(COMMON_LVB_UNDERSCORE);
+      SetConsoleTextAttribute (han, att);
+     break; case sBOL:
+    case aBOL:
+      att |= FOREGROUND_INTENSITY;
+      SetConsoleTextAttribute (han, att);
+      scr->Vcup = FOREGROUND_INTENSITY;
+      ++vtVcup;
+     break; case cBOL:
+      att &= ~(FOREGROUND_INTENSITY);
+      SetConsoleTextAttribute (han, att);
+     break; case sUND:
+      att |= COMMON_LVB_UNDERSCORE;
+      SetConsoleTextAttribute (han, att);
+      scr->Vcup = COMMON_LVB_UNDERSCORE;
+     break; case cUND:
+      att &= ~(COMMON_LVB_UNDERSCORE);
+      SetConsoleTextAttribute (han, att);
+     break; case sBLK:
+     break; case cBLK:
+     break; case sREV:
+      att |= COMMON_LVB_REVERSE_VIDEO;
+      SetConsoleTextAttribute (han, att);
+     break; case cREV:
+      att &= ~(COMMON_LVB_REVERSE_VIDEO);
+      SetConsoleTextAttribute (han, att);
+     break; case xDAD:
+      vt_rep ("VT102");
+       }
+  } else if ( typ == vtDEC) {
+    switch ( act) {
+    case xV52:
+      scr->Vmod = 52;
+     break; case x100:
+     break; case x200:
+     break; case xDSR:
+      vt_rep ("\033[0n");
+     break; case xCPR:
+      vtPipt = vtAipt;
+      if ( cur.X > 79) {cur.X = 79 ;}
+      FMT(vtPipt, "\033[%d;%dR", cur.Y+1, cur.X+1);
+     break; case x80:
+     break; case x132:
+     break; case sJMP:
+     break; case cJMP:
+     break; case sLCK:
+     break; case cLCK:
+     break; case sWRP:
+     break; case cWRP:
+     break; case sNLM:
+     break; case cNLM:
+     break; case sAUT:
+     break; case cAUT:
+     break; case sCKM:
+     break; case cCKM:
+     break; case xDID:
+      vt_rep ("VT102");
+       }
+  } 
+  while ( ShowCursor (1) < 0) {;}
+} 

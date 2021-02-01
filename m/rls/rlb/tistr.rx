@@ -1,0 +1,92 @@
+/* file -  tistr - time to string operations */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\tidef.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\mxdef.h"
+/* code -  ti_str - full date and time */
+char *ti_str(
+tiTplx *plx ,
+char *str )
+{ char *ptr ;
+  ti_dat (plx, str);
+  ptr = st_end (str);
+  *ptr++ = ' ';
+  ti_hms (plx, ptr);
+  return ( str);
+} 
+/* code -  ti_day - make date string */
+static char *tiAday [] =  {
+  "Sunday", "Monday", "Tuesday",
+  "Wednesday", "Thursday",
+  "Friday", "Saturday",
+  };
+static char *tiAmon [] =  {
+  "Jan", "Feb", "Mar", "Apr",
+  "May", "Jun", "Jul", "Aug",
+  "Sep", "Oct", "Nov", "Dec",
+  "Bad",
+  };
+#if Win
+/* code -  ti_day - the day of the week */
+char *ti_day(
+tiTplx *plx ,
+char *str )
+{ st_cop (tiAday[plx->Vdow], str);
+  return ( str);
+} 
+#endif 
+/* code -  ti_dat - the date */
+char *ti_dat(
+tiTplx *plx ,
+char *str )
+{ int mon = plx->Vmon;
+  if ( mon > 12) {mon = 12 ;}
+  FMT(str, ((((plx->Vyea <= 9999)) ? "%02d-%s-%04lu": "%02d-%s-%lu")), plx->Vday, tiAmon[mon], plx->Vyea);
+  return ( str);
+} 
+char *ti_dmy(
+tiTplx *plx ,
+char *str )
+{ int mon = plx->Vmon;
+  int yea = plx->Vyea;
+  if ( mon > 12) {mon = 12 ;}
+  FMT(str, "%02d-%s-%02u",plx->Vday, tiAmon[mon], yea);
+  st_upr (str);
+  return ( str);
+} 
+/* code -  ti_hms - hours:minutes:seconds */
+char *ti_hms(
+tiTplx *plx ,
+char *str )
+{ FMT(str, "%02d:%02d:%02d",plx->Vhou, plx->Vmin, plx->Vsec);
+  return ( str);
+} 
+char *ti_hmt(
+tiTplx *plx ,
+char *str )
+{ FMT(str, "%02d:%02d",plx->Vhou, plx->Vmin);
+  return ( str);
+} 
+#if Win
+/* code -  ti_mil - display milliseconds */
+ti_mil(
+tiTcpu *cpu ,
+char *res )
+{ tiTcpu tim = *cpu;
+  ULONG frq = 1000;
+  int day ;
+  int hou ;
+  int min ;
+  int sec ;
+  int mil ;
+  day = (int )(tim/(frq*60*60*24)),hou = (int )((tim/(frq*60*60))%24),min = (int )((tim/(frq*60))%60),sec = (int )((tim/frq)%60);
+  mil = (int )(((tim%frq)*1000)/frq);
+  if ( day) {res+= FMT(res, "%d ", day) ;}
+  if ( (day |= hou)) {res+= FMT(res, "%d:", hou) ;}
+  if ( (day |= min)) {res+= FMT(res, "%d:", min) ;}
+  res+= FMT(res, "%d", sec);
+  if ( mil == 0) {st_app (".0", res) ;} else {
+    FMT (res, ".%03d", mil) ; }
+  return 1;
+} 
+#endif 

@@ -1,0 +1,82 @@
+/* file -  lnmod - logical name routines */
+#include <stdlib.h>
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\drdef.h"
+#include "f:\m\rid\evdef.h"
+#include "f:\m\rid\mxdef.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\rgdef.h"
+#include "f:\m\rid\lndef.h"
+void ln_exi()
+{ ;
+} 
+/* code -  ln_trn - full translation */
+int ln_trn(
+char *log ,
+char *res ,
+int mod )
+{ char nam [mxSPC];
+  char pen [mxSPC];
+  char prv [mxSPC];
+  int fnd = 0;
+  int loo = 16;
+  st_fit (log, nam, mxSPC);
+  st_low (nam);
+  st_cop (nam, res);
+  prv[0] = 0;
+  while ( loo--) {
+    if ( nam[1] == ':') {
+       st_cop (nam, res);return 1; }
+    if( (rg_get (nam, nam, mxSPC)) == 0)break;
+    st_cop (prv, pen);
+    st_cop (nam, prv);
+    ++fnd;
+    if( mod == 1)break;
+  } 
+  if( !fnd)return 0;
+   st_cop (((*pen && (mod & lnPEN_)) ? pen: prv), res);return 1;
+} 
+/* code -  ln_def - define logical name */
+int ln_def(
+char *log ,
+char *equ ,
+int mod )
+{ rg_set (log, equ);
+  if ( st_sam (log, "default")) {
+    ev_set ("Default", log);
+    dr_set (log, 0); }
+  return 1;
+} 
+/* code -  ln_und - undefine logical name */
+int ln_und(
+char *log ,
+int mod )
+{ rg_und (log);
+} 
+/* code -  ln_nth enumerate names */
+ln_nth(
+int nth ,
+char *log ,
+char *equ ,
+int len )
+{ if( !rg_nth (nth, log, len))return 0;
+  if( rg_get (log, equ, len))return 1;
+   st_cop ("?", equ);return 1;
+} 
+/* code -  ln_rev - reverse translation */
+int ln_rev(
+char *equ ,
+char *res ,
+int nth )
+{ char nam [mxIDT];
+  char log [mxIDT];
+  char trn [mxIDT];
+  int idx = 0;
+  st_fit (equ, nam, mxIDT);
+  st_low (nam);
+  for(;;)  {
+    if( (ln_nth (idx++,log,trn,mxIDT)) == 0)return ( 0 );
+    if ( st_sam (nam,trn) && !--nth) {
+       st_cop (log, res);return 1; }
+  } 
+} 

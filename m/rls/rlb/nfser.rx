@@ -1,0 +1,846 @@
+#define updC  1
+#define dbgC  1
+/* file -  nfser - nf server */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\evdef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\mxdef.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\drdef.h"
+#include "f:\m\rid\eldef.h"
+#include "f:\m\rid\lndef.h"
+#include "f:\m\rid\nfdef.h"
+#include "f:\m\rid\nfcab.h"
+#include "f:\m\rid\rtdir.h"
+#include "f:\m\rid\rtutl.h"
+#define rxVX7  0106545
+#define rxDIR  015172
+#define rx_DR  0262
+#define rx_IF  0556
+typedef int nfTfun (nfTvab *);
+nfTfun nf_abo ;
+nfTfun nf_rea ;
+nfTfun nf_wri ;
+nfTfun nf_clo ;
+nfTfun nf_del ;
+nfTfun nf_loo ;
+nfTfun nf_ent ;
+nfTfun nf_ren ;
+nfTfun nf_siz ;
+nfTfun nf_prg ;
+nfTfun nf_inf ;
+nfTfun nf_clz ;
+int nf_trn (nfTvab *,char *);
+nfTfun nf_wlk ;
+int nf_sta (nfTvab *,int );
+#define STA(s)  nf_sta(vab, (s))
+#define nfTact struct nfTact_t 
+struct nfTact_t
+{ nfTfun *Pfun ;
+  int Vdir ;
+   };
+nfTact nfAact [] =  {
+  nf_abo, 0,
+  nf_rea, 0,
+  nf_wri, 0,
+  nf_loo, 1,
+  nf_ent, 1,
+  nf_clo, 0,
+  nf_del, 1,
+  nf_ren, 1,
+#if updC
+  nf_siz, 0,
+#endif 
+  nf_prg, 0,
+  nf_inf, 1,
+  nf_clz, 0,
+  };
+nf_vax (nfTvab *);
+nf_rta (nfTvab *,cabTcab *);
+void nf_her (nfTvab *);
+int nf_sho (nfTvab *);
+int nf_dir (char *);
+char nfAdum [1024]= {0};
+char nfApad [512]= {0};
+char *nfPbuf = NULL;
+int nfFdbg = 0;
+int nfFdmp = 0;
+int nfFtra = 0;
+int el_dbg (char *);
+/* code -  nf_ser - nf server */
+nf_ser(
+nfTvab *vab )
+{ int flg = vab->Vflg;
+  int fun = vab->Vfun & 0xff;
+  if ( nfFtra) {PUT("\nRCV: "), nf_rep (vab, NULL, 0) ;}
+  if ( flg & nfINI_) {
+    cab_eli (vab, cabNRS);
+  } else if ( flg & nfINP_) {
+    cab_eli (vab, cabIRS); }
+  vab->Vflg &= (nfWLK_|nfSUB_);
+  vab->Vsta = 0;
+  vab->Vdbc = 0;
+  vab->Pcab = NULL;
+  if ( fun >= nfMAX) {
+     nf_her (vab);return; }
+  if (( !nfAact[fun].Vdir)
+  ||(!nf_wlk (vab))) {
+    nfAact[fun].Pfun(vab);
+    if ( vab->Pcab) {
+      cab_dlc (vab->Pcab,cabNRS); } }
+  fi_flu (NULL);
+  if ( nfFdbg|nfFtra) {PUT("SND: "), nf_rep (vab, NULL, 1) ;}
+} 
+/* code -  nf_abo - abort node */
+nf_abo(
+nfTvab *vab )
+{ cab_eli (vab, cabNRS);
+  return 1;
+} 
+/* code -  nf_tra - set trace on or off */
+void nf_tra(
+int flg )
+{ nfFtra = flg;
+} 
+/* code -  nf_sta - set return status */
+nf_sta(
+nfTvab *vab ,
+int sta )
+{ vab->Vsta = sta;
+  return ( sta);
+} 
+/* code -  nf_eof - set end-of-file status */
+void nf_eof(
+nfTvab *vab )
+{ vab->Vsta = nfEOF;
+} 
+/* code -  nf_her - set hard error status */
+void nf_her(
+nfTvab *vab )
+{ vab->Vsta= nfIOX;
+} 
+/* code -  nf_siz - get device size_t */
+nf_siz(
+nfTvab *vab )
+{ PUT("Size\n");
+  vab->Vblk = -1;
+} 
+/* code -  nf_loo - lookup */
+#define rxNF  054160
+#define rxNF0  054216
+nf_loo(
+nfTvab *vab )
+{ cabTcab *cab = NULL;
+  char buf [mxSPC];
+  char tmp [mxSPC];
+  char *spc = buf;
+  FILE *fil = NULL;
+  int typ = cabLOO;
+  int len = 0;
+  int fmt = vab->Vblk & 0xffff;
+  if (( vab->Afna[0] == rxNF)
+  ||(vab->Afna[0] == rxNF0)) {
+    if( !vab->Afna[1])return 1; }
+  if ( vab->Pcab) {
+    cab = vab->Pcab;
+    spc = cab->Aspc;
+    } else {
+    rt_unp (vab->Afna, spc, -4);
+    if ( st_sam (spc, "nf0:PIP.SAV")) {
+      st_cop ("sy:pip.sav", spc); }
+    if( !nf_trn (vab, spc))return 0;
+  } 
+  vab->Vfmt = 0;
+  if ( !vab->Afna[1]) {
+    if ( !fi_gat (spc, NULL, NULL)) {
+       STA(nfFNF);return 0; }
+    typ = cabDEV;
+    vab->Vlen = 0xffff;
+    } else {
+    fil = cab_acc (spc);
+    if( !fil){ vab->Vsta = nfFNF ; return 0;}
+    len = fi_len (fil);
+    vab->Vlen = (len+511)/512;
+    vab->Vfmt = len&511; }
+  cab = cab_cre (vab, fil, spc, cabLOO, 0);
+  vab->Vcid = cab->Vcid;
+  if ( fmt == nfMNT) {
+    cab->Vflg |= cabPER_; }
+  if ( typ == cabDEV) {
+    cab->Vtyp = cabREP; }
+  return 1;
+} 
+/* code -  nf_ent - enter */
+void tmp_ten (char *,char *,char *);
+nf_ent(
+nfTvab *vab )
+{ char buf [mxSPC];
+  char ten [mxSPC];
+  char *spc = buf;
+  FILE *fil = NULL;
+  int len = 0;
+  cabTcab *cab ;
+  char *ptr ;
+  vab->Vfmt = 0;
+  if ( vab->Pcab) {
+    cab = vab->Pcab;
+    spc = cab->Aspc;
+    } else {
+    rt_unp (vab->Afna, spc, -4);
+    if( !nf_trn (vab, spc))return 0; }
+  cab = cab_cre (vab, fil, spc, cabENT, 0);
+  tmp_ten (spc, ".ten", cab->Atmp);
+  if ( (fil = fi_opn (cab->Atmp, "wb+", NULL)) == 0) {
+    cab_dlc (cab, 0);
+     STA(nfFNF);return 0; }
+  cab->Pfil = fil;
+  vab->Vcid = cab->Vcid;
+#if 0
+  cab_ten (spc, ten, ".ten");
+  fil = fi_opn (ten, "wb+", NULL);
+  if( !fil){ STA(nfFNF) ; return 0;}
+  cab = cab_cre (vab, fil, spc, cabENT, 0);
+  vab->Vcid = cab->Vcid;
+#endif 
+  if ( !vab->Vlen) {
+    vab->Vlen = 10000;
+  } else if ( vab->Vlen == 65535) {
+    vab->Vlen = 65000;
+  } 
+  return 1;
+} 
+/* code -  nf_rea - read */
+nf_rea(
+nfTvab *vab )
+{ cabTcab *cab ;
+  FILE *fil ;
+  char *buf = nfPbuf;
+  int blk = vab->Vblk & 0xffff;
+  int cnt = vab->Vtwc*2;
+  int fst = blk * 512;
+  int lst = fst + cnt;
+  int hgh =(lst+511)/512;
+  if( nf_sho (vab))return 1;
+  vab->Vlen = vab->Vdbc = 0;
+  cab = cab_opn (vab->Vcid);
+  if( !cab){ PUT("cid=%x ", vab->Vcid), nf_her (vab) ; return 0;}
+  blk += cab->Vblk;
+  nf_rta (vab, cab);
+  if ( cab->Vtyp == cabREP) {
+    if( (cnt = cab_rea (cab, buf, blk, cnt)) == 0){ nf_eof (vab) ; return 0;}
+    vab->Vlen = cnt;
+    vab->Vdbc = cnt;
+    return 1; }
+  fil = cab->Pfil;
+  if( !fil){ nf_her (vab) ; return 0;}
+  if (( cab->Vtyp == cabENT)
+  &&(hgh > cab->Vhgh)) {
+    fi_see (fil, lst-1);
+    if( (fi_wri (fil, nfApad, 1)) == 0){ nf_her (vab) ; return 0;}
+    if( (fi_flu (fil)) == 0){ nf_her (vab) ; return 0;}
+    cab->Vhgh = hgh; }
+  switch ( fi_prd (fil, buf, fst, cnt, NULL)) {
+  case fiERR:
+     nf_her (vab);return 0;
+   break; case fiEOF:
+     nf_eof (vab);return 1;
+   break; case fiPAR:
+  case fiSUC:
+    vab->Vlen = cnt;
+    vab->Vdbc = cnt;
+    return 1;
+     }
+} 
+/* code -  nf_wri - write */
+nf_wri(
+nfTvab *vab )
+{ cabTcab *cab ;
+  FILE *fil ;
+  char *buf = nfPbuf;
+  int blk = vab->Vblk;
+  int cnt = vab->Vtwc*2;
+  ULONG rem ;
+  int hgh ;
+  cab = cab_opn (vab->Vcid);
+  if( !cab){ nf_her (vab) ; return 0;}
+  if ( cab->Vtyp == cabREP) {
+    if( (cnt = cab_wri (cab, buf, blk, cnt)) != 0)return ( 1 );
+     nf_eof (vab);return 0; }
+  if ( cab->Vflg & cabRON_) {
+     nf_her (vab);return 0; }
+  fil = cab->Pfil;
+  blk += cab->Vblk;
+  if( !fil){ nf_her (vab) ; return 0;}
+  if( (fi_see (fil, blk*512)) == 0){ nf_eof (vab) ; return 0;}
+  if( (fi_wri (fil, buf, cnt)) == 0){ nf_her (vab) ; return 0;}
+  if( (fi_flu (fil)) == 0){ nf_her (vab) ; return 0;}
+  vab->Vlen = cnt;
+  if ( (rem = cnt & 511) != 0) {
+    if( (fi_wri (fil, nfApad, 512-rem)) == 0){ nf_her (vab) ; return 0;}
+    if( (fi_flu (fil)) == 0){ nf_her (vab) ; return 0;} }
+  hgh = blk + ((cnt+511)/512);
+  if ( hgh > cab->Vhgh) {cab->Vhgh = hgh ;}
+  return 1;
+} 
+/* code -  nf_clo - close */
+nf_prg(
+nfTvab *vab )
+{ cab_pur (vab->Vcid);
+} 
+nf_clz(
+nfTvab *vab )
+{ nf_clo (vab);
+} 
+nf_clo(
+nfTvab *vab )
+{ FILE *fil ;
+  if ( !vab->Vlen || (vab->Vlen == -1)) {
+    cab_pur (vab->Vcid);
+    } else {
+    cab_ext (vab->Vcid, vab->Vlen);
+    if( (cab_clo (vab->Vcid)) == 0){ STA(nfFNF) ; return 0;} }
+  return 1;
+} 
+/* code -  nf_del - delete */
+nf_del(
+nfTvab *vab )
+{ cabTcab *cab ;
+  char buf [mxSPC];
+  FILE *fil = NULL;
+  char *spc = buf;
+  int len = 0;
+  rt_unp (vab->Afna, spc, -4);
+  if (( st_sam (spc,"VX7:SRESET.JOB"))
+  ||(st_sam (spc,"VX7:JRESET.JOB"))) {
+     cab_eli (vab, cabIRS);return 1; }
+  if ( vab->Pcab) {
+    cab = vab->Pcab;
+    spc = cab->Aspc;
+    } else {
+    if( !nf_trn (vab, spc))return 0; }
+  vab->Vfmt = 0;
+  if( (cab_del (spc)) == 0){ STA(nfFNF) ; return 0;}
+  return 1;
+} 
+/* code -  nf_ren - rename */
+nf_ren(
+nfTvab *vab )
+{ nfTnam *nam = (nfTnam *)vab;
+  cabTcab *cab ;
+  char src [mxSPC];
+  char dst [mxSPC];
+  char tmp [mxSPC];
+  int bak = 0;
+  FILE *fil = NULL;
+  int len = 0;
+  if ( vab->Pcab) {
+    cab = vab->Pcab;
+    st_cop (cab->Aspc, src);
+    rt_unp (vab->Afna+1, st_end (src), -3);
+    st_cop (cab->Aspc, dst);
+    rt_unp (nam->Afnb+1, st_end (dst), -3);
+    } else {
+    rt_unp (vab->Afna, src, -4);
+    if( !nf_trn (vab, src))return 0;
+    nam->Afnb[0] = vab->Afna[0];
+    rt_unp (nam->Afnb, dst, -4);
+    if( !nf_trn (vab, dst))return 0; }
+  vab->Vfmt = 0;
+  if( (cab_ren (src, dst)) != 0)return ( 1 );
+  if ( nfFtra) {PUT("Rename failed: src=[%s] dst=[%s]\n", src, dst) ;}
+   STA(nfFNF);return 0;
+} 
+/* code -  nf_trn - fully translate logical names */
+nf_trn(
+nfTvab *vab ,
+char *spc )
+{ char log [20];
+  char trn [128];
+  char *col ;
+  char *src = spc;
+  char *dst ;
+  st_cop ("rt_", log);
+  st_app (spc, log);
+  if( (col = st_fnd (":", log)) == NULL)return 0;
+  *col = 0;
+  if ( ln_trn (log, trn, 0)) {
+     st_ins ("rt_", spc);return 1; }
+  if( ln_trn (log+3, trn, 0))return 1;
+   STA(nfFNF);return 0;
+} 
+/* code -  nf_inf - get/set file info */
+#define ifFNF  1
+#define ifIOP  2
+#define ifIOF  3
+#define ifIDT  4
+#define ifGET  0
+#define ifBIC  1
+#define ifBIS  2
+#define ifMOV  3
+#define ifSTA  0
+#define ifFIL  2
+#define ifNAM  4
+#define ifTYP  6
+#define ifLEN  8
+#define ifTIM  10
+#define ifDAT  12
+#define ifCTL  14
+#define ifUIC  16
+#define ifPRO  18
+#define ifTfab struct ifTfab_t 
+struct ifTfab_t
+{ char *Pspc ;
+  int Vcur ;
+  int Vnew ;
+   };
+typedef int ifTfun (nfTvab *,ifTfab *);
+ifTfun if_gst ;
+ifTfun if_gdt ;
+ifTfun if_gtm ;
+ifTfun if_gln ;
+ifTfun if_unp ;
+ifTfun if_sdt ;
+ifTfun if_stm ;
+ifTfun if_sln ;
+nf_inf(
+nfTvab *vab )
+{ ifTfab fab = {0};
+  cabTcab *cab ;
+  char buf [mxSPC];
+  char *spc = buf;
+  int opr ;
+  int off ;
+  fab.Vnew = vab->Vlen & 0xffff;
+  if ( vab->Pcab) {
+    cab = vab->Pcab;
+    spc = cab->Aspc;
+    opr = cab->Vinf&255;
+    off = cab->Vinf>>8;
+    } else {
+    opr = vab->Vblk&255;
+    off = vab->Vblk>>8;
+    rt_unp (vab->Afna, spc, -4);
+    if ( !nf_trn (vab, spc)) {
+       STA(ifFNF);return 0; } }
+  opr = vab->Vblk&255;
+  off = vab->Vblk>>8;
+  fab.Pspc = spc;
+  if (( (off&1) || (off > ifPRO ))
+  ||((opr > ifMOV))) {
+     STA(ifIOF);return 0; }
+  switch ( off) {
+  case ifSTA:
+    if_gst (vab, &fab);
+   break; case 2:
+  case 4:
+  case 6:
+    fab.Vcur = vab->Afna[off/2];
+   break; case ifDAT:
+    if_gdt (vab, &fab);
+   break; case ifTIM:
+    if_gtm (vab, &fab);
+   break; case ifLEN:
+    if_gln (vab, &fab);
+   break; default: 
+     STA(ifIOP);return 0;
+     }
+  vab->Vblk = fab.Vcur;
+  switch ( opr) {
+  case ifGET:
+   break; case ifBIC:
+    if ( (off == 0) && (fab.Vnew == rtPRO_)) {
+      if_unp (vab, &fab); }
+   break; case ifBIS:
+   break; case ifMOV:
+    switch ( off) {
+    case ifDAT:
+      if_sdt (vab, &fab);
+     break; case ifTIM:
+      if_stm (vab, &fab);
+     break; case ifLEN:
+      if_sln (vab, &fab);
+     break; default: 
+      ;
+       }
+   break; default: 
+     STA(ifIOP);return 0;
+     }
+  return 1;
+} 
+/* code -  if_gxx - get current value */
+if_gst(
+nfTvab *vab ,
+ifTfab *fab )
+{ int sta = rtPER_;
+  int atr ;
+  if( (fi_gat (fab->Pspc, &atr, NULL)) == 0){ STA(nfFNF) ; return 0;}
+  if ( (atr & fiRON_)) {sta |= rtPRO_ ;}
+  fab->Vcur = sta;
+  return 1;
+} 
+if_gdt(
+nfTvab *vab ,
+ifTfab *fab )
+{ tiTval tim ;
+  tiTplx plx ;
+  if( (fi_gtm (fab->Pspc, &tim, NULL)) == 0){ STA(nfFNF) ; return 0;}
+  ti_plx (&tim, &plx);
+  rt_dat (&tim, &fab->Vcur, 1);
+} 
+if_gtm(
+nfTvab *vab ,
+ifTfab *fab )
+{ tiTval tim ;
+  tiTplx plx ;
+  int rem ;
+  if( (fi_gtm (fab->Pspc, &tim, NULL)) == 0){ STA(nfFNF) ; return 0;}
+  ti_plx (&tim, &plx);
+  rt_tim (&tim, &fab->Vcur, &rem);
+  return 1;
+} 
+if_gln(
+nfTvab *vab ,
+ifTfab *fab )
+{ size_t len ;
+  if ( !fi_exs (fab->Pspc, NULL)) {
+     STA(nfFNF);return 0; }
+  fab->Vcur = (fi_siz (fab->Pspc) + 511) / 512;
+  return 1;
+} 
+/* code -  if_sxx - set new value */
+if_unp(
+nfTvab *vab ,
+ifTfab *fab )
+{ 
+  if( (fi_sat (fab->Pspc, drRON_, 0, NULL)) == 0){ STA(nfFNF) ; return 0;}
+  return 1;
+} 
+if_sdt(
+nfTvab *vab ,
+ifTfab *fab )
+{ tiTval val ;
+  tiTplx plx ;
+  tiTplx dat ;
+  if( (fi_gtm (fab->Pspc, &val, NULL)) == 0){ STA(nfFNF) ; return 0;}
+  ti_plx (&val, &plx);
+  rt_udt (fab->Vnew, 1, &dat);
+  plx.Vyea = dat.Vyea;
+  plx.Vmon = dat.Vmon;
+  plx.Vday = dat.Vday;
+  ti_val (&plx, &val);
+  return ( (fi_stm (fab->Pspc, &val, NULL)));
+} 
+if_stm(
+nfTvab *vab ,
+ifTfab *fab )
+{ tiTval val ;
+  tiTplx plx ;
+  tiTplx tim ;
+  if( (fi_gtm (fab->Pspc, &val, NULL)) == 0){ STA(nfFNF) ; return 0;}
+  ti_plx (&val, &plx);
+  rt_utm (fab->Vnew, 0, &tim);
+  plx.Vhou = tim.Vhou & 0xff;
+  plx.Vmin = tim.Vmin & 0xff;
+  plx.Vsec = tim.Vsec & 0xff;
+  ti_val (&plx, &val);
+  return ( (fi_stm (fab->Pspc, &val, NULL)));
+} 
+if_sln(
+nfTvab *vab ,
+ifTfab *fab )
+{ FILE *fil ;
+  int res ;
+  int atr ;
+  if( (atr = fi_gat (fab->Pspc, &atr, NULL)) == 0){ STA(nfFNF) ; return 0;}
+  if( atr & (drRON_|drSYS_|drHID_))return 0;
+  if( (fil = fi_opn (fab->Pspc, "rwb", NULL)) == 0){ STA(nfFNF) ; return 0;}
+  res = fi_lim (fil, (fab->Vnew & 0xffff) * 512);
+  fi_clo (fil, NULL);
+  return ( res);
+} 
+/* code -  nf_wlk - directory walk */
+nf_wlk(
+nfTvab *vab )
+{ char buf [mxSPC];
+  char *spc = buf;
+  cabTcab *cab = NULL;
+  int flg = vab->Vflg & (nfSUB_|nfWLK_);
+  char *ptr = spc;
+  switch ( flg) {
+  case nfWLK_:
+    rt_unp (vab->Afna, spc, 1);
+    ptr = st_end (spc);
+    *ptr++ = ':';
+    *ptr = 0;
+    if( (nf_trn (vab, spc)) == 0)break;
+    ptr = st_end (spc);
+    if( !nf_dir (spc))break;
+    *ptr++ = '\\';
+    rt_unp (vab->Afna+1, ptr, 2);
+    ptr = st_end (spc);
+    if( !nf_dir (spc))break;
+    *ptr++ = '\\';
+    *ptr = 0;
+    cab = cab_cre (vab, NULL, spc, cabLOO, 0);
+    cab->Vinf = vab->Vblk;
+    vab->Vcid = cab->Vcid;
+    if (( vab->Vfun == nfLOO)
+    &&((vab->Vblk & 0xffff) == nfMNT)) {
+      cab->Vflg |= cabPER_; }
+    return 1;
+   break; case nfWLK_|nfSUB_:
+    if( (cab = cab_map (vab->Vcid)) == 0)break;
+    spc = cab->Aspc;
+    ptr = st_end (spc);
+    rt_unp (vab->Afna+1, ptr, 2);
+    ptr = st_end (spc);
+    *ptr++ = '\\';
+    *ptr = 0;
+    if( nf_dir (spc))return 1;
+    break;
+   break; case nfSUB_:
+    if( (cab = cab_map (vab->Vcid)) == 0)break;
+    tmp_hng (cab->Aspc);
+    if ( vab->Vfun == nfREN) {
+       vab->Pcab = cab;return 0; }
+    spc = cab->Aspc;
+    ptr = st_end (spc);
+    if (( vab->Afna[1])
+    &&(vab->Afna[3] != rx_DR)) {
+      rt_unp (vab->Afna+1, ptr, -3);
+      } else {
+      vab->Afna[1] = 0; }
+    vab->Pcab = cab;
+    return 0;
+   break; default: 
+    return 0;
+     }
+  if ( cab) {cab_dlc (cab, cabNRS) ;}
+   nf_eof (vab);return 1;
+} 
+nf_dir(
+char *spc )
+{ int atr ;
+  if( (fi_gat (spc, &atr, NULL)) == 0)return ( 0 );
+  return 1;
+  return ( atr & fiDIR_);
+} 
+/* code -  nf_sho - read server info */
+#include "f:\m\rid\tidef.h"
+#define nfTsho struct nfTsho_t 
+struct nfTsho_t
+{ elTwrd Vgua ;
+  elTwrd Vtok ;
+  elTwrd Vlen ;
+  elTwrd Vyea ;
+  elTwrd Vmon ;
+  elTwrd Vday ;
+  elTwrd Vhou ;
+  elTwrd Vmin ;
+  elTwrd Vsec ;
+  elTwrd Vmil ;
+  elTwrd Vzon ;
+  elTwrd Vdst ;
+  elTwrd Vcpu ;
+  elTwrd Vops ;
+  char Aser [12];
+   };
+nfSHO = (cabFST|cabSHO)<<cabSHF;
+nf_sho(
+nfTvab *vab )
+{ nfTsho *sho = (void *)nfPbuf;
+  tiTval val ;
+  tiTplx clk ;
+  if( vab->Vcid != nfSHO)return 0;
+  sho->Vgua = -1;
+  sho->Vlen =  sizeof(nfTsho);
+  ti_clk (&val);
+  ti_plx (&val, &clk);
+  sho->Vyea = clk.Vyea;
+  sho->Vmon = clk.Vmon + 1;
+  sho->Vday = clk.Vday;
+  sho->Vhou = clk.Vhou;
+  sho->Vmin = clk.Vmin;
+  sho->Vsec = clk.Vsec;
+  sho->Vmil = clk.Vmil;
+  sho->Vdst = clk.Vdst;
+  sho->Vcpu = 0;
+  sho->Vops = 0;
+  st_cop ("ANON", sho->Aser);
+  vab->Vlen = 128;
+  vab->Vdbc = 128;
+  return 1;
+} 
+/* code -  nf_rta - rt-11 directory crack */
+nf_rta(
+nfTvab *vab ,
+cabTcab *cab )
+{ cabTrep *rep ;
+  drTdir *dir ;
+  drTent *ent ;
+  elTwrd buf [1024]= {0};
+  elTwrd *seg ;
+  char *spc ;
+  elTwrd fna [4];
+  int len = 0;
+  int blk = 6;
+  int nxt = 1;
+  int nth = 0;
+  int tim ;
+  int rem ;
+  int dat ;
+  int era ;
+  ULONG siz ;
+  ULONG acc ;
+  if (( vab->Vblk > 6)
+  ||(cab->Vtyp != cabREP)
+  ||(cab->Vflg & cabDIR_)) {
+    return 0; }
+  fi_flu (NULL);
+  if( (dir = dr_scn (cab->Aspc, drNOR_,drNAM)) == 0)return ( 0 );
+  cab->Vflg |= cabRON_|cabRTA_|cabDIR_;
+  vab->Vcid = cab->Vcid;
+  vab->Vlen = 100;
+  acc = 6 + (31 * 2);
+  seg = buf, nth = 0;
+  while ( (ent = dr_nxt (dir)) != 0) {
+    if( st_fnd ("/", ent->Pnam))continue;
+    spc = rt_spc (ent->Pnam, fna+1, 1, 3);
+    if( *spc)continue;
+    if ( ent->Vatr & drDIR_) {fna[3] = rxDIR ;}
+    if ( nth == 0) {
+      *seg++ = 31;
+      if( nxt == 32)break;
+      *seg++ = ++nxt;
+      *seg++ = 31;
+      *seg++ = 6;
+      *seg++ = acc; }
+    rt_tim (&ent->Itim,&tim,&rem);
+    rt_dat (&ent->Itim, &dat, 1);
+    rt_era (&ent->Itim, &era);
+    siz = (ent->Vsiz + 511) >> 9;
+    acc += siz;
+    if ( ent->Vatr & drRON_) {*seg++ = 0102000 ;} else {
+      *seg++ = 02000 ; }
+    *seg++ = fna[1];
+    *seg++ = fna[2];
+    *seg++ = fna[3];
+    *seg++ = siz;
+    *seg++ = tim;
+    *seg++ = dat;
+    *seg++ = (era<<2)|(rem&3);
+    *seg++ = 0;
+    *seg++ = 0;
+    if( ++nth != 50)continue;
+    *seg = 04000;
+    cab_rep (cab, buf, blk, 1024);
+    me_clr (buf, 1024);
+    seg = buf, blk += 2, nth = 0;
+  } 
+  if ( nth == 0) {
+    seg = buf;
+    *seg++ = 31;
+    *seg++ = 0;
+    *seg++ = nxt;
+    *seg++ = 0;
+    *seg++ = acc;
+    *seg++ = 01000;
+    *seg++=0, *seg++=0, *seg++=0;
+    *seg++=0, *seg++=0, *seg++=0;
+    *seg = 04000;
+    } else {
+    buf[1] = 0;
+    *seg = 04000; }
+  cab_rep (cab, buf, blk, 1024);
+  rep = cab_loc (cab, 6);
+  rep->Abuf[4] = nxt;
+  dr_dlc (dir);
+  return 1;
+} 
+/* code -  nf_rep - report vab */
+#define rpNOP  0
+#define rpTRN  1
+#define rpDIR  2
+#define rpCLO  3
+#define nfTrep struct nfTrep_t 
+struct nfTrep_t
+{ int Vcas ;
+  char *Pdsc ;
+   };
+nfTrep nfArep [] =  {
+  rpNOP, "Abort",
+  rpTRN, "Read",
+  rpTRN, "Write",
+  rpDIR, "Lookup",
+  rpDIR, "Enter",
+  rpCLO, "Close",
+  rpDIR, "Delete",
+  rpDIR, "Rename",
+  rpNOP, "Size",
+  rpCLO, "Purge",
+  rpDIR, "Info",
+  rpCLO, "Cloze",
+  rpDIR, "Invalid",
+  };
+void nf_rep(
+nfTvab *vab ,
+BYTE *buf ,
+int snd )
+{ cabTcab *cab ;
+  char spc [16];
+  BYTE *ptr ;
+  int cnt ;
+  int cas ;
+  if ( (vab->Vfun&0xFF) >= nfMAX) {
+    cas = nfMAX;
+    } else {
+    cas = nfArep[vab->Vfun].Vcas; }
+  PUT("%s ", nfArep[vab->Vfun].Pdsc);
+  if ( cas == nfMAX) {PUT("fun=%d. ", vab->Vfun&0xFF) ;}
+  if ( vab->Vflg) {PUT("flg=0%o ", vab->Vflg & 0xff) ;}
+  if ( vab->Vvid) {PUT("vid=%d ", vab->Vvid) ;}
+  if ( vab->Vcid) {PUT("cid=0%o ", vab->Vcid) ;}
+  if ( vab->Vsta) {PUT("sta=0%o ", vab->Vsta) ;}
+  if ( cas == rpDIR) {
+    if ( vab->Afna[0] || vab->Afna[1] || vab->Afna[2] || vab->Afna[3]) {
+      rt_unp (vab->Afna, spc, -4);
+      PUT("fna=[%s] ", spc); }
+    if (( vab->Vfun == nfREN)
+    &&((vab->Afna[4] || vab->Afna[5] || vab->Afna[6] || vab->Afna[7]))) {
+      rt_unp (vab->Afna+4, spc, -4);
+      PUT("fnb=[%s] ", spc); }
+  } 
+  if (( cas == rpTRN)
+  &&((cab = cab_opn (vab->Vcid)) != 0)) {
+    PUT("%s ", cab->Aspc); }
+  if ( vab->Vblk) {PUT("blk=%d ", vab->Vblk) ;}
+  if ( cas == rpTRN) {
+    if ( vab->Vrwc) {PUT("rwc=") ;}
+    if ( vab->Vrwc != vab->Vtwc) {
+      if ( vab->Vrwc) {PUT("%d ", vab->Vrwc) ;} }
+    if ( vab->Vtwc) {PUT("twc=%d ", vab->Vtwc) ;}
+  } 
+  if ( vab->Vlen != vab->Vdbc) {
+    if ( vab->Vlen) {PUT("len=%d ", vab->Vlen) ;} }
+  if ( vab->Vdbc) {PUT("dbc=%d ", vab->Vdbc) ;}
+  if ( cas == rpDIR) {
+    if ( vab->Vfmt) {PUT("fmt=0%o ", vab->Vfmt) ;}
+    if ( !snd) {
+      if ( vab->Vjid) {PUT("prc=%d ", vab->Vjid & 0xff) ;}
+      if ( vab->Vjcn) {PUT("chn=%d ", vab->Vjcn & 0xff) ;} }
+  } 
+  if ( cas == rpCLO) {
+    PUT("act=%d", cabVact);
+  } 
+  if ( nfFdmp) {
+    PUT("\n     ");
+    ptr = buf + 14 , cnt = 16;
+    while ( cnt--) {PUT("%2x ", *ptr++ & 0xff) ;}
+    cnt = 16;
+    PUT("\n     ");
+    while ( cnt--) {PUT("%2x ", *ptr++ & 0xff) ;}
+    cnt = 16;
+    PUT("\n     ");
+    while ( cnt--) {PUT("%2x ", *ptr++ & 0xff) ;} }
+  PUT("\n");
+} 

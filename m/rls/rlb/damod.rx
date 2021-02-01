@@ -1,0 +1,462 @@
+/* file -  damod - disassembler */
+#include "c:\m\rid\rider.h"
+#include "c:\m\rid\dadef.h"
+#include "c:\m\rid\dbdef.h"
+#include "c:\m\rid\mxdef.h"
+#include "c:\m\rid\stdef.h"
+#include <stdio.h>
+#include <stdarg.h>
+#define FET  da_fet(ctl)
+#define MRM  da_mod(ctl)
+#define SIB  da_sca(ctl)
+#define REG(a) (((a)>>3)&7)
+#define DEC(o)  da_dec(ctl, o)
+#define EMT(s)  da_fmt(ctl,s)
+#define EXP(s,o)  da_fmt(ctl, s, o)
+char *daAseg []= {"ES","CS","SS","DS","FS","GS"};
+char *daAbyt []= {"AL","CL","DL","BL","AH","CH","DH","BH" };
+char *daAwrd []= {"AX","CX","DX","BX","SP","BP","SI","DI" };
+char *daAlng []= {"EAX","ECX","EDX","EBX","ESP","EBP","ESI","EDI" };
+static int da_dec (daTctl *,char *);
+static int da_esc (daTctl *,int ,int );
+static int da_mrm (daTctl *,int );
+static int da_sib (daTctl *,int );
+static int da_nam (daTctl *,int ,int );
+static int da_imm (daTctl *,int ,int ,int ,int );
+static int da_rem (daTctl *,int );
+static int da_mod (daTctl *);
+static int da_sca (daTctl *);
+static int da_fet (daTctl *);
+static da_fmt (daTctl *,char *,... );
+/* code -  decode strings */
+char *daArom [] =  {
+  "ADD ~Eb,~Gb", "ADD ~Ev,~Gv", "ADD ~Gb,~Eb", "ADD ~Gv,~Ev","ADD AL,~Ib", "ADD ~eAX,~Iv", "PUSH ES", "POP ES",
+  "OR ~Eb,~Gb", "OR ~Ev,~Gv", "OR ~Gb,~Eb", "OR ~Gv,~Ev",
+  "OR AL,~Ib", "OR ~eAX,~Iv", "PUSH CS", "~2 ",
+  "ADC ~Eb,~Gb", "ADC ~Ev,~Gv", "ADC ~Gb,~Eb", "ADC ~Gv,~Ev",
+  "ADC AL,~Ib", "ADC ~eAX,~Iv", "PUSH SS", "POP SS",
+  "SBB ~Eb,~Gb", "SBB ~Ev,~Gv", "SBB ~Gb,~Eb", "SBB ~Gv,~Ev",
+  "SBB AL,~Ib", "SBB ~eAX,~Iv", "PUSH DS", "POP DS",
+  "AND ~Eb,~Gb", "AND ~Ev,~Gv", "AND ~Gb,~Eb", "AND ~Gv,~Ev",
+  "AND AL,~Ib", "AND ~eAX,~Iv", "~pE", "DAA",
+  "SUB ~Eb,~Gb", "SUB ~Ev,~Gv", "SUB ~Gb,~Eb", "SUB ~Gv,~Ev",
+  "SUB AL,~Ib", "SUB ~eAX,~Iv", "~pC", "DAS",
+  "XOR ~Eb,~Gb", "XOR ~Ev,~Gv", "XOR ~Gb,~Eb", "XOR ~Gv,~Ev",
+  "XOR AL,~Ib", "XOR ~eAX,~Iv", "~pS", "AAA",
+  "CMP ~Eb,~Gb", "CMP ~Ev,~Gv", "CMP ~Gb,~Eb", "CMP ~Gv,~Ev",
+  "CMP AL,~Ib", "CMP ~eAX,~Iv", "~pD", "AAS",
+  "INC ~eAX", "INC ~eCX", "INC ~eDX", "INC ~eBX",
+  "INC ~eSP", "INC ~eBP", "INC ~eSI", "INC ~eDI",
+  "DEC ~eAX", "DEC ~eCX", "DEC ~eDX", "DEC ~eBX",
+  "DEC ~eSP", "DEC ~eBP", "DEC ~eSI", "DEC ~eDI",
+  "PUSH ~eAX", "PUSH ~eCX", "PUSH ~eDX", "PUSH ~eBX",
+  "PUSH ~eSP", "PUSH ~eBP", "PUSH ~eSI", "PUSH ~eDI",
+  "POP ~eAX", "POP ~eCX", "POP ~eDX", "POP ~eBX",
+  "POP ~eSP", "POP ~eBP", "POP ~eSI", "POP ~eDI",
+  "PUSHA", "POPA", "BOUND ~Gv,~Ma", "ARPL ~Ew,~Rw",
+  "~pF", "~pG", "~so", "~sa",
+  "PUSH ~Iv", "IMUL ~Gv=~Ev*~Iv", "PUSH ~Ib", "IMUL ~Gv=~Ev*~Ib",
+  "INSB ~Yb,DX", "INS~ew ~Yv,DX", "OUTSB DX,~Xb", "OUTS~ew DX,~Xv",
+  "JO ~Jb", "JNO ~Jb", "JNC ~Jb", "JC ~Jb",
+  "JZ ~Jb", "JNZ ~Jb", "JBE ~Jb", "JNBE ~Jb",
+  "JS ~Jb", "JNS ~Jb", "JPE ~Jb", "JPO ~Jb",
+  "JL ~Jb", "JGE ~Jb", "JLE ~Jb", "JG ~Jb",
+  "~g1 ~Eb,~Ib", "~g1 ~Ev,~Iv", "MOV AL,~Ib", "~g1 ~Ev,~Ib",
+  "TEST ~Eb,~Gb", "TEST ~Ev,~Gv", "XCHG ~Eb,~Gb", "XCHG ~Ev,~Gv",
+  "MOV ~Eb,~Gb", "MOV ~Ev,~Gv", "MOV ~Gb,~Eb", "MOV ~Gv,~Ev",
+  "MOV ~Ew,~Sw", "LEA ~Gv,~M ", "MOV ~Sw,~Ew", "POP ~Ev",
+  "NOP", "XCHG ~eAX,~eCX", "XCHG ~eAX,~eDX", "XCHG ~eAX,~eBX",
+  "XCHG ~eAX,~eSP", "XCHG ~eAX,~eBP", "XCHG ~eAX,~eSI", "XCHG ~eAX,~eDI",
+  "CBW", "CDW", "CALL ~Ap", "FWAIT",
+  "PUSH ~eflags", "POP ~eflags", "SAHF", "LAHF",
+  "MOV AL,~Ov", "MOV ~eAX,~Ov", "MOV ~Ov,al", "MOV ~Ov,~eAX",
+  "MOVSB ~Xb,~Yb", "MOVS~ew ~Xv,~Yv", "CMPSB ~Xb,~Yb","CMPS~ew ~Xv,~Yv",
+  "TEST AL,~Ib", "TEST ~eAX,~Iv", "STOSB ~Yb,AL","STOS~ew ~Yv,~eAX",
+  "LODSB AL,~Xb", "LODS~ew ~eAX,~Xv", "SCASB AL,~Xb","SCAS~ew ~eAX,~Xv",
+  "MOV AL,~Ib", "MOV CL,~Ib", "MOV DL,~Ib", "MOV BL,~Ib",
+  "MOV AH,~Ib", "MOV CH,~Ib", "MOV DH,~Ib", "MOV BH,~Ib",
+  "MOV ~eAX,~Iv", "MOV ~eCX,~Iv", "MOV ~eDX,~Iv", "MOV ~eBX,~Iv",
+  "MOV ~eSP,~Iv", "MOV ~eBP,~Iv", "MOV ~eSI,~Iv", "MOV ~eDI,~Iv",
+  "~g2 ~Eb,~Ib", "~g2 ~Ev,~Ib", "RET ~Iw", "RET",
+  "LES ~Gv,~Mp", "LDS ~Gv,~Mp", "MOV ~Eb,~Ib", "MOV ~Ev,~Iv",
+  "ENTER ~Iw,~Ib", "LEAVE", "RETF ~Iw", "retf",
+  "INT 3", "INT ~Ib", "INTO", "IRET",
+  "~g2 ~Eb,1", "~g2 ~Ev,1", "~g2 ~Eb,cl", "~g2 ~Ev,cl",
+  "AAM", "AAD", 0, "XLAT",
+  "~f0", "~f1", "~f2", "~f3",
+  "~f4", "~f5", "~f6", "~f7",
+  "LOOPNE ~Jb", "LOOPE ~Jb", "LOOP ~Jb", "JCXZ ~Jb",
+  "IN AL,~Ib", "IN ~eAX,~Ib", "OUT ~Ib,AL", "OUT ~Ib,~eAX",
+  "CALL ~Jv", "JMP ~Jv", "JMP ~Ap", "JMP ~Jb",
+  "IN AL,DX", "IN ~eAX,DX", "OUT DX,AL", "OUT DX,~eAX",
+  "LOCK ~p ", 0, "REPNE ~p ", "REP(e) ~p ",
+  "HLT", "CMC", "~g3", "~g0",
+  "CLC", "STC", "CLI", "STI",
+  "CLD", "STD", "~g4", "~g5",
+  };
+char *daAg00 [] =  {
+  "~g6", "~g7", "LAR ~Gv,~Ew", "LSL ~Gv,~Ew", 0, 0, "CLTS", 0,0, 0, 0, 0, 0, 0, 0, 0,
+  };
+char *daAg20 [] =  {
+  "MOV ~Rd,~Cd", "MOV ~Rd,~Dd", "MOV ~Cd,~Rd", "MOV ~Dd,~Rd","MOV ~Rd,~Td", 0, "MOV ~Td,~Rd", 0,
+  0, 0, 0, 0, 0, 0, 0, 0,
+  };
+char *daAg80 [] =  {
+  "JO ~Jv", "JNO ~Jv", "JC ~Jv", "JNC ~Jv","JZ ~Jv", "JNZ ~Jv", "JBE ~Jv", "JNBE ~Jv",
+  "JS ~Jv", "JNS ~Jv", "JPE ~Jv", "JPO ~Jv",
+  "JL ~Jv", "JGE ~Jv", "JLE ~Jv", "JG ~Jv",
+  "SETO ~Eb", "SETNO ~Eb", "SETNC ~Eb", "SETC ~Eb",
+  "SETZ ~Eb", "SETNZ ~Eb", "SETBE ~Eb", "SETNBE ~Eb",
+  "SETS ~Eb", "SETNS ~Eb", "SETP ~Eb", "SETNP ~Eb",
+  "SETL ~Eb", "SETGE ~Eb", "SETLE ~Eb", "SETG ~Eb",
+  "PUSH FS", "POP FS", 0, "BT ~Ev,~Gv",
+  "SHLD ~Ev,~Gv,~Ib", "SHLD ~Ev,~Gv,cl", 0, 0,
+  "PUSH GS", "POP GS", 0, "BTS ~Ev,~Gv",
+  "SHRD ~Ev,~Gv,~Ib", "SHRD ~Ev,~Gv,cl", 0, "IMUL ~Gv,~Ev",
+  0, 0, "LSS ~Mp", "BTR ~Ev,~Gv",
+  "LFS ~Mp", "LGS ~Mp", "MOVZX ~Gv,~Eb", "MOVZX ~Gv,~Ew",
+  0, 0, "~g8 ~Ev,~Ib", "BTC ~Ev,~Gv",
+  "BSF ~Gv,~Ev", "BSR~Gv,~Ev", "MOVSX ~Gv,~Eb", "MOVSX ~Gv,~Ew",
+  };
+char *daAgrp [9][8] =  {
+  { "TEST ~Ev,~Iv", "TEST ~Ev,~Iv,", "NOT ~Ev", "NEG ~Ev","MUL ~eAX,~Ev", "IMUL ~eAX,~Ev", "DIV ~eAX,~Ev", "IDIV ~eAX,~Ev" },
+  { "ADD", "OR", "ADC", "SBB", "AND", "SUB", "XOR", "CMP" },
+  { "ROL", "ROR", "RCL", "RCR", "SHL", "SHR", "SHL", "SAR" },
+  { "TEST ~Eb,~Ib", "TEST ~Eb,~Ib,", "NOT ~Eb", "NEG ~Eb",
+  "MUL AL,~Eb", "IMUL AL,~Eb", "DIV AL,~Eb", "IDIV AL,~Eb" },
+  { "INC ~Eb", "DEC ~Eb", 0, 0, 0, 0, 0, 0 },
+  { "INC ~Ev", "DEC ~Ev", "CALL ~Ev", "CALL ~Ep",
+  "JMP ~Ev", "JMP ~Ep", "PUSH ~Ev", 0 },
+  { "SLDT ~Ew", "STR ~Ew", "LLDT ~Ew", "LTR ~Ew",
+  "VERR ~Ew", "VERW ~Ew", 0, 0 },
+  { "SGDT ~Ms", "SIDT ~Ms", "LGDT ~Ms", "LIDT ~Ms",
+  "SMSW ~Ew", 0, "LMSW ~Ew", 0 },
+  { 0, 0, 0, 0, "BT", "BTS", "BTR", "BTC" },
+  };
+/* code -  da_dis - disassemble instruction */
+void *db_dis(
+dbTacc *acc ,
+char *buf ,
+void *adr )
+{ daTctl ctl = {0};
+  int opc ;
+  ctl.Pacc = acc;
+  ctl.Vpre = 0;
+  ctl.Qmrm = 0;
+  ctl.Qsib = 0;
+  ctl.Vops = 32;
+  ctl.V32b = 1;
+  ctl.Vbas = (long )adr;
+  ctl.Vadr = (long )adr;
+  ctl.Pbuf = buf;
+  *ctl.Pbuf = 0;
+  opc = da_fet (&ctl);
+  da_dec (&ctl, daArom[opc]);
+  return ( (void *)ctl.Vadr);
+} 
+/* code -  da_dec - decode instruction */
+da_dec(
+daTctl *ctl ,
+char *str )
+{ int cha ;
+  if( !str){ EMT("<null>") ; return 0;}
+  while ( (cha = *str++) != 0) {
+    if ( cha == '~') {
+      cha = *str++;
+      da_esc (ctl, cha, *str++);
+      } else {
+      EXP("%c", cha); }
+  } 
+} 
+/* code -  da_fet - fetch a single sbyte */
+da_fet(
+daTctl *ctl )
+{ int res ;
+  char *ptr = (void *)ctl->Vadr;
+  if ( !ctl->Pacc) {res = *ptr ;} else {
+    db_rea (ctl->Pacc, (void *)ctl->Vadr, &res, 1) ; }
+  ++ctl->Vadr;
+  return ( res & 255);
+} 
+/* code -  da_rem - get remaining bytes in instruction */
+da_rem(
+daTctl *ctl ,
+int cha )
+{ switch ( cha) {
+  case 'b':
+    return ( 1);
+   break; case 'w':
+    return ( 2);
+   break; case 'd':
+    return ( 4);
+   break; case 'v':
+    return ( ctl->Vops / 8);
+     }
+  return ( 0);
+} 
+/* code -  da_esc - handle escape field */
+da_esc(
+daTctl *ctl ,
+int cha ,
+int typ )
+{ sbyte byt ;
+  word wrd ;
+  long lng ;
+  switch ( cha) {
+  case 'A':
+    da_imm (ctl, typ, 4, 0, 32);
+   break; case 'C':
+    EXP("CR%d", REG(MRM));
+   break; case 'D':
+    EXP("DR%d", MRM);
+   break; case 'E':
+    da_mrm (ctl, typ);
+   break; case 'G':
+    if ( typ == 'F') {da_nam(ctl, MRM&7, typ) ;} else {
+      da_nam(ctl, REG(MRM), typ) ; }
+   break; case 'I':
+    da_imm (ctl, typ, 0,0,ctl->Vops);
+   break; case 'J':
+    switch ( da_rem (ctl,typ)) {
+    case 1:
+      lng = (signed char )FET;
+     break; case 2:
+      byt = FET, wrd = FET << 8;
+      lng = wrd | byt;
+     break; case 4:
+      lng = FET, lng |= FET << 8;
+      lng |= FET<<16, lng |= FET<< 24;
+       }
+    lng = (signed )ctl->Vadr + lng;
+    EXP("%X", lng);
+   break; case 'M':
+    da_mrm (ctl, typ);
+   break; case 'O':
+    DEC("~p:[");
+    da_imm (ctl, typ, 4, 0, 32);
+    EMT("]");
+   break; case 'R':
+    da_mrm (ctl, typ);
+   break; case 'S':
+    EMT(daAseg[REG(MRM)]);
+   break; case 'T':
+    EXP("TR%d",REG(MRM));
+   break; case 'X':
+    EMT("DS:[ESI]");
+   break; case 'Y':
+    EMT("ES:[EDI]");
+   break; case '2':
+    lng = FET;
+    if( lng < 10){ DEC(daAg00[lng]) ; break;}
+    if( (lng > 0x1F) && (lng < 0x30)){ DEC(daAg20[lng-0x20]) ; break;}
+    if( (lng > 0x7F) && (lng < 0xC0)){ DEC(daAg80[lng-0x80]) ; break;}
+    EMT("???");
+   break; case 'e':
+    if( !ctl->V32b){ EXP("%c", typ) ; break;}
+    if ( typ == 'w') {EMT("D") ;} else {
+      EXP("E%c", typ) ; }
+   break; case 'f':
+    EMT("?Floating?");
+   break; case 'g':
+    DEC(daAgrp[typ-'0'][REG(MRM)]);
+   break; case 'p':
+    switch ( typ) {
+    case 'C':
+    case 'D':
+    case 'E':
+    case 'F':
+    case 'G':
+    case 'S':
+      ctl->Vpre = typ;
+    case ' ':
+      DEC(daArom[FET]);
+     break; case ':':
+      EXP("%cS:", ctl->Vpre);
+       }
+   break; case 's':
+    if( typ != 'o')break;
+    ctl->Vops = (32+16) - ctl->Vops;
+    ctl->V32b = ctl->Vops == 32;
+    DEC(daArom[FET]);
+     }
+} 
+/* code -  da_mrm - emit mrm */
+da_mrm(
+daTctl *ctl ,
+int typ )
+{ int mod = (MRM >> 6) & 7;
+  int reg = MRM & 7;
+  if( mod == 3){ da_nam (ctl, reg, typ) ; return;}
+  if ( !mod && (reg == 5)) {
+    da_dec(ctl, "~p:[");
+    da_imm(ctl, 'd', 4, 0, 32);
+    EMT("] ");
+    return 1; }
+  if ( reg != 4) {da_dec(ctl, "~p:[") ;}
+  switch ( reg) {
+  case 0:
+    EMT("EAX");
+   break; case 1:
+    EMT("ECX");
+   break; case 2:
+    EMT("EDX");
+   break; case 3:
+    EMT("EBX");
+   break; case 4:
+    da_sib(ctl, mod);
+   break; case 5:
+    EMT("EBP");
+   break; case 6:
+    EMT("ESI");
+   break; case 7:
+    EMT("EDI");
+     }
+  switch ( mod) {
+  case 1:
+    da_imm (ctl, 'b', 4, 0, 32);
+   break; case 2:
+    EMT("+");
+    da_imm (ctl, 'v', 4, 0, 32);
+     }
+  EMT("]");
+  return 1;
+} 
+/* code -  da_mod - get mrm field */
+da_mod(
+daTctl *ctl )
+{ if ( !ctl->Qmrm) {
+    ++ctl->Vmrm;
+    ctl->Vmrm = da_fet (ctl); }
+  return ( ctl->Vmrm);
+} 
+/* code -  da_sib - emit sib */
+da_sib(
+daTctl *ctl ,
+int mod )
+{ int sca = (SIB >> 6) & 7;
+  int idx = (SIB >> 3) & 7;
+  int bas = SIB & 7;
+  switch ( bas) {
+  case 0:
+    da_dec(ctl, "~p:[EAX");
+   break; case 1:
+    da_dec(ctl, "~p:[ECX");
+   break; case 2:
+    da_dec(ctl, "~p:[EDX");
+   break; case 3:
+    da_dec(ctl, "~p:[EBX");
+   break; case 4:
+    da_dec(ctl, "~p:[ESP");
+   break; case 5:
+    if ( !mod) {
+      da_dec(ctl, "~p:[");
+      da_imm(ctl, 'd', 4, 0, 32);
+      } else {
+      da_dec(ctl, "~p:[EBP"); }
+   break; case 6:
+    da_dec(ctl, "~p:[ESI");
+   break; case 7:
+    da_dec(ctl, "~p:[EDI");
+     }
+  switch ( idx) {
+  case 0:
+    EMT("+EAX");
+   break; case 1:
+    EMT("+ECX");
+   break; case 2:
+    EMT("+EDX");
+   break; case 3:
+    EMT("+EBX");
+   break; case 4:
+    return 1;
+   break; case 5:
+    EMT("+EBP");
+   break; case 6:
+    EMT("+ESI");
+   break; case 7:
+    EMT("+EDI");
+     }
+  switch ( sca) {
+  case 0:
+    ;
+   break; case 1:
+    EMT("*2");
+   break; case 2:
+    EMT("*4");
+   break; case 3:
+    EMT("*8");
+     }
+} 
+/* code -  da_sca - get sib field */
+da_sca(
+daTctl *ctl )
+{ if ( !ctl->Qsib) {
+    ++ctl->Qsib;
+    ctl->Vsib = da_fet (ctl); }
+  return ( ctl->Vsib);
+} 
+/* code -  da_fmt - format output */
+da_fmt(
+daTctl *ctl ,
+char *fmt ,
+...)
+{ vsprintf (ctl->Pbuf, fmt, (va_list )&fmt +  sizeof(fmt));
+  ctl->Pbuf = st_end (ctl->Pbuf);
+} 
+/* code -  da_val - format value */
+da_val(
+daTctl *ctl ,
+void *buf ,
+int siz )
+{ int val = *(int *)buf;
+  if ( siz == 1) {val &= 0xff ;}
+  if ( siz == 2) {val &= 0xffff ;}
+  EXP("%X", val);
+} 
+/* code -  da_nam - emit register name */
+da_nam(
+daTctl *ctl ,
+int reg ,
+int typ )
+{ if ( typ == 'F') {
+     EXP("st%d", reg);return; }
+  if (( typ == 'v' && ctl->V32b)
+  ||(typ == 'd')) {
+    EMT("E"); }
+  EXP("%s", (typ == 'b') ? daAbyt[reg]: daAwrd[reg]);
+} 
+/* code -  da_imm - output immediate data */
+da_imm(
+daTctl *ctl ,
+int cha ,
+int ext ,
+int opt ,
+int def )
+{ BYTE buf [10];
+  int seg = 0;
+  int n = 0;
+  int i ;
+  switch ( cha) {
+  case 'b':
+    n = 1;
+   break; case 'w':
+    n = 2;
+   break; case 'd':
+    n = 4;
+   break; case 's':
+    n = 6;
+   break; case 'c':
+  case 'v':
+    n = (ctl->Vops) ? 4: 2;
+   break; case 'p':
+    n = (ctl->V32b) ? 6: 4;
+    seg = 1;
+     }
+  i = -1;
+  while ( ++i < n) {buf[i] = da_fet (ctl) ;}
+  i = n - 1;
+  while ( ++i < ext) {buf[i] = (buf[i-1] & 0x80) ? 0xff: 0 ;}
+  if ( seg) {da_val (ctl, buf+n-2, 2), n -= 2 ;}
+  if ( ext && !opt) {EMT("+") ;}
+  da_val (ctl, buf, (ext) ? 4: n);
+} 

@@ -1,0 +1,46 @@
+/* file -  thmod - thread operations */
+#include "c:\m\rid\rider.h"
+#include "c:\m\rid\medef.h"
+#include "c:\m\rid\wsdef.h"
+#include "c:\m\rid\thdef.h"
+/* code -  th_thk - thread process thunk */
+DWORD WINAPI th_thk(
+void *par )
+{ thTthr *thr = par;
+  thTfun *fun = thr->Pfun;
+  if( fun)return ( (*fun)(thr) );
+  for(;;)  {
+    th_wai (thr);
+  } 
+} 
+/* code -  th_cre - create thread */
+thTthr *th_cre(
+thTfun *fun ,
+void *par )
+{ thTthr *thr = me_alc ( sizeof(thTthr));
+  ULONG hnd ;
+  ULONG idt ;
+  thr->Pfun = fun;
+  thr->Vevt = (ULONG )CreateEvent (0, 0, 0, NULL);
+  thr->Vhnd = (ULONG )CreateThread (0, 1024*1024, th_thk, thr, 0, &idt);
+  if ( (SetThreadPriority ((void *)thr->Vhnd, THREAD_PRIORITY_HIGHEST)) == 0) {PUT("yuk\n") ;}
+  thr->Ppar = par;
+  thr->Vidt = idt;
+  return ( thr);
+} 
+/* code -  th_wai - wait for thread */
+th_wai(
+thTthr *thr )
+{ HANDLE hnd = (HANDLE )thr->Vevt;
+  WaitForSingleObject (hnd, INFINITE);
+  return 1;
+} 
+/* code -  th_sig - set/clear thread event */
+th_sig(
+thTthr *thr ,
+int sig )
+{ HANDLE hnd = (HANDLE )thr->Vevt;
+  if ( sig) {SetEvent (hnd) ;} else {
+    ResetEvent (hnd) ; }
+  return 1;
+} 

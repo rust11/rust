@@ -1,0 +1,104 @@
+/* file -  fitra - file transfer operations */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\medef.h"
+#include <stdio.h>
+#include "f:\m\rid\dbdef.h"
+static void *fiPbuf = NULL;
+static size_t fiVbuf = 0;
+/* code -  fi_cop - copy a file */
+fi_cop(
+char *src ,
+char *dst ,
+char *msg ,
+int mod )
+{ FILE *lft ;
+  FILE *rgt ;
+  if( (lft = fi_opn (src, "rb", NULL)) == 0)return ( 0 );
+  if( (rgt = fi_opn (dst, "wb", NULL)) == 0)return ( 0 );
+  if( mod)return ( fi_kop (lft, rgt, 0) );
+  return ( fi_tra (lft, rgt, 0));
+} 
+/* code -  fi_buf - setup a transfer buffer */
+size_t fi_buf(
+void *buf ,
+size_t siz )
+{ if ( buf != NULL) {
+    fiPbuf = buf;
+    fiVbuf = siz;
+    return ( siz); }
+  if( siz == fiVbuf)return ( siz );
+  if ( fiVbuf != 0) {
+    fiVbuf = 0;
+    me_dlc (fiPbuf); }
+  if( siz == 0)return ( 0 );
+  for(;;)  {
+    if( (fiPbuf = me_alc (siz)) != NULL)break;
+    if( (siz /= 2) < 1024)return 0;
+  } 
+  return ( (fiVbuf = siz));
+} 
+/* code -  fi_tra - transfer file */
+int fi_tra(
+FILE *src ,
+FILE *dst ,
+size_t lim )
+{ char tra [1024];
+  char *buf ;
+  int dlc = 0;
+  size_t siz ;
+  size_t cnt ;
+  int err = 0;
+  if ( fiVbuf == 0) {
+    dlc = fi_buf (NULL, 8192*3); }
+  if ( fiVbuf) {
+    buf = fiPbuf, siz = fiVbuf;
+    } else {
+    buf = tra, siz = 1024; }
+  if ( !lim) {lim = fi_len (src) ;}
+  while ( lim) {
+    if ( lim < siz) {siz = lim ;}
+    cnt = fi_ipt (src, buf, siz);
+    if( cnt == 0){ err=1 ; break;}
+    if( (fi_wri (dst, buf, cnt)) == 0){ err=2 ; break;}
+    lim -= siz;
+  } 
+  if ( dlc) {fi_buf (NULL,0) ;}
+  if( err)return 0;
+  if( fi_err (src, NULL))return 0;
+  if( fi_err (dst, NULL))return 0;
+  return 1;
+} 
+/* code -  fi_kop - kopy files (handle) */
+int fi_kop(
+FILE *src ,
+FILE *dst ,
+long len )
+{ char tra [1024];
+  char *buf ;
+  int dlc = 0;
+  long siz ;
+  long cnt ;
+  int res = 1;
+  setvbuf (src, NULL, _IONBF, 0);
+  setvbuf (dst, NULL, _IONBF, 0);
+  if ( fiVbuf == 0) {
+    dlc = fi_buf (NULL, 8192*3); }
+  if ( fiVbuf) {
+    buf = fiPbuf, siz = fiVbuf;
+    } else {
+    buf = tra, siz = 1024; }
+  if ( !len) {
+    len = fi_len(src)-fi_pos(src); }
+  for(;;)  {
+    cnt = (siz < len) ? siz: len;
+    if (( !fi_drd (src, buf, (size_t )cnt))
+    ||(!fi_dwr (dst, buf, (size_t )cnt))) {
+       res = 0;break; }
+    if( (len -= cnt) == 0)break;
+  } 
+  if ( dlc) {fi_buf (NULL,0) ;}
+  if( fi_err (src, NULL))return 0;
+  if( fi_err (dst, NULL))return 0;
+  return ( res);
+} 

@@ -1,0 +1,36 @@
+/* file -  ficla - wildcard file classes */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\fsdef.h"
+#include "f:\m\rid\mxdef.h"
+#include "f:\m\rid\stdef.h"
+fs_cla(
+char *spc ,
+register fsTcla *cla )
+{ register char *com = (char *)(cla);
+  char buf [mxSPC];
+  char red [mxSPC];
+  char *ptr ;
+  register int msk = fsNOD_;
+  cla->Vwld = 0;
+  cla->Vmix = 0;
+  while ( msk <= fsVER_) {
+    *com = 0;
+    fs_ext (spc, buf, msk);
+    st_int ("%?*", buf, red);
+    if ( !buf[0]) {*com |= fsBLK_ ;}
+    if ( red[0]) {
+      *com |= fsWLD_;
+      ptr = red;
+      while ( *ptr) {
+        if ( !st_mem (*ptr, ":\\.;%?*")) {
+          *com |= fsMIX_; }
+        ++ptr;
+      }  }
+    if (( !(*com & fsMIX_))
+    &&(red[0] == '*')) {
+      *com |= fsANY_; }
+    if ( *com & fsWLD_) {cla->Vwld |= msk ;}
+    if ( *com & fsMIX_) {cla->Vmix |= msk ;}
+    msk <<= 1, ++com;
+  } 
+} 

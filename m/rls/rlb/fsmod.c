@@ -1,0 +1,367 @@
+/* file -  fsmod - filespec operations */
+#include "m:\rid\rider.h"
+#include "m:\rid\stdef.h"
+#include "m:\rid\drdef.h"
+#include "m:\rid\fsdef.h"
+#include "m:\rid\fidef.h"
+#include "m:\rid\medef.h"
+int fsAcat [fsMAX] =  {
+#define fsINV 0
+  fsINV,
+#define fsUNK 1
+  fsINV,
+#define fsPER 2
+  fsPER,
+#define fsNOD 3
+  fsINV,
+#define fsDRV 4
+  fsINV,
+#define fsROO 5
+  fsDIR,
+#define fsLAB 6
+  fsINV,
+#define fsDIR 7
+  fsDIR,
+#define fsFAM 8
+  fsINV,
+#define fsFIL 9
+  fsFIL,
+#define fsWLD 10
+  fsFIL,
+#define fsMAX 11
+  };
+char *fsAcla [fsMAX] =  {
+#define fsINV 0
+  "Inv",
+#define fsUNK 1
+  "Unk",
+#define fsPER 2
+  "Per",
+#define fsNOD 3
+  "Nod",
+#define fsDRV 4
+  "Drv",
+#define fsROO 5
+  "Roo",
+#define fsLAB 6
+  "Lab",
+#define fsDIR 7
+  "Dir",
+#define fsFAM 8
+  "Fam",
+#define fsFIL 9
+  "Fil",
+#define fsWLD 10
+  "Wld",
+#define fsMAX 11
+  };
+/* code -  fs_def - parse and default */
+int fs_def(
+char *spc ,
+char *def ,
+char *dst )
+{ fnTfnb fna ;
+  fnTfnb fnb ;
+  return ( (fn_def (&fna, &fnb, spc, def, dst)));
+} 
+/* code -  fs_sen - sense device/directory/file */
+fs_sen(
+char *spc ,
+char *dst )
+{ fnTfnb fnb ;
+  return ( fn_sen (&fnb, spc, dst));
+} 
+/* code -  fs_nor - normalize filename */
+fs_nor(
+char *src ,
+char *dst )
+{ fnTfnb fnb ;
+  fn_nor (&fnb, src, dst);
+  return 1;
+} 
+/* code -  fs_get - get part of a spec */
+fs_get(
+int elm ,
+char *spc ,
+char *dst )
+{ return ( fs_set (elm, spc, NULL, dst));
+} 
+/* code -  fs_clr - clear part of a spec */
+fs_clr(
+int elm ,
+char *spc ,
+char *dst )
+{ return ( fs_set (elm, spc, "", dst));
+} 
+/* code -  fs_set - replace filespec element */
+fs_set(
+int elm ,
+char *spc ,
+char *rep ,
+char *dst )
+{ fnTfnb fnb ;
+  char *src ;
+  int len ;
+  fn_exp (&fnb, spc);
+  switch ( elm) {
+  case fsDEV:
+    src = fnb.Adev, len = mxDEV;
+   break; case fsDIR:
+    src = fnb.Adir, len = mxDIR;
+   break; case fsNAM:
+    src = fnb.Anam, len = mxNAM;
+   break; case fsTYP:
+    src = fnb.Atyp, len = mxTYP;
+   break; case fsVER:
+    src = fnb.Aver, len = mxVER;
+     }
+  if ( rep == NULL) {
+     st_cop (src, dst);return 1; }
+  st_cln (rep, src, len);
+  fn_imp (&fnb, dst);
+} 
+/* code -  fs_dev - get device name */
+char *fs_dev(
+char *spc ,
+char *dst )
+{ fnTfnb fnb ;
+  fn_exp (&fnb, spc);
+  return ( (st_cop (fnb.Adev, dst)));
+} 
+/* code -  fs_dir - get directory name */
+char *fs_dir(
+char *spc ,
+char *dst )
+{ fnTfnb fnb ;
+  fn_exp (&fnb, spc);
+  st_cop (fnb.Adir, dst);
+  if (( *st_lst (dst) == '\\')
+  &&(st_len (dst) != 1)) {
+    *st_lst (dst) = 0; }
+  return ( st_end (dst));
+} 
+/* code -  fs_nam - get name */
+char *fs_nam(
+char *spc ,
+char *dst )
+{ fnTfnb fnb ;
+  fn_exp (&fnb, spc);
+  return ( (st_cop (fnb.Anam, dst)));
+} 
+/* code -  fs_typ - get file type */
+char *fs_typ(
+char *spc ,
+char *dst )
+{ fnTfnb fnb ;
+  char *typ = fnb.Atyp;
+  fn_exp (&fnb, spc);
+  if ( *typ == '.') {++typ ;}
+  return ( (st_cop (typ, dst)));
+} 
+/* code -  fs_tdr - convert to directory */
+void fs_tdr(
+char *dir )
+{ if ( *st_lst (dir) != '\\') {
+    st_app ("\\", dir); }
+} 
+/* code -  fs_fdr - convert from directory */
+void fs_fdr(
+char *dir )
+{ if( *st_lst (dir) != '\\')return;
+  if( fs_roo (dir))return;
+  *st_lst (dir) = 0;
+} 
+/* code -  fs_cat - get specification category */
+fs_cat(
+char *spc )
+{ return ( fsAcat[fs_cla (spc)]);
+} 
+/* code -  fs_cla - get specification class */
+int fs_cla(
+char *spc )
+{ char loc [mxLIN];
+  int atr ;
+  int sta ;
+  int cla ;
+  int wld ;
+  for(;;)  {
+    if( fs_roo (spc)){ cla = fsROO ; break;}
+    sta = fi_gat (spc, &atr, NULL);
+    if( !sta){ cla = fsUNK ; break;}
+    cla = fsFIL;
+    if( atr & drLAB_){ cla = fsLAB ; break;}
+    if( atr & drPER_){ cla = fsPER ; break;}
+    if ( atr & drDIR_) {
+      cla = fsDIR, wld = fsWLD;
+      } else {
+      cla = fsFIL, wld = fsWLD; }
+    if (( st_fnd ("*", spc))
+    ||(st_fnd ("?", spc))) {
+      cla = wld; }
+   break;} 
+  return ( cla);
+} 
+/* code -  fs_roo - check root specification */
+fs_roo(
+char *dir )
+{ if( !*dir)return 0;
+  if( st_sam (dir, "\\"))return 1;
+  if( st_sam (dir+1, ":\\"))return 1;
+  return 0;
+} 
+/* code -  fn_def - parse and default */
+int fn_def(
+fnTfnb *fna ,
+fnTfnb *fnb ,
+char *spc ,
+char *def ,
+char *dst )
+{ int cla ;
+  cla = fn_sen (fna, spc, dst);
+  if ( cla == fsPER) {
+  } else if ( def == NULL) {
+    if( cla != fsFIL)return ( fsINV );
+  } else if ( *def != 0) {
+    fn_nor (fnb, def, NULL);
+    fn_mrg (fnb, fna);
+    fn_imp (fna, dst);
+    cla = fn_sen (fna, dst, dst); }
+  return ( cla);
+} 
+/* code -  fn_sen - sense spec type -- directory/file/device */
+fn_sen(
+fnTfnb *fnb ,
+char *spc ,
+char *dst )
+{ char *dir ;
+  int cla ;
+  fn_nor (fnb, spc, dst);
+  cla = fs_cla (dst);
+  if ( cla == fsPER) {
+    st_cop (fnb->Anam, dst);
+    return ( fsPER); }
+  if (( (cla == fsDIR)
+  ||(cla == fsFAM))
+  &&(fnb->Anam[0] != 0)) {
+    fs_tdr (dst);
+    fn_nor (fnb, dst, dst); }
+  return ( cla);
+} 
+/* code -  fn_nor - normalize spec */
+fn_nor(
+fnTfnb *fnb ,
+char *spc ,
+char *dst )
+{ fn_exp (fnb, spc);
+  fn_red (fnb);
+  if ( dst) {fn_imp (fnb, dst) ;}
+} 
+/* code -  fn_exp - explode file spec */
+#define fnTexp struct fnTexp_t 
+struct fnTexp_t
+{ int Vtag ;
+  char *Actl ;
+  char *Aprg ;
+  int Vmax ;
+   };
+fnTexp fnAexp [] =  {
+#define fDEV 0
+  {fDEV, "pb", ":", 2},
+#define fDIR 1
+  {fDIR, "pb", "\\", 64},
+#define fNAM 2
+  {fNAM, "le", ".", 14},
+#define fTYP 3
+  {fTYP, "pe", "Z", 4},
+#define fMAX 4
+  {fMAX, NULL, NULL, 0},
+  };
+int fn_exp(
+fnTfnb *nam ,
+char *spc )
+{ char src [128];
+  char buf [128];
+  char *dst ;
+  char *elm ;
+  fnTexp *exp = fnAexp;
+  int sta = 1;
+  int cur = 0;
+  fi_loc (spc, src);
+  st_cop (spc, src);
+  me_clr (nam,  sizeof(fnTfnb));
+  while ( exp->Vtag != fMAX) {
+    dst = buf, *buf = 0;
+    st_ext (exp->Actl,exp->Aprg,src,buf);
+    switch ( exp->Vtag) {
+    case fDEV:
+      elm = nam->Adev;
+      if( *dst)break;
+      dr_sho (dst, drDRV);
+      ++cur;
+     break; case fDIR:
+      elm = nam->Adir;
+      if ( !*dst && cur) {
+        dr_sho (dst, drDIR); }
+      fs_tdr (dst);
+      if (( st_sam (src, ".."))
+      ||(st_sam (src, "."))) {
+        st_app (src, dst);
+        st_app ("\\", dst);
+        src[0] = 0; }
+     break; case fNAM:
+      buf[mxNAM] = 0;
+      elm = nam->Anam;
+     break; case fTYP:
+      buf[mxTYP+1] = 0;
+      elm = nam->Atyp;
+       }
+    st_low (buf);
+    st_cln (buf, elm, exp->Vmax);
+    ++exp;
+  } 
+  return 1;
+} 
+/* code -  fn_red - reduce subdirectories */
+fn_red(
+fnTfnb *nam )
+{ char buf [128];
+  char *lft ;
+  char *rgt ;
+  st_cop (nam->Adir, buf);
+  while ( st_rep ("\\.\\", "\\", buf)) {;}
+  while ( (rgt = st_fnd ("\\..\\", buf)) != 0) {
+    lft = rgt;
+    while ( lft > buf) {
+    if( *--lft == '\\')break; }
+    st_cop (rgt+3, lft);
+  } 
+  st_cop (buf, nam->Adir);
+  return 1;
+} 
+/* code -  fn_imp - implode name */
+char *fn_imp(
+fnTfnb *nam ,
+char *spc )
+{ 
+  return ( (st_cop (nam->Atyp, (st_cop (nam->Anam, (st_cop (nam->Adir, (st_cop (nam->Adev, spc)))))))));
+} 
+/* code -  fn_mrg - merge file specs */
+static void fn_rep (char *,char *);
+fn_mrg(
+fnTfnb *def ,
+fnTfnb *dst )
+{ fn_rep (def->Adev, dst->Adev);
+  fn_rep (def->Adir, dst->Adir);
+  fn_rep (def->Anam, dst->Anam);
+  fn_rep (def->Atyp, dst->Atyp);
+  return 1;
+} 
+/* code -  fn_rep - replace string */
+void fn_rep(
+char *def ,
+char *dst )
+{ if( *def == 0)return;
+  if (( *dst == 0)
+  ||(*dst == '*' && dst[1] == 0)) {
+     st_cop (def, dst);return; }
+} 

@@ -1,0 +1,398 @@
+#define STR(x)  PUT("[%s] ", x)
+#define REM  PUT("rem=[%s]\n", dcl->Prem)
+#define KWD  PUT("kwd=[%s]\n", itm->Pkwd)
+/* file -  dcmod - DCL facilities */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\cldef.h"
+#include "f:\m\rid\imdef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\dcdef.h"
+dc_vrb (dcTdcl *);
+static int dc_sym (dcTdcl *,dcTitm *,char *,int );
+static dcTitm *dc_loo (dcTdcl *,dcTitm *,int );
+static int dc_par (dcTdcl *,char *,int );
+static dc_obj (dcTdcl *,dcTitm *);
+static dc_eol (dcTdcl *,dcTitm *);
+static dc_flg (dcTdcl *,dcTitm *);
+static dc_cvt (dcTdcl *,dcTitm *);
+static dcTitm *dc_adv (dcTdcl *,dcTitm *);
+static int dc_nst (dcTdcl *,dcTitm *);
+dc_skp (dcTdcl *);
+#define DBG(x)  dc_dbg(dcl, x)
+#define DBS(x,y)  dc_dbs(dcl, x, y)
+#define DBV(x,y)  dc_dbv(dcl, x, y)
+static int dc_dbg (dcTdcl *,char *);
+static int dc_dbs (dcTdcl *,char *,char *);
+static int dc_dbv (dcTdcl *,char *,int );
+static dc_put (dcTdcl *,dcTitm *);
+/* code -  strings */
+char dcAinv []= "E-Invalid command";
+char dcAidt []= " /:=,";
+char dcAspc []= " /=,";
+/* code -  dc_inv - invalid command */
+dc_inv(
+dcTdcl *dcl )
+{ if( dcl->Verr++)return;
+  im_rep (dcAinv, NULL);
+} 
+/* code -  syntax */
+/* code -  dc_eng - DCL engine */
+dc_eng(
+register dcTdcl *dcl ,
+dcTitm *tab ,
+char *prm )
+{ register int *env = &dcl->Venv;
+  register char *lin = dcl->Alin;
+  if (( *env & (dcCLI_|dcCLS_))
+  &&(cl_lin (lin))
+  &&(*env & dcCLS_)) {
+    *env |= dcSIN_; }
+  for(;;)  {
+    dcl->Pitm = tab;
+    dc_ini (dcl);
+    if ( !*lin && !(*env & dcNUL_)) {
+      cl_cmd (prm, lin); }
+    cl_red (lin);
+    DBS("cmd", lin);
+    if ( *lin || (*env & dcNUL_)) {
+      if ( (dc_vrb (dcl)) == 0) {dc_inv (dcl) ;} }
+    dcl->Alin[0] = 0;
+    if( *env & dcSIN_)return 1;
+  } 
+} 
+/* code -  dc_vrb - process initial verb */
+dc_vrb(
+register dcTdcl *dcl )
+{ dcTitm *itm = dcl->Pitm;
+  dcl->Pqua = itm;
+  if( !dc_qua (dcl))return 0;
+  if( dcl->Venv & dcFIN_)return 1;
+  if ( !(itm->Pkwd)) {
+    return ( dc_act (dcl)); }
+  if( (dc_sym (dcl,dcl->Pitm,dcAidt,0)) == 0){ dc_inv (dcl) ; return 0;}
+  return ( dc_qua (dcl));
+} 
+/* code -  dc_kwd - process keyword */
+dc_kwd(
+register dcTdcl *dcl )
+{ DBG("vrb");
+  if( (dc_sym (dcl,dcl->Pitm,dcAidt,0)) == 0){ dc_inv (dcl) ; return 0;}
+  return ( dc_qua (dcl));
+} 
+/* code -  dc_qua - process qualifiers */
+dc_qua(
+register dcTdcl *dcl )
+{ dcTitm *itm = dcl->Pitm;
+  int res = 1;
+  while ( *dcl->Prem == '/') {
+    ++dcl->Prem;
+    DBG("qua");
+    if( (dc_sym (dcl,dcl->Pqua,dcAidt,1)) == 0){ res = 0 ; break;}
+  } 
+  dcl->Pitm = itm;
+  return ( res);
+} 
+/* code -  dc_sym - parse/dispatch keyword/qualifier */
+int dc_sym(
+dcTdcl *dcl ,
+dcTitm *lst ,
+char *syn ,
+int qua )
+{ register dcTitm *sym ;
+  if( !lst)return 0;
+  if( !dc_par (dcl, syn, dcSPC))return 0;
+  if( (sym = dc_loo(dcl, lst, qua)) == 0)return ( 0 );
+  if( !dc_nst (dcl, sym))return 0;
+  dc_flg (dcl, dcl->Pitm);
+  dcl->Vsta = (*sym->Pfun)(dcl);
+  if( !dc_eol (dcl, sym))return 0;
+  return ( dcl->Vsta);
+} 
+/* code -  dc_loo - lookup keyword */
+dcTitm *dc_loo(
+register dcTdcl *dcl ,
+register dcTitm *itm ,
+int qua )
+{ for(;;)  {
+    if (( itm->Pkwd)
+    &&((!qua || (qua && (*itm->Pkwd == '/'))))
+    &&(cl_mat (dcl->Pobj, itm->Pkwd+qua))) {
+      dcl->Pitm = itm;
+      return ( itm); }
+    if( (itm = dc_adv (dcl, itm)) == 0)return ( 0 );
+  } 
+} 
+/* code -  dc_act - action list processor */
+dc_act(
+register dcTdcl *dcl )
+{ register dcTitm *itm = dcl->Pitm;
+  dcTitm *nst ;
+  dcl->Pqua = itm;
+  for(;;)  {
+    if( !dc_qua (dcl))return 0;
+    if (( !itm->Pkwd)
+    &&(itm->Pfun != 0)) {
+      if (( !dc_eol (dcl, itm))
+      ||(!dc_nst (dcl, itm))) {
+         dc_inv (dcl);return 0; }
+      dc_flg (dcl, itm);
+      if( ((*itm->Pfun)(dcl)) == 0)return ( 0 );
+    } 
+    if( (itm = dc_adv (dcl, itm)) == 0)return 1;
+    dcl->Pitm = itm;
+  } 
+} 
+/* code -  dc_fld - process field */
+dc_fld(
+register dcTdcl *dcl )
+{ if( !dc_obj (dcl, dcl->Pitm))return 0;
+  return ( dc_qua (dcl));
+} 
+/* code -  dc_flg - process item control flag */
+dc_flg(
+dcTdcl *dcl ,
+dcTitm *itm )
+{ register int flg = itm->Vctl & dcFLG_;
+  if ( flg) {dcl->Vflg |= BIT(flg) ;}
+} 
+/* code -  dc_atr - process qualifier or keyword attributes */
+dc_atr(
+register dcTdcl *dcl )
+{ register dcTitm *itm = dcl->Pitm;
+  register int ctl = itm->Vctl;
+  if ( itm->Vctl & dcDFT_) {
+    *(WORD *)itm->P1 = itm->V1; }
+  if (( *dcl->Prem != '=')
+  &&(*dcl->Prem != ':')) {
+    if( ctl & dcOPT_)return 1;
+     dc_inv (dcl);return 0; }
+  ++dcl->Prem;
+  return ( dc_obj (dcl, itm));
+} 
+/* code -  dc_val - process qualifier value */
+dc_val(
+register dcTdcl *dcl )
+{ register dcTitm *itm = dcl->Pitm;
+  return ( dc_obj (dcl, itm));
+} 
+/* code -  dc_set - set *P1 opr V1 */
+dc_set(
+dcTdcl *dcl )
+{ register dcTitm *itm = dcl->Pitm;
+  register int *ptr = (int *)itm->P1;
+  register int val = itm->V1;
+  switch ( itm->Vctl & dcTYP_) {
+  case dcNOP:
+  case dcSET:
+    *ptr = val;
+   break; case dcBIS:
+    *ptr |= val;
+   break; case dcBIC:
+    *ptr &= ~val;
+   break; case dcAND:
+    *ptr &= val;
+   break; case dcNEG:
+    *ptr = -val;
+     }
+  return 1;
+} 
+/* code -  dc_obj - parse and convert object */
+dc_obj(
+register dcTdcl *dcl ,
+register dcTitm *itm )
+{ register int typ = itm->Vctl & dcTYP_;
+  dc_skp (dcl);
+  if ( !*dcl->Prem) {
+    if( itm->Vctl & dcOPT_)return 1;
+    } else {
+    if (( dc_par (dcl, (typ == dcSPC ? dcAspc: dcAidt), typ))
+    &&(dc_cvt (dcl, itm))) {
+      return 1; } }
+   dc_inv (dcl);return 0;
+} 
+/* code -  dc_cvt - convert value */
+char *dcAcvt [] =  {
+  (0),
+  "%o%n%*s",
+  "%d%n%*s",
+  "%h%n%*s",
+  };
+dc_cvt(
+dcTdcl *dcl ,
+dcTitm *itm )
+{ register char *obj = dcl->Pobj;
+  register int *dst = itm->P1;
+  register int typ = itm->Vctl & dcTYP_;
+  int bas = 0;
+  int res = 1;
+  int cnt ;
+  switch ( typ) {
+  case dcNOP:
+    ;
+   break; case dcOCT:
+    bas = 8;
+   break; case dcDEC:
+    bas = 10;
+   break; case dcHEX:
+    bas = 16;
+   break; case dcR50:
+    res = 0;
+   break; case dcSTR:
+  case dcSPC:
+    if ( st_len(obj) >= itm->V1) {res=0 ;} else {
+      st_cop (obj, (char *)dst) ; }
+     }
+  if( !bas)return ( res );
+  if( (st_val (obj, bas, dst, &cnt)) == 0)return ( 0 );
+  return ( cnt == st_len (obj));
+} 
+/* code -  dc_par - parse string */
+dc_par(
+register dcTdcl *dcl ,
+char *syn ,
+int typ )
+{ register char *rem = dcl->Prem;
+  int cnt ;
+  dc_skp (dcl);
+  dcl->Pobj = dcl->Aobj;
+  if ( *rem == '\"') {
+    cnt = st_bal (rem) - rem;
+    if ( cnt >= 31) {
+      cnt = -1;
+      } else {
+      st_cln (rem,dcl->Pobj,cnt); }
+    } else {
+    cnt = st_flx (syn, "[],", rem, dcl->Pobj, -32); }
+  if( cnt <= 0){ dc_inv (dcl) ; return 0;}
+  dcl->Prem += cnt;
+   dc_skp (dcl);return 1;
+} 
+/* code -  dc_skp - skip space */
+dc_skp(
+register dcTdcl *dcl )
+{ if ( *dcl->Prem == ' ') {++dcl->Prem ;}
+} 
+/* code -  dc_adv - advance to next item */
+dcTitm *dc_adv(
+dcTdcl *dcl ,
+register dcTitm *itm )
+{ register dcTitm *ptr = itm;
+  for(;;)  {
+    ++ptr;
+    if( ptr->Vlev == itm->Vlev)return ( ptr );
+    if( ptr->Vlev < itm->Vlev)return 0;
+  } 
+} 
+/* code -  dc_nst - nest in */
+dc_nst(
+dcTdcl *dcl ,
+register dcTitm *itm )
+{ dcTitm *nst = itm + 1;
+  if( !(itm->Vctl & dcNST_))return 1;
+  if( !nst->Vlev)return 0;
+  dcl->Pitm = itm;
+  if( itm->Vlev >= nst->Vlev)return 1;
+   dcl->Pitm = nst;return 1;
+} 
+/* code -  dc_eol - validate EOL, set dcFIN */
+dc_eol(
+dcTdcl *dcl ,
+dcTitm *itm )
+{ dcl->Venv |= (itm->Vctl & dcFIN_);
+  if( !(itm->Vctl & dcEOL_))return 1;
+  return ( *dcl->Prem == 0);
+} 
+/* code -  dc_alc - allocate DCL object */
+dcTdcl *dc_alc()
+{ return ( me_acc ( sizeof(dcTdcl)));
+} 
+dc_dlc(
+dcTdcl *dcl )
+{ me_dlc (dcl);
+} 
+/* code -  dc_ini - initialize context */
+dc_ini(
+register dcTdcl *dcl )
+{ dcTitm *itm = dcl->Pitm;
+  int typ ;
+  dcl->Vflg = 0;
+  dcl->Verr = 0;
+  dcl->Plin = dcl->Alin;
+  dcl->Prem = dcl->Plin;
+  dcl->Pobj = dcl->Aobj;
+  dcl->Pqua = NULL;
+  dcl->Aobj[0] = 0;
+  while ( itm->Vlev) {
+    if( !itm->P1){ ++itm ; continue;}
+    typ = itm->Vctl & dcTYP_;
+    if ( itm->Pfun == &dc_set) {
+      typ = dcOCT; }
+    switch ( typ) {
+    case dcOCT:
+    case dcDEC:
+    case dcHEX:
+    case dcR50:
+     break; case dcSTR:
+    case dcSPC:
+      me_clr (itm->P1, 2);
+       }
+    ++itm;
+  } 
+} 
+/* code -  callbacks */
+dc_fin(
+dcTdcl *dcl )
+{ return 1;
+} 
+dc_exi(
+register dcTdcl *dcl )
+{ im_exi ();
+} 
+dc_rep(
+register dcTdcl *dcl )
+{ im_rep (dcl->Pitm->P1, NULL);
+  return 1;
+} 
+dc_hlp(
+register dcTdcl *dcl )
+{ register char *(*ptr )= dcl->Pitm->P1;
+  while ( *ptr) {PUT("%s\n", *ptr++) ;}
+  return 1;
+} 
+dc_dbg(
+register dcTdcl *dcl ,
+char *tit )
+{ if( !(dcl->Venv & dcDBG_))return;
+  PUT("DCL: %s ", tit);
+  dc_put (dcl, dcl->Pitm);
+} 
+dc_dbs(
+register dcTdcl *dcl ,
+char *tit ,
+char *str )
+{ if( !(dcl->Venv & dcDBG_))return;
+  PUT("DCL: %s=[%s] ", tit, str);
+  dc_put (dcl, dcl->Pitm);
+} 
+dc_dbv(
+register dcTdcl *dcl ,
+char *tit ,
+int val )
+{ if( !(dcl->Venv & dcDBG_))return;
+  PUT("DCL: %s=%d ", tit, val);
+  dc_put (dcl, dcl->Pitm);
+} 
+dc_put(
+register dcTdcl *dcl ,
+register dcTitm *itm )
+{ PUT("Rem=[%s] ", dcl->Prem);
+  if ( dcl->Pobj) {PUT("Obj=[%s] ", dcl->Pobj) ;}
+  if ( itm) {
+    PUT("Itm: ");
+    PUT("Lev=%d ", itm->Vlev);
+    if ( itm->Pkwd) {PUT("Kwd=[%s] ", itm->Pkwd) ;}
+    PUT("Val=%d ", itm->V1);
+    PUT("Ctl=%o ", itm->Vctl); }
+  PUT("\n");
+} 

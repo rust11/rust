@@ -1,0 +1,140 @@
+/* file -  drwin - Win32 directory operations */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\mxdef.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\stdef.h"
+#include <stdio.h>
+#include "f:\m\rid\drdef.h"
+#include "f:\m\rid\dbdef.h"
+#include <windows.h>
+#if !Wnt
+Error Need Win32;
+#endif 
+/* code -  drText - native extensions to drTdir */
+#define drText struct drText_t 
+struct drText_t
+{ HANDLE Vhan ;
+   };
+/* code -  dr_avl - check directory available */
+dr_avl(
+char *spc )
+{ char pth [mxLIN];
+  int atr ;
+  nat typ ;
+  char *col ;
+  if( *spc == 0)return 0;
+  fi_loc (spc, pth);
+  if( (col = st_fnd (":", pth)) == 0)return 0;
+  col[1] = '\\', col[2] = 0;
+  typ = GetDriveType (pth);
+  if( (!typ) || (typ == 1))return 0;
+  if( dr_roo (spc))return 1;
+  if( !fi_gat (spc, &atr, NULL))return 0;
+  return ( (atr & drDIR_) != 0);
+} 
+/* code -  dr_sho - current drive/directory */
+dr_sho(
+char *pth ,
+int cas )
+{ char spc [mxLIN];
+  char *dir ;
+  if( (GetCurrentDirectory (mxLIN-1, spc)) == 0){ db_lst ("") ; return 0;}
+  if ( cas != drPTH) {
+    if( (dir = st_fnd ("\\", spc)) == NULL)return 0;
+    if ( cas == drDRV) {*dir = 0 ;} else {
+      st_mov (dir, spc) ; } }
+   st_cop (spc, pth);return 1;
+} 
+/* code -  dr_set */
+/* code -  dr_fre - get free space */
+dr_fre(
+char *dir ,
+drTsiz *res )
+{ char pth [mxSPC+1];
+  ULONG spc ;
+  ULONG bpc ;
+  ULONG fre ;
+  ULONG tot ;
+  char *sep ;
+  fi_loc (dir, pth);
+  if ( (sep = st_fnd ("\\", pth)) != 0) {
+    sep[1] = 0;
+    } else {
+    *st_lst (pth) = '\\'; }
+  if( (GetDiskFreeSpace (pth, &spc, &bpc, &fre, &tot)) == 0){ *res = 0 ; return 0;}
+   *res = spc * bpc * fre;return 1;
+} 
+/* code -  dr_mak - make a directory */
+dr_mak(
+char *spc )
+{ return ( CreateDirectory (spc, NULL));
+} 
+/* code -  dr_rem - remove directory */
+dr_rem(
+char *spc )
+{ return ( RemoveDirectory (spc));
+} 
+/* code -  dr_enu - enumerate */
+#define NMF  ERROR_NO_MORE_FILES
+#define IHV  INVALID_HANDLE_VALUE
+#define wiThan  HANDLE
+#define wiTfnd  WIN32_FIND_DATA
+#define wiTboo  BOOL
+#define First  FindFirstFile
+#define Next  FindNextFile
+#define Error  GetLastError
+drTent *dr_enu(
+drTdir *dir ,
+drTent *ent ,
+int atr ,
+int nth )
+{ wiTfnd nxt ;
+  wiTboo fnd ;
+  drText *ext ;
+  if( !dir)return 0;
+  if ( dir->Pext == 0) {
+    dir->Pext = me_acc ( sizeof(drText)); }
+  ext = dir->Pext;
+  for(;;)  {
+    if ( nth == 0) {
+      ext->Vhan = First (dir->Ppth, &nxt);
+      if( ext->Vhan == IHV)return 0;
+      } else {
+      fnd = Next (ext->Vhan, &nxt);
+      if ( !fnd && (Error() != NMF)) {
+         ++dir->Verr;return 0; }
+      if( !fnd)return 0; }
+    nth = 1;
+    if( nxt.dwFileAttributes & drDIR_)break;
+  if( dr_mat (dir, nxt.cFileName))break; }
+  if ( !ent) {
+    if( (ent = me_alc ( sizeof(drTent))) == NULL){ ++dir->Vovr ; return 0;} }
+  me_clr (ent,  sizeof(drTent));
+  ent->Vatr = nxt.dwFileAttributes;
+  ent->Vsiz = nxt.nFileSizeLow;
+#if 0
+  ent->Palt = st_dup (nxt.cFileName);
+  if ( nxt.cAlternateFileName[0]) {
+    ent->Pnam = st_dup (nxt.cAlternateFileName);
+    } else {
+    ent->Pnam = st_dup (ent->Palt); }
+#else 
+  ent->Pnam = st_dup (nxt.cFileName);
+  if ( nxt.cAlternateFileName[0]) {
+    ent->Palt = st_dup (nxt.cAlternateFileName);
+    } else {
+    ent->Palt = st_dup (ent->Pnam); }
+#endif 
+  st_low (ent->Pnam);
+  st_low (ent->Palt);
+  ti_imp ((tiTwin *)&nxt.ftCreationTime, &ent->Icre);
+  ti_imp ((tiTwin *)&nxt.ftLastAccessTime, &ent->Iacc);
+  ti_imp ((tiTwin *)&nxt.ftLastWriteTime, &ent->Itim);
+  return ( ent);
+} 
+/* code -  dr_don - end enumeration */
+void dr_don(
+drTdir *dir )
+{ ;
+} 

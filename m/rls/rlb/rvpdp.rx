@@ -1,0 +1,373 @@
+/* file -  rvpdp - reverse assemble */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\eldef.h"
+#include "f:\m\rid\rvpdp.h"
+#include "f:\m\rid\stdef.h"
+#define rvTins struct rvTins_t 
+struct rvTins_t
+{ char *Pnam ;
+  elTwrd Vopc ;
+  elTwrd Vmsk ;
+  elTwrd Vtyp ;
+   };
+#define APP  st_end(rev->Pstr)
+#define REG  rv_reg(reg)
+/* code -  rvAins - instruction table */
+rvTins rvAins [] =  {
+  "call", 0004700, 0000077, rvUOP|rvCAL_,
+  "return", 0000207, 0000000, rvCTL|rvTER_,
+  "psh", 0010046, 0007700, rvSOP,
+  "pop", 0012600, 0000077, rvUOP|rvMOD_,
+  ".ttyin", 0104340, 0000000, rvCTL,
+  ".ttyou", 0104341, 0000000, rvCTL,
+  ".dstat", 0104342, 0000000, rvCTL,
+  ".fetch", 0104343, 0000000, rvCTL,
+  ".csige", 0104344, 0000000, rvCTL,
+  ".csisp", 0104345, 0000000, rvCTL,
+  ".lock", 0104346, 0000000, rvCTL,
+  ".unloc", 0104347, 0000000, rvCTL,
+  ".exit", 0104350, 0000000, rvCTL,
+  ".print", 0104351, 0000000, rvCTL,
+  ".srese", 0104352, 0000000, rvCTL,
+  ".qset", 0104353, 0000000, rvCTL,
+  ".setto", 0104354, 0000000, rvCTL,
+  ".rctrl", 0104355, 0000000, rvCTL,
+  ".astx", 0104356, 0000000, rvCTL,
+  ".hrese", 0104357, 0000000, rvCTL,
+  "halt", 0000000, 0000000, rvCTL,
+  "wait", 0000001, 0000000, rvCTL|rvRAR_,
+  "rti", 0000002, 0000000, rvCTL|rvTER_,
+  "bpt", 0000003, 0000000, rvCTL,
+  "iot", 0000004, 0000000, rvCTL,
+  "reset", 0000005, 0000000, rvCTL|rvRAR_,
+  "rtt", 0000006, 0000000, rvCTL|rvTER_,
+  "mfpt", 0000007, 0000000, rvCTL|rvRAR_,
+  "jmp", 0000100, 0000077, rvUOP|rvCAL_,
+  "rts", 0000200, 0000007, rvREG|rvTER_,
+  "spl", 0000230, 0000007, rvPRI|rvRAR_,
+  "nop", 0000240, 0000000, rvCTL,
+  "", 0000240, 0000017, rvCON,
+  "", 0000260, 0000017, rvCON,
+  "swab", 0000300, 0000077, rvUOP|rvMOD_,
+  "br", 0000400, 0000377, rvBRA,
+  "bne", 0001000, 0000377, rvBRA,
+  "beq", 0001400, 0000377, rvBRA,
+  "bge", 0002000, 0000377, rvBRA,
+  "blt", 0002400, 0000377, rvBRA,
+  "bgt", 0003000, 0000377, rvBRA,
+  "ble", 0003400, 0000377, rvBRA,
+  "jsr", 0004000, 0000777, rvRMD|rvCAL_,
+  "clr", 0005000, 0000077, rvUOP|rvMOD_,
+  "com", 0005100, 0000077, rvUOP|rvMOD_,
+  "inc", 0005200, 0000077, rvUOP|rvMOD_,
+  "dec", 0005300, 0000077, rvUOP|rvMOD_,
+  "neg", 0005400, 0000077, rvUOP|rvMOD_,
+  "adc", 0005500, 0000077, rvUOP|rvMOD_,
+  "sbc", 0005600, 0000077, rvUOP|rvMOD_,
+  "tst", 0005700, 0000077, rvUOP,
+  "ror", 0006000, 0000077, rvUOP|rvMOD_,
+  "rol", 0006100, 0000077, rvUOP|rvMOD_,
+  "asr", 0006200, 0000077, rvUOP|rvMOD_,
+  "asl", 0006300, 0000077, rvUOP|rvMOD_,
+  "mark", 0006400, 0000077, rvMRK|rvSPC_,
+  "mfpi", 0006500, 0000077, rvUOP|rvMMU_|rvMOD_,
+  "mtpi", 0006600, 0000077, rvUOP|rvMMU_,
+  "sxt", 0006700, 0000077, rvUOP|rvMOD_,
+  "csm", 0007000, 0000077, rvUOP|rvMMU_,
+  "tstset", 0007200, 0000077, rvUOP|rvSPC_|rvMOD_,
+  "wrtlck", 0007300, 0000077, rvUOP|rvSPC_|rvMOD_,
+  "mov", 0010000, 0007777, rvBOP|rvMOD_,
+  "cmp", 0020000, 0007777, rvBOP,
+  "bit", 0030000, 0007777, rvBOP,
+  "bic", 0040000, 0007777, rvBOP|rvMOD_,
+  "bis", 0050000, 0007777, rvBOP|rvMOD_,
+  "add", 0060000, 0007777, rvBOP|rvMOD_,
+  "mul", 0070000, 0000777, rvEIS|rvMOD_,
+  "div", 0071000, 0000777, rvEIS|rvMOD_,
+  "ash", 0072000, 0000777, rvEIS|rvMOD_,
+  "ashc", 0073000, 0000777, rvEIS|rvMOD_,
+  "xor", 0074000, 0000777, rvEIS|rvMOD_,
+  "fadd", 0075000, 0000007, rvREG|rvFIS_,
+  "fsub", 0075010, 0000007, rvREG|rvFIS_,
+  "fmul", 0075020, 0000007, rvREG|rvFIS_,
+  "fdiv", 0075030, 0000007, rvREG|rvFIS_,
+  "med6x", 0076600, 0000000, rvCTL|rvSPC_,
+  "med74c", 0076601, 0000000, rvCTL|rvSPC_,
+  "xfc", 0076700, 0000077, rvUOP|rvSPC_,
+  "sob", 0077000, 0000777, rvSOB,
+  "bpl", 0100000, 0000377, rvBRA,
+  "bmi", 0100400, 0000377, rvBRA,
+  "bhi", 0101000, 0000377, rvBRA,
+  "blos", 0101400, 0000377, rvBRA,
+  "bvc", 0102000, 0000377, rvBRA,
+  "bvs", 0102400, 0000377, rvBRA,
+  "bcc", 0103000, 0000377, rvBRA,
+  "bcs", 0103400, 0000377, rvBRA,
+  "emt", 0104000, 0000377, rvEMT,
+  "trap", 0104400, 0000377, rvEMT,
+  "clrb", 0105000, 0000077, rvUOP|rvBYT_|rvMOD_,
+  "comb", 0105100, 0000077, rvUOP|rvBYT_|rvMOD_,
+  "incb", 0105200, 0000077, rvUOP|rvBYT_|rvMOD_,
+  "decb", 0105300, 0000077, rvUOP|rvBYT_|rvMOD_,
+  "negb", 0105400, 0000077, rvUOP|rvBYT_|rvMOD_,
+  "adcb", 0105500, 0000077, rvUOP|rvBYT_|rvMOD_,
+  "sbcb", 0105600, 0000077, rvUOP|rvBYT_|rvMOD_,
+  "tstb", 0105700, 0000077, rvUOP|rvBYT_,
+  "rorb", 0106000, 0000077, rvUOP|rvBYT_|rvMOD_,
+  "rolb", 0106100, 0000077, rvUOP|rvBYT_|rvMOD_,
+  "asrb", 0106200, 0000077, rvUOP|rvBYT_|rvMOD_,
+  "aslb", 0106300, 0000077, rvUOP|rvBYT_|rvMOD_,
+  "mtps", 0106400, 0000077, rvUOP,
+  "mfpd", 0106500, 0000077, rvUOP|rvMMU_|rvMOD_,
+  "mtpd", 0106600, 0000077, rvUOP|rvMMU_,
+  "mfps", 0106700, 0000077, rvUOP|rvMOD_|rvRAR_,
+  "movb", 0110000, 0007777, rvBOP|rvBYT_|rvMOD_,
+  "cmpb", 0120000, 0007777, rvBOP,
+  "bitb", 0130000, 0007777, rvBOP,
+  "bicb", 0140000, 0007777, rvBOP|rvBYT_|rvMOD_,
+  "bisb", 0150000, 0007777, rvBOP|rvBYT_|rvMOD_,
+  "sub", 0160000, 0007777, rvBOP|rvBYT_|rvMOD_,
+  "cfcc", 0170000, 0000000, rvCTL|rvFPU_,
+  "setf", 0170001, 0000000, rvCTL|rvFPU_,
+  "seti", 0170002, 0000000, rvCTL|rvFPU_,
+  "setd", 0170011, 0000000, rvCTL|rvFPU_,
+  "setl", 0170012, 0000000, rvCTL|rvFPU_,
+  "ldfps", 0170100, 0000077, rvUOP|rvFPU_,
+  "stfps", 0170200, 0000077, rvUOP|rvFPU_|rvMOD_,
+  "stst", 0170300, 0000077, rvUOP|rvFPU_|rvMOD_,
+  "clrf", 0170400, 0000077, rvUOP|rvFPU_|rvMOD_,
+  "tstf", 0170500, 0000077, rvUOP|rvFPU_,
+  "absf", 0170600, 0000077, rvUOP|rvFPU_,
+  "negf", 0170700, 0000077, rvUOP|rvFPU_|rvMOD_,
+  "mulf", 0171000, 0000377, rvFPS|rvFPU_,
+  "modf", 0171400, 0000377, rvFPS|rvFPU_,
+  "addf", 0172000, 0000377, rvFPS|rvFPU_,
+  "ldf", 0172400, 0000377, rvFPS|rvFPU_,
+  "subf", 0173000, 0000377, rvFPS|rvFPU_,
+  "cmpf", 0173400, 0000377, rvFPS|rvFPU_,
+  "stf", 0174000, 0000377, rvFPD|rvFPU_|rvMOD_,
+  "divf", 0174400, 0000377, rvFPS|rvFPU_,
+  "stexp", 0175000, 0000377, rvFPD|rvFPU_|rvMOD_,
+  "stcfi", 0175400, 0000377, rvFPD|rvFPU_|rvMOD_,
+  "stcdf", 0176000, 0000377, rvFPD|rvFPU_|rvMOD_,
+  "ldexp", 0176400, 0000377, rvFPS|rvFPU_,
+  "ldcif", 0177000, 0000377, rvFPS|rvFPU_,
+  "ldcdf", 0177400, 0000377, rvFPS|rvFPU_,
+  ".word", 0, 0, rvWRD,
+  };
+void rv_acc (rvTpdp *,int );
+void rv_srg (rvTpdp *,int );
+void rv_drg (rvTpdp *,int );
+void rv_smd (rvTpdp *,int );
+void rv_dmd (rvTpdp *,int );
+void rv_oct (rvTpdp *,int );
+void rv_str (rvTpdp *,char *);
+void rv_con (rvTpdp *,int );
+void rv_com (rvTpdp *);
+void rv_tab (rvTpdp *);
+WORD rv_arg (rvTpdp *);
+WORD rv_dat (rvTpdp *);
+WORD rv_rel (rvTpdp *,WORD );
+char *rv_reg (int );
+/* code -  rv_pdp - reverse assemble PDP-11 instruction */
+void rv_pdp(
+rvTpdp *rev )
+{ rvTins *ins = rvAins;
+  int opc = rev->Vopc;
+  rev->Vlen = 1;
+  rev->Pstr = rev->Astr;
+  *rev->Pstr = 0;
+  ins = rvAins;
+  rev->Vdst = rev->Vloc;
+  for(;;)  {
+    while ( ins->Vtyp != rvWRD) {
+      if( (opc & (~ins->Vmsk)) == ins->Vopc)break;
+      ++ins;
+    } 
+    rev->Vtyp = ins->Vtyp & rvTYP_;
+    rev->Vatr = ins->Vtyp & ~rvTYP_;
+    rv_str (rev, ins->Pnam);
+    if ( rev->Vtyp == rvCON) {rv_con (rev, opc) ;}
+    rv_tab (rev);
+    switch ( rev->Vtyp) {
+    case rvCTL:
+    case rvCON:
+      ;
+     break; case rvSOB:
+      rv_srg (rev, opc);
+      opc = -(opc&077);
+      rv_com (rev);
+    case rvBRA:
+      opc = ((char )(opc))*2;
+      rv_rel (rev, opc);
+     break; case rvSOP:
+      rv_smd (rev, opc);
+     break; case rvRMD:
+      rv_srg (rev, opc);
+      rv_com (rev);
+      rv_dmd (rev, opc);
+     break; case rvBOP:
+      rv_smd (rev, opc);
+      rv_com (rev);
+    case rvUOP:
+      rv_dmd (rev, opc);
+     break; case rvEIS:
+      rv_dmd (rev, opc);
+      rv_com (rev);
+      rv_srg (rev, opc);
+     break; case rvREG:
+      rv_drg (rev, opc);
+     break; case rvFPS:
+      rv_dmd (rev, opc);
+      rv_com (rev);
+      rv_acc (rev, opc);
+     break; case rvFPD:
+      rv_acc (rev, opc);
+      rv_com (rev);
+      rv_dmd (rev, opc);
+     break; case rvEMT:
+      rv_oct (rev, opc&0377);
+     break; case rvMRK:
+      rv_oct (rev, opc&077);
+     break; case rvPRI:
+      rv_oct (rev, opc&07);
+     break; case rvWRD:
+      if ( !(rev->Vflg & rvSKE_)) {rv_oct (rev, opc) ;} else {
+        rv_oct (rev, 0) ; }
+       }
+   break;} 
+} 
+/* code -  modes */
+void rv_acc(
+rvTpdp *rev ,
+int ins )
+{ FMT(APP, "ac%d", (ins>>6)&3);
+} 
+void rv_srg(
+rvTpdp *rev ,
+int ins )
+{ rv_drg (rev, ins>>6);
+} 
+void rv_drg(
+rvTpdp *rev ,
+int opc )
+{ int reg = opc & 7;
+  st_cop (REG, APP);
+} 
+void rv_smd(
+rvTpdp *rev ,
+int ins )
+{ rv_dmd (rev, ins>>6);
+} 
+void rv_dmd(
+rvTpdp *rev ,
+int opc )
+{ int reg = opc & 7;
+  int mod = (opc>>3) & 7;
+  char *str = APP;
+  int val = 0;
+  if ( reg == 7) {mod |= 010 ;}
+  if ( (mod >= 012) && (mod != 014) && (mod != 015)) {val = rv_dat (rev) ;}
+  switch ( mod) {
+  case 0:
+    FMT(str, "%s", REG);
+   break; case 1:
+    FMT(str, "(%s)", REG);
+   break; case 2:
+    FMT(str, "(%s)+", REG);
+    FMT(str, "(%s)+", REG);
+   break; case 3:
+    FMT(str, "@(%s)+", REG);
+   break; case 5:
+    *str++ = '@';
+  case 4:
+    FMT(str, "-(%s)", REG);
+   break; case 7:
+    *str++ = '@';
+  case 6:
+    FMT(str, "%o(%s)", rv_dat (rev), REG);
+   break; case 010:
+    FMT(str, "pc");
+   break; case 011:
+    FMT(str, "@pc=%o", rv_arg (rev));
+   break; case 012:
+    FMT(str, "#%o", val);
+   break; case 013:
+    FMT(str, "@#%o", val);
+   break; case 014:
+    FMT(str, "-(pc)");
+   break; case 015:
+    FMT(str, "@-(pc)");
+   break; case 016:
+    rv_rel (rev, val);
+   break; case 017:
+    FMT(str, "@"), rv_rel (rev, val);
+     }
+} 
+char *rvAset []= {"scc", "sen", "sez", "sev", "sec"};
+char *rvAclr []= {"ccc", "cln", "clz", "clv", "clc"};
+void rv_con(
+rvTpdp *rev ,
+int opc )
+{ char *(*arr )= (opc&020) ? rvAset: rvAclr;
+  int msk = 010;
+  int fst = 1;
+  if( (opc&017) == 017){ FMT(APP, *arr) ; return;}
+  while ( msk) {
+    ++arr;
+    if ( msk & opc) {
+      if ( !fst) {FMT(APP,"!") ;}
+      fst=0, FMT(APP,*arr); }
+    msk >>= 1;
+  } 
+} 
+void rv_oct(
+rvTpdp *rev ,
+int val )
+{ FMT(APP,"%o", val);
+} 
+void rv_str(
+rvTpdp *rev ,
+char *str )
+{ if ( str) {st_app (str, rev->Pstr) ;}
+} 
+void rv_com(
+rvTpdp *rev )
+{ st_app (",", rev->Pstr);
+} 
+void rv_tab(
+rvTpdp *rev )
+{ char *str = rev->Pstr;
+  int len = st_len (str);
+  int cnt = 8 - (len % 8);
+  while ( cnt--) {st_app (" ", str) ;}
+} 
+WORD rv_rel(
+rvTpdp *rev ,
+WORD rel )
+{ WORD val ;
+  val = (rev->Vloc + rev->Vrel + (rev->Vlen*2) + rel) & 0177777;
+  if ( (rev->Vflg & rvSKE_)) {val = 0 ;}
+  FMT(APP, "%o", val);
+  rev->Vdst = val;
+} 
+WORD rv_arg(
+rvTpdp *rev )
+{ WORD val = rev->Adat[rev->Vlen];
+  rev->Vdst = val;
+  return ( val);
+} 
+WORD rv_dat(
+rvTpdp *rev )
+{ WORD val = rev->Adat[rev->Vlen++];
+  rev->Vdst = val;
+  if( rev->Vflg & rvSKE_)return ( 0 );
+  return ( val);
+} 
+char *rvAreg [] =  {
+  "r0", "r1", "r2", "r3", "r4", "r5", "sp", "pc",
+  };
+char *rv_reg(
+int reg )
+{ return ( rvAreg[reg&7]);
+} 

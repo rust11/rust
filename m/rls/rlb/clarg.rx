@@ -1,0 +1,50 @@
+/* code -  cl_arg - returns nth argument */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\cldef.h"
+#include "f:\m\rid\ctdef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\mxdef.h"
+#include "f:\m\rid\stdef.h"
+static int cl_ptr (int ,char *,int ,char *,char **);
+/* code -  cl_arg - get nth argument from string */
+int cl_arg(
+int nth ,
+char *str ,
+char *dst ,
+int sep ,
+char *bal )
+{ char *src ;
+  int len ;
+  *dst = 0;
+  if( (len = cl_ptr(nth,str,sep,bal,&src)) == 0)return ( 0 );
+  *(char *)me_mov (src,dst,len) = 0;
+  return 1;
+} 
+/* code -  cl_ptr - get pointer to nth argument */
+static int cl_ptr(
+int nth ,
+register char *str ,
+int sep ,
+register char *bal ,
+char *(*res ))
+{ if( nth < 0)return 0;
+  if ( sep == 0) {sep = ' ' ;}
+  if ( bal == 0) {bal = "\"\'" ;}
+  for(;;)  {
+    while ( ct_spc (*str)) {++str ;}
+    if( *str == 0)break;
+    *res = str;
+    while ( *str != 0) {
+      bal = "\"\'";
+      while ( *bal != 0) {
+        if ( *str == *bal++) {
+           str = st_bal (str);break; } }
+      if( *str == ' ' || !*str)break;
+      ++str;
+    } 
+    if( nth-- == 0)break;
+    if ( *str != 0) {++str ;}
+  } 
+  if( nth >= 0)return 0;
+  return ( str-*res);
+} 

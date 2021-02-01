@@ -1,0 +1,34 @@
+/* file -  fipad - padded read/write */
+#include "c:\m\rid\rider.h"
+#include "c:\m\rid\fidef.h"
+#include "c:\m\rid\medef.h"
+fi_prd(
+FILE *fil ,
+char *buf ,
+size_t fst ,
+size_t cnt ,
+size_t *trn )
+{ size_t lst = fst + cnt;
+  size_t eod ;
+  size_t eof ;
+  size_t rem = 0;
+  int sts = fiSUC;
+  if ( trn) {*trn = 0 ;}
+  eod = fi_len (fil);
+  eof = (eod + 511) & (~511);
+  if ( fst >= eof) {
+    return ( fiEOF); }
+  if ( lst > eof) {
+    sts = fiPAR;
+    cnt = (eof - fst);
+    lst = eof; }
+  if ( lst > eod) {
+    rem = lst - eod;
+    cnt = eod - fst;
+  } 
+  fi_see (fil, fst);
+  if( (fi_rea (fil, buf, cnt)) == 0)return ( fiERR );
+  if ( rem) {me_clr (buf+cnt, rem) ;}
+  if ( trn) {*trn = cnt ;}
+  return ( sts);
+} 

@@ -1,0 +1,48 @@
+/* file -  ismod - I/O stream management */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\isdef.h"
+/* code -  is_alc -- allocate stream */
+isTstm *is_alc(
+int add ,
+int inc )
+{ isTstm *stm ;
+  stm = me_acc ( sizeof(isTstm));
+  stm->Pobj = me_acc ((stm->Vadd + stm->Vinc) * 4);
+  stm->Vinc = inc;
+  stm->Vadd = add;
+  is_ini (stm);
+  return ( stm);
+} 
+is_ini(
+isTstm *stm )
+{ 
+  stm->Vtop = (stm->Vcur = (stm->Vbot = stm->Vinc)) + stm->Vadd;
+} 
+is_dlc(
+isTstm *stm )
+{ me_dlc (stm->Pobj);
+  me_dlc (stm);
+} 
+is_add(
+isTstm *stm ,
+void *obj )
+{ if( stm->Vadd == stm->Vtop)return 0;
+   stm->Pobj[stm->Vadd++] = obj;return 1;
+} 
+is_inc(
+isTstm *stm ,
+void *obj )
+{ if( stm->Vcur == 0)return 0;
+   stm->Pobj[--stm->Vcur] = obj;return 1;
+} 
+void *is_cur(
+isTstm *stm )
+{ if( stm->Vcur == stm->Vadd)return 0;
+  return ( stm->Pobj[stm->Vcur]);
+} 
+is_stp(
+isTstm *stm )
+{ if( (stm->Vcur+1) == stm->Vadd)return 0;
+   ++stm->Vcur;return 1;
+} 

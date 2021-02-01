@@ -1,0 +1,72 @@
+/* file -  fidef - default file spec */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\chdef.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\mxdef.h"
+#include "f:\m\rid\stdef.h"
+/* code -  fiAdef - state table */
+char fiAdef [] =  {
+  0 , ':', ':',
+  0 , ':', -1,
+  '[', ']', -1,
+  0 , '.', 0,
+  '.', ';', 0,
+  ';', 0, 0,
+  -1,
+  };
+static int fi_itm (char *,char *);
+/* code -  fi_def - merge default spec */
+int fi_def(
+register char *spc ,
+char *def ,
+char *dst )
+{ char tmp [mxSPC];
+  register char *out = tmp;
+  register char *sta = fiAdef;
+  int lft ;
+  int rgt ;
+  for(;;)  {
+    lft = fi_itm (sta, spc);
+    rgt = fi_itm (sta, def);
+    if ( lft) {
+      out = me_cop (spc, out, lft);
+      } else {
+      out = me_cop (def, out, rgt); }
+    *out = 0;
+    spc += lft;
+    def += rgt;
+    sta += 3;
+  if( *sta == -1)break; }
+  *out = 0;
+  if ( (out = st_fnd (":.",tmp)) != 0) {
+    out[1] = 0; }
+  rgt = *spc;
+  st_cop (tmp, dst);
+  if( *spc || out == dst)return 0;
+   fi_loc (dst, dst);return 1;
+} 
+/* code -  fi_itm - get file spec item */
+int fi_itm(
+register char *sta ,
+register char *ptr )
+{ register char *str = ptr;
+  if( str == NULL)return 0;
+  for(;;)  {
+    if ( *sta++) {
+      if( *(sta-1) != *str)return 0; }
+    while ( *str != *sta) {
+      if ( *str == 0) {
+        if (( (*sta == '.'))
+        ||((*sta == ';'))) {
+          break; }
+        return 0; }
+      ++str; }
+    if( *++sta == 0)break;
+    ++str;
+    if ( *sta != -1) {
+      if( *sta != *str)return 0;
+      ++str; }
+   break;} 
+  return ( str-ptr);
+} 

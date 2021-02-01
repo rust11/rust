@@ -1,0 +1,205 @@
+/* file -  vtcab - cabs */
+#include "c:\m\rid\rider.h"
+#include "c:\m\rid\cadef.h"
+#include "c:\m\rid\medef.h"
+#include "c:\m\rid\stdef.h"
+#include "c:\m\rid\imdef.h"
+#define cabFST  010000
+#define cabMAX  1024
+cabTcab *cabPfre = NULL;
+int cabVseq = 0;
+cabTcab *cabAcab [1024];
+void cab_prg (cabTcab *);
+void cab_did (cabTcab *);
+/* code -  cab_map - map cab to channel */
+cabTcab *cab_map(
+int seq )
+{ if( seq < cabFST)return 0;
+  if( seq > (cabFST+cabMAX))return 0;
+  return ( cabAcab[seq - cabFST]);
+} 
+/* code -  cab_dlc - deallocate a cab */
+void cab_dlc(
+cabTcab *cab )
+{ cabTrep *cur ;
+  cabTrep *suc ;
+  int seq = cab->Vseq;
+  if( !cab->Pfil)return;
+  if ( cab->Vtyp != cabREP) {
+    cab_prg (cab);
+    } else {
+    suc = cab->Prep;
+    while ( (cur = suc) != 0) {
+      suc = cur->Psuc;
+      me_dlc (cur);
+    }  }
+  me_clr (cab,  sizeof(cabTcab));
+  cab->Vseq = seq;
+  cab->Psuc = cabPfre;
+  cabPfre = cab;
+} 
+/* code -  cab_res - reset cabs */
+void cab_res(
+int exc )
+{ cabTcab *cab ;
+  int seq = 0;
+  while ( seq < cabMAX) {
+    cab = cabAcab[seq++];
+    if ( cab && (cab->Vchn != exc)) {
+      cab_dlc (cab); }
+  } 
+} 
+/* code -  cab_cre - create new cab */
+cabTcab *cab_cre(
+vxTvab *vab ,
+FILE *fil ,
+char *spc ,
+int typ ,
+int flg )
+{ cabTcab *cab ;
+  int chn = vab->Vjcn;
+  int seq = -1;
+  while ( ++seq < cabVseq) {
+    cab = cabAcab[seq];
+    if( cab->Vprc != vab->Vsjn)continue;
+    if( cab->Vchn != vab->Vjcn)continue;
+    if( !cab->Pfil)continue;
+    if ( cab->Vtyp == cabLOO) {
+      if ( cab->Pfil) {fi_clo (cab->Pfil, NULL) ;}
+      cab->Pfil = NULL; }
+    cab->Vseq = seq + cabFST;
+    break;
+  } 
+  cab = cabPfre;
+  if ( cab) {
+    cabPfre = cab->Psuc;
+    } else {
+    seq = cabVseq;
+    if ( seq == cabMAX) {
+      im_rep ("F-VAMP channel overflow [%s]", spc); }
+    cab = me_acc ( sizeof(cabTcab));
+    cab->Vseq = seq + cabFST;
+    cabAcab[seq] = cab;
+    ++cabVseq; }
+  cab->Vnod = vab->Vvid;
+  cab->Vprc = vab->Vsjn;
+  cab->Vchn = vab->Vjcn;
+  cab->Pfil = fil;
+  cab->Vtyp = typ;
+  cab->Vflg = flg;
+  st_cop (spc, cab->Aspc);
+  return ( cab);
+} 
+/* code -  cab_opn - return file block of cab */
+cabTcab *cab_opn(
+int idx )
+{ cabTcab *cab = cab_map (idx);
+  if( !cab)return 0;
+  if ( (cab->Vtyp == cabLOO) && !cab->Pfil) {
+    cab->Pfil = fi_opn (cab->Aspc, "rb+", NULL); }
+  return ( cab);
+} 
+/* code -  cab_ten - create a tentative filename */
+void cab_ten(
+char *spc ,
+char *ten )
+{ char *ptr ;
+  st_cop (spc, ten);
+  ptr = st_fnd (".", ten);
+  if ( *ptr) {*ptr = '_' ;}
+  st_app (".ten", ten);
+} 
+/* code -  cab_clo - close a channel */
+cab_clo(
+int idx )
+{ cabTcab *cab = cab_map (idx);
+  char ten [20];
+  char *ptr ;
+  int sts = 1;
+  if( !cab)return 1;
+  if (( cab->Pfil)
+  &&(fi_clo (cab->Pfil, NULL))) {
+    if ( cab->Vtyp == cabENT) {
+      cab_did (cab);
+      if ( fi_exs (cab->Aspc, NULL)) {
+        fi_del (cab->Aspc, NULL); }
+      cab_ten (cab->Aspc, ten);
+      sts = fi_ren (ten, cab->Aspc, ""); } }
+  cab->Pfil = NULL;
+  if ( cab->Vtyp != cabLOO) {cab_dlc (cab) ;}
+  return ( sts);
+} 
+/* code -  cab_prg - purge channel */
+void cab_prg(
+cabTcab *cab )
+{ char ten [20];
+  char *ptr ;
+  if( !cab)return;
+  if ( cab->Pfil) {
+    fi_clo (cab->Pfil, NULL);
+    if ( cab->Vtyp == cabENT) {
+      cab_ten (cab->Aspc, ten);
+      fi_del (ten, NULL); } }
+  cab->Pfil = NULL;
+} 
+/* code -  cab_did - diddle cab with same file spec */
+void cab_did(
+cabTcab *src )
+{ cabTcab *tar ;
+  int seq = -1;
+  while ( ++seq < cabVseq) {
+    tar = cabAcab[seq];
+    if( !tar->Pfil)continue;
+    if( src == tar)continue;
+    if( tar->Vtyp != cabLOO)continue;
+    if( !st_sam (src->Aspc, tar->Aspc))continue;
+     cab_prg (tar);return;
+  } 
+} 
+/* code -  cab_rep - make replacement block */
+void cab_rep(
+cabTcab *cab ,
+void *buf ,
+int blk ,
+int cnt )
+{ cabTrep *rep ;
+  cabTrep *(*prv )= &cab->Prep;
+  while ( cnt > 0) {
+    rep = me_acc ( sizeof(cabTrep));
+    rep->Vblk = blk;
+    rep->Vcnt = cnt;
+    me_cop (buf, rep->Abuf, 512);
+    rep->Psuc = cab->Prep;
+    cab->Prep = rep;
+    cnt -= 512, ++blk, (char *)buf += 512;
+  } 
+} 
+/* code -  cab_rea - read cab replacement blocks */
+int cab_rea(
+cabTcab *cab ,
+void *buf ,
+int blk ,
+int cnt )
+{ cabTrep *rep ;
+  int cop ;
+  int trn = 0;
+  while ( cnt) {
+    rep = cab_loc (cab, blk);
+    if( !rep)break;
+    cop = (cnt < 512) ? cnt: 512;
+    me_cop (rep->Abuf, buf, cop);
+    (char *)buf += 512, ++blk;
+    cnt -= cop, trn += cop;
+  } 
+  return ( trn);
+} 
+/* code -  cab_loc - locate a cab */
+cabTrep *cab_loc(
+cabTcab *cab ,
+int blk )
+{ cabTrep *rep ;
+  rep = cab->Prep;
+  while ( rep && (rep->Vblk != blk)) {
+    rep = rep->Psuc; }
+  return ( rep);
+} 

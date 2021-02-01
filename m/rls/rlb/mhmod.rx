@@ -1,0 +1,245 @@
+/* file -  mosh - text macro processor */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\chdef.h"
+#include "f:\m\rid\ctdef.h"
+#include "f:\m\rid\dfdef.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\imdef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\mhdef.h"
+mh_met (mhTpit *,int );
+mh_pun (mhTpit *,int );
+int mh_get (mhTpit *);
+int mh_pee (mhTpit *);
+int mh_fil (mhTpit *);
+mhTget mh_gch ;
+mh_psh (mhTpit *,char *,int );
+mh_wri (mhTpit *,char *);
+mh_put (mhTpit *,int );
+mhTput mh_pch ;
+mh_lin (mhTpit *,int );
+mh_msg (mhTpit *,char *,char *,char *);
+/* code -  mh_alc - allocate mosh pit */
+mhTpit *mh_alc(
+char *def )
+{ mhTpit *pit ;
+  dfTctx *ctx = df_alc ();
+  pit = me_acc ( sizeof(mhTpit));
+  pit->Pwrk = me_acc (mhWRK);
+  pit->Pres = me_acc (mhRES);
+  pit->Pexp = me_acc (mhEXP);
+  pit->Vptr = pit->Vtop = mhEXP;
+  pit->Pdef = ctx;
+  df_ctx (ctx, NULL, dfSTA_|dfCAS_);
+  pit->Pget = &mh_gch;
+  pit->Pput = &mh_pch;
+  return ( pit);
+} 
+/* code -  mh_dlc - deallocate block */
+mh_dlc(
+mhTpit *pit )
+{ mhTipt *ipt = pit->Aipt;
+  int idx = 0;
+  df_dlc (pit->Pdef);
+  me_dlc (pit->Pwrk);
+  me_dlc (pit->Pres);
+  me_dlc (pit->Pexp);
+  while ( idx < mhIPT) {
+    ipt = pit->Aipt + idx++;
+    if ( ipt->Pfil) {fi_clo (ipt->Pfil, "") ;}
+    if ( ipt->Pspc) {me_dlc (ipt->Pspc) ;}
+  } 
+  if ( pit->Popt) {me_dlc (pit->Popt) ;}
+  if ( pit->Hopt) {fi_clo (pit->Hopt, "") ;}
+  me_dlc (pit);
+} 
+/* code -  mh_par - parse file */
+mh_par(
+mhTpit *pit )
+{ int cha ;
+  int snd ;
+  pit->Vsol = 1;
+  for(;;)  {
+    if( pit->Vexi)return 1;
+    if( (cha = mh_get (pit)) == 0)break;
+    snd = mh_pee (pit);
+    if ( pit->Vsol && cha == '@') {
+       mh_met (pit,'\n');continue; }
+    pit->Vsol = (cha == '\n');
+    if ( (cha == '(') && (snd == '@')) {
+      mh_get (pit);
+       mh_met (pit, ')');continue; }
+    if ( cha == '~') {
+      mh_get (pit);
+       mh_put (pit, snd);continue; }
+    if ( (cha == snd) && ct_pun (cha)) {
+      if( mh_pun (pit, cha))continue; }
+    mh_put (pit, cha);
+  } 
+} 
+/* code -  mh_ipt - add input file */
+mh_ipt(
+mhTpit *pit ,
+char *nam )
+{ char spc [mxSPC];
+  mhTipt *ipt ;
+  if( !nam)return 1;
+  if ( (pit->Vidx+1) >= mhIPT) {
+     mh_msg (pit, "F-Too many input files [%s]", nam, NULL);return 0; }
+  ipt = pit->Aipt + ++pit->Vidx;
+  fi_def (nam, ".m", spc);
+  if( (ipt->Pfil = fi_opn (spc, "r","")) == 0)return ( 0 );
+  ipt->Pspc = st_dup (spc);
+  pit->Pipt = ipt;
+  return 1;
+} 
+/* code -  mh_opt - specify output file */
+mh_opt(
+mhTpit *pit ,
+char *nam )
+{ char spc [mxSPC];
+  if( !nam)return 1;
+  fi_def (nam, ".mx", spc);
+  if( (pit->Hopt = fi_opn (spc, "w","")) == 0)return ( 0 );
+  pit->Popt = st_dup (spc);
+  return 1;
+} 
+/* code -  mh_met - process definitions */
+mh_met(
+mhTpit *pit ,
+int ter )
+{ char *wrk = pit->Pwrk;
+  char *res = pit->Pres;
+  char *ptr = wrk;
+  int cnt = 0;
+  int cha ;
+  int nst = 0;
+  dfTdef *ent ;
+  int eol = ter == '\n';
+  while ( cnt < 80) {
+    wrk[cnt] = 0;
+    if( (cha = mh_get (pit)) == 0)return ( 0 );
+    if ( (ter == ')') && (cha == '(')) {++nst ;}
+    if ( cha == ter) {
+      if( !nst)break;
+      --nst; }
+    wrk[cnt++] = cha;
+  } 
+  if( !cnt)return 1;
+  if( wrk[0] == ';')return 1;
+  if ( st_fnd (":=", wrk)) {
+    if( df_def(pit->Pdef,wrk))return 1;
+    mh_msg (pit, "W-Definition failed", NULL, wrk);
+    return 0; }
+  if ( wrk[cnt-1] == ';') {
+    --cnt, --eol; }
+  if ( st_scn ("@exit", wrk)) {
+     ++pit->Vexi;return 1; }
+  if ( st_scn ("@include ", wrk)) {
+    if( mh_ipt (pit, ptr+9))return 1;
+     ++pit->Vexi;return 0; }
+  if( (df_trn (pit->Pdef, wrk, res, 1022)) == 0){ mh_msg (pit, "W-Translation failed", wrk, NULL) ; return 0;}
+  if ( pit->Fver) {PUT("(%s)\n", res) ;}
+  if ( eol) {mh_psh (pit, "\n", 1) ;}
+  mh_psh (pit, res, st_len (res));
+  return 1;
+} 
+/* code -  mh_pun - process punctuation */
+mh_pun(
+mhTpit *pit ,
+int cha )
+{ char *res = pit->Pres;
+  char idt [4];
+  idt[1] = idt[0] = cha, idt[2] = 0;
+  if( (df_trn (pit->Pdef, idt, res, 32)) == 0)return ( 0 );
+  mh_get (pit);
+  mh_psh (pit, res, st_len (res));
+  return 1;
+} 
+/* code -  mh_get - next character */
+mh_get(
+mhTpit *pit )
+{ int cha ;
+  if ( pit->Vptr == pit->Vtop) {
+    if( !mh_fil (pit))return 0; }
+  cha = pit->Pexp[pit->Vptr++];
+  mh_lin (pit, cha);
+  return ( cha);
+} 
+/* code -  mh_pee - peek at next character */
+mh_pee(
+mhTpit *pit )
+{ if ( pit->Vptr == pit->Vtop) {
+    if( !mh_fil (pit))return 0; }
+  return ( pit->Pexp[pit->Vptr]);
+} 
+mh_fil(
+register mhTpit *pit )
+{ int res ;
+  for(;;)  {
+    if( (res = (*pit->Pget)(pit, (pit->Pexp + pit->Vptr - 1))) != 0){ --pit->Vptr ; return 1;}
+    if ( --pit->Vidx <= 0) {
+       pit->Vidx = 0;return 0; }
+    pit->Pipt = pit->Aipt+pit->Vidx;
+  } 
+} 
+mh_gch(
+mhTpit *pit ,
+char *cha )
+{ 
+  return ( (fi_rea (pit->Pipt->Pfil, cha, 1)));
+} 
+/* code -  mh_psh - push on to expansion stack */
+mh_psh(
+mhTpit *pit ,
+char *txt ,
+int cnt )
+{ if ( cnt >= pit->Vptr) {
+    mh_msg (pit, "F-Meta buffer overflow", NULL, NULL); }
+  pit->Vptr -= cnt;
+  me_mov (txt, (pit->Pexp + pit->Vptr), cnt);
+} 
+/* code -  mh_wri - write string to output file */
+mh_wri(
+mhTpit *pit ,
+char *str )
+{ while ( *str) {
+    mh_put (pit, *str++); }
+} 
+/* code -  mh_put - write character to output file */
+mh_put(
+mhTpit *pit ,
+int cha )
+{ if( !cha)return 1;
+  return ( (*pit->Pput)(pit, cha));
+} 
+mh_pch(
+mhTpit *pit ,
+int cha )
+{ return ( fi_ptb (pit->Hopt, cha));
+} 
+/* code -  mh_lin - count lines */
+mh_lin(
+mhTpit *pit ,
+int cha )
+{ if ( pit->Vprv == '\n') {++pit->Vlin ;}
+  pit->Vprv = pit->Vcur;
+  pit->Vcur = cha;
+} 
+/* code -  mh_msg - messages */
+mh_msg(
+mhTpit *pit ,
+char *msg ,
+char *obj ,
+char *lin )
+{ char buf [60];
+  PUT("?%s-", imPfac);
+  PUT("%s ", msg);
+  if ( obj != 0) {PUT("[%s] ", obj) ;}
+  PUT("%s ", pit->Pipt->Pspc);
+  PUT("Line %d ", pit->Vlin);
+  PUT("\n");
+  if ( lin != 0) {PUT("[%s]\n", lin) ;}
+  if ( msg[0] == 'F') {im_exi () ;}
+} 

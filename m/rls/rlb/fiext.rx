@@ -1,0 +1,44 @@
+/* file -  fiext - extract file spec components */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\stdef.h"
+int fi_ext(
+char *src ,
+register char *dst ,
+register int flg )
+{ char *prv ;
+  char *beg = dst;
+  int def = fiNAM_;
+  register int mat ;
+  int cha ;
+  for(;;)  {
+    prv = dst;
+    for(;;)  {
+      if( (cha = *src) == 0)break;
+      *dst++ = *src++;
+    if( st_mem (cha, ":\\.;"))break; }
+    *dst = 0;
+    switch ( cha) {
+    case ':':
+      mat = fiDEV_;
+     break; case '\\':
+      mat = fiDIR_;
+     break; case '.':
+      --dst;
+      mat = fiNAM_;
+      def = fiTYP_;
+     break; case ';':
+      --dst;
+    case 0:
+      if ( !(flg & def)) {
+        dst = prv;
+      } else if ( def == fiTYP_) {
+        st_ins (".", prv), ++dst; }
+      if ( cha & (flg & fiVER_)) {
+        dst = st_cop (src-1, dst); }
+      *dst = 0;
+      return ( dst-beg);
+       }
+    if ( !(flg & mat)) {dst = prv ;}
+  } 
+} 

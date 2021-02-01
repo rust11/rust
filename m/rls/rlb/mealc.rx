@@ -1,0 +1,91 @@
+/* file -  mealc - memory allocation */
+#include "c:\m\rid\rider.h"
+#include "c:\m\rid\imdef.h"
+#include "c:\m\rid\medef.h"
+size_t meValc = 0;
+/* code -  me_alc - memory allocate */
+void *me_alc(
+size_t siz )
+{ 
+  return ( (me_alg (NULL, siz, 0)));
+} 
+/* code -  me_acc - memory allocate & clear */
+void *me_acc(
+size_t siz )
+{ 
+  return ( (me_alg (NULL, siz, meCLR_)));
+} 
+/* code -  me_ral - reallocate memory */
+void *me_ral(
+void *bas ,
+size_t siz )
+{ return ( me_alg (bas, siz, 0));
+} 
+/* code -  me_dlc - deallocate memory */
+void me_dlc(
+void *bas )
+{ me_alg (bas, 0, 0);
+} 
+#if 0
+/* code -  me_alg - allocate generic */
+#include "c:\m\rid\wimod.h"
+void *me_alg(
+void *bas ,
+size_t siz ,
+int mod )
+{ HANDLE han = GetProcessHeap ();
+  DWORD flg = 0;
+  if ( mod & meCLR_) {flg |= HEAP_ZERO_MEMORY ;}
+  if ( !(mod & meALC_)) {flg |= HEAP_GENERATE_EXCEPTIONS ;}
+  if ( bas == NULL) {
+    if( !siz)return 0;
+    meValc += siz;
+    return ( HeapAlloc (han, flg, siz)); }
+  if( !siz){ HeapFree (han, 0, bas) ; return 0;}
+  return ( HeapReAlloc (han, flg, bas, siz));
+} 
+#else 
+/* code -  me_alg - allocate generic */
+#include <stdlib.h>
+void *me_alg(
+void *bas ,
+size_t siz ,
+int mod )
+{ 
+  if ( bas == NULL) {
+    if( !siz)return 0;
+    meValc += siz;
+    bas = malloc (siz);
+    } else {
+    if( !siz){ free (bas) ; return 0;}
+    bas = realloc (bas, siz); }
+  if ( bas == NULL) {
+    if( mod & meALC_)return ( NULL );
+    im_rep ("F-Memory exhausted", NULL); }
+  if ( mod & meCLR_) {me_clr (bas, siz) ;}
+  return ( bas);
+} 
+#endif 
+#if 0
+/* code -  standard functions */
+#if meKstd
+void *malloc(
+size_t siz )
+{ return ( me_alc (siz));
+} 
+void *calloc(
+size_t cnt ,
+size_t siz )
+{ return ( me_acc (cnt * siz));
+} 
+void *realloc(
+void *bas ,
+size_t siz )
+{ return ( me_ral (bas, siz));
+} 
+void free(
+void *bas )
+{ me_dlc (bas);
+} 
+#endif 
+#endif 

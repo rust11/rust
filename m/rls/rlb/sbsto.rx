@@ -1,0 +1,87 @@
+/* file -  sbsto - storage buffers */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\sbdef.h"
+#include "f:\m\rid\stdef.h"
+/* code -  sb_ini - init store */
+sbTsto *sb_ini(
+size_t alc ,
+size_t itm ,
+sbTcmp *cmp )
+{ register sbTsto *sto ;
+  sto = me_acc ( sizeof(sbTsto));
+  sto->Psto = me_alc (alc);
+  sto->Ptmp = me_alc (itm);
+  sto->Pcmp = cmp;
+  sto->Lsto = alc;
+  sto->Litm = itm;
+  sb_clr (sto);
+  return ( sto);
+} 
+/* code -  sb_dlc - deallocate store */
+sb_dlc(
+sbTsto *sto )
+{ me_dlc (sto->Psto);
+  me_dlc (sto);
+} 
+/* code -  sb_clr - clear store */
+sb_clr(
+register sbTsto *sto )
+{ sb_rew (sto);
+  sto->Ptop = sto->Psto;
+  sto->Lrem = sto->Lsto;
+  sto->Vcnt = 0;
+} 
+/* code -  sb_rew - rewind store */
+sb_rew(
+register sbTsto *sto )
+{ sto->Pcur = sto->Psto;
+  sto->Vcur = 0;
+} 
+/* code -  sb_sto - append object to store */
+sb_sto(
+register sbTsto *sto ,
+void *obj )
+{ 
+  if( sto->Lrem < sto->Litm)return 0;
+  me_cop (obj, sto->Ptop, sto->Litm);
+  sto->Ptop = sto->Ptop + sto->Litm;
+  sto->Lrem -= sto->Litm;
+  ++sto->Vcnt;
+  return 1;
+} 
+/* code -  sb_nxt - get next store object */
+sb_nxt(
+sbTsto *sto ,
+void *obj )
+{ if( sto->Vcur >= sto->Vcnt)return 0;
+  me_cop (sto->Pcur, obj, sto->Litm);
+  sto->Pcur = sto->Pcur + sto->Litm;
+  ++sto->Vcur;
+  return 1;
+} 
+/* code -  sb_srt - sort the store */
+sb_srt(
+sbTsto *sto )
+{ 
+#if Pdp
+  qsort (sto->Psto, sto->Vcnt, sto->Litm, sto->Pcmp);
+#endif 
+} 
+/* code -  sb_rev - reverse store */
+sb_rev(
+register sbTsto *sto )
+{ char *tmp = sto->Ptmp;
+  char *bot = sto->Psto;
+  char *top ;
+  register size_t siz = sto->Litm;
+  int cnt = sto->Vcnt;
+  top = bot + (siz * (cnt - 1));
+  while ( cnt >= 2) {
+    me_cop (bot, tmp, siz);
+    me_cop (top, bot, siz);
+    me_cop (tmp, top, siz);
+    top -= siz, bot += siz;
+    cnt -= 2;
+  } 
+} 

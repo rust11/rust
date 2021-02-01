@@ -1,0 +1,60 @@
+/* file -  fi_loa - load file */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\stdef.h"
+#include <stdio.h>
+#include "f:\m\rid\dbdef.h"
+fi_loa(
+char *spc ,
+void *(*buf ),
+size_t *len ,
+FILE *(*chn ),
+char *msg )
+{ long siz = 0;
+  FILE *fil = NULL;
+  char *src = NULL;
+  int res = 0;
+  int cod = 0;
+  for(;;)  {
+    if( (fil = fi_opn (spc, "rb", msg)) == 0)break;
+    siz = fi_len (fil);
+    PUT("Load=%d\n", siz);
+    if( (src = me_alc (siz+2)) == 0)break;
+    if( siz && !fi_rea (fil, src, siz))break;
+    src[siz] = 0, src[siz+1] = 0;
+    *buf = src;
+    if ( len) {*len = siz ;}
+    if ( chn) {*chn = fil ;} else {
+      fi_clo (fil, "") ; }
+    return 1;
+   break;} 
+  if ( src) {me_dlc (src) ;}
+  if ( fil) {fi_clo (fil, NULL) ;}
+  return 0;
+} 
+/* code -  fi_sto -- store file */
+fi_sto(
+char *spc ,
+void *buf ,
+size_t siz ,
+int fre ,
+char *msg )
+{ FILE *fil ;
+  if ( siz == (~0)) {siz = st_len (buf) ;}
+  if ( (fil = fi_opn (spc, "wb" ,msg)) == 0) {
+    return 0; }
+  if ( siz && fi_wri (fil, buf, siz) == 0) {
+    fi_rep (spc, msg, "spc");
+    fi_clo (fil, "");
+    return 0; }
+  fi_clo (fil, "");
+  if ( fre) {fi_dlc (buf) ;}
+  return 1;
+} 
+/* code -  fi_dlc - deallocate file buffer */
+fi_dlc(
+void *buf )
+{ me_dlc (buf);
+  return 1;
+} 

@@ -1,0 +1,323 @@
+/* file -  hlmod - help support */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\cldef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\imdef.h"
+#include "f:\m\rid\mxdef.h"
+#include "f:\m\rid\hldef.h"
+hl_beg (hlThlp *);
+hl_end (hlThlp *);
+hl_rgt (hlThlp *);
+hl_lft (hlThlp *);
+hl_idt (hlThlp *);
+hl_prt (hlThlp *,char *);
+hl_fmt (hlThlp *,char *,char *);
+hl_wri (hlThlp *,char *);
+hl_new (hlThlp *);
+hl_rew (hlThlp *);
+char *hl_nxt (hlThlp *);
+int hl_prv (hlThlp *);
+int hl_fnd (hlThlp *,char *);
+int hl_loc (hlThlp *,char *);
+int hl_top (hlThlp *);
+int hl_def (hlThlp *,char *);
+int hl_cmd (hlThlp *,char *);
+/* code -  hl_cmd - help command */
+hl_cmd(
+hlThlp *hlp ,
+char *top )
+{ char cmd [mxLIN];
+  hl_hlp (hlp, top);
+  if( *top)return 1;
+  for(;;)  {
+    cl_cmd ("Topic? ", cmd);
+    if( !cmd[0])break;
+    hl_hlp (hlp, cmd);
+  } 
+} 
+/* code -  hl_hlp - provide help */
+hl_hlp(
+hlThlp *hlp ,
+char *str )
+{ char ctl [mxLIN];
+  int cnt = 0;
+  hl_rew (hlp);
+  hlp->Vlin = 0;
+  st_fit (str, ctl, mxLIN);
+  st_trm (ctl);
+  if( !*str){ hl_con (hlp) ; return 1;}
+  if( st_sam ("?", str)){ hl_con (hlp) ; return 1;}
+  if( st_sam ("*", str)){ hl_brf (hlp) ; return 1;}
+  if ( *str == '?') {
+    if( !hl_ini (hlp, str+1, NULL))return 0;
+     hl_con (hlp);return 1; }
+  while ( hl_fnd (hlp, str)) {
+    ++cnt;
+    hl_top (hlp);
+  } 
+  if( cnt)return 1;
+   im_rep ("No help for [%s]\n", str);return 0;
+} 
+/* code -  hl_ini - init help file */
+hlThlp *hl_ini(
+hlThlp *hlp ,
+char *spc ,
+char *txt )
+{ char def [mxSPC];
+  if ( !hlp) {hlp = me_acc ( sizeof(hlThlp)) ;}
+  if ( !txt) {
+    fi_def (spc, "hlp:.hlb", def);
+    if( (fi_loa (def, (void *)&txt, NULL, NULL, "")) == 0)return ( 0 ); }
+  if ( hlp->Pspc) {me_dlc (hlp->Pspc) ;}
+  if ( hlp->Ptxt) {me_dlc (hlp->Ptxt) ;}
+  hlp->Pspc = st_dup (spc);
+  hlp->Ptxt =txt;
+  hl_rew (hlp);
+  return ( hlp);
+} 
+/* code -  hl_dlc - deallocate help */
+hl_dlc(
+hlThlp *hlp )
+{ me_dlc (hlp->Pspc);
+  me_dlc (hlp->Ptxt);
+  me_dlc (hlp);
+} 
+/* code -  hl_rew - rewind file */
+hl_rew(
+hlThlp *hlp )
+{ hlp->Pnxt = hlp->Ptxt;
+  hlp->Pprv = hlp->Ptxt;
+  hlp->Alin[0] = 0;
+  hl_beg (hlp);
+} 
+/* code -  hl_prv - backup to previous line */
+hl_prv(
+hlThlp *hlp )
+{ hlp->Pnxt = hlp->Pprv;
+} 
+/* code -  hl_nxt - get next line */
+char *hl_nxt(
+hlThlp *hlp )
+{ char *txt = hlp->Pnxt;
+  char *ptr ;
+  int cha ;
+  int cnt ;
+  for(;;)  {
+    hlp->Pprv = txt;
+    ptr = hlp->Alin;
+    cnt = 0;
+    while ( *txt) {
+      cha = *txt++ & 0xff;
+      if( cha == '\f')continue;
+      if( cha == '\r')continue;
+      if( cha == '\n')break;
+      if( ++cnt >= (mxLIN-1))continue;
+      *ptr++ = cha;
+    } 
+    *ptr = 0;
+    hlp->Pnxt = txt;
+    if( !cnt && !*txt)return 0;
+    if( hlp->Alin[0] == ';')continue;
+    return ( hlp->Alin);
+  } 
+} 
+/* code -  hl_beg - begin new topic */
+hl_beg(
+hlThlp *hlp )
+{ hlp->Vcol = 0;
+  hlp->Vidt = 0;
+} 
+/* code -  hl_rgt - indent in */
+hl_rgt(
+hlThlp *hlp )
+{ hlp->Vidt += 2;
+} 
+/* code -  hl_lft - indent out */
+hl_lft(
+hlThlp *hlp )
+{ hlp->Vidt -= 2;
+} 
+/* code -  hl_fmt - format text */
+hl_fmt(
+hlThlp *hlp ,
+char *fmt ,
+char *obj )
+{ char buf [mxLIN];
+  FMT(buf, fmt, obj);
+  hl_prt (hlp, buf);
+  return 1;
+} 
+/* code -  hl_prt - print */
+hl_prt(
+hlThlp *hlp ,
+char *str )
+{ char buf [mxLIN];
+  int cnt ;
+  char *top ;
+  int rem ;
+  int ret = 0;
+  if ( *(top = st_lst (str)) == '\n') {
+    ++ret, *top = 0; }
+  if ( !hlp->Vcol && *str) {hl_idt (hlp) ;}
+  for(;;)  {
+    rem = hlWID - hlp->Vcol;
+    if( st_len (str) < rem)break;
+    top = str+rem-1;
+    while ( top > str) {
+      if( *top == ' ')break;
+      --top;
+    } 
+    if ( (cnt = top-str) != 0) {
+      st_cln (str, buf, cnt);
+      hl_wri (hlp, buf);
+      str += cnt;
+      if ( *str == ' ') {++str ;}
+      } else {
+      if( rem >= (hlWID/2))break; }
+    hl_new (hlp);
+    hl_idt (hlp);
+  } 
+  hl_wri (hlp, str);
+  if ( ret) {hl_new (hlp) ;}
+} 
+/* code -  hl_idt - write ident */
+hl_idt(
+hlThlp *hlp )
+{ int idt = hlp->Vidt;
+  while ( idt--) {hl_wri (hlp, " ") ;}
+} 
+hl_end(
+hlThlp *hlp )
+{ if ( hlp->Vcol) {hl_new (hlp) ;}
+} 
+hl_new(
+hlThlp *hlp )
+{ hl_wri (hlp, "\n");
+} 
+hl_wri(
+hlThlp *hlp ,
+char *str )
+{ PUT(str);
+  hlp->Vcol += st_len (str);
+  if( !st_fnd ("\n", str))return 1;
+  hlp->Vcol = 0;
+  if( ++hlp->Vlin < 24)return 1;
+  hlp->Vlin = 0;
+  cl_cmd ("More? ", NULL);
+  return 1;
+} 
+/* code -  hl_con - contents */
+hl_con(
+hlThlp *hlp )
+{ char *txt ;
+  int col = 0;
+  if ( hl_loc (hlp, "i\t")) {hl_top (hlp) ;}
+  hl_rgt (hlp);
+  hl_new (hlp);
+  for(;;)  {
+    txt = hl_nxt (hlp);
+    if( !txt)break;
+    if( !st_scn ("t	", txt))continue;
+    col += st_len (txt+2) + 1;
+    hl_fmt (hlp, "%s ", txt+2);
+  } 
+  hl_lft (hlp);
+  hl_end (hlp);
+} 
+/* code -  hl_brf - brief help */
+hl_brf(
+hlThlp *hlp )
+{ char *txt ;
+  int col = 0;
+  hl_rew (hlp);
+  for(;;)  {
+    txt = hl_nxt (hlp);
+    if( !txt)break;
+    if( !st_scn ("t	", txt))continue;
+    col += st_len (txt+2) + 1;
+    hl_fmt (hlp, "%-14s ", txt+2);
+    txt = hl_nxt (hlp);
+    hl_fmt (hlp, "%s", txt+1);
+    hl_new (hlp);
+  } 
+} 
+/* code -  hl_top - show help on topic */
+hl_top(
+hlThlp *hlp )
+{ char *txt ;
+  char *lin ;
+  char *ctl ;
+  int cha ;
+  hlp->Vidt = 0;
+  txt = hl_nxt (hlp);
+  if (( !st_scn ("t	", txt))
+  &&(!st_scn ("i	", txt))) {
+    return 0; }
+  hl_fmt (hlp, "%s\n", txt+2);
+  hl_rgt (hlp);
+  for(;;)  {
+    txt = hl_nxt (hlp);
+    if ( !*txt || (*txt == '\t')) {
+      if ( *txt) {++txt ;}
+       hl_fmt (hlp, "%s\n", txt);continue; }
+    ctl = txt;
+    if( (lin = st_fnd ("\t", txt)) == NULL)break;
+    ++lin;
+    cha = *txt++;
+    switch ( cha) {
+    case 'd':
+       hl_def (hlp, lin);continue;
+       }
+   break;} 
+  hl_lft (hlp);
+  hl_prv (hlp);
+  hl_end (hlp);
+} 
+/* code -  hl_def - display definition */
+hl_def(
+hlThlp *hlp ,
+char *def )
+{ char nam [mxLIN];
+  char buf [mxLIN];
+  char *lft ;
+  char *rgt ;
+  char *ptr ;
+  st_fit (def, nam,  sizeof(nam));
+  if ( (ptr = st_fnd ("\t", nam)) == 0) {ptr = st_fnd (" ", nam) ;}
+  if( !ptr){ hl_fmt (hlp, "%s\n", def) ; return 0;}
+  *ptr++ = 0;
+  while ( st_mem (*ptr, " \t")) {++ptr ;}
+  lft = nam, rgt = ptr;
+  if ( *lft == '-') {++lft ;}
+  if ( *rgt == '-') {++rgt ;}
+  FMT(buf, "%-16s", lft);
+  st_app (rgt, buf);
+  hl_fmt (hlp, "%s\n", buf);
+  return 1;
+} 
+/* code -  hl_fnd - find topic */
+hl_fnd(
+hlThlp *hlp ,
+char *top )
+{ char *txt ;
+  for(;;)  {
+    if( (txt = hl_nxt (hlp)) == 0)return ( 0 );
+    if( !st_scn ("t	", txt))continue;
+    st_low (txt);
+    if( !st_scn (top, txt+2))continue;
+     hl_prv (hlp);return 1;
+  } 
+} 
+/* code -  hl_loc - locate prefix */
+hl_loc(
+hlThlp *hlp ,
+char *pre )
+{ char *txt ;
+  for(;;)  {
+    if( (txt = hl_nxt (hlp)) == 0)return ( 0 );
+    if( !st_scn (pre, txt))continue;
+     hl_prv (hlp);return 1;
+  } 
+} 

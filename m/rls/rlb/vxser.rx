@@ -1,0 +1,759 @@
+o s e l e t e;
+#define dbgC  0
+/* file -  vxser - vamp server */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\evdef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\mxdef.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\drdef.h"
+#include "f:\m\rid\eldef.h"
+#include "f:\m\rid\lndef.h"
+#include "f:\m\rid\vxdef.h"
+#include "f:\m\rid\vxcab.h"
+#include "f:\m\rid\rtutl.h"
+#define rxVX7  0106545
+#define rxDIR  015172
+#define rx_DR  0262
+#define rx_IF  0556
+typedef int vxTfun (vxTvab *);
+vxTfun vx_abo ;
+vxTfun vx_rea ;
+vxTfun vx_wri ;
+vxTfun vx_clo ;
+vxTfun vx_del ;
+vxTfun vx_loo ;
+vxTfun vx_ent ;
+vxTfun vx_ren ;
+vxTfun vx_prg ;
+vxTfun vx_inf ;
+vxTfun vx_clz ;
+vxTfun vx_dsk ;
+vxTfun vx_wlk ;
+#define vxTact struct vxTact_t 
+struct vxTact_t
+{ vxTfun *Pfun ;
+  int Vdir ;
+   };
+vxTact vxAact [] =  {
+  vx_abo, 0,
+  vx_rea, 0,
+  vx_wri, 0,
+  vx_loo, 1,
+  vx_ent, 1,
+  vx_clo, 0,
+  vx_del, 1,
+  vx_ren, 1,
+  vx_prg, 0,
+  vx_inf, 1,
+  vx_clz, 0,
+  };
+vx_vax (vxTvab *);
+vx_rta (vxTvab *,cabTcab *);
+void vx_her (vxTvab *);
+int vx_sho (vxTvab *);
+int vx_dir (char *);
+char vxAdum [1024]= {0};
+char vxApad [512]= {0};
+char *vxPbuf = NULL;
+int vxFdbg = 0;
+int vxFdmp = 0;
+int vxFtra = 0;
+int el_dbg (char *);
+/* code -  vx_ser - vamp device */
+vx_ser(
+vxTvab *vab )
+{ int flg = vab->Vflg;
+  int fun = vab->Vfun & 0xff;
+  if ( vxFtra) {PUT("\nRCV: "), vx_rep (vab, NULL, 0) ;}
+puts ("#vx_ser.a");
+  if ( flg && dbgC) {PUT("flg=%o\n", flg) ;}
+  if ( flg & vxINI_) {
+    cab_eli (vab, cabNRS);
+  } else if ( flg & vxINP_) {
+    cab_eli (vab, cabIRS); }
+  vab->Vflg &= (vxWLK_|vxSUB_);
+  vab->Vsta = 0;
+  vab->Vdbc = 0;
+  vab->Pcab = NULL;
+  if ( fun >= vxMAX) {
+     vx_her (vab);return; }
+  if (( !vxAact[fun].Vdir)
+  ||(!vx_wlk (vab))) {
+    vxAact[fun].Pfun(vab);
+    if ( vab->Pcab) {
+      cab_dlc (vab->Pcab,cabNRS); } }
+  fi_flu (NULL);
+  if ( vxFdbg|vxFtra) {PUT("SND: "), vx_rep (vab, NULL, 1) ;}
+} 
+/* code -  vx_abo - abort node */
+vx_abo(
+vxTvab *vab )
+{ cab_eli (vab, cabNRS);
+  return 1;
+} 
+/* code -  vx_tra - set trace on or off */
+void vx_tra(
+int flg )
+{ vxFtra = flg;
+} 
+/* code -  vx_eof - set end-of-file status */
+void vx_eof(
+vxTvab *vab )
+{ vab->Vsta = vxEOF;
+} 
+/* code -  vx_her - set hard error status */
+void vx_her(
+vxTvab *vab )
+{ vab->Vsta= vxIOX;
+} 
+/* code -  vx_loo - lookup */
+int vx_trn (vxTvab *,char *);
+#define rxNF  054160
+#define rxNF0  054216
+vx_loo(
+vxTvab *vab )
+{ cabTcab *cab ;
+  char buf [mxSPC];
+  char tmp [mxSPC];
+  char *spc = buf;
+  FILE *fil = NULL;
+  int typ = cabLOO;
+  int len = 0;
+  int fmt = vab->Vblk & 0xffff;
+  if ( fmt && dbgC) {PUT("fmt=%o\n") ;}
+puts ("#vx_loo.a");
+  if (( vab->Afna[0] == rxNF)
+  ||(vab->Afna[0] == rxNF0)) {
+    if( !vab->Afna[1])return 1; }
+puts ("#vx_loo.b");
+  if ( vab->Pcab) {
+puts ("#vx_loo.c");
+    cab = vab->Pcab;
+    spc = cab->Aspc;
+    } else {
+puts ("#vx_loo.d");
+    rt_unp (vab->Afna, spc, -4);
+    if ( st_sam (spc, "VX0:PIP.SAV")) {
+      st_cop ("sy:pip.sav", spc); }
+    if( !vx_trn (vab, spc))return 0;
+puts ("#vx_loo.e");
+    if( vx_vax (vab))return 1;
+  } 
+  vab->Vfmt = 0;
+puts ("#vx_loo.f");
+  if ( !vab->Afna[1]) {
+    if ( !fi_gat (spc, NULL, NULL)) {
+       vab->Vsta = vxFNF;return 0; }
+puts ("#vx_loo.g");
+puts ("#vx_loo.h");
+    typ = cabDEV;
+    vab->Vlen = 0xffff;
+    } else {
+puts ("#vx_loo.i");
+    fil = fi_opn (spc, "rb+", NULL);
+    if( !fil){ vab->Vsta = vxFNF ; return 0;}
+puts ("#vx_loo.j");
+    len = fi_len (fil);
+    vab->Vlen = (len+511)/512;
+    vab->Vfmt = len&511; }
+puts ("#vx_loo.k");
+  cab = cab_cre (vab, fil, spc, cabLOO, 0);
+  vab->Vcid = cab->Vcid;
+  if ( fmt == vxMNT) {
+puts ("#vx_loo.l");
+    if ( dbgC) {PUT("per") ;}
+    cab->Vflg |= cabPER_; }
+  if ( typ == cabDEV) {
+    cab->Vtyp = cabREP; }
+  return 1;
+} 
+/* code -  vx_trn - fully translate logical names */
+vx_trn(
+vxTvab *vab ,
+char *spc )
+{ char log [mxSPC];
+  char trn [mxSPC];
+  char *col ;
+  char *src = spc;
+  char *dst ;
+  st_cop ("rt_", log);
+  st_app (spc, log);
+  if( (col = st_fnd (":", log)) == NULL)return 0;
+  *col = 0;
+  if ( ln_trn (log, trn, 0)) {
+     st_ins ("rt_", spc);return 1; }
+  if( ln_trn (log+3, trn, 0))return 1;
+   vab->Vsta = vxFNF;return 0;
+} 
+/* code -  vx_ent - enter */
+void tmp_ten (char *,char *,char *);
+vx_ent(
+vxTvab *vab )
+{ char buf [mxSPC];
+  char ten [mxSPC];
+  char *spc = buf;
+  FILE *fil = NULL;
+  int len = 0;
+  cabTcab *cab ;
+  char *ptr ;
+  vab->Vfmt = 0;
+  if ( vab->Pcab) {
+    cab = vab->Pcab;
+    spc = cab->Aspc;
+    } else {
+    rt_unp (vab->Afna, spc, -4);
+    if( !vx_trn (vab, spc))return 0; }
+  cab = cab_cre (vab, fil, spc, cabENT, 0);
+  if ( dbgC) {PUT("spc=[%s] tmp=[%s]\n", spc, cab->Atmp) ;}
+  tmp_ten (spc, ".ten", cab->Atmp);
+  if ( (fil = fi_opn (cab->Atmp, "wb+", NULL)) == 0) {
+    cab_dlc (cab, 0);
+     vab->Vsta = vxFNF;return 0; }
+  cab->Pfil = fil;
+  vab->Vcid = cab->Vcid;
+#if 0
+  cab_ten (spc, ten, ".ten");
+  fil = fi_opn (ten, "wb+", NULL);
+  if( !fil){ vab->Vsta = vxFNF ; return 0;}
+  cab = cab_cre (vab, fil, spc, cabENT, 0);
+  vab->Vcid = cab->Vcid;
+#endif 
+  if ( !vab->Vlen) {
+    vab->Vlen = 10000;
+  } else if ( vab->Vlen == 65535) {
+    vab->Vlen = 65000;
+  } 
+  return 1;
+} 
+/* code -  vx_rea - read */
+vx_rea(
+vxTvab *vab )
+{ cabTcab *cab ;
+  FILE *fil ;
+  char *buf = vxPbuf;
+  int blk = vab->Vblk & 0xffff;
+  int cnt = vab->Vtwc*2;
+  int fst = blk * 512;
+  int lst = fst + cnt;
+  int hgh =(lst+511)/512;
+  if( vx_sho (vab))return 1;
+  vab->Vlen = vab->Vdbc = 0;
+puts ("#vx_rea.a");
+  cab = cab_opn (vab->Vcid);
+  if( !cab){ PUT("$"), vx_her (vab) ; return 0;}
+  blk += cab->Vblk;
+puts ("#vx_rea.b");
+  vx_rta (vab, cab);
+puts ("#vx_rea.c");
+  if ( cab->Vtyp == cabREP) {
+    if( (cnt = cab_rea (cab, buf, blk, cnt)) == 0){ vx_eof (vab) ; return 0;}
+    vab->Vlen = cnt;
+    vab->Vdbc = cnt;
+    return 1; }
+puts ("#vx_rea.d");
+  fil = cab->Pfil;
+  if( !fil){ vx_her (vab) ; return 0;}
+  if (( cab->Vtyp == cabENT)
+  &&(hgh > cab->Vhgh)) {
+puts ("#vx_rea.e");
+    fi_see (fil, lst-1);
+    if( (fi_wri (fil, vxApad, 1)) == 0){ vx_her (vab) ; return 0;}
+    if( (fi_flu (fil)) == 0){ vx_her (vab) ; return 0;}
+    cab->Vhgh = hgh; }
+puts ("#vx_rea.f");
+  switch ( fi_prd (fil, buf, fst, cnt, NULL)) {
+  case fiERR:
+     vx_her (vab);return 0;
+   break; case fiEOF:
+     vx_eof (vab);return 1;
+   break; case fiPAR:
+  case fiSUC:
+    vab->Vlen = cnt;
+    vab->Vdbc = cnt;
+    return 1;
+     }
+} 
+/* code -  vx_wri - write */
+vx_wri(
+vxTvab *vab )
+{ cabTcab *cab ;
+  FILE *fil ;
+  char *buf = vxPbuf;
+  int blk = vab->Vblk;
+  int cnt = vab->Vtwc*2;
+  ULONG rem ;
+  int hgh ;
+  cab = cab_opn (vab->Vcid);
+  if( !cab){ vx_her (vab) ; return 0;}
+  if ( cab->Vtyp == cabREP) {
+    if( (cnt = cab_wri (cab, buf, blk, cnt)) != 0)return ( 1 );
+     vx_eof (vab);return 0; }
+  if ( cab->Vflg & cabRON_) {
+     vx_her (vab);return 0; }
+  fil = cab->Pfil;
+  blk += cab->Vblk;
+  if( !fil){ vx_her (vab) ; return 0;}
+  if( (fi_see (fil, blk*512)) == 0){ vx_eof (vab) ; return 0;}
+  if( (fi_wri (fil, buf, cnt)) == 0){ vx_her (vab) ; return 0;}
+  if( (fi_flu (fil)) == 0){ vx_her (vab) ; return 0;}
+  vab->Vlen = cnt;
+  if ( (rem = cnt & 511) != 0) {
+    if( (fi_wri (fil, vxApad, 512-rem)) == 0){ vx_her (vab) ; return 0;}
+    if( (fi_flu (fil)) == 0){ vx_her (vab) ; return 0;} }
+  hgh = blk + ((cnt+511)/512);
+  if ( hgh > cab->Vhgh) {cab->Vhgh = hgh ;}
+  return 1;
+} 
+/* code -  vx_clo - close */
+vx_prg(
+vxTvab *vab )
+{ cab_pur (vab->Vcid);
+} 
+vx_clz(
+vxTvab *vab )
+{ vx_clo (vab);
+} 
+vx_clo(
+vxTvab *vab )
+{ FILE *fil ;
+  if ( !vab->Vlen || (vab->Vlen == -1)) {
+    cab_pur (vab->Vcid);
+    } else {
+    cab_ext (vab->Vcid, vab->Vlen);
+    if( (cab_clo (vab->Vcid)) == 0){ vab->Vsta = vxFNF ; return 0;} }
+  return 1;
+} 
+/* code -  vx_del - delete */
+vx_del(
+vxTvab *vab )
+{ cabTcab *cab ;
+  char buf [mxSPC];
+  FILE *fil = NULL;
+  char *spc = buf;
+  int len = 0;
+  rt_unp (vab->Afna, spc, -4);
+  if (( st_sam (spc,"VX7:SRESET.JOB"))
+  ||(st_sam (spc,"VX7:JRESET.JOB"))) {
+     cab_eli (vab, cabIRS);return 1; }
+  if ( vab->Pcab) {
+    cab = vab->Pcab;
+    spc = cab->Aspc;
+    } else {
+    if( !vx_trn (vab, spc))return 0; }
+  vab->Vfmt = 0;
+  if( (cab_del (spc)) == 0){ vab->Vsta = vxFNF ; return 0;}
+  return 1;
+} 
+/* code -  vx_ren - rename */
+vx_ren(
+vxTvab *vab )
+{ vxTnam *nam = (vxTnam *)vab;
+  cabTcab *cab ;
+  char src [mxSPC];
+  char dst [mxSPC];
+  char tmp [mxSPC];
+  int bak = 0;
+  FILE *fil = NULL;
+  int len = 0;
+  if ( vab->Pcab) {
+    cab = vab->Pcab;
+    st_cop (cab->Aspc, src);
+    rt_unp (vab->Afna+1, st_end (src), -3);
+    st_cop (cab->Aspc, dst);
+    rt_unp (nam->Afnb+1, st_end (dst), -3);
+    } else {
+    rt_unp (vab->Afna, src, -4);
+    if( !vx_trn (vab, src))return 0;
+    nam->Afnb[0] = vab->Afna[0];
+    rt_unp (nam->Afnb, dst, -4);
+    if( !vx_trn (vab, dst))return 0; }
+  vab->Vfmt = 0;
+  if( (cab_ren (src, dst)) != 0)return ( 1 );
+  if ( vxFtra) {PUT("Rename failed: src=[%s] dst=[%s]\n", src, dst) ;}
+   vab->Vsta = vxFNF;return 0;
+} 
+/* code -  vx_inf - get/set file info */
+vx_inf(
+vxTvab *vab )
+{ 
+  vx_her (vab);
+} 
+/* code -  vx_wlk - directory walk */
+vx_wlk(
+vxTvab *vab )
+{ char buf [mxSPC];
+  char *spc = buf;
+  cabTcab *cab = NULL;
+  int flg = vab->Vflg & (vxSUB_|vxWLK_);
+  char *ptr = spc;
+  switch ( flg) {
+  case vxWLK_:
+    rt_unp (vab->Afna, spc, 1);
+    ptr = st_end (spc);
+    *ptr++ = ':';
+    *ptr = 0;
+    if( (vx_trn (vab, spc)) == 0)break;
+    ptr = st_end (spc);
+    if( !vx_dir (spc))break;
+    *ptr++ = '\\';
+    rt_unp (vab->Afna+1, ptr, 2);
+    ptr = st_end (spc);
+    if( !vx_dir (spc))break;
+    *ptr++ = '\\';
+    *ptr = 0;
+    cab = cab_cre (vab, NULL, spc, cabLOO, 0);
+    vab->Vcid = cab->Vcid;
+    return 1;
+   break; case vxWLK_|vxSUB_:
+    if( (cab = cab_map (vab->Vcid)) == 0)break;
+    spc = cab->Aspc;
+    ptr = st_end (spc);
+    rt_unp (vab->Afna+1, ptr, 2);
+    ptr = st_end (spc);
+    *ptr++ = '\\';
+    *ptr = 0;
+    if( vx_dir (spc))return 1;
+    break;
+   break; case vxSUB_:
+    if( (cab = cab_map (vab->Vcid)) == 0)break;
+    if ( vab->Vfun == vxREN) {
+       vab->Pcab = cab;return 0; }
+    spc = cab->Aspc;
+    ptr = st_end (spc);
+    if (( vab->Afna[1])
+    &&(vab->Afna[3] != rx_DR)) {
+      rt_unp (vab->Afna+1, ptr, -3);
+      } else {
+      vab->Afna[1] = 0; }
+    vab->Pcab = cab;
+    return 0;
+   break; default: 
+    return 0;
+     }
+  if ( cab) {cab_dlc (cab, cabNRS) ;}
+   vx_eof (vab);return 1;
+} 
+vx_dir(
+char *spc )
+{ int atr ;
+  if( (fi_gat (spc, &atr, NULL)) == 0)return ( 0 );
+  return 1;
+  return ( atr & fiDIR_);
+} 
+/* code -  vx_dsk - disk operations */
+FILE *vxAdsk [8];
+char vxAzer [512]= {0};
+FILE *vx_mnt (int ,int );
+vx_dsk(
+vxTvab *vab )
+{ int uni = 1;
+  ULONG blk = vab->Vblk;
+  char *buf = vxPbuf;
+  ULONG cnt = vab->Vtwc*2;
+  FILE *fil = vx_mnt (1, 0);
+  ULONG rem ;
+  int err = 0;
+  if( !fil){ vx_her (vab) ; return;}
+  switch ( vab->Vfun) {
+  case vxREA:
+    if( !fi_see (fil, blk * 512)){ ++err ; break;}
+    if( !fi_rea (fil, buf, cnt)){ ++err ; break;}
+    vab->Vlen = cnt;
+    vab->Vdbc = cnt;
+   break; case vxWRI:
+    if( !fi_see (fil, blk * 512)){ ++err ; break;}
+    if( !fi_wri (fil, buf, cnt)){ ++err ; break;}
+    if( !(cnt & 511))break;
+    rem = 512 - (cnt & 511);
+    if( !fi_wri (fil, vxAzer, rem)){ ++err ; break;}
+     }
+  if( err){ vx_her (vab) ; return 0;}
+  return 1;
+} 
+FILE *vx_mnt(
+int uni ,
+int upd )
+{ char spc [mxLIN];
+  FILE *(*dsk );
+  int idx ;
+  if ( ev_chk (evDEV)) {
+    if ( vxFdbg|vxFtra) {PUT("%NF-I-Disk change\n") ;}
+    ++upd; }
+  dsk = vxAdsk, idx = 0;
+  while ( upd && idx != 8) {
+    if ( *dsk) {fi_clo (*dsk, NULL) ;}
+    ++idx, ++dsk;
+  } 
+  if ( !vxAdsk[uni]) {
+    FMT(spc, "ND%c:", '0'+uni);
+    if ( (vxAdsk[uni] = fi_opn (spc, "rb+", NULL)) == 0 && (vxFdbg|vxFtra)) {
+      PUT("%%NF-W-Disk volume not found [%s]\n", spc); } }
+  return ( vxAdsk[uni]);
+} 
+/* code -  vx_sho - read server info */
+#include "f:\m\rid\tidef.h"
+#define vxTsho struct vxTsho_t 
+struct vxTsho_t
+{ elTwrd Vgua ;
+  elTwrd Vtok ;
+  elTwrd Vlen ;
+  elTwrd Vyea ;
+  elTwrd Vmon ;
+  elTwrd Vday ;
+  elTwrd Vhou ;
+  elTwrd Vmin ;
+  elTwrd Vsec ;
+  elTwrd Vmil ;
+  elTwrd Vzon ;
+  elTwrd Vdst ;
+  elTwrd Vcpu ;
+  elTwrd Vops ;
+  char Aser [12];
+   };
+vxSHO = (cabFST|cabSHO)<<cabSHF;
+vx_sho(
+vxTvab *vab )
+{ vxTsho *sho = (void *)vxPbuf;
+  tiTval val ;
+  tiTplx clk ;
+  if( vab->Vcid != vxSHO)return 0;
+  sho->Vgua = -1;
+  sho->Vlen =  sizeof(vxTsho);
+  ti_clk (&val);
+  ti_plx (&val, &clk);
+  sho->Vyea = clk.Vyea;
+  sho->Vmon = clk.Vmon + 1;
+  sho->Vday = clk.Vday;
+  sho->Vhou = clk.Vhou;
+  sho->Vmin = clk.Vmin;
+  sho->Vsec = clk.Vsec;
+  sho->Vmil = clk.Vmil;
+  sho->Vdst = clk.Vdst;
+  sho->Vcpu = 0;
+  sho->Vops = 0;
+  st_cop ("ANON", sho->Aser);
+  vab->Vlen = 128;
+  vab->Vdbc = 128;
+  return 1;
+} 
+/* code -  vx_rta - check RT-11 directory */
+vx_rta(
+vxTvab *vab ,
+cabTcab *cab )
+{ cabTrep *rep ;
+  drTdir *dir ;
+  drTent *ent ;
+  elTwrd buf [1024]= {0};
+  elTwrd *seg ;
+  char *spc ;
+  elTwrd fna [4];
+  int len = 0;
+  int blk = 6;
+  int nxt = 1;
+  int nth = 0;
+  int tim ;
+  int rem ;
+  int dat ;
+  ULONG siz ;
+  ULONG acc ;
+  if (( vab->Vblk > 6)
+  ||(cab->Vtyp != cabREP)
+  ||(cab->Vflg & cabDIR_)) {
+    return 0; }
+  fi_flu (NULL);
+  if( (dir = dr_scn (cab->Aspc, drNOR_,drNAM)) == 0)return ( 0 );
+  cab->Vflg |= cabRON_|cabRTA_|cabDIR_;
+  vab->Vcid = cab->Vcid;
+  vab->Vlen = 100;
+  acc = 6 + (31 * 2);
+  seg = buf, nth = 0;
+  while ( (ent = dr_nxt (dir)) != 0) {
+    if( st_fnd ("/", ent->Pnam))continue;
+    spc = rt_spc (ent->Pnam, fna+1, 1, 3);
+    if( *spc)continue;
+    if ( ent->Vatr & drDIR_) {fna[3] = rxDIR ;}
+    if ( nth == 0) {
+      *seg++ = 31;
+      if( nxt == 32)break;
+      *seg++ = ++nxt;
+      *seg++ = 31;
+      *seg++ = 0;
+      *seg++ = acc; }
+    rt_tim (&ent->Itim,&tim,&rem);
+    rt_dat (&ent->Itim, &dat, 1);
+    siz = (ent->Vsiz + 511) >> 9;
+    acc += siz;
+    *seg++ = 02000;
+    *seg++ = fna[1];
+    *seg++ = fna[2];
+    *seg++ = fna[3];
+    *seg++ = siz;
+    *seg++ = tim;
+    *seg++ = dat;
+    if( ++nth != 71)continue;
+    *seg = 04000;
+    cab_rep (cab, buf, blk, 1024);
+    me_clr (buf, 1024);
+    seg = buf, blk += 2, nth = 0;
+  } 
+  if ( nth == 0) {
+    seg = buf;
+    *seg++ = 31;
+    *seg++ = 0;
+    *seg++ = nxt;
+    *seg++ = 0;
+    *seg++ = acc;
+    *seg++ = 01000;
+    *seg++=0, *seg++=0, *seg++=0;
+    *seg++=0, *seg++=0, *seg++=0;
+    *seg = 04000;
+    } else {
+    buf[1] = 0;
+    *seg = 04000; }
+  cab_rep (cab, buf, blk, 1024);
+  rep = cab_loc (cab, 6);
+  rep->Abuf[4] = nxt;
+  dr_dlc (dir);
+  return 1;
+} 
+/* code -  vx_vax - check VAX directory */
+vx_vax(
+vxTvab *vab )
+{ cabTcab *cab ;
+  cabTrep *rep ;
+  drTdir *dir ;
+  drTent *ent ;
+  elTwrd buf [256]= {0};
+  elTwrd *seg ;
+  char spc [20];
+  int len = 0;
+  int alc ;
+  int sum ;
+  int blk = 0;
+  int nth = 0;
+  int rem ;
+  if (( vab->Afna[0] == rxVX7)
+  &&(vab->Afna[2] == rxDIR)) {
+    } else {
+    if( vab->Afna[3] != rx_DR)return 0; }
+  rt_unp (vab->Afna+1, spc, 1);
+  st_app (":", spc);
+  if( !vx_trn (vab, spc))return 0;
+  if( (dir = dr_scn (spc, drNOR_,drNAM)) == 0)return ( 0 );
+  cab = cab_cre (vab, NULL, spc, cabREP, cabRON_|cabVAX_);
+  vab->Vcid = cab->Vcid;
+  seg = buf, rem = 512;
+  while ( (ent = dr_nxt (dir)) != 0) {
+    len = st_len (ent->Pnam);
+    if( ent->Vatr & drDIR_)continue;
+    alc = (len + 1) & ~(1);
+    sum = 6 + alc + 8;
+    if ( sum >= (rem - 2)) {
+      while ( rem) {*seg++ = -1, rem -= 2 ;}
+      cab_rep (cab,buf,blk,512);
+      ++blk;
+      me_clr (buf, 512);
+      seg = buf, rem = 512; }
+    rem -= sum;
+    *seg++ = 4 + alc + 8;
+    *seg++ = 0, *seg++ = len<<8;
+    st_upr (ent->Pnam);
+    me_cop (ent->Pnam, seg, len);
+    seg += alc / 2;
+    *seg++ = 1, *seg++ = 0;
+    *seg++ = 0, *seg++ = 0;
+  } 
+  if ( rem < 512) {
+    while ( rem) {*seg++ = -1, rem -= 2 ;}
+    cab_rep (cab,buf,blk,512); }
+  vab->Vlen = blk + 1;
+  dr_dlc (dir);
+  return 1;
+} 
+/* code -  vx_rep - report vab */
+#define rpNOP  0
+#define rpTRN  1
+#define rpDIR  2
+#define rpCLO  3
+#define vxTrep struct vxTrep_t 
+struct vxTrep_t
+{ int Vcas ;
+  char *Pdsc ;
+   };
+vxTrep vxArep [] =  {
+  rpNOP, "Abort",
+  rpTRN, "Read",
+  rpTRN, "Write",
+  rpDIR, "Lookup",
+  rpDIR, "Enter",
+  rpCLO, "Close",
+  rpDIR, "Delete",
+  rpDIR, "Rename",
+  rpCLO, "Purge",
+  rpDIR, "Info",
+  rpCLO, "Cloze",
+  rpDIR, "Invalid",
+  };
+void vx_rep(
+vxTvab *vab ,
+BYTE *buf ,
+int snd )
+{ cabTcab *cab ;
+  char spc [mxSPC];
+  BYTE *ptr ;
+  int cnt ;
+  int cas ;
+  if ( (vab->Vfun&0xFF) >= vxMAX) {
+    cas = vxMAX;
+    } else {
+    cas = vxArep[vab->Vfun].Vcas; }
+  PUT("%s ", vxArep[vab->Vfun].Pdsc);
+  if ( cas == vxMAX) {PUT("fun=%d. ", vab->Vfun&0xFF) ;}
+  if ( vab->Vflg) {PUT("flg=0%o ", vab->Vflg & 0xff) ;}
+  if ( vab->Vvid) {PUT("vid=%d ", vab->Vvid) ;}
+  if ( vab->Vcid) {PUT("cid=0%o ", vab->Vcid) ;}
+  if ( vab->Vsta) {PUT("sta=0%o ", vab->Vsta) ;}
+  if ( cas == rpDIR) {
+    if ( vab->Afna[0] || vab->Afna[1] || vab->Afna[2] || vab->Afna[3]) {
+      rt_unp (vab->Afna, spc, -4);
+      PUT("fna=[%s] ", spc); }
+    if (( vab->Vfun == vxREN)
+    &&((vab->Afna[4] || vab->Afna[5] || vab->Afna[6] || vab->Afna[7]))) {
+      rt_unp (vab->Afna+4, spc, -4);
+      PUT("fnb=[%s] ", spc); }
+  } 
+  if (( cas == rpTRN)
+  &&((cab = cab_opn (vab->Vcid)) != 0)) {
+    PUT("%s ", cab->Aspc); }
+  if ( vab->Vblk) {PUT("blk=%d ", vab->Vblk) ;}
+  if ( cas == rpTRN) {
+    if ( vab->Vrwc) {PUT("rwc=") ;}
+    if ( vab->Vrwc != vab->Vtwc) {
+      if ( vab->Vrwc) {PUT("%d ", vab->Vrwc) ;} }
+    if ( vab->Vtwc) {PUT("twc=%d ", vab->Vtwc) ;}
+  } 
+  if ( vab->Vlen != vab->Vdbc) {
+    if ( vab->Vlen) {PUT("len=%d ", vab->Vlen) ;} }
+  if ( vab->Vdbc) {PUT("dbc=%d ", vab->Vdbc) ;}
+  if ( cas == rpDIR) {
+    if ( vab->Vfmt) {PUT("fmt=0%o ", vab->Vfmt) ;}
+    if ( !snd) {
+      if ( vab->Vjid) {PUT("prc=%d ", vab->Vjid & 0xff) ;}
+      if ( vab->Vjcn) {PUT("chn=%d ", vab->Vjcn & 0xff) ;} }
+  } 
+  if ( cas == rpCLO) {
+    PUT("act=%d", cabVact);
+  } 
+  if ( vxFdmp) {
+    PUT("\n     ");
+    ptr = buf + 14 , cnt = 16;
+    while ( cnt--) {PUT("%2x ", *ptr++ & 0xff) ;}
+    cnt = 16;
+    PUT("\n     ");
+    while ( cnt--) {PUT("%2x ", *ptr++ & 0xff) ;}
+    cnt = 16;
+    PUT("\n     ");
+    while ( cnt--) {PUT("%2x ", *ptr++ & 0xff) ;} }
+  PUT("\n");
+} 

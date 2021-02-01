@@ -1,0 +1,147 @@
+/* file -  rgmod - registry operations */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\imdef.h"
+#include "f:\m\rid\mxdef.h"
+#include "f:\m\rid\stdef.h"
+#include <windows.h>
+#include "f:\m\rid\dbdef.h"
+#include "f:\m\rid\rgdef.h"
+dbg$c=0;
+#define rgTkey struct rgTkey_t 
+struct rgTkey_t
+{ rgTkey *Ppar ;
+  char *Pnam ;
+  HKEY Hkey ;
+   };
+#define rgTval struct rgTval_t 
+struct rgTval_t
+{ rgTkey *Pkey ;
+  char *Pnam ;
+  char *Pdef ;
+  int Vlen ;
+  char *Pbuf ;
+   };
+#define rgUNK  0
+#define rgRST  1
+#define rgLOG  2
+rgTkey rgKloc = {0, 0, HKEY_LOCAL_MACHINE};
+rgTkey rgKrst = {&rgKloc, "SOFTWARE\\Rust", };
+rgTval rgIroo = {&rgKrst, "Root", "C:\\Rust", 64};
+rgTval rgIdef = {&rgKrst, "Default", "C:\\Rust", 64};
+int rgVsta = -1;
+int rg_cre (rgTkey *,rgTval *);
+int rg_rea (rgTval *);
+int rg_wri (rgTval *,char *);
+int rg_del (rgTval *,char *);
+rg_enu (rgTval *,int ,char *,ULONG );
+/* code -  rg_get - get environment variable */
+int rg_get(
+char *nam ,
+char *str ,
+int len )
+{ char log [mxLIN];
+  rgTval val = {0};
+  st_fit (nam, log, mxLIN);
+  st_low (log);
+  val.Pkey = &rgKrst;
+  val.Pnam = log;
+  val.Pbuf = str;
+  val.Vlen = len;
+  return ( rg_rea (&val));
+} 
+/* code -  rg_set - set environment variable */
+rg_set(
+char *nam ,
+char *str )
+{ char log [mxLIN];
+  char equ [mxLIN];
+  rgTval val = {0};
+  st_fit (nam, log, mxLIN), st_low (log);
+  st_fit (str, equ, mxLIN), st_low (equ);
+  val.Pkey = &rgKrst;
+  val.Pnam = log;
+  return ( rg_wri (&val, equ));
+} 
+/* code -  rg_und - undefine environment variable */
+rg_und(
+char *nam )
+{ char loc [mxLIN];
+  rgTval val = {0};
+  st_fit (nam, loc, mxLIN), st_low (loc);
+  val.Pkey = &rgKrst;
+  val.Pnam = nam;
+  return ( rg_del (&val, nam));
+} 
+/* code -  rg_nth - get nth entry */
+rg_nth(
+int nth ,
+char *res ,
+int len )
+{ rgTval val = {0};
+  val.Pkey = &rgKrst;
+  val.Pnam = res;
+  return ( rg_enu (&val, nth, res, len));
+} 
+/* code -  rg_ini - init registry */
+rg_ini()
+{ if( rgVsta != -1)return ( rgVsta );
+  rgVsta = 1;
+  if (( rg_cre (&rgKrst, &rgIroo))
+  &&(rg_cre (&rgKrst, &rgIdef))) {
+    return 1; }
+   rgVsta = 0;return 0;
+} 
+rg_cre(
+rgTkey *key ,
+rgTval *val )
+{ rgTkey *par = key->Ppar;
+  int res ;
+  if (( RegOpenKeyEx (par->Hkey, key->Pnam,0, 0, &key->Hkey) != ERROR_SUCCESS)
+  &&(RegCreateKeyEx (par->Hkey, key->Pnam,0, NULL, REG_OPTION_NON_VOLATILE,KEY_QUERY_VALUE|KEY_WRITE|KEY_NOTIFY|KEY_ENUMERATE_SUB_KEYS,NULL, &key->Hkey, NULL) != ERROR_SUCCESS)) {
+    db_lst ("cre");
+    return 0; }
+  if ( !rg_rea (val)) {rg_wri (val, val->Pdef) ;}
+  return 1;
+} 
+rg_rea(
+rgTval *val )
+{ rgTkey *key = val->Pkey;
+  ULONG len = val->Vlen;
+  int err ;
+  if( !rg_ini ())return 0;
+  err = RegQueryValueEx (key->Hkey,val->Pnam, NULL, NULL,(LPBYTE )val->Pbuf, &len);
+  if ( err != ERROR_SUCCESS) {
+    return 0; }
+  if( !val->Pbuf)return 1;
+  if( len >= val->Vlen-1)return 0;
+  val->Pbuf[len] = 0;
+  return 1;
+} 
+rg_wri(
+rgTval *val ,
+char *str )
+{ rgTkey *key = val->Pkey;
+  if( !rg_ini ())return 0;
+  if ( !RegSetValueEx (key->Hkey,val->Pnam, 0, REG_SZ,(LPBYTE )str, st_len (str) +1)) {
+    return 0; }
+  return 1;
+} 
+rg_del(
+rgTval *val ,
+char *nam )
+{ rgTkey *key = val->Pkey;
+  if( !rg_ini ())return 0;
+  if( RegDeleteValue (key->Hkey, val->Pnam))return 0;
+  return 1;
+} 
+rg_enu(
+rgTval *val ,
+int idx ,
+char *nam ,
+ULONG len )
+{ rgTkey *key = val->Pkey;
+  int err ;
+  if( !rg_ini ())return 0;
+  if( (err = RegEnumValue (key->Hkey,idx, nam, &len,NULL, NULL, NULL, 0)) == 0)return 1;
+  return 0;
+} 

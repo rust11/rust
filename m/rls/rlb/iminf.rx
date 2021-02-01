@@ -1,0 +1,84 @@
+/* file -  iminf */
+#include "m:\rid\wimod.h"
+#include "m:\rid\iminf.h"
+#include "m:\rid\mxdef.h"
+#include "m:\rid\medef.h"
+#include "m:\rid\fidef.h"
+#include "m:\rid\stdef.h"
+#include "m:\rid\dbdef.h"
+/* code -  im_opn - open image */
+im_opn(
+imTinf *img ,
+char *spc ,
+int *rea )
+{ char loc [mxSPC];
+  DWORD siz ;
+  DWORD han ;
+  fi_loc (spc, loc);
+  if ( (siz = GetFileVersionInfoSize (loc, &han)) == 0) {
+    if ( GetLastError() == ERROR_FILE_NOT_FOUND) {*rea = imFNF ;} else {
+      *rea = imFMT ; }
+    return 0;
+  } 
+  if ( !img->Linf) {
+    siz += 1024;
+    img->Pinf = me_alc (siz);
+    img->Linf = siz;
+    siz -= 1024;
+  } else if ( img->Linf < siz) {
+    img->Pinf = me_ral (img->Pinf, siz);
+    img->Linf = siz; }
+  if( (GetFileVersionInfo (loc, han, siz, img->Pinf)) == 0){ *rea = imFMT ; return 0;}
+  return 1;
+} 
+/* code -  im_clo - close image */
+im_clo(
+imTinf *img )
+{ if( !img || !img->Linf)return 1;
+  me_dlc (img->Pinf);
+  img->Linf = 0;
+  return 1;
+} 
+/* code -  im_que - query image */
+#define _imPRE  TEXT("\\StringFileInfo\\040904e4\\")
+im_que(
+imTinf *img ,
+char *hdr ,
+char *buf )
+{ char tit [mxLIN];
+  char *res = img->Ares;
+  char *ptr ;
+  UINT siz ;
+  st_cop (_imPRE, tit);
+  st_app (hdr, tit);
+  if( (VerQueryValue (img->Pinf, tit, &(void *)ptr, &siz)) == 0)return ( 0 );
+  st_fit (ptr, res, ((siz < mxLIN) ? siz: mxLIN));
+  st_col (res, res);
+  if ( buf) {st_cop (res, buf) ;}
+  return 1;
+} 
+/* code -  im_dsc - get description */
+#define _imCMP  "CompanyName"
+#define _imDSC  "FileDescription"
+#define _imVER  "FileVersion"
+#define _imIDT  "InternalName"
+#define _imCPY  "LegalCopyright"
+#define _imSPC  "OriginalFilename"
+#define _imPRD  "ProductName"
+#define _imPRV  "ProductVersion"
+#define INF(s,i)  FMT(st_end(res), s, im_que (img, (i), NULL))
+im_dsc(
+imTinf *img ,
+char *spc ,
+int *rea )
+{ int res ;
+  if( !im_opn (img, spc, rea))return 0;
+  im_que (img, _imIDT, img->Aidt);
+  im_que (img, _imDSC, img->Adsc);
+  im_que (img, _imSPC, img->Aspc);
+  im_que (img, _imVER, img->Aver);
+  im_que (img, _imPRD, img->Aprd);
+  im_que (img, _imPRV, img->Aprv);
+  im_que (img, _imCMP, img->Acmp);
+  return 1;
+} 

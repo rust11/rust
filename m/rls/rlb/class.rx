@@ -1,0 +1,60 @@
+/* code -  cl_ass - assemble and vector command */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\cldef.h"
+#include "f:\m\rid\ctdef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\mxdef.h"
+#include "f:\m\rid\stdef.h"
+static int cl_ptr (int ,char *,int ,char *,char **);
+/* code -  cl_ass - assemble command line from vector */
+int cl_ass(
+char *str ,
+int cnt ,
+char *(*vec ))
+{ 
+#if Wnt
+  char buf [mxLIN];
+  char *cmd = buf;
+  if( (cl_lin (cmd)) == 0)return ( 0 );
+  st_cop (cmd, str);
+  return 1;
+#else 
+  return ( cl_mrg (str, cnt, vec));
+#endif 
+} 
+/* code -  cl_mrg - merge command line from vector */
+int cl_mrg(
+register char *str ,
+int cnt ,
+char *(*vec ))
+{ int nth = 0;
+  ++vec, --cnt;
+  *str = 0;
+  while ( cnt--) {
+    if( ((st_len (*vec) + st_len (str)) + 2) >= mxLIN)return 0;
+    if ( nth++) {st_app (" ", str) ;}
+    st_app (*vec++, str);
+  } 
+  return 1;
+} 
+/* code -  cl_vec - convert to string vector */
+int cl_vec(
+char *str ,
+int *cnt ,
+char *(*(*ptr )))
+{ int nth = 0;
+  register char *(*vec )= *ptr;
+  char buf [256];
+  if ( vec == NULL) {
+    vec = me_alc (33 *  sizeof(char *));
+    *ptr = vec; }
+  *cnt = 0;
+  *vec = st_dup ("");
+  for(;;)  {
+    *vec = NULL, *cnt = nth;
+    if( nth == 32)return 0;
+    if( (cl_nth (nth++, str, buf)) == 0)return 1;
+    *vec++ = st_dup (buf);
+  } 
+  return 1;
+} 

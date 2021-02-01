@@ -1,0 +1,170 @@
+/* file -  evmod - environment operations */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\evdef.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\imdef.h"
+#include "f:\m\rid\mxdef.h"
+#include "f:\m\rid\stdef.h"
+#include <windows.h>
+#include "f:\m\rid\dbdef.h"
+#define evTkey struct evTkey_t 
+struct evTkey_t
+{ evTkey *Ppar ;
+  int Vcod ;
+  char *Pnam ;
+  HKEY Hkey ;
+  HANDLE Hevt ;
+  ULONG Vdis ;
+   };
+#define evTval struct evTval_t 
+struct evTval_t
+{ evTkey *Pkey ;
+  char *Pnam ;
+  char *Pdef ;
+  int Vlen ;
+  char *Pbuf ;
+   };
+evTkey evKloc = {0, evUNK, 0, HKEY_LOCAL_MACHINE};
+evTkey evKrst = {&evKloc, evRST, "SOFTWARE\\Rust", };
+evTkey evKlog = {&evKrst, evLOG, "Logicals"};
+evTkey evKcmd = {&evKrst, evCMD, "Commands"};
+evTkey evKdev = {&evKrst, evDEV, "Devices"};
+evTval evIroo = {&evKrst, "Root", "C:\\Rust", 64};
+evTval evIdef = {&evKrst, "Default", "C:\\Rust", 64};
+evTval evIlog = {&evKlog, "Update", "1", 8};
+evTval evIcmd = {&evKcmd, "Update", "1", 8};
+evTval evIdev = {&evKdev, "Update", "1", 8};
+evTval *evAval [] =  {
+  NULL,
+  &evIroo,
+  &evIdev,
+  &evIlog,
+  &evIcmd,
+  &evIdef,
+  };
+int evVsta = -1;
+int ev_cre (evTkey *,evTval *);
+int ev_rea (evTval *);
+int ev_wri (evTval *,char *);
+int ev_wat (evTkey *);
+int ev_trg (int );
+/* code -  ev_get - get environment variable */
+int ev_get(
+char *nam ,
+char *buf ,
+int len )
+{ evTval val = {0};
+  val.Pkey = &evKrst;
+  val.Pnam = nam;
+  val.Pbuf = buf;
+  val.Vlen = len;
+  return ( ev_rea (&val));
+} 
+/* code -  ev_set - set environment variable */
+ev_set(
+char *nam ,
+char *str )
+{ char loc [mxLIN];
+  evTval val = {0};
+  st_cop (nam, loc), st_low (loc);
+  if ( st_sam (loc, "root")) {
+    st_cop (str, loc);
+    if ( *st_lst (loc) != '\\') {st_app ("\\", loc) ;}
+    st_app ("roll.def", loc);
+    fi_loc (loc, loc);
+    if ( !fi_exs (loc, NULL)) {
+       im_rep ("E-Invalid root [%s]", str);return 0; }
+    fi_def (str, "c:", loc);
+    str = loc; }
+  val.Pkey = &evKrst;
+  val.Pnam = nam;
+  return ( ev_wri (&val, str));
+} 
+/* code -  ev_ins - instantiate registry */
+ev_ins()
+{ if( evVsta != -1)return ( evVsta );
+  evVsta = 1;
+  if (( ev_cre (&evKrst, &evIroo))
+  &&(ev_cre (&evKrst, &evIdef))
+  &&(ev_cre (&evKlog, &evIlog))
+  &&(ev_cre (&evKcmd, &evIcmd))
+  &&(ev_cre (&evKdev, &evIdev))) {
+    return 1; }
+   evVsta = 0;return 0;
+} 
+ev_cre(
+evTkey *key ,
+evTval *val )
+{ evTkey *par = key->Ppar;
+  int res ;
+  if (( RegOpenKeyEx (par->Hkey, key->Pnam,0, 0, &key->Hkey) != ERROR_SUCCESS)
+  &&(RegCreateKeyEx (par->Hkey, key->Pnam,0, NULL, REG_OPTION_NON_VOLATILE,KEY_QUERY_VALUE|KEY_WRITE|KEY_NOTIFY, NULL,&key->Hkey, &key->Vdis) != ERROR_SUCCESS)) {
+    return 0; }
+  if ( !ev_rea (val)) {ev_wri (val, val->Pdef) ;}
+  ev_wat (key);
+  return 1;
+} 
+ev_rea(
+evTval *val )
+{ evTkey *key = val->Pkey;
+  ULONG len = val->Vlen;
+  int err ;
+  if( !ev_ins ())return 0;
+  err = RegQueryValueEx (key->Hkey,val->Pnam, NULL, NULL,(LPBYTE )val->Pbuf, &len);
+  if ( err != ERROR_SUCCESS) {
+     db_rep ("rea", err);return 0; }
+  if( !val->Pbuf)return 1;
+  if( len >= val->Vlen)return 0;
+  val->Pbuf[len] = 0;
+  return 1;
+} 
+ev_wri(
+evTval *val ,
+char *str )
+{ evTkey *key = val->Pkey;
+  int sig = evFST;
+  if( !ev_ins ())return 0;
+  if( RegSetValueEx (key->Hkey,val->Pnam, 0, REG_SZ,(LPBYTE )str, st_len (str) +1))return 0;
+  if( !st_sam (val->Pnam, "Root"))return 1;
+  while ( sig <= evLST) {ev_trg (sig++) ;}
+  return 1;
+} 
+/* code -  watch and check entity changed */
+ev_wat(
+evTkey *key )
+{ if( key->Vcod == evUNK)return 1;
+  if ( !key->Hevt) {
+    key->Hevt = CreateEvent (NULL, 0, 0, NULL); }
+  if( !key->Hevt)return 0;
+  RegNotifyChangeKeyValue (key->Hkey, 0,REG_NOTIFY_CHANGE_LAST_SET, key->Hevt, 1);
+} 
+ev_chk(
+int cod )
+{ evTval *val = evAval[cod];
+  evTkey *key = val->Pkey;
+  int res ;
+  if( !ev_ins ())return 0;
+  if( !key->Hevt)return 0;
+  res = WaitForSingleObjectEx (key->Hevt, 0,0);
+  if ( res == WAIT_OBJECT_0) {
+    ev_wat (key);
+    return 1;
+  } else if ( res == WAIT_TIMEOUT) {
+    return 0;
+    } else {
+    return 0;
+  } 
+} 
+ev_sig(
+int cod )
+{ ev_trg (cod);
+  ev_chk (cod);
+} 
+ev_trg(
+int cod )
+{ evTval *val = evAval[cod];
+  evTkey *key = val->Pkey;
+  if( !key->Hevt)return 0;
+  ev_wri (val, "0");
+  ev_wri (val, "1");
+} 

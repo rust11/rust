@@ -1,0 +1,34 @@
+/* file -  clwin - windows calls */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\cldef.h"
+#include "f:\m\rid\stdef.h"
+#include <windows.h>
+/* code -  cl_dir - get directory out of the command line */
+cl_dir(
+char *dir )
+{ char buf [256];
+  char *ptr = buf;
+  char *lst = buf;
+  char *fst = buf;
+  *dir = 0;
+  if( (cl_lin (buf)) == 0)return ( 0 );
+  if ( *ptr == '"') {++ptr, ++fst ;}
+  while ( *ptr && *ptr != ' ') {
+    if ( *ptr == '\\') {lst = ptr ;}
+    ++ptr;
+    if ( *ptr == '"') {*ptr = ' ';}
+  } 
+  if( !lst)return 0;
+  lst[1] = 0;
+  st_cop (fst, dir);
+} 
+cl_lin(
+char *lin )
+{ char *cmd ;
+  *lin = 0;
+  cmd = GetCommandLine ();
+  if( (cmd = st_fnd (" ", cmd)) == 0)return ( 0 );
+  if ( *cmd == ' ') {++cmd ;}
+  st_cop (cmd, lin);
+  return 1;
+} 

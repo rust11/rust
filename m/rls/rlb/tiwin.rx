@@ -1,0 +1,159 @@
+#define timC  0
+/* file -  tiwin - Windows time routines */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\tidef.h"
+#include "f:\m\rid\tiwin.h"
+/* code -  ti_cpu - get cpu ticks */
+#define tiKcps  1000
+ti_cpu(
+tiTcpu *cpu )
+{ int val = GetTickCount ();
+  if ( cpu) {*(ULONG *)cpu = val ;}
+  return ( (int )val);
+} 
+/* code -  ti_clk - get current wall clock time */
+int ti_clk(
+tiTval *val )
+{ SYSTEMTIME sys ;
+  FILETIME fil ;
+  GetLocalTime (&sys);
+  SystemTimeToFileTime (&sys, &fil);
+  val->Vlot = fil.dwLowDateTime;
+  val->Vhot = fil.dwHighDateTime;
+  return 1;
+} 
+/* code -  ti_sys - get Windows system time */
+int ti_sys(
+tiTval *val )
+{ SYSTEMTIME sys ;
+  FILETIME fil ;
+  GetSystemTime (&sys);
+  SystemTimeToFileTime (&sys, &fil);
+  val->Vlot = fil.dwLowDateTime;
+  val->Vhot = fil.dwHighDateTime;
+  return 1;
+} 
+/* code -  ti_cmp - compare times (lft-rgt) */
+int ti_cmp(
+tiTval *lft ,
+tiTval *rgt )
+{ if( lft->Vhot > rgt->Vhot)return ( 1 );
+  if( lft->Vhot < rgt->Vhot)return ( -1 );
+  if( lft->Vlot > rgt->Vlot)return ( 1 );
+  if( lft->Vlot < rgt->Vlot)return ( -1 );
+  return ( 0);
+} 
+/* code -  ti_sub - subtract times (res=lft-rgt) */
+ti_sub(
+tiTval *lft ,
+tiTval *rgt ,
+tiTval *res )
+{ res->Vhot = lft->Vhot - rgt->Vhot;
+  res->Vlot = lft->Vlot - rgt->Vlot;
+  if ( lft->Vlot < rgt->Vlot) {--res->Vhot ;}
+} 
+/* code -  ti_val - plex to value */
+int ti_val(
+tiTplx *plx ,
+tiTval *val )
+{ SYSTEMTIME sys ;
+  FILETIME fil ;
+  ti_tnp (plx, &sys);
+  SystemTimeToFileTime (&sys, &fil);
+  val->Vlot = fil.dwLowDateTime;
+  val->Vhot = fil.dwHighDateTime;
+  return 1;
+} 
+/* code -  ti_plx - value to plex */
+int ti_plx(
+tiTval *val ,
+tiTplx *plx )
+{ SYSTEMTIME sys ;
+  FILETIME fil ;
+  fil.dwLowDateTime = val->Vlot;
+  fil.dwHighDateTime = val->Vhot;
+  FileTimeToSystemTime (&fil, &sys);
+  ti_fnp (&sys, plx);
+  return 1;
+} 
+/* code -  ti_msk - mask time fields */
+int ti_msk(
+tiTval *val ,
+tiTval *res ,
+int mod )
+{ tiTplx plx ;
+  ti_plx (val, &plx);
+  if ( !(mod & tiMIL_)) {plx.Vmil = 0 ;}
+  if ( !(mod & tiSEC_)) {plx.Vsec = 0 ;}
+  if ( !(mod & tiMIN_)) {plx.Vmin = 0 ;}
+  if ( !(mod & tiHOU_)) {plx.Vhou = 0 ;}
+  if ( !(mod & tiDAY_)) {plx.Vday = 0 ;}
+  if ( !(mod & tiMON_)) {plx.Vmon = 0 ;}
+  if ( !(mod & tiYEA_)) {plx.Vyea = 0 ;}
+  if ( !(mod & tiDST_)) {plx.Vdst = 0 ;}
+  ti_val (&plx, res);
+  return 1;
+} 
+/* code -  ti_fnt - from Wnt filetime to value */
+int ti_fnt(
+tiTwin *fil ,
+tiTval *val )
+{ tiTplx plx ;
+  FILETIME loc ;
+  SYSTEMTIME sys ;
+#if timC
+  if( (FileTimeToSystemTime ((FILETIME *)fil, &sys)) == 0)return ( 0 );
+#else 
+  FileTimeToLocalFileTime ((FILETIME *)fil, &loc);
+  if( (FileTimeToSystemTime (&loc, &sys)) == 0)return ( 0 );
+#endif 
+  ti_fnp (&sys, &plx);
+   ti_val (&plx, val);return 1;
+} 
+/* code -  ti_tnt - to wnt filetime */
+int ti_tnt(
+tiTval *val ,
+tiTwin *fil )
+{ SYSTEMTIME sys ;
+  FILETIME loc ;
+  tiTplx plx ;
+  if( (ti_plx (val, &plx)) == 0)return ( 0 );
+  ti_tnp (&plx, &sys);
+  SystemTimeToFileTime (&sys, &loc);
+  LocalFileTimeToFileTime (&loc, (FILETIME *)fil);
+  return 1;
+} 
+/* code -  ti_fnp - from nt plex to rider plex */
+void ti_fnp(
+SYSTEMTIME *sys ,
+tiTplx *plx )
+{ int doy ;
+  me_clr (plx,  sizeof(tiTplx));
+  plx->Vmil = sys->wMilliseconds;
+  plx->Vsec = sys->wSecond;
+  plx->Vmin = sys->wMinute;
+  plx->Vhou = sys->wHour;
+  plx->Vday = sys->wDay;
+  plx->Vmon = sys->wMonth - 1;
+  plx->Vyea = sys->wYear;
+  plx->Vdow = sys->wDayOfWeek;
+  plx->Vdoy = 0;
+  plx->Vdst = 0;
+  if ( plx->Vsec >= 60) {plx->Vsec = 59 ;}
+} 
+/* code -  ti_tnp - to nt plex from rider plex */
+void ti_tnp(
+tiTplx *plx ,
+SYSTEMTIME *sys )
+{ me_clr (sys,  sizeof(SYSTEMTIME));
+  sys->wMilliseconds = plx->Vmil;
+  sys->wSecond = plx->Vsec;
+  sys->wMinute = plx->Vmin;
+  sys->wHour = plx->Vhou;
+  sys->wDay = plx->Vday;
+  sys->wMonth = plx->Vmon + 1;
+  sys->wYear = plx->Vyea;
+  sys->wDayOfWeek = plx->Vdow;
+  if ( sys->wSecond >= 60) {sys->wSecond = 59 ;}
+} 

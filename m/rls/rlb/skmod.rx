@@ -1,0 +1,144 @@
+/* file -  skstr - string stack */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\imdef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\skdef.h"
+#include "f:\m\rid\tmdef.h"
+static sk_rea (skTstk *);
+static sk_wri (skTstk *);
+static FILE *sk_opn (skTstk *);
+static sk_err (skTstk *,int );
+/* code -  sk_err - report errors */
+static char *skAerr [] =  {
+  NULL,
+  "open",
+  "read",
+  "write",
+  "length",
+  };
+sk_err(
+skTstk *stk ,
+int err )
+{ stk->Verr |= err;
+  im_rep ("E-Stack buffer %s error", skAerr[err]);
+  return 0;
+} 
+/* code -  sk_alc - allocate */
+skTstk *sk_mak()
+{ 
+  return ( (sk_alc (NULL, NULL, 0, 0)));
+} 
+skTstk *sk_alc(
+skTstk *stk ,
+char *buf ,
+int len ,
+int siz )
+{ if ( !len) {len = 1024 ;}
+  if ( !stk) {stk = me_acc ( sizeof(skTstk)) ;}
+  if ( !buf) {buf = me_acc (len) ;}
+  stk->Pbuf = buf;
+  stk->Vlen = len;
+  stk->Vrem = len;
+  stk->Pptr = buf;
+  stk->Vdsk = len/2;
+  return ( stk);
+} 
+/* code -  sk_dlc - deallocate string stack */
+sk_dlc(
+skTstk *stk ,
+int flg )
+{ char *spc ;
+  if ( !flg) {flg = skALL_ ;}
+  if ( (flg & skFIL_) & (stk->Hfil != 0)) {
+    spc = fi_spc (stk->Hfil);
+    fi_clo (stk->Hfil, NULL);
+    fi_del (spc, NULL);
+    stk->Hfil = 0; }
+  if ( flg & skBUF_) {
+    me_dlc (stk->Pbuf);
+    stk->Pbuf = NULL; }
+  if ( flg & skSTK_) {
+    me_dlc (stk); }
+} 
+/* code -  sk_psh - push string on stack */
+sk_psh(
+register skTstk *stk ,
+char *mem ,
+int typ ,
+int len )
+{ register char *ptr ;
+  int alc = len + 5;
+  if ( alc > stk->Vrem) {
+    if( !sk_wri (stk))return 0;
+    if( alc > stk->Vrem)return 0; }
+  ptr = stk->Pptr;
+  *ptr++ = alc;
+  *ptr++ = alc/256;
+  *ptr++ = stk->Vprv;
+  *ptr++ = stk->Vprv/256;
+  *ptr++ = typ;
+  me_cop (mem, ptr, len);
+  stk->Vprv = alc;
+  stk->Pptr += alc;
+  stk->Vrem -= alc;
+  return 1;
+} 
+/* code -  sk_pop - pop string from stack */
+int sk_pop(
+register skTstk *stk ,
+char *mem ,
+int *typ ,
+int lim )
+{ register char *ptr ;
+  int alc = stk->Vprv;
+  int len = alc - 5;
+  if( !len)return 0;
+  if( len > lim){ sk_err (stk, skLEN) ; return 0;}
+  if ( alc > (stk->Vlen - stk->Vrem)) {
+    if( !sk_rea (stk))return 0; }
+  ptr = (stk->Pptr -= alc);
+  stk->Vrem += alc;
+  ++ptr, ++ptr;
+  stk->Vprv = *ptr++ & 255;
+  stk->Vprv += (*ptr++&255)<<8;
+  if ( typ) {*typ = *ptr & 255 ;}
+  ++ptr;
+  me_cop (ptr, mem, len);
+  return 1;
+} 
+/* code -  sk_wri - write partial buffer to temp file */
+sk_wri(
+register skTstk *stk )
+{ register char *buf = stk->Pbuf;
+  int dsk = stk->Vdsk;
+  int ret = (stk->Pptr - buf) - dsk;
+  FILE *fil ;
+  if ( !stk->Hfil) {
+    if( (stk->Hfil = tm_opn (stk->Vsiz)) == 0){ sk_err (stk, skOPN) ; return 0;} }
+  fil = stk->Hfil;
+  if( (fi_wri (fil, buf, dsk)) == 0){ sk_err (stk, skWRI) ; return 0;}
+  me_cop (buf+dsk, buf, ret);
+  stk->Pptr -= dsk;
+  stk->Vrem += dsk;
+  return 1;
+} 
+/* code -  sk_rea - read partial buffer from temp file */
+sk_rea(
+register skTstk *stk )
+{ register FILE *fil = stk->Hfil;
+  register char *buf = stk->Pbuf;
+  register char *ptr = stk->Pptr;
+  int dsk = stk->Vdsk;
+  int ret = ptr - buf;
+  long pos ;
+  me_cop (buf, buf+dsk, ret);
+  fi_flu (fil);
+  pos = fi_pos (fil) - dsk;
+  if( (fi_see (fil, pos)) == 0){ sk_err (stk, skREA) ; return 0;}
+  if( (fi_rea (fil, buf, dsk)) == 0){ sk_err (stk, skREA) ; return 0;}
+  fi_see (fil, pos);
+  stk->Pptr += dsk;
+  stk->Vrem -= dsk;
+  return 1;
+} 

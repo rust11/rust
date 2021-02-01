@@ -1,0 +1,46 @@
+/* file -  cbmod - windows clipboard */
+#include "c:\m\rid\wsdef.h"
+#include "c:\m\rid\cbdef.h"
+#include "c:\m\rid\medef.h"
+#include "c:\m\rid\stdef.h"
+cb_opn()
+{ wsTctx *ctx = ws_ctx ();
+  return ( OpenClipboard (ctx->Hwnd) != 0);
+} 
+cb_clo()
+{  CloseClipboard ();return 1;
+} 
+char *cb_get(
+int fmt )
+{ HWND hnd ;
+  char *src ;
+  char *dst = NULL;
+  int len ;
+  if ( !fmt) {fmt = CF_TEXT ;}
+  if( !cb_opn ())return 0;
+  if (( (hnd = GetClipboardData (fmt)) != 0)
+  &&((src = GlobalLock (hnd)) != 0)) {
+    len = st_len (src);
+    dst = me_alc (len+1);
+    st_cop (src, dst);
+    GlobalUnlock (hnd);
+  } 
+  cb_clo ();
+  return ( dst);
+} 
+cb_put(
+char *src ,
+int fmt )
+{ HWND hnd ;
+  char *dst ;
+  int len ;
+  if( !cb_opn ())return 0;
+  if ( !fmt) {fmt = CF_TEXT ;}
+  len = st_len (src);
+  hnd = GlobalAlloc (GMEM_MOVEABLE, len+1);
+  if( !hnd){ cb_clo () ; return 0;}
+  dst = GlobalLock (hnd);
+  st_cop (src, dst);
+  SetClipboardData (fmt, dst);
+  return 1;
+} 

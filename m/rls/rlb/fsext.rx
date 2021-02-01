@@ -1,0 +1,45 @@
+/* file -  fsext - extract file spec components */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\fsdef.h"
+#include "f:\m\rid\stdef.h"
+int fs_ext(
+char *src ,
+register char *dst ,
+register int flg )
+{ char *prv ;
+  char *beg = dst;
+  int def = fsNAM_;
+  register int mat ;
+  int cha ;
+  for(;;)  {
+    prv = dst;
+    for(;;)  {
+      if( (cha = *src) == 0)break;
+      *dst++ = *src++;
+    if( st_mem (cha, ":\\.;"))break; }
+    *dst = 0;
+    switch ( cha) {
+    case ':':
+      mat = fsDEV_;
+     break; case '\\':
+      mat = fsDIR_;
+     break; case '.':
+      --dst;
+      mat = fsNAM_;
+      def = fsTYP_;
+     break; case ';':
+      --dst;
+    case 0:
+      if ( !(flg & def)) {
+        dst = prv;
+      } else if ( def == fsTYP_) {
+        st_ins (".", prv), ++dst; }
+      if ( cha & (flg & fsVER_)) {
+        dst = st_cop (src-1, dst); }
+      *dst = 0;
+      return ( dst-beg);
+       }
+    if ( !(flg & mat)) {dst = prv ;}
+  } 
+} 

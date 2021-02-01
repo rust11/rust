@@ -1,0 +1,36 @@
+/* file -  bimod - variable size_t block I/O */
+#include "c:\m\rid\rider.h"
+#include "c:\m\rid\bidef.h"
+#include "c:\m\rid\dbdef.h"
+#include "c:\m\rid\medef.h"
+#include <windows.h>
+biTfil *bi_opn(
+char *spc ,
+size_t len ,
+char *msg )
+{ biTfil *fil ;
+  if ( !len) {len = 512 ;}
+  fil = me_alc ( sizeof(biTfil));
+  fil->Phan = CreateFile (spc, GENERIC_READ,0,0,OPEN_EXISTING,0,0);
+  if( fil->Phan != INVALID_HANDLE_VALUE)return ( fil );
+  return 0;
+   me_dlc (fil);return 0;
+} 
+size_t bi_rea(
+biTfil *fil ,
+void *buf ,
+size_t cnt ,
+size_t blk ,
+void *don )
+{ ULONG trn ;
+  LARGE_INTEGER pos ;
+  pos.QuadPart = blk * fil->Vlen;
+  SetFilePointer (fil->Phan, pos.LowPart, &pos.HighPart, FILE_BEGIN);
+  ReadFile (fil->Phan, buf, cnt, &trn, 0);
+  return ( trn);
+} 
+bi_clo(
+biTfil *fil )
+{ CloseHandle (fil->Phan);
+  return 1;
+} 

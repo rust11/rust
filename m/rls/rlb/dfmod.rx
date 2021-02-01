@@ -1,0 +1,303 @@
+#define upd$c  0
+/* file -  dfmod - user definitions */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\imdef.h"
+#include "f:\m\rid\dfdef.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\chdef.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\cldef.h"
+/* code -  locals */
+void df_str (dfTctx *,dfTdef *,char *);
+int df_par (dfTctx *,char *);
+int df_amb (char *,char *);
+int df_cmp (char *,char *);
+dfTdef *df_mak (dfTctx *,char *,char *);
+void df_del (dfTctx *,dfTdef *);
+#define E_Inv  "E-Invalid definition [%s]"
+#define W_Opn  "W-Error opening definition file [%s]"
+#define E_Rea  "E-Error reading definition file [%s]"
+#define E_Cre  "E-Error creating definition file [%s]"
+#define E_Wri  "E-Error writing definition file [%s]"
+#define E_Cor  "E-Corrupted definition file [%s]"
+#define E_Amb  "E-Abbreviated symbol is ambiguous [%s]"
+/* code -  df_ctx - build definition context */
+dfTctx *dvPctx ;
+int df_ctx(
+char *spc ,
+int flg )
+{ dfTctx *ctx = me_acc( sizeof(dfTctx));
+  ctx->Pspc = spc;
+  ctx->Vflg = flg;
+  ctx->Pbal = "";
+  ctx->Vsep = ' ';
+  ctx->Vflg |= dfINI_;
+  ctx->Proo = NULL;
+  if ( ctx->Popr == NULL) {ctx->Popr = ":=" ;}
+  ctx->Palc = &me_acc;
+  ctx->Pdlc = &me_dlc;
+  ctx->Prep = &im_rep;
+  if( spc != 0)return ( df_rea (ctx) );
+  return 1;
+} 
+/* code -  df_dlc - deallocate the lot */
+void df_dlc(
+register dfTctx *ctx )
+{ if( ctx == 0)return;
+  df_zap (ctx);
+  me_dlc (ctx);
+} 
+/* code -  df_zap - clear definitions */
+void df_zap(
+register dfTctx *ctx )
+{ register dfTdef *def ;
+  dfTdef *nxt ;
+  if( ctx == 0)return;
+  def = ctx->Proo;
+  while ( def) {
+    nxt = def->Psuc;
+    df_del (ctx, def);
+    def = nxt;
+  } 
+  ctx->Proo = NULL;
+} 
+/* code -  df_mak - make a new definition */
+dfTdef *df_mak(
+dfTctx *ctx ,
+char *nam ,
+char *bod )
+{ register dfTdef *def ;
+  def = me_acc ( sizeof(dfTdef));
+  def->Pnam = st_dup (nam);
+  def->Pbod = st_dup (bod);
+  ctx->Vflg |= dfMOD_;
+  return ( def);
+} 
+/* code -  df_del - delete a definition */
+void df_del(
+dfTctx *ctx ,
+register dfTdef *def )
+{ me_dlc (def->Pnam);
+  me_dlc (def->Pbod);
+  me_dlc (def);
+  ctx->Vflg |= dfMOD_;
+} 
+/* code -  df_nth - n'th definition */
+dfTdef *df_nth(
+dfTctx *ctx ,
+int nth )
+{ register dfTdef *def ;
+  def = ctx->Proo;
+  while ( def != NULL) {
+    if( nth-- == 0)return ( def );
+    def = def->Psuc;
+  } 
+  return ( NULL);
+} 
+/* code -  df_def - define a definition */
+int df_def(
+register dfTctx *ctx ,
+char *lin )
+{ 
+  if( (df_par (ctx, lin)) == 0)return ( 0 );
+  if ( ctx->Vflg & dfMOD_) {
+    return ( df_wri (ctx)); }
+  return 1;
+} 
+/* code -  df_loo - lookup definition */
+dfTdef *df_loo(
+register dfTctx *ctx ,
+char *str )
+{ register dfTdef *def ;
+  char nam [mxLIN];
+  st_cop (str, nam);
+  st_trm (nam);
+  def = ctx->Proo;
+  if ( (ctx->Vflg & dfCAS_) != 0) {
+    while ( def != NULL) {
+      if( (st_sam (nam, def->Pnam)) != 0)return ( def );
+      def = def->Psuc;
+    } 
+    } else {
+    st_low (nam);
+    while ( def != NULL) {
+      if( (cl_mat (nam, def->Pnam)) > 0)return ( def );
+      def = def->Psuc;
+    }  }
+  return ( NULL);
+} 
+/* code -  df_par - parse & insert */
+int df_par(
+register dfTctx *ctx ,
+char *str )
+{ register char *bod ;
+  char nam [mxLIN];
+  st_cop (str, nam);
+  if ( (bod = st_fnd (ctx->Popr, nam)) == 0) {
+     df_rep (ctx, E_Inv, nam);return 0; }
+  *bod = 0;
+  bod += 2;
+  return ( (df_ins (ctx, nam, bod)));
+} 
+/* code -  df_ins - insert definition */
+int df_ins(
+register dfTctx *ctx ,
+char *nam ,
+char *bod )
+{ register dfTdef *def ;
+  register dfTdef *(*pre );
+  register dfTdef *ent ;
+  if ( (ctx->Vflg & dfCAS_) == 0) {
+    st_low (nam); }
+  st_trm (nam);
+  st_trm (bod);
+  def = ctx->Proo;
+  while ( def != NULL) {
+    if ( df_amb (nam, def->Pnam)) {
+      df_rep (ctx, E_Amb, nam);
+      return 0; }
+    def = def->Psuc;
+  } 
+  pre = &ctx->Proo;
+  for(;;)  {
+    if( (def = *pre) == NULL)break;
+    if( df_cmp (def->Pnam, nam) >= 0)break;
+    pre = &def->Psuc;
+  } 
+  if (( def != NULL)
+  &&(df_cmp (def->Pnam, nam) == 0)) {
+    if (( st_sam (def->Pnam, nam))
+    &&(st_sam (def->Pbod, bod))) {
+      return 1; }
+    *pre = def->Psuc;
+    df_del (ctx, def);
+    if( *bod == 0)return 1; }
+  ent = df_mak (ctx, nam, bod);
+  ent->Psuc = *pre;
+  *pre = ent;
+  return 1;
+} 
+/* code -  df_rea - read definition file */
+int df_rea(
+register dfTctx *ctx )
+{ FILE *fil ;
+  char lin [mxLIN];
+  char *spc = ctx->Pspc;
+  int fst = 1;
+  if( ctx->Vflg & dfMEM_)return 1;
+  if ( (fil = fi_opn (spc, "r", NULL)) == NULL) {
+     df_rep (ctx, W_Opn, spc);return 0; }
+  ctx->Vflg |= dfREA_;
+  ctx->Vflg &= ~(dfMRK_);
+  for(;;)  {
+    if( (fi_get (fil, lin, mxLIN-2)) == EOF)break;
+    if( *lin == 0)continue;
+    if( *lin == '!')continue;
+    if( *lin == ';')continue;
+    if ( st_fnd (ctx->Popr, lin) == NULL) {
+       df_rep (ctx, E_Cor, spc);break; }
+    df_par (ctx, lin);
+  } 
+  if ( (fi_clo (fil, NULL)) == 0) {df_rep (ctx, E_Rea, spc) ;}
+  ctx->Vflg &= ~(dfREA_);
+  if( (ctx->Vflg & dfMRK_) == 0)return 1;
+   df_rep (ctx, ctx->Pmsg, ctx->Aobj);return 0;
+} 
+/* code -  df_wri - write definitions */
+int df_wri(
+register dfTctx *ctx )
+{ FILE *fil ;
+  char lin [mxLIN];
+  char *spc = ctx->Pspc;
+  dfTdef *def = ctx->Proo;
+  int cnt ;
+  if( ctx->Vflg & (dfMEM_|dfSTA_))return 1;
+#if upd$c
+  if ( (fil = fi_opn (spc, ((ctx->Vflg & dfUPD_) ? "rw": "w"), NULL)) == NULL) {
+     df_rep (ctx, E_Cre, spc);return 0; }
+#else 
+  if ( (fil = fi_opn (spc, "w", NULL)) == NULL) {
+     df_rep (ctx, E_Cre, spc);return 0; }
+#endif 
+  while ( def != NULL) {
+    df_str (ctx, def, lin);
+    fi_put (fil, lin);
+    def = def->Psuc;
+  } 
+#if upd$c
+  me_clr (lin, mxLIN);
+  cnt = 20;
+  while ( cnt--) {fi_wri (fil, lin, mxLIN) ;}
+#endif 
+  if( fi_clo (fil, NULL))return 1;
+   df_rep (ctx, E_Wri, spc);return 0;
+} 
+/* code -  df_amb - check ambiguous */
+int df_amb(
+register char *lft ,
+register char *rgt )
+{ if( df_cmp (lft, rgt) == 0)return 0;
+  if (( st_mem ('*', lft) == 0)
+  &&(st_mem ('*', rgt) == 0)) {
+    return 0; }
+  for(;;)  {
+    if( *lft == '*' || *lft == 0)return 1;
+    if( *rgt == '*' || *rgt == 0)return 1;
+    if( *lft != *rgt)return 0;
+    ++lft, ++rgt;
+  } 
+} 
+/* code -  df_cmp - compare without stars */
+int df_cmp(
+register char *lft ,
+register char *rgt )
+{ for(;;)  {
+    if ( *lft == '*') {++lft ;}
+    if ( *rgt == '*') {++rgt ;}
+    if( *lft != *rgt)break;
+    if( *lft == 0)break;
+    ++lft, ++rgt;
+  } 
+  return ( (*lft&255) - (*rgt&255));
+} 
+/* code -  df_lst - list definitions */
+void df_lst(
+dfTctx *ctx )
+{ char lin [mxLIN];
+  register dfTdef *def = ctx->Proo;
+  while ( def != NULL) {
+    df_str (ctx, def, lin);
+    PUT(lin);
+    def = def->Psuc;
+  } 
+} 
+/* code -  df_str - definition to string */
+void df_str(
+dfTctx *ctx ,
+register dfTdef *def ,
+register char *lin )
+{ st_cop (def->Pnam, lin);
+  st_app (" ", lin);
+  st_app (ctx->Popr, lin);
+  st_app (" ", lin);
+  st_app (def->Pbod, lin);
+  st_app ("\n", lin);
+} 
+/* code -  df_idt - definition identity */
+df_idt(
+dfTctx *ctx ,
+char *nam )
+{ return ( st_fnd (ctx->Popr, nam) != 0);
+} 
+/* code -  df_rep - report errors */
+void df_rep(
+register dfTctx *ctx ,
+char *msg ,
+char *obj )
+{ ctx->Pmsg = msg;
+  st_cop (obj, ctx->Aobj);
+  ctx->Vflg |= dfERR_|dfMRK_;
+  if( ctx->Vflg & (dfMUT_|dfREA_))return;
+  (*ctx->Prep)(msg, obj);
+} 

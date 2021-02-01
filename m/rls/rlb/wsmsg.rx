@@ -1,0 +1,38 @@
+/* file -  wsmsg - windows server message output */
+#include "m:\rid\rider.h"
+#include "m:\rid\wsdef.h"
+#include "m:\rid\wsmsg.h"
+#include "m:\rid\imdef.h"
+#include "m:\rid\mxdef.h"
+#include "m:\rid\stdef.h"
+#include <stdio.h>
+/* code -  ws_msg - windows message */
+ws_msg(
+char *msg ,
+char *obj )
+{ HWND han = GetActiveWindow ();
+  char bod [128];
+  int typ = wmbOC_;
+  int res ;
+  switch ( *msg) {
+  case 'I':
+    typ |= wmbINFO_;
+   break; case 'F':
+  case 'E':
+    typ |= wmbERROR_;
+   break; case 'W':
+    typ |= wmbWARN_;
+   break; case 'Q':
+    typ = wmbQUERY_|wmbYNC_;
+   break; default: 
+    typ |= wmbWARN_;
+     }
+  if ( *msg && msg[1] == '-') {
+    msg += 2; }
+  FMT (bod, msg, obj);
+  res = (MessageBox (0, bod, imPfac, typ));
+  if (( res == IDCANCEL)
+  &&(typ != (wmbQUERY_|wmbYNC_))) {
+    im_exi (); }
+  return ( res);
+} 

@@ -1,0 +1,165 @@
+/* file -  prwin - process control */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\lndef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\prdef.h"
+#include "f:\m\rid\shdef.h"
+#include "f:\m\rid\dbdef.h"
+#include <windows.h>
+prTacc *prPacx = NULL;
+int prVhst = 0;
+char *prPhst = "c:\\windows\\system32\\cmd.exe";
+char *prPalt = "c:\\windows\\command.com";
+static int pr_hst ();
+/* code -  pr_acc - create access block */
+prTacc *pr_acc()
+{ prTacc *prc ;
+  return ( me_acc ( sizeof(prTacc)));
+} 
+/* code -  pr_cmd - execute command */
+pr_cmd(
+char *cmd )
+{ char buf [512];
+  st_cop (cmd, buf);
+  st_low (buf);
+  if (( !st_fnd (".exe", buf))
+  ||(st_fnd (".exe", buf) > st_fnd (" ", buf))
+  ||(st_fnd (">", buf))) {
+    pr_hst ();
+    st_cop (prPhst, buf);
+    st_app (" /c ", buf);
+    } else {
+    buf[0] = 0; }
+  st_app (cmd, buf);
+  return ( pr_exe (buf));
+} 
+/* code -  pr_exe - execute executable */
+pr_exe(
+char *cmd )
+{ prTacc *prc = prPacx;
+  int sts ;
+  if ( !prc) {prc = prPacx = pr_acc () ;}
+  prc->Pcmd = cmd;
+  if( (pr_cre (prc)) == 0)return ( 0 );
+  pr_opr (prc, prWAI);
+  sts = pr_opr (prc, prSTS);
+  return ( sts);
+} 
+/* code -  pr_cre - create a process */
+pr_cre(
+prTacc *acc )
+{ char *nam = acc->Pnam;
+  char *cmd = acc->Pcmd;
+  void *prc = NULL;
+  void *thr = NULL;
+  BOOL inh = FALSE;
+  ULONG cre = 0;
+  void *env = NULL;
+  void *dir = NULL;
+  STARTUPINFO sin = {0};
+  PROCESS_INFORMATION pin = {0};
+  sin.cb =  sizeof(STARTUPINFO);
+  if( (CreateProcess (nam, cmd, prc, thr, inh, cre, env, dir, &sin, &pin)) == 0)return ( 0 );
+  acc->Hprc = pin.hProcess;
+  acc->Hthr = pin.hThread;
+  return 1;
+} 
+/* code -  pr_opr - process operations */
+pr_opr(
+prTacc *prc ,
+int opr )
+{ int cnt = 0;
+  switch ( opr) {
+  case prCRE:
+    return ( pr_cre (prc));
+   break; case prWAI:
+    return ( WaitForSingleObject (prc->Hprc,INFINITE));
+   break; case prSTS:
+    while ( cnt++ < 5) {
+      if( (GetExitCodeProcess (prc->Hprc, (ULONG *)&prc->Vsts)) == 0)return ( 0 );
+      pr_slp (1);
+    } 
+    return ( prACT);
+   break; case prTER:
+    return ( (TerminateProcess (prc->Hprc, 0)) != 0);
+     }
+  return 1;
+} 
+/* code -  pr_hst - locate host command processor */
+pr_hst()
+{ if( prVhst)return 1;
+  if ( !fi_exs (prPhst, NULL)) {
+    if ( !fi_exs (prPalt, NULL)) {
+       db_lst("fi_exs");return 0; }
+    prPhst = prPalt; }
+  ++prVhst;
+  return 1;
+} 
+/* code -  pr_slp - sleep */
+pr_slp(
+int tim )
+{ Sleep (tim);
+} 
+/* code -  pr_pri - control priority */
+#ifndef PROCESS_MODE_BACKGROUND_BEGIN
+#define ABOVE_NORMAL_PRIORITY_CLASS  0x4000
+#define BELOW_NORMAL_PRIORITY_CLASS  0x8000
+#define PROCESS_MODE_BACKGROUND_BEGIN  0x100000
+#define PROCESS_MODE_BACKGROUND_END  0x200000
+#define THREAD_MODE_BACKGROUND_BEGIN  0x10000
+#define THREAD_MODE_BACKGROUND_END  0x20000
+#endif 
+ULONG prVpri = NORMAL_PRIORITY_CLASS;
+int prVthr = THREAD_PRIORITY_NORMAL;
+ULONG prApri [] =  {
+#define prIDL 0
+  IDLE_PRIORITY_CLASS,
+#define prBLW 1
+  BELOW_NORMAL_PRIORITY_CLASS,
+#define prNOR 2
+  NORMAL_PRIORITY_CLASS,
+#define prABV 3
+  ABOVE_NORMAL_PRIORITY_CLASS,
+#define prHGH 4
+  HIGH_PRIORITY_CLASS,
+#define prRTM 5
+  REALTIME_PRIORITY_CLASS,
+#define prBGD 6
+  PROCESS_MODE_BACKGROUND_BEGIN,
+#define prFGD 7
+  PROCESS_MODE_BACKGROUND_END,
+#define thIDL 8
+  THREAD_PRIORITY_IDLE,
+#define thLOW 9
+  THREAD_PRIORITY_LOWEST,
+#define thBLW 10
+  THREAD_PRIORITY_BELOW_NORMAL,
+#define thNOR 11
+  THREAD_PRIORITY_NORMAL,
+#define thABV 12
+  THREAD_PRIORITY_ABOVE_NORMAL,
+#define thHGH 13
+  THREAD_PRIORITY_HIGHEST,
+#define thRTM 14
+  THREAD_PRIORITY_TIME_CRITICAL,
+#define thBGD 15
+  THREAD_MODE_BACKGROUND_BEGIN,
+#define thFGD 16
+  THREAD_MODE_BACKGROUND_END,
+  };
+pr_pri(
+int pri )
+{ if( pri > thFGD)return 0;
+  if ( pri < thIDL) {
+    if ( prVpri == PROCESS_MODE_BACKGROUND_BEGIN) {
+      SetPriorityClass(GetCurrentProcess(), PROCESS_MODE_BACKGROUND_END); }
+    if( (SetPriorityClass(GetCurrentProcess(), prApri[pri])) == 0){ db_lst ("SetPriorityClass") ; return 0;}
+    prVpri = pri;
+    } else {
+    if ( prVthr == THREAD_MODE_BACKGROUND_BEGIN) {
+      SetThreadPriority(GetCurrentThread(),THREAD_MODE_BACKGROUND_END); }
+    if( (SetThreadPriority(GetCurrentThread(), prApri[pri])) == 0){ db_lst ("SetThreadPriority") ; return 0;}
+    prVthr = pri; }
+  return 1;
+} 

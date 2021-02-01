@@ -1,0 +1,82 @@
+/* file -  filoc - convert to local specification */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\fidef.h"
+#if !Pdp
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\mxdef.h"
+#include "f:\m\rid\ctdef.h"
+#include "f:\m\rid\lndef.h"
+#include "f:\m\rid\medef.h"
+#endif 
+void fi_loc(
+char *spc ,
+char *loc )
+{ 
+#if Pdp
+  st_cop (spc, loc);
+#else 
+  char *nxt ;
+  int cnt = 0;
+  int quo = 0;
+  for(;;)  {
+    fi_trn (spc, loc, 0);
+    if ( (nxt = st_fnd (";", loc)) != 0) {*nxt = 0 ;}
+    while ( (nxt=st_fnd("`", loc)) != 0) {
+      ++quo, *nxt = ' '; }
+    if( (nxt = st_fnd (":", loc)) == NULL)break;
+    if( loc[1] == ':')break;
+    *nxt = 0;
+    if (( st_sam (loc, "con"))
+    ||(st_sam (loc, "conin$"))
+    ||(st_sam (loc, "conout$"))) {
+      break; }
+    if ( *loc == '_') {
+      me_mov(loc+1,loc,st_len(loc));
+      break; }
+    *nxt = '\\';
+    st_ins ("\\", loc);
+   break;} 
+  if ( quo) {
+    st_ins ("\"", loc);
+    st_ins ("\"", st_end (loc)); }
+#endif 
+} 
+#if !Pdp
+/* code -  fi_trn -- translate file spec */
+int fi_trn(
+char *spc ,
+char *res ,
+int mod )
+{ char lft [mxSPC];
+  char rep [mxSPC];
+  char *trm ;
+  int idx ;
+  int cnt = 16;
+  int fst = *spc;
+  int trn = 0;
+  st_cop (spc, res);
+  while ( cnt--) {
+    st_cop (res, lft);
+    if ( (trm = st_fnd (":", lft)) != 0) {
+      *trm++ = 0;
+      } else {
+      trm = lft;
+      while ( *trm) {
+        if( !ct_aln (*trm++))return 1; } }
+    if ( !ln_trn (lft, rep, 0)) {
+      if( trn)return 1;
+      if( !(mod & 1))return 1;
+      return ( -1); }
+    ++trn;
+    if( (st_len (rep) + st_len (trm)) > (mxSPC-4))return 0;
+    if (( *trm)
+    &&(*st_lst (rep) != '\\')
+    &&(*trm != '\\')) {
+      st_app ("\\", rep); }
+    st_app (trm, rep);
+    st_cop (rep, res);
+    if( !st_fnd (":", res))return 1;
+  } 
+  return 0;
+} 
+#endif 

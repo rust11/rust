@@ -1,0 +1,666 @@
+#define dbgC  0
+/* file -  vxcab - cabs */
+#include "c:\m\rid\rider.h"
+#include "c:\m\rid\vxdef.h"
+#include "c:\m\rid\vxcab.h"
+#include "c:\m\rid\fidef.h"
+#include "c:\m\rid\medef.h"
+#include "c:\m\rid\mxdef.h"
+#include "c:\m\rid\stdef.h"
+#include "c:\m\rid\imdef.h"
+#include "c:\m\rid\mxdef.h"
+#include "c:\m\rid\rtdir.h"
+#include "c:\m\rid\rtutl.h"
+cabTcab *cabPfre = NULL;
+int cabVseq = 0;
+int cabVact = 0;
+cabTcab *cabAcab [1024];
+int cabVimg = 0;
+int cab_img (cabTcab *,cabTcab **,int );
+int cab_prg (cabTcab *,int );
+char cabApad [512]= {0};
+int cab_get (cabTcab *,void *,int ,int );
+int vol_opn (cabTcab *,int ,int );
+int vol_clo (cabTcab *);
+int vol_get (cabTcab *,void *,int ,int );
+int vol_put (cabTcab *,void *,int ,int );
+int vol_loc (cabTcab *,int ,char *,int *);
+int cab_det (cabTcab *);
+int cab_att (cabTcab *);
+int tmp_gen (cabTcab *,char *,char *);
+int tmp_rem (cabTcab *,char *,char *,cabTcab **,char *,int );
+int tmp_res (char *,char *);
+tmp_prg (cabTcab *);
+void tmp_ten (char *,char *,char *);
+tmp_spc (char *,int ,char *,char *);
+tmp_exs (char *);
+cabTcab *lnk_map (char *);
+lnk_ren (cabTcab *,char *,char *);
+lnk_res (cabTcab *,char *);
+lnk_att (cabTcab *);
+lnk_det (cabTcab *);
+cabTcab cabIboo = {NULL, cabREP, cabDSK_};
+/* code -  cab_cre - create new cab */
+cabTcab *cab_cre(
+vxTvab *vab ,
+FILE *fil ,
+char *spc ,
+int typ ,
+int flg )
+{ cabTcab *cab ;
+  int seq = -1;
+  if ( vab->Pcab) {
+    cab = vab->Pcab;
+    cab->Pfil = fil;
+    cab->Vtyp = typ;
+    cab->Vflg = flg;
+    vab->Pcab = NULL;
+    return ( cab); }
+  while ( ++seq < cabVseq) {
+    cab = cabAcab[seq];
+    if( !cab->Vtyp)continue;
+    if( (me_cmp(vab->Asrc,cab->Asrc,6)) == 0)continue;
+    if( cab->Vprc != vab->Vjid)continue;
+    if( cab->Vchn != vab->Vjcn)continue;
+    if( !cab->Pfil)continue;
+    if ( cab->Vtyp == cabLOO) {
+      if ( cab->Pfil) {fi_clo (cab->Pfil, NULL) ;}
+      cab->Pfil = NULL;
+    } else if ( cab->Vtyp == cabENT) {
+      cab_prg (cab, 0); }
+    break;
+  } 
+  ++cabVact;
+  cab = cabPfre;
+  if ( cab) {
+    cabPfre = cab->Psuc;
+    } else {
+    seq = cabVseq;
+    if ( seq == cabMAX) {
+      im_rep ("F-VAMP channel overflow [%s]", spc); }
+    cab = me_acc ( sizeof(cabTcab));
+    cab->Vseq = seq + cabFST;
+    cabAcab[seq] = cab;
+    ++cabVseq; }
+  cab->Vcid = cab->Vseq<<cabSHF;
+  cab->Vnod = vab->Vnod;
+  cab->Vprc = vab->Vjid;
+  cab->Vchn = vab->Vjcn;
+  cab->Pfil = fil;
+  cab->Vtyp = typ;
+  cab->Vflg = flg;
+  if ( cab->Vchn == 15) {
+    cab->Vimg = cabVimg++; }
+  me_cop (vab->Asrc, cab->Asrc, 6);
+  st_cop (spc, cab->Aspc);
+  st_cop (spc, cab->Atmp);
+  if ( typ == cabENT) {
+    tmp_ten (spc, ".ten", cab->Atmp); }
+  return ( cab);
+} 
+/* code -  cab_map - map cab to channel */
+cabTcab *cab_map(
+int cid )
+{ cabTcab *cab ;
+  int seq = cid>>cabSHF;
+  if ( seq == (cabFST|cabBOO)) {
+    st_cop ("NF7:", cabIboo.Aspc);
+    return ( &cabIboo); }
+  if( seq < cabFST)return 0;
+  if( seq > (cabFST+cabMAX))return 0;
+  if( (cab = cabAcab[seq - cabFST]) == 0)return ( 0 );
+  cab->Vblk = cid - (seq<<cabSHF);
+  return ( cab);
+} 
+/* code -  cab_opn - reopen file */
+cabTcab *cab_opn(
+int idx )
+{ cabTcab *cab = cab_map (idx);
+  if( !cab)return 0;
+  if ( (cab->Vtyp == cabLOO) && !cab->Pfil) {
+    cab->Pfil = fi_opn (cab->Atmp, "rb+", NULL); }
+  return ( cab);
+} 
+/* code -  cab_det - detach cab */
+cab_det(
+cabTcab *cab )
+{ if( !cab)return 1;
+  if( (fi_clo (cab->Pfil, NULL)) == 0)return ( 0 );
+  cab->Pfil = NULL;
+} 
+/* code -  cab_att - reattach cab */
+cab_att(
+cabTcab *cab )
+{ if( !cab)return 1;
+  if( cab->Pfil)return 1;
+  if( cab->Vtyp != cabENT)return 1;
+  return ( (cab->Pfil = fi_opn (cab->Aspc, "rb+", NULL)) != 0);
+} 
+/* code -  cab_dlc - deallocate a cab */
+void cab_dlc(
+cabTcab *cab ,
+int mod )
+{ cabTrep *cur ;
+  cabTrep *suc ;
+  int seq = cab->Vseq;
+  if( !cab->Vtyp)return;
+  if( cab->Vflg & cabPER_)return;
+  if ( cab->Vtyp != cabREP) {
+    if( (cab_prg (cab, mod)) == 0)return;
+    } else {
+    suc = cab->Prep;
+    while ( (cur = suc) != 0) {
+      suc = cur->Psuc;
+      me_dlc (cur);
+    }  }
+  me_clr (cab,  sizeof(cabTcab));
+  cab->Vseq = seq;
+  cab->Psuc = cabPfre;
+  cabPfre = cab;
+  --cabVact;
+} 
+/* code -  cab_res - reset VRT cabs */
+void cab_res(
+int mod )
+{ cabTcab *cab ;
+  cabTcab *img = NULL;
+  int seq = -1;
+  while ( ++seq < cabVseq) {
+    cab = cabAcab[seq];
+    if( !cab)continue;
+    if( cab_img (cab, &img, mod))continue;
+    cab_dlc (cab, 0);
+  } 
+} 
+/* code -  cab_eli - elide VAMP cabs */
+void cab_eli(
+vxTvab *vab ,
+int mod )
+{ cabTcab *cab ;
+  int seq = -1;
+  cabTcab *img = NULL;
+  while ( ++seq < cabVseq) {
+    cab = cabAcab[seq];
+    if( !cab->Vtyp)continue;
+    if( (me_cmp (vab->Asrc, cab->Asrc, 6)) == 0)continue;
+    if ( mod != cabNRS) {
+      if( vab->Vjid != cab->Vprc)continue;
+      if( vab->Vnod != cab->Vnod)continue;
+      if( cab_img (cab, &img, mod))continue; }
+    cab_dlc (cab, mod);
+  } 
+} 
+/* code -  cab_img - deallocate image channels */
+cab_img(
+cabTcab *cab ,
+cabTcab *(*img ),
+int mod )
+{ if( mod != cabIRS)return 0;
+  if( cab->Vchn != 15)return 0;
+  if ( !*img) {
+     *img = cab;return 1; }
+  if ( cab->Vimg < (*img)->Vimg) {
+     cab_dlc (cab, 0);return 1; }
+  cab_dlc (*img, 0);
+   *img = cab;return 1;
+} 
+/* code -  cab_clo - close a channel */
+cab_clo(
+int idx )
+{ cabTcab *cab = cab_map (idx);
+  char ten [20];
+  char *ptr ;
+  int sts = 1;
+  if( !cab)return 1;
+  if (( cab->Pfil)
+  &&(fi_clo (cab->Pfil, NULL))) {
+    if ( cab->Vtyp == cabENT) {
+      if ( fi_exs (cab->Aspc, NULL)) {
+        tmp_rem (cab,cab->Aspc,NULL,NULL,NULL,0);
+        fi_del (cab->Aspc, NULL); }
+      sts = fi_ren (cab->Atmp, cab->Aspc, ""); } }
+  cab->Pfil = NULL;
+  if ( cab->Vtyp != cabLOO) {cab_dlc (cab, 0) ;}
+  return ( sts);
+} 
+/* code -  cab_prg - purge channel */
+cab_pur(
+int idx )
+{ cabTcab *cab = cab_map (idx);
+  cab_prg (cab, 0);
+} 
+cab_prg(
+cabTcab *cab ,
+int mod )
+{ char ten [20];
+  char *ptr ;
+  if( !cab)return 1;
+  if ( cab->Pfil) {
+    fi_clo (cab->Pfil, NULL);
+    if ( cab->Vtyp == cabENT) {
+      fi_del (cab->Atmp, NULL); } }
+  cab->Pfil = NULL;
+  tmp_prg (cab);
+  if ( cab->Vtyp == cabLOO) {
+    if (( st_fnd (".SYS", cab->Aspc))
+    ||(st_fnd (".DSK", cab->Aspc))) {
+      if( mod != cabNRS)return 0;
+      PUT("PRG: [%s]\n", cab->Aspc); } }
+  return 1;
+} 
+/* code -  cab_ext - set file size_t */
+cab_ext(
+int idx ,
+long len )
+{ cabTcab *cab = cab_map (idx);
+  char ten [20];
+  char *ptr ;
+  int sts = 1;
+  if( !cab)return 1;
+  if( !cab->Pfil)return 1;
+  if( cab->Vtyp != cabENT)return 1;
+  return ( (fi_ext (cab->Pfil, len)));
+} 
+/* code -  cab_del - delete file */
+cab_del(
+char *spc )
+{ cabTcab *lnk = NULL;
+  tmp_rem (NULL,spc,NULL,&lnk,NULL,0);
+  if( fi_del (spc, NULL))return 1;
+  if( lnk)return 1;
+  return 0;
+} 
+/* code -  cab_ren - rename */
+cab_ren(
+char *src ,
+char *dst )
+{ cabTcab *lnk = NULL;
+  cabTcab *lft = NULL;
+  cabTcab *rgt = NULL;
+  char tmp [mxSPC];
+  char ren [mxSPC];
+  int bak = 0;
+  for(;;)  {
+puts ("#cab_ren.a");
+    if ( fi_exs (dst, NULL)) {
+      bak = 1;
+      if( (tmp_rem (NULL,dst,NULL,&rgt,tmp,1)) == 0)return ( 0 ); }
+puts ("#cab_ren.b");
+    if( (tmp_rem (NULL,src,dst,&lft,NULL,1)) == 0)break;
+puts ("#cab_ren.d");
+    if ( bak && !rgt) {fi_del (tmp, NULL) ;}
+    return 1;
+   break;} 
+puts ("#cab_ren.e");
+  if ( bak && tmp_res (tmp, dst)) {
+    fi_del (tmp, NULL); }
+  return 0;
+} 
+/* code -  cab_rep - make replacement block */
+void cab_rep(
+cabTcab *cab ,
+void *buf ,
+int blk ,
+int cnt )
+{ cabTrep *rep ;
+  cabTrep *(*prv )= &cab->Prep;
+  while ( cnt > 0) {
+    rep = me_acc ( sizeof(cabTrep));
+    rep->Vblk = blk;
+    rep->Vcnt = cnt;
+    me_cop (buf, rep->Abuf, 512);
+    rep->Psuc = cab->Prep;
+    cab->Prep = rep;
+    cnt -= 512, ++blk, (char *)buf += 512;
+  } 
+} 
+/* code -  cab_rea - read cab replacement blocks */
+int cab_rea(
+cabTcab *cab ,
+void *buf ,
+int blk ,
+int cnt )
+{ cabTrep *rep ;
+  int cop ;
+  int trn = 0;
+  while ( cnt) {
+    cop = (cnt < 512) ? cnt: 512;
+    if (( !vol_get (cab, buf, blk, cop))
+    &&(!cab_get (cab, buf, blk, cop))) {
+      return 0; }
+    (char *)buf += 512, ++blk;
+    cnt -= cop, trn += cop;
+  } 
+  vol_clo (cab);
+  return ( trn);
+} 
+/* code -  cab_wri - write cab replacement blocks */
+int cab_wri(
+cabTcab *cab ,
+void *buf ,
+int blk ,
+int cnt )
+{ cabTrep *rep ;
+  int cop ;
+  int trn = 0;
+  while ( cnt) {
+    cop = (cnt < 512) ? cnt: 512;
+    if ( !vol_put (cab, buf, blk, cnt)) {
+      break; }
+    (char *)buf += 512, ++blk;
+    cnt -= cop, trn += cop;
+  } 
+  vol_clo (cab);
+  return ( !cnt);
+} 
+/* code -  cab_get - get a block */
+cab_get(
+cabTcab *cab ,
+void *buf ,
+int blk ,
+int cnt )
+{ cabTrep *rep ;
+  if( (rep = cab_loc (cab, blk)) == 0)return ( 0 );
+  me_cop (rep->Abuf, buf, cnt);
+  return 1;
+} 
+/* code -  cab_loc - locate a cab replacement block */
+cabTrep *cab_loc(
+cabTcab *cab ,
+int blk )
+{ cabTrep *rep ;
+  rep = cab->Prep;
+  while ( rep && (rep->Vblk != blk)) {
+    rep = rep->Psuc; }
+  return ( rep);
+} 
+/* code -  vol_get - mimic RT-11 volume */
+int el_dbg (char *);
+vol_opn(
+cabTcab *cab ,
+int blk ,
+int wri )
+{ char spc [mxSPC];
+  FILE *fil ;
+  int bas ;
+  if ( blk < 6) {
+    if( cab->Pvol && !cab->Vbas)return 1;
+    vol_clo (cab);
+    st_cop (cab->Aspc, spc);
+    st_app ("VOLUME.SYS", spc);
+    cab->Vbas = 0;
+    return ( (cab->Pvol = fi_opn (spc, "rb+", NULL)) != 0); }
+  if( wri)return 0;
+  if( (blk < 70) || !(cab->Vflg & cabDSK_))return 0;
+  if (( cab->Pvol)
+  &&(cab->Vbas)
+  &&(blk >= cab->Vbas)
+  &&((blk-cab->Vbas) < cab->Vlen)) {
+    return 1; }
+  vol_clo (cab);
+  if( (vol_loc (cab, blk, spc, &cab->Vbas)) == 0)return ( 0 );
+  st_ins (cab->Aspc, spc);
+  if( (cab->Pvol = fi_opn (spc, "rb+", NULL)) != 0)return 1;
+  PUT("BOO: Can't open [%s]\n", spc);
+  return 0;
+} 
+vol_clo(
+cabTcab *cab )
+{ if( !cab->Pvol)return 1;
+  fi_clo (cab->Pvol, NULL);
+  cab->Pvol = NULL;
+  return 1;
+} 
+vol_get(
+cabTcab *cab ,
+void *buf ,
+int blk ,
+int cnt )
+{ size_t fst ;
+  if ( !vol_opn (cab, blk, 0)) {
+    if( blk >= 6)return 0;
+     me_clr (buf, cnt);return 1; }
+  fst = (blk-cab->Vbas)*512;
+  switch ( fi_prd (cab->Pvol, buf, fst, cnt, NULL)) {
+  case fiERR:
+  case fiEOF:
+    return 0;
+   break; case fiPAR:
+  case fiSUC:
+    return 1;
+     }
+} 
+vol_put(
+cabTcab *cab ,
+void *buf ,
+int blk ,
+int cnt )
+{ char spc [mxSPC];
+  FILE *fil = cab->Pvol;
+  int zap = 6;
+  if ( !vol_opn (cab, blk, 1)) {
+    if( blk >= 6)return 0;
+    st_cop (cab->Aspc, spc);
+    st_app ("VOLUME.SYS", spc);
+    if( (fil = fi_opn (spc, "wb+", NULL)) == 0)return ( 0 );
+    cab->Pvol = fil;
+    while ( zap--) {fi_wri (fil, cabApad, 512) ;}
+    fi_clo (fil, NULL);
+    vol_opn (cab, blk, 1); }
+  fil = cab->Pvol;
+  blk -= cab->Vbas;
+  fi_see (fil, blk*512);
+  if( (fi_wri (fil, buf, cnt)) == 0)return ( 0 );
+  if ( cnt < 512) {
+    fi_wri (fil, cabApad, 512-cnt); }
+  return 1;
+} 
+/* code -  vol_loc - locate file at block */
+vol_loc(
+cabTcab *cab ,
+int blk ,
+char *spc ,
+int *off )
+{ cabTrep *rep ;
+  rtThdr hdr ;
+  rtTent *ent ;
+  char *buf = (char *)&hdr;
+  int idx = 6;
+  int bas ;
+  int acc ;
+  *off = 0;
+  for(;;)  {
+    if (( !cab_get (cab, buf, idx++, 512))
+    ||(!cab_get (cab, buf+512, idx++, 512))) {
+      return 0; }
+    acc = bas = hdr.Vblk & 0xffff;
+    ent = hdr.Aent;
+    while ( !(ent->Vsta & rtEND_)) {
+      acc += ent->Vlen &0xffff;
+      if( bas > blk)break;
+      if ( blk < acc) {
+        rt_unp (ent->Anam, spc, -3);
+        *off = bas;
+        return 1; }
+      bas = acc;
+      ent = (rtTent *)((char *)(++ent) + hdr.Vext - rtRTX);
+    } 
+  } 
+  return 0;
+} 
+/* code -  tmp_rem - remap names */
+tmp_rem(
+cabTcab *skp ,
+char *spc ,
+char *rep ,
+cabTcab *(*res ),
+char *ren ,
+int alw )
+{ char buf [mxSPC];
+  cabTcab *cab ;
+  cabTcab *lnk ;
+  int seq = -1;
+  int sts = 0;
+  if ( res) {*res = NULL ;}
+  if( (lnk = lnk_map (spc)) == 0 && !alw)return 1;
+  if ( res) {*res = lnk ;}
+  if ( !rep) {
+    tmp_spc (spc, 0, ".del", buf);
+    rep = buf;
+    if ( ren) {st_cop (rep, ren) ;} }
+  lnk_det (lnk);
+  sts = lnk_ren (lnk, spc, rep);
+  lnk_att (lnk);
+  return ( sts);
+} 
+/* code -  tmp_res - restore temps */
+tmp_res(
+char *src ,
+char *dst )
+{ 
+} 
+/* code -  tmp_prg - purge temp */
+tmp_prg(
+cabTcab *cab )
+{ cabTcab *lnk ;
+  if( !(cab->Vflg & cabTMP_))return 1;
+  lnk = lnk_map (cab->Atmp);
+  if( !lnk)return 1;
+  if( lnk->Plnk)return 1;
+  fi_del (cab->Atmp, NULL);
+  return 1;
+} 
+/* code -  tmp_ten - create a tentative filename */
+void tmp_ten(
+char *spc ,
+char *typ ,
+char *ten )
+{ tmp_spc (spc, 0, typ, ten);
+} 
+/* code -  tmp_spc - create temporary file spec */
+tmp_spc(
+char *spc ,
+int ver ,
+char *typ ,
+char *res )
+{ char tmp [mxSPC];
+  char *ptr ;
+  for(;;)  {
+    st_cop (spc, tmp);
+    ptr = st_fnd (".", tmp);
+    if ( ptr) {*ptr = '_' ;}
+    ptr = st_end (tmp);
+    if ( ver) {FMT(ptr, "(%d)", ver) ;}
+    st_app (typ, tmp);
+    ++ver;
+    if ( dbgC) {PUT("[%s]\n", tmp) ;}
+    if( tmp_exs (tmp))continue;
+    if( !fi_exs (tmp, NULL))break;
+    if( fi_del (tmp, NULL))break;
+  } 
+  st_cop (tmp, res);
+  return 1;
+} 
+/* code -  tmp_exs - check temp file name in use */
+tmp_exs(
+char *spc )
+{ cabTcab *cab ;
+  int seq = -1;
+  while ( ++seq < cabVseq) {
+    cab = cabAcab[seq];
+    if( !cab || !cab->Vtyp)continue;
+    if( st_sam (spc, cab->Atmp))return 1;
+  } 
+  return 0;
+} 
+/* code -  lnk_map - link cabs with same name */
+cabTcab *lnk_map(
+char *spc )
+{ cabTcab *lnk = NULL;
+  cabTcab *cab ;
+  int seq = -1;
+  while ( ++seq < cabVseq) {
+    cab = cabAcab[seq];
+    if( !cab || !cab->Vtyp)continue;
+    if( !st_sam (spc, cab->Atmp))continue;
+    cab->Plnk = lnk, lnk = cab;
+    if ( cab->Pfil) {cab->Vflg |= cabATT_ ;} else {
+      cab->Vflg &= ~(cabATT_) ; }
+  } 
+  return ( lnk);
+} 
+/* code -  lnk_ren - rename files */
+lnk_ren(
+cabTcab *cab ,
+char *spc ,
+char *rep )
+{ 
+  if( (fi_ren (spc, rep, NULL)) == 0)return ( 0 );
+  while ( cab) {
+    st_cop (rep, cab->Atmp);
+    cab->Vflg |= cabTMP_;
+    cab = cab->Plnk;
+  } 
+  return 1;
+} 
+/* code -  lnk_res - move names back */
+lnk_res(
+cabTcab *cab ,
+char *spc )
+{ while ( cab) {
+    st_cop (spc, cab->Atmp);
+    cab->Vflg &= ~(cabTMP_);
+    cab = cab->Plnk;
+  } 
+} 
+/* code -  lnk_det - detach files */
+lnk_det(
+cabTcab *cab )
+{ while ( cab) {
+    if ( cab->Vflg & cabATT_) {
+      cab_det (cab); }
+    cab = cab->Plnk;
+  } 
+} 
+/* code -  lnk_att - attach files */
+lnk_att(
+cabTcab *cab )
+{ while ( cab) {
+    if ( cab->Vflg & cabATT_) {
+      cab_att (cab); }
+    cab = cab->Plnk;
+  } 
+} 
+/* code -  cab_rpt - report cabs */
+void cab_rpt()
+{ cabTcab *cab ;
+  int seq = -1;
+  PUT("\nFiles:\n");
+  while ( ++seq < cabVseq) {
+    cab = cabAcab[seq];
+    if( !cab || !cab->Vtyp)continue;
+    PUT("nod=%d prc=%d chn=%d ", cab->Vnod, cab->Vprc, cab->Vchn);
+    PUT("spc=[%s] ", cab->Aspc);
+    if ( !st_sam (cab->Aspc, cab->Atmp)) {
+      PUT("tmp=[%s] ", cab->Atmp); }
+    if ( cab->Pfil) {PUT("Open ") ;}
+    if ( cab->Pvol) {PUT("Vol ") ;}
+    if ( cab->Vver) {PUT("Ver=%d ", cab->Vver) ;}
+    PUT("typ=");
+    if ( cab->Vtyp == cabLOO) {PUT("Loo ") ;}
+    if ( cab->Vtyp == cabENT) {PUT("Ent ") ;}
+    if ( cab->Vtyp == cabREP) {PUT("Rep ") ;}
+    if ( cab->Vtyp == cabDEV) {PUT("Dev ") ;}
+    if ( cab->Vtyp == cabWLK) {PUT("Wlk ") ;}
+    if ( cab->Vflg) {PUT(" flg=") ;}
+    if ( cab->Vflg & cabRON_) {PUT("Ron ") ;}
+    if ( cab->Vflg & cabVAX_) {PUT("Vax ") ;}
+    if ( cab->Vflg & cabRTA_) {PUT("Rta ") ;}
+    if ( cab->Vflg & cabDIR_) {PUT("Dir ") ;}
+    if ( cab->Vflg & cabDSK_) {PUT("Dsk ") ;}
+    if ( cab->Vflg & cabPER_) {PUT("Per ") ;}
+    if ( cab->Vflg & cabTMP_) {PUT("Tmp ") ;}
+    if ( cab->Vflg & cabATT_) {PUT("Att ") ;}
+    PUT("\n");
+  } 
+} 

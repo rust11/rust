@@ -1,0 +1,47 @@
+/* file -  bmloa - load bitmap */
+#include "c:\m\rid\rider.h"
+#include "c:\m\rid\fidef.h"
+#include "c:\m\rid\medef.h"
+#include "c:\m\rid\wimod.h"
+#include "c:\m\rid\bmdef.h"
+bm_inv (char *,char *,size_t ,size_t );
+/* code -  bm_loa - load bitmap file */
+bmTbmp *bm_loa(
+char *spc ,
+char *msg )
+{ char *buf = NULL;
+  bmTbmp *bmp = NULL;
+  BITMAPFILEHEADER *fhd ;
+  BITMAPINFOHEADER *inf ;
+  void *dat ;
+  for(;;)  {
+    if( !fi_loa (spc, &((void *)buf), NULL, NULL, ""))break;
+    fhd = (BITMAPFILEHEADER *)buf;
+    inf = (BITMAPINFOHEADER *)(buf +  sizeof(BITMAPFILEHEADER));
+    dat = buf + fhd->bfOffBits;
+    bmp = bm_alc (NULL, bmPAL, inf->biWidth, inf->biHeight);
+    bm_inv (dat, bmp->Pdat, bmp->Vwid, bmp->Vhgt);
+    fi_dlc (buf);
+    return ( bmp);
+   break;} 
+  if ( buf) {fi_dlc (buf) ;}
+  if ( bmp) {me_dlc (bmp) ;}
+  return ( NULL);
+} 
+/* code -  bm_inv - invert bitmap */
+bm_inv(
+char *src ,
+char *dst ,
+size_t wid ,
+size_t hgt )
+{ 
+  return;
+  wid = ((wid + 3) * 4) / 4;
+  dst += hgt * wid;
+  while ( hgt--) {
+    dst -= wid;
+    me_cop (src, dst, wid);
+    src += wid;
+  } 
+  return 1;
+} 

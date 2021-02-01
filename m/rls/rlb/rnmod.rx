@@ -1,0 +1,34 @@
+/* file -  rnmod - random numbers */
+#include "f:\m\rid\rider.h"
+#if Win
+#include "f:\m\rid\tidef.h"
+#else 
+#include "f:\m\rid\rttim.h"
+#endif 
+int rnVfst = 1;
+int rnVnum = 0;
+rn_see(
+register int see )
+{ 
+#if Win
+  tiTplx plx ;
+  tiTval val ;
+  if( !see && !rnVfst)return 1;
+  if ( (rnVfst = 0) == see) {
+    ti_clk (&val);
+    ti_plx (&val, &plx);
+    see = ((plx.Vsec<<8)|plx.Vmil)^(plx.Vmin<<12); }
+#else 
+  rtTtim tim ;
+  if( !see && !rnVfst)return 1;
+  if ( (rnVfst = 0) == see) {
+    rt_gtm (&tim);
+    see = (tim.Vdat^tim.Vlot)^(tim.Vhot<<7); }
+#endif 
+  rnVnum = see;
+} 
+int rn_rnd()
+{ if ( rnVfst) {rn_see (0) ;}
+  rnVnum = ((rnVnum * 7621) + 1) % 0x8000;
+  return ( rnVnum);
+} 

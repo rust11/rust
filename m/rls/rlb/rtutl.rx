@@ -1,0 +1,193 @@
+tst$c=1;
+/* file -  rtutl - rt-11 utilities */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\rtutl.h"
+#include "f:\m\rid\tidef.h"
+#include "f:\m\rid\ctdef.h"
+#include "f:\m\rid\chdef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\rddef.h"
+#include "f:\m\rid\fidef.h"
+void rt_plx (tiTval *,tiTplx *);
+/* code -  rt_xxx clock/date/time routines */
+/* code -  rt_clk - convert current time to rt-11 clock form */
+void rt_clk(
+tiTval *val ,
+int *clk ,
+int htz )
+{ tiTplx plx ;
+  rt_plx (val, &plx);
+  *clk = ((plx.Vhou*3600) + (plx.Vmin*60) + plx.Vsec) * htz;
+} 
+/* code -  rt_tim - rt11x file time */
+void rt_tim(
+tiTval *val ,
+int *tim ,
+int *rem )
+{ tiTplx plx ;
+  int sec ;
+  int tmp ;
+  rt_plx (val, &plx);
+  sec = ((plx.Vhou*3600) + (plx.Vmin*60) + plx.Vsec);
+  if ( tim) {*tim = 0x8000 | ((sec/3)&0x7fff) ;}
+  if ( rem) {*rem |= (sec%3) ;}
+} 
+/* code -  rt_dat - get rt-11 date */
+void rt_dat(
+tiTval *val ,
+int *dat ,
+int y2k )
+{ tiTplx plx ;
+  int yea ;
+  rt_plx (val, &plx);
+  yea = plx.Vyea;
+  if ( plx.Vyea > 2099) {yea = 2099 ;}
+  yea -= 1972;
+  *dat = ((plx.Vmon+1)<<10) | (plx.Vday<<5) | (yea&0x1f);
+  if ( y2k) {*dat |= (yea&0x60)<<9 ;}
+} 
+void rt_era(
+tiTval *val ,
+int *era )
+{ tiTplx plx ;
+  rt_plx (val, &plx);
+  if ( plx.Vyea > 2099) {
+    *era = plx.Vyea-2099;
+    } else {
+    *era = 0; }
+} 
+void rt_plx(
+tiTval *vap ,
+tiTplx *plx )
+{ tiTval val ;
+  if ( !vap) {ti_clk (&val), vap=&val ;}
+  ti_plx (vap, plx);
+} 
+void rt_udt(
+int dat ,
+int y2k ,
+tiTplx *plx )
+{ plx->Vyea = dat & 0x1f;
+  if ( y2k) {plx->Vyea |= ((dat>>9) & 0x60) ;}
+  plx->Vyea += 1972;
+  plx->Vmon = ((dat>>10) & 0xf) - 1;
+  plx->Vday = ((dat>>5) & 0x1f);
+} 
+void rt_utm(
+int tim ,
+int rem ,
+tiTplx *plx )
+{ int sec ;
+  tim &= 077777;
+  tim *= 3;
+  plx->Vhou = (tim/3600);
+  tim -= plx->Vhou * 3600;
+  plx->Vmin = (tim/60);
+  tim -= plx->Vmin * 60;
+  plx->Vsec |= (rem&3);
+} 
+/* code -  rt_unp - unpack rad50 filespec */
+char rtAunp [41] =  {
+  " ABCDEFGHIJKLMNOPQRSTUVWXYZ$%*0123456789",
+  };
+void rt_unp(
+elTwrd *rad ,
+char *asc ,
+int maj )
+{ int div ;
+  int wrd ;
+  int spc = 0;
+  int rem ;
+  if ( maj == -4) {maj = 4, spc = 1 ;}
+  if ( maj == -3) {maj = 3, spc = 1 ;}
+  while ( maj--) {
+    wrd = *rad++;
+    div = 40 * 40;
+    while ( div && wrd) {
+      rem = wrd / div;
+      wrd -= rem * div;
+      *asc++ = rtAunp[rem];
+      div /= 40;
+    } 
+    if( !spc)continue;
+    if ( maj == 3) {*asc++ = ':' ;}
+    if( !*rad && maj == 3)break;
+    if ( maj == 1) {*asc++ = '.' ;}
+  } 
+  *asc++ = 0;
+} 
+/* code -  rt_pck - pack rad50 word */
+char *rt_pck(
+char *str ,
+elTwrd *res ,
+int all )
+{ int cnt = 3;
+  int cha ;
+  elTwrd wrd = 0;
+  int dig ;
+  while ( cnt--) {
+    cha = *str;
+    dig = 0;
+    if ( cha == '$') {
+      if ( all) {dig = 27, ++str ;}
+    } else if ( cha == '%') {
+      if ( all) {dig = 28, ++str ;}
+    } else if ( cha == '*') {
+      if ( all) {dig = 29, ++str ;}
+    } else if ( cha == '_') {
+      if ( all) {dig = 0, ++str ;}
+    } else if ( ct_dig (cha)) {
+      dig = cha - 022, ++str;
+    } else if ( ct_alp (cha)) {
+      dig = ch_upr (cha) - 0100, ++str; }
+    wrd = wrd * 40 + dig;
+  } 
+  *res = wrd;
+  return ( str);
+} 
+/* code -  rt_spc - pack rad50 filespec */
+char *rt_spc(
+char *spc ,
+elTwrd *nam ,
+int mod ,
+int cnt )
+{ elTwrd wrd ;
+  int nth ;
+  me_clr (nam, cnt*2);
+  spc = rt_pck (spc, &wrd, mod);
+  if ( cnt == 4) {
+    if ( *spc == ':') {
+      *nam++ = wrd, ++spc;
+      spc = rt_pck (spc, &wrd, mod);
+      } else {
+      *nam++ = 0; } }
+  if ( (*nam++ = wrd) != 0) {
+    spc = rt_pck (spc,nam++,mod);
+    if (( *spc == '.')
+    &&(spc[1])) {
+      spc = rt_pck (++spc, nam,mod); }
+    } else {
+    *nam++ = *nam++ = 0; }
+  return ( spc);
+} 
+/* code -  rt_rea - RT-11 style read/write */
+/* code -  rt_rea (fil, blk, buf, wct, don) */
+/* code -  rt_wri (fil, blk, buf, wct, don) */
+rt_rea(
+FILE *fil ,
+WORD blk ,
+char *buf ,
+WORD wct ,
+int don )
+{ fi_see (fil, blk*512);
+  return ( (fi_rea (fil, buf, wct*2)));
+} 
+rt_wri(
+FILE *fil ,
+WORD blk ,
+char *buf ,
+WORD wct ,
+int don )
+{ fi_see (fil, blk*512);
+  return ( (fi_wri (fil, buf, wct*2)));
+} 

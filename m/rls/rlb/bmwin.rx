@@ -1,0 +1,41 @@
+/* code -  bmwin - windows bitmap operations */
+#include "c:\m\rid\rider.h"
+#include "c:\m\rid\wsdef.h"
+#include "c:\m\rid\bmdef.h"
+#include "c:\m\rid\medef.h"
+/* code -  bm_inf - get bitmap info */
+static BITMAPINFO *bmPinf = NULL;
+static BITMAPINFO *bm_inf()
+{ BITMAPINFO *inf = bmPinf;
+  BITMAPINFOHEADER *hdr ;
+  word *pal ;
+  int cnt = 0;
+  if( inf)return ( inf );
+  inf = bmPinf = (mg_acc ( sizeof(BITMAPINFO) + (256* sizeof(word))));
+  pal = (word *)&inf->bmiColors;
+  while ( cnt < 256) {*pal++ = cnt++ ;}
+  hdr = &inf->bmiHeader;
+  hdr->biSize =  sizeof(BITMAPINFOHEADER);
+  hdr->biPlanes = 1;
+  hdr->biBitCount = 8;
+  hdr->biCompression = BI_RGB;
+  hdr->biXPelsPerMeter = 0;
+  hdr->biYPelsPerMeter = 0;
+  hdr->biClrUsed = 32;
+  hdr->biClrImportant = 0;
+  return ( inf);
+} 
+/* code -  bm_pnt - paint bitmap */
+bm_pnt(
+wsTevt *evt ,
+bmTbmp *bmp ,
+int x ,
+int y )
+{ BITMAPINFO *inf = bm_inf ();
+  int wid = bmp->Vwid;
+  int hgt = bmp->Vhgt;
+  inf->bmiHeader.biWidth = wid;
+  inf->bmiHeader.biHeight = -hgt;
+  if ( !(SetDIBitsToDevice (evt->Hdev,x, y, wid, hgt,0, 0, 0, hgt,bmp->Pdat, inf,DIB_PAL_COLORS))) {printf ("%bm_pnt-W-Error=%d\n", GetLastError ()) ;}
+  return 1;
+} 

@@ -1,0 +1,85 @@
+/* file -  dbexc - exception handling */
+#include "m:\rid\rider.h"
+#include "m:\rid\wimod.h"
+#include "m:\rid\imdef.h"
+#include "m:\rid\dbdef.h"
+#include "m:\rid\imdef.h"
+#define dbTptr  struct _EXCEPTION_POINTERS
+#define dbTres  long WINAPI
+dbTres db_exc (dbTptr *);
+dbTprc *dbPprc = db_rev;
+/* code -  db_ini - setup debugging */
+db_ini()
+{ void *prv ;
+  db_hoo (db_rev);
+} 
+/* code -  db_exi - exit debugging */
+void db_exi()
+{ ;
+} 
+/* code -  db_hoo - hook exception */
+db_hoo(
+dbTprc *prc )
+{ dbPprc = prc;
+  SetUnhandledExceptionFilter (db_exc);
+} 
+/* code -  db_exc - exception catcher */
+#define dbTrec  struct _EXCEPTION_RECORD
+dbTres db_exc(
+dbTptr *ptr )
+{ EXCEPTION_RECORD *rec = ptr->ExceptionRecord;
+  ULONG *par = rec->ExceptionInformation;
+  BYTE *xip = rec->ExceptionAddress;
+  ULONG *xsp ;
+  dbTexc exc ;
+  int cod = rec->ExceptionCode;
+  PUT("%%%s-F-", imPfac);
+  asm mov xsp,esp;
+  switch ( cod) {
+  case EXCEPTION_ACCESS_VIOLATION:
+    if ( !par[0]) {PUT("Fetch access violation at %X", par[1]) ;} else {
+      PUT("Store access violation at %X", par[1]) ; }
+   break; case EXCEPTION_BREAKPOINT:
+    PUT("Breakpoint");
+   break; case EXCEPTION_DATATYPE_MISALIGNMENT:
+    PUT("Datatype Misalignment");
+   break; case EXCEPTION_SINGLE_STEP:
+    PUT("Single Step");
+   break; case EXCEPTION_ARRAY_BOUNDS_EXCEEDED:
+    PUT("Array Bounds Exceeded");
+   break; case EXCEPTION_FLT_DENORMAL_OPERAND:
+    PUT("Flt Denormal Operand");
+   break; case EXCEPTION_FLT_DIVIDE_BY_ZERO:
+    PUT("Flt Divide By Zero");
+   break; case EXCEPTION_FLT_INEXACT_RESULT:
+    PUT("Flt Inexact Result");
+   break; case EXCEPTION_FLT_INVALID_OPERATION:
+    PUT("Flt Invalid Operation");
+   break; case EXCEPTION_FLT_OVERFLOW:
+    PUT("Flt Overflow");
+   break; case EXCEPTION_FLT_STACK_CHECK:
+    PUT("Flt Stack Check");
+   break; case EXCEPTION_FLT_UNDERFLOW:
+    PUT("Flt Underflow");
+   break; case EXCEPTION_INT_DIVIDE_BY_ZERO:
+    PUT("Int Divide By Zero");
+   break; case EXCEPTION_INT_OVERFLOW:
+    PUT("Int Overflow");
+   break; case EXCEPTION_PRIV_INSTRUCTION:
+    PUT("Priv Instruction");
+   break; case STATUS_NONCONTINUABLE_EXCEPTION:
+    PUT("Noncontinuable Exception");
+   break; case DBG_CONTROL_C:
+    PUT("Dbg Control C");
+     }
+  PUT("\n");
+  GetModuleFileName (NULL, exc.Aspc, mxSPC-1);
+  exc.Pip = xip;
+  exc.Psp = xsp;
+  exc.Vcod = cod;
+  exc.Vflg = par[0];
+  exc.Vadr = (void *)par[1];
+  if ( dbPprc) {(*dbPprc) (&exc) ;}
+  ExitProcess (cod);
+  TerminateProcess (GetCurrentProcess (), cod);
+} 

@@ -1,0 +1,369 @@
+/* file -  wsmod - windows server */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\wsdef.h"
+#include "f:\m\rid\imdef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\dbdef.h"
+wsTctx *wsPctx = NULL;
+static BOOL wi_app (wsTctx *);
+static BOOL wi_ins (wsTctx *);
+static LRESULT CALLBACK wi_evt (HWND ,UINT ,WPARAM ,LPARAM );
+static int APIENTRY wi_mai (HANDLE ,HANDLE ,LPSTR ,int );
+static int wi_dis (MSG *);
+/* code -  ws_lnk - server link */
+ws_lnk()
+{ return 1;
+} 
+/* code -  ws_ctx - get server process context */
+wsTctx *ws_ctx()
+{ if ( !wsPctx) {im_rep ("W-No windows context", NULL) ;}
+  return ( wsPctx);
+} 
+/* code -  ws_evt - get dummy event context */
+wsTevt *ws_evt()
+{ wsTctx *ctx = ws_ctx ();
+  return ( &ctx->Ievt);
+} 
+/* code -  ws_cod - get event code */
+ws_cod(
+wsTevt *evt )
+{ return ( evt->Vwrd);
+} 
+/* code -  ws_exi - exit this image */
+ws_exi(
+wsTevt *evt )
+{ im_exi ();
+  return 1;
+} 
+/* code -  ws_run - run a windows program */
+int ws_run(
+char *spc ,
+int flg )
+{ 
+  return ( (WinExec (spc, SW_SHOW)) >= 32);
+} 
+/* code -  ws_tit - set window title */
+ws_tit(
+wsTevt *evt ,
+char *tit )
+{ char buf [256];
+  FMT(buf, "%s %s", imPfac, tit);
+  SetWindowText (evt->Hwnd, buf);
+  return 1;
+} 
+/* code -  ws_upd - force update */
+ws_upd(
+wsTevt *evt )
+{ wsTctx *ctx = ws_ctx ();
+  if( !evt)return 0;
+  InvalidateRect (ctx->Hwnd, NULL, ctx->Vclr);
+  return 1;
+} 
+/* code -  ws_fac - create facility */
+wsTfac *ws_fac(
+wsTevt *evt ,
+char *nam )
+{ wsTctx *ctx = ws_ctx ();
+  wsTfac *(*prv )= &ctx->Pfac;
+  wsTfac *cur ;
+  while ( *prv) {
+    cur = *prv;
+    if ( st_sam (cur->Anam, nam)) {
+      return ( cur); }
+    prv = &cur->Psuc;
+  } 
+  cur = me_acc ( sizeof(wsTfac));
+  *prv = cur;
+  st_fit (nam, cur->Anam,  sizeof(cur->Anam));
+  return ( cur);
+} 
+/* code -  ws_chd - get/set child */
+HWND ws_chd(
+wsTevt *evt ,
+HWND new )
+{ wsTctx *ctx = evt->Pctx;
+  HWND old = ctx->Hchd;
+  if ( new) {ctx->Hchd = new ;}
+  return ( old);
+} 
+/* code -  tm_sta - start timer */
+tm_sta(
+wsTevt *evt ,
+long per ,
+wsTcal *ast )
+{ wsTctx *ctx = evt->Pctx;
+  ctx->Ptim = ast;
+  return ( (SetTimer (ctx->Hwnd, 1, per, NULL)));
+} 
+/* code -  tm_stp - stop timer */
+tm_stp(
+wsTevt *evt )
+{ wsTctx *ctx = evt->Pctx;
+  KillTimer (ctx->Hwnd, 1);
+} 
+/* code -  wi_mai - WinMain */
+int APIENTRY WinMain(
+HINSTANCE ins ,
+HINSTANCE prv ,
+LPSTR cmd ,
+int sho )
+{ wsTctx *ctx ;
+  wsTevt evt = {0};
+  int hgt ;
+  int wid ;
+  imPrep = ws_msg;
+  ctx = me_acc ( sizeof(wsTctx));
+  wsPctx = evt.Pctx = ctx;
+  ctx->Hins = ins;
+  ctx->Hprv = prv;
+  ctx->Pcmd = cmd;
+  ctx->Vsho = sho;
+  ctx->Vclr = 1;
+  ctx->Vbow = 1;
+  ctx->Ievt.Pctx = ctx;
+  gr_fnt (&evt, 0);
+  hgt = ws_int (&evt, wsDTH);
+  wid = ws_int (&evt, wsDTW);
+  ctx->Vlft = wid/8;
+  ctx->Vtop = hgt/8;
+  ctx->Vwid = wid/6;
+  ctx->Vhgt = hgt/6;
+  wc_mai (&evt);
+  if( !prv && !wi_app (ctx))return 0;
+  if( !wi_ins (ctx))return 0;
+  evt.Hwnd = ctx->Hwnd;
+  wc_bld (&evt, cmd);
+  ws_upd (&evt);
+  wc_loo (&evt);
+} 
+/* code -  wi_app - init application */
+#define CS1  CS_BYTEALIGNCLIENT
+#define CS2  CS_HREDRAW | CS_VREDRAW
+#define CS3  CS_DBLCLKS
+BOOL wi_app(
+wsTctx *ctx )
+{ WNDCLASS cla = {0};
+  char *nam = imPfac;
+  if ( !nam) {nam = "noname" ;}
+  cla.style = CS1|CS2|CS3;
+  cla.lpfnWndProc = wi_evt;
+  cla.hInstance = ctx->Hins;
+  cla.hCursor = LoadCursor (NULL, IDC_ARROW);
+  cla.hbrBackground = GetStockObject (((ctx->Vbow) ? WHITE_BRUSH: BLACK_BRUSH));
+  cla.lpszMenuName = "";
+  cla.lpszClassName = nam;
+  return ( RegisterClass (&cla));
+} 
+/* code -  wi_ins - init instance */
+#define WS1  WS_VSCROLL|WS_HSCROLL
+#define WS2  WS_MINIMIZEBOX|WS_MAXIMIZEBOX|WS_THICKFRAME
+#define WS3  WS_OVERLAPPED
+#define WS4  WS_CAPTION|WS_SYSMENU
+BOOL wi_ins(
+wsTctx *ctx )
+{ HWND wnd ;
+  char *nam = imPfac;
+  int lft ;
+  int top ;
+  int sho ;
+  int sty = WS2 | WS3 | WS4;
+  char *cla ;
+  if ( !nam) {nam = "noname" ;}
+  cla = nam;
+  switch ( ctx->Vsty) {
+  case wsBOX:
+    sty = WS_POPUPWINDOW;
+     }
+  wnd = CreateWindow (cla, nam, sty,ctx->Vlft, ctx->Vtop, ctx->Vwid, ctx->Vhgt,NULL, NULL, ctx->Hins, NULL);
+  if( !wnd)return 0;
+  ctx->Hwnd = wnd;
+  if ( ctx->Vmin) {sho = SW_MINIMIZE ;} else {
+    sho = ctx->Vsho ; }
+  ShowWindow (wnd, sho);
+  UpdateWindow (wnd);
+  return 1;
+} 
+/* code -  ws_loo - server driven message loop */
+int ws_loo(
+wsTevt *evt )
+{ MSG msg ;
+  while ( GetMessage (&msg, NULL, 0,0)) {
+    wi_dis (&msg);
+  } 
+  return ( 0);
+} 
+/* code -  wi_dis - dispatch message */
+wi_dis(
+MSG *msg )
+{ TranslateMessage (msg);
+  DispatchMessage (msg);
+  return 1;
+} 
+/* code -  ws_pee - peek at a message */
+ws_pee(
+wsTevt *evt ,
+int wai )
+{ MSG msg ;
+  if ( !evt) {evt = ws_evt () ;}
+  if ( !wai) {
+    if( (PeekMessage (&msg, NULL, 0, 0, PM_REMOVE)) == 0)return ( 0 );
+    } else {
+    if( (GetMessage (&msg,NULL, 0, 0)) == 0){ wc_exi (evt) ; return 0;} }
+  wi_dis (&msg);
+  return 1;
+} 
+/* code -  wi_evt - windows event (WindowProc) */
+LRESULT CALLBACK wi_evt(
+HWND wnd ,
+UINT msg ,
+WPARAM wrd ,
+LPARAM lng )
+{ wsTctx *ctx = ws_ctx ();
+  wsTevt evt ;
+  evt.Pctx = ctx;
+  evt.Hwnd = wnd;
+  evt.Vmsg = msg;
+  evt.Vwrd = wrd;
+  evt.Vlng = lng;
+  return ( ws_dis (&evt));
+} 
+ULONG ws_dis(
+wsTevt *evt )
+{ wsTctx *ctx = evt->Pctx;
+  wsTfac *fac = ctx->Pfac;
+  HWND chd = ctx->Hchd;
+  UINT msg = evt->Vmsg;
+  WPARAM wrd = evt->Vwrd;
+  LPARAM lng = evt->Vlng;
+  if ( evt->Hwnd == ctx->Hwnd) {
+    switch ( msg) {
+    case WM_MOVE:
+      ctx->Vlft = LOWORD (lng);
+      ctx->Vtop = HIWORD (lng);
+     break; case WM_SIZE:
+      ctx->Vwid = LOWORD (lng);
+      ctx->Vhgt = HIWORD (lng);
+       } }
+  while ( fac) {
+    if ( fac->Past) {
+      if( ((*fac->Past)(evt, fac)) != 0)return 0; }
+    fac = fac->Psuc;
+  } 
+  msg = evt->Vmsg;
+  switch ( msg) {
+  case WM_COMMAND:
+     wc_cmd (evt);return 0;
+   break; case WM_CREATE:
+     wc_cre (evt);return 0;
+   break; case WM_PAINT:
+    if( wc_pnt (evt))return 0;
+   break; case WM_CLOSE:
+    wc_exi (evt);
+    ws_exi (evt);
+   break; case WM_QUIT:
+  case WM_DESTROY:
+     wc_exi (evt);return 0;
+   break; case WM_TIMER:
+    if ( ctx->Ptim) {(*ctx->Ptim)(evt) ;}
+    return 0;
+   break; case WM_SETFOCUS:
+    gr_car (evt, grFOC, 0, 0);
+   break; case WM_KILLFOCUS:
+    gr_car (evt, grKIL, 0, 0);
+   break; case WM_SIZE:
+    if( ctx->Vmin)return 0;
+    if( !chd)break;
+     MoveWindow (chd, 0, 0, LOWORD(lng), HIWORD(lng), 1);return 0;
+   break; case WM_SYSCOMMAND:
+    if ( wrd == SC_KEYMENU) {
+      return 0; }
+     }
+  return ( DefWindowProc (evt->Hwnd, msg, wrd, lng));
+} 
+/* code -  ws_str - string information */
+char *ws_str(
+wsTevt *evt ,
+int cod )
+{ wsTctx *ctx = wsPctx;
+  switch ( cod) {
+  case wsCMD:
+    return ( ctx->Pcmd);
+     }
+  return 0;
+} 
+/* code -  ws_int - integer information */
+int ws_int(
+wsTevt *evt ,
+int cod )
+{ wsTctx *ctx = wsPctx;
+  switch ( cod) {
+  case wsDIH:
+    return ( ctx->Vhgt);
+   break; case wsDIW:
+    return ( ctx->Vwid);
+   break; case wsDSX:
+    return ( ctx->Vlft);
+   break; case wsDSY:
+    return ( ctx->Vtop);
+   break; case wsDTH:
+    return ( GetSystemMetrics (SM_CYFULLSCREEN));
+   break; case wsDTW:
+    return ( GetSystemMetrics (SM_CXFULLSCREEN));
+   break; case wsCLR:
+    return ( ctx->Vclr);
+   break; case wsMIN:
+    return ( ctx->Vmin);
+   break; case wsSTY:
+    return ( ctx->Vsty);
+   break; case wsCLA:
+    return ( ctx->Vcla);
+   break; case wsCHH:
+    return ( ctx->Vchh);
+   break; case wsCHW:
+    return ( ctx->Vchw);
+   break; case wsBOW:
+    return ( ctx->Vbow);
+   break; case wsDEV:
+    return ( (int )(evt->Hdev));
+     }
+  return 0;
+} 
+/* code -  ws_set - set values */
+ws_set(
+wsTevt *evt ,
+int cod ,
+int val )
+{ wsTctx *ctx = wsPctx;
+  switch ( cod) {
+  case wsDIH:
+    ctx->Vhgt = val;
+   break; case wsDIW:
+    ctx->Vwid = val;
+   break; case wsDSX:
+    ctx->Vlft = val;
+   break; case wsDSY:
+    ctx->Vtop = val;
+   break; case wsCLR:
+    ctx->Vclr = val;
+   break; case wsPNT:
+    if ( val) {UpdateWindow (ctx->Hwnd) ;}
+   break; case wsMIN:
+    ctx->Vmin = val;
+   break; case wsSTY:
+    ctx->Vsty = val;
+   break; case wsCLA:
+    ctx->Vcla = val;
+   break; case wsBOW:
+    ctx->Vbow = val;
+     }
+  return 1;
+} 
+/* code -  ws_mov - reset window area */
+ws_mov(
+wsTevt *evt )
+{ wsTctx *ctx = evt->Pctx;
+  HWND wnd = ctx->Hwnd;
+  SetWindowPos (wnd, 0,ctx->Vlft, ctx->Vtop,ctx->Vwid, ctx->Vhgt,SWP_NOZORDER|SWP_NOACTIVATE);
+  return 1;
+} 

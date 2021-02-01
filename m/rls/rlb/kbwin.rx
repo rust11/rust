@@ -1,0 +1,119 @@
+#define ast$c  0
+/* file -  kbwin - windows keyboard */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\wsdef.h"
+#include "f:\m\rid\kbdef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\vkdef.h"
+static wsTast kb_evt ;
+static int kb_put (wsTevt *,kbTcha *);
+/* code -  kb_att - attach keyboard */
+kbTkbd *kb_att()
+{ wsTctx *ctx = ws_ctx ();
+  kbTkbd *kbd = ctx->Pkbd;
+  wsTfac *fac ;
+  if ( !kbd) {
+    ctx->Pkbd = kbd = kb_alc ();
+    fac = ws_fac (NULL, "kb");
+    fac->Pusr = kbd;
+    fac->Past = kb_evt; }
+  GetKeyboardState (kbd->Asta);
+  return ( kbd);
+} 
+/* code -  kb_det - detach keyboard */
+kb_det()
+{ kbTkbd *kbd = kb_att ();
+  wsTfac *fac = ws_fac (NULL, "kb");
+  fac->Past = NULL;
+  return 1;
+} 
+/* code -  kb_get - get next character */
+kb_get(
+kbTcha *cha ,
+int flg )
+{ wsTctx *ctx = ws_ctx ();
+  kbTkbd *kbd = ctx->Pkbd;
+  for(;;)  {
+    if( kb_rea (kbd, cha, flg))return 1;
+    if( !ws_pee (NULL, (flg & kbWAI_) != 0))return 0;
+  } 
+} 
+/* code -  kb_evt - handle keyboard event */
+kb_evt(
+wsTevt *evt ,
+wsTfac *fac )
+{ int msg = evt->Vmsg;
+  char sta [256];
+  WORD buf [4];
+  WORD *ptr = buf;
+  kbTkbd *kbd = fac->Pusr;
+  kbTcha cha ;
+  kbTord vir ;
+  int lng ;
+  int scn ;
+  int alt ;
+  int flg ;
+  int res = 0;
+  if( msg == WM_SYSCHAR)return 1;
+  if (( (msg != WM_KEYUP) && (msg != WM_SYSKEYUP))
+  &&((msg != WM_KEYDOWN) && (msg != WM_SYSKEYDOWN))) {
+    return 0; }
+  lng = evt->Vlng;
+  vir = evt->Vwrd;
+  scn = (lng >> 16) & 0xffff;
+  alt = (lng & BIT(29)) != 0;
+  flg = kbd->Vflg;
+  switch ( evt->Vmsg) {
+  case WM_KEYUP:
+  case WM_SYSKEYUP:
+    switch ( vir) {
+    case VK_SHIFT:
+      flg &= (~kbSHF_);
+     break; case VK_CONTROL:
+      flg &= (~kbCTL_);
+     break; case VK_MENU:
+      flg &= (~kbALT_);
+       }
+    kbd->Vflg = flg;
+    return 0;
+   break; case WM_SYSKEYDOWN:
+  case WM_KEYDOWN:
+    GetKeyboardState (kbd->Asta);
+    res = ToAscii (vir, scn, kbd->Asta, buf, alt);
+    switch ( vir) {
+    case VK_SHIFT:
+      flg |= kbSHF_;
+     break; case VK_CONTROL:
+      flg |= kbCTL_;
+     break; case VK_MENU:
+      flg |= kbALT_;
+       }
+   break; default: 
+    return 0;
+     }
+  kbd->Vflg = flg;
+  if ( lng & BIT(24)) {flg |= kbENH_ ;}
+  if ( evt->Vmsg == WM_SYSKEYDOWN) {flg |= kbSYS_ ;}
+  if ( res == 0) {
+    cha.Vflg = flg|kbVIR_;
+    cha.Vord = vir;
+    kb_wri (kbd, &cha);
+  } else if ( res > 0) {
+    cha.Vflg = flg|kbASC_;
+    while ( res--) {
+      cha.Vord = *ptr++;
+      kb_wri (kbd, &cha);
+    } 
+    } else {
+    ; }
+  if (( flg == (kbSYS_|kbALT_|kbVIR_))
+  &&(cha.Vord == 18)) {
+    return 1; }
+  if( evt->Vmsg == WM_SYSKEYDOWN)return 0;
+#if ast$c
+  if( !kbd->Past)return 1;
+  return ( (*kbd->Past)(kbd, &cha, 0));
+#endif 
+   evt->Vmsg = WM_COMMAND;return 0;
+  return 1;
+} 

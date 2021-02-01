@@ -1,0 +1,109 @@
+/* file -  cowin - console window interface */
+#include "c:\m\rid\rider.h"
+#include "c:\m\rid\codef.h"
+#include "c:\m\rid\vkdef.h"
+#include "c:\m\rid\wimod.h"
+#include "c:\m\rid\dbdef.h"
+/* code -  co_att - attach terminal */
+int coVatt = 0;
+HANDLE coHhan = INVALID_HANDLE_VALUE;
+ULONG coVmod = 0;
+int co_att(
+void *res )
+{ HANDLE han = coHhan;
+  ULONG mod ;
+  for(;;)  {
+    if( coVatt)break;
+    han = GetStdHandle (STD_INPUT_HANDLE);
+    if( han == INVALID_HANDLE_VALUE)return 0;
+    if( !GetConsoleMode (han, &mod))return 0;
+    coVmod = mod;
+    mod &= ~(ENABLE_ECHO_INPUT|ENABLE_WINDOW_INPUT|ENABLE_MOUSE_INPUT);
+    if( !SetConsoleMode (han, mod))return 0;
+    coHhan = han;
+    coVatt = 1;
+   break;} 
+  if ( res) {*(HANDLE *)res = han ;}
+  return 1;
+} 
+/* code -  co_det - detach terminal */
+co_det()
+{ if( !coVatt)return 1;
+  SetConsoleMode (coHhan, coVmod);
+   coVatt = 0;return 1;
+} 
+/* code -  co_dlc - deallocate console */
+void co_dlc()
+{ FreeConsole ();
+} 
+/* code -  co_get - get next character */
+co_get(
+kbTcha *cha ,
+int mod )
+{ HANDLE han ;
+  INPUT_RECORD rec ;
+  KEY_EVENT_RECORD *key ;
+  ULONG cnt ;
+  int asc ;
+  int vir ;
+  int scn ;
+  int ctl ;
+  int flg = 0;
+  int sts ;
+  if( !co_att (&han))return 0;
+  for(;;)  {
+    if ( !(mod & kbWAI_)) {
+      if ( (GetNumberOfConsoleInputEvents (han, &cnt)) == 0) {db_lst ("GetNumberOfInputEvents") ;}
+      if( !cnt)return 0; }
+    if ( !(mod & kbPEE_)) {
+      if ( (WaitForSingleObject (han, INFINITE)) == WAIT_FAILED) {PUT("fail") ;} }
+    if ( mod & kbPEE_) {sts = PeekConsoleInput (han, &rec, 1, &cnt) ;} else {
+      sts = ReadConsoleInput (han, &rec, 1, &cnt) ; }
+    if( !sts)return 0;
+    if( rec.EventType != KEY_EVENT)continue;
+    key = &rec.Event.KeyEvent;
+    if( key->bKeyDown == 0)continue;
+   break;} 
+  ctl = key->dwControlKeyState;
+  asc = key->uChar.AsciiChar;
+  vir = key->wVirtualKeyCode;
+  scn = key->wVirtualScanCode;
+  if ( ctl & ENHANCED_KEY) {flg |= kbENH_ ;}
+  if ( ctl & (LEFT_CTRL_PRESSED|RIGHT_CTRL_PRESSED)) {flg |= kbCTL_ ;}
+  if ( ctl & SHIFT_PRESSED) {flg |= kbSHF_ ;}
+  if ( ctl & (LEFT_ALT_PRESSED|RIGHT_ALT_PRESSED)) {flg |= kbALT_ ;}
+  if ( asc) {flg |= kbASC_, cha->Vord = asc ;} else {
+    flg |= kbVIR_, cha->Vord = vir ; }
+  cha->Vflg = flg;
+  if ( (flg & (kbENH_|kbVIR_)) == (kbENH_|kbVIR_)) {
+    switch ( vir) {
+    case 144:
+      cha->Vord = 69, cha->Vflg = kbPAD_;
+       }
+    return 1; }
+  switch ( scn) {
+  case 69:
+  case 55:
+  case 74:
+  case 71:
+  case 72:
+  case 73:
+  case 75:
+  case 76:
+  case 77:
+  case 78:
+  case 79:
+  case 80:
+  case 81:
+  case 82:
+  case 83:
+    flg |= kbPAD_;
+   break; case 28:
+  case 53:
+    if ( flg & kbENH_) {flg |= kbPAD_ ;}
+     }
+  if ( (flg & kbPAD_)) {
+    cha->Vord = scn;
+    flg &= (kbPAD_|kbSHF_); }
+   cha->Vflg = flg;return 1;
+} 

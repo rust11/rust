@@ -1,0 +1,74 @@
+/* file -  faatr - file attribute operations */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\tidef.h"
+#include "f:\m\rid\mxdef.h"
+#include <windows.h>
+#define E_AccFil  "E-Error accessing file [%s]"
+#define E_SetFil  "E-Error setting file [%s]"
+static char *fiAacc = E_AccFil;
+static char *fiAset = E_SetFil;
+/* code -  fi_gtm - get file date/time */
+#define diTsta  struct stat
+int fi_gtm(
+char *spc ,
+tiTval *val ,
+char *msg )
+{ char nam [mxLIN];
+  HANDLE han ;
+  FILETIME fil ;
+  fi_loc (spc, nam);
+  if (( (han = CreateFile (nam, GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,NULL, OPEN_EXISTING, 0, 0)) != NULL)
+  &&(GetFileTime (han, NULL,NULL,&fil))
+  &&(CloseHandle (han))
+  &&(ti_fnt (&(tiTwin )fil, val))) {
+    return 1; }
+   fi_rep (msg, spc, fiAacc);return 0;
+} 
+/* code -  fi_stm - set file date/time */
+int fi_stm(
+char *spc ,
+tiTval *val ,
+char *msg )
+{ char nam [mxLIN];
+  HANDLE han ;
+  FILETIME fil ;
+  fi_loc (spc, nam);
+  if( (ti_tnt (val, &(tiTwin )fil)) == 0)return ( 0 );
+  if (( (han = CreateFile (nam, GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE,NULL, OPEN_EXISTING, 0, 0)) != NULL)
+  &&(SetFileTime (han, &fil,&fil,&fil))
+  &&(CloseHandle (han))) {
+    return 1; }
+   fi_rep (msg, spc, fiAacc);return 0;
+} 
+/* code -  fi_gat - get attributes */
+int fi_gat(
+char *spc ,
+int *atr ,
+char *msg )
+{ char nam [mxLIN];
+  ULONG res ;
+  fi_loc (spc, nam);
+  res = GetFileAttributes (nam);
+  if ( res != 0xFFFFFFFF) {
+    if ( atr) {*atr = (int )res ;}
+    return 1; }
+   fi_rep (msg, spc, fiAacc);return 0;
+} 
+/* code -  fi_sat - set attributes */
+int fi_sat(
+char *spc ,
+int bic ,
+int bis ,
+char *msg )
+{ char nam [mxLIN];
+  int atr ;
+  fi_loc (spc, nam);
+  for(;;)  {
+    if( !fi_gat (nam, &atr, NULL))break;
+    atr &= ~(bic);
+    atr |= bis;
+    if( (SetFileAttributes (nam, (WORD )atr)) != 0)return ( 1 );
+   break;} 
+   fi_rep (msg, spc, fiAset);return 0;
+} 

@@ -1,0 +1,175 @@
+/* file -  wsgra - graphic functions */
+#include "c:\m\rid\rider.h"
+#include "c:\m\rid\wsdef.h"
+#include "c:\m\rid\stdef.h"
+#include "c:\m\rid\dbdef.h"
+#include "c:\m\rid\ftdef.h"
+/* code -  gr_beg - begin paint */
+gr_beg(
+wsTevt *evt )
+{ wsTctx *ctx = ws_ctx ();
+  HWND wnd = ctx->Hwnd;
+  HDC dev ;
+  TEXTMETRIC met ;
+  if ( evt->Vmsg == WM_PAINT) {
+    ctx->Vpnt = 0;
+    dev = BeginPaint (wnd, &evt->Ipnt);
+    } else {
+    dev = GetDC (wnd); }
+  evt->Hdev = dev;
+  if ( !ctx->Vbow) {
+    SetBkColor (dev, RGB(0,0,0));
+    SetTextColor (dev, RGB(255,255,255)); }
+  SelectObject (dev, (ctx->Hbru = GetStockObject (OEM_FIXED_FONT)));
+  return 1;
+} 
+/* code -  gr_end - end paint */
+gr_end(
+wsTevt *evt )
+{ wsTctx *ctx = evt->Pctx;
+  if ( evt->Vmsg == WM_PAINT) {
+    EndPaint (evt->Hwnd, &evt->Ipnt);
+    } else {
+    ReleaseDC (evt->Hwnd, evt->Hdev); }
+  DeleteObject (ctx->Hbru);
+  DeleteObject (ctx->Hpen);
+  ctx->Hbru = 0;
+  ctx->Hpen = 0;
+  return 1;
+} 
+/* code -  gr_pol - draw polyline */
+gr_pol(
+wsTevt *evt ,
+long *seg ,
+int cnt )
+{ HDC dev = evt->Hdev;
+  Polyline (dev, (POINT *)seg, cnt);
+  return 1;
+} 
+/* code -  gr_ppl - poly polyline */
+gr_ppl(
+wsTevt *evt ,
+long *seg ,
+ULONG *sec ,
+int cnt )
+{ HDC dev = evt->Hdev;
+  while ( cnt--) {
+    gr_pol (evt, seg, *sec);
+    seg += *sec++ * 2;
+  } 
+  return 1;
+} 
+/* code -  gr_txt - text out */
+gr_txt(
+wsTevt *evt ,
+int x ,
+int y ,
+char *str )
+{ HDC dev = evt->Hdev;
+  TextOut (dev, x, y, str, st_len (str));
+  return 1;
+} 
+/* code -  gr_txw - text out wide */
+gr_txw(
+wsTevt *evt ,
+int x ,
+int y ,
+WORD *str ,
+int cnt )
+{ HDC dev = evt->Hdev;
+  TextOutW (dev, x, y, str, cnt);
+  return 1;
+} 
+/* code -  gr_col - select colours */
+gr_col(
+wsTevt *evt ,
+int pap ,
+int ink )
+{ HBRUSH han ;
+  wsTctx *ctx = ws_ctx ();
+  HGDIOBJ pen = ctx->Hbru;
+  HGDIOBJ bru = ctx->Hpen;
+  if ( pap != -1) {SetBkColor (evt->Hdev, PALETTEINDEX(pap)) ;}
+  if ( ink != -1) {SetTextColor (evt->Hdev, PALETTEINDEX(ink)) ;}
+  ctx->Hbru = CreateSolidBrush (PALETTEINDEX(ink));
+  SelectObject (evt->Hdev, ctx->Hbru);
+  ctx->Hpen = CreatePen (PS_SOLID, 0, PALETTEINDEX(ink));
+  SelectObject (evt->Hdev, ctx->Hpen);
+  DeleteObject (bru);
+  DeleteObject (pen);
+  return 1;
+} 
+/* code -  gr_car - caret operations */
+gr_car(
+wsTevt *evt ,
+int opr ,
+int col ,
+int row )
+{ wsTctx *ctx = ws_ctx ();
+  wsTcar *car = &ctx->Icar;
+  HWND wnd = ctx->Hwnd;
+  int wid = ws_int (evt, wsCHW);
+  int hgt = ws_int (evt, wsCHH);
+  if( !wnd)return;
+  switch ( opr) {
+  case grFOC:
+    car->Vfoc = 1, car->Vvis = 0;
+   break; case grKIL:
+    car->Vfoc=car->Vcre=car->Vvis=0;
+    DestroyCaret();
+   break; case grHID:
+    car->Vsho = 0;
+   break; case grSHO:
+    car->Vsho = 1;
+   break; case grBLK:
+    car->Vren = 0;
+   break; case grGRY:
+    car->Vren = 1;
+   break; case grPOS:
+    car->Vcol=col, car->Vrow=row;
+     }
+  if( !car->Vfoc)return;
+  if ( !car->Vsho) {
+    while ( car->Vvis > 0) {
+      --car->Vvis, HideCaret(wnd); }
+    return; }
+  if ( !car->Vcre) {
+    CreateCaret (wnd,(void *)car->Vren,3, hgt);
+    if( !car->Vfoc)return;
+    ++car->Vcre; }
+  SetCaretPos (car->Vcol, car->Vrow);
+  while ( car->Vsho && (car->Vvis <= 0)) {
+    ++car->Vvis, ShowCaret(wnd); }
+} 
+/* code -  gr_fnt - setup font metrics */
+gr_fnt(
+wsTevt *evt ,
+int fnt )
+{ wsTctx *ctx = evt->Pctx;
+  RECT rec = {0};
+  HDC dev = CreateEnhMetaFile (NULL,NULL,&rec,NULL);
+  HENHMETAFILE han ;
+  TEXTMETRIC met ;
+  SelectObject (dev, (GetStockObject (OEM_FIXED_FONT)));
+  GetTextMetrics (dev, &met);
+  ctx->Vchh = met.tmHeight;
+  ctx->Vchw = met.tmMaxCharWidth;
+  han = CloseEnhMetaFile (dev);
+  DeleteEnhMetaFile (han);
+  return 1;
+} 
+/* code -  gr_sel - select font object */
+gr_sel(
+wsTevt *evt ,
+wsTfnt *fnt )
+{ wsTctx *ctx = ws_ctx ();
+  if( (ft_sel (fnt, evt->Hdev)) == 0)return ( 0 );
+  ctx->Vchh = ((ftTfnt *)fnt)->Vhgt;
+  ctx->Vchw = ((ftTfnt *)fnt)->Vwid;
+  return 1;
+} 
+gr_uns(
+wsTevt *evt ,
+wsTfnt *fnt )
+{ return ( ft_uns (fnt, evt->Hdev));
+} 

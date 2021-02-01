@@ -1,0 +1,129 @@
+/* file -  fnmod - new font module */
+#include "c:\m\rid\wimod.h"
+#include "c:\m\rid\stdef.h"
+#include "c:\m\rid\medef.h"
+#include "c:\m\rid\fndef.h"
+/* code -  fn_col - make a collection */
+fnTcol *fn_col()
+{ return ( me_acc ( sizeof(fnTcol)));
+} 
+/* code -  fn_reg - register a font size_t */
+bool fn_reg(
+fnTcol *col ,
+int ord ,
+int hgt ,
+int wid )
+{ fnTsiz *siz ;
+  fnTsiz *(*ptr )= &col->Psiz;
+  while ( *ptr) {
+    siz = *ptr;
+    if( siz->Vsiz == ord)return 1;
+    if( siz->Vsiz < ord)break;
+    ptr = &siz->Psuc;
+  } 
+  siz = me_acc ( sizeof(fnTsiz));
+  siz->Vsiz = ord;
+  siz->Vhgt = hgt;
+  siz->Vwid = wid;
+  siz->Psuc = *ptr;
+  *ptr = siz;
+  return 1;
+} 
+/* code -  fn_siz - get the dimensions of a font */
+fnTsiz *fn_siz(
+fnTcol *col ,
+int ord )
+{ fnTsiz *siz = col->Psiz;
+  while ( siz) {
+    if( siz->Vsiz == ord)return ( siz );
+    siz = siz->Psuc;
+  } 
+  return 0;
+} 
+/* code -  fn_grp - register a font group */
+fnTgrp *fn_grp(
+fnTcol *col ,
+char *nam ,
+int siz )
+{ int idx = 0;
+  fnTgrp *(*ptr )= &col->Pgrp;
+  fnTgrp *grp ;
+  while ( *ptr) {
+    grp = *ptr;
+    if (( st_sam (nam, grp->Pnam))
+    &&(siz == grp->Vsiz)) {
+      return ( grp); }
+    ptr = &grp->Psuc;
+  } 
+  grp = me_acc ( sizeof(fnTgrp));
+  *ptr = grp;
+  grp->Pcol = col;
+  grp->Pnam = st_dup (nam);
+  grp->Vsiz = siz;
+  return ( grp);
+} 
+/* code -  fn_map - map and select a font */
+void fn_clr(
+fnTcol *col )
+{ col->Pcur = 0;
+} 
+bool fn_map(
+void *dev ,
+fnTgrp *grp ,
+int ren )
+{ fnTcol *col = grp->Pcol;
+  int idx = (ren >> 5) & 7;
+  fnTfnt *fnt = grp->Aren[idx];
+  if( grp == 0){ col->Pcur = 0 ; return 1;}
+  if ( fnt == 0) {
+    fnt = grp->Aren[idx] = fn_fnt (dev, grp, ren);
+    fnt->Vren = ren;
+    } else {
+    if( fnt == col->Pcur)return 1; }
+  return ( fn_sel (dev, fnt));
+} 
+/* code -  fn_fnt - setup a font */
+fnTfnt *fn_fnt(
+void *dev ,
+fnTgrp *grp ,
+int ren )
+{ fnTcol *col = grp->Pcol;
+  LOGFONT log = {0};
+  TEXTMETRIC met ;
+  fnTfnt *fnt = fn_alc ();
+  void *old ;
+  char nam [32];
+  fnTsiz *siz = fn_siz (col, grp->Vsiz);
+  if ( !dev) {dev = fnt->Hdev ;}
+  log.lfHeight = siz->Vhgt;
+  log.lfWidth = siz->Vwid;
+  st_fit (grp->Pnam, log.lfFaceName,  sizeof(log.lfFaceName));
+  if( (fnt->Hfnt = CreateFontIndirect (&log)) == 0)return 0;
+  old = SelectObject (dev, fnt->Hfnt);
+  GetTextMetrics (dev, &met);
+  fnt->Vver = met.tmHeight;
+  fnt->Vasc = met.tmAscent;
+  fnt->Vdes = met.tmDescent;
+  fnt->Vhor = met.tmMaxCharWidth;
+  fnt->Vren = ren;
+  return ( fnt);
+} 
+bool fn_sel(
+void *dev ,
+fnTfnt *fnt )
+{ if ( !dev) {dev = fnt->Hdev ;}
+  return ( (SelectObject (dev, fnt->Hfnt)) != 0);
+} 
+fnTfnt *fn_alc()
+{ fnTfnt *fnt = me_acc ( sizeof(fnTfnt));
+  RECT rec = {0};
+  fnt->Hdev = CreateEnhMetaFile (NULL,NULL,&rec,NULL);
+  if( fnt->Hdev)return ( fnt );
+   me_dlc (fnt);return 0;
+} 
+void fn_dlc(
+fnTfnt *fnt )
+{ 
+  DeleteEnhMetaFile (fnt->Hdev);
+  me_dlc (fnt);
+} 

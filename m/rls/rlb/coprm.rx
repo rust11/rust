@@ -1,0 +1,297 @@
+/* file -  coprm - get command with prompt */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\codef.h"
+#include "f:\m\rid\imdef.h"
+#include "f:\m\rid\stdef.h"
+#include "f:\m\rid\vkdef.h"
+#include "f:\m\rid\wimod.h"
+#include "f:\m\rid\dbdef.h"
+#include "f:\m\rid\medef.h"
+#include "f:\m\rid\mxdef.h"
+#include "f:\m\rid\abdef.h"
+#include "f:\m\rid\cldef.h"
+co_ins (coTlin *,int ,int );
+co_rub (coTlin *);
+co_emp (coTlin *);
+co_era (coTlin *);
+co_ref (coTlin *);
+co_lft (coTlin *);
+co_rgt (coTlin *);
+co_pre (coTlin *);
+co_suc (coTlin *);
+co_fet (coTlin *);
+co_sto (coTlin *);
+co_col (coTlin *);
+co_set (coTlin *,int );
+co_pos (int ,int *,int *);
+co_inc (coTlin *,int *);
+co_dec (coTlin *,int *);
+co_ctc (int );
+#define coGET (-1)
+#define coSET  1
+/* code -  co_prm - prompt for a command */
+coTget *coPget = &co_get;
+coTlin *coPlin = NULL;
+co_prm(
+char *prm ,
+char *buf ,
+size_t lim )
+{ coTlin *lin = co_lin (&coPlin, prm);
+  kbTcha cha ;
+  for(;;)  {
+    if( !(*coPget)(&cha, kbWAI_))return 0;
+    if( (co_edt (lin, &cha)) == 0)continue;
+    if ( buf) {co_cop (lin, buf) ;}
+    return 1;
+  } 
+} 
+coTlin *co_lin(
+coTlin *(*ptr ),
+char *prm )
+{ coTlin *lin = *ptr;
+  if ( !lin) {
+    lin = me_acc ( sizeof(coTlin));
+    *ptr = lin;
+    lin->Lbuf = mxLIN-8;
+    lin->Lhis = 64;
+    lin->Abuf[0] = 0; }
+  lin->Pprm = prm;
+  if ( (lin->Lprm = st_len (prm)) == 0) {co_pos (coGET, &lin->Lprm, NULL) ;}
+  PUT("%s", prm);
+  co_emp (lin);
+  return ( lin);
+} 
+void co_cop(
+coTlin *lin ,
+char *buf )
+{ st_cop (lin->Abuf, buf);
+} 
+/* code -  co_edt - edit the input line */
+co_edt(
+coTlin *lin ,
+kbTcha *cha )
+{ int ord = cha->Vord;
+  if (( cha->Vflg & kbASC_)
+  &&(ord >= 32)) {
+    co_ins (lin, ord, 1);
+  } else if ( cha->Vflg & kbASC_) {
+    switch ( ord) {
+    case 21:
+      co_era (lin);
+     break; case 8:
+      co_rub (lin);
+     break; case 27:
+      ord = 3;
+    case 3:
+      PUT("[Cancel]");
+      co_ins (lin, ord, 0);
+    case '\r':
+    case '\n':
+      co_sto (lin);
+       PUT("\n");return 1;
+     break; default: 
+      co_ins (lin, ord, 0);
+       }
+    } else {
+    switch ( cha->Vord) {
+    case vkLFT:
+      co_lft (lin);
+     break; case vkRGT:
+      co_rgt (lin);
+     break; case vkUPA:
+      co_pre (lin);
+     break; case vkDWN:
+      co_suc (lin);
+     break; case vkHOM:
+      while ( co_lft (lin)) {;}
+     break; case vkEND:
+      while ( co_rgt (lin)) {;}
+       } }
+  return 0;
+} 
+co_ins(
+coTlin *lin ,
+int ord ,
+int vis )
+{ char *buf = lin->Abuf;
+  char *ptr = buf + lin->Vpos;
+  int cnt ;
+  int col ;
+  if( (lin->Vcnt+4) > lin->Lbuf)return 1;
+  col = co_col (lin);
+  st_mov (ptr, ptr+1);
+  *ptr = ord;
+  if ( vis) {PUT("%s", ptr) ;}
+  co_set (lin, col+1);
+  ++lin->Vpos, ++lin->Vcnt;
+} 
+co_rub(
+coTlin *lin )
+{ char *buf = lin->Abuf;
+  char *ptr = buf + lin->Vpos;
+  int cnt ;
+  int col ;
+  if( !lin->Vpos)return 1;
+  col = co_col (lin);
+  co_set (lin, --col);
+  PUT("%s ", ptr);
+  co_set (lin, col);
+  st_mov (ptr, ptr-1);
+  --lin->Vpos, --lin->Vcnt;
+} 
+co_lft(
+coTlin *lin )
+{ char *buf = lin->Abuf;
+  if( !lin->Vpos)return 0;
+  PUT("\b");
+  --lin->Vpos;
+  return 1;
+} 
+co_rgt(
+coTlin *lin )
+{ char *buf = lin->Abuf;
+  if( lin->Vpos >= lin->Vcnt)return 0;
+  PUT("%c", lin->Abuf[lin->Vpos]);
+  ++lin->Vpos;
+  return 1;
+} 
+co_emp(
+coTlin *lin )
+{ lin->Vcnt = 0;
+  lin->Vpos = 0;
+  lin->Abuf[0] = 0;
+} 
+co_era(
+coTlin *lin )
+{ int cnt = lin->Vcnt;
+  co_set (lin, 0);
+  while ( cnt--) {PUT(" ") ;}
+  co_set (lin, 0);
+  co_emp (lin);
+} 
+co_ref(
+coTlin *lin )
+{ co_set (lin, 0);
+  PUT("%s", lin->Abuf);
+  co_set (lin, lin->Vpos);
+} 
+/* code -  co_sto - store line */
+co_sto(
+coTlin *lin )
+{ char *buf ;
+  if( !lin->Vcnt)return 1;
+  if( st_mem (3, lin->Abuf))return 1;
+  if ( lin->Vuse < (lin->Lhis-2)) {++lin->Vuse ;} else {
+    co_inc (lin, &lin->Vfst) ; }
+  co_inc (lin, &lin->Vlst);
+  st_cop (lin->Abuf, lin->Ahis[lin->Vlst]);
+  lin->Vcur = lin->Vlst;
+  co_inc (lin, &lin->Vcur);
+} 
+/* code -  co_pre - get predecessor line */
+co_pre(
+coTlin *lin )
+{ if( !lin->Vuse)return 1;
+  if( lin->Vcur == lin->Vfst)return 1;
+  co_dec (lin, &lin->Vcur);
+  co_fet (lin);
+} 
+/* code -  co_suc - get successor line */
+co_suc(
+coTlin *lin )
+{ if( !lin->Vuse)return 1;
+  if ( lin->Vcur == lin->Vlst) {
+     co_era (lin);return 1; }
+  co_inc (lin, &lin->Vcur);
+  co_fet (lin);
+} 
+/* code -  co_inc - increment line number */
+co_inc(
+coTlin *lin ,
+int *ord )
+{ ++*ord;
+  if ( *ord >= lin->Lhis) {*ord = 0 ;}
+} 
+/* code -  co_dec - decrement line number */
+co_dec(
+coTlin *lin ,
+int *ord )
+{ 
+  if ( (--*ord) < 0) {*ord = lin->Lhis - 1 ;}
+} 
+/* code -  co_fet - fetch a line */
+co_fet(
+coTlin *lin )
+{ co_era (lin);
+  st_cop (lin->Ahis[lin->Vcur], lin->Abuf);
+  lin->Vcnt = st_len (lin->Abuf);
+  lin->Vpos = lin->Vcnt;
+  co_ref (lin);
+} 
+/* code -  co_col - get/set column with prompt offset */
+co_col(
+coTlin *lin )
+{ int col ;
+  co_pos (coGET, &col, NULL);
+  return ( col-lin->Lprm);
+} 
+co_set(
+coTlin *lin ,
+int off )
+{ int col ;
+  col = lin->Lprm + off;
+  co_pos (coSET, &col, NULL);
+  return 1;
+} 
+/* code -  co_pos - get/set console position */
+co_pos(
+int mod ,
+int *col ,
+int *row )
+{ HANDLE han = GetStdHandle (STD_OUTPUT_HANDLE);
+  CONSOLE_SCREEN_BUFFER_INFO inf ;
+  COORD crd ;
+  int x ;
+  int y ;
+  if ( mod == coGET) {
+    GetConsoleScreenBufferInfo (han, &inf);
+    if ( col) {*col = inf.dwCursorPosition.X ;}
+    if ( row) {*row = inf.dwCursorPosition.Y ;}
+    } else {
+    co_pos (coGET, &x, &y);
+    crd.X = (col) ? *col: x;
+    crd.Y = (row) ? *row: y;
+    SetConsoleCursorPosition (han, crd);
+  } 
+  return 1;
+} 
+/* code -  co_ctc - control control C */
+int coVctc = 0;
+int coVonc = 0;
+int WINAPI co_han(
+ULONG sig )
+{ 
+  if( sig != CTRL_C_EVENT)return 0;
+  ++abVabt;
+  if ( coVctc == coENB) {
+    PUT("\n");
+    im_exi (); }
+  return 1;
+} 
+co_ctc(
+int cas )
+{ ULONG mod ;
+  HANDLE han = GetStdHandle (STD_INPUT_HANDLE);
+  if ( !coVonc) {
+    SetConsoleCtrlHandler (co_han, 1);
+    coVonc = 1; }
+  coVctc = cas;
+  if( (GetConsoleMode (han, &mod)) == 0)return ( 0 );
+  switch ( cas) {
+  case coENB:
+    mod |= ENABLE_PROCESSED_INPUT;
+   break; case coDSB:
+    mod &= (~ENABLE_PROCESSED_INPUT);
+     }
+  return ( (SetConsoleMode (han, mod)));
+} 

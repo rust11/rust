@@ -1,0 +1,44 @@
+/* file -  mecop - memory copy */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\medef.h"
+#if meKrts
+#if Win
+#include "f:\m\rid\wimod.h"
+#else 
+#include <string.h>
+#endif 
+#endif 
+/* code -  me_dup - duplicate object */
+void *me_dup(
+void *src ,
+size_t siz )
+{ void *dst = me_alc (siz);
+  me_cop (src, dst, siz);
+  return ( dst);
+} 
+/* code -  me_cop - copy block */
+void *me_cop(
+register void *src ,
+register void *dst ,
+size_t cnt )
+{ 
+#if meKrts
+#if Win
+  CopyMemory (dst, src, cnt);
+#else 
+  memcpy (dst, src, cnt);
+#endif 
+  return ( (char *)dst + cnt);
+#else 
+  while ( cnt >= 16U) {
+    ((long *)dst)[0] = ((long *)src)[0];
+    ((long *)dst)[1] = ((long *)src)[1];
+    ((long *)dst)[2] = ((long *)src)[2];
+    ((long *)dst)[3] = ((long *)src)[3];
+    (char *)dst += 16, (char *)src += 16;
+    cnt -= 16; }
+  while ( cnt--) {
+    *((char *)dst)++ = *((char *)src)++; }
+  return ( dst);
+#endif 
+} 
