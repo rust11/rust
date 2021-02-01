@@ -1,0 +1,301 @@
+;.title	ldi
+;
+;	%build
+;	run sy:strip smb:ldi.mla=sms:ldi.mac
+;	%end
+;	%date
+;	<15-Apr-2004 14:17:40.00>
+;	%edit
+;	<45   >
+;
+;	$icdef		Image & image cache control
+;	 ie	lrs	$isdef	
+;	$ifdef	lrs	RSX I/O functions
+;	$ihdef	lrs	RSX image header
+;	$ildef	lrs	RSX image label
+;	$imdef		SHAREplus image activation
+;	$indef		IND utility
+;	$iodef		SHAREplus I/O requests
+;	$iqdef		RT-11 I/O queue elements
+;	$isdef	lrs	RSX I/O status and error codes
+;	 ie		RSX error codes
+;-----------------------; 
+; IMAGE CONTROL		;
+;-----------------------;
+; 
+; Image cache & control
+;
+.MACRO	$ICDEF	
+$fedef			;feature definitions
+;
+;	Image cache feature transfer vectors
+;
+;map	$,0,feimg.*512.+fe.bbs
+map	.icdat	word,feimg.*512.+fe.bbs
+			;dummy to cover database pointer
+map	.icmnt	long	;mount bypass - r0=vid
+map	.icdsm	long	;dismount bypass - r0=vid
+map	.icgir	long	;get image rights - image activate
+;
+;	Image cache feature constants
+;
+map	icdws.,,0.	;default workspace in blocks
+;
+;	Image cache entry
+;
+map	ic.suc	word,0	;successor
+map	ic.pre		;predecessor
+map	ic.vid		;volume id
+map	ic.fil		;fil
+map	ic.nam		;nam
+map	ic.typ		;typ
+map	ic.len		;len
+map	ic.dat		;dat
+map	ic.tim		;tim
+map	ic.ctl		;ctl
+map	ic.uic		;uic
+map	ic.pro		;pro
+map	ic.ir0		;image rights
+map	ic.ir1		;
+map	ic.sbl		;start block
+map	ic.acc		;access count
+map	ic.bbs		;
+;
+; Image cache feature data - used by dcl show images
+;
+map	icens.,,63.	;number of entries
+map	ic.dyq	word*2,0 ;dynamic queue
+map	ic.inq	word*2	;
+map	ic.ins		;installed entries
+map	ic.dys		;dynamic entries
+map	ic.clc	long	;call count
+map	ic.htc	long	;hit count
+map	ic.inc	long	;insert count
+map	ic.dlc	long	;delete count
+map	ic.upc	long	;update count
+map	ic.tab	ic.bbs*icens. ;data table
+map	ic.dbs		;data byte size
+;
+;	Image control
+;
+; ???	SXM	XM system
+;	SFB	FB system
+;	SMT	MTT system
+;	SJB	System job environment
+;
+;	p$hic0
+;
+map	ictlc$,,1	;requires lower case
+map	ictup$,,1	;requires lower case - obselete name
+map	ictcl$,,2	;performs single character loops
+map	ictcy$,,4	;uses [ctrl/y]
+map	ictct$,,10	;uses [ctrl/t]
+map	ictcf$,,20	;uses [ctrl/b]/[ctrl/f]
+map	icnap$,,40	;do not use assignment paths
+map	icunm$,,100	;unmapped (no plas)
+map	icrtm$,,200	;realtime (.protect/.device)
+map	icfpu$,,400	;uses fpu
+map	icnra$,,1000	;normalise rt11a
+map	icnrs$,,2000	;normalise rt11s
+map	iciop$,,4000	;map i/o page
+map	icntr$,,10000	;notrace
+map	ictrp$,,20000	;send traps to process image
+map	icctz$,,40000	;[ctrl/z] terminates line
+map	icmmu$,,100000	;context switch user pars
+;
+;	p$hic1
+;
+;map	iccmk$,,1	;use RT-11 change-mode-kernel
+;map	icdbg$,,1	;start program with debugger
+;map	ictfm$,,20	;force terminal mode (vt100 only)
+;map	icstt$,,40000	;select terminal type
+;
+.ENDM 
+;-----------------------; 
+; IMAGE ACTIVATION	;
+;-----------------------;
+; 
+; Image activation
+;
+.MACRO	$IMDEF	
+;
+;	Image activation flags
+;
+map	imget$,,1	;get image - don't run it
+map	imcha$,,2	;chain to image
+map	imopn$,,4	;image is open
+map	imsta$,,10	;start only
+map	imree$,,20	;reenter only
+map	imres$,,40	;image reset
+map	imact$,,100	;activate only (don't load)
+map	imnac$,,200	;image not accounted (intention only)
+map	imucf$,,0	;ucf
+map	imdcl$,,400	;dcl
+map	imccl$,,1000	;ccl
+map	imucl$,,1400	;ucl
+;		2000	;
+;		4000	;
+;		10000	;
+;		20000	;
+map	imchs$,,40000	;set chain bit
+map	imvov$,,100000	;virtual overlays (internal)
+;			;
+map	imchn.,,15.	;image channel
+;
+;	r0	par	;r0 = parameter passed to image
+;	r1		;
+;	r2		;
+;	r3		;
+;	r4	stbdat	;r4 = stb date
+;	r5	^rshp	;r5 = SHAREplus indicator
+;
+.ENDM 
+;-----------------------;
+; IND			;
+;-----------------------;
+;
+;	IND definitions.
+;
+.MACRO	$INDEF
+;
+map	in.inx	byte,0	;indext - error level reporting
+map	in.ins	byte	;ind control & status
+;
+; in.ins 
+;
+map	incin$,,4	;cc$ind - 1 => ind disabling [ctrl/c]
+map	incgl$,,10	;cc$gbl - 1 => global scca disabling [ctrl/c]
+map	incal$,,17	;cc$all - all possible [ctrl/c] disables
+map	inlin$,,40	;ln$ind - command line from ind 
+map	inrun$,,100	;in$run - dcl running ind
+map	inind$,,200	;in$ind - ind running kmon
+;
+map	inrs$n,,<^c<incal$*256.>> ;reset, leave ctrl/c alone
+;
+.ENDM
+;-----------------------; 
+; I/O DEFINITIONS	;
+;-----------------------;
+; 
+; I/O mode and control
+;
+.MACRO	$IODEF
+;
+; RT-11 read/write/spfun request area
+; SHAREplus $IO request area
+;
+map	io.chn	byte,0	;channel
+map	io.cod	byte	;code
+map	io.blk		;block number
+map	io.buf		;buffer address
+map	io.wct		;word count
+map	io.com	null	;read/write completion
+map	io.mod	byte	;$io mode byte
+map	io.fun	byte	;$io function
+map	io.tbs	null	;read/write transfer byte size
+map	io.ast		;spfun/$io ast
+map	io.fbs		;spfun/$io function byte size
+;
+; IO.COD - I/O request subcodes
+;
+map	iorea.,,8.	;read
+map	iowri.,,9.	;write
+map	iospf.,,26.	;spfun
+map	ioioc.,,0	;$io - emt 373
+;
+; IO.MOD - I/O mode	
+;
+map	ioam$p,,7	;access mode pattern
+map	ioam$m,,177770	;access mode mask
+map	iocim.,,0	;callers instruction mode
+map	iokim.,,1	;kernel instruction mode
+map	iouim.,,2	;user instruction mode
+map	iosim.,,3	;supervisor instruction mode
+map	iocdm.,,4	;callers data mode
+map	iokdm.,,5	;kernel data mode
+map	ioudm.,,6	;user data mode
+map	iosdm.,,7	;supervisor data mode
+;			;
+map	iousm$,,2	;user or supervisor mode
+map	iosum$,,1	;supervisor mode if iosum$ set
+;		10
+;		20
+map	iospf$,,40	;spfun
+map	iorea$,,100	;read
+map	iowri$,,200	;write
+;
+; I/O control (unused)	
+;
+;map	iorel$,,1	;buffer must be mapped
+;map	iobuf$,,2	;buffered I/O
+;map	iostr$,,4	;striate I/O
+;map	iorep$,,10	;this is a repeat
+;
+; IO.COM/IO.AST - I/O completion modes
+;
+map	iowai.,,0	;wait mode
+map	ioret.,,1	;return mode
+map	iocr$m,,177776	;completion routine mask
+;
+; JSW - I/O request error codes
+;
+map	ioeof.,,0	;end of file
+map	ioher.,,1	;hard error
+map	iocno.,,2	;channel not open
+;
+.ENDM
+;-----------------------;
+; I/O QUEUE		;
+;-----------------------;
+;
+; RT-11 I/O queue	
+;
+;	Origin is iq.blk (rt-11 defines this)
+;
+.MACRO	$IQDEF
+;
+map	iq.lnk,,-4	;-4 - link - successor
+map	iq.csw		;-2 - csw
+map	iq.blk		; 0 - block number
+map	iq.fun	byte	; 2 - function
+map	iq.uni	null	; 3 - unit
+map	iq.job	byte	;   - job number
+map	iq.buf		; 4 - buffer address
+map	iq.wct		; 6 - word count
+map	iq.com		;10 - completion routine address
+map	iq.par		;12 - par1 value
+map	iq.ubs	null	;     unmapped size
+map	iq.fre	word*2	;14 - unused
+			;20
+map	iq.bbs,,24	;     default size
+;			;
+map	iqun$m,,177770	;unit mask
+map	iqjo$m,,177407	;job number mask
+;
+;	IQ queue with standard offsets
+;
+map	i.qlnk	word,0	; 0 - link - successor
+map	i.qcsw		; 2 - csw
+map	i.qblk		; 4 - block number
+map	i.qfun	byte	; 6 - function
+map	i.quni	null	; 7 - unit
+map	i.qjob	byte	;   - job number
+map	i.qbuf		;10 - buffer address
+map	i.qwct		;12 - word count
+map	i.qcom		;14 - completion routine address
+map	i.qpar		;16 - par1 value
+map	i.qfre	word*2	;20 - unused
+map	i.qbbs	null	;24
+;
+;	Synch I/O queue	element
+;
+map	iq.ssu	word,0	; 0 - successor		fk.suc
+map	iq.sjn		; 2 - job number	fk.kpc
+map	iq.spr		; 4 - pcr address	fk.kr5
+map	iq.spc		; 6 - synch pc		fk.kr4
+map	iq.sr0		;10 - synch r0
+map	iq.sid		;12 - synch id = -1
+map	iq.sac		;14 - synch active
+;
+.ENDM
+

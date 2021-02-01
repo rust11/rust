@@ -1,0 +1,598 @@
+ u n u s e d
+
+V4=1
+;.title	lxa - executable macros
+;
+;	%build
+;	run sy:strip smb:lxa.mla=sms:lxa.mac
+;	%end
+;	%date
+;	<16-Jan-2006 16:53:35.45>
+;	%edit
+;	<30   >
+;	%end
+;
+;call addresses should be absolute for kernel
+ ` $ASCII	
+
+________________________________________________________________________________
+
+	$ASCII STR TYP
+
+	typ	c	.byte	chrs
+		i	.ascii	str		(default)
+		t	.ascii	str<200>
+		z	.ascii	str<0>
+		e	.even
+
+	del	"	delimiter
+
+________________________________________________________________________________
+
+$ASCII expects strings to be enclosed in angle brackets.
+
+.MACRO	$ASCII ASCSTR ASCTER=I
+ma$as2=0
+.irpc	ma$as0,<ascter>
+.if idn <ma$as0>,C
+	.nchr	ma$as1,<ascstr>
+	.byte	ma$as1-2
+.endc
+.if eq ma$as2
+.irpc	ma$as3,<ascstr>
+	.byte	''ma$as3
+.endr
+.endc
+.iif idn <ma$as0>,T,	.byte	128.
+.iif idn <ma$as0>,Z,	.byte	0
+.iif idn <ma$as0>,E,	.even
+ma$as2=ma$as2+1
+.endr
+.ENDM
+;
+.MACRO	$ASCZE	ASCSTR
+.irpc	ma$as0,<ascstr>
+.iif dif <ma$as0>,",	.byte	''ma$as0
+.endr
+	.ascii	ascstr
+	.byte	0
+	.even
+.ENDM
+;
+.MACRO	$ASCTE	ASCSTR
+.irpc	ma$as0,<ascstr>
+.iif dif <ma$as0>,",	.byte	''ma$as0
+.endr
+	.byte	128.
+	.even
+.ENDM
+ ` ASSUME	
+
+Check compile-time assumptions.	
+
+________________________________________________________________________________
+
+	assume	ex1 cnd ex2 com
+
+	ex1.sv	MACRO expression
+	cnd	MACRO condition
+	ex2.sv	MACRO expression
+	com	Comment string
+
+________________________________________________________________________________
+
+ASSUME is used to check assumptions that are made at  compile-time,  usually  to
+optimise  code.  ASSUME  displays  an  error  message  during the compile if the
+assumption is false. The optional comment string (com) is also displayed. 
+
+For example, consider the following code:	
+
+	mov	po.suc(r0),r1	;get the successor
+
+If it is known that PO.SUC=0 the code above can be optimised to:	
+
+	mov	(r0),r1		;get the successor
+
+However, the optimised code is less explicit and will not function if the  value
+of  PO.SUC  changes. The ASSUME below makes the code more explicit and will warn
+during compilation if the value of PO.SUC is not 0: 
+
+	assume	po.suc eq 0	<check po.suc=0>
+	mov	(r0),r1		;get the successor
+P	00002	po.suc-0	;;;assume po.suc eq 0: check po.suc=0
+
+
+.MACRO	ASSUME EX1 CND EX2 COM
+.iif cnd <ex1>-<ex2>,.mexit	
+.error <ex1>-<ex2> ;;;assume ex1 cnd ex2: com	
+.ENDM	
+ ` .ASTX	
+
+Exit ast or image.	
+
+________________________________________________________________________________
+
+	.ASTX	
+
+________________________________________________________________________________
+
+.ASTX is used to exit from an AST. .ASTX is interpreted as .EXIT if issued  from
+the root. 
+
+.ASTX is defined by RT-11/XM but not documented.  RT-11/XM  emulates  the  usual
+completion  routine exit by pushing a return address of zero. Location zero con~
+tains a nop followed by a .ASTX in location two. This technique is used for most
+mapped  systems.  Note,  the  most common programming error is clearing location
+zero. 
+
+.MACRO	.ASTX	
+	emt	356
+.ENDM 
+ ` .BLKB	
+ ` .BLKW	
+
+Blank byte & blank word directive replacements. 
+
+________________________________________________________________________________
+
+	.blkb	cnt
+	.blkw	cnt
+
+	cnt.sv	Number of bytes or words to zero
+________________________________________________________________________________
+
+The standard MACRO .BLKW & .BLKW directives do not zero fill. These do. Call  in
+any environment. An explicit .MCALL must be used to invoke these. 
+
+
+.MACRO	.BLKB	CNT
+.rept	cnt
+	.byte	0
+.endr	
+.ENDM	
+
+.MACRO	.BLKW	CNT
+.rept	cnt
+	.word	0
+.endr	
+.ENDM	
+ ` $DOxxx - see lxd.mac - driver overlays
+ ` $DRxxx - see lxd.mac - drivers
+ ` $DSxxx - see lxd.mac - driver set code
+ ` $ELXM
+
+________________________________________________________________________________
+
+	$elxm	area
+
+________________________________________________________________________________
+
+Eliminates entire XM context.	
+
+
+.MACRO	$ELXM	AREA
+	$mov	area,r0
+	$mov	#36*256.+7,(r0)
+	clr	2(r0)
+	emt	375
+.ENDM
+ ` FALL			
+
+Fall to address.		
+________________________________________________________________________________
+
+	fall	loc
+
+	loc.sa	Address to fall too.
+
+________________________________________________________________________________
+
+Ensures no code inserted between fall.	Use in any environment.
+Produces no code. 
+ 
+	<code>
+	fall 10$
+ 
+ 10$:	
+ 
+.MACRO	FALL C
+	.iif eq c-.,.mexit	
+	.error c-. ;;;fall c 
+.ENDM 
+ ` GLOBAL		
+
+Declare global mode for definitions.	
+________________________________________________________________________________
+
+	global
+
+________________________________________________________________________________
+
+MAP declarations are local by default. The GLOBAL call sets MAP declarations  to
+global. Call from any environment. Produces no code. 
+
+Assumes LOCAL has already been called. 
+
+	global
+
+.MACRO	GLOBAL
+	.macro	map c d=2 v
+	.iif nb <v>,$=v
+	c==:$
+	$=$+<d>
+	.endm
+.ENDM 
+ ` HEADER		
+
+Define a table header.
+________________________________________________________________________________
+
+	header	pre
+
+	pre.sv	prefix symbol
+
+________________________________________________________________________________
+
+.MACRO	HEADER C
+$=0
+.iif b <c>,.mexit
+map	c'.suc
+map	c'.pre
+.ENDM
+ ` $HEX
+
+Create a hexadecimal string
+________________________________________________________________________________
+
+	$hex	str
+
+	str	hexadecimal string
+
+________________________________________________________________________________
+
+$HEX expects strings to be enclosed in angle brackets. $HEX accepts seperated
+strings, .i.e. $HEX   <00-21-2-03-4>.
+
+Data is stored as follows:
+
+	.byte	^x00
+	.byte	^x21
+	.byte	^x02
+	.byte	^x03
+	.byte	^x04
+
+.MACRO	$HEX	STR
+	mapos. = 0			; position in word
+	.irpc	m$acha,<str>		; next character of string
+	  .if dif m$acha,-		; not a delimiter
+	    mahex. = 0			; init hex character
+	    mafnd. = 0			; assume not found
+					;
+	    .irpc m$ahex,<0123456789ABCDEF> ;
+	      .if idn m$acha,m$ahex	; this our character
+		mafnd.= 200!mahex.	; yes - signal found
+	      .endc			; m$acha = m$ahex
+	      mahex. = mahex. + 1	; next hex value
+	    .endr			; scan hex values
+					;
+	    .if eq mafnd.		; character not found
+	      .error ;?HEX-W-Invalid character ''m$acha'' in hex string ''str'';
+	      .mexit			; exit macro
+	    .endc			;
+					;
+	    .if eq mapos.		; first digit
+	      manib. = <mafnd.&17>*20	; get the hex digit
+	    .iff			; not the first
+	      .byte  manib.!<mafnd.&17> ; emit the byte
+	    .endc			;
+					;
+	    mapos. = <-mapos.>+1	; get next nibble
+					;
+	  .iff				; character is delimiter
+	    .if ne mapos.		;
+	      .byte  manib./20		; emit the byte
+	      manib.=0			; once only
+	    .endc			;
+	  .endc				; character is delimiter
+	.endr				; scan string
+					;
+	.if ne mapos.			; last byte to emit?
+	  .byte  manib./20		;yes
+	.endc
+.ENDM
+ ` $IMGGEN	
+ ` $IMGHAM	
+ ` $IMGDEF	
+ ` $IMGINF	
+ ` $IMGIDT
+ ` $IMGNAM
+ ` $IMGVER
+ ` $IMGUPD
+ ` $IMGDAT
+ ` $IMGEDT
+
++------------------------------------------------------------------------------+
+! 	All I$Mxxx global symbols must be removed from SHARE.STB via the       !
+!	exclusion table in SUS:GLOBAL.MAC. Otherwise LINK produces multiple    !
+!	definition error messages for the component link.		       !
++------------------------------------------------------------------------------+
+
+________________________________________________________________________________
+
+	$imggen	nam ver upd fun aut yea use
+	$imgdef	nam ver upd
+	$imginf fun cre aut stb blk use con
+	$imgidt	st1 st2 alt cop
+	$imgdat str
+	$imgedt edt
+	$imguse use					;RXM
+
+________________________________________________________________________________
+
+
+.MACRO	$IMGGEN NAM VER UPD FUN AUT YEA USE
+$imgdef	NAM VER UPD
+$imginf	<FUN> <hammo> <AUT> <> <> <USE> <>
+	$imgidt st1=<(c) HAMMONDsoftware> st2=<YEA> cop=yes
+i$mnam::$imgnam	$ascte
+.ENDM
+
+.MACRO	$IMGHAM	yrs oth icr
+	$imgidt st1=<(c) HAMMONDsoftware> st2=<yrs> alt=<oth>
+i$mnam::$imgnam	$ascte
+.ENDM
+
+.MACRO	$IMGDEF NAM=ANON VER=1 UPD=0
+;
+.macro	$imgnam mod pre pos fol
+.if idn <mod>,.word
+	.word	pre''nam''pos
+.iff
+	mod	"pre''nam''pos"
+.endc
+	fol
+.endm
+;
+.macro	$imgver mod pre pos fol
+.radix	10
+.irp $,\ver'.
+.if idn <mod>,.word
+	.word	pre''$''pos
+.iff
+	mod	"pre''$''pos"
+.endc
+	fol
+.endr
+.radix	8
+.endm
+;
+.macro	$imgupd mod pre pos fol
+.radix	10
+.irp $,\upd'.
+.if idn <mod>,.word
+	.word	pre''$''pos
+.iff
+	mod	"pre''$''pos"
+.endc
+	fol
+.endr
+.radix	8
+.endm
+;
+.ENDM
+;
+;
+.MACRO	$IMGINF FUN CRE AUT STB BLK USE CON
+.save
+.asect
+.if b <con>
+.=^o110
+	$imgver	.rad50	pre=<v>
+.=^o112
+	$imgupd	.word	;pos=<.>
+.=^o114
+	.word	-1
+	.rad50	/img/
+	.rad50	/shp/
+.endc
+;
+;
+.if nb <stb>
+.=^o122
+	.word	stb
+.endc
+;
+;
+.if b <con>
+.=^o124
+	$imgnam	.rad50
+.endc
+;
+;
+.if nb <fun>
+.=^o130
+	.rad50	/fun/
+.endc
+;
+;
+.if nb <blk>
+.=^o132
+	.word	blk'.
+.endc
+;
+;
+.if nb <cre>
+.=^o134
+	.rad50	/cre/
+.endc
+;
+;
+.if nb <aut>
+.=^o140
+	.rad50	/aut/
+.endc
+;
+;
+.restore
+.if nb <use>
+$imguse <use>
+.endc
+.ENDM
+
+.MACRO $IMGUSE USE
+.save
+.asect
+;
+.if nb <use>
+.=^o142
+	.word	i$muse
+.endc
+;
+.restore
+.if nb <use>
+i$muse::.ascii	"use"<200>
+	.even
+.endc
+;
+.ENDM
+;
+.MACRO	$IMGIDT	ST1 ST2 ALT COP
+	.dsabl	lc
+i$midt::$imgnam	.ascii	pre=<?> pos=<-I->
+	.enabl	lc
+.if nb <alt>
+	.ascii	"alt "
+.iff
+	$imgnam	.ascii  pos=< >
+.endc
+	$imgver	.ascii	pre=<V>
+	$imgupd	.ascii	pre=<.> pos=< >
+
+.if nb <st1>
+	.ascii	"st1 "
+.endc
+	.ascii	"st2"
+.if nb <cop>
+.if gt 1987.-st2'.
+	.ascii	",1987"
+.endc
+.endc
+	.byte	0
+	.even
+.ENDM
+;
+.MACRO	$IMGDAT str
+.if nb <str>
+.save
+.asect
+.=^o144
+	.word	i$mdat
+.restore
+i$mdag::.rad50	/dat/
+i$mdat::.ascii	"str"<200>
+	.even
+.endc
+.ENDM
+.MACRO	$IMGEDT	EDT
+.save	
+.asect	
+.=^o146
+	.word	^d'EDT
+.restore
+.ENDM
+ ` INSQUE		
+________________________________________________________________________________
+
+	insque	qel pre adr
+
+________________________________________________________________________________
+
+	as=c		cs
+	ap		cp=a
+
+	as=b	bs=c	cs
+	ap	bp=a	cp=b
+
+ or
+	as=a
+	ap=a
+
+	as=b	bs=a
+	ap=b	bp=a
+
+	r5 -> a
+	r4 -> b
+
+	insque	r4,r5			r5 -> predecessor
+	insque	r4,r5,2(r5)		before predecessor
+	insque	r4,r5,#x$yque		start of queue
+	insque	r4,r5,x$yque+qu.pre	end of queue
+
+.MACRO	INSQUE	QEL,PRE,ADDR
+.iif nb <addr>,mov addr,pre
+	mov	(pre),(qel)	;bs=c	bs=a
+	mov	qel,(pre)	;as=b	as=b
+
+	mov	pre,2(qel)	;bp=a	bp=a
+
+	mov	(qel),pre	;pre->c pre->a	
+	mov	qel,2(pre)	;cp=b	ap=b
+	mov	2(qel),pre	;restore pre
+.ENDM
+ ` LOCAL			
+
+Set definitions local.
+________________________________________________________________________________
+
+	local
+
+________________________________________________________________________________
+
+Defines local version of MAP. Call in any environment. Produces no code.
+
+	Defines following variables:
+
+	bits=-1
+	null=0
+	byte=1
+	word=2
+	long=4
+	quad=8.
+	vary=0
+	true=1
+	false=0
+	bit%$=bit number
+
+.MACRO	LOCAL
+	.macro	map c d=2 v
+	.iif nb <v>,$=v
+	c=:$
+	$=$+<d>
+	.endm
+	bits=-1
+	null=0
+	byte=1
+	word=2
+	long=4
+	quad=8.
+	vary=0
+	true=1
+	false=0
+	bit0$=1
+	bit1$=2
+	bit2$=4
+	bit3$=^o10
+	bit4$=^o20
+	bit5$=^o40
+	bit6$=^o100
+	bit7$=^o200
+	bit8$=^o400
+	bit9$=^o1000
+	bit10$=^o2000
+	bit11$=^o4000
+	bit12$=^o10000
+	bit13$=^o20000
+	bit14$=^o40000
+	bit15$=^o100000
+.ENDM
+

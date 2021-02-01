@@ -1,0 +1,481 @@
+;.title	ldf
+;
+;	%build
+;	run sy:strip smb:ldf.mla=sms:ldf.mac
+;	%end
+;	%date
+;	<23-Feb-2008 00:06:51.22>
+;	%edit
+;	<45   >
+;
+;	$fadef		F11A/FA ACP interface
+; ???	$fbdef		FAB
+;	$fcdef		File class					;V4
+;	$fddef	lrs	FID - RSX/VMS file identifier
+;	$fedef		SHAREplus feature
+;	$ffdef		File information
+;	$fkdef		RT-11 fork block
+;	$fndef		RT-11 & RSX filenames
+;	$fodef		SHAREplus logger (formatted output)
+; ???	$fpdef		FPU status word
+;	$fsdef		RT-11 file structures standard
+;	$ftdef	lrs	FAT - RSX/VMS file attributes
+;-----------------------;
+; F11A/FA INTERFACE	;
+;-----------------------;
+;
+;???	Use $AHDEF instead
+;
+;	Interface between ACP and handler
+;	Also used by SHAREnet
+;
+.MACRO	$FADEF
+;
+map	fa.vec	word,0	;data area
+map	fa.isr		;offset to isr
+map	fa.hol		;handler hold flag
+map	fa.lqe		;last queue entry
+map	fa.cqe		;current queue entry
+map	fa.nop		;v5.4 nop instruction
+map	fa.beg		;begin entry point
+map	fa.ast		;ast entry point
+map	fa.ctl		;control
+map	fa.csw		;result csw
+map	fa.spu		;result spusr
+map	fa.bbs		;
+;
+; fa.ctl
+;
+map	fareq$,,1	;request is available
+map	fapro$,,2	;request is being processed
+map	farep$,,4	;reply is available
+map	faspu$,,10	;report acp status
+map	faabt$,,100000	;F11A should abort
+;
+.ENDM
+;-----------------------; 
+; FILE CLASS		;
+;-----------------------;
+;
+; See CTS:FICLA.MAC
+;
+.MACRO	$FCDEF		;
+
+map	fc.flg,,0	; class flags
+map	fc.cod,1	; class code (Not Done Yet)
+map	fc.sta,1	; status
+map	fc.siz		; 16-bit size
+map	fc.sz0		; 32-bit size
+map	fc.sz1		;
+map	fc.dsw		; RT-11 device status word
+map	fc.bbs
+
+map	fcFIL$,,1	; opened as file
+map	fcDEV$,,2	; opened as device
+map	fcDIR$,,4	; opened as directory
+map	fcCON$,,10	; opened as container fle
+;		20	;
+;		40	;
+map	fcTER$,,100	; terminal (TT:)
+map	fcPRO$,,200	; protected file
+map	fcSYS$,,400	; system device
+			;
+map	fcMAG$,,1000	; magtape
+map	fcCAS$,,2000	; cassette
+map	fcDSK$,,4000	; disk-like device
+map	fcVIR$,,10000	; logical disk
+map	fcPAR$,,20000	; disk partition (other than zero)
+map	fcNET$,,40000	; network channel
+map	fcSUB$,,100000	; sub-directory channel
+;			; status
+;	fcDEV$		; device access okay
+;	fcFIL$		; file access okay
+.ENDM
+;-----------------------; 
+; FEATURE		;
+;-----------------------;
+;
+; Loadable feature definition
+;
+; ???	Quadword feature mask.
+; ???	Feature bypass mask
+; ???	Feature call and exits.
+; ???	Convert REQ, ACP and SYS to features - put in map.
+; ???	Simplify feature header.
+; ???	Create feature library to simplify maintenance.
+;
+.MACRO	$FEDEF
+.if ndf fedef$		;once only
+map	fedef$,,1	;define fedef$ for $icdef
+;
+; Feature header
+;
+map	fe.bot	word,0	;branch to start goes here
+;
+; Identification
+;
+map	fe.gua		;f$egua (^rFEA)
+map	fe.nam	word*2	;feature name (^rPLAS)
+map	fe.ver	byte	;Version
+map	fe.upd	byte	;Update
+map	fe.dat		;STB supplies STDAT. for this
+map	fe.gen		;$FEDEF supplies generation version
+map	fe.ctl		;feature control
+map	fe.len		;feature length in bytes
+;
+; Runtime information
+;
+map	fe.uic		;feature uic
+map	fe.pro		;feature protection
+map	fe.ref		;number of refences to feature
+map	fe.fid		;feature id (1 to 15)
+map	fe.pag		;page feature is mapped to
+map	fe.bit		;feature bit in process bitmap
+map	fe.exi		;exit routine
+map	fe.fr2		;
+map	fe.fr3		;
+map	fe.nas	byte*8.	;name
+map	fe.pur	byte*18.;purpose
+;
+map	fe.bbs	null	;length of header
+;
+; Feature generation number
+;
+map	fegen.,,1	;feature generation (changed if $FEDEF changes)
+;
+; Fixed feature ID's	
+;
+map	feinv.,,0	;invalid - could be used
+map	fepla.,,1	;plas
+map	fedeb.,,2	;debug
+map	fetra.,,3	;trace
+map	felog.,,4	;logger
+map	femtt.,,5	;multiterminal
+map	feimg.,,6	;image cache ($icdef assumes this)
+map	ferea.,,7	;realtime
+map	fetsx.,,8.	;tsx
+map	fersx.,,9.	;rsx
+map	ferst.,,10.	;rsx trace
+map	feunx.,,11.	;unix
+map	fetdb.,,12.	;TILdb
+map	fesda.,,13.	;sdata
+map	feext.,,14.	;external handlers
+;
+map	feuse.,,15.	;user slots
+;
+;			;0
+map	fepla$,,2	;plas
+map	fedeb$,,4	;debug
+map	fetra$,,10	;trace
+map	felog$,,20	;logger
+map	femtt$,,40	;multiterminal
+map	feimg$,,100	;image cache
+map	ferea$,,200	;realtime
+map	fetsx$,,400	;tsx
+map	fersx$,,1000	;rsx
+map	ferst$,,2000	;rsx trace
+map	fempp$,,4000	;mpp
+map	fetdb$,,10000	;TILdb
+map	fesda$,,20000	;sdata
+map	feext$,,40000	;external handlers
+;
+; Feature call codes (???)
+;
+map	fecal.,,0	;EMT call
+map	feins.,,1	;install
+map	ferem.,,2	;remove
+;
+; Feature call frame
+;
+map	fe.cex	word,0	;exit to dispatcher
+map	fe.cp1		;saved par1
+map	fe.crt		;return address
+;
+.endc			;ndf fedef$
+.ENDM
+;
+; Feature generation macros
+;
+;	$FEBOT	nam, ver
+;	$FEBEG
+;	$FETOP
+;
+.MACRO	$FEBOT	NAM FID=0 VER=0 UPD=0 PUR=<>
+;
+.psect	featur
+f$ebot::br	fe$beg	;fe.bot - start the feature
+f$egua::.rad50	/FEA/	;fe.gua - guard word
+f$enam::.rad50	/nam/	;fe.nam - name
+.nchr manam.,<nam>
+.iif le manam.-3, .rad50 /   /
+.iif gt manam.-6, .error ;;;Feature name too long: nam
+f$ever::.byte	ver	;fe.ver - version number
+f$eupd::.byte	upd	;fe.upd - update number
+f$edat::.word	stbdat	;fe.dat - STB date (from STB)
+f$egen::.word	fegen.	;fe.gen - feature generation
+f$ectl::.word	0	;fe.ctl - control flags
+f$elen::.word	f$etop-f$ebot ;fe.len - feature byte size
+;
+f$euic::.word	0	;fe.uic
+f$epro::.word	0	;fe.pro
+f$eref::.word	0	;fe.ref
+f$efid::.word	fid	;fe.fid
+f$epag::.word	0	;fe.pag
+f$ebit::.word	0	;fe.bit
+f$eexi::.word	fe$exi	;fr.exi
+	.word	0	;fe.fr2
+	.word	0	;fe.fr3
+	.nchr	malen.,<nam>
+	assume	malen. le 7  <Feature name too long>
+f$enas::.ascii	&nam&<200> ;name for errors
+	.blkb	<8.-<.-f$enas>>
+	.nchr	malen.,<pur>
+	assume	malen. le 17. <Feature purpose string too long>
+f$epur::.ascii	&pur&<200>
+	.blkb	<18.-<.-f$epur>>
+	assume	.-f$ebot eq fe.bbs <Feature structure incorrect>
+;
+.ENDM
+;
+.MACRO	$FEBEG	MNT
+fe$beg::
+.iif nb <mnt>,$femnt
+.ENDM
+;
+.MACRO	$FEMNT ?ma10$
+	bit	f$ebit,@#p$hfem	;is it mounted?
+	bne	ma10$		;yes
+	bis	f$ebit,@#p$hfem	;no - mount it
+	inc	f$eref		;and count it
+ma10$:
+.ENDM
+;
+.MACRO	$FEDSM ?ma10$
+	bit	f$ebit,@#p$hfem	;were we mounted?
+	beq	ma10$		;no
+	bic	f$ebit,@#p$hfem	;yes
+	dec	f$eref		;no - dereference
+ma10$:
+.ENDM
+;
+.MACRO	$FETOP
+f$etop::
+.ENDM
+;
+.MACRO	$FETRN	ROU SYM		;
+.iif nb <sym>,assume sym&377 eq .-f$ebot
+	jmp	rou		;transfer control
+.ENDM
+;
+.MACRO	$FEALC	SIZ CLR
+	$mov	siz,r0
+.if b <clr>
+	call	fe$pal
+.iff
+	call	fe$pac
+.endc
+.ENDM
+;
+.MACRO	$FEDLC	ELM
+	$mov	elm,r0
+	call	fe$pdl
+.ENDM
+;
+.MACRO	$CALLF	FIV
+	call	@#fe$cpc
+	.word	fiv
+.ENDM
+; 
+.MACRO	$CALL0	FIV
+	$mov	fiv,r0
+	call	@#fe$cr0
+.ENDM
+; 
+.MACRO	$JUMP0	FIV
+	$mov	fiv,r0
+	jmp	@#fe$jr0
+.ENDM
+; 
+.MACRO	$BYPASS	hdr
+	call	@#by$cpc
+	.word	hdr
+.ENDM
+;-----------------------; 
+; FILE INFORMATION	;
+;-----------------------;
+;
+.MACRO $FFDEF	
+map	ffGET.,,0	; operations
+map	ffBIC.,,1
+map	ffBIS.,,2
+map	ffMOV.,,3
+;
+map	ffFNF.,,0	; error codes
+map	ffIOP.,,1	; invalid operation
+map	ffIOF.,,2	; invalid offset
+map	ffIDT.,,3	; invalid data
+;
+map	ff.emt,,0	; emt code (high byte)
+map	ff.fil		; filespec pointer
+map	ff.val		; new/prv value
+map	ff.opr,1	; operation
+map	ff.off,1	; offset (see $rtdef)
+map	ff.bbs		;
+;
+map	ffEMT.,,44	; emt code
+.ENDM
+;-----------------------; 
+; FORK BLOCK		;
+;-----------------------;
+;
+.MACRO $FKDEF	
+map	fk.suc,,0	;successor
+map	fk.kpc		;kernel pc
+map	fk.kr5		;kernel r5
+map	fk.kr4		;kernel r4
+map	fk.bbs		;
+.ENDM
+;-----------------------; 
+; FILENAMES		;
+;-----------------------;
+;
+; RT-11 and RSX filenames	
+;
+.MACRO	$FNDEF
+;
+; RT-11 filename
+;
+map	fn.dev	word,0	;dev
+map	fn.fil		;fil
+map	fn.nam		;nam
+map	fn.typ		;typ
+map	fn.bbs		;
+;
+map	fnwil.,,29.*40.*40. ;wildcard name
+;
+; RSX filename
+;
+map	fn.xfl	word,0	;fil
+map	fn.xnm		;nam
+map	fn.xec		;etc
+map	fn.xtp		;typ
+map	fn.xvr		;ver
+map	fn.xbs		;
+;
+.ENDM
+;-----------------------;
+; FORMATTED OUTPUT	;
+;-----------------------;
+;
+; Logger feature
+;
+.MACRO	$FODEF
+;
+; PHD area
+;
+map	fo.los	word,0	;phd header control
+map	fo.lob		;phd header buffer pointer
+map	fo.lof		;phd header flags
+;
+; Buffer header
+;
+map	fo.con	word,0	;status
+map	fo.cnt		;characters in buffer
+map	fo.alc		;allocated size
+map	fo.blk		;output block
+map	fo.fil	word*4	;filename
+map	fo.buf	byte*514.;buffer - user address
+map	fo.bbs		;
+;
+; fo.los - status
+;
+map	fofil$,,1	;write to file
+map	foter$,,2	;write to terminal
+map	foclo$,,4	;error on close
+map	foerr$,,10	;i/o error on output
+map	foful$,,20	;output file full
+map	fowri$,,40	;write in action
+map	fopau$,,100	;logger pausing for output
+map	fopnd$,,200	;pending terminal output
+map	fonew$,,400	;horrible LF counter
+map	foast$,,1000	;AST has produced command
+map	foopn$,,2000	;output file available
+map	fotto$,,40000	;signal kte nowait ttyout in progress
+map	foact$,,100000	;active
+;
+; operation codes
+;
+map	fonop.,,0	;do nothing
+map	fofop.,,1	;output operation
+map	fofip.,,2	;input operation
+map	foatt.,,3	;attach signal
+map	fodet.,,4	;detach signal
+map	folim.,,5	;operation limit
+;
+; fo.lof - flags
+;
+map	fofio$,,<<fofip.*256.>!fofop.> ;fo.lof pattern
+;
+.ENDM
+;-----------------------;
+; FPU FLAGS		;
+;-----------------------;
+;
+;
+; NOTE: FP.xxx reserved for FRAME macro
+;
+;
+.MACRO	$FPDEF
+.ENDM
+;-----------------------;
+; FILE STRUCTURE	;
+;-----------------------;
+;
+; RT-11 file structure definition standard
+;
+.MACRO	$FSDEF
+;			;
+map	fssln.,,7	;section length is seven
+;			;
+map	fsres.,,0	;reserved group
+map	fsunk.,,0	;unknown
+;			;
+map	fspd8.,,0	;pdp-8
+map	fswp8.,,10	;wps-8
+map	fsos8.,,11	;os-8
+map	fscos.,,12	;cos
+;			;
+map	fsrta.,,20	;rt-11
+map	fsrt5.,,20	;rt11a - v5
+;			;
+map	fsrst.,,30	;rsts
+map	fsrs8.,,30	;rsts v8
+;			;
+map	fsf00.,,40	;reserved
+;			;
+map	fsf11.,,41	;files-11 group
+map	fsf1a.,,41	;f11a - ods 1
+map	fsf1b.,,42	;f11b - ods 2
+;			;
+map	fsunx.,,50	;unix
+;			;
+map	fsdsm.,,60	;dsm
+;			;
+map	fsf02.,,70	;reserved
+;			;
+map	fscpm.,,100	;cp/m
+;			;
+map	fsucp.,,110	;uscd p-systems
+;			;
+map	fsmsd.,,120	;ms-dos
+;			;
+;		130	;reserved
+;		140	;reserved
+;		150	;reserved
+;		160	;reserved
+;		170	;reserved
+;		200:377	;customer & css
+;		240:340	;hammond
+;			;
+.ENDM
+

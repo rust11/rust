@@ -1,0 +1,414 @@
+;.title	ldh
+;
+;	%build
+;	run sy:strip smb:ldh.mla=sms:ldh.mac
+;	%end
+;	%date
+;	<11-Feb-2005 04:33:37.00>
+;	%edit
+;	<42   >
+;
+;	$hadef		RT-11 handlers
+;	$hodef		RT-11 home block
+;	$hkdef		RUST/SJ hooks
+;	$hldef		SHAREplus help files
+;	$hrdef		HANDLR handler recording area
+; ???	$hxdef		RSX home block
+; ???	$hvdef		Vms home block
+;	$hwdef		PDP-11 hardware
+;	$h1def		Magtape hdr1
+;	$h2def		Magtape hdr2
+;	$h3def		Magtape hdr3
+;-----------------------;
+; HANDLER SETUP		;
+;-----------------------;
+
+FAP.SYS	/ABORT	/SINGLE	/22BIT	/EXTERNAL
+MBP.SYS	/ABORT	/SINGLE	/EXTERNAL
+NOP.SYS		
+TKP.SYS		
+REP.SYS	/ABORT	/SINGLE	/EXTERNAL
+
+LPX.SYS	/ABORT	/SINGLE	/22BIT	/EXTERNAL
+NQX.SYS	/ABORT	/SINGLE	/22BIT	/ABORT /TIMEOUT /PAR6	
+DUX.SYS	/ABORT	/22BIT			Do not load external or par6
+MUX.SYS	/ABORT	/22BIT	/PAR6	
+MSS.SYS	
+;-----------------------; 
+; HANDLERS		;
+;-----------------------;
+; 
+; RT-11 device handler
+;
+.MACRO	$HADEF
+;
+; Handler block zero
+;
+map	ha.22b,,0	;handler 22-bit flag
+map	ha.22f,,2	;handler 22-bit flag alternative
+map	ha22b.,,<^r22b>	;22-bit flag value
+;
+map	ha.hsz,,52	;handler byte size
+map	ha.dsz		;device block size
+map	ha.sta		;device status word (see $dedef)
+map	ha.syg		;sysgen options (see $sgdef)
+map	ha.bpt		;boot pointer
+map	ha.ble		;boot length
+map	ha.brd		;boot read routine
+;
+map	ha.csr,,176	;csr address
+map	ha.ins,,200	;installation check
+map	ha.set,,400	;set routine table
+;
+; Set routines
+;
+map	ha.val,,0	;value to pass routine
+map	ha.op0		;OPT
+map	ha.op1		;ION
+map	ha.rou	byte	;routine offset
+map	ha.mod	byte	;option mode
+map	ha.sbs		;
+;
+; ha.mod - mode flags
+;
+map	haoct$,,40	;octal numeric
+map	hanum$,,100	;numeric - decimal default
+map	hanop$,,200	;NO is valid
+;
+; Handler header
+;
+map	haxhs.,,2	;external extended size
+map	ha.xkh	word,-2	;external handler - address of kernel handler
+			;
+map	ha.vec,,0  ;0	;vector address		de.han -> ha.vec
+;			;if <0 then ha.vec*2&177777+address(ha.vec)=table
+map	ha.isr	   ;2	;offset to isr		ha.isr = isr-ha.isr
+map	ha.hol	0  ;2	;handler hold flag
+map	ha.pri	   ;4	;priority (unused)
+map	ha.lqe	   ;6	;last entry unused	de.ent -> ha.lqe
+map	ha.cqe	   ;10	;current queue entry	ha.cqe -> iq.blk|tp.qbl
+			;			ha.cqe!100000 => no fetch
+map	ha.beg	   ;12	;handler entry point - nop in v5.4
+map	ha.sio	   ;14	;start I/O entry point in V5.4
+;
+; SHAREplus extended handlers
+;
+;map	ha.swl	byte*8.	;software write lock flags - byte per unit
+;map	ha.gua		;extended handler guard word
+;map	ha.dis		;extended dispatcher entry point
+;map	ha.ctl		;extended control word
+;map	ha.pag		;external handler page number (zero -> none)
+;
+; ha.hol hold
+;
+map	hahol$,,100000	;handler hold flag
+map	hadon$,,40000	;handler done during hold
+;
+map	hanft$,,100000	;no fetch flag
+;
+; ha.gua - guard
+;
+;map	hagua.,,<^rshp>	;rad50 "shp"
+;
+; Vector tables
+;
+map	ha.vvc	word,0	;vector address
+map	ha.vof		;offset to isr
+map	ha.vps		;ps
+map	ha.bbs		;
+;
+map	havt0.,,0	;v5.0 terminator
+map	havt1.,,100000	;v5.1 terminator
+;
+; Handler hooks
+;
+map	ha.fkp	-word,-2;$fkptr	fk$enq - fork - always
+map	ha.itp	-word	;$inptr	in$int - inten - always
+map	ha.tmp	-word	;$timit	io$tid	- timeout - sgtim$ in ha/de.syg
+map	ha.elp	-word	;$elptr	io$erd	- error log - sgerl$ in ha/de.syg
+map	ha.pwp	-word	;$ptwrd	io$ptw	- put word - sgmmg$ in ha/de.syg
+map	ha.pbp	-word	;$ptbyt	io$ptb	- put byte
+map	ha.gbp	-word	;$gtbyt	io$gtb - get byte
+map	ha.mpp	-word	;$mpptr	io$chp	- map physical
+map	ha.rlp	-word	;$rlptr	io$cum	- relocate user
+map	harko.,,-<word*3>;io$ckm - relocate kernel offset from io$cum
+;
+map	haqco.,,270	;rm.qco - queue completion
+;
+.ENDM
+;-----------------------; 
+; RUST/SJ HOOKS		;
+;-----------------------;
+; 
+; Hooks clock, keyboard, EMT vectors and the like
+;
+; See HAS:DRIVER.MAC for details
+;
+.MACRO	$HKDEF
+map	hkHGH.,,032707		; BIT (PC)+,R7 - high priority
+map	hkSIG.,,030727		; BIT R7,(PC)+ - standard
+map	hkEMT.,,8.		; see RTS:RTEMT.MAC for details
+map	hk.sig,,0		; signature
+map	hk.suc			; successor
+map	hk.rou			; routine
+.ENDM
+;-----------------------; 
+; HOME BLOCK		;
+;-----------------------;
+; 
+; RT-11 home block
+;
+; $HXDEF - RSX home block
+; $HVDEF - VMS home block
+;
+.MACRO	$HODEF
+;
+map	ho.rep,,0	;bad block replacement table
+map	ho.rez,,202	;
+;		202	;bad block replacement table terminator
+map	ho.ini,,204	;directory restore data
+map	ho.inz,,252	;
+;			;
+;			; DDMMMYYYY HH:MM:SS
+;			; 12-MAR-2008 12:44:48
+;
+map	ho.bup,19.,252	;backup data
+map	ho.bid,3., 252	;bup id "BUP"
+map	ho.bfn,9., 255	;filename "FILNAMTYP" - [space] => empty volume
+map	ho.bvn,2., 266	;volume number
+map	ho.bvs,2., 270	;volumes in set - not used for magtape
+map	ho.bls,2., 272	;last volume size - not used for magtape
+map	ho.buz,,274	;
+;		274:700	;unused
+map	ho.re0,,700	;reserved  - now ho.rtg
+map	ho.re1,,702	;reserved  - now ho.rtb
+map	ho.rtg,,700	;rtem guard word = ^rrte
+map	ho.rtb,,702	;rtem block number of first user file
+;		704:722	;unused
+map	ho.clu,,722	;pack cluster size = 1
+map	ho.seg,,724	;first segment block = 6
+map	ho.ver,,726	;system version = ^rv3a
+map	ho.vol,,730	;volume id = "RT11A       " (7 spaces)
+map	ho.own,,744	;owner name = "12bytestring"
+map	ho.sys,,760	;system id = "DECRT11A    " (4 spaces)
+;		774	;unused
+map	ho.cks,,776	;checksum - negated total of bytes 0 ... 775 - unused
+;
+; ho.rep - replacement table
+;
+map	ho.rlb	word,0	;logical block
+map	ho.rrb		;replacement (physical) block
+;
+map	horen.,,0	;end of replacement table
+map	hordl.,,20.	;number of DL replacement blocks
+map	hordp.,,20.	;number of DP replacement blocks (?)
+map	hordm.,,32.	;number of DM replacement blocks
+;
+; ho.rtg - rtem guard word
+;
+map	horte$,,<^rrte>	;rtem guard word
+;
+.ENDM
+;-----------------------; 
+; HELP UTILITY		;
+;-----------------------;
+; 
+; SHAREplus HELP utility	
+;
+.MACRO	$HLDEF
+map	h$lsta,,564	;pass information to HELP here
+map	hlnpg.,,1	;nopage
+map	hlpag.,,2	;page - unknown terminal
+map	hl052.,,3	;/vt52
+map	hl100.,,4	;/vt100
+map	hlbox.,,5	;/box
+;			;
+map	hlbrf$,,10000	;/brief
+map	hlwrg$,,20000	;specified keyword did not exist
+map	hlnfi$,,40000	;/nofill
+map	hlnpr$,,100000	;/noprompt
+;			;
+map	h$llen,,566	;SET HELP LENGTH=n
+map	hldln.,,24.	;default length
+map	hlmln.,,5	;minimum length
+map	hlinf.,,-1	;infinite length
+;			;
+map	h$llib,,570	;SET HELP [NO]DEFAULT_LIBRARY=[filespec]
+map	h$lend,,600	;end of HELP area
+.ENDM
+;-----------------------; 
+; HANDLER RECORDING	;
+;-----------------------;
+;
+; Handler recording area
+;
+.MACRO	$HRDEF
+map	hr.gd0	word,0	;recording guard
+map	hr.gd1		;recording guard 2
+map	hr.op0		;recorded options
+map	hr.con		;de.con default
+map	hr.typ		;de.typ default
+map	hr.f00	word*3	;3 spare
+map	hr.hbs	null	;header size
+map	hrgd0.,,<^rhan>	;handler guard
+map	hrgd1.,,<^rdlr>	;
+;
+;	SET entry
+;
+map	hr.nm0	word,0	;option name - rad50
+map	hr.nm1		;
+map	hr.uni	null	;unit - in low byte
+map	hr.ctl	byte*2	;control flags - in high byte
+map	hr.val		;value
+map	hr.ebs		;entry size
+;
+;	hr.rct
+;
+map	hrset$,,2000	;set - no value
+map	hruni$,,4000	;unit specified
+map	hrpac$,,10000	;packed - rad50
+map	hroct$,,20000	;octal
+map	hrdec$,,40000	;decimal
+map	hrneg$,,100000	;negated - NO
+;
+.macro	hrini$	op0=0, con=0, typ=0
+.save	
+.psect	handlr
+	.rad50	"handlr"
+	.word	<op0>
+	.word	<con>
+	.word	<typ>
+	.blkw	3
+.restore
+.endm
+;
+.macro	hrent$	nam, ctl=hrset$, val=0, uni
+.save	
+.psect	handlr
+ma$ctl=<ctl>
+.iif nb <uni>, ma$ctl=ma$ctl!hruni$!<<uni>&377>
+.iif ne ma$ctl&hrneg$,ma$ctl=ma$ctl!hrset$
+ma$dot=.
+	.rad50	"nam"
+.=ma$dot+<word*2>
+	.word	ma$ctl
+	.word	<val>
+.restore
+.endm
+;
+.macro	hrend$
+.save
+.psect	handlr
+	.word	0
+.restore
+.endm
+;
+.ENDM
+;-----------------------; 
+; HARDWARE 		;
+;-----------------------;
+;
+.MACRO	$HWDEF
+map	h$wpks	word,177540	;programmable clock status
+map	h$wpkb	word,177542	;programmable clock buffer
+map	hwpke$,,115		;programmable clock enable - vector=104
+map	h$wlks	word,177546	;line clock status - vector=100
+map	hwlke$,,100		;line clock enable
+;				;
+map	h$wtks	word,177560	;teletype keyboard status
+map	h$wtkb	word,177562	;teletype keyboard buffer
+map	h$wtps	word,177564	;teletype printer status
+map	h$wtpb	word,177566	;teletype printer buffer
+map	h$wswr	word,177570	;switch & display register
+map	h$wmr0	word,177572	;memory management 0 - $mmdef
+map	h$wmr1	word,177574	;memory management 1 - $mmdef
+map	h$wmr2	word,177576	;memory management 2 - $mmdef
+;		     177600	;user instruction descriptor
+;		     ...	;
+map	h$wccr	word,177746	;cache control register
+map	 hwcdp$,,1		;disable cache parity interrupt
+map	 hwcby$,,1000		;bypass cache
+map	h$wcpm	word,177750	;cpu maintenance register
+map	h$whmr	word,177752	;cache hit/miss register
+;		     177754	;
+;		     177756	;
+map	h$wlss	word,177760	;lower system size - 11/70
+map	h$wusz	word,177762	;upper system size - 11/70
+map	h$wsid	word,177764	;system i/d
+map	h$wcpe	word,177766	;cpu error register
+map	h$wmpb	word,177770	;micro-program break - 11/70
+map	h$wprq	word,177772	;pirq - programmed interrupt register
+map	h$wslm	word,177774	;stack limit - 11/70
+map	h$wpsw	word,177776	;psw - processor status word - $psdef
+;
+.ENDM
+;-----------------------; 
+; HEADER1 LABEL		;
+;-----------------------;
+; 
+; Magtape hdr1 label
+;
+.MACRO	$H1DEF
+;
+map	h1.lab	byte*3,0;label id	"HDR"			
+map	h1.num	byte	;label number	"1"
+map	h1.fil	byte*17.;file id	"FILE  .TYP      " or "FILE.TYP   "
+map	h1.vid	byte*6	;volume id	"RT11A " (volume id)
+map	h1.fsn	byte*4	;file sect num	"0001"
+map	h1.seq	byte*4	;file seq num	"0000" new tape, "0001" first file
+map	h1.gen	byte*4	;generation num	"0001"
+map	h1.ver	byte*2	;gen. version	"00"
+map	h1.cre	byte*6	;creation date	" yyddd"
+			; h1.cre+1	rt-11 bup date in rt-11 format
+map	h1.exp	byte*6	;expiry date	" 00000" is expired file
+map	h1.acc	byte	;accessibility	" "
+map	h1.blc	byte*6	;block count	"000000"
+map	h1.sys	byte*13.;system code	"DECRT11A     "
+map	h1.res	byte*7.	;reserved 2	"      "
+map	h1.bbs		;80.
+assume	h1.bbs eq 80.	;check this length
+;
+map	h1.bdt	h1.cre+1;rt-11 bup date in rt-11 date format
+;
+.ENDM
+;-----------------------; 
+; HDR2 LABEL		;
+;-----------------------;
+; 
+; Magtape hdr1 label - RSX, VMS
+;
+.MACRO	$H2DEF
+;
+map	h2.lab	byte*3,0;label		"HDR"
+map	h2.num	byte	;label number	"2"
+map	h2.rfm	byte	;record format	F=fix, D=var, S=spanned, U=undefined
+map	h2.bll	byte*5	;block length	"00512"
+map	h2.rll	byte*5	;record length	"00512"
+;
+map	h2.sdi	byte*21.;sys dep. inf.	"                " (last cha is space)
+map	h2.ccr	byte	;carriage cont.	A=fortran, [space]=lf/cr, M=use record
+map	hs.sdx	byte*13.;sys dep exten. "                " (last cha is space)
+;
+map	h2.buo	byte*2	;buffer offset	"00"
+map	h2.res	byte*28.;reserved	"               "
+map	h2.bbs		;
+assume	h2.bbs eq 80.	;check this
+;
+.ENDM
+;-----------------------; 
+; HDR3 LABEL		;
+;-----------------------;
+; 
+; Magtape hdr3 label - VMS
+;
+.MACRO	$H3DEF
+;
+map	h3.lab	byte*3,0;label		"HDR"
+map	h3.num	byte	;label number	"3"
+map	h3.atr	byte*64.;f11b attributes"                  "
+map	h3.res	byte*12.;reserved	"               "
+map	h3.bbs		;
+assume	h3.bbs eq 80.	;check this
+;
+.ENDM
+

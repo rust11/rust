@@ -1,0 +1,5511 @@
+.MACRO	SMINI$	FAC SCT
+.mcall	smenv$				
+smenv$					
+.if nb <FAC>				
+	gm'FAC'$ SCT			
+.endc					
+smmod.=0
+	smass.=0			
+	smspm.=0			
+	smloc.=1			
+	small.=0			
+	smtra.=0			
+	smbpt.=1			
+	smend.=^o4000			
+	auto.=0				
+	smdef.=0			
+	smdat.=1			
+	smcod.=2			
+	s$msec=smcod.			
+	s$maln=0			
+	s$mbgn=0			
+	s$mend=smend.			
+	s$mnst=0			
+	s$mrns=0			
+	s$mpns=0			
+	s$mloc=0			
+	s$mlon=0			
+	s$mmee=0			
+	s$mmsc=0			
+	s$mmtc=0			
+	s$mles=0			
+	s$mdup=0			
+	s$mpsc=0			
+	s$mnat=0			
+	s$mpoo=0			
+	s$mels=0			
+	smwhi.=0			
+	smif.=1				
+	smrep.=2			
+	smsub.=3			
+	smpro.=4			
+	smblk.=5			
+	smels.=6			
+	smsho.=0			
+	smlon.=1			
+	smnat.=2			
+pdp$	smadm$=^o70			
+pdp$	smrgm$=^o0			
+vax$	smadm$=^xF0			
+vax$	smrgm$=^x50			
+	sm.ppc=0			
+	p1=2				
+	p2=4				
+	p3=6
+	p4=8.
+	t1=0
+	t2=int.
+	t3=int.*2
+	t4=int.*3
+	t5=int.*4
+	t6=int.*5
+	t7=int.*6
+	t8=int.*7
+	t9=int.*8.
+	t10=int.*9.
+	t11=int.*11.
+	t12=int.*12.
+	smmc..=1
+	smms..=1
+	smon..=1
+	smoff..=1
+	smlbc..=1
+	smlbs..=1
+	smbc..=1
+	smbcc..=1
+	smbcs..=1
+	smbs..=1
+	smbsc..=1
+	smbss..=1
+.ENDM
+.MACRO	SMENV$	FAC SCT
+				
+.if ge 65535.			
+	smpdp.=0		
+	smvax.=1		
+.iff				
+	smpdp.=1		
+	smvax.=0		
+.endc				
+				
+.if ne smpdp.			
+.enabl	lc, gbl, mcl		
+.list	ttm			
+.radix	10			
+.mcall	.print			
+.iff				
+.endc				
+				
+	smmac$	pdp$	smpdp.	
+	smmac$	vax$	smvax.	
+pdp$	smpdp$			
+vax$	smvax$			
+	smcal$			
+				
+	none.=0			
+	null.=0			
+	bit.=1			
+	byte.=1			
+	char.=1			
+pdp$	<half.=2>		
+vax$	<half.=1>		
+	word.=2			
+	word$l=1		
+	word$r=-1		
+	long.=4			
+	long$l=2		
+	long$r=-2		
+pdp$	<int.=2>		
+pdp$	<int$l=1>		
+vax$	<int.=4>		
+vax$	<int$l=2>		
+cell.=int.
+	int$r=-int$l		
+	addr.=int.		
+	addr$l=int$l		
+	addr$r=-addr$l		
+	addr$n=^c<addr.-1>	
+	vary.=0			
+				
+	bit0$=1			
+	bit1$=2			
+	bit2$=4			
+	bit3$=8.		
+	bit4$=16.		
+	bit5$=32.		
+	bit6$=64.		
+	bit7$=128.		
+	bit8$=256.		
+	bit9$=512.		
+	bit10$=1024.		
+	bit11$=2048.		
+	bit12$=4096.		
+	bit13$=8192.		
+	bit14$=16384.		
+	bit15$=32768.		
+				
+	$77777=-1		
+	$77776=-2		
+	$77774=-4		
+	$77770=-8		
+	$77760=-16		
+	$77740=-32		
+	$77700=-64		
+	$77600=-128		
+	$77400=-256		
+	$77000=-512		
+	$76000=-1024		
+	$74000=-2048		
+	$70000=-4096		
+	$60000=-8192		
+	$40000=-16384		
+pdp$	<$00000=bit15$>		
+vax$	<$00000=1@31>		
+.ENDM 
+.MACRO	SMCOD$	SCT=CODE ALN=long	
+pdp$	<.psect	SCT	ro,d,lcl,rel,con>
+vax$	<.psect	SCT	ALN,nowrt,exe,shr,gbl,con>
+.ENDM
+.MACRO	SMPUR$	SCT=PURE ALN=long	
+pdp$	<.psect	SCT	ro,d,lcl,rel,con>
+vax$	<.psect	SCT	ALN,nowrt,noexe,shr,gbl,con>
+.ENDM
+.MACRO	SMIMP$	SCT=IMPURE ALN=long	
+pdp$	<.psect	SCT	rw,d,lcl,rel,con>
+vax$	<.psect	SCT	ALN,wrt,noexe,noshr,gbl,con>
+.ENDM
+.MACRO	SMABS$	SCT=AAAABS ALN=page
+pdp$	.asect
+vax$	<.psect	SCT	ALN,wrt,noexe,noshr,gbl,ovr>
+.ENDM
+.MACRO	SMSEC$	SCT=IMPURE ALN=long	
+pdp$	<.psect	SCT	rw,d,lcl,rel,con>
+vax$	<.psect	SCT	ALN,wrt,exe,shr,gbl,con>
+.ENDM
+.MACRO	SMMAC$	NAM,CND
+.if ne CND
+.MACRO	NAM	C D E F G H
+.if nb E
+	C	D,E F G H
+.iff
+	C	D
+.endc
+.ENDM
+ .iff
+.MACRO	NAM	C D E F G H
+.ENDM
+ .endc
+.ENDM
+.MACRO	MCALL$	MAC
+.if ndf $'MAC
+	.mcall	MAC
+	MAC
+.endc
+.ENDM
+.MACRO	MDONE$	MAC
+	$'MAC = 1
+.ENDM
+.MACRO	FILE	C D E F G H I
+	.title	C
+	smfac$	C
+	smsec$	C
+.ENDM
+.MACRO	PAGE	C D E F G H I
+	.sbttl	C D E F G H I
+	smfac$	C
+.ENDM
+.MACRO	UNIT	C D E F G H I
+	.sbttl	C D E F G H I
+	smfac$	C
+.ENDM
+.MACRO	CODE	C D E F G H I
+	.sbttl	C D E F G H I
+.iif eq s$mnst, smfac$	C	
+	s$maln=0
+.iif ne s$msec-smdat., SMDAT$
+	smstc$			
+	default
+.ENDM
+.MACRO	DATA	C D E F G H I
+	.sbttl	C D E F G H I
+	smfac$	C
+	s$maln=0
+.iif ne s$msec-smdat., SMDAT$
+	smstd$			
+	impure
+.ENDM
+.MACRO	FORM	C D E F G H I
+	.sbttl	C D E F G H I
+	smfac$	C
+	s$maln=0
+.iif ne s$msec-smdef., SMDEF$
+.ENDM
+.MACRO	PLEX	C D E F G H I
+	.sbttl	C D E F G H I
+	smfac$	C
+	s$maln=0
+.iif ne s$msec-smdef., SMDEF$
+	$=0
+.ENDM
+.MACRO	DEFAULT
+pdp$	.even			
+.iif eq s$mpsc,.mexit		
+	s$mpsc=0		
+	.restore		
+.ENDM 
+.MACRO	PURE SCT ALN
+.if b <SCT>
+ .iif eq smvax.,.mexit
+.endc
+.iif eq s$mpsc,.save		
+.iif eq s$mpsc-1,.mexit		
+	s$mpsc=1		
+	smpur$	SCT ALN		
+.ENDM 
+.MACRO	IMPURE SCT ALN		
+.if b <SCT>			
+ .iif eq smvax.,.mexit		
+.endc				
+.iif eq s$mpsc,.save		
+.iif eq s$mpsc-2,.mexit		
+	s$mpsc=2		
+	smimp$	SCT ALN		
+.ENDM 
+.MACRO	SERIES	SNAM TYP=1
+.if idn TYP,bits
+	.macro	..	nam val cnt=1 pos msk
+		.if	nb <pos>
+			m$asym=POS			
+			.irp m$atmp,<\m$asym>
+				$b=bit'm$atmp'$
+			.endr
+		.endc
+		.iif	nb <msk>,$b=msk
+		.if	nb <val>
+			m$asym=VAL
+			.irp m$atmp,<\m$asym>
+			.if ne bit'm$atmp'$-$b
+				smerr$	<Series missmatch "VAL">
+			.endc
+			.endr
+		.endc
+		.iif nb <nam>,nam=$b
+		.rept	cnt
+			$b=$b*2
+		.endr
+	.endm
+	$b=1
+.iff
+	.macro	..	nam val cnt=TYP off
+		.iif	nb <off>,$v=off
+		.if	nb <val>
+			.if ne val-$v
+				smerr$	<Bit series missmatch "VAL">
+			.endc
+		.endc
+		.iif nb <nam>,nam=$v
+		$v=$v+cnt
+	.endm
+	$v=0
+.endc
+.ENDM
+.MACRO	POWERS	C D E F G H I
+.MACRO	..	NAM VAL CNT=1 POS MSK
+	.if	nb <pos>
+		m$asym=POS			
+		.irp m$atmp,<\m$asym>
+			$b=bit'm$atmp'$
+		.endr
+	.endc
+	.iif	nb <msk>,$b=msk
+	.if	nb <val>
+		m$asym=VAL
+		.irp m$atmp,<\m$asym>
+		.if ne bit'm$atmp'$-$b
+		 smerr$	<Series missmatch "VAL">
+		.endc
+		.endr
+	.endc
+	.iif nb <nam>,nam=$b
+	.rept	cnt
+		$b=$b*2
+	.endr
+.ENDM
+$b=1
+.ENDM
+.MACRO	SERIAL	C D E F G H I
+.MACRO	..	NAM VAL CNT=1 POS
+	.iif	nb <pos>,$v=pos
+	.if	nb <val>
+		.if ne val-$v
+		 smerr$	<Bit series missmatch "VAL">
+		.endc
+	.endc
+	.iif nb <nam>,nam=$v
+	$v=$v+cnt
+.ENDM
+$v=0
+.ENDM
+.MACRO	SMSIN$
+	smdsn$	ADDRESS .addr	addr.
+	smdsn$	BYTE	.byte	byte.
+	smdsn$	CHAR	.byte	byte.
+	smdsn$	CLASS	.int	int.
+	smdsn$	COORD	.int	int.
+	smdsn$	COUNTER	.int	int.
+	smdsn$	FLAGS	.int	int.
+	smdsn$	INDEX	.int	int.
+	smdsn$	INT	.int	int.
+	smdsn$	LATCH	.int	int.
+	smdsn$	MODE	.int	int.
+	smdsn$	OFFSET	.int	int.
+	smdsn$	POINTER	.addr	addr.
+	smdsn$	SIZE	.int	int.
+	smdsn$	STATE	.int	int.
+	smdsn$	VALUE	.int	int.
+	smdsn$	WORD	.word	word.
+.ENDM
+.MACRO	SMMUL$
+	smdml$	ARRAY	.int	int.
+	smdml$	TABLE	.int	int.
+	smdml$	TEXT	.byte	byte.
+	smdml$	AREA	.byte	byte.
+.ENDM
+.MACRO	SMFIL$
+	smdfl$	FILLER	.byte	byte.
+	smdfl$	UNUSED	.byte	byte.
+	smdfl$	RESERVE	.byte	byte.
+.ENDM
+.MACRO	SMDAT$
+	s$msec=smdat.
+.MACRO	SMDSN$	IDM GTYP=.INT DUM
+	.macro	IDM NAM VAL TYP=GTYP POS
+		label	NAM
+	.iif nb <POS>,.=POS
+	.if nb <VAL>
+		.iif idn VAL,VOID, .mexit
+	.endc
+		TYP	VAL
+	.iif ne s$maln,ALIGN s$maln
+	.endm
+.ENDM
+.MACRO	SMDML$	IDM DUM GTYP=INT.
+	.MACRO	IDM	NAM CNT TYP=GTYP
+		label	NAM
+		m$abot=.
+		m$atop=.
+	.iif b <CNT>,.mexit
+	.iif idn CNT,VOID,.mexit
+		.blkb	TYP*CNT
+	.iif ne s$maln,ALIGN s$maln
+		m$atop=.
+	.ENDM
+.ENDM
+.MACRO	SMDFL$	IDM DUM GTYP
+	.MACRO	IDM CNT=1 TYP=GTYP
+		.blkb	CNT*TYP
+	.ENDM
+.ENDM
+	SMSIN$
+	SMMUL$
+	SMFIL$
+.MACRO	OVERLAY	POS
+.if nb <POS>
+	.=POS
+.iff
+	.=m$abot
+.endc
+.ENDM
+.MACRO	ALIGN	TYP=int.
+.if idn TYP,END
+	.=m$atop
+.iff
+	.iif	eq TYP-1,.align	0
+	.iif	eq TYP-2,.align	1
+	.iif	eq TYP-4,.align	2
+	.iif	eq TYP-8,.align	3
+	.iif	eq TYP-512,.align 9
+.endc
+.ENDM
+.MACRO	STRING	NAM STR TER
+	label	NAM
+	.ascii	STR
+.if nb <TER>
+	.byte	TER
+.endc
+	.iif ne s$maln,ALIGN s$maln
+.ENDM
+.ENDM
+.macro	smstd$
+.MACRO	STACK	BOT TOP CNT=0 ELM=0
+	label	bot
+	.blkb	ELM*CNT
+	label	top
+.ENDM
+.endm
+.MACRO	SMDEF$
+	s$msec=smdef.
+.MACRO	SMDSN$	IDM DUM GTYP=.INT
+	.macro	IDM	NAM CNT=1 TYP=GTYP POS
+	.iif nb <POS>,$=POS
+	.iif nb <NAM>,NAM=$
+	.iif idn CNT,VOID, .mexit
+		$=$+<CNT*TYP>
+	.iif ne s$maln,$=$+<s$maln-1>&^C<s$maln-1>
+	.endm
+.ENDM
+.MACRO	SMDML$	IDM DUM GTYP=int.
+	.MACRO	IDM	NAM CNT TYP=GTYP POS
+	.iif nb <POS>,$=POS
+	.iif nb <NAM>,NAM=$
+		m$abas=$
+	.iif b <CNT>,.mexit
+	.iif idn CNT,VOID, .mexit
+		$=$+<CNT*TYP>
+	.iif ne s$maln,$=$+<s$maln-1>&^C<s$maln-1>
+		m$atop=$
+	.ENDM
+.ENDM
+.MACRO	SMDFL$	IDM DUM GTYP=int.
+	.MACRO	IDM NAM CNT=1 TYP=GTYP
+		$=$+<CNT*GTYP>
+	.ENDM
+.ENDM
+	SMSIN$
+	SMMUL$
+	SMFIL$
+.MACRO	OVERLAY	POS
+.if nb <POS>
+	$=POS
+.iff
+	$=0
+.endc
+.ENDM
+.MACRO	ALIGN	TYP=INT.
+	$=$+<TYP-1>&^C<TYP-1>
+.ENDM
+.MACRO	FILLER	CNT TYP=1
+	$=$+<CNT>
+.ENDM
+.MACRO	STACK	BOT TOP CNT=0 ELM=0
+	BOT=$
+	$=$+<ELM*CNT>
+	TOP=$
+.ENDM
+.MACRO	GAMUT	NAM
+	NAM=$
+.ENDM
+.ENDM
+.MACRO	ALIGNED	TYP=int.
+	s$maln=TYP
+.ENDM
+.MACRO	LABEL	NAM
+.iif b <NAM>,.mexit
+.if ne s$mloc
+	s$mloc=s$mloc-1
+.list
+NAM:
+.nlist
+.iff
+.list
+NAM::
+.nlist
+.endc
+.ENDM
+.MACRO	SET	NAM VAL
+	NAM=VAL
+.ENDM
+.MACRO	.ADDR	VAL=0
+.if ne smpdp.
+	.word	VAL
+.iff
+	.address VAL
+.endc
+.ENDM
+.MACRO	.CHAR	VAL
+	.byte	VAL
+.ENDM
+.MACRO	ADDBI	SRC,DST
+.if ne smpdp.
+	MOVB	SRC,-(sp)
+	CLRB	1(sp)
+	ADD	(sp)+,DST
+.iff
+	MOVZBL	SRC,-(sp)
+	ADD	(sp)+,DST
+.endc
+.ENDM
+.MACRO	ADDWI	SRC,DST
+.if ne smpdp.
+	ADD	SRC,DST
+.iff
+	MOVZWL	SRC,-(sp)
+	ADDL	(sp)+,DST
+.endc
+.ENDM
+.MACRO	ADDI3	SRC,DST,RES
+.if ne smvax.
+	ADDL3	SRC,DST,RES
+.iff
+	MOV	DST,RES
+	ADD	SRC,RES
+.endc
+.ENDM
+.MACRO	ADDI	SRC,DST,RES
+.if ne smvax.				
+	.if 	nb <RES>		
+		ADDL3	SRC,DST,RES	
+	.iff				
+		ADDL	SRC,DST		
+	.endc				
+	.mexit				
+.endc					
+.if	nb <RES>			
+	MOV	DST,RES			
+	ADD	SRC,RES			
+	.mexit				
+.endc					
+	ADD	SRC,DST			
+.ENDM
+.MACRO	BICI3	SRC,DST,RES
+.if ne smvax.
+	BICL3	SRC,DST,RES
+.iff
+	MOV	DST,RES
+	BIC	SRC,RES
+.endc
+.ENDM
+.MACRO	BISI3	SRC,DST,RES
+.if ne smvax.
+	BISL3	SRC,DST,RES
+.iff
+	MOV	DST,RES
+	BIS	SRC,RES
+.endc
+.ENDM
+.MACRO	BICI	SRC,DST,RES
+.if ne smvax.				
+	.if 	nb <RES>		
+		BICL3	SRC,DST,RES	
+	.iff				
+		BICL	SRC,DST		
+	.endc				
+	.mexit				
+.endc					
+.if	nb <RES>			
+	MOV	DST,RES			
+	BIC	SRC,RES			
+	.mexit				
+.endc					
+	BIC	SRC,DST			
+.ENDM
+.MACRO	BISI	SRC,DST,RES
+.if ne smvax.				
+	.if 	nb <RES>		
+		BISL3	SRC,DST,RES	
+	.iff				
+		BISL	SRC,DST		
+	.endc				
+	.mexit				
+.endc					
+.if	nb <RES>			
+	MOV	DST,RES			
+	BIS	SRC,RES			
+	.mexit				
+.endc					
+	BIS	SRC,DST			
+.ENDM
+.MACRO	BITI	SRC,DST,RES
+.if ne smvax.				
+	BITL	SRC,DST			
+.iff
+	BIT	SRC,DST			
+.endc
+.ENDM
+.MACRO	BRI	DST
+.if ne smpdp.
+	BR	DST		
+.iff
+	BRW	DST		
+	NOP			
+.endc
+.ENDM
+.MACRO	CVTBI	SRC,DST
+.if ne smpdp.
+	MOVB	SRC,DST
+.iff
+	CVTBL	SRC,DST
+.endc
+.ENDM
+.MACRO	CVTWI	SRC,DST
+.if ne smpdp.
+	MOV	SRC,DST
+.iff
+	CVTWL	SRC,DST
+.endc
+.ENDM
+.MACRO	MOVA	ADR,DST
+.if ne smpdp.
+	MOV	#ADR,DST
+.iff
+	MOVAL	ADR,DST
+.endc
+.ENDM
+.MACRO	MOVBI	BYT,INT
+.if ne smvax.
+	MOVZBL	BYT,INT
+.iff
+	.ntype	m$abyt,BYT
+	.ntype	m$aint,INT
+	.if	ne <m$abyt&7>-<m$aint&^o77>
+		CLR	INT
+		BISB	BYT,INT
+	.iff
+		.if	dif BYT,INT
+			MOV	BYT,INT
+		.endc
+		BIC	#$77400,INT
+	.endc
+.endc
+.ENDM
+.MACRO	MOVWI	WRD,INT
+pdp$	MOV	WRD,INT
+vax$	MOVZWL	WRD,INT
+.ENDM
+.MACRO	MULI3	SRC,DST,RES
+.if ne smvax.
+	MULL3	SRC,DST,RES
+.iff
+	MOV	DST,RES
+	MULI	SRC,RES
+.endc
+.ENDM
+.MACRO	MULI	SRC,DST,RES
+.if ne smvax.				
+	.if 	nb <RES>		
+		MULL3	SRC,DST,RES	
+	.iff				
+		MULL	SRC,DST		
+	.endc				
+.iff					
+	.if	nb <RES>		
+		MOV	DST,RES		
+		MULI	SRC,RES		
+		.mexit			
+	.endc				
+					
+	.ntype	ma$dst,DST		
+	.if ne ma$dst&1			
+		MUL	SRC,DST		
+	.iff				
+		PUSH	DST+1		
+		MUL	SRC,DST		
+		MOV	DST+1,DST	
+		POP	DST+1		
+	.endc
+.endc
+.ENDM
+.MACRO	PUSHA	ADR
+.if ne smpdp.
+	PUSH	#ADR
+.iff
+	PUSHAL	ADR
+.endc
+.ENDM
+.MACRO	SUBBI	SRC,DST
+.if ne smpdp.
+	MOVBI	<SRC>,-(SP)		
+	SUB	(sp)+,DST		
+.iff
+	MOVZBL	SRC,-(sp)
+	SUBL	(sp)+,DST
+.endc
+.ENDM
+.MACRO	SUBWI	SRC,DST
+.if ne smpdp.
+	SUB	SRC,DST
+.iff
+	MOVZWL	SRC,-(sp)
+	SUBL	(sp)+,DST
+.endc
+.ENDM
+.MACRO	SUBI3	SRC,DST,RES
+.if ne smvax.
+	SUBL3	SRC,DST,RES
+.iff
+	MOV	DST,RES
+	SUB	SRC,RES
+.endc
+.ENDM
+.MACRO	SUBI	SRC,DST,RES
+.if ne smvax.				
+	.if 	nb <RES>		
+		SUBL3	SRC,DST,RES	
+	.iff				
+		SUBL	SRC,DST		
+	.endc				
+	.mexit				
+.endc					
+.if	nb <RES>			
+	MOV	DST,RES			
+	SUB	SRC,RES			
+	.mexit				
+.endc					
+	SUB	SRC,DST			
+.ENDM
+.MACRO	MULI$	CON,SRC,DST
+.if ne smvax.
+	.if nb <DST>
+	MULL3	#CON,SRC,DST
+	.iff
+	MULL	#CON,SRC
+	.endc
+	.mexit
+.endc
+.if nb <DST>
+	MOV	SRC,DST
+	MULI$	<CON>,<DST>
+	.mexit
+.endc
+.if eq CON-8
+	ASL	SRC
+	ASL	SRC
+	ASL	SRC
+	.mexit
+.endc
+.if eq CON-10
+	ASL	SRC
+	PUSH	SRC
+	ASL	SRC
+	ASL	SRC
+	ADD	(SP)+,SRC
+	.mexit
+.endc
+
+
+
+	MULI	#CON,SRC
+.ENDM
+.MACRO	CLRL	DST
+	.ntype ma$dst,DST
+	ma$dmd=ma$dst/8.		
+	ma$drg=ma$dst&7
+	.if eq ma$dmd-1			
+		CLR	DST		
+		CLR	word.(DST)
+		.mexit
+	.endc
+	.if eq ma$dmd-2			
+		CLR	DST		
+		CLR	DST
+		.mexit
+	.endc
+	.if eq ma$dmd-4			
+		CLR	DST		
+		CLR	DST
+		.mexit
+	.endc
+	.if eq ma$dmd-6			
+		CLR	DST
+		CLR	word.+DST	
+		.mexit
+	.endc
+	smerr$	<Invalid mode for CLRW "DST">
+.ENDM
+.MACRO	MOVL	SRC,DST
+	.ntype ma$src,SRC
+	ma$smd=ma$src/8.		
+	ma$srg=ma$src&7
+	.ntype ma$dst,DST
+	ma$dmd=ma$dst/8.		
+	ma$drg=ma$dst&7
+	ASSUME	ma$smd EQ ma$dmd	
+	.if eq ma$smd-1			
+		MOV	SRC,DST		
+		MOV	word.'SRC,word.'DST 	
+		.mexit
+	.endc
+	.if eq ma$smd-2			
+		MOV	SRC,DST		
+		MOV	SRC,DST		
+		.mexit
+	.endc
+	.if eq ma$smd-4			
+		MOV	SRC,DST		
+		MOV	SRC,DST		
+		.mexit
+	.endc
+	.if eq ma$mod-6			
+		MOV	SRC,DST
+		MOV	word.+SRC,word.+DST	
+		.mexit
+	.endc
+	smerr$	<Invalid mode for MOVL "SRC DST"
+.ENDM
+.MACRO	CLRQ	DST
+.if ne smqua.				
+	CLRD	DST
+	.mexit
+.endc
+	.ntype ma$dst,DST
+	ma$dmd=ma$dst/8.		
+	ma$drg=ma$dst&7
+
+	.if eq ma$dmd-1			
+	  .rept 4
+		CLR	DST+		
+	  .endr
+	  .irp	ma$reg,<\ma$drg>
+		SUB	#8.,r'ma$reg
+	  .endr
+	  .mexit
+	.endc
+	.if eq ma$dmd-2			
+	  .rept 4
+		CLR	DST		
+	  .endr
+	  .mexit
+	.endc
+	.if eq ma$dmd-4			
+	  .rept 4
+		CLR	DST		
+	  .endr
+	  .mexit
+	.endc
+	.if eq ma$dmd-6			
+		CLR	DST
+		CLR	word.+DST	
+		CLR	word.*2+DST
+		CLR	word.*3+DST
+		.mexit
+	.endc
+	smerr$	<Invalid mode for CLRQ "DST">
+.ENDM
+.MACRO	MOVQ	SRC,DST
+.if ne smqua.				
+	LDD	SRC,R0			
+	STD	R0,DST			
+	.mexit
+.endc
+	.ntype ma$src,SRC
+	ma$smd=ma$src/8.		
+	ma$srg=ma$src&7
+	.ntype ma$dst,DST
+	ma$dmd=ma$dst/8.		
+	ma$drg=ma$dst&7
+	ASSUME	ma$smd EQ ma$dmd	
+	.if eq ma$smd-1			
+	  .rept smwdi.
+		MOV	SRC+,DST+	
+	  .endr
+	  .irp	ma$reg,<\ma$srg>
+		SUB	#8.,r'ma$reg
+	  .endr
+	  .irp	ma$reg,<\ma$drg>
+		SUB	#8.,r'ma$reg
+	  .endr
+	  .mexit
+	.endc
+	.if eq ma$smd-2			
+	  .rept smwdi.
+		MOV	SRC,DST		
+	  .endr
+	  .mexit
+	.endc
+	.if eq ma$smd-4			
+	  .rept smwdi.
+		MOV	SRC,DST		
+	  .endr
+	  .mexit
+	.endc
+	.if eq ma$mod-6			
+		MOV	SRC,DST
+		MOV	word.+SRC,word.+DST	
+		MOV	word.*2+SRC,word.*2+DST
+		MOV	word.*3+SRC,word.*3+DST
+		.mexit
+	.endc
+	smerr$	<Invalid mode for MOVQ "SRC DST">
+.ENDM
+.MACRO	ASL$	CNT,DST
+.if ne smpdp.
+	.rept	CNT
+	asl	DST
+	.endr
+.endc
+vax$	<ashl	#CNT,DST,DST>
+.ENDM
+.MACRO	ASLA$	DST
+pdp$	asl	DST
+vax$	mull	#addr.,DST
+.ENDM
+.MACRO	ASR$	CNT,DST
+.if ne smpdp.
+	.rept	CNT
+	asr	DST
+	.endr
+.endc
+vax$	<ashl	#-<CNT>,DST,DST>
+.ENDM
+.MACRO	ASHI	CNT,SRC,DST
+.if ne smvax$
+  .if nb <DST>
+	ASHL	CNT,SRC,DST
+  .iff
+	ASHL	CNT,SRC,SRC
+  .endc
+.iff
+  .if nb <DST>
+	MOV	SRC,DST
+	ASH	CNT,DST
+  .iff
+	ASH	CNT,SRC
+  .endc
+.endc
+.ENDM
+.MACRO	ASHI$	CNT,SRC,DST
+	ASHI	#CNT,SRC,DST
+.ENDM
+.MACRO	PUSH	SRC
+.if ne smmod.
+ .if idn #0,SRC
+	clr	-(sp)
+ .iff
+  pdp$	mov	src,-(sp)
+  vax$	pushl	src
+ .endc
+.iff
+	mov	src,-(sp)
+.endc
+.ENDM
+.MACRO	POP	DST
+	MOV	(sp)+,DST
+.ENDM
+.MACRO	PUSHBI	SRC
+pdp$	MOVB	SRC,-(sp)
+vax$	MOVZBL	SRC,-(sp)
+.ENDM
+.MACRO	POPIB	DST
+pdp$	MOVB	(sp)+,DST
+vax$	CVTLB	(sp)+,DST
+.ENDM
+.MACRO	.BLKI	CNT
+pdp$	.blkw	CNT
+vax$	.blkl	CNT
+.ENDM
+.MACRO	.INT	C,D,E,F,G,H,I,J K
+.if nb <C>
+	.irp ma$val,<C D E F G H I J K>
+	 .if nb <ma$val> 
+pdp$		.word	ma$val
+vax$		.long	ma$val
+	 .endc
+	.endr
+.iff
+pdp$	.word	0
+vax$	.long	0
+.endc
+.ENDM
+.MACRO	.HALF	C D E F H I J K
+.if nb <C>
+.irp	ma$val,<C D E F H I J K>
+	.if nb <ma$val>
+pdp$	.word	ma$val
+vax$	.byte	ma$val
+	.endc
+.endr
+.iff
+pdp$	.word	0
+vax$	.byte	0
+.endc
+.ENDM
+.MACRO	SMPDP$
+.macro	.int	c,d,e,f,g,h,i,j
+.if nb <c>
+	.irp $,<c d e f g h i j>
+	 .if nb <$> 
+		.word	$
+	 .endc
+	.endr
+.iff
+	.word	0
+.endc
+.endm
+.macro	.blki	c
+	.blkw	c
+.endm
+.macro	.align	LEN
+.iif b <LEN>,.mexit
+.iif eq <LEN>,.mexit
+	.even
+.endm
+.ENDM
+.macro	bsbb	rou
+	jsr	pc,rou
+.endm
+.macro	bsbw	rou
+	jsr	pc,rou
+.endm
+.macro	brb	rou
+	br	rou
+.endm
+.macro	brw	rou
+	jmp	rou
+.endm
+.macro	jsb	rou
+	jsr	pc,rou
+.endm
+.macro	rsb
+	rts	pc
+.endm
+.macro	clrw	c			
+	clr	c
+.endm
+.macro	decw	c
+	dec	c
+.endm
+.macro	incw	c
+	inc	c
+.endm
+.macro	negw	c			
+	neg	c
+.endm
+.macro	tstw	c			
+	tst	c
+.endm
+.macro	comw	c			
+	com	c,c
+.endm
+.macro	movw	c,d
+	mov	c,d			
+.endm
+.macro	addw	c,d
+	add	c,d			
+.endm
+.macro	subw	c,d
+	sub	c,d			
+.endm
+.macro	cmpw	c,d
+	cmp	c,d			
+.endm
+.macro	mulw	c,d
+	mul	c,d			
+.endm
+.macro	divw	c,d
+	div	c,d			
+.endm
+.macro	bisw	c,d
+	bis	c,d			
+.endm
+.macro	bicw	c,d
+	bic	c,d			
+.endm
+.macro	bitw	c,d
+	bit	c,d			
+.endm
+.MACRO	smfac$	FAC
+.MACRO	smerr$	MSG,VAL
+.error	VAL 
+.ENDM
+.ENDM
+.MACRO	smerr$	MSG,VAL
+.error	VAL 
+.ENDM
+.MACRO	SMSTR$	STR
+	s$mstp=0			
+	.irpc	ma$cha,<STR>
+	 .iif IDN ma$cha,", s$mstp=1	
+	 .iif IDN ma$cha,/, s$mstp=1	
+	 .mexit
+	.endr
+	.iif eq s$mstp, .mexit		
+	smsto$	<STR>			
+.ENDM
+.MACRO	SMSTO$	STR
+	pure				
+	s$mslc=.			
+	.asciz	STR			
+pdp$	.even				
+	default				
+.ENDM
+.MACRO	smglb$ NST,BGN,TYP,LNG
+	BGN=s$ml'NST			
+	TYP=s$mt'NST			
+	LNG=s$mm'NST			
+.ENDM
+.MACRO	smgle$ NST,BGN,TYP,LNG
+	BGN=s$ml'NST+smend.		
+	TYP=s$mt'NST			
+	LNG=s$mm'NST			
+.ENDM
+.MACRO	smplb$	NST,BGN,TYP,LNG
+	s$ml'NST=BGN
+	s$mt'NST=TYP
+	s$mm'NST=LNG!s$mlon
+.ENDM
+.MACRO	smgrb$ RPT,BLK
+	BLK=s$mr'RPT
+	s$mbbl=s$mb'RPT		
+.ENDM
+.MACRO	smprb$	RPT,BLK
+	s$mr'RPT=BLK
+	s$mb'RPT=s$mbgn		
+.ENDM
+.MACRO	smgee$	LEV LAB
+	LAB=s$me'LEV
+.ENDM
+.MACRO	smpee$	LEV LAB
+	s$me'LEV=LAB
+.ENDM
+.MACRO	smlbl$ LBL
+.list
+.'LBL:
+.nlist
+.ENDM
+.MACRO	SMIFx$	XIF,C1,C2,C3,LBL,STM
+.if idn	XIF,IF
+	smtst$	<>,C1,C2,C3,LBL,jt
+	.mexit
+.endc
+.if idn	XIF,IFB
+	smtst$	B,C1,C2,C3,LBL,jt
+	.mexit
+.endc
+.if idn	XIF,IFW
+	smtst$	W,C1,C2,C3,LBL,jt
+	.mexit
+.endc
+.if idn	XIF,IFNOT
+	smtst$	<>,C1,C2,C3,LBL,jf
+	.mexit
+.endc
+.if idn	XIF,IFNOTB
+	smtst$	B,C1,C2,C3,LBL,jf
+	.mexit
+.endc
+.if idn	XIF,IFNOTW
+	smtst$	W,C1,C2,C3,LBL,jf
+	.mexit
+.endc
+	smerr$	<Invalid IF in "STM">
+.ENDM
+.MACRO	SMTST$	MOD,C1,C2,C3,LBL,DIS
+	.IF	B <C2>
+		sm'DIS'0$ C1,LBL		
+		.mexit
+	.ENDC
+	.IF	DF SM'C2'..			
+		sm'C2'$$ MOD,C1,C2,C3,LBL,DIS
+		.mexit
+	.ENDC
+	.IF	B <C3>
+		TST'MOD	C1			
+		sm'DIS'0$ C2,LBL
+		.mexit
+	.ENDC
+	.IF IDN C2,seton
+		BIT'MOD	C1,C3			
+		sm'DIS'0$ NE,LBL
+		.mexit
+	.ENDC
+	.IF IDN C2,setoff
+		BIT'MOD	C1,C3			
+		sm'DIS'0$ EQ,LBL
+		.mexit
+	.ENDC
+		CMP'MOD	C1,C3			
+		sm'DIS'0$ C2,LBL
+.ENDM
+.MACRO	SMMC$$	MOD,C1,C2,C3,LBL,DIS
+		BIT'MOD	C1,C3		
+		sm'DIS'0$ EQ,LBL	
+.ENDM
+.MACRO	SMMS$$	MOD,C1,C2,C3,LBL,DIS
+		BIT'MOD	C1,C3		
+		sm'DIS'0$ NE,LBL	
+.ENDM
+.MACRO	SMOFF$$	MOD,C1,C2,C3,LBL,DIS
+		BIT'MOD	C1,C3		
+		sm'DIS'0$ EQ,LBL	
+.ENDM
+.MACRO	SMON$$	MOD,C1,C2,C3,LBL,DIS
+		BIT'MOD	C1,C3		
+		sm'DIS'0$ NE,LBL	
+.ENDM
+.MACRO	SMLBC$$	MOD,C1,C2,C3,LBL,DIS
+		sm'DIS'1$ LBC,LBL,C1,C3
+.ENDM
+.MACRO	SMLBS$$	MOD,C1,C2,C3,LBL,DIS
+		sm'DIS'1$ LBS,LBL,C1,C3
+.ENDM
+.MACRO	SMBC$$	MOD,C1,C2,C3,LBL,DIS
+		sm'DIS'2$ BC,LBL,C1,C3	
+.ENDM
+.MACRO	SMBCC$$	MOD,C1,C2,C3,LBL,DIS
+		sm'DIS'2$ BCC,LBL,C1,C3 
+.ENDM
+.MACRO	SMBCS$$	MOD,C1,C2,C3,LBL,DIS
+		sm'DIS'2$ BCS,LBL,C1,C3 
+.ENDM
+.MACRO	SMBS$$	MOD,C1,C2,C3,LBL,DIS
+		sm'DIS'2$ BS,LBL,C1,C3	
+.ENDM
+.MACRO	SMBSC$$	MOD,C1,C2,C3,LBL,DIS
+		sm'DIS'2$ BSC,LBL,C1,C3 
+.ENDM
+.MACRO	SMBSS$$	MOD,C1,C2,C3,LBL,DIS
+		sm'DIS'2$ BSS,LBL,C1,C3 
+.ENDM
+.MACRO	SMJT0$	CND,LBL,?SKP
+	smglb$	\s$mnst,s$mlbl,s$mtyp,s$mmod
+	.IF	EQ s$mlon!<s$mmod&1>		
+		B'CND	.'LBL
+	.IFF
+		sm$'CND SKP
+		BRW	.'LBL
+	SKP:
+	.ENDC
+.ENDM 
+.MACRO	SMJT1$	CND,LBL,C1,?SKP
+	smglb$	\s$mnst,s$mlbl,s$mtyp,s$mmod
+	.IF	EQ s$mlon!<s$mmod&1>
+		B'CND	C1,.'LBL
+	.IFF
+		sm$'CND C1,.'SKP
+		BRW	LBL
+	SKP:
+	.ENDC
+.ENDM 
+.MACRO	SMJT2$	CND,LBL,C1,C3,?SKP
+	smglb$	\s$mnst,s$mlbl,s$mtyp,s$mmod
+	.IF	EQ s$mlon!<s$mmod&1>
+		B'CND	C1,C3,.'LBL
+	.IFF
+		sm$'CND C1,C3,SKP
+		BRW	.'LBL
+	SKP:
+	.ENDC
+.ENDM 
+.MACRO	SMJF0$	CND,LBL,?SKP
+	smglb$	\s$mnst,s$mlbl,s$mtyp,s$mmod
+	.IF	EQ s$mmod&1!s$mlon
+		sm$'CND	.'LBL
+	.IFF
+		B'CND	SKP
+		BRW	.'LBL
+	SKP:
+	.ENDC
+.ENDM 
+.MACRO	SMJF1$	CND,LBL,C1,?SKP
+	smglb$	\s$mnst,s$mlbl,s$mtyp,s$mmod
+	.IF	EQ s$mmod&1!s$mlon
+		sm$'CND C1,.'LBL
+	.IFF
+		B'CND	C1,SKP
+		BRW	.'LBL
+	SKP:
+	.ENDC
+.ENDM 
+.MACRO	SMJF2$	CND,LBL,C1,C3,?SKP
+	smglb$	\s$mnst,s$mlbl,s$mtyp,s$mmod
+	.IF	EQ s$mmod&1!s$mlon
+		sm$'CND C1,C3,.'LBL
+	.IFF
+		B'CND	C1,C3,SKP
+		BRW	.'LBL
+	SKP:
+	.ENDC
+.ENDM 
+.MACRO	SMJB0$	CND,LBL,?SKP
+	.IF	EQ s$mlon			
+		B'CND	LBL
+	.IFF
+		sm$'CND SKP C1 C3
+		BRW	LBL
+	SKP:
+	.ENDC
+.ENDM 
+.MACRO	SMJB1$	CND,LBL,C1,?SKP
+	.IF	EQ s$mlon
+		B'CND	C1,LBL
+	.IFF
+		sm$'CND C1,SKP
+		BRW	LBL
+	SKP:
+	.ENDC
+.ENDM 
+.MACRO	SMJB2$	CND,LBL,C1,C3,?SKP
+	.IF	EQ s$mlon
+		B'CND	C1,C3,LBL
+	.IFF
+		sm$'CND C1,C3,SKP
+		BRW	LBL
+	SKP:
+	.ENDC
+.ENDM 
+.MACRO	SMJBL$	LBL
+.if eq s$mlon
+	br	LBL
+.iff
+	brw	LBL
+.endc
+.ENDM
+.MACRO	SMJG0$	CND,LBL,?SKP
+	sm$'CND SKP C1 C3
+		JMP	LBL
+	SKP:
+.ENDM 
+.MACRO	SMJG1$	CND,LBL,C1,?SKP
+	sm$'CND C1,SKP
+		JMP	LBL
+	SKP:
+.ENDM 
+.MACRO	SMJG2$	CND,LBL,C1,C3,?SKP
+	sm$'CND C1,C3,SKP
+		JMP	LBL
+	SKP:
+.ENDM 
+.MACRO	SMJGL$	LBL
+	jmp	LBL
+.ENDM
+.MACRO	SMJRB$	XL
+	.IF	EQ s$mmod&1!s$mlon
+		BR	.'XL
+	.IFF
+		BRW	.'XL
+	.ENDC
+.ENDM 
+.MACRO	SMJLB$	X
+	smglb$	\s$mnst,s$mlbl,s$mtyp,s$mmod
+	.IF	EQ s$mmod&1!s$mlon
+		BR	.'X
+	.IFF
+		BRW	.'X
+	.ENDC
+.ENDM 
+.MACRO	BFINE	XL
+pdp$	bcc	XL
+vax$	blbs	r0,XL
+.ENDM
+.MACRO	BFAIL	XL
+pdp$	bcs	XL
+vax$	blbc	r0,XL
+.ENDM
+.MACRO	BTRUE	XL
+	tst	r0
+	bne	XL
+.ENDM
+.MACRO	BFALSE	XL
+	tst	r0
+	beq	XL
+.ENDM
+.MACRO	sm$EQ	X
+	BNE	X
+.ENDM
+.MACRO	sm$NE	X
+	BEQ	X
+.ENDM
+.MACRO	sm$PL	X
+	BMI	X
+.ENDM
+.MACRO	sm$MI	X
+	BPL	X
+.ENDM
+.MACRO	sm$VC	X
+	BVS	X
+.ENDM
+.MACRO	sm$VS	X
+	BVC	X
+.ENDM
+.MACRO	sm$CC	X
+	BCS	X
+.ENDM
+.MACRO	sm$CS	X
+	BCC	X
+.ENDM
+.MACRO	sm$GE	X
+	BLT	X
+.ENDM
+.MACRO	sm$LT	X
+	BGE	X
+.ENDM
+.MACRO	sm$GT	X
+	BLE	X
+.ENDM
+.MACRO	sm$LE	X
+	BGT	X
+.ENDM
+.MACRO	sm$HI	X
+	BLOS	X
+.ENDM
+.MACRO	sm$LOS	X
+	BHI	X
+.ENDM
+.MACRO	sm$HIS	X
+	BLO	X
+.ENDM
+.MACRO	sm$LO	X
+	BHIS	X
+.ENDM
+.MACRO	sm$FINE	X
+	BFAIL	X
+.ENDM
+.MACRO	sm$FAIL	X
+	BFINE	X
+.ENDM
+.MACRO	sm$TRUE	X
+	BFALSE	X
+.ENDM
+.MACRO	sm$FALSE X
+	BTRUE	X
+.ENDM
+.MACRO	sm$LBC	X1,XL
+	blbs	X1,XL
+.ENDM
+.MACRO	sm$LBS	X1,XL
+	blbc	X1,XL
+.ENDM
+.MACRO	sm$BC	X1,X3,XL
+	bbs	X1,X3,XL
+.ENDM
+.MACRO	sm$BCC	X1,X3,XL
+	bbsc	X1,X3,XL
+.ENDM
+.MACRO	sm$BCS	X1,X3,XL
+	bbss	X1,X3,XL
+.ENDM
+.MACRO	sm$BS	X1,X3,XL
+	bbc	X1,X3,XL
+.ENDM
+.MACRO	sm$BSC	X1,X3,XL
+	bbcc	X1,X3,XL
+.ENDM
+.MACRO	sm$BSS	X1,X3,XL
+	bbcc	X1,X3,XL
+.ENDM
+.MACRO	ALDEF$
+mdone$	aldef$
+	ma$val=48.		
+.irpc	ma$let,<0123456789>
+	dig'ma$let'.=ma$val
+	ma$val=ma$val+1
+.endr
+	ma$val=65.		
+.irpc	ma$let,<abcdefghijklmnopqrstuvwxyz>
+	upr'ma$let'.=ma$val
+	ma$val=ma$val+1
+.endr
+	ma$val=97.		
+.irpc	ma$let,<abcdefghijklmnopqrstuvwxyz>
+	low'ma$let'.=ma$val
+	ma$val=ma$val+1
+.endr
+.ENDM
+.MACRO	ASDEF$
+mdone$	asdef$
+	ctrla.	=    1.	
+	ctrlb.	=    2.	
+	ctrlc.	=    3.	
+	ctrld.	=    4.	
+	ctrle.	=    5.	
+	ctrlf.	=    6.	
+	bell.	=    7.	
+	bs.	=    8.	
+	tab.	=    9.	
+	ht.	=    9.	
+	lf.	=   10.	
+	vt.	=   11. 
+	ff.	=   12.	
+	cr.	=   13.	
+	si.	=   14.	
+	so.	=   15.	
+	ctrlp.	=   16.	
+	ctrlq.	=   17.	
+	ctrlr.	=   28.	
+	ctrls.	=   19.	
+	ctrlt.	=   20.	
+	ctrlu.	=   21.	
+	ctrlv.	=   22.	
+	ctrlw.	=   23.	
+	ctrlx.	=   24.	
+	ctrly.	=   25.	
+	ctrlz.	=   26.	
+	esc.	=   27.	
+	ctbsl.	=   28.	
+	ctrsb.	=   29.	
+	cthat.	=   30.	
+	ctund.	=   31.	
+			
+	space.	=   32.	
+	xclam.	=   33.	
+	dquot.	=   34.	
+	hash.	=   35.	
+	dolar.	=   36.	
+	perct.	=   37.	
+	ampsd.	=   38.	
+	squot.	=   39.	
+	quote.	=   39.	
+	lparn.	=   40.	
+	rparn.	=   41.	
+	astrx.	=   42.	
+	plus.	=   43.	
+	comma.	=   44.	
+	minus.	=   45.	
+	dot.	=   46.	
+	slash.	=   47.	
+	dig0.	=   48.	
+ 	dig9.	=   57.	
+	colon.	=   58.	
+	semi.	=   59.	
+	langl.	=   60.	
+	equal.	=   61.	
+	rangl.	=   62.	
+	qmark.	=   63.	
+	atsgn.	=   64.	
+	capa.	=   65.	
+	capz.	=   90.	
+	upra.	=   65.	
+	uprz.	=   90.	
+	lsqua.	=   91.	
+	lbrac.	=   91.	
+	bslas.	=   92.	
+	rbrac.	=   93.	
+	rsqua.	=   93.	
+	hat.	=   94.	
+	under.	=   95.	
+	tick.	=   96.	
+	lowa.	=   97.	
+	lowz.	=  122.	
+	lsqig.	=  123.	
+	vbar.	=  124.	
+	rsqig.	=  125.	
+	tilda.	=  126.	
+	tilde.	=  126.	
+	del.	=  127.	
+.ENDM
+.MACRO	CLDEF$
+set	clwks.	256			
+set	clunp$	bit8$			
+
+plex	CLI table prefix
+	size	cl.hsz			
+
+plex	CLI lookup table entry
+	flags	cl.flg			
+	pointer	cl.rou			
+	pointer	cl.p1			
+	pointer	cl.p2			
+	gamut	clgam.			
+	text	cl.str	typ=vary.	
+
+powers	CLI flags
+	..	clmor$			
+	..	clacc$			
+	..	clqua$			
+	..	clp1v$	pos=8		
+	..	clp1a$			
+	..	clp2v$			
+	..	clp2a$			
+	..	clp3v$			
+	..	clp3a$			
+	clp1p$ = clp1v$!clp1a$		
+	clp2p$ = clp2v$!clp2a$		
+	clp3p$ = clp3v$!clp3a$		
+
+plex	CLI options/field
+	flags	cl.con	typ=byte.	
+	text	cl.txt	typ=vary.	
+	char	cl.ter			
+	
+	char	cl.end			
+
+plex	CLI field item-list
+	pointer	cl.nxt			
+	pointer	cl.bas			
+	pointer	cl.cur			
+	pointer	cl.lst			
+	counter	cl.cnt			
+	gamut	cllhs.			
+
+serial	CLI syntax constants
+	..	clnil.			
+	..	clone.			
+	..	clsom.			
+	..	clany.			
+	..	clsin.			
+
+.MACRO	CLTAB$	NAM
+nam::	.int	clgam.
+.ENDM
+
+.MACRO	CLENT$	NAM FLG ROU P1 P2 A1 A2
+	ma$flg	= clmor$
+	.if nb <FLG>
+	 .irp	ma$itm,<FLG>
+	  .if	nb <ma$itm>
+		ma$flg$ = ma$flg ! cl'ma$itm'$
+	  .endc
+	 .endr
+	.endc
+	.iif nb <P1>,ma$flg=ma$flg!clp1v$
+	.iif nb <A1>,ma$flg=ma$flg!clp1a$
+	.iif nb <P2>,ma$flg=ma$flg!clp2v$
+	.iif nb <A2>,ma$flg=ma$flg!clp2a$
+
+	.int	ma$flg
+	.addr	ROU
+
+	.if nb <P1>
+		.addr P1
+	.iff
+	 .if nb <A1>
+		.addr A1
+	 .iff
+		.addr	0
+	 .endc
+	.endc
+
+	.if nb <P2>
+		.addr P2
+	.iff
+	 .if nb <A2>
+		.addr A2
+	 .iff
+		.addr	0
+	 .endc
+	.endc
+
+	.asciz	"NAM"
+	.even
+.ENDM
+
+.MACRO	CLEND$
+	.int	0
+.ENDM
+
+.ENDM
+.MACRO	CTDEF$
+
+powers	CT...$	Character type flags
+	..	ctupr$		
+	..	ctlow$		
+	..	ctdig$		
+	..	ctpun$		
+	..	ctctl$		
+	..	ctspc$		
+	..	ctprn$		
+
+	ctalp$=ctupr$!ctlow$	
+	ctaln$=ctalp$!ctdig$	
+.ENDM
+.MACRO	DICHA$	CHA=r0
+	call	di$cha	CHA
+.ENDM
+.MACRO	DISTR$	STR
+	smstr$	<STR>
+	.if ne s$mstp
+		call	di$str	#s$mslc
+	.iff
+		call	di$str	<STR>
+	.endc
+.ENDM
+.MACRO	TYPE$	STR
+	smsto$	&STR&
+	call	di$str	#s$mslc
+.ENDM
+.MACRO	DILIN$	STR
+	smstr$	<STR>
+	.if ne s$mstp
+		call	di$lin	#s$mslc
+	.iff
+		call	di$lin	<STR>
+	.endc
+.ENDM
+.MACRO	PRINT$	STR
+	smsto$	&STR&
+	call	di$lin	#s$mslc
+.ENDM
+.MACRO	DINEW$
+	call	di$new
+.ENDM
+.MACRO	DIDEC$	val
+	call	di$dec	val
+.ENDM
+.MACRO	EXDEF$
+plex	EX.	Exception block
+	pointer	ex.suc			
+	pointer	ex.stk			
+	pointer	ex.loc			
+	gamut	exgam.
+
+plex	EX.	Exception message header
+	class	ex.rea	typ=byte.	
+	text	ex.msg	typ=vary.	
+serial	ex.rea	Exception reasons
+	..	exudf.			
+	..	exmem.			
+	..	exdis.			
+	..	excom.			
+	..	exabt.			
+.ENDM
+.MACRO	EXMSG$	lab cod str
+	label	lab
+	.byte	cod
+	.asciz	&str&
+	.even
+.ENDM
+.MACRO	FIDEF$
+vax$	$fabdef
+vax$	$rabdef
+	set	fibfs.	512		
+vax$	set	fifns.	64		
+pdp$	set	fifns.	16		
+	set	fircs.	134		
+
+plex	FI.	file block
+	class	fi.err			
+	flags	fi.flg	pos=fi.err	
+					
+	pointer	fi.buf			
+	size	fi.siz			
+	index	fi.blk			
+pdp$	index	fi.blh			
+	pointer	fi.pnt			
+	counter	fi.cnt			
+					
+	pointer	fi.fnm			
+	size	fi.alc			
+pdp$	size	fi.alh			
+	size	fi.len			
+pdp$	size	fi.leh			
+	size	fi.ffb	typ=word.	
+	class	fi.mod	typ=word.	
+	size	fi.rsz	typ=word.	
+	flags	fi.dev	typ=word.	
+					
+	value	fi.f00	8		
+					
+pdp$	value	fi.chn	typ=word.	
+pdp$	state	fi.var	typ=byte.	
+pdp$	state	fi.odd	typ=byte.	
+pdp$	size	fi.rbc	typ=word.	
+vax$	area	fi.fab	fab$c_bln	
+vax$	area	fi.rab	rab$c_bln	
+	gamut	figam.			
+
+serial	FI.ERR
+	..	finor.			
+	..	fieof.			
+	..	fierr.			
+	..	fiovr.			
+	..	fifno.			
+	..	fifil.			
+	..	fibuf.			
+	..	fifnf.			
+	..	fiful.			
+	..	fidev.			
+	..	fibsy.			
+	..	fiprt.			
+	..	fiwef.			
+	..	fifnm.			
+	..	fiopn.			
+	..	ficre.			
+	..	fiexs.			
+	..	filck.			
+	..	ficon.			
+	..	fidis.			
+	..	firea.			
+	..	fiwri.			
+	..	ficlo.			
+	..	fichn.			
+	..	firen.			
+	..	fidel.			
+	..	fichn.			
+	..	fiiec.			
+
+powers	FI.FLG				
+	..	fidis$	pos=8		
+	..	ficon$			
+	..	ficre$			
+	..	fiipt$			
+	..	fiopt$			
+	..	fieof$			
+	..	fiopn$	pos=15		
+
+
+
+powers	FI.DEV
+	..	fidev$			
+	..	ficon$			
+	..	fiter$			
+	..	fitap$			
+	..	firem$			
+	..	fimbx$			
+	..	fidir$			
+	..	fifor$			
+
+serial	FI.MOD				
+	..	fiudf.			
+	..	fifix.			
+	..	fivar.			
+	..	fivfc.			
+	..	fistm.			
+	..	fislf.			
+	..	fiscr.			
+	..	firaw.	pos=15.		
+	..	fiblk$	pos=16.		
+					
+
+powers	FI.MOD				
+	..	fibin$	pos=8		
+	..	firep$	pos=14		
+	..	fiext$	pos=15		
+
+
+serial	FI.VAR	Variable record control
+	..	ficnt.			
+	..	fidat.			
+	..	fiter.			
+.ENDM
+.MACRO	IMMSG$	LAB MSG
+  label lab
+	.asciz	\MSG\
+pdp$	.even
+.ENDM
+.MACRO	...	C1,C2,C3,C4,C5,C6,C7,C8
+
+	.narg	ma$cnt
+.if eq ma$cnt-3
+	C1	C2,C3
+.iff
+ .if eq ma$cnt-4
+	C1	C2,C3,C4
+ .iff
+	C1 C2 C3 C4 C5 C6 C7 C8
+ .endc
+.endc
+	END
+.ENDM
+.MACRO	AND	X1,X2,X3
+	smtst$	<>,X1,X2,X3,\s$mend,jf
+.ENDM
+.MACRO	ANDB	X1,X2,X3
+	smtst$	<B>,X1,X2,X3,\s$mend,jf
+.ENDM
+.MACRO	ANDW	X1,X2,X3
+	smtst$	<W>,X1,X2,X3,\s$mend,jf
+.ENDM
+.MACRO	ASSERT	X1,X2,X3
+	.IIF	EQ smass.,	.MEXIT	
+	.NARG	s$mnrg
+	IFNOT  X1 X2 X3
+		STOP
+	END
+.ENDM
+.MACRO	ASSERB	X1,X2,X3
+	.IIF	EQ smass.,	.MEXIT	
+	.NARG	s$mnrg
+	IFNOTB  X1 X2 X3
+		STOP
+	END
+.ENDM
+.MACRO	ASSERW	X1,X2,X3
+	.IIF	EQ smass.,	.MEXIT	
+	.NARG	s$mnrg
+	IFNOTW  X1 X2 X3
+		STOP
+	END
+.ENDM
+.MACRO	ASSUME	X1,XC,X2=0
+.iif XC <X1>-<X2>, .mexit
+smerr$	<Assumption "X1 XC X2" failed>,X1-X2
+.ENDM	ASSUME
+.MACRO	AUTO	NAM,SIZ=int.
+.IF NB <NAM> 
+	NAM = auto.				
+	auto.=auto.+SIZ+<int.-1>&^C<int.-1>	
+.IFF 						
+	auto.=0					
+.ENDC 
+.ENDM	
+.MACRO	BEGIN XNAM
+	s$mbgn=s$mbgn+1
+	s$mend=s$mbgn+smend.
+	s$mnst=s$mnst+1
+	s$mrns=s$mrns+1
+	smplb$	\s$mnst,s$mbgn,smblk.,smsho.	
+	smprb$	\s$mrns,\s$mnst
+	smlbl$	\s$mbgn
+.ENDM
+.MACRO	BIG	XNAM X0 X1 X2 X3 X4 X5 X6 X7 X8 X9
+	s$mlon=1			
+	.iif b <XNAM>,.mexit
+	XNAM X0 X1 X2 X3 X4 X5 X6 X7 X8 X9
+	s$mlon=0			
+.ENDM
+.MACRO	BIGA	XNAM X0 X1 X2 X3 X4 X5 X6 X7 X8 X9
+.iif ne smass.,	s$mlon=1		
+	.iif b <XNAM>,.mexit
+	XNAM X0 X1 X2 X3 X4 X5 X6 X7 X8 X9
+.iif ne smass.,	s$mlon=0		
+.ENDM
+.MACRO	BIGV	XNAM X0 X1 X2 X3 X4 X5 X6 X7 X8 X9
+.iif ne smvax.,	s$mlon=1		
+	.iif b <XNAM>,.mexit
+	XNAM X0 X1 X2 X3 X4 X5 X6 X7 X8 X9
+.iif ne smvax.,	s$mlon=0		
+.ENDM
+.MACRO	BIGVA	XNAM X0 X1 X2 X3 X4 X5 X6 X7 X8 X9
+.if ne smass.
+ .iif ne smvax.,s$mlon=0		
+.endc
+	.iif b <XNAM>,.mexit
+	XNAM X0 X1 X2 X3 X4 X5 X6 X7 X8 X9
+.if ne smass.
+ .iif ne smvax.,s$mlon=0		
+.endc
+.ENDM
+.MACRO	BRTO	LBL,XIF,C1,C2,C3
+	BRANCH	<LBL>,<XIF>,<C1>,<C2>,<C3>
+.ENDM
+.MACRO	BRANCH	LBL,XIF,C1,C2,C3
+.if b <XIF>
+	smjbl$	LBL				
+	.mexit
+.endc
+.if idn	XIF,IF
+	smtst$	<>,C1,C2,C3,LBL,jb
+	.mexit
+.endc
+.if idn	XIF,IFB
+	smtst$	B,C1,C2,C3,LBL,jb
+	.mexit
+.endc
+.if idn	XIF,IFW
+	smtst$	W,C1,C2,C3,LBL,jb
+	.mexit
+.endc
+smerr$	<Invalid IF in "BRANCH LBL">
+.ENDM
+.MACRO	GOTO	LBL,XIF,C1,C2,C3
+.if b <XIF>
+	smjgl$	LBL				
+	.mexit
+.endc
+.if idn	XIF,IF
+	smtst$	<>,C1,C2,C3,LBL,gb
+	.mexit
+.endc
+.if idn	XIF,IFB
+	smtst$	B,C1,C2,C3,LBL,gb
+	.mexit
+.endc
+.if idn	XIF,IFW
+	smtst$	W,C1,C2,C3,LBL,gb
+	.mexit
+.endc
+smerr$	<Invalid IF in "GOTO LBL">
+.ENDM
+.MACRO	SMCAL$
+.if ne smpdp.
+	smpca$
+	smppv$
+.iff
+	smvca$
+	smvpv$
+	smvpa$
+.endc
+.ENDM
+.MACRO SMPCA$
+
+.MACRO	CALL	 ROU,X1,X2,X3,X4,X5,X6,X7
+	.NARG	s$mnrg
+	smoff.=-cell.					
+.IF NB <X1>
+  .IRP	XX,<X7 X6 X5 X4 X3 X2 X1>			
+	.IF NB <XX>
+		smoff.=smoff.+cell.			
+		smpsh$	<XX>	\smoff.			
+	.ENDC						
+  .ENDR
+.ENDC
+	JSR	PC,ROU					
+	.IIF	EQ s$mnrg-2,	TST	(SP)+		
+	.IIF	EQ s$mnrg-3,	CMP	(SP)+,(SP)+
+	.IIF	GE s$mnrg-4,	ADD	#s$mnrg-1*cell.,SP
+.ENDM	CALL
+
+
+
+.MACRO	CALLN	 ROU,X1,X2,X3,X4,X5,X6,X7
+	.NARG	s$mnrg
+	smoff.=-cell.					
+	psh	r5					
+	smoff.=smoff.+cell.				
+.IF NB <X1>
+  .IRP	XX,<X7 X6 X5 X4 X3 X2 X1>			
+	.IF NB <XX>
+		smoff.=smoff.+cell.			
+		smpsh$	<XX>	\smoff.			
+	.ENDC						
+  .ENDR
+.ENDC
+	psh	#s$mnrg-1				
+	mov	sp,r5					
+	JSR	PC,ROU					
+	.IIF	EQ s$mnrg-2,	TST	(SP)+		
+	.IIF	EQ s$mnrg-3,	CMP	(SP)+,(SP)+
+	.IIF	GE s$mnrg-4,	ADD	#s$mnrg-1*cell.,SP
+	pop	r5					
+.ENDM	CALLN
+
+.ENDM
+.MACRO SMVCA$
+
+.MACRO	CALL	 ROU,X1,X2,X3,X4,X5,X6,X7
+	.NARG	s$mnrg
+	smoff.=-cell.					
+.IF NB <X1>
+  .IRP	XX,<X7 X6 X5 X4 X3 X2 X1>			
+	.IF NB <XX>
+		smoff.=smoff.+cell.			
+		smpsh$	<XX>	\smoff.			
+	.ENDC						
+  .ENDR
+.ENDC
+	JSB	ROU					
+	.IIF	EQ s$mnrg-2,	TST	(SP)+		
+	.IIF	GE s$mnrg-3,	ADD	#s$mnrg-1*cell.,SP
+.ENDM	CALL
+
+
+
+.MACRO	CALLN	 ROU,X1,X2,X3,X4,X5,X6,X7
+	.NARG	s$mnrg
+	smoff.=-cell.					
+.IF NB <X1>
+  .IRP	XX,<X7 X6 X5 X4 X3 X2 X1>			
+	.IF NB <XX>
+		smoff.=smoff.+cell.			
+		smpsh$	<XX>	\smoff.			
+	.ENDC						
+  .ENDR
+.ENDC
+	CALLS	#s$mnrg-1,ROU				
+.ENDM	CALLN
+
+.ENDM
+.MACRO	SMPPV$
+
+.MACRO	SMPSH$	VAL OFF
+	.ntype	s$mmod,VAL		
+	.if	ne s$mmod&7-6		
+	 .if idn #0,VAL			
+		clr	-(sp)		
+		.mexit			
+	 .endc				
+		mov	VAL,-(SP)	
+		.mexit			
+	.endc				
+	.if	eq s$mmod&^o70-^o60	
+		mov	OFF+VAL,-(sp)	
+		.mexit			
+	.endc				
+	.if	eq s$mmod&^o70-^o10	
+	  .if ne OFF			
+		mov	OFF'VAL,-(sp)	
+	  .iff				
+		mov	VAL,-(sp)	
+	  .endc				
+		.mexit			
+	.endc				
+	smerr$	<"VAL" has invalid argument mode>
+.ENDM
+
+.ENDM
+.MACRO	SMVPV$
+
+.MACRO	SMPSH$	VAL OFF
+	.if	idn <%extract(0,1,VAL)> <&>	
+		SMPAD$	<%extract(1,60,VAL)> <OFF>
+		.mexit				
+	.endc					
+	.ntype	s$mmod,VAL			
+						
+	.if	ne s$mmod&^x0f-^x0e		
+	  .if	idn #0,VAL			
+		clrl	-(sp)			
+		.mexit				
+	  .endc					
+		pushl	VAL			
+		.mexit				
+	.endc					
+	s$mmod=s$mmod@-4&^xF			
+						
+	.if	eq s$mmod-6			
+		pushl	OFF(sp)			
+		.mexit				
+	.endc					
+
+	.if	ge s$mmod-^x0a			
+	 .if	le s$mmod-^x0e			
+	  .if	eq s$mmod&1			
+		pushl	OFF+VAL			
+		.mexit				
+	  .endc					
+	 .endc					
+	.endc					
+	.if	eq s$mmod&6			
+	 .if	ne OFF				
+		pushl	OFF'VAL			
+	  .iff					
+		pushl	VAL			
+	  .endc					
+		.mexit				
+	.endc					
+	smerr$	<"VAL" has invalid argument mode>
+.ENDM
+
+.ENDM
+.MACRO	SMVPA$
+
+.MACRO	SMPAD$	ADR OFF
+	.ntype	s$mmod,ADR			
+	.if	ne s$mmod&^x0f-^x0e		
+	  .if	idn 0,ADR			
+		clrl	-(sp)			
+		.mexit				
+	  .endc					
+		pushal	ADR			
+		.mexit				
+	.endc					
+	s$mmod=s$mmod@-4&^xF			
+						
+	.if	eq s$mmod-6			
+		pushal	OFF(sp)			
+		.mexit				
+	.endc					
+
+	.if	ge s$mmod-^x0a			
+	 .if	le s$mmod-^x0e			
+	  .if	eq s$mmod&1			
+		pushal	OFF+ADR			
+		.mexit				
+	  .endc					
+	 .endc					
+	.endc					
+	.if	eq s$mmod&6			
+	 .if	ne OFF				
+		pushal	OFF'ADR			
+	  .iff					
+		pushal	ADR			
+	  .endc					
+		.mexit				
+	.endc					
+	smerr$	<"ADR" has invalid argument mode>
+.ENDM
+
+.ENDM
+.MACRO	CALLB	ROU BYT
+pdp$	MOVB	BYT,-(sp)			
+vax$	MOVZBL	BYT,-(sp)			
+	JSR	PC,ROU				
+	TST	(sp)+				
+.ENDM
+.MACRO	COUNT	XREG
+	.IIF	LE s$mrns, smerr$	<COUNT not in repeat block>
+	smglb$	\s$mnst,s$mlbl,s$mtyp,s$mmod
+	.irp	ma$lbl,<\s$mlbl>
+		sob	XREG,.'ma$lbl
+	.endr
+	smgle$	\s$mnst,s$mlbe,s$mtyp,s$mmod
+	smlbl$	\s$mlbe
+	s$mnst=s$mnst-1
+	s$mrns=s$mrns-1
+.ENDM 
+.MACRO	DO	XP
+	JSR	PC,XP
+.ENDM
+.MACRO	ELSE	XNAM X0 X1 X2 X3 X4 X5 X6 X7 X8 X9
+	SMELG$					
+.iif b <XNAM>,.mexit
+.if nb <X2>
+	XNAM	X0,X1,X2 X3 X4 X5 X6 X7 X8 X9
+	.mexit
+.endc
+.if nb X1
+	XNAM	X0,X1
+	.mexit
+.endc
+	XNAM	X0
+.ENDM
+.MACRO	ELSIF	C1 C2 C3
+	SMELG$	IF <C1> <C2> <C3>
+.ENDM
+.MACRO	ELSIFB	C1 C2 C3
+	SMELG$	IFB <C1> <C2> <C3>
+.ENDM
+.MACRO	ELSIFW	C1 C2 C3
+	SMELG$	IFW <C1> <C2> <C3>
+.ENDM
+.MACRO	SMELG$	CND C1 C2 C3
+	smglb$	\s$mnst,s$mdum,s$mtyp,s$mmod	
+	.if	eq s$mtyp-smif.			
+		s$mtyp=smels.			
+		smplb$	\s$mnst,s$mdum,s$mtyp,s$mmod	
+		s$mbgn=s$mbgn+1			
+		s$mend=s$mbgn+smend.		
+		smpee$	\s$mnst,s$mend		
+	.endc					
+	smgee$	\s$mnst,s$mlbe			
+	smjlb$	\s$mlbe				
+
+	s$mbgn=s$mbgn+1				
+	s$mend=s$mbgn+smend.			
+	smgle$	\s$mnst,s$mlbe,s$mtyp,s$mmod	
+	smlbl$	\s$mlbe				
+	smplb$	\s$mnst,s$mbgn,s$mtyp,s$mmod	
+.if nb <CND>
+	s$mels=1				
+	CND	<C1> <C2> <C3>			
+.endc
+.ENDM
+.MACRO	ENDLESS	NAM
+	s$mles=1				
+	END	NAM				
+.ENDM
+.MACRO	ENDUP	NAM
+	s$mdup=1				
+	END	NAM				
+.ENDM
+.MACRO	END	NAM
+	smgle$	\s$mnst,s$mlbe,s$mtyp,s$mmod	
+	.IF	LE s$mnst
+		smerr$	<Too many END's>
+		s$mles=0		
+		s$mdup=0		
+		.MEXIT
+	.ENDC
+	.IRP	XX,<\s$mtyp>		
+		smen'XX'$		
+	.ENDR				
+	s$mles=0			
+	s$mdup=0			
+.ENDM
+.MACRO	smen0$
+	smgrb$	\s$mrns,s$mrbl		
+.if eq s$mles
+	smjlb$	\s$mbbl			
+.endc
+	smlbl$	\s$mlbe			
+	s$mnst=s$mnst-1			
+	s$mrns=s$mrns-1			
+.ENDM
+.MACRO	smen1$
+	smlbl$	\s$mlbe			
+	s$mnst=s$mnst-1			
+.ENDM
+.MACRO	smen2$
+	smgrb$	\s$mrns,s$mrbl		
+.if eq s$mles
+	smjlb$	\s$mbbl			
+.endc
+	smlbl$	\s$mlbe			
+	s$mnst=s$mnst-1			
+	s$mrns=s$mrns-1			
+.ENDM
+.MACRO	smen3$
+.if eq s$mles
+	smlbl$	\s$mlbe			
+	.IIF	EQ s$mtmp-1,	TST	(SP)+
+	.IIF	EQ s$mtmp-2,	CMP	(SP)+,(SP)+
+	.IIF	GE s$mtmp-3,	ADD	#s$mtmp*cell.,SP
+	smres$				
+	.IF	GT smspm.		
+		TST	(SP)+		
+	.ENDC				
+  .if eq s$mdup				
+	smret$				
+  .endc					
+.endc					
+	auto.=0				
+	s$mnst=s$mnst-1			
+.iif ne s$mnst, smerr$ <Not enough ENDs>,s$mnst
+.ENDM
+.MACRO	smen4$
+.if eq s$mles
+	smlbl$	\s$mlbe			
+	.IIF	EQ s$mtmp-1,	TST	(SP)+
+	.IIF	EQ s$mtmp-2,	CMP	(SP)+,(SP)+
+	.IIF	GE s$mtmp-3,	ADD	#s$mtmp*cell.,SP
+	smres$				
+	.IF	GT smspm.		
+		TST	(SP)+		
+	.ENDC				
+  .if eq s$mdup				
+   .if ne s$mmod&smnat.			
+vax$	RET				
+   .iff					
+	RTS	PC			
+   .endc				
+  .endc					
+.endc					
+	auto.=0				
+	s$mnst=s$mnst-1			
+.iif ne s$mnst, smerr$ <Not enough ENDs>,s$mnst
+.ENDM
+.MACRO	smen5$
+	smgrb$	\s$mrns,s$mrbl		
+	smlbl$	\s$mlbe			
+	s$mnst=s$mnst-1			
+	s$mrns=s$mrns-1			
+.ENDM
+.MACRO	smen6$
+	smlbl$	\s$mlbe			
+	smgee$	\s$mnst,s$mlbe		
+	smlbl$	\s$mlbe			
+	s$mnst=s$mnst-1			
+.ENDM
+.MACRO	SMRET$
+.if	ne s$mmod&smnat.		
+vax$	RET				
+pdp$	RETURN				
+.iff					
+vax$	RSB				
+pdp$	RTS	PC			
+ .endc					
+.ENDM
+.MACRO	ENTRY	XN,XV
+XN:	.iif eq s$mloc,	.GLOBL	XN	
+	s$mloc=0			
+.ENDM
+.MACRO	EXIT	CND C1 C2 C3
+	smgle$	\s$mpns,s$mlbe,s$mtyp,s$mmod	
+.if b <CND>
+	smxgn$
+	.mexit
+.endc
+
+.if idn CND,TRUE
+	mov	sp,r0
+	smxgn$
+	.mexit
+.endc
+.if idn CND,FALSE
+	clr	r0
+	smxgn$
+	.mexit
+.endc
+.if idn CND,WITH
+	smxwt$	<>,C1
+	.mexit
+.endc
+.if idn CND,WITHB
+	smxwt$	B,C1
+	.mexit
+.endc
+.if idn CND,WITHW
+	smxwt$	W,C1
+	.mexit
+.endc
+	smifx$	CND,C1,C2,C3,\s$mlbe,EXIT	
+.ENDM
+.MACRO	SMXWT$	XT,X1
+.if dif X1,R0
+ .if idn X1,#0
+	CLR'XT	r0
+ .iff
+	MOV'XT	X1,R0
+ .endc
+.endc
+	smxgn$
+.ENDM
+.MACRO	SMXGN$
+ .if eq s$msav!s$mtmp				
+	smret$					
+ .iff						
+	smjrb$	\s$mlbe				
+ .endc
+.ENDM
+.MACRO	FALL	XL
+.if ne smpdp.
+.iif	eq .-<XL>,.mexit
+	smerr$	<Label "XL" is missplaced>
+.endc
+.ENDM	FALL
+.MACRO	TRUE DST
+	mov	sp,DST
+.ENDM
+.MACRO	FALSE DST
+	clr	DST
+.ENDM
+.MACRO	IF	X1,X2,X3
+	smifg$	<>,X1,X2,X3,jf
+.ENDM
+.MACRO	IFB	X1,X2,X3
+	smifg$	B,X1,X2,X3,jf
+.ENDM
+.MACRO	IFW	X1,X2,X3
+	smifg$	W,X1,X2,X3,jf
+.ENDM
+.MACRO	IFNOT	X1,X2,X3
+	smifg$	<>,X1,X2,X3,jt
+.ENDM
+.MACRO	IFNOTB	X1,X2,X3
+	smifg$	B,X1,X2,X3,jt
+.ENDM
+.MACRO	IFNOTW	X1,X2,X3
+	smifg$	W,X1,X2,X3,jt
+.ENDM
+.MACRO	smifg$	XT,X1,X2,X3,XGO
+.if eq s$mels
+	s$mbgn=s$mbgn+1
+	s$mend=s$mbgn+smend.
+	s$mnst=s$mnst+1
+	smplb$	\s$mnst,s$mbgn,smif.,smsho.	
+.endc
+	s$mels=0
+	smtst$	XT,X1,X2,X3,\s$mend,XGO
+.ENDM
+.MACRO	IN	X1 X2 X3 X4 X5 X6 X7 X8
+	X1 X2 X3 X4 X5 X6 X7 X8
+.ENDM
+.MACRO	OUT	X1 X2 X3 X4 X5 X6 X7 X8
+	X1 X2 X3 X4 X5 X6 X7 X8
+.ENDM
+.MACRO	INOUT	X1 X2 X3 X4 X5 X6 X7 X8
+	X1 X2 X3 X4 X5 X6 X7 X8
+.ENDM
+.MACRO	RESULT	X1 X2 X3 X4 X5 X6 X7 X8
+.ENDM
+.MACRO	JOIN
+	smgle$	\s$mnst,s$mlbe,s$mtyp,s$mmod	
+	smlbl$	\s$mlbe			
+	s$mnst=s$mnst-1			
+	.if eq s$mmee			
+		s$mmee=s$mbgn		
+		s$mbgn=s$mbgn+1		
+		s$mmsc=s$msav		
+		s$mmtc=s$mtmp		
+	.iff
+	  .if	ne s$mmsc-s$msav
+		smerr$	<JOIN save count missmatch>
+	  .endc
+	  .if	ne s$mmtc-s$mtmp
+		smerr$	<JOIN temp count missmatch>
+	  .endc
+	.endc
+	s$mmod=0			
+	smjrb$	\s$mmee			
+.ENDM
+.MACRO	MEET
+	.if eq s$mmee
+		smerr$	<MEET without JOIN>
+	.iff
+	.iff
+	  .if	ne s$mmsc-s$msav
+		smerr$	<MEET save count missmatch>
+	  .endc
+	  .if	ne s$mmtc-s$mtmp
+		smerr$	<MEET temp count missmatch>
+	  .endc
+		smlbl$	\s$mmee		
+		s$mmee=0		
+	.endc
+.ENDM
+.MACRO	LEAVE	CND X1,X2,X3
+	.IIF	LE s$mrns,  smerr$	<LEAVE not in repeat block>
+	smgrb$	\s$mrns,s$mrbl
+	smgle$	\s$mrbl,s$mlbe,s$mtyp,s$mmod	
+	.IIF	EQ s$mtyp-smblk.,smerr$	<LEAVE in BEGIN/END block>
+.if nb CND
+	smifx$	CND,X1,X2,X3,\s$mlbe,LEAVE
+.iff
+	smjrb$	\s$mlbe				
+.endc
+.ENDM
+.MACRO	LOCAL	XNAM X0 X1 X2 X3 X4 X5 X6 X7 X8 X9
+	s$mloc=smloc.			
+	.if nb <XNAM>
+		XNAM X0 X1 X2 X3 X4 X5 X6 X7 X8 X9
+	.endc
+.ENDM
+.MACRO	NATIVE
+	s$mnat=1
+.ENDM
+.MACRO	NEXT CND X1 X2 X3
+	.IIF	LE s$mrns, smerr$	<NEXT not in repeat block>
+	smgrb$	\s$mrns,s$mrbl
+	smglb$	\s$mrbl,s$mlbl,s$mtyp,s$mmod 
+.if nb <CND>
+	smifx$	CND,X1,X2,X3,\s$mlbl,NEXT
+.iff
+	smjlb$	\s$mbbl			
+.endc
+.ENDM
+.MACRO	OR	X1,X2,X3
+	smorg$	X1,X2,X3,<>
+.ENDM
+.MACRO	ORB	X1,X2,X3
+	smorg$	X1,X2,X3,<B>
+.ENDM
+.MACRO	ORW	X1,X2,X3
+	smorg$	X1,X2,X3,<W>
+.ENDM
+.MACRO	smorg$	X1,X2,X3,XB				
+	s$mbgn=s$mbgn+1					
+	smjlb$	\s$mbgn					
+	smlbl$	\s$mend					
+	s$mend=s$mbgn+smend.				
+	smglb$	\s$mnst,s$mdum,s$mtyp,s$mmod		
+	smplb$	\s$mnst,s$mbgn,s$mtyp,s$mmod		
+	smtst$	XB,X1,X2,X3,\s$mend,jf			
+	smlbl$	\s$mbgn					
+.ENDM
+.MACRO	PROC	NAM SAV
+	TASK	<NAM><SAV>
+.ENDM
+.MACRO	TASK	NAM SAV
+	.iif eq s$mpoo,smpoo$		
+	.NARG	s$mnrg			
+.if gt s$mnst				
+	smerr$ <"NAM" is nested>,s$mnst
+	s$mnst=0			
+.endc					
+	smfac$	NAM			
+NAM:	.iif 	eq s$mloc, .GLOBL NAM	
+	s$mloc=0			
+	ma$mod=smsho.			
+.if ne s$mnat				
+	s$mnat=0			
+ .if ne smvax.				
+	ma$mod=ma$mod!smnat.		
+	.word	0			
+ .endc					
+.endc
+.if ne smtra.				
+	smtra.=smtra.-1			
+	pure				
+	ma$dot=.			
+	.asciz	"NAM"			
+	.even				
+	default				
+	call	os$tln	#ma$dot		
+.endc
+	s$mtmp=AUTO.+<cell.-1>/cell.	
+	AUTO.=0				
+	s$msav=0			
+	.IF	GT smspm.
+		TST	-(SP)
+		MOV	SP,(SP)
+		s$msav=1			
+	.ENDC
+	smsav$	SAV
+	.IIF	EQ s$mtmp-1,	TST	-(SP)
+	.IIF	EQ s$mtmp-2,	CMP	-(SP),-(SP)
+	.IIF	GE s$mtmp-3,	SUB	#s$mtmp*cell.,SP
+	s$mbgn=s$mbgn+1
+	s$mend=s$mbgn+smend.
+	s$mnst=s$mnst+1
+	s$mpns=s$mnst				
+	smplb$	\s$mnst,s$mbgn,smpro.,ma$mod	
+	s$mlon=0				
+	sm.ppc=s$mtmp+s$msav*cell.
+	P1=sm.ppc+cell.
+	P2=P1+cell.
+	P3=P2+cell.
+	P4=P3+cell.
+	P5=P4+cell.
+	P6=P5+cell.
+	P7=P6+cell.
+	s$mpan=1				
+.ENDM
+.MACRO	SMSAV$	X1 X2 X3 X4 X5 X6 X7
+.if b <X1>
+.MACRO	smres$
+.ENDM	smres$
+	.mexit
+.endc
+.if idn X1,ALL
+	smsav$	R0 R1 R2 R3 R4 R5
+	.mexit
+.endc
+.if ne smpdp.
+	.IRP	XX,<X7 X6 X5 X4 X3 X2 X1>
+		.IF NB <XX>
+			s$msav=s$msav+1		
+			PUSH	XX		
+		.ENDC
+	.ENDR
+.MACRO	smres$			
+	.irp	xx,<x1 x2 x3 x4 x5 x6 x7>
+		.iif nb <xx>,	 mov	(sp)+,xx
+	.endr
+.ENDM	smres$
+	.mexit
+.iff						
+  .narg	ma$arg
+  .if eq ma$arg-1				
+		s$msav=1			
+		PUSHL	X1			
+.MACRO	smres$
+		movl	(sp)+,X1		
+.ENDM	smres$
+		.mexit
+  .endc
+
+	XM=0
+	.IRP	XX,<X1 X2 X3 X4 X5 X6 X7>
+		.IF NB <XX>
+			s$msav=s$msav+1		
+			.NTYPE	XR,XX
+			XM=XM!<1@<XR&^x0F>>	
+		.ENDC
+	.ENDR
+	PUSHR	#XM				
+	.irp	xx,<\xm>
+.MACRO	smres$
+		popr	#xx
+.ENDM	smres$
+	.endr
+.endc
+.ENDM	SMSAV$
+.MACRO	SMPOO$	
+	s$mpoo=1			
+	.mcall	p1,p2,p3,p4,p5,p6,p7	
+.ENDM
+.MACRO	P1	NAM,DST
+	smpar$	1,nam,dst
+.ENDM
+.MACRO	P2	NAM,DST
+	smpar$	2,nam,dst
+.ENDM
+.MACRO	P3	NAM,DST
+	smpar$	3,nam,dst
+.ENDM
+.MACRO	P4	NAM,DST
+	smpar$	4,nam,dst
+.ENDM
+.MACRO	P5	NAM,DST
+	smpar$	5,nam,dst
+.ENDM
+.MACRO	P6	NAM,DST
+	smpar$	6,nam,dst
+.ENDM
+.MACRO	P7	NAM,DST
+	smpar$	7,nam,dst
+.ENDM
+.MACRO	SMPAR$	PX,NAM,DST
+.iif ne s$mpan-PX, smerr$ <Parameter "P'PX" out of order">	
+	s$mpan=PX+1						
+.iif nb <NAM>,	NAM = P'PX					
+.iif nb <DST>,	MOV	P'PX(SP),DST				
+.ENDM
+.MACRO	REPEAT
+	s$mbgn=s$mbgn+1
+	s$mend=s$mbgn+smend.
+	s$mnst=s$mnst+1
+	s$mrns=s$mrns+1
+	smplb$	\s$mnst,s$mbgn,smrep.,smsho.
+	smprb$	\s$mrns,\s$mnst
+	smlbl$	\s$mbgn
+.ENDM
+.MACRO	SKIP	CND X1,X2,X3
+	ma$rns = s$mrns
+.rept	100
+	.IIF	LE ma$rns, smerr$ <SKIP not in block>
+	smgrb$	\ma$rns,s$mrbl
+	smgle$	\s$mrbl,s$mlbe,s$mtyp,s$mmod
+	.iif	eq s$mtyp-smblk., .mexit	
+	ma$rns=ma$rns-1				
+.endr
+.if nb <CND>
+	smifx$	CND,X1,X2,X3,\s$mlbe,SKIP
+.iff
+	smjrb$	\s$mlbe
+.endc
+.ENDM
+.macro	smstc$
+.MACRO	STACK	P1,P2,P3,P4,P5,P6,P7,P8,P9,P10
+	ma$off=0
+.irp	ma$itm,<P1 P2 P3 P4 P5 P6 P7 P8 P9 P10>
+  .if nb <ma$itm>
+	ma$itm=ma$off
+	ma$off=ma$off+cell.
+  .endc
+.endr
+.ENDM
+.endm
+.MACRO	STOP	REA=0
+.if ne smbpt.
+	bpt
+ .if ne gcvax.
+	nop
+	nop
+	nop
+ .endc
+.iff
+pdp$	TRAP	REA
+vax$	BSBW	RX$STP
+vax$	.BYTE	REA		
+.endc
+.ENDM
+.MACRO	SUBR	NAM SAV
+	.iif	ne smtra.,  TRACE NAM	
+	.NARG	s$mnrg
+.if gt s$mnst				
+	smerr$ <"NAM" is nested>,s$mnst
+	s$mnst=0			
+.endc					
+	smfac$	NAM			
+.if nb NAM				
+NAM:	.iif 	eq s$mloc, .GLOBL NAM	
+.endc
+	s$mloc=0			
+	ma$mod=smsho.			
+.if ne s$mnat				
+	s$mnat=0			
+ .if ne smvax.				
+	ma$mod=ma$mod!smnat.		
+	.word	0			
+ .endc					
+.endc
+	s$mtmp=AUTO.+<cell.-1>/cell.	
+	AUTO.=0				
+	s$msav=0			
+	.IF	GT smspm.
+		TST	-(SP)
+		MOV	SP,(SP)
+		s$msav=1			
+	.ENDC
+	smsav$	SAV
+	.IIF	EQ s$mtmp-1,	TST	-(SP)
+	.IIF	EQ s$mtmp-2,	CMP	-(SP),-(SP)
+	.IIF	GE s$mtmp-3,	SUB	#s$mtmp*cell.,SP
+	s$mbgn=s$mbgn+1
+	s$mend=s$mbgn+smend.
+	s$mnst=s$mnst+1
+	s$mpns=s$mnst
+	smplb$	\s$mnst,s$mbgn,smsub.,ma$mod
+	s$mlon=0				
+	sm.ppc=s$mtmp+s$msav*cell.
+	P1=1
+	P2=1
+	P3=1
+	P4=1
+	P5=1
+	P6=1
+	P7=1
+.ENDM
+.MACRO	THEN	C1,C2,C3,C4,C5,C6,C7,C8
+
+	.narg	ma$cnt
+.if eq ma$cnt-3
+	C1	C2,C3
+.iff
+ .if ne ma$cnt-4
+	C1	C2,C3,C4
+ .iff
+	C1 C2 C3 C4 C5 C6 C7 C8
+ .endc
+.endc
+	END
+.ENDM
+.MACRO	TRACE	FLG
+.if b <FLG>
+	.iif ne smtra., .mexit
+	smtra.=smtra.+1
+	.mexit
+.endc
+.if idn FLG,ON
+	smtra.=10000
+	.mexit
+.endc
+.if idn FLG,OFF
+	smtra.=0
+	.mexit
+.endc
+	smerr$	<Invalid TRACE flag "FLG">
+.ENDM
+.MACRO	TRAN	NAME
+pdp$	JMP	NAME
+vax$	BRW	NAME
+.ENDM
+.MACRO	UNTIL	X1,X2,X3
+	.IIF	LE s$mrns, smerr$	<UNTIL not in repeat block>
+	smglb$	\s$mnst,s$mlbl,s$mtyp,s$mmod
+	smtst$	<>,X1,X2,X3,\s$mlbl,jf
+	smgle$	\s$mnst,s$mlbe,s$mtyp,s$mmod
+	smlbl$	\s$mlbe
+	s$mnst=s$mnst-1
+	s$mrns=s$mrns-1
+.ENDM
+.MACRO	UNTILB	X1,X2,X3
+	.IIF	LE s$mrns, smerr$	<UNTILB not in repeat block>
+	smglb$	\s$mnst,s$mlbl,s$mtyp,s$mmod
+	smtst$	<B>,X1,X2,X3,\s$mlbl,jf
+	smgle$	\s$mnst,s$mlbe,s$mtyp,s$mmod
+	smlbl$	\s$mlbe
+	s$mnst=s$mnst-1
+	s$mrns=s$mrns-1
+.ENDM
+.MACRO	UNTILW	X1,X2,X3
+	.IIF	LE s$mrns, smerr$	<UNTILW not in repeat block>
+	smglb$	\s$mnst,s$mlbl,s$mtyp,s$mmod
+	smtst$	<W>,X1,X2,X3,\s$mlbl,jf
+	smgle$	\s$mnst,s$mlbe,s$mtyp,s$mmod
+	smlbl$	\s$mlbe
+	s$mnst=s$mnst-1
+	s$mrns=s$mrns-1
+.ENDM
+.MACRO	WHILE	X1,X2,X3
+	smwhg$	<>,X1,X2,X3,smsho.
+.ENDM
+.MACRO	WHILEB	X1,X2,X3
+	smwhg$	B,X1,X2,X3,smsho.
+.ENDM
+.MACRO	WHILEW	X1,X2,X3
+	smwhg$	W,X1,X2,X3,smsho.
+.ENDM
+.MACRO	SMWHG$	XT,X1,X2,X3,XL
+	s$mbgn=s$mbgn+1
+	s$mend=s$mbgn+smend.
+	s$mnst=s$mnst+1
+	s$mrns=s$mrns+1
+	smplb$	\s$mnst,s$mbgn,smwhi.,XL	
+	smprb$	\s$mrns,\s$mnst
+	smlbl$	\s$mbgn
+	smtst$	XT,X1,X2,X3,\s$mend,jf
+.ENDM
+                                ‹ü÷ûgûÊúú8ùOøo÷¸ö=ööóõğõ×õŒõÿô1ô3ó'ò2ñsğ÷ï·ï–ïqï3ïÚîzî*îıíïíğíğíêíæíòíî-î-îüíŸí9íşìííî´î!ï`ïïÖïOğíğŒñòQò„òÎòVóô
+õèõöõö5÷q÷Â÷)ø™øùbùÅù9ú¿úEû®ûéûøûöûü5ü‚üÒüıı%ı>ııñıqşßşÿ0ÿ0ÿFÿÿ
+ ¤ 9­ı:„ù¨…rFâ9ZhŠØQÚL	Š	Œ	c	-	ûĞ—>»†¹~G¸m…±ÈªSá‚_‚Ö1p‚oJì­^
+Ç±Õ+
+_¢š|Hû—!£'¶Z6
+‘^–¼Ş<w»sô‰"ªb§÷e	ğ	Š
+
+
+Ò
+é
+ä
+Ø
+Ş
+
+`Ï5
+j
+N
+Ù K
+ˆ
+ò		D	ı¦>ÎZàM¤—†º  _ÿ³şùı9ıyü¹ûñúú#ù+øF÷‹öÿõˆõõRôjódòfñ“ğ÷ï{ïüîYî‰íì¹ë ëê5êêĞéŠé/éÍèxèBè0è<èRè[èIèèççÇçÙç%èŸè(éŸéòé*êeêÇêlëTìní›îÅïäğüñó;ôhõ˜öÈ÷õø%ú[û—üÕıÿJ }©ÉÏ³s¿q6	
+Á
+c
+è
+bê
+I¥n¾(À€N	
+[§şfÜYÓA—ÊÎ¡JÛj¹x7è†zåF•Ñÿ)]§
+
+Œœ
+
+‰
+ş	‚		¸D§Øç÷+•*ÉH’¬ ¸ÿàşEşëı¾ı—ıTıãüHü•ûãú?ú¯ù*ù¦øø„÷êöTöÉõIõÊôCô¨ó óZòÎñoñ=ñ"ñÿğ´ğ2ğ‹ïİîKîâí˜íNíèìYì²ëë›ê]êTêkêê´êàêëjëÆë"ìoì¦ìËìçìí,í\í›íïí`îïî”ï=ğÔğNñ­ñÿñZòÌòXóõó•ô5õÙõ‹öS÷.øùáù•ú#ûûèû=üœüı–ı/şÓşyÿ ³ Hâˆ<ø±_ÿ˜5àŸt	]
+[
+j}
+€Uâ÷àğ&h–šzJıÍlÀÏ
+ÂÕ
+7
+ö
+÷
+
+ì
+
+ó	8	„ï|"Ñ‚:ãàğ
+ Üª{adƒ­ËË¨q; >`rf;ú°h)üì<ã%	Ù°›š™‹§íS½7<7?`³¾¨~S4" Ü§_ŠôL«,à¾¤hë / Rÿ„şêıŠıJışüü¾ûÌúÓù ùmøøî÷¾÷h÷İö,öxõæôŒô`ô<ôóóeó—ò®ñãğ]ğ ğğÖïhï¼îùíXííóìíõì¦ììrëçê•êwêiêDê÷éé2éıèúèéCé\éaécéwé«é êlêãêbëíëŒì=íúí³î^ïûï“ğ<ñòó.ôzõĞöø5ù"úæú•ûLüışÿ ó °Xş³x?øš+½[
+	À	n
+
+¨
+N
+
+ç
+Ğ²~1Ö}/ñ½‘kL+øœ7HZ…Ï VY*à ƒ‹ £}.-Ó7Øy¾PÎ>­+¿h$îÁ•^¤ " ÿ(ÿÒş›ş€şwşzş‚ş†ş|şXşş®ı5ı´ü8üÅû\ûıúªúdú0úúóùÙù³ùyù)ùÌøløøÈ÷‡÷Q÷'÷
+÷÷üöòö×öªörö7ööÒõ¡õnõAõ%õ$õCõwõºõö^öÅö:÷µ÷*ø“øïøFù£ù
+úˆúû¨ûDüÚüaıÒı3şşõşgÿãÿc ã fòƒ‚Õ
+0VªÆĞÎÊÎÚêóîÙ¯n²QÏ³£–‰|qcL'÷Ã•pQ5ğ ã Ø Ğ Í Î Ñ Ñ Æ ´ ¦ ® Ó X”Àá(S{›·Öş)J]gt’Â÷#;CFN^u‹œ¤Ÿ‰_ Ô/á™WîÄp>
+Ô › Z  ¬ÿUÿÿÿş
+ÿ1ÿVÿnÿtÿqÿjÿ`ÿLÿ+ÿÿàş×şòş.ÿ|ÿÅÿùÿ     éÿ¾ÿ†ÿPÿ*ÿÿ'ÿ;ÿKÿOÿGÿ:ÿ%ÿÿÅşlşşıŒı(ıÛü¤ü{ü[ü?ü'üüüôûßûÂûŸûvûJû!ûûùúûûBûoû£ûàû#üaüŒüœü”ü…üü‘ü³üßüıMı”ıçı6şuş›ş²şÍşÿşHÿ›ÿáÿ # ( * , + !  óÿÒÿ¬ÿ‚ÿVÿ/ÿÿÿşñşßşÃş ş{şUş,şùı¼ı€ıPı4ı&ııòü¹üvü9üü ü üüüü*ü8üHü[üxü£üÜüıeı¯ışbşĞş?ÿ¢ÿğÿ0 p ¿  ‹ôX½.±AĞP»mÇ(ŒìD’Ø	f	³	ş	9
+X
+T
+/
+ñ	§	W		¬Sÿ·T+şÉN·Sİ[ÛläÈ·¡|@ë€  ˜ÿQÿ6ÿAÿcÿ…ÿ™ÿšÿÿwÿRÿÿ¶ş9ş«ı$ıµübü'üúûØû½ûªû–ûuû=ûëúŠú%úÊù‚ùNù0ù"ùùùùùùùğøĞøšøRøøË÷«÷£÷©÷°÷º÷Ô÷ø`øÁøùZù…ù­ùâù+úƒúàúAû©û ü¤ü*ı¤ışRş‘şÑşÿÿòÿv Œ
+xÛ9”ã/&K‚²ÓäèÛ¸x ½bóŞÔÌÂ³dF'×¢lB-1CU[TF8213435@W|­åXÃõ"EZ`[TXn•Æø!;FE@AJ[koaCùØ·R²[
+Ã‡PŞ • ? Şÿ{ÿÿÂşpş)şñıÑıÉıÒı×ıÉıı]ııêüÑüÊüÉüÉüÉüÓüëüı@ını’ı¨ı®ı¤ııwıfıbıhıpırıpıpızııªı¶ı¨ı}ı=ı÷ü¶üüUü7ü%üüüüÿûòûîû÷ûüüüîûÆû¥ûšû«ûÔûüVü¥üøüHııÁıâıöışş<şgşšşÔş
+ÿ@ÿjÿÿ¸ÿğÿ:  Ş D]u•¾éõÖ³mL0
+ö Ú ® u 9  ÛÿÁÿ°ÿœÿ~ÿRÿÿâş«ş{şTş7ş ş
+şöıàıËıºı²ı¶ıÅıŞııışAşiş™şÔşÿlÿ¿ÿ
+ H | ­ ç 0ŠîV¾(•sÚ8ß1„×*€Û;™ï1	Z	k	g	R	2		Ò•Oş§OÊ©™q<ëƒ–©?åc3Ù§p-Ú x 	 ›ÿ:ÿñşÃş°ş°ş¾şÌşÒşÆşŸş_ş
+ş©ıDıàü€ü(üÚû˜ûcû;ûûúú×ú¬útú.úÜù€ù%ùÒøø^ø;ø#øøøø÷ğ÷å÷Ñ÷«÷r÷)÷Úö‘öZö7ö*ö*ö4öEöaö‹öÆö
+÷W÷š÷Ñ÷ ø3øuøÎø=ù·ù0úŸúûbûÃû,üüı‡ıøıgşÛşVÿÜÿg ñ ræKŸäFh†¥Æè êÔ½£‰nVE=<=>9- âÆ±§¬½ÒäéàÏÀ¿Ñğ-5.!'Ad…œ©³ÁÜ.Y{“Ÿ¥§¬¶Êè<i¦³¶±¥‘p@µb¼lØ™c3Çqÿ u àÿRÿÚş}ş:ş
+şãıÃı¥ı‹ıpıQı(ıôüºü„ü\üKüUütü¤üİüıYı•ıÉıìıøıêıÇıšıoıSıKıWıpıı¯ıËıàıìıëıÚı¹ıŠıQııÔüœümüIü-üüüüõûìûİûËû·û™ûkû8û	ûãúŞúûJû§ûüMütüü‡ü˜ü½üøü?ı}ı°ıÖıùı*şhş¸şÿ^ÿ˜ÿÄÿæÿ ' O { ° æ "j³ì&üÚ¼§“{^8Ó ® Š j Q ?  âÿÔÿ«ÿƒÿwÿdÿ-ÿÿÿ½şşnşCşşêıØı­ıı…ıı®ıÔışEşş£ş½şùşÿLÿ©ÿïÿ W ~ ¨ gÓV²gÖ.œıQ«×œKòWƒÒë3	6	V	‡	I	H	G		ÅŸjûôà±S ¢/Â‹ã¶)Ä†XÎª"· l ìÿ£ÿjÿîşëşÿÿÿøş¦ş şyşşÈıcıåü<üïû€û×úûµúbú]úú4úúÔù~ù[ùùø$øº÷’÷1÷*÷÷÷àöÌöïöyööYöö×õeõõõĞôõõùôLõÖõ	öjö öòö3÷T÷˜÷ò÷eø†øù ùÕùOú¸úòú/û€û|ûÂûiüËüXıáıXşÉşcÿ- ~ Ú <Ÿ&QxrAwÀ!]¿‘©\ğ¾âá¾¿ì8C‰·¿"IF êİ°J,kçX-íé¹Áx‡G»5AæA+‘|Í'PWCP€j(,Šï\QÀîhuõYòÏK•ô·/Ø50æF×i/ÚP”Ò“G½ 	i | ¥1çÿ^ {ÿ¹ş fÿQş2ÿ%ÿuı‰ış şmÿAÿ!şPı%ıÛü9üäü@üÄúnúñù¼ùRú¹úıú‘û°úsù²úû*úˆùĞ÷[÷ãööB÷&÷u÷¼öZö8÷6÷ãöüöª÷"ø÷~öC÷IøŞ÷†÷ã÷9øğ÷Éøaùúø ù°úÍúGûßû†ûìû=üíûõûßıôşxÿMp a †ßí»401¹„+	º£-½«jU…ˆ€Hâ0ù ­ ‰ÿ´ ió µ G < &šÿ ÿıÿj  $ÿ¸ÿ^ ï ø ñ» K¯EK¼H:¡l¶ôDG/³ÁÂ‹Ù] Ô’f½_,sPÄœĞÏç.âöñ ‡ôSÏob‡	qÖÂH4„ãvÚYÓçZ_´”z$w¿İèÊÒÏ.#@6 ış ÿ_ÿ–ştıÆş1ş“ü<üûĞú«ú	ú”øİøøv÷Ùö^öm÷wö#÷Õ÷	öÎõ¦ôúóûò4òØğ6ïƒîëì$ïaîœì©îXì&ììoêâëEê?éÃéèç«êëé*ëëëEé)î³êvëßîÑëïíXî™ğòñóô?ó3öÇö
+÷iøÎø}ùñøú¢ù³úáûÕşúş¦şp ŒçòøõÚníSCâqN.RïÑ¯Íï	¢„	wg
+
+’	:
+.
+Ó
+Ñ
+S
+:
+Yü
+ª
+Ÿ
+9
+
+0
+¿
+|
+µ
+Ñ
+ã
+ 
+q
+y
+%¶
+Û
+
+÷	'
+Ê
+î
+n¤
+—e
+
+
+şşæ
+í
+Íiƒ¹EÏç
+
+
+tŸs
+m
+æ[[âDŸ,­ğ=È3Í{m«~À·îyÄ“«wş«Ğşÿ
+ÿĞî–ÄŠß2æÕQğf‚üÙÿôşùıëıŞÿÀş§şş­üÁû–úJù}øŸ÷šõ öĞõYõ­õJôXôYó›òMò9ñsñ+ğpï@îĞìòì+ì+ì¸ëë¾êêZêOê@êeêCêgêíêPëYëNëëBëgëÖëKì[ì0í…íî·îÉîiï±ïYğñlñöñ2ò
+óÚó„ôÿôæôDõóõœö#÷ˆ÷øùcúQû+ü²ü|ıÌşäÿ¶ ¤ J M ¹ ¹ŸŠUøšÖ\¾	àƒ:cm1	‚	l	=	H	‡	
+…
+á
+
+Ö
+©
+g
+G
+U
+ˆ
+
+
+§
+d
+«
+(Q%‹
+ÜŠºO
+Æ
+Ç
+p
+
+Ï’&”
+:
+0
+K
+;
+Ù
+x
+M
+@
+Û	ÅGúqœB0Õ£oM]“ÇİòBŞ	1.C€Ëû			0	Z	p	Q	ı•QLÍ\îDM^“ù	˜	
+„
+
+£
+4­ï
+
+
+D
+p
+©
+Î
+¸
+™
+q
+Q
+3
+ï‰ç
+!
+]
+½	R	ö‹ùCj‘ì~=
+ÉW²ôI ”ÿóşbşşıªı;ıÀüHüÛûŒû_ûDû,ûûúªúbúúÔù¨ùùDù ùÍøøxøkøføyø‘ø}øøu÷³öö õ‹õ¦õÀõµõƒõ9õğô¿ô§ôŒô`ô1ôôÜóÀó¸óÄóíó;ô©ô$õ’õÛõîõĞõœõsõyõ¿õ@öÙök÷æ÷RøÈøcù1úûøû¦üıvıÍı@şİşšÿh 8ÿµZô„“
+pÇ{ô}ùM	l	a	F	4	4	<	:	#	ó¯]«XëÍ­v“ï>™µƒkU+á¹ f  ¾ÿaÿ
+ÿÈş¥ş™şšşş¦ş³şÈşİşçşàşÏşÁş¿şÉşÕşŞşíşÿgÿåÿy ı Ql`LPvµù/Tr›Ú+y®¿µ¤¢®¸¨u,ìÎÒãá¼}@ıÉ`D=Ib„¥½ÇËÕñZ•Ëş0YodA2s±Ì²q#à®}:İn¨ h 6   °ÿ@ÿ±şşgıÄü(ü“ûûƒúúÀù‚ùSù'ùöøÃøøZøøÅ÷\÷îö˜ösöƒö»ö ÷<÷j÷”÷Ã÷ü÷7ølø˜øÀøïø-ù|ùÖù7ú›ú ûeûÇû'ü†üéüMıªıòışşõıÇıŸıııÃıôış-şş÷ıÁııkı[ıYıbırı†ı›ı«ı²ı´ıµı¶ı³ıŸıtı;ııı*ıyıÏış0ş<şJşkşŸşÜşÿ^ÿªÿ j Ò 7¤$¹Yì_¬àP§˜*Å`ñt	ò	t
+ş
+„
+ğ
+1HISw´õ!
++
+
+æ­n%Ì
+Y
+É
+
+W	Õ<ÏhM"Î@~ Ì"¦BÛ ] Ôÿ]ÿÿéşÊşş4şÆıgı)ııÕüü4üİû£ûû‹ûˆûzûhû\ûVûBû	û¡úúoùÓøHøÕ÷~÷H÷0÷.÷/÷%÷÷òöÖö³öxöö§õAõ
+õõcõ¶õöõöö ö!ö öööö*ö]öŸöéöE÷¿÷bø&ùòù®úPûÛû^üßüZıÌı<ş»şXÿ Ó …ıpîrôqåL¢é)qÅb„ƒo]P;	µQüÊ³Ÿt(ÇZâT°}//6Èh½ q  ±ÿ=ÿËşişşëıÑıÊıÊıÇı¹ı£ıŒı}ısıiı\ıSı[ı~ı·ıùı9ş{şĞş?ÿ¿ÿ- i j J 3 E ~ Å .\ ı\£ÅÍÔåöòÊ‡CúíÚ¹hH-÷ Ş Ì ½ ª ’ } ~  Ù / ó È À ê ;šê5<@FPZcoƒ¢Çë üß¯r-Ş„&Ò ˜ } x p I òÿjÿÃşş„ıı­üXüùû†ûûŠú.úúÿù
+úúÙùˆù'ùÒø™øxøgø\ø[økø’øÍøùPù†ù¶ùæùúHúwú¨úáú)ûûáûBüüúü_ıÓıTşÑş8ÿzÿ•ÿ“ÿƒÿtÿmÿlÿmÿlÿfÿaÿ^ÿ[ÿTÿCÿ$ÿüşÓş²ş şş¥ş¯ş±ş§şşlşHş*şşşöıçıİıáıùı!şNşsşş¦şÈşúş4ÿhÿŠÿ ÿ¼ÿõÿU Ó \ŞTÃ4¨ûhÙNÂ0™{ 		!
+®
+2
+¨
+	Ow‰’¶ÑãáÉg#Ğ
+f
+ä
+M
+§	ûS»=Ş›e'ÓcŞM»,¢˜“  ¡ÿ?ÿóşºş„şCşïıı3ıìü¼ü“ü^üü¼ûnû@û5û>ûCû1ûûÁúnú
+úŒùñø@ø—÷÷Êö¹öÄöÉö¯öpöö»õhõõİôšôYô!ôüóğóÿó!ôNô{ô¢ô½ôÊôÊôÅôÄôÑôóô*õsõÊõ1ö©ö2÷Ç÷aøôø~ùú…úû¨ûFüæü‚ış¬ş;ÿÅÿJ Ì Sæˆ1ÏSµıA•}õV˜»ÉÈº£…eI-ëÁ”g7ù©Gà„=
+á»”nI"ôºx3ï§Y	Å Ÿ  ´ É Å ¤ w Y X n ˆ – — › ­ Ñ ú 9W‡ËYƒ•œ¦¾çT‹¹×éù4\z~hCõÈ‰5×‚Dó¾v$Ù ¦  ‹  † k : ÷ÿ¯ÿoÿCÿ.ÿ.ÿ>ÿbÿÿğÿE ‚ ‘ q 9  
+ . e — º × ı .\oYÏ } / æÿ ÿdÿ<ÿ+ÿ%ÿÿïş£ş<şÉıXıîüü=üôû±ûnû)ûæú°ú‘ú‰úŠúúYúúÍùù>ùùÓø³ø¯øÑøùdù±ùğù!úLúxú¦úĞúøú ûNûƒû¸ûëûüYü§üıqıÒı!ş_ş’ş¹şÏşÍş´ş–şŒş¤şÜşÿEÿEÿÿÑş|ş-şëı¹ı–ı~ıkıVı>ı%ııûüéüÒü¸ü üü‡üünüRü9ü4üOü…üÁüğü
+ıı5ıeı©ıñı1şjş¨şúşhÿîÿ •‡úlİK²sáhÀs	•	
+
+w
+á
+>
+„
+°
+Ñ
+ü
+@•â
+
+
+şôéÉ~d
+¶
+
+~		¤T
+Ë‰Bö6º/ «CÙcäk
+É   z K  ÏÿÿMÿşşœş-şÇııdıoıˆı“ıxı)ı¦üúû9ûyúÎùCùÚø‰øFø	øÏ÷•÷U÷	÷°öOöñõ›õOõõ´ôgô*ô
+ôô:ôfô…ôô}ô[ô*ôïó´óˆó|óšóäóPôÑô^õîõzöüöp÷Û÷HøÇø^ùú§ú9û¸û0ü¯ü@ıàı‚şÿªÿ. ¨ ƒçQÌ[ù“†Ñÿë¿‡S.üÊz¶ZÁˆhf}™ 4Ì\õ £ g @ )         ) > _ „ Ÿ ¤ “ ~ ƒ ¶ †é%:85=M`sŒ´ì,g”³Ëæ,L_]AÈ†R1ùÅ|+âª€[7
+ı Í  U $   èÿßÿéÿ
+ > y « Ì Ö Ò Ã ° œ ‹ €  ’ ´ â IkqTÈ { >   üÿõÿîÿäÿÒÿ²ÿ|ÿ3ÿÛşş"şÄıeıı³ürüIü2ü$üüÿûàûµû{û0ûÜúú\úJúWúxú¡úÑúûUû§ûõû5ü`ü~ü—ü°üËüãüşü#ıXıŸıòıGş›şğşGÿ›ÿáÿ  øÿàÿÕÿàÿúÿ . 6 + 
+ Õÿÿ?ÿ÷ş¾ş”şmş@şşßı½ı«ı£ı—ı{ıMııÚü¨üücüKü9ü)üüüü(ü9üKüZügüwü”üÂüıOı¥ışsşğşvÿúÿt ä QÂ6¥ E€Ä$¦Aè+¹5›í2	u	¾	
+c
+²
+ù
+9
+r
+ 
+¾
+Ç
+¸
+”
+Y
+
+ˆ
+ï	I	²C Ø±w)Õ‰Bõ
+xéq¶Wèmò ˆ 8  âÿÄÿ—ÿKÿŞş[şÙımı'ıııı!ı!ı
+ı×ü€ü
+üˆûşú|úúŸùEùùø¹øøOø øó÷É÷÷j÷'÷Ñölö	öºõŒõ~õŠõ¥õÄõßõíõäõÁõ‡õCõõİôÎôØôùô4õ‰õöõpöíöi÷é÷xøùËùrúşúlûÌû4ü³üMıõıŸşCÿàÿv  zäD© -·6ªo¸ì
+#3<6ë³„hZN2ı­GÕ\ç~+öààêîàº~6í®yLè ² † m j v ‰ œ ­ Á Ö è î æ Ø Ñ Ü ÿ 6x½ú,L]eq»ğ7COh”Ì7dŒ©²œk/üİË³…=é–NĞJŞ ·  b ( çÿ¤ÿdÿ/ÿ
+ÿÿÿ<ÿmÿ–ÿ­ÿ°ÿ¦ÿ—ÿƒÿhÿFÿ!ÿÿışÿ0ÿ`ÿ‘ÿ»ÿÖÿİÿÌÿ ÿ`ÿÿÜşµşªş¶şÑşéşğşßş¹ş…şNşşãı¢ıQıóü“ü?üüİûÆû·û¬û¤ûû“û|ûUû!ûìú½ú™ú€úuú{úšúÔú"ûrû¸ûêûü*üCüWüeünü}üœüÎüıXı¢ığıJş­şÿ\ÿˆÿ•ÿ“ÿ˜ÿ²ÿŞÿ = W \ N 3  ëÿÊÿ®ÿ’ÿnÿ>ÿ	ÿÜşÃşÁşÊşÌş·ş†şBşøı²ıuı@ııâüºü—ü}üqüpüxüüürü`üTüYüqü™üÆüôü(ılıÃı-şŸşÿvÿÖÿ2  å 9ˆÓlÂ(¥:Ş~uÔ8­1®	Y	”	İ	?
+´
+ 
+k
+‹
+ˆ
+s
+W
+3
+ÿ
+¶
+Y
+ò	‹	+	ÖY È ¯ ” l L D E ' Ùÿuÿ/ÿÿ
+ÿĞş[şÉıIıòü»üšü‹üüüxüGü	üÎûûHûûëúû;ûMû1ûû$ûiû›û}û(ûğúûfû‰ûOûïúÏúûûµû§ûûèû†ü-ı˜ıÀıÒığı!ş^ş´ş0ÿ¿ÿ+ N = * 0 9 )  ` ÖF)Î´z«– Á$«¯6Îåkäßaë
+ÊÓI›•gpäš=…d¡zœÜõº=³CöÀ«Åû
+°ãæ
+„8Ê l Óÿÿ>şàışRş@ş˜ı³üüßû§û
+û5úÆùú®úÆúú÷ø‚øèø…ùƒùÈøøøïøÎùúŒù ùîøcùú€ú®ú§ú•ú§úúúxûÓûÇûoûLûËûÌü¯ıñıÂıÍı{şwÿüÿ«ÿïş”şÿ å QIÿ — 0 ôÿ F o [ C x ø OX ÅÿÑÿU ¸  9 øÿéÿºÿ<ÿÎşÿ% ]Ñ?I Óÿ0 ñ w‰faÊñòÈ|=H§éG¢ š >çÓó   ÄÿY "r"Œ  Çÿ•ÿgÿ9ÿòşnş¼ı5ı5ı·ı?şRşéıjı0ı.ııÄücü,üüĞûeûû;û¸û$ü-üõûàûüWüRüü!ü½ü¾ı›şğşÔş°şÙşfÿB H?àåê[ `L%tI,àÒ{TÒáÏÕŞ³Nß˜znjmd% Íÿk©’]WÃ¿_QJ*õÍºšJè¾óOjV£0w#[˜@^¬Ó®[ÿ í | ´ÿÒş"şÅı£ı„ıCıßüdüÚû>û›úú·ù•ù‡ùjù>ùùù(ùùŒøÏ÷ÿöIö»õUõ"õ0õgõ€õ7õôëóÆóFô õÙõ3öDöEöAööáõÇõ
+ö¡ö#÷G÷'÷*÷÷'øˆøšø±ø/ùúËúû%û]ûüàü~ıÖıNşFÿ– ±;c¢"™²“ÆÆ‘©kkÉÔ-ÇÜt‹xÎ¢[	R	Š» H	c		¤|®ú$	+	6	]		¸	Ü	
+3
+F
+#
+Ö	Š	n	’	Ô	ô	¾	*	oèÚ@Áğ’ÄÔeÔ/i…˜Î J ( N { —  M  ¥ÿâşÖıÇüıû’ûgû6ûÓúTúñùÊùúùnúùúcûbû½ú¤ùŒøè÷õ÷`ø÷øVùhùÄùlúhû`üÌüšüæû/ûÒúÈúÌúÄúãú}û¬üş^ÿ ! 
+  öÿÊÿÿHÿ*ÿ!ÿışÄşòşµÿı #j<•
+í | ¯ÿÖşxş¯ş'ÿÿ¯ÿRÿôşÈşmşşzııõüıëübüüÔûâûhû¹ûúûqûĞûgûçú›úú´ùù¤øø´øËøxùYú#ûßû-üêûEûıúÌúÎúòú3û+û
+û¥ûĞüıFı}ıŞüÉü´üû(ı;ü§û%ıèû÷û
+üLüŠıøıKş×ş ÿ[ş<ş¡ı«ıEıâûªüšüNüşü~ülı1ÿ¤ÿ 6 şhşşÏı™ıùı\ÿ† U £ “`Q¢ÙJÌ0÷håAn—ët	›
+³
+k
+c
+Õ
+›
+«	ÌVZ 	İ
+ì
+â	~
+Èf¶Z>–±İ_8 jmQ¿»á“ÑÈZ½É·âq±å ˆÏ ¦ÿ: Ÿ z :‡œâ äÿ³şßı ıLııNûhû®ú¢ùâù{ù4úDúëú£ø€ö\ø‡÷À÷÷
+÷Á÷Íöø(ö#öÅø øÈø±÷"÷Böõötõ1ô0öööa÷Ôö]÷C÷=øQ÷Qö ÷ö¼ö«ö,öñö+÷ø
+ùúçúëûü¾ûÉû„üı3ıdş¿ş¸ ) Hÿµ01ŞÏ%£D%‘¥]ë6û
+á	{Ü		C~iåHzÚ†8}…n#ŠW\|pÒl N›Q	 )ÿÿÿÿíÿ)şòşÂ    ÷ÿ^ÿ„ÿ2 Ÿ 'üÇş~şoüÔşKırÿkş4ıDÿ´û™ü‚ı*ü\ınü0ûÅû ü,ûhûÀûüŒû«ûÕü1üÙü‹üØû‰ü5üÑûHü”üÄû™üFıı¿ıÿ" uÿìÿÂ g ÕÿZ íéŠŒ!Ô[ÕXM§d]zÂ»˜Zy¦såK¡	ÏÇW¯)@ «ÿÕÿ‚ÿáş­şşı›ını7ü1üçüçücıšüXüıïû"û2ûfúÂùîù@úpúÄùúyúú8úëù0ú¢ú¨úxûû¿ûÌüı`ılı¿ıÑş¢şşş¶ş¦ ¡ÿÿ)ÿ×ş
+ÿ şuÿU Äb1,F² +6  ù µ  ± E Èÿ £şIÿ‹şÄşÙÿ¿şÜş]şÿ	ÿ¨ş­ÿÅÿ ·ÿøÿ ®ÿ' t ‰ =Q9.T¾9#ga@ü¸‚À.}Âä˜ ² qÿ˜ÿôÿßÿØşPş"ÿı9ııüıâü„üıı•ü±ü…ıgı¢ışş¼şIşÖı³ıIı	ş·ş›şùşçÿ+  , M ¦ ù HÖ À Ü İ è)“Ê€)qõ7u6ê¨"NVæ ³¯ Á X  Sÿ¥şOşEşsşÆşàş0ş¸ı¤ıâüôû4üWüü>ü¥ûû²ú¸úĞúûıûûçû ü"ûyû°ûü‹üJüUü‡üKü´ü‹ıæıxşÇşbÿwÿ{ÿj  	*¯º`²e–æ¦À7uZv
+ßé±:?%2küM[#5B'²
+ApIû Û A ÇÿÊÿ"ÿuş¬şĞııü5ü“üü	ıFıü©üôûü‚üïûwû½ûéûlûËû»ûFû“û ü÷ûƒûúû9üÇû¨ûKû‰úÙùÅùÓù²ùóùúİùú¯ùdù‡ù4ù³ù‰ùëøù”øšøù^ù·ù5ú¶ú úû›ûÔû^ü™üü³üVı(şÈşPÿ¾ ³¹T´èJ)z¢á{Şø‚	¬	Ô	†
+¯
+c
+×
+
+
+Â
+˜
+é
+G`³ì€ õ
+k
+#
+1
+Ö
+n
+Î	ü%OÈO3š ÆmÙh¨ ? ãÿÿ2ÿNÿ‚ÿåşÊıIıËüäû“ûïúGú¶ú¬úVú_ú‰úhúûùUúxú°ú½úğù(ú3ú	ú7úèùDúØúûüÏû!üÈüyıııXıÎüîü÷üóüÌü£üäü£ı
+ş;ş£şşBş'şgşŞş ÿış‚şIşJşgş
+şßıIş.şJş„şÖş2ÿëş…şFş…ş¸şÂşöşGÿRÿÍşØşuÿ6 » » –  ”(:0rV‰¤œ¾×U…wŠd	*VŸ¹¤Qø Ö Ã ” öÿÿRşÙıPı9ü?ûôúëúûçúlúVú
+úèùõùÖù0ú‡úKúùùøùêùôù,ú[úƒú¬úQûäû/ü„ü’üpü…üıªı:şÆş0ÿ•ÿôÿ¤ E¡ôç¬ûÉ¶ÂÈu
+²±òOz9
+/Ãcrkªyx×ÜJ1ñ d 0  * O j m ‘ R  – À ° å ö Ò xÏZÌ0[‚»ññşOÈ)›ÜibğB¶ñ	ˆ	µ	£		x	q	x	Š	:	Õ»˜*xÏC²`í/ÕpÅ™p¦ U óÿlÿòş°ş?şwı™üÍû*ûÓúèúâúsúÿù•ùNùNùrùˆù\ù7ù<ù2ùùÓø ùù¤økøJøHøIøMøø‹ø}ø7ø¾÷7÷cööŞõ‘õoõDõTõ‡õqõ]õõ¡õ~õ6õõçôõpõõ½ôáôKõ×õö$ö(öNö(öõõö…öH÷Í÷Fø/ùçù6úØúüçüjıùıwş5ÿÌÿk }Õ¶§˜„
+J®¹E	·	á	&
+
+©
+ä
+û
+*
+C
+
+'
+
+ı
+ä
+¯
+„
+ï	R	étâ«‹bWñ{Ù#Çs/3ÔªEÅs)Í °    Èÿ‡ÿjÿCÿ ÿÿÈşzş`ş{şÏşñşÿJÿiÿwÿœÿ* ¢ ê =;9fr[kªM1
+×yŒØ7>ê Ò È † r Y  Ìÿ ÿÿlÿJÿ\ÿZÿJÿSÿQÿ!ÿÿ÷ş"ÿyÿ½ÿ4 ‡ ‹ ƒ ˜ ¼ Û *^†š~—·ÑP<+ELtgDƒ4Ë z * ïÿúÿÎÿ€ÿÿ„şşqııXü|ûĞúNúäù“ùZù*ùÙøzøDøøøøøá÷k÷"÷÷ßö¯öçöI÷r÷£÷Ù÷
+øRøøÏø$ùCù8ùXùĞù‡úLû¶ûü©ü(ı¥ışMşvş¦şÙşòşÿ2ÿÿîşÁş­şòş5ÿ_ÿ‰ÿÿŒÿwÿkÿ_ÿ'ÿõşÛşúş&ÿPÿ¥ÿÊÿ°ÿÿ]ÿVÿUÿ]ÿoÿ‚ÿ”ÿŸÿºÿéÿ/ ¥ b€mbŒãKÑiğH–ì¯ş£ş˜ş‹ş|şnşeşaşbşeşfşbşXşIş:ş/ş)ş,ş4ş=şCşAş4şş şŞı¼ıœııkıXıFı5ıııİü­ütü4üñû±ûxûKû(ûûıúîúàúÓúÅú»úµú³ú·ú¾úÉúÖúåú÷úû%ûAû`û€û£ûÉûôû&ü]ü™üÔü
+ı@ımı–ı¿ıíı"ş^şşŞşÿKÿuÿÿÊÿ  E – ğ KäEiºó8‡İ1€Äü(H^n|Šš¬ÁÖëı
+!$!ıÛ±ƒW3(5:1ï»Gá¹•uT1
+Ş¯|Jæµ‚LÏ Š C ıÿ½ÿ„ÿSÿ'ÿşşÒş¥şuşEşşğıÏı³ı—ıxıQı ıçüªünü9üüïûÜûÑûÊûÄû½û²û¢ûûzûdûQûBû<û?ûOûiûû¼ûíû!üTü†ü¸üêüıTııÌışTşœşåş-ÿqÿ®ÿâÿ + B S c s … š ¯ Ã Ò Ù Ø Ì ¸  ~ ] ? &    ÿÿúÿóÿçÿØÿÊÿ¿ÿ¼ÿÂÿÏÿàÿñÿüÿşÿùÿîÿáÿ×ÿÒÿÒÿÕÿÙÿÚÿ×ÿĞÿÆÿ»ÿ³ÿ¬ÿ¥ÿ›ÿÿyÿ_ÿ@ÿ!ÿÿğşæşæşğşÿÿ3ÿJÿ\ÿfÿhÿcÿZÿQÿNÿUÿiÿˆÿ²ÿßÿ	 + A J H < ,  	 üÿóÿğÿóÿüÿ
+  + 9 ? > 2   	 óÿäÿßÿéÿ * ] — Ñ 3Ul{‡•©ÆìEp•³Ëßñ):HOPLD:/&
+	"%! â½•mJ1""%#ùÎ˜\!ë ½ — v Z ? $  öÿäÿÕÿÉÿ¼ÿ®ÿ›ÿ…ÿmÿWÿGÿ>ÿ>ÿDÿNÿXÿ]ÿYÿMÿ7ÿÿ÷şÔş´ş™şƒşsşdşSş;şşäı¤ıZı
+ı½üuü9üüßû½ûœûxûQû%ûöúÈúúyú^úMúGúJúTúbúsú‚ú‘úúªú¹úÏúîúûIû‚û½ûøû0üdü–üÆü÷ü'ıVıƒı¬ıÑıóış?şsş²şüşNÿ¢ÿïÿ2 e ‹ ¦ ¾ Ø û *e©ó=„Äü,Vy˜±ÆØèú,Nt›»ÏÒÂ¤}U5#"-BVdfY?ôË¥ƒhQ=-şèÎ®‰c;îÇq@
+Ô  l A  ùÿØÿµÿÿdÿ9ÿ
+ÿãş½şšşvşQş(şûıÍı ıxıXıAı2ı*ı$ııııóüàüËü·ü¥ü•ü‰üüü…ü’ü©üÇüêüı4ıVıtıı©ıÅıæı
+ş<şrş«şåşÿMÿvÿ—ÿ±ÿÆÿÜÿôÿ 2 W |  ´ ¿ ½ ­ “ r Q 3   	    øÿçÿÎÿ³ÿ˜ÿ‚ÿsÿkÿkÿnÿtÿwÿyÿxÿvÿuÿuÿyÿÿ‡ÿÿ—ÿÿ¤ÿªÿ±ÿºÿÅÿÑÿÜÿåÿèÿäÿ×ÿÄÿ­ÿ˜ÿ‰ÿƒÿ‹ÿ¡ÿÂÿéÿ 0 C I A 1   
+  & B b € ˜ ¨ ¯ ® ¦ š ‰ u ^ G /   úÿğÿçÿÛÿÌÿµÿ—ÿsÿNÿ-ÿÿÿışÿÿ'ÿ=ÿRÿbÿnÿuÿyÿ|ÿ€ÿ‰ÿ˜ÿ¯ÿËÿîÿ ; _ z  ¡ ° º Â Ë Ó Û ß à Ş Û Ú Ü æ õ &-/.06G[v“¨²±©¡››¥ºĞäø ñÛ¼›yZA ó Û Ë » µ ° « ¤ “ ‹ } w u v Š £ ½ Ö ì û ı ò í ï æ æ ä Ú Õ º ™ m 2 ôÿ½ÿ€ÿ0ÿëş£şXşşÒı“ıRııÏüüPü
+üÖûûfû;ûûûçúÒúÌúÅúËúÚúäúüúû%û?û]û~û¡ûÏûşû üYüüÔüı(ıBıWıqı|ı—ıÃıûıFşşãş2ÿuÿ§ÿÄÿŞÿõÿ ? u ¾ K’Å
+Aq½S“»à*JZq¼ÏÉ¯š{V<!$'./# 
+ôÜ´w`LNB6.(#úçĞ¸•vU4öË‘^0ì Í ‘ c 1 ÷ÿ±ÿ_ÿ3ÿôşÌş–şmşEşşâı¶ıı|ıeıXıJı=ı/ı7ı#ııéüÕüªütüiü:ü1ü"ü üü
+ü#ü
+üÿûûûîûúûü#üBükü•üäüıTı“ıÈı
+ş;şkş—şİş(ÿqÿ·ÿŞÿ) u ° × 	??;71%9J:@KR0ù Ù œ p R G 7     
+ øÿ×ÿÉÿ²ÿ£ÿ’ÿuÿdÿkÿ^ÿŒÿ¨ÿ´ÿíÿûÿ" & @ T B e ] ^ b t  „ « Î ø ß µ ³   „  ’ ‰ ° Ã Ş Ø î õ ğ ş ñ æ ã Ç ´ £   Œ † ] 6  Ùÿ¡ÿdÿGÿ#ÿõşñşæşŞşùşÿÿ-ÿ*ÿÿ.ÿ#ÿ!ÿFÿFÿWÿ{ÿ›ÿÌÿßÿùÿ* R Z o  ° å ş ü <DD'ı á ¿ Ä ± ¹ Ä È Ú à ç å ì û ş !AUx¶¤Ÿ˜’}@(6"ú è Í · · ’ } m : . "  9 @ > @ A k z | ¦ ± Ú =FFAQ4$-ä ‡ L $ áÿ¾ÿ{ÿ!ÿõş›şpş=şæı¡ıjıBııÖü›üjü=ü#üğûÅûÉûû’ûtûZûxûmû†û}û‘û°ûÚûü%üdü«üßü$ıyıÈış<şnş¥şÆşõşEÿÿÌÿÿÿ- 2 ) E n — ´ ´ Ò û @l¡Ù#v­å'Xt„¬ÒğDo~LPa-øÊÀÍÛâÏÚäæãÅµ ^é¸Š_=1şîÈ¹®~^>DŞ Ö ¦ l . éÿ·ÿÿTÿÿÕşÆş„şyşLşşóı°ıYııßüÆü¥üˆüdüXüYüDüüüòûÒûÒû®ûgûNûRûhû}û“û“û°ûÒûŞûÿûÿû$üAüKücüoü·üîüı+ıgı¾ıïı?şpş¢şìş+ÿ‰ÿºÿØÿ% j   ´ » Ï ¯ Š n Q T L 3  8 @ L Y * E G 8 7  
+  4 8 A > B _ X V B D 0   ôÿşÿóÿ
+ ( = ~  Ç ö 4jpz‘´Èëÿ( ,DN@ğşñ
+66VvCXbwvj=óäÊÀ°‘›mÀ U îÿÊÿŸÿ[ÿ^ÿRÿ\ÿeÿ…ÿÿGÿ\ÿQÿ;ÿ+ÿêşøşÿáş ÿUÿ˜ÿÀÿƒÿmÿrÿ™ÿÁÿïÿÛÿÄÿåÿıÿ' < } ‡ n ; 7 R A L  < 
+ D º x Ş Ä Ş Ñ Ñ ç ¶ ß û 6é ı RA;ö z …  c ! ÄÿÛÿ¢ÿÈÿÚÿ¶ÿ? Öÿ£ÿ¦ÿÿQÿÒÿÒÿƒÿ
+ÿ<ÿÿ ÿÿ7ÿBÿ„ÿfÿ¸ÿ£ÿªÿÇÿÓÿêÿÖÿãÿ×ÿÄÿ  ÛÿÕÿWÿ?ÿKÿòşêşuşMşşÜıÄıiıeıüüıı£ü¶üiüQü;ü+ü@üLüWü>ü+ü4üsü¢ü¡üküGüFüBüWüJü@üQüxü¬üôüeıÄış%şşşış)şXş~şµş
+ÿcÿÊÿ  ÷ÿíÿüÿ  ôÿİÿ  \ 
+µFj­ø7Xby’Ê6q†V./MQb¶RLz¡®¶ÊØ¶Wà’–§¥¨Çëç°d1ô « ` ` Á L¢¢tUH›  §ÿ±ÿãÿîÿ²ÿmÿbÿÿšÿ?ÿ—şşØışLşQşşÙıÃıÜışşş&şGş~ş°ş¿ş›şbş>şFşYş:şÒıSıı>ı¥ıáı¹ıRı	ıızıéıJş¦ş
+ÿ_ÿ~ÿ]ÿ*ÿÿGÿ‚ÿ´ÿìÿS ï ŒéóÜà
+-Ö—‘Ğ4–à,.ûıÿç«V
+éø"A<Ù¥}aMA8)è Ë ¹ ¥ ‚ W C ] ™ Ë Ò ±  ‹ ¦ Ã Í ¼ – ` ! õÿ  M ¹ Ó œ  h . ÆÿPÿÿşëşÿ%ÿ?ÿXÿuÿÿŒÿSÿæş`şíı¬ı–ıı‚ıwııŞı:ş]şş›ı.ıı*ııºüü°û´ûüüõüııáü¨üiü>ü8üLü`üyüÀüTışşÁş›şŒşĞşDÿ‘ÿÿwÿ–ÿùÿX n F 2 f Ã ÿ ı ñ j¡‡8#vÎvŞëW³_m¡¾Æä$S4ÈMö ı #gºèØ­ ÂæÜ¢kcƒ¨ºÂÍÔÆ­±îK‹os³
+FI7:VhPÌ¥¢µÃ°iñjé«b8:C*ğ¿­§‘rgql7â™oO$ùåÜ´Zï ¤ „ p M % 
+ ÷ÿÅÿlÿÿÒş¶ş™şfş-şşßı¤ıRı
+ıéüİüÅüüHü
+üÑû‘ûPû#ûûûæú¶ú“úúœú©ú±úÄúàúğúáú¾ú¢úú¨ú¶úÅúÔúßúÚúÊúÂúÔú÷úû1ûCûRûZûUûSûgûœûâû&ü`üü°ü¼ü¼üÈüôü=ııØış`şšşÆşëşÿcÿ¬ÿßÿ  % Z • É ı E ÷0Rx±ô3s¾
+EauœÓ 'Fm„„ˆ¯ñ,HNOF&õÑÍÙÓ¬wJ%åâøè›8Ø€*â½·±Pã¹|(Ê l  ­ÿ[ÿ&ÿ	ÿñşÏş§şşSşş×ı—ıgı<ııµüaüüìûÏûÁûÃûÎûÖûÍû·ûšûûgûTûPû[ûmûuûnû`ûVûPûNûXûxû¬ûàû üü!üCütü¬üêü2ı~ı¿ıîışBş|ş»şüşIÿ¥ÿÿÿC o › Ü *j¢ºØñBv¢ÁŞ+DQc‘‡hPSh}©ÇÑ³yAæÃ¨•wAúº‰a3ü Â € 0 Ùÿÿ`ÿEÿ#ÿêş§şmş?şşÎıı[ı5ııÛü£üvüYüHü<ü6ü1ü$üüûûøû
+ü$ü6ü=üBüMü[üiüxüü­üÄüÏüÔüàüüü$ıSı‡ı¾ıñış(ş,ş'ş şş'şGşzşµşòş4ÿ}ÿÅÿûÿ $ 9 a – Ì ÿ 1i©ñ@“İAg¯ÃĞæ
+:_x•ºá÷õàÁšlC,%# ëŞÔÈ½´©’lE(õÌ ySËp%ò Ï °  q P +  Öÿ¬ÿ|ÿEÿ
+ÿàş¼ş“ş\şşğıÙıËı±ı‚ıJııäü³üƒüUü)üùûÃûûnû`û[ûWûQûNûHû8û ûûûûû
+ûûşúûúôúïú÷úû3û>û+û	ûîúæúíúÿúûIûxû¤ûÍûôûüüüü.üiü±üöü9ı…ı×ışMşjşŠş¸şòş0ÿoÿ±ÿñÿ( Z “ Õ DfÈW–Ò<_±ùG‰»é=Xp¾î*8>9/)(î©f=,"ö¾l»uD+ßµ“tG®Y± W  Èÿÿ{ÿWÿ2ÿÿëş¹şşIşşåı ıMııüÁü›ü‡ü‚üŒü•ü‹üjüEü3ü3ü4ü'üüü$ü1ü(üüüüüü*ü;üGüKüNü`ü„ü¯üÓü÷ü,ı|ıĞı
+ş,şAşdşœşäş4ÿÿëÿB  Î Q„¢°¼ÏæşBg€‡…ƒ€{{Š¥·®ŠcPUg{†ƒoP4!îÁ™ƒwa7	è Õ ¼ ‘ W  àÿªÿ{ÿYÿGÿ5ÿÿïşÆş¢şwş>şûıÃıı€ı]ı4ııúüêüØüÇüÀü¿üºü¬üŸüªüĞüı+ıAıJıOıVıdı~ı£ıÌıñış5şZş}şšş»şëş+ÿhÿŒÿ“ÿ†ÿvÿjÿeÿhÿvÿÿ´ÿäÿ W  ” š © È î 
+3XŠÃU¯ 6Ti’ªÅì"1Gj‹¢œ…YóèöûäÎ½¦„aLGJI>)
+ß´’xY&ä¤rK'â Å § ‚ W ( ÷ÿÂÿ‹ÿYÿ-ÿÿÙş°ş‘şşsşgş^şXşRş>şşòıÍıªı~ıFııèüÕüÉü¶üüˆüwücüLü7ü&üüóûÍû°û¤û û‘ûyûjûnû|û€ûsûaûYûXûTûMûPûiû’û¹ûÔûãûìûìûàûÑûÌûÙûöûüFü|ü¸üğüı=ıdı’ıÃıòışRşşÎş
+ÿIÿ„ÿÁÿ H ” á *n°ò0f˜Ğ[¢è0x´İùD|µì&`”¼İù
+á¯†lXE;Gctc,â’Bò«uM%÷Ê¦ˆc-ë¡Mê{¹ | Q - 
+ ïÿÍÿÿcÿ$ÿæş¨şbşş¸ı`ııÑüŸüuüHüüäû¹û•ûqûEûûğúÕú¿ú¥ú†úfúHú.úúúú+ú0ú%úúúú ú	ú)úeú¬úãúûû/ûVû‚û±ûíû=ü™üñüDıı
+ş}şäş4ÿrÿªÿáÿ L Œ Ö V}ŸÈó8\‰´ÍÓÏÌÍĞÕàòõÒ¨„sx‹Ÿ¥›†nT:#öÕ©{O(à À  r : şÿÍÿªÿŒÿgÿ=ÿÿışâş½ş“şpşVş<şşõıàıàıêıìıçıçıôı
+ş#ş:şUşsşˆş‘ş–ş¡ş¸şÑşçşÿ?ÿŒÿÖÿ	    öÿĞÿ¬ÿœÿªÿÏÿÿÿ1 ` ‡ ¡ « ¬ ® ² ¸ ¿ É Û ù %\İ<Zu£®°¯®´ÆèGw¥Ìâ×¯}YH@3îÏ©‡sldT>*ü×³ œ˜ˆlK"ï ¶ ‡ m b T ;   ôÿÚÿ¯ÿ}ÿNÿ(ÿÿÚş°şş|şsşoşlşfşUş:şşüıìıãıÕıÁı¨ı“ı…ızıqıhı]ıLı6ıııêüÔü¿üªü”üzü_üHü7ü(üüüíûÜûÆû£ûtûHû0û/û>ûWûyû¡ûÆûÙûØûÌû¿û¹û¼ûÌûíûüGübüoü}ü—üºüİüşü(ıaı£ıãış\şŸşŞşÿ1ÿPÿxÿ§ÿÖÿ - ]  Á ô 1{Î#vÆHo‹ªÓ
+L–é<ˆÁåõ÷îßÌ¶¢•”¡±»¹¬”q@Ò¥~W.éË«‡a6şµ_
+»n$ã µ ˜ € c =  êÿµÿqÿ%ÿÜşœş^şşİı§ı‚ıdıDııûüÚü½ü¢üü‚ü{ümüSü0üüïûÑû²û–ûûsûcûIû)û
+ûöúìúìúôúûû7ûSûnû‰û¤ûÀûáûüFüüäüBı¥ışXş£şêş1ÿxÿ¿ÿ T ¦ ú HÎ8j×
+-<>:876;HY`W?!ìØËÇÉÊÇÁ¾¼¶¦sV6óÒ¯ƒNŞ « | P ,  ÿÿëÿĞÿ¬ÿ„ÿ\ÿ6ÿÿìşÄş›şpşEşşııãıÑıÈıÇıÏıİıñışş/ş:ş?ş=ş5ş,ş+ş:ş_ş—şÙşÿRÿtÿ~ÿsÿ\ÿGÿ?ÿDÿUÿlÿˆÿ£ÿºÿÊÿÕÿâÿôÿ
+ ! 6 L d €   Å ğ In²Öù,;EMWhˆµé;JC)ÙµœŠ|jR4ïÔÂ¸±©ŒxeUI@5#	ç À — q N -  êÿÆÿ¤ÿ‡ÿoÿ]ÿMÿ:ÿ ÿûşÎşştşWşJşKşUş`şgşfş]şPşEş>ş<ş=ş=ş9ş0ş$şşşşşşşş÷ıâıÍıºıªıœıızıaıCı#ııëüÓüºüšüsüDüüäûÅû»ûÅûàûü ü4ü8ü1ü%üüü!ü3üJüaüwüŒüŸü¶üÑüòüıAınııÑışAş{ş³şåşÿ8ÿ\ÿ‚ÿ«ÿÚÿ
+ ; f ‹ ¬ Ï û 5}Ñ'v¶å;dè>™ñA†Àî)8>?@DO`t‡’“‡pR2îÌª‡eG0 ïÉ‘I÷¤YïÑ»§pHÚ—Mı ª V  µÿkÿ&ÿáşœşVşşÊıŠıQı ıôüÉü›ühü/üóû¹û…ûYû3ûûïúÇú›újú;úúöùæùáùåùëùñùôùöù÷ùüùúú:údú˜úÖúûeû°ûùû?üüÀü ıDııŞı3şˆş×şÿ\ÿ‘ÿÃÿõÿ( ^ • È ô 6QlŠ«ËæöùîØ¼¡Œ€‡“ «²³±ª¢™‘ŒŠ‰†r^C%î Ú Ì Ä ¾ ¹ ± § ˜ ‡ r Z >  õÿÍÿ¥ÿ‚ÿfÿSÿJÿHÿKÿRÿZÿaÿhÿmÿnÿjÿ`ÿRÿBÿ6ÿ5ÿEÿgÿ™ÿÔÿ @ _ j b M 3      ( : J V ` e f a Z Q I F I W n  ¹ ê Q¤¿ÍĞÍËĞàş(X…ªÂÌÊÃ»·µµ³«›…jO6  ñâÒÂ³§˜’‹s]?ğ Á ’ h G 0 $   
+ õÿÏÿÿeÿ.ÿışÙş¿ş[‚¦ÊòIp’­Çä$Ed„¤ÅàñõíáÕÍÅ¶zR(ûÆ†8Ş&Ğ1áBùµu7ö ´ r 3 ùÿÆÿšÿxÿ_ÿLÿ:ÿ$ÿÿçşÂşşxşOş"şîı¸ıƒıRı%ı÷üÆüüRüüåûºû•ûrûPû0ûûşúñúìúîú÷ú	û$ûFûoû›ûÇûóûüMüzü¦üĞüøü ıIırı˜ıºıÕıéıùı	şş-ş?şPş`şmşyş„şş—ş¢ş°şÃşİşûşÿ@ÿdÿ†ÿ§ÿÅÿáÿøÿ
+ ! 5 K c y Œ œ § ¯ ¶ º ¼ » ´ ª   ~ n \ K 8 '   ìÿÕÿ½ÿ£ÿ‰ÿnÿRÿ6ÿÿ ÿçşÒş¾ş­şş‘ş‡şƒşƒş‡ş‘şş¯şÄşŞşşş"ÿKÿwÿ¨ÿÚÿ E } ¶ ğ +f Ø
+>j•½ã$A\w‘©¾ĞŞíù
+
+ıìÛÃ¨‰e@òÇ•l?ç·b;ç Ì ª ” ~ c Y H 4 ! 
+ ñÿâÿÓÿ»ÿ¢ÿ‚ÿcÿCÿ"ÿ÷şÈşœşnşNş,ş
+şîıÊı ııVı3ıııı÷üïüøüôüøüñüöüõüêüñüæüİüØüÏüÌü¶ü˜ü“üwü\ü[üBü.üüùûÉû¥û ûû~û„ûûƒû™û‘û¥û¤ûû¬ûŸûÆûÅûşû3ü5üeüaüü™ü±üĞü¯üøü÷üıışüşüéüıûüıı-ı5ıRıEıTıkıTı„ıXı€ı™ı‘ı×ıÖı
+şèış=ş6şŸşÈşæşÿş-ÿBÿiÿ‚ÿ‘ÿÊÿÃÿßÿıÿ  ] } Œ © É ã ñ `Cxµœ L€/<§]F€ì$'GiyŸØôÓÜØæ»’­ŠAó­mWïÒ…PÓÀn
+¥#-›ffdb;*:Ø £ ì m ± , îÿ
+ ‰ÿ–ÿÿ
+ÿ­ş€ş®ş"şşÜı˜ı:ııòü üğü–ü|üÖüšüñü*ıöüXı0ıhı•ı@ıÖıhı{ıı	ı£ılı•ı5ıpı©ıı¾ııHıƒı³üLııRıEıvıuı&ı¬ıkıÅı¥ıØı÷ı¡ı5şşUş7ş‰şJş÷ıíş!ş»şÊşoşBÿ®şùşñşQÿIÿĞş}ÿÿ±ÿèÿ¶ÿ_ + € — ‘ Ê Ô h º » M  D E F ~ U a Î * f % 3 B ) ¡ óÿŸ  “ l 	:4I}aÃ ®Wn}/.YÄ iaªÂÛÂ«üÕ•…¼¯KmD.' Ï?Ø ¡ii()<¢à˜,F¬³÷é¤¼ á  0 üÿcÿÙÿ-ÿ‚ÿ™ÿ.ÿGÿ6ÿ#ÿÿşHÿ-ÿâşÜşùşÄşìşÿÖşÿ	ÿ
+ÿÿÿÿ¢ÿCÿºş%ÿ_ş¥ş¾şéşÿ¸ş^ÿ¶şüş3ÿÿÿCÿÿÉÿÊÿÔÿÓÿvÿcÿ+ÿÂş£şjşËşvşÂşsş×ıNşÃı şÏı¯ıÀı¡ı%ş•ıpıLı)ıIı<ı¬ı›ıãı1şúı0ş'şêı÷ı©ı"ı
+ıOıWı8ıRıı½ü²ülü	ü+ü6üÿûÿûËûü!üü_üKü{üüÂüãüÄüıâüÃü©üYü—üÉüàüKıZı=ı?ıÿüÓüºü½üëü4ıaını«ıĞıZş şşÁşæşmÿ¥ÿ $ âÿU Z z H    Ö ù M«½R¡³2ß9sòˆğ3,PD]>gq™Lb”èş›Àzdg¯²Éêµ¯m*ß/½;'Û©E× ] 7 . G C  ¾ÿ¥ÿ©ÿ$ÿ)ÿiÿ?ÿ)ÿFÿ`ÿYÿŠÿ+ÿ®ş”şEşiş~şZş8şşşÆıµı½ıNımı•ıı¨ı…ı²ı"ş*şóı8ş~ş‚şèşçşÒşØşºşåş·şñşÿ£şìş
+ÿÿ)ÿÿ…ÿÿ§şÿ¯ş¢ş‚ş{şåş‚şŞş#ÿÿ}ÿDÿÿCÿJÿiÿtÿ1ÿ`ÿÿ*ÿmÿÿÿ8ÿôşAÿàşşşÒşşµşYş¹şÿŒş<ÿİş¦şZÿÿJÿÚşîşÛş…şÕşÆşæş9şÈş	ÿÈşåşJşzşŠı7ıAı›ıËı<ırşŞış¤şQşÿ©şÿ‰ÿnÿ ‡  o f n œ ] p Ñ TLÂVÆ ×vD4~ŸĞß:˜÷ıÕbÜqÇöğ¾3mö WaZ-áà ÿÊÃğ† ĞÔ ¯ p §ÿÈ 'ÿWÿeÿ“şÃÿÿ¡şÕş[ş[ş¤şvşşèşÜşEÿlÿ;ÿïş!ÿIÿ\şş]ş¥şÿ)ÿ ÿ
+ÿÿÜş¸ştşhş‹ş®şïş°ş‹ş«ş‘ş'ş'şVş[ş§ş`şuş»ş~ş×şñşÈşëşäş¡şŸş–ş^ş—şxşZşş`şGş‡şÑş`şş£şğşÿÿÿ
+ÿÿÂşŠş“ş˜ş|ş‚ş¹şRşşCşÀı•ıŸıı.ıêü|ü|üü
+üZüEüeü'üÊûüüèûÁû‘ûütüaü{ü~üµü¼ühüü(ü¥üyüümü
+ü¼üıÛüòüı±ıïıåışTşñşDÿ3ÿ¡ÿâÿA I  Z X Á Q9ÊB.TNŸú)ŠÁx¬ÀIØI]¬
+î9RK3ĞlPqbcr”¯°gğYb.ìÉƒ~‹1îÔ×›?œT›:Ş§WWtnB Õ ‹  Ùÿ¾ÿoÿEÿÿÚş şş§ıxı3ıÛüŸü~üzü¥üIüµû®û¶ûfûûÎú»úúúßú¼ú~úúØúµúÉúŞúëú+û!ûôúùú+û1û
+û½ú¢ú¦úÂúËú„úåúIûzûÂûÊûúû!üiü™ülüoüÀüÁü‘ü¬üÉü*ıXı`ııgıiı.ı+ıUı|ıßıàıÿıhşş©şÏşáşùş?ÿ\ÿ½ÿîÿëÿ* A I L q Ù 
+Ecd}82y½ÒÛ'e¥¶ıQN`„×
+Mqb'óAA7K.RJ~‚•‰Ô°†
+ê%9öà¸²i¯Ì Ê – V   íÿ•ÿ{ÿXÿOÿ#ÿÅştş)şşØı«ıRııÿüışü©üßüğüìüïü“üüªügü!üüDütü¡üüküÄü
+ı9ı”ıÄıõışÚıöıOş´ş¶şœşÎşÿ6ÿÿÿ2ÿYÿ¯ÿÎÿíÿ< l n ’ ¯ á -.Vm§õèòbqp“±âÈÌœ{¶š”`"<b‰|xeÌƒ‰J;ä Œ òÿÿÿhÿ"ÿÃş‰ş7ş	şÀı2ı!ı7ı=ı"ı¿ü‹ü}üƒü:üÀûŒû~û—ûbû,û6û#ûûËúªúÒúçúëú´ú§ú¨úÏúûûú÷ú+ûaû‰ûUû4ûtûİûüü•üûü1ıdıiııëı,şpş¯şÖşğşÿyÿÖÿ4 £ õ O›ój³î-c¯ñI…íQÈa”•¯®’ˆz\´Èëçì­ƒI@:ß£X4EøÂ™ƒ3êà˜kGºq³lê İ h èÿÏÿvÿ^ÿÿİşÒş·ş¢şşÂını,ı(ı¶üRü:üJüü¤û[û+û4ûû¸ú¢ú…úŒúPúãùÚùñù!ú&úşù ú8úcú‹úmúúìúû%ûûîúû@û'û(ûnû¯ûêûùûôû
+ü;ütüˆü†ü–ü¢ü³üÍüîü>ı—ı×ış şbş¤ş®ş¨şÇşÿuÿ½ÿ	 B ‡ ¾ Æ ó 2Lg¶¿Ìßâ
+.]–‘’•›˜›Òü!	(HVWYKOE?Imœš¢—wl8
+ÃŠdQJÔ~:÷ ¸ Y  ) Z q U D 2 , éÿŠÿXÿ%ÿÿ¾şgş@şBş[şEş0ş3ş=şşÓıŸı€ı’ı‘ıeı8ıııõüåüûü6ılı‡ı€ınıtırıcıVı`ı{ı}ırımı‡ı´ıáı
+ş&şHşnşxş…ş¡şÌşÿSÿˆÿÃÿ
+ H k ‹ œ ¸ ì 
+6iĞááïK[[`qtjh”Û))7MVMK]hVÅ¯¾ØÛãïëÂzA,/Õ¤‘g-
+Ğ s  İÿ¨ÿcÿÿÿÿÿØşşPşşßıƒı(ıùüñüçüÀüŒüjü[üJü2ü(ü8üQüSü8ü#ü4üaüŠüü¯üÆüÚüİüÙüïü.ı~ıÃıòışAş\şjş‚ş¹şÿEÿ`ÿbÿdÿqÿ„ÿ™ÿÁÿ M Œ ¿ û G”Ğş2o µÁæ/‡ß; ı/-	:dtcRYjgI&Nÿ5ÿÿÿÿÿÿ
+ÿíşËşµş°ş¿şİş
+ÿFÿÿ×ÿ = H @ 6 ; V } ¤ À Ö ô +€èR®÷2cŠ¦¹Ìï&m¶ö1q¾X‹Œœ³ÆĞÒÑÉ²‚A Ïµ¤ˆQ¬V¯Uù¢S²Rì Š : ÿÿÑÿ§ÿwÿBÿ	ÿÖş°şœş”şş~şaş=ş"şş$ş.ş&şşÍııSııÛü¢ü€ü„ü³üúü:ı\ı_ıRıEı=ı0ııåüµüü{üwü}üŠü£üÌüúüı&ııñüÔüÆüÅüËüÖüíüıbı¸ı
+şNşwş‰ş‘ş–ş¡ş´şÏşëşÿÿÿ"ÿCÿvÿ¯ÿÛÿğÿğÿêÿîÿüÿ  ( 1 C _ x ‚ u T , 	 íÿÙÿÈÿ·ÿ¥ÿ’ÿzÿ_ÿDÿ-ÿÿ
+ÿ÷şÒş şlşCş*ş şşşñıÚıÍıÊıÊı½ıœıkı;ı#ı0ı`ı£ıãış%ş+ş-ş3ş>şOşdşş¦şÙşÿiÿ¿ÿ o ¼ ş 6j¢ÜFpŸŞ4
+kºö%LršÈü2a‰„}|€{kXF1Ú”IØ´YÏ’dD#÷¸iÂ}CÔ “ M 	 Ìÿ˜ÿiÿ<ÿÿçş¾şŒşIşğı‰ı%ı×ü¤üŒü„ü…üüŸüµüÆüÊü»ü¡ü…ünü\üLü:ü*ü!ü#ü*ü/ü0ü/ü3ü<üGüJüBü8ü6üCüXülüvüxü~ü’ü´üÙüñüøüóüñüşüıIıwı ıÆıêış:şhş—şÅşôş ÿMÿ|ÿ²ÿñÿ4 u ¬ Ò æ ì ë è å Ş Î ´ –  u w v d 8 ûÿ¼ÿÿvÿiÿYÿ:ÿ
+ÿİş³ş‘şvş^şHş8ş.ş'şş	şõıæıéış0şoş¸şÿQÿ‘ÿÀÿÜÿéÿòÿşÿ 2 W ƒ · ö >Œ×Cbx©ËòO‡Èb³ş@w£ÄŞô
+)Ln…Œ‚nXC.í½†LØšW¼m&ê¹‰LûAø É ­ • u K  ïÿÁÿ‹ÿMÿÿßşÌşÔşçşñşäş½ş…şEşş»ıvı4ııüÑü°ü˜ü‰ü†üüü«ü«üü„üeü?üüåû½û¦û¤û²ûÅûÕûãûöûü/üCüDü7ü+ü/üGühü„ü–ü£üºüäüıTıı™ı§ı²ı¿ıÏıßıòış3şgş¤şàşÿ6ÿOÿbÿtÿ†ÿÿ·ÿ×ÿúÿ : H G ; / - 6 B E 5  åÿ¹ÿ“ÿuÿ^ÿNÿIÿMÿOÿAÿÿÏşş9ş
+şóıåıÕı¾ı¡ııXı,ı ıßüÕüãü ıı+ı2ı;ıPınıŠıœı¢ı§ı³ıÈıâıÿışKş‰şÓşÿ]ÿ’ÿÅÿıÿ9 s £ É ô /|Ò$j¤ÚH¸÷?ŒĞÿ#+263&ğĞ®‰`4à½}Z7ôÔ±‹^+ï­i(ò Ì ¶ © ¡ ™ Š t R # áÿÿ'ÿºşRşûı¾ı˜ı€ırımıuıŒı§ı³ı¥ı|ıLı-ı-ıEı^ıhıcıcıyı§ıÛıüıııåıÈı´ı¬ı§ıšıˆı|ı|ı‰ı™ı£ı£ıŸıšı’ı†ıwıkımııšı´ıÆıÙı÷ı"şPşmşmşXşAş?şYş…ş³şØşõşÿ,ÿCÿNÿIÿ<ÿ/ÿ*ÿ,ÿ.ÿ-ÿ,ÿ,ÿ/ÿ0ÿ+ÿÿ
+ÿüşìşØşµş„şKşşøıïıùışş
+şùıãıÒıÊıÌıÒı×ıÜıçıÿı)şaş¡şâş!ÿXÿ…ÿ§ÿ½ÿÎÿãÿ < € Ì qÉ r·ğ Io‘³ÚV«NÃ÷.g ÙO†®ÃÊÌÎÑË´gE(×›\%öÈBğ¢\ÍsÀ{BÅz.å  Q   ³ÿxÿYÿOÿMÿCÿ'ÿúşÀş{ş)şÉıaıûüŸüQüüŞû´û–û…û€ûû„û†û†û…ûûyûpûiûlûzû•û¹ûáû	ü,üEüTüXüVüSüTüYübülüwü†ü™ü²üÔüşü.ı[ı€ı—ı£ı¯ıÈıòı'şZşƒş¢ş¾şßşÿ"ÿ8ÿGÿYÿwÿ ÿËÿíÿ   0 B Q Z b l x ƒ ‰ Š ‹   Š ~ l Y F . 	 ×ÿ ÿpÿNÿ6ÿÿ÷şÌş¦şş„ş|şişDşşŞı¬ıı]ıFı@ıKı_ıpıuıpıhıfıjıoıqıuı†ı°ıôıHşœşæş#ÿXÿ‰ÿ·ÿßÿ + X  È 8l¡×?r«í6€Áô4FNNG=539COUQ=ïÄ¢zq`C×‘N ÷õğàÄœk7ì æ ò ô × ² Š Z  Çÿjÿÿ¼ştş2şøıÊı²ı°ı½ıËıÑıÏıÉıÁı¶ı¤ı’ı‹ı™ı¼ıåış
+şşùıöıüışıõıáıÉı·ı­ı©ı¨ı­ı¹ıÌıàıëıêıâıŞıáıêıòıôıõı şş=şaş{ş‰ş“ş¡ş¸şÙşÿ0ÿcÿœÿÔÿ , F W c m v  ‹ › ° Å Ö ã ë ï ï æ Ò ² ‡ V " ğÿÆÿ©ÿšÿ—ÿšÿŸÿ¥ÿªÿ®ÿ¬ÿ¢ÿÿwÿfÿbÿjÿxÿ‰ÿšÿ´ÿÜÿ H x › ® ¶ · · ¾ Ù 
+Z° >m—Åô.5<S~µê8Uoƒ‘Ÿ¶ŞEm„‘——ŠlBÿíÁ‡MëÂ™l4ì“.ÈlŞ « ~ X 4 
+ ßÿ¨ÿkÿ2ÿÿÛş½ş¤şş~şsşlşbşQş4şşËı~ı"ı¾üZüÿû±ûrûAûûûşúüúüúöúêú×úÃú´ú®ú³úÄúÜúôúûû#û<ûcû‘û¹ûÓûàûìûü+üXüü¡ü¿üäüıOıƒı§ı¾ıËıØıåıïıûı
+ş(şQşyş“ş›ş›ş£şÂşõş/ÿcÿ‰ÿ¨ÿÈÿïÿ D g ƒ š « ¶ º ¹ ¸ ¹ ¿ È Ö æ ÷  ë Å – h >  ôÿÒÿ¶ÿ¡ÿ’ÿ‚ÿiÿHÿ"ÿışİş¼ş—şnşEş%şşşşşşşşşşşûı÷ıÿış9şfş•şÃşîşÿAÿhÿŠÿ£ÿ·ÿÏÿøÿ6 … Ô :Paw—¾æKŒÎ+>K[t‘©»ÉÛğ ñåäìõõèÏ®ˆ`8ôŞÑÉÅÀ¹«•uP+
+ğß×ÙáèâÅJ¼ z 5 èÿ—ÿNÿÿöşàşÊş«şƒşWş.şşâı»ı–ıvıaıWıVıZıbımıyı…ıŒı‰ı~ılıZıNıIıKıOıTı[ıgı|ı—ı¯ı¸ı®ı“ısıWıEı7ı*ıııı/ıIıaımıqıtı€ı˜ı¸ıİış-şYş‰ş¶şÚşôşÿÿÿ)ÿ<ÿUÿqÿÿ¦ÿ¸ÿÃÿÉÿÏÿÕÿÚÿÚÿÒÿÀÿ§ÿŒÿwÿnÿsÿ†ÿÿ²ÿ»ÿ¸ÿ¯ÿ¨ÿ¦ÿ§ÿ£ÿ˜ÿ‰ÿ‚ÿÿ²ÿçÿ" X † ¯ Õ ù ,56:Kq­øK™Ú#1<Mf‰­Ïí =[z™ºŞ4_’‹…ˆ•ª¿ÏÔÎ½ zMç·ˆVÒ{¹]È\+ú Ç “ ^ & êÿ¨ÿaÿÿàş±ş‘ş~şpşbşNş4şşìı¼ıı8ıâü…ü*üÛû ûxû^ûGû+ûûİú±úˆúcú@úúûùÙù¿ù±ùµùÍùòùúKúvúúÅúîúû8ûSûhûzû‘û²ûßûüFütü›ü»ü×üñü
+ı(ıFıgı‰ı©ıÈıåış#şHşrşŸşËşöş ÿNÿÿ¼ÿùÿ4 j ™ Á å #<Rj…¦Êï.EU[VF/ôéÜÊµ¢˜–˜”‚`1ü È š r R > 6 ; I Y b a X K > 5 1 5 C ] „ ° Û ş 2Nv§İ>d†¦Æâû/Py¤Ïó2Mbqx|ƒ’¨¿ÌÌÁµ¯²¸¶§‰d<í¼€=ûÂ–sT4â®r2ñ µ ‚ Z 8  ÷ÿÖÿºÿ¦ÿ–ÿ‚ÿaÿ0ÿóş´ş}şQş*şşÒı¢ıvıVı>ı(ı	ıßü­ü}üWü@ü3ü,ü)ü*ü1ü>üMüXü^ü`üeüpüƒü˜ü«ü¸üÀüÅüÊüÎüÎüÈü»ü«ü›ü‰ütüWü6üüùûèûŞûÙûÑûÈû¿û»û¹û·û­ûœû‹û†û•û»ûîû!üKühüü›ü¹üÖüìü÷üúüşü
+ı(ıNıvı™ı¶ıÌıİıêıóıøıúıùıøıøıùıüışş4şXş{ş”ş¡ş¦ş©ş±ş¿şÏşÛşãşíşÿ)ÿ_ÿ›ÿÑÿûÿ 3 O r š Ã ì J„Ã=pŸÎı-\ˆ²Û2¡ Ñ á ê 
+]ĞN¿g¥Ø/`šÎíñæäø>G=16JXK!è´mD
+Ãz6ûÆ’V¢/Á s U Z h _ . ÛÿxÿÿØşµş²şÅşÛşàşÍş®ş˜ş™ş©ş±ş¡şşkşxş©şçşÿ%ÿ(ÿ9ÿfÿ§ÿåÿ
+   äÿÈÿ»ÿÏÿ w ğ ^«İÿ.(ÚÀËõ%AB/í±]û ¨ { t € ‚ j = 	 ×ÿ£ÿdÿÿÓşšşvşZş1şòı¥ıaı3ııûüÍü‘ü_üMüZümümüTü5ü.üDüaü]ü&üÑûŒûyû™ûÈûßûÓûµû¡û£û´ûÀûÃûÅûÖûôûüüü üéûØûÎûÍûŞûüCü€üªü¶ü°ü£üšü‘ü„üzü†ü¹üımı·ıáıôış*ş[şş»şáşÿ2ÿeÿ ÿêÿF ª Nuƒ„€zrnv‰œˆiYfŒ·Ûü&\ª¢†tz•²Å×õ%UlY)ôÒÊÖó!`¦ßõçÂ‡‡•¬Éä÷1`–Çî;qµX²:E&õÍ¾ÂÊÓç
+=W?ò<í¿|<õÖQù˜0Èc¢2¶ > İÿ—ÿ[ÿÿ›şş›ıDııàü¥ü^ü!üüüüğû´û]ûûÆúú‚úeú=úú½ùdùÿøøTø)øøøøøøøHøˆøÂøëøùù7ùOùQù8ùùöøù<ù€ù®ù¹ù¬ù¦ùºùàùúúú	ú"úPú€ú¢ú´úÆúçúû:ûQû_ûwû©ûğû7üoü™üÈü
+ıkıÙıNşËşYÿøÿ› '‰Áâ4s¸ù.NSB'5UjlZ:Üª†{‰¢³³£zniluyg6í©‰”¹ÒÇ™b;-.3;P{³ç)P‰ÍU¼ßş;MH,-ñhÒ IK-şÒ³ ’‚uojX-í¦j6ğ…õdúÉ¼¨o§ G òÿšÿ8ÿÓş‚şVşJşIş;şşŞı ıjıIıHıiıšı¼ı³ıı9ııöüúüòüËü‘ücüRüPü<üûûšûAûû%ûNûmûoûZû@û+ûûúúÙúÀú¹úÂúÎúÕúãú
+û]ûÂûü/üü¼û|ûgû}û¡û°ûûxû_ûhû•ûÒû
+ü/ü@üGüMüUü`ünüƒü¥ü×üılıÅışfşšş²şµş¯ş®ş¶şÂşÇşÃş¾şÅşáşÿ?ÿbÿpÿoÿeÿ]ÿVÿOÿCÿ3ÿ ÿÿÿÿ;ÿ]ÿsÿsÿ_ÿEÿ;ÿMÿwÿ¥ÿÃÿÄÿ®ÿ‘ÿ€ÿ‡ÿ¥ÿËÿåÿæÿÎÿ®ÿŸÿ°ÿàÿ U  Ó 0ü4ENyÚbèR¡ğQÄ.z¢»Ø6k¦ïN¶	Y	€	•	¥	³	·	«	‹	[		ã¯ƒ‡…k4è˜N²Wş¶€Lœ›'ÅnÍ„<î • : îÿ½ÿ¦ÿ—ÿƒÿfÿMÿAÿ=ÿ2ÿÿÊşvş!şÕı‘ıNı	ı¾ünüüÄûzûIû2û'ûûáúúaú=ú0úúçù‹ù!ùÍø ø’øø€øoødø\øHøøÌ÷„÷b÷p÷š÷»÷»÷£÷÷š÷À÷í÷	øøø(øHøløŠø¨øØø&ùŠùêù5újú¡úôúlûöûrüÈü÷üı,ıQı|ı§ıÊıçı şş$ş-ş2ş:şLşjşş¸şİşúşÿÿÿ ÿÿÿÿÿÿ?ÿkÿÿ¡ÿšÿŒÿÿ¨ÿÔÿúÿ	    D n „ „ €  Ã 
+Ms{ttˆ¬ÕùI“ ‹ò&/Dg¯Ö^¸2BNi—½Ä§n‚­ÏÑ´qS!ĞjÁ‘_±Jö»†>ÜrŞ¹K÷ © u _ T =  Şÿ¼ÿ¿ÿåÿ = B -   8 l –   … Y 3 # "    ôÿŞÿİÿñÿ
+   æÿÁÿŸÿ~ÿWÿ+ÿÿøşÿ9ÿlÿ‘ÿ¡ÿ¢ÿ¡ÿ¤ÿ©ÿ¬ÿ¦ÿ˜ÿ‰ÿÿ„ÿ”ÿ­ÿÊÿçÿÿÿ   ) + ' " # - = J N K S v ¶  12Á  v r k Q (  úÿ   ğÿ¹ÿwÿ3ÿğş®şoş4şúı¿ı~ı<ıı×üºüœümü)üßû¥û‹ûŒû–û˜ûûû ûÄûèûôûÛû¦ûpûMûDûOû`ûsûû·ûôû?üŒüÑü
+ı>ıtı´ışmşæşjÿïÿk Ú 9‰Í6i¥í=‹ÒX¤ó<pŒ•”‘†€‡“—ˆb2ëŞÒ»“_%ê°s7ûÁ†Cò’(» R ôÿ¡ÿYÿÿâşµş”ş}şlşYş@ş&şşş÷ıãı¼ı†ıPı)ıı÷üÍüüQü+ü+üCüYüTü8üüü0üHüBüüÄûzûMûCûPûeûxûŠû—ûœû‘û}ûhû_ûdûmûoûfû]ûbû{ûŸû¾ûÑûÚûâûóû
+ü)üCüWügürü|ü‹ü®üïüNı´ış5şEşQşqşªşìşÿ2ÿ3ÿ3ÿ@ÿUÿeÿjÿfÿdÿkÿsÿmÿQÿ$ÿùşæşôşÿSÿ{ÿˆÿyÿVÿ/ÿÿÿÿûşñşéşóşÿ\ÿ¥ÿßÿüÿ şÿ   & C a ƒ ¬ ß h¶ÿ6Ys•ĞrµäR¬e’›–• ®ºÌô8á<O[^P-ìñÕ•UË^ÔGÒ†X1ı·d±Që ‚  Çÿzÿ3ÿîşªşjş3ş	şìıÙıÉı²ııfıBı-ı+ı1ı1ı!ı
+ıùüüüı.ıAıAı0ııığüéüñü
+ı6ıkı¢ıÔıúış şĞıƒı4ıııOı©ıøı&ş8şCş]ş†ş¯şÊşĞşÊşÁşºş´ş­ş®ş¿şçş$ÿjÿ©ÿ×ÿíÿïÿãÿÖÿÒÿİÿòÿ     M „ ¦ ¡  X D B @ & ìÿ¡ÿ^ÿ6ÿ,ÿ2ÿ9ÿ4ÿ!ÿşşÍş‘şQşşâı»ıı…ıqıaıRı>ııİü‹ü.üÕûûaûOûOûVû\ûaûgûqû|û~ûnûOû1û'û;û`û…û›û®ûÖû)ü¡üı}ı®ıÆıèı-ş•şÿ}ÿåÿR Î SĞ3~ÄpÉAq·"“ë.d®¹¯š…}„”–xHß°…[8õ¿cí|+êÆˆ4àœd+ä’Fâ ¾ ’ Z  áÿ¦ÿgÿ#ÿßş¥şzşYş:şşëı¾ı“ılıNıCıQıvı¢ı¿ı¿ı£ızıRı-ııÖü«ü•ü¡üÆüíüı ıòüêüìüñüëüÔü´üœü—ü¦üÇüõü,ıfı™ı»ıËıÑıŞı÷ış7şKşZştş£şåş(ÿ\ÿ~ÿ˜ÿ»ÿîÿ/ n   Å å 
+9l–®°¥›«º¹¥…iXM:ç ¿ ¨ š { 9 Øÿ{ÿEÿBÿZÿeÿKÿÿâşÒşçş
+ÿÿÿÿÿ5ÿTÿgÿgÿeÿwÿªÿõÿC { — ™ Š w f b s  İ )r°Üù <cŒ¬¶²µÚ,Ÿi›°¸¼·¥‡jWK;è­vCÔ—^.ı¾i® i 7  ÈÿvÿÿÆşyş.şáııFı
+ıáüÁü§ü•üüüüü]ü5üü"ü=ü\üpü|üˆüü·üÁü¬üxü8ü	üıûüNü•üÛüı8ıEıDıBıNıeıxıwı`ıCı>ıcı«ıùı1şFşDşCşRşnşŠş—ş–şş”ş¨şÍşüş2ÿnÿ¯ÿîÿ  @ J F ? @ P n ’ ° Á À µ © ¥ ­ » È Í Ä « † [ 6 ! ! - 4 # ôÿ±ÿrÿEÿ.ÿÿ
+ÿğşÍşªşˆş`ş,şëı£ı^ı$ıôüÊü§üˆülüOü.ü
+üïûâûåûğûòûãûÅû¦û”û—û¬ûÊûëû
+ü2üZü…ü¯üÙüı7ıqı²ıøıEşšş÷ş^ÿÏÿK Ê F³J‚»üDà8tÅù9d—Æçû
+"7;&ûÎ® šŒqP1ì°bËŸ‚hGöÎZ¤KÇ•c3Ö ¢ e % ïÿÍÿ»ÿ§ÿÿ;ÿâş…ş,şÖıı1ıôüÚüæü
+ı8ıSıXıJı/ııáü³ü‡ü_ü9üüêûÍûÅûÖûõû
+üüûûàûÍûÃû»û«û”û€ûxû|û…û‰û‹û’û¨ûÉûèûûûüü=üyü½üöüı?ıfııåı2şzş»şôş)ÿ[ÿ‹ÿºÿèÿ @ e „  ³ ½ ¸ £ „ j a i u z o [ G 6 #  Õÿ ÿvÿaÿ]ÿ[ÿÆÀÄ¿Ÿ’¯´ww”´¢mNE3()$æÅ½»°¡~M1%ú ï ğ ï Ğ ƒ > . 5 '      İÿœÿ”ÿ´ÿ¬ÿnÿ<ÿEÿjÿoÿHÿ&ÿÿÿ³şkşnş¥şÀş—şXş:ş6şşåıÈıÒıÙı·ı}ıXıSıNı)ıûüâüÙüÃü•üeüRücüxüyülübüeüiüaüRüQü^ü^üFü1ü<ü^üiüDüüûûüü*üBüpüšü¤ü üºüúü<ıcıı¹ışKşuş–şÃşùş.ÿdÿ£ÿãÿ 5 A C E P d z Š ¢ Ò Gb{­ãñÑ²²»´·îGzb40H;şÏÖêÚ¹Ãú
+ş0”ßğíø÷Äp71>;5Hn„|rƒ«ÊÇ§~^H72@`‘›²ÙôêÇ«›€EÔÀ¦|UB0Ë › | U  ÂÿŒÿ{ÿ|ÿzÿlÿXÿ@ÿ'ÿÿÿ-ÿ?ÿBÿ'ÿôş½şŸş ş©ş¨ş¢ş¨ş³ş¥ş{şVşMşIşşÑıınıXı7ı&ıMı“ı°ıŠıTıGıVıPı0ı!ı6ıGı/ııı6ı3ıòü§üüªüÈüÚüöüı0ıı×ü¼üÎüïüıı@ıbılı]ıJıKıbı}ıı•ı•ı“ıı‡ı‚ı‹ı§ıĞıÿı9ş‹şòşPÿ‹ÿ§ÿ¿ÿŞÿòÿìÿÙÿÔÿßÿòÿ I ª d‘®ÉÑ¹Š\?3/5EYfe_cz›·ÂÇĞÛÕ½«²ÄÃ¬œ¤¯ ‚rq^,`•Ÿš £‹lt©İëéü!*ØÂÃÉÙfÄ+Ig~ˆ•²Ø÷
+*Mp…ƒlAÁƒY:éÀ§“qB ïÙ¿­¡pY^|£Åæø¶Xó ‘ 9 ñÿ½ÿ¡ÿ’ÿˆÿ{ÿpÿnÿmÿ^ÿ5ÿ÷ş´şişş¤ı?ı÷üÎüºü½üåü0ıƒıÁıäıöıïıºıNıÇüCüÊûMûÎú_úúÒùŸùùƒù¦ùÉùÕùÍù¹ù“ùNùòø•øOø#øøø>øtøø©ø•øjø.øè÷¥÷y÷s÷—÷â÷OøÚøyù$úÑúyûü£üı…ıÜı'şoş¶şúş3ÿZÿqÿuÿcÿ;ÿÿ×ş¹ş±şÂşïş5ÿ‰ÿŞÿ0 ‰ ğ hò‹9ò¨LÒ7x’‰e-ç›˜'É‡c^k€˜´Óó?~Í!tÊbŸÉê#+#ÑŠ3ŞRå±q$ÁJÅHÏ f  äÿÑÿÊÿ»ÿ³ÿ™ÿ~ÿaÿ:ÿÿ ÿİşÂşˆş)şÍıUıĞüLüÍûaûúú§ú}úvú›úğúaûìûuüôüXıı‘ımıHıäü`üøûû9ûûû(ûYû€ûĞûüXüğüiığıtşÀşåşñşİş³şŠş1şÓı7ıŠüüœû{ûuû¹ûüGüÆü+ı‚ışkşCşHş1ş
+ş1ştş°şÒşùşÖşÂşËşÓşÿyÿ  _ù†ÌÇ¯£û Z   ¹ÿšÿ	 8 [ ù }½ÖæÑ+d;*-ıDŒš‡× †ÿuÿ£ş³ıgıuüaü1ü$üÊüáü}ıÛıPşSÿ-ÿiÿ«ÿ¥ÿ„ 9ÙcÉ$Z‚ğuŞ0idc¯Ã¬KƒjUÚ5	{ò¸	
+
+i
+Å
+9
+k
+p
+
+·	_	>	·Š‡÷‘ši[äwÌZR'ì7"“·  Hÿ2ÿÃşñş£şÎş©ş@ş®şóı<ş7ş‡ıÊı…ıEı)ıZıırııÁıœıbıEıÔü®üYü¯ûû\ûûäú|ú!úùù<ùôøø¿øìøEù2ùbùœù"ùùôø÷ø/ùôø(ùuù¼ùEúŞú-û©û1ü3ü¤ü-üçû¶ü?ü±üòüPüı]ı™ıııÅı÷ı
+şøış8ş?ş¥ş'ÿÿ!ÿİşÚş)ÿÑşÿaÿ£ÿÙÿ Õ ú å õ ç á ,<ô
+$Æ³iÜ Ó ß Ô ÷ w`Ñ %F½ uMÛöú‡ãÁµüGßC"ø1_-c:N
+d,ª`çÍ‡0°º N Ê ” *I+ÙU›ıÄŸlDG`¡æİÏ ÿ ñÿRÿûÿhÿNş®ı ı¢üüsü°üŞûû‹ûËúpûü¾úÖú2ú:úhú†ù?úÄùú«ú
+úÅûûìúüşúõû#ü=ûû2ùEù&ùªøù÷Mørø5÷¤ø)ø[ø^ùÈøzù&ùÃùÀù5ùúú¯ù.úûôúñûü@üµüÓûØûPû'ûüúéú…ûfûMû6ûOûùú¡ûiü üı«ıRı
+ı€ıtışÂÿÅÿjÿæÿD … ¶
+ö(­§ãäÌNw)@
+«×Vtå
+«³ï&˜r;hmÑ>9$r7â«úá;fXÕÇ L N øÿ‚ÿôÿÍÿ5ÿfÿ*ÿƒÿìÿ¬ÿ¿ÿ~ÿ&ÿÿâşÛşÿOÿwÿ1ÿmş5şş5ş…ş
+ÿÿ¢ÿuÿLÿvÿÿaÿ
+ * Ñ Pô i¼–3—x¯ˆ[¯|ÛQım£º4Ø>+˜MØªò3°ÒïªãØÚì&²`Va>›ŠtsX2°a!èoü Í ¶ ² á z  Çÿ¡şâı şjı£ükü½û6ûûˆúîùãù¢ùVù­ùPùùëøºøFù0ù)ùù øÒøáøùïø<øÏ÷¼÷®÷š÷®÷øøì÷¹ø>ùòøóø>ù÷ù¾ú/û9û;ûjûŠûÚûëû}üIı-ı@ıóıÙş{ÿ6 e ` ¼ ‘ =©¿¢şøÇC91Ñ6<ÚŒôIwbQ6]%ùXeÆº_ü¢„”}ËŠ1¾Òq_«ÔKX%¶j²™®Vz"dªß8ÄæøUX&øGŠ¶ÜôüˆÛ'¤€©¬+u+fNx…ŒvÒ°m]ù¾7æªx<ŞQ–†e›ƒ$Î¿ÆµI+Ú c M  ùÿ¹ÿ¡ÿİşDşOşíıÜı™ıOı÷üúüàü\üküDü÷ûeûûÒúãúwû<ûûõúûúûQûŸûiûlû/ûßú×ú2û¿û
+ü$üíûüPü`ülüvü†üĞüøüğü2ıŠı0şŸşÿxÿÄÿE ^ ê ’ö)JVWêÏîu´2¿ºÍÿç²s>øëÿØ¶›+Ãa£ äÿdÿışHş€ı»üeü)üÄûüóûÖû°û‘ûŒûûßú—údú1úÈùÜù™ù=ùù«øVø0øÓ÷÷O÷Úö²ö–ö±ösöpö×ö÷‰÷¤÷øÀøŞø,ùgù¸ùúˆúöúûÉûŒûÈû×ûÒû7üüÚü5ı|ı³ı
+şZş´şÿ–ÿ  5 ’ Ë “àN¤ç3qlsèM«jÈò
+?”â 3/˜`¼
+	7	5		á…"ş9peLß{5İµl%ÛQÆB³6İp¯!· n   “ÿ>ÿãş”ştş{ş™ş³şşSşëıwı0ıôü§ü\üüøûÛûñûü&üüû£ûyûQûDûqû‘û¯ûÆûçû>ü üêü9ıdıSıYı‡ı¡ııŸı¥ıÀış¢ş0ÿ®ÿıÿ/ { ¼ 	QO7LŒŞ:]0ò¸®¤p$Ç ˆ s ` 3 âÿŠÿUÿIÿ^ÿyÿnÿ=ÿ
+ÿğşÿşÿ.ÿ+ÿÿ
+ÿÿ%ÿ ÿùş³şxşkş•şæş-ÿEÿ,ÿÿÔş²ş–şmş5ş şèıúı,şgş™ş¿şäşÿbÿ¨ÿÖÿäÿÎÿœÿbÿ*ÿúşßşÚşçşışÿôşÃştşşÂı|ıKı,ııı$ıDı}ıËı&şƒşÜş0ÿ|ÿ·ÿÒÿ¼ÿ~ÿ1ÿ÷şêş
+ÿ>ÿpÿ•ÿ·ÿèÿ) i Œ † ` : 8 d ´ R‚¢½ØçÛ­`° f ' ôÿÓÿÏÿìÿ A D $ ıÿğÿ
+ D p y g W c Š ³ Å ¾ µ ¿ Õ × ¦ I ïÿÓÿ  ç ó kåEfVGkÏVÑ%QrØ<OWcy‘¢«½ä!e’š]>%ÄmÑ¹º®unÚb®FÉ L êÿ°ÿÿ_ÿ	ÿ‰şùıwııÔü˜üVü
+ü¹ûgûû¾úoú6úú!ú'úúèù¨ùoùPùKù\ù{ù¥ùÕùüùúòùÉù­ù·ùèù%úTújúxúšúŞú:û”ûÖûùûüüûûñûğûüBü üıoı²ıÏıËı·ı§ı¦ı¼ıæışNş~ş«şÕşüşÿ9ÿ^ÿ—ÿìÿM                                 b     ¸0                              €  ÿÿO:x  w*  şv  52˜SØ9 JS                                                                                                                                         ÿÿÿ€                                                                                                                                                                                                                                                                            Read RSX & VMS files€ ?F11-I-F11 V2.0 (c) HAMMONDsoftware 1988,1989 F11€<09-Jul-1989 17:32:46.06€êˆÀ üˆ÷	Æ°ı÷	ˆÅÜ)fæ æZ,&
+åˆf÷	 Ö
+f÷	'Ö
+È‹éf÷	È&Ö
+÷	<f÷	üÖ
+æàæz	÷	ø–%À
+ ÿÿæ¨æú,÷	ê–%ø	 È‡   ²    C*OPY      E*XIT  Ø    H*ELP      D*IRECTORY   l    MD*      MO*UNT   <    SE*T   >    SH*OW  ì    T*YPE  ¼    U*SE    ÷®ü¾(÷e ¸(æ æ+÷	8–%æ æ*+÷	*–%æ æ,+÷	–%æ æ>+÷	–%æR æL+÷	 –%æR æX+÷	ò –%æR æZ+÷	ä –%æ æ^+÷	Ö –%ææp+÷	È –%æ ær+÷	º –%æR æv+÷	¬ –%æR æx+÷	 –%æR æz+÷	 –%æLæĞ+÷	‚ –%æR æH,÷	t –%æR æL,÷	f –%æR æN,÷	X –%æR æT,÷	J –%æR æV,÷	< –%æR æP,÷	. –%æR æR,÷	  –%æR æX,÷	 –%÷	àÀ'Ğ[]Š‡ ¦f&Áj'B‚m
+ €ìˆ †&
+ææ,÷	Ø –%7L'~ ¦
+ f÷	ô#–%€‚‡ ş‹ I‡ &¦
+ ¦
+ ¦
+ ¦
+ ÷	´Æe &
+æú,÷	x –%€‡ f&¦ ¦ ÷	^–%À
+w ı€‡ ¦ æ°-÷	v –%‡ æê&æh0÷	²#–%&¦ ÷	¦#–%æĞ&÷	P Ö
+‡ ¦ æ¡-÷	@ –%‡ &
+æú,÷	 –%À
+¦ ¦ ÷	 –%‡ æ ¦ ¦ æE ÷	€ Æe w ’üæ ¦ ¦ æE ÷	d Æe ‡ À
+¦ ¦ ÷	 –%‡ æ ¦ ¦ æW ÷	6 Æe ‡ &
+¦ ¦ æD ÷	 Æe ‡ &
+¦ ¦ æI ÷	 Æe ‡ &÷	(æ¤,÷	^ Ö
+¦ ÷	r Ö
+æ- ÷	h Ö
+¦ ÷	@ Ö
+ö
+ 
+ş‹ 
+æ  ÷	H Ö
+¦ ÷	  Ö
+÷	\ ·İ
+ ù€‡ ¦ ÷	 Ö
+÷	D ‡ f& É‹@”&÷	
+ Ö
+ø€‡ &€  
+ 7
+N%   ·
+B%áˆş‡€‡ æ
+ ÷	ÔÿÖ
+æ
+ ÷	ÊÿÖ
+‡ ¦ ÷	 ÿÖ
+—-  æs ÷	¬ÿÖ
+‡ ¦f ‚ w ö$†÷	¶ÿÁ
+€Áíä$Á
+Á
+æ  ÷	xÿÖ
+÷ÀÎ$€``W P ƒ 
+‚‡ ÷
+¶$÷	vÿ‡ &€ æ &÷	!–%È‹÷U €$÷	 €‡ &÷
+€$€÷U døíˆàˆş†÷E Xø÷	2ÿ7
+d$&
+æ
+-÷	âı–%€‡ &7
+N$À#È ğ8, ıˆ€‡ &Àò"È 0
+ ıˆ€‡ €èˆæ’	÷	PÖ
+&
+æ-÷	‚ı–%æ"$&÷	ò –%‡ ÷	 &
+æ#-÷	dı–%‡ fæŠ	÷	Ö
+ÁE,f÷	D Ö
+Àä#É‹W¢. Ğ•* &f÷	¤ –%æ. æÂ#÷	& –%È‹Ğ•. Ğ•* Š 
+@Ò‡ f& æ: f÷	ü–%È‹æ[ f÷	ì–%È‹fæ<0÷	äü–%€‡ ¦f÷	Š
+æŠ	÷	RÖ
+
+æŠ	÷	nÖ
+Â
+2ÁE,‚
+f÷	”ÿÖ
+À4#É‹W¢. Ğ•* &f÷	ô–%æ. æ#÷	v–%È‹Ğ•. Ğ•* Šæú"÷	:Ö
+À
+æŠ	÷	ğÖ
+Å‚‡                                       æ æt	÷	 û–%‡ f&æ¦f Â¸ÿ÷	6  æz	÷	v Ö
+æŠ	÷	l Ö
+æ’	÷	b Ö
+ 
+É‹€
+‚ƒ„…‡ Ä‚	Œ´ ´ 4
+ W¢/ É‹
+ùÉ‹
+Ò• ´
+ W¢/ W¢  ƒW¢, R”õŠåŠ‡ „ Œ´ ´ 4
+ 
+ŠÉ‹,W¢  ‚
+ù
+W¢/ W¢  ƒW¢, Ã
+ƒ
+´
+ Ò• @”&÷	úÖ
+éŠW¢  ƒW¢, 
+øW¢  ƒ
+ÚŠ‡ ¦f¦ ÷	¾ Ö
+À
+É‹Àÿÿ7 ş¦ &÷	V–%É‹Àÿÿ‚‡ f&æ¦f… M ƒf÷	t Ö
+¦ &÷	–%À
+
+äÕ ¦f&ø	 Æe 
+æÀ‚ƒ„…‡ &€  0 €‡ &€   È‹ÈÕ €‡ f¦ ÷	 Ö
+‡ æ¦  
+B± Ò‹€Ò‹ı‰·Öı‚ƒ‡ ¦f& ‚
+ A É‹
+Ñµ fÊ	Ö
+Ñ‹ıô€‚‡ Å „ ƒÃe Â‚	 
+Ä
+
+Ä
+Á€ W  W    
+W  À
+@  
+‡ Âe Å
+Ş€
+‡ f&æ„
+ Ô
+ 
+Ì
+&„o
+ Â ¦ ÷	B Ö
+À
+Í5 € ¤N 
+¤O 
+&÷	 Ö
+À
+Ô‹ı„
+ÄE Ø@ƒ„…‡ &¦  
+
+£* •É‹	W¢= W¢: T¤ñÌ‹Â
+€
+‚„‡ &
+÷	2øÖ
+æ÷	ÈùÖ
+æö÷	ÎùÖ
+‡ 
+Read files from RT-11, RSX and VMS disks
+
+COPY files dev:		 Copy files to device
+DIRECTORY[/SIZE] [files] List directory
+HELP			 List commands
+MD log directory         Make Directory
+MOUNT log directory      Mount directory using LD7:
+SET item		 Set COPY control flags
+ [NO]EXCLUDE		 Do (not) exclude files with filetypes
+ [NO]HEADER		 Do (not) copy F11 file header
+ [NO]LOG		 Do (not) log copy operations
+ [NO]QUERY		 Do (not) confirm copy operations
+ [NO]MULTIVOLUME	 Do (not) use multiple output volumes
+ [NO]REPLACE		 Do (not) replace existing files
+SHOW			 Display volume and settings
+TYPE files		 Display files at terminal
+USE dev:[dir]		 Specify device and/or directory
+
+Specify device and directory with the USE command.
+Specify COPY options with the SET command.
+Check COPY options with the SHOW command.
+€æ æ  æ ÷	ÄôÆe æzæŠ	÷	”ú–%æZæŠ	÷	Ğô–%‡ € ¸  ‡   nˆ+  E*XCLUDE   n|+  H*EADER  n¤+  L*OG   n”+  M*ULTIVOLUME   n¶+  R*EPLACE   n¬+  Q*UERY    fæ»,÷	ĞõÖ
+Á|+æ  ÷	àõÖ
+É
+
+æN ÷	ÒõÖ
+æo ÷	ÈõÖ
+Áe f÷	õÖ
+Ñ‹ı
+ÁE W"ÿÿà÷	Èõ‡ &
+÷	ÌóÖ
+÷	 ÷	˜ÿ‡ ÷
+Æ&
+æo-÷	ªô–%‡ æª,÷	TõÖ
+æØ÷	JõÖ
+æ²,÷	@õÖ
+Á¤ÁeØBÂe  ‡—¨  ûƒÃºÓ•" B ‚S”üÓ•" Ó•  
+Šæ ÷	õÖ
+÷	 ÷	<õ‡ æ|÷	ğôÖ
+æv÷	æôÖ
+‡ æv÷	 Ö
+æl÷	ĞôÖ
+‡ € &æJ÷	&–%&æB÷	–%&æB÷	–%‡ æßíæ æ  æ ÷	ŞòÆe æŠ	÷	0ùÖ
+&
+æ4-÷	bó–%&æ’	÷	ùÖ
+&
+æ4-÷	Jó–%& Æ‘‡ æ‘íæ æ  æ ÷	òÆe æŠ	÷	âøÖ
+&
+æ4-÷	ó–%&æ’	÷	ÊøÖ
+&
+æ4-÷	üò–%& Æ‘Ö
+‡ æ æ  æ ÷	DòÆe æŠ	÷	–øÖ
+&
+æ4-÷	Èò–%W£[ ÷	˜ ‡ 7
+"7
+27
+`ÀDH•æ<æ4-÷	¬ò–%¤: ôŠêˆææÒ+æäˆF†ææQ-÷	€ò–%÷	bæşæ`-÷	Zò–%W£[ f÷	¦ñÖ
+Ål÷	  ‡ [000000]  ÷
+ &
+æo-÷	:ò–%‡ ÷	èÿæ¼æ¶÷	–%Á®Q¥&
+æ-÷	ò–%W£. W£- ÷	’ W¬ÿÿ[ 
+W£. …
+W£] fæ>,÷	F–%@• ]    ‚&
+æ-÷	Âñ–% . ï1 şÿW£] &
+æ-÷	¢ñ–%á	Šf÷	ÜğÖ
+æ÷	¤Ö
+æF+æ0+÷	Ü–%ææ÷	Ø–%‡ Ñ‹ıa¨W£- 	…
+W¬ÿÿ[ W¨. ùôW£] 	W£. &
+æ-÷	6ñ–%‡ ÷	äşæ æ æ ÷	nğÆe 7
+æÚæ‚	÷	:ö–%æjæ‚	÷	vğ–%÷	şü÷	4ò÷	>
+
+
+÷	Öò÷	 À
+B÷	üóÀ
+ö„
+æ f÷	>ò–%æX÷	¼ñÖ
+÷
+ºææ f÷	 ò–%æR+æ^+÷	Â–%À
+æ(æ½-÷	Òğ–%ÎÃm(ææ ÷	T–%æ÷	jñÖ
+×-à0 ƒ÷	ñ
+¸÷	òÁèf&÷	(–%f÷	@ñÖ
+&æß,÷	Œñ–%÷
+2æ, ÷	BñÖ
+æ  ÷	8ñÖ
+fæ÷	ğ–%f÷	ñÖ
+ææØ,÷	Tñ–%÷	8ñææŠ	÷	dï–%‡   nÄ+  S*IZE   &æ¦f÷	~ıæ æ  æ ÷	ïÆe ÷	 ÷	ÌÀ
+A÷	ÈòÀ
+øæR+æ^+÷	¼–%À
+æ"æ½-÷	Ìï–%ç÷	XÀ
+ã
+Ä
+ ÷	^ñƒ
+Âæ^+ææ ¦÷	Æe À
+Á €@`à‹Á
+ü”È•€ €éˆá¡
+ ÷	jğ»ææŠ	÷	”î–%‚ƒ„‡ ÷	Àüæ æ æ  æ ÷	FîÆe ÷	N÷	@ñ÷	6÷	Ôğ÷	ŞÀ
+÷	@ ÷÷	ğÀ
+÷	ìñÀ
+ï÷	* ì÷
+Â	÷	’÷	ÂÀ
+
+÷	 ùææŠ	÷	î–%‡ ÷	ĞÀ
+æ"æ4.÷	şî–%æ6æ
+÷	Ü–%&æ÷	ä–%Ğ•= Š‚æÚ+æÒ+æ
+åˆ†!Šæ æH.÷	*î–%÷	²À
+w ¨÷	ÎÀ
+w œæR+æ^+÷	@–%À
+æ¦æ½-÷	Pî–%‡ ÷	ÜÀ
+w nÁš÷
+¨×-6 
+À üˆÀÈ ğÚ+ p 0
+ ıˆ1†Á&èW  
+æJæq.÷	&î–%÷	‡ !W  	æ.æb.÷	
+î–%‡ W úÿ
+ææq.÷	òí–%÷	è‡ æ"æ€.÷	`í–%
+
+
+÷
+×- À|È 	0
+ ğØ ğ  0
+ ıˆ†æàæš.÷	í–%…
+÷	ï÷ ÂÃ¾Ã¶æ^+&æ æ÷	6Æe À
+$„
+ 
+üˆ†æœæš.÷	Úì–%À
+È 	p ğ ğ  ğ  ıˆ†ænæš.÷	¬ì–%…
+Æ 
+üˆ†æVæš.÷	”ì–%À üˆ7
+’‡ ÀJ 
+Á(,É
+
+Ñ-’ûææ´.÷	àì–%€
+‡  
+÷
+NÀ üˆÀ‚È ğÚ+ 0
+ ıˆ† 
+‡ æìæÂ.÷	¦ì–%À ‡ f÷	> ÷
+ú
+÷
+üæ¢÷	öìÖ
+€€÷
+æ
+fæĞ,÷	V–%æ€÷	ŒÖ
+‡ ær÷	
+øÖ
+Ğ•  Ğ•( &æn÷	¢–%&æØ,÷	–%×-X Ğ•s Ğ•) Š‡ 7
+¤7
+÷Ğ+ 7
+˜7
+–‡ ÷
+Xæ8æÖ.÷	vë–%÷
+z	æ|,÷	Ö
+À
+w 
+è÷
+d	·
+^ææâ.÷	Âë–%÷	° ÷
+B
+×->; ‡×-Ô †÷	 ‡ ÷&"·
+"7
+ æ`,÷	´Ö
+À
+w °ç‡ ÷	îìÀş÷	 €‡ ¦f&Àôæ &æR+÷	Æe Àe æ æX+&÷	Æe Àe ææĞ+&÷	ò
+Æe ÷
+¨÷
+¦÷å ¦€‚‡ &À˜æ &æR+÷	Ä
+Æe Àe æ &æ÷	®
+Æe Àe 7h·
+^€‡ tttÔ‚R € °!6 Š#z#*$
+%¾%°&'Ş'–&($(t(÷	(À
+÷t¸ÿ‡ ÷	N	À
+÷¨ÿ‡ æ|æy0÷	ìé–%‡ À’ÿx  ÀŠÿx  À‚ÿx  Àzÿx  Àrÿx  Àjÿx  Àbÿx  ÷	¶ÀVÿø	 ‡ f&€  €‡ æF+æ,+÷	¦ÿ–%&
+æ.÷	^é–%‡ f&æ¦f÷	°ÿ÷	Në÷	xÿÀ
+¦ ÷	  Ö
+À
+ó¦ æR+÷	˜ÿ–%‚ƒ„…‡ æ¦f‚ ¦÷	ÆÖ
+Ã®æ÷	ºÖ
+÷	 ‚ƒ‡ æ¦ 
+”W * ÷	ìÿÀ
+Ë‹ƒ
+øË‹
+Á¤îW % Ê‹éË‹æ€
+‚ƒ‡ ¦fÁRB
+æ ÷	4 Ö
+× : æ ÷	$ Ö
+× . æ ÷	 Ö
+	Š÷	> Ä
+ 
+‚‡ € C”× $ û× _ ø× : 
+× . À
+À
+Ò„
+ëÒ‡ ÂŞ
+ÁØ
+‘¢Ò‹üb¨b¨ÂíÊ
+—  †
+×­À
+	 	†Â¸
+Âe0 ‘	Š·
+¬
+„
+‡ åæ 
+æš
+÷	f
+–%7
+”
+‡ ?ŠŒ
+7
+Š
+‡ f&æ¦f7
+8
+7
+H
+7
+v
+Ã<
+æ æ æ÷	şÆe æDæö.÷	 ç–%ÁÁeğÂ@æ
+ ¦÷	Î
+–%æ	 ¦f÷	Ø
+Æe ¦æ ÷	”
+–%À
+Xæ: æ÷	–%æô
+æ/÷	Pç–%æşæ÷	–%æÚ
+æ/÷	6ç–%×¬
+  ÷	¾ ×¬
+  ÷	x æ°
+æ"/÷	 ç–%À
+æ
+æ>/÷	ç–%&æ æZ÷	FıÆe æ+æ+÷	Â–%æp
+æM/÷	Ìæ–%æ+÷	ğÖ
+÷U €(€‚ƒ„…‡ DECFILE11 ¦f÷Â,6
+÷ ö
+7
+ô
+Á  Â À @`7ä
+€@`ó
+  
+‚‡ ¦f÷Æ,ş÷  ¾
+÷ º
+À Á  Â ó
+  
+ÀÀ@`7œ
+€@`‚‡ f&æ¦f„ ¥[ &
+æ-÷	 æ–%÷	 £] <Áœ
+£. „
+£] £. Ì‹•öw |
+&
+æ-÷	äå–%fæ0 ÷	@	–%æ0+æZ
+÷	\ü–%æP
+æl/÷	¨å–%æ0+æ,+÷	–%æ4
+æÒ-÷	Œå–%Á‚ƒ„…‡ .DIR  æ@+æ,+÷	n–%&
+æì-÷	^å–%‡ 7
+æ
+÷	 ‡ ·
+Ü
+÷Ú
+è
+æ,+æÎ
+æ æÈ
+÷	~ûÆe ‡ f&æ¦f÷
+„
+÷	 AÅ´
+À 
+Àe D! †! &
+æç/÷	å–%Ä
+€@!‡÷	ÿÀ
+$âDa7v
+Õ
+Õ‹Ü 
+@ÕÀ
+ P ƒ&
+æç/÷	Èä–%ÁZ
+Q•À
+ı	Š…
+ÅE ÀP+PPPP‚ƒ„…‡ f&æ¦fÅ
+÷-
+ş	ƒ 
+3Àü	Àe @!‡÷	ÿÀ
+)íwö	÷e ğ	ÀR+PäPPÄ Àæ	A&f÷	|–%Ä
+ø7 Ò	Ğ•? Ğ•. A&f÷	^–%Šw®	€‚ƒ„…‡ &æƒ „ &æ÷	R –%À
+æ÷	
+ Ö
+€ƒ„‡ ¦f& ÷
+*	BÂe BÂe €
+ 1 ±  À
+1
+ €‚‡ f&æ¦f € Àmèæ+&æ f÷	¼ùÆe À
+&
+æ€/÷	¼ã–%¦ ¦ ÷	6 –%‚ƒ„…‡ æ¦f ‚
+ €
+‚CdÂ
+ıC" 
+‚ƒ‡ ¦f‚ €—, ÿÿ7 ÷
+d÷	f /æşf÷	¬ÿ–%À
+&
+æÊ/÷	:ã–% W¬  &
+æ¦/÷	$ã–% 
+ñ
+ ±" ±, 
+ &
+æ"0÷	üâ–% 
+€‚‡ æşf÷	Hÿ–%À
+&
+æÊ/÷	Öâ–%‡ W¬  &
+æ¦/÷	Àâ–% 
+‡ ñ
+ ±" ±,  &
+æ"0÷	˜â–% 
+€‡ f&æ¦f¶
+ f&æ¦f… ¦ ¦ ÷	L–%µ- 
+ ƒ 
+6f÷	® Ö
+Â ÷	Ü À
+,`¶  øƒàƒ ƒàC`æ¦ ¦ ÷	"øÆe &
+æš/÷	¸á–%µ- 
+ õ
+ 
+ Am ‚ Bí ¦f÷	Ô–%‚ƒ„…‡ f Áe † 
+À¶È ÈÆ°  °  p 0
+ ıˆ† 
+‡ &€ 
+Ü Ä`÷
+˜	
+İ ƒ
+ÃÄe
+ a
+Ü: ƒ
+Ãa€‡ æ¦ 
+!.‚÷
+fÔ‹)
+ÕÂE ÀÌ
+Ô5 @íÂE ÿ
+Ô5 @Ô
+Â
+Ô
+‚
+&
+æş/÷	Æà–%ƒC`‡€‚ƒ‡ f&æ¦f7
+7
+7
+@Ãæ æ æ÷	ÖöÆe ææö.÷	jà–%ÁÁeğÂ
+À W¢  ƒR”À
+ú
+Šæôæ¨%÷	f–%À
+æâæ±%÷	T–%À
+÷Ê,À÷ €÷	÷U €€€‚ƒ„…‡ DECRT11A DECVMSEXCHNG f&æ¦f„ ¥[ &
+æ-÷	äß–%÷	´ À W¤0 À
+ûW¤] F£] CÁJ£. „
+£] £. Ì‹•öw *&
+æ-÷	’ß–%fæ&÷	î–%æ0+æ÷	
+ö–%æşæl/÷	Vß–%À0+0l   0
+  æ0+æ,+÷	l–%æÔæÒ-÷	,ß–%º‚ƒ„…‡ .DSK  &æª&æ,+÷	:–%€‡   D   ÷ †÷	 ‡ ¦fÀx)ÁÁe Âl·xæ,+fæ ¦÷	õÆe &
+æ0÷	¸Ş–%· @ÀR+°   0
+ ğ& Âe
+ ·6‚‡ f&æ¦fÅ"Í5ÿp&
+æç/÷	„Ş–%Í5 ÷	tÿÀ
+CíÀìÁe BÂe l  ƒ&
+æç/÷	PŞ–%·Ø7
+ÖÀR+0l   p  ğ¦ Í5 ÉÀ¾Õ
+A&f÷	R–%A&f÷	F–%7  Ğ•? Ğ•. A&f÷	,–%Š€‚ƒ„…‡ &æƒ „ 3   3  3  3 
+ 3  3
+ €ƒ„‡ ¦f
+ ‚ Á
+¦f
+ ‚ ¦ ¦ ÷	´ –%r 
+ ‡ 
+l l f¦
+ ¦
+ ÷	ªóÆe &
+æš/÷	@İ–%‚‡ ¦f ‚
+ Áe † 
+ÀfÈ Èv° °  p 0
+ ıˆ† 
+À‚‡ f€  È‹¢€
+ú‡ ¦f ‚  
+J¤Ò‹ü€
+‚‡ f&€  ŠÁ
+ı€‡ ¦f&€ 
+ ‚ ”Â
+ı€‚‡ f € P”şÀ
+‡ ¦f € Â W". Â Â
+P’
+Â
+õÀ
+‚‡ f& @’&÷	 Ö
+ø€‡ €  a ‡ z ‚Àå  ‡ € 
+¢  ¢	 €
+
+È‹
+‡ ñ‡ ¦f € &¦÷	  –%&¦÷	 –%Ğ•. &¦÷	 –%‚‡ æ¦f €
+ Â6*Ãÿÿƒ
+âı†dÃ
+× ( ‡Ã( Ğœ>*Ê
+ïŠ‚ƒ‡ @(    _ABCDEFGHIJKLMNOPQRSTUVWXYZ$%*0123456789? ¦f‚ Áàfæ ¦&
+åˆf÷	İÖ
+ 
+W¢Y W¢y €
+‚‡ &æ¦f
+ € Âê*
+Ãÿÿƒ
+âı†dÃ
+Ä
+Ê
+„
+Ãe0 ĞÊ
+ìŠ‚ƒ„‡ 'èd 
+    ø*                                       ÿÿÿÿ                                                                                    H Header    X Exclude   M Multivolume  L Log   Q Query   R Replace ÿÿ                                                                                                    ˜‹¬_M{LNxQ      000000                      F11> €Volume full; Continue [N]? €File too big for volume; Continue [N]? €?F11- Using:   volume  Setup: RSX VMS RT-11  [N]? €  block  file  Insufficient memory Invalid command [abort] No output device Filename missing Invalid volume specification Invalid device Invalid volume No volume mounted Invalid directory specification File not found Invalid item Error attaching file Error attaching directory Error attaching master file directory Error attaching default directory Filename changed to Error parsing output name Protected file Directory full Error opening output file Error writing output file File excluded File already exists Volume full Current volume full Error reading home block Invalid home block Invalid F11 structure level Volume too big Invalid INDEXF.SYS file header Directory not found Error reading file header Input error Invalid file header structure level Invalid file header checksum Invalid directory file Invalid retrieval pointer structure Deleted or different file Specify device & directory with USE command Invalid option / Unknown file structure Unexpected end-of-file reading directory                                                                                                                                                                                                                                                                                                                                        ûûûû%û9ûPûhûûûšûŸû¢û§û²ûÆûæûüJü‹üÓüıfıªıèı şUş‰şÁşış=ÿ€ÿÁÿşÿ3 ^ ~ • ¢ ª ­ ® ­ « © ¥  “ … v j d g u  « Ë é !$$#! !'4Gc†¯ŞAr¡ÌõDnšÇò7LWYUMD<8<Mk–Ì9^ngK ï¿“pS:%óçŞÕË½­›ˆuaM5ıÜ¸’i=Öœ`#æ « q 5 úÿ¿ÿ‰ÿYÿ3ÿÿ ÿéşËş şgş!şÓı„ı:ıùüÃü˜üuüUü8üüüìûÜûÑûÌûÉûÅû»û¦û‡û_û6ûûùúóúÿúû;û]ûwû†ûŠû†û}ûrûhû_ûVûKû@û5û+û$ûû û&û0û@ûSûiû~û‘ûŸû©û±û»ûÌûéûüKü‹üËüı;ıeıˆı§ıÆıçı
+ş0şSşsşŒş ş­ş¶ş»ş¼ş»ş¸ş°ş¥ş•ş€şhşNş4şş
+şşıöıòıñıóıúışş8ş[şşŸş¸şÈşÔşßşğşÿ5ÿlÿ¬ÿóÿ> ‹ Ø 'wÈg¶X­Zªğ+[„¦Æá÷(Es°õ9q–¥¤™Š|n_H)Õ©„iVK@2â¼”mH)ğĞ©x:ñ¢Q·l Ìo
+¢ ; ŞÿÿNÿÿíşÃş•şaş#şİıı=ıêüœüVüüğûÎû·û¥û™ûû‹ûŒû“û›û¢û£û™û…ûkûRû>û7û<ûMûeû€û™û±ûÆûÙûéûôû÷ûòûåûĞû¸û û‰ûvûdûWûPûQû]ûsûû®ûÄûÏûÏûÉûÅûÍûæûüJüˆüÅüıü/ı_ııÄıûı1şdş’ş¼şçşÿIÿ~ÿ±ÿİÿşÿ $ 1 @ O [ ` Y H 1    , D \ n z „ ‘ § Ç ê 
+!,-,/;Pk‡ ¶ÌéI×^‘ºÜş"IsšºÏÖÍ¶•nG),Mu½ÒÚÖÈ±‘j>å¼•pJ'	óçãáŞÔÂ§‡dF.ëÍ«ŠlJ è   O   ºÿ„ÿZÿ9ÿÿ÷şĞş¥şxşKşşîı»ıı>ıöü¯ürüEü*üüüüøûëûæûìûüûüüüüíûÒû»û¬û¥û¦û°û¿ûĞûàûíû÷û ü
+üüüü	üôûÛûÄû±û¢û•û‹û‡ûû û»ûÙûğûùûõûåûÑû¾û³û´ûÄûãûü?ünü˜ü½üßüı,ıSıtıŒıı´ıÓışı.şWşsşş€ş~ş|şzşuşişVşAş1ş'ş"ş!ş ş ş%ş1şFşdşˆş°şØşşş ÿ;ÿQÿcÿsÿ†ÿÿ¹ÿØÿıÿ) \ ˜ Ù ^¡è4ˆá:Ş'l®í'Zš§§Ÿ’…|{ˆ¡Éû.Xrxn[F0õÍ¥†vtuo[?'"'ûÆbMHF=)
+ïÏ©|Fà¸‘b&áf>ü Õ ¨ | P  Øÿ~ÿÿ°ş\şşîı¸ıwı1ıõüÑüÅüÂü·üšütüUüHüGü@üüáû•ûWû7û5û=û<û(ûûşúûû)û'ûûãú¾úªú¤ú¤ú úšú›ú¯úÕúû8û`ûûœû·ûÑûãûìûôûü0üoüºüıBı~ıÀışfş·şõş ÿCÿrÿºÿ z Ò Q‡¿ö,% ùøòß¾›ƒ~ˆ—¡ –‹†‹–¡¥yh`ais}ˆ˜°Òù A\w—Âó&Ty•«¼ÅÇ¿°œŒƒ‡š¾ï%Vz—›Ÿ¡›ˆiF*ïÒ¹±»ĞÜÓµlYN@#öÂ’iAÑ‡=ı Å ‹ E ğÿ“ÿ;ÿôşÀşœş~şbşGş*şşÖı•ıGı÷ü®üoü5üöû°ûhû+ûûïúèúáúÖúÍúĞúäúûû ûûûüúûû4û@ûAûAûNûlû•û¾ûàûøûüü)ü&üüôûÙûÎû×ûíûüüüü*ü;üHüKüCü;ü>üPühü|ü…ü‰ü–ü¶üæüı6ı:ı.ı#ı)ı?ı[ıpı}ıŒı©ı×ı
+ş/ş:ş.şşş.şGşUşLş.şşôıêıåıÚıÊı¿ıÈıêışLşişsşuşƒş¡şËşîşÿ
+ÿÿ*ÿTÿ‰ÿ¼ÿêÿ Z ® vÊ
+C‚Ï)‚ÑV›ã&Wqy©Êê(Wšè4q»Ôëı ğÑ¬Œt`G& ßÉ¾µ¥†Z)ûÔ²d2şÍ¡wG
+½c©T³]¨ V  Öÿÿ_ÿÿÏşˆşFş	şÉıı,ıÕüü6üòû³ûzûLû/û%û&û*û&ûû
+ûûûûøúŞúºúŸúšú®úĞúíúûú û
+û/ûfûŸûÄûÉû¸û¨û¬ûÈûíûü
+üüÿûüCüuü—ü¡ü›ü™ü§üÃüŞüëüëüìü ı.ımı­ıİııış:şcş‹ş¦ş³şºşÎşôş'ÿWÿvÿƒÿ‹ÿÿ½ÿßÿõÿöÿéÿÜÿÜÿåÿèÿÖÿ±ÿˆÿwÿˆÿ¶ÿèÿ
+   0 Z  ¹ Ç ¾ ² º ß :H?5An°ô'F_€¬à4U|±ñ0b‚’š ¢  °Ïö5H\|¦ÎåŞ¼fK7ùÈ•hE#ù¿x/ğÁœvBû¦Nÿ Á — y ^ <  Ôÿ“ÿOÿÿºşeş
+ş·ıoı:ııúüÛü´ü‰ücüLüAü9ü'üüÏû”û_û9û ûûûû.ûLûoûû¤û³û¾ûÌûŞûïûüûü
+üü/üMükü†ü¡üÂüïü$ıUıvı€ıxımıkıwı‡ı’ı’ı‹ı‰ı—ı³ıÑıæıéıáı×ıÒıÎıÀı ıoı;ıışüıüıÿüñüİüÎüÈüÉüÇü¼ü¨ü—ü’üŸüºüÖüêüğüíüèüéüğüùüşüûüïüŞüÏüÅüÂüÃüÃüÀü¹ü³ü»üÖüıEı…ı¾ıíışDşwş®şâş
+ÿ*ÿGÿlÿ ÿãÿ- x ¾  BƒÂş6n«í3x¼M ò7cxŒªÖ)?Sy¹i­Òİàéù	ıãÉº´¯¢‰hF%Ù¨q:È‡=ö»”{`3ì‘3à•LôŒµ b ! ëÿµÿ|ÿFÿÿøşÚş³ş}ş:şõı¸ı…ıUı!ıèü´üüüyünüSü+üüôûøûüüçû¬ûkû=û2ûDû`ûqûsûqû{ûšûÉûôû
+üüôûãûáûíû üüü#ü9ü^ü“üËüıü!ı8ıEıJıKıGıCıAıHıYıqı‹ı ı¯ı¹ıÅı×ıòış2şJşYşgş{şœşÌşÿ0ÿNÿ[ÿ^ÿeÿvÿÿÿÿ‡ÿgÿOÿGÿOÿYÿSÿ9ÿÿüşÿş"ÿUÿ…ÿ£ÿ´ÿÁÿØÿüÿ# A P T \ p “ ¼ â &Q†½é(Kz«Ø/g¢ÕñôäĞÅÇÑÛãí%Z™Ø=^qwqfZRMG9&úçÑ±ƒLİ¬y<ò Sã»ZÙ — U  ¿ÿhÿÿ¼ştş3şõı¶ı{ıMı3ı+ı0ı5ı2ı%ııúüàüÂüüsüIü(üüüüü%ü0ü=üJüVü\ü[üQü?ü(ü
+üôûãûŞûéûü"üfile	elvxi - virtual interconnect
+include elb:elmod
+include elb:elmod
+include rid:vxdef
+include rid:lndef
+include rid:drdef
+
+;	vxETH := 14		; Ethernet header size
+;	vxVAB := 46		; VAB size
+	VAD(a) := (PNB(VPR(<long>((a)&0xffff))))
+
+  proc	el_vxi
+  is	cod : elTwrd = el_fwd (SP)
+	a1  : elTwrd = el_fwd (SP+2)
+	a2  : elTwrd = el_fwd (SP+4)
+	p1  : * char = <*char>VAD(a1)
+	p2  : * char = <*char>VAD(a2)
+	vab : * vxTvab
+
+	case cod
+	of vxVMP 
+	   vab = <*vxTvab>(p1+vxETH+4)
+	   vxPbuf = <*char>vab + vxVAB
+	   vx_ser (vab)
+	of vxMKD
+	   dr_mak (p2)
+	or vxDEF
+	   ln_def (p1, p2, 0)
+	end case
+  end
+
+
+end file
+                                                                                                                                                                                                                                                                                                                                                                                                  cùpùMù…ù»ù£ùÖù"ú;úªú$û-ûXû û¢ûâû@ü.ü*ü[üKüiüÌüŞüôüLı^ıoıÃıÕıÖışşş=şkş’şşş?ÿDÿ‚ÿÆÿõÿY ¢ ¡ À ò V¢µÓG‰µê<v¥ê'X–ÆÜ=[joXS|œ¥°¥ŸÕ>o‡vƒœ›½íèåâ®•£‚[EİñäËÓ¶’˜lè­su`øÂqL%àÁœLê°¡•R
+È ƒ r „ z r l N 8 ! áÿ›ÿZÿÿÑşş\ş(şşİı»ı—ı`ı6ııáü³üŠüYü>ü&üçûûOûüúĞú¿úúƒúzúiúuú–ú•úú•ú‚úuú}újú]úqúuúuú’úŸúµúùú/ûOû„û­ûÏûüMüZüuüüüÕüı=ı~ı×ışyşàş ÿgÿÄÿüÿ# O U T w ‰ ‘ º Û ë #ü ö Ø Ï Â  v „ ƒ ˜ ¼ ´ ® Ä ¼ ´ Ğ Ù à â Ü Ì ´ Ì Û É ß ü  %OQq ¢¯ÏĞï1FK^LAdu‚½ë
+Ho|²ë
+Bqµû!R~~~„dFIABZS=EC56İ¸•`A"ìÆ¤]İ‘V0ó¶VŞ Œ 3 ıÿÇÿ’ÿ{ÿcÿHÿOÿOÿ,ÿÿÇşoş,şòı©ırıIııîüÏü–übü8üüØûÁû¤û—ûûûsûMû
+ûÑú©ú|úQú4úúúúúúú úêùÜùÅù¯ù¦ù˜ùùŒù~ùrùyùƒù›ùÅùìùúXú„ú¤úÁúÌúÚúıúû,ûMûhûûÙû$üjüºüøü(ıfı—ıµıŞıöıøışşş şEş\şxş†şsşeşSş(şşìıÏıÎıåıòış*şAş`şŒş¦ş¼şŞşùşÿQÿÿ§ÿÖÿ÷ÿ 0 Y ‹ Ô "f«ï.u¿ı7t°ğ5r¥Ø+U~¤ÔB}½ö/kÑI´Öêÿ	ùæ¿‡W'÷×¼‹{]?Ú˜Pü¯i ß¢]ØAõ¡P³^	¬ N öÿ¡ÿWÿÿìşÅş¨ş‰şeş;şşÈı†ıAıÿüÄüüaü8üüìûÍû±ûœûû‡û†ûŠû‹û‡û|ûfûIû)û	ûïúàúÛúâúñúûû0ûDûWûiûzû‰û•ûûû›û‘ûˆûƒûˆûšû»ûêû"ü_ü˜üÈüîüııı$ı0ıCı^ı€ı©ıÖış5şfş–şÄşíşÿ+ÿ:ÿ=ÿ5ÿ'ÿÿÿÿşışÿ
+ÿÿÿÿìşËş¥şşbşQşOş]şwşšşÂşéşÿ1ÿRÿsÿ—ÿ¾ÿçÿ ? i ‘ · Û ÿ %O}±è"]˜Ğ9i•¾ã3ER]hr~Œœ­ÀÓèı*D`}š³ÇĞÍ¼›m6ú¿‹bE3( éÅšj;èÆ¨‹lL'Ø¯†]3Ò › a & ïÿ¾ÿ˜ÿ~ÿnÿfÿaÿZÿMÿ9ÿÿışÙş¶ş•şwş[ş?ş"şşâıÃı§ı’ı„ı€ı€ıƒııyıdıCııâüªütüBüüòûÓû·ûœûûaûAû ûıúÚú·ú“úoúKú'úúèùĞùÀù¹ù¸ù½ùÆùÎùÕù×ùÕùÏùÇùÀù»ù¼ùÆùÚùûù&ú]úúãú+ûpû¯ûåûü0üIü\ünüƒü›ü¹üÚüıüı;ıRıaıjıoırıvı~ı‹ıı¶ıÕıøı!şOş€ş´şêş ÿVÿˆÿ·ÿâÿ
+ / R u ™ ¿ ç Ar¦ŞV—Ù^ŸİN€®×ü9Sk„·Ñë,>Ri†ªÕ-Qgl^?çº•yeXL;#Û°…^<èÈŸp;Î›k<
+Ñ‘Gõ¡Q	Í Ÿ | _ D % şÿÍÿ–ÿZÿÿãş­ş|şMşşìı·ı€ıIııèüÃü¨ü”ü„üuücüMü0üüåû¼û“ûlûIû*ûûùúçúØúÎúÆúÀú¹ú±ú§úšúŒúútúoúqú{úú¦úÄúãúû"û@û\ûvûû¦û¼ûÑûæûşûüAüoüªüïü;ıŠı×ışWş…ş¨şÃşÜş÷şÿ=ÿiÿ—ÿÄÿêÿ     
+  úÿöÿöÿøÿıÿ   ' : P h ‚ › ± Ã Ğ Ø Û Ù Ö Ğ Ë É Ë Ó â ÷ 2V}§Òÿ-^¿ì7Siyˆ—§¹ÌŞëô÷ùı?o§â:KF.	Ş¶–‚xvtocN2ñÔ¼§”jN.
+èÇ©oL ê«eÖ ˜ d <   çÿÉÿ§ÿ}ÿOÿÿğşÂşšştşPş+şşİı²ı†ı[ı4ııõüŞüÌü½ü®üŸü‹ütüYü7üüéûÀû˜ûuûZûHû@ûAûGûPûWûVûMû9ûûûúÚú½úªú¢ú§ú·úÏúìú
+û'ûBûYûnû€ûûœû¦û®û¶û¾ûÊûÛûöûüGüzü¯üáüı-ıCıRı\ıhıxıı±ı×ı ş$ş?şMşMş@ş)şşğıÖıÃı¸ı´ı¶ı½ıÆıÒıßıîışş3şTşyş şÉşñşÿ:ÿZÿwÿ“ÿ±ÿÓÿüÿ, e ¥ ì 7†Õ$vÉxÓ.ˆÜ*p®æIx¥Ïõ0H`|ŸÍ@{­ÏÛĞ¯}BÏ¢|^B$ Õ¤n7Í›i6 Æ‰J
+Î“YŞ–Gğ”6Ü Š B  Õÿ¬ÿˆÿfÿEÿ"ÿış×ş±ş‹şeş@şşòıÊı ıuıKı#ı ıáüÈü´ü¦üšü‘üˆüüsüdüQü:üüüãûÈû²û¦û£û«û»ûÑûçûøûÿûûûëûÏû«û†ûeûMû?û>ûIû]ûvû‘û«ûÁûÓûàûéûîûñûôûøûÿûü ü<ü`üŒü¼üîüıJıpıı©ıÁıÛıùışHşwş§şÕşışÿ0ÿ9ÿ:ÿ4ÿ+ÿ!ÿÿÿÿ"ÿ1ÿEÿ_ÿ{ÿ›ÿ¼ÿİÿşÿ > ^ }  ¼ Ú õ $8J_v”¸ãH´éL{©Õÿ&Hcx‡’˜›œ›˜“ˆ†Œ›´Ø/UowkIÚ˜Z#öÔ»¨—„pW;ûÚºœhSA0
+òÓ®Nß ¨ s D "şeş¯şÿUÿ§ÿóÿ9 | Ã €úxÙ$_•ÑvÜHµ~Ø,x¾ş:	t	­	ã	
+.
+9
+,
+	
+×		e	0	şÊŒCî0Ô~/ç¤f0ŞÀ¥…](çRÀIîÉ§†c>ì Å ¥ Œ } v s r q p n k c T ;  áÿ¤ÿ_ÿÿÑş‹şFşşÀııFııŞü­ü{üCüüÄû€û:ûôú®úhú#úàù£ùpùGù)ùùıøæøÊøªø‰økøRø?ø.øøøï÷Ö÷Ã÷¹÷½÷Î÷ê÷ø0øRøoø‡øšø«ø¿øÙøù;ùˆùçùRúÀú&û~ûÄûûû'üOüzü©üÜüı:ı\ırı|ıı~ııŒı¢ıÃıïışLşqş‹ş›ş¥ş®şÀşİşÿ;ÿsÿ©ÿÚÿ * N t  Ê ù )YŠ½ô1vÄzŞ?šé)Zƒ©Ô
+I’Ş)o­ãAm™Åğ	3	B	C	2		ã¬p2ô´r,à;è—J ºy?á¼šwNê°p-ç [á ° † _ 8  àÿ°ÿÿXÿ9ÿ'ÿ#ÿ*ÿ:ÿPÿjÿ„ÿ›ÿ­ÿ¶ÿ³ÿ¤ÿ‰ÿfÿ>ÿÿòşÏş¬ş†ş\ş0şşâıÆı®ı–ıxıUı,ı ıÏü™ü]üüÚû¡ûwû_ûVûXû`ûhûmûkûaûOû:û'ûûûÿúìúÒúµúúú‰ú‹ú‘ú›ú«úÀúØúëúõúóúëúèúóúû4ûfû¡ûãû(ühü›ü¾ü×üïüı8ı]ıpılıWı=ı*ııı	ıûüõüı(ıVı~ı–ıı¦ı¼ıâışCşnş˜şÈş ÿ6ÿcÿ€ÿ–ÿ´ÿåÿ& h  Á İ ;…Ò[Ÿì>ˆ¼ÒØİğ>k–Æü3`}œºê%Z€›¶×ıòâáëíÛ·p^O6èÎËÙçèÚÈ¿¾¸i#ß¬‡d2ìœU õÆ„0Ô; Á v % Öÿ•ÿ`ÿ/ÿóş¦şHşãııı³üEüÓûbûûú¢úSú	ú¿ùxù7ùùÙø¶ø“økø@øøï÷Ñ÷¼÷¬÷¥÷©÷¼÷İ÷ø0øUøsøø°øÕøşø$ùDù^ùwù’ù±ùÏùêùú'úWú”ú×úû;ûRûbûtûûªûÅûàûü:ü†üÚü#ıQıgıvı“ıÃıøışşÿıØı»ı«ı›ızıEııòüşü(ıUıgıZı?ı1ıAıhı’ı¶ı×ışSş²ş
+ÿHÿeÿwÿÿâÿ= ’ Î ó S©Q…°ïPËCÕ÷L†¼ç>~Äÿ%?_“×Khƒ±ö=	i	h	C		úóîĞ?ôÂ¢|>çŠ< ËŠ8ã¢{_2àoûŸb2ñ“&È ‘ € z ` $ Òÿ…ÿQÿ8ÿ(ÿÿëşÃş©ş¥ş²şÅşÕşİşàşÜşÌş«ş{şEşşõıàıÌı±ı’ı}ı}ı”ı¹ıÚıëıëıáıÖıÍıÄı¶ı¢ıŒıxıfıWıHı:ı1ı)ıı
+ıãü±üübüWüUüHüüÖûû8û
+ûûû
+ûûóúèúéúøúû	ûùúŞúÈúÆúáúûGûwû›û¶ûÑûôû"üYü“üÊüûüı-ı$ııİüºüªü°üÅüÛüêüôüııGıoı‡ı‹ı†ı‘ı½ışişºşîşÿÿ/ÿ^ÿ›ÿÚÿ 4 S p ’ ¸ æ a¬ø=x²ğ3qœ«ª­ÉL‹²ÅØû1n¡ÇéPÅé%Qyˆo7üÛ×ÛÄ&ØµºÄ­hË¹Ğêâ°i+ìÃ~'Û¬•|L¼tP¦ X 7 = J <  Ğÿªÿ©ÿ¼ÿÁÿ ÿ\ÿÿ×ş¶şšşnş(şÛıŸııwıkıOı+ıııııŞü„üüÔû°û¢û†ûFûêúúSú6úúîù–ù.ùÚø±ø¬ø¨ø„ø7øØ÷‡÷X÷E÷;÷-÷$÷4÷g÷±÷ò÷
+øøê÷ë÷øfø·øñøù=ù†ùõùsúàú%ûLûqû°û
+ükü°üÌüÅü¹ü¿üÚü ı ı9ıTııÁış>ş\şmş†ş·şÿRÿ’ÿ¼ÿÜÿ	 O ¦ ÷ 0QiÍD[YXl›Ø:`•ß5€®ÃÑğ%`ˆ”•¶ì6. -c²÷T“¶§r9ó®Zûôá©P÷½¬¬œk(õäííÄpÇ©¥™m*ìÎĞÕ¿‚0è À ³ « ™ } k r  ¡ – f ' õÿÛÿÍÿ¯ÿoÿÿÂşş{şrşWş#şæıÂıÁıÓıÕı©ıQıéü”ü_ü;ü
+üÈûvû4ûûûöúÂúnúúßù×ùíù÷ùØù“ùFùùùùùıøçøêøùoùÉùúúúúBú‰úÒúû%û?ûnû¼ûüsüµüæüılıÔı@ş•şÄşÓş×şâşúşÿ(ÿ.ÿ0ÿ<ÿWÿ~ÿ¤ÿ¾ÿÌÿÔÿİÿìÿüÿ
+   / G b y ‹ › ° Í ï 
+
+ô Ö ¾ ² µ Ç ê V¸Ñàî%E\gpƒ¨×
+*d¤Û  K‹×Jdw–Æû%:E4ğçù&% Ø›Z'ä°_ı¢fK>&î˜8å¬ˆlHå µ  t [ ;  ÔÿÿEÿùş®şcşşÄıpııÏü‹üQü!üõûÉûšûbû!ûÔú€ú,úâù¨ù~ùYù1ùÿøÇø“øpøbøbøføeøaø_øjø}øøøuøQø8øCøzøÒø0ù~ù±ùÑùïùúWú–úÌúñú
+û+ûTû‡û»ûåûüü5ü_ü—üÕüı<ı\ınıqıbı@ııïüŞüêü
+ı3ıGıAı'ı
+ııı8ı^ızıı¡ıÁıòı.şhşšşÆşùş<ÿ”ÿòÿE ~  ² Ñ 
+aÆ'|Ä
+\ºxÀõHy²í$T}Ÿ¼ÓçıH|¯Üÿ#R•ä)	O	G		Ş°Ÿ¦­›d²c,İ¨dÙ¦|QËn«NôšBî£`!ß š T  Üÿ®ÿ„ÿZÿ1ÿ
+ÿöşíşîşğşëşŞşÑşÎşÚşğşÿşúşÚş§şoş@şşşêıÉıªı—ıœı¹ıİıõıîıÇııTı-ıııııäüÀüü€ügüSü?ü.ü!üüü üâûµû~ûEûûâúÀú©ú¢ú¬úÇúëú
+û"û'û ûûû5ûTûsûˆûû”ûû´ûÖûşû&üMüvü§üáüı?ıJı7ııòüãüíü	ı'ı;ı@ı:ı6ı;ıLıcıxı†ıı–ı¤ı¾ıéı#şjş»şÿaÿªÿçÿ N ƒ ¿ ü 7i’¹ç!f°õ.]‡³â
+,:91/7HY`XA'5Y†·ìLn…” «·½ºªoO0òÍ¤yS5
+ûéÔ»šo;Ëœy_H*Ò tT;%
+ì Ê ­ › • ™ Ÿ ¥ © ® µ Á Í Õ Ó Å ª ‡ \ + ÷ÿÃÿ”ÿnÿSÿAÿ3ÿ"ÿÿâş°ştş0şæı™ıNı
+ıĞüŸüpü8üñûœûAûîú°úŠúvúdúEúú¿ùaùù©øaø,ø	øú÷ú÷øø)ø1ø.ø&ø ø$ø5øSøvø™øµøÈø×øäø÷øùGù‰ùÙù)úpú¢ú½úÇúËúÔúçúû#û?ûTûiû„û©ûÙû
+ü<üdüˆü°üäü'ıvıÊışnşÅş(ÿœÿ  vÅAÁLŒÇû-a™Ø]–ÁÜëø,V~›¨¤–‰€‚ˆ’¦Çñ!JgvŠ¸ĞÚĞ¯P"úÔªyAÇ\0
+çÄšf%ÚŒ@üÅ™vV7ì¼‡P!ö ø ş ü é Æ   w ˆ « Ñ ê ï ß À ˜ m ?  Ûÿ¨ÿyÿRÿ3ÿÿÿìşÈş—şWş
+ş´ıZııµürü5üúû»ûuû*ûàúŸúnúMú9ú,ú!úúöùÒù¤ùqù?ùùøøñøüøù5ùWùtù‘ù®ùĞùüù0úiú¥úÜú	û/ûLûgûŠû¹ûøûKü¬üırıÈı
+ş=şeşƒş ş¾şÚş÷şÿ-ÿEÿXÿcÿjÿnÿkÿhÿgÿhÿiÿkÿlÿrÿ‚ÿÿÇÿöÿ% O r  ¡ ° ¼ Ê Ø ã ê ç İ Ö Õ à û ?bwŒš°Ôö)=On§ÃÚéı$J~¸ E€»ñP}1990 := d:\1990
+1991 := d:\1991
+a03 := c:\p\dirt\a91\03dokdos.dsk
+a91 := c:\p\dirt\ret\.dsk
+a9101 := c:\p\dirt\a91\01addbru
+a9102 := c:\p\dirt\a91\02coodid.dsk
+aaa := bbb:ccc
+add := c:\p\dirt\shr\add
+ass := c:\m\ass
+autoexec := c:\autoexec.bat
+bak := c:\p\vrt\bak
+bbb := ggg
+bhs := k:\hammo\hammo\beathoven
+bin := c:\m\bin
+blk := c:\p\pdp\blk
+bmp := wus
+boo := c:\p\pdp\boo
+bru := c:\p\dirt\a91\bru
+bsd := c:\p\emulators\bsd
+cc2 := c:\p\archive\compilers\decusc\tcp\ccdsk2.dsk
+cck := c:\p\archive\networks\tcp\rt\cck
+cco := c:\p\dirt\a91\cco
+cgs := c:\m\cgs
+cib := c:\m\cib
+cis := c:\m\cis
+cmd := c:\windows\command
+command := c:\windows\command
+config := c:\config.sys
+csb := c:\m\csb
+css := c:\m\css
+cub := c:\m\cub
+cus := c:\m\cus
+d53 := c:\p\archive\systems\rt-11\releases\rtv53_rl.dsk
+d54 := c:\p\archive\systems\rt-11\releases\rtv54_rl.dsk
+d55 := c:\p\archive\systems\rt-11\releases\rtv55_rl.dsk
+dat := c:\p\dirt\shr\dat
+dcb := c:\p\vrt\dcb
+dcs := c:\p\vrt\dcs
+debuglog := off
+default := c:\m\els
+dirt := c:\p\dirt
+dis := c:\p\dirt\a91\dis
+dl0 := ld0
+dlb := c:\m\dlb
+dls := c:\m\dls
+dlx := c:\p\pdp\dlx
+dmb := c:\p\vrt\dmb
+dms := c:\p\vrt\dms
+dok := c:\p\dirt\a91\dok
+dos := c:\dos
+drb := c:\m\drb
+drs := c:\m\drs
+dub := c:\m\dub
+dus := c:\m\dus
+dwn := c:\cserve\download
+e11 := c:\p\e11
+eds := c:\p\vrt\eds
+elb := c:\m\elb
+elo := c:\m\els\elo
+els := c:\m\els
+emb := c:\p\pdp\emu\bin
+emu := c:\p\pdp\emu
+env := c:\p\dirt\shr\env
+er*satz := c:\p\e11\e11.exe
+etb := c:\p\dirt\shr\etb
+ets := c:\p\dirt\shr\ets
+exk := c:\p\dirt\a91\exk
+fas := c:\p\dirt\cd\shr\fas
+fb1 := c:\p\archive\systems\fuzzball\dsk\fuzz1.dsk
+fbb := c:\p\vrt\fbb
+fbs := c:\p\vrt\fbs
+fda := a:
+fdb := b:
+fltks := c:\ian\fltk\src
+for := c:\p\vrt\for
+ftb := c:\p\vrt\ftb
+fts := c:\p\vrt\fts
+fut := c:\m\fut
+fz1 := c:\p\archive\systems\fuzzball\fz1
+fz2 := c:\p\archive\systems\fuzzball\fz2
+fz3 := c:\p\archive\systems\fuzzball\fz3
+fzk := c:\p\archive\systems\fuzzball\fzk
+gcb := c:\m\gcb
+gcd := c:\m\gcd
+gcg := c:\m\gcg
+gcl := c:\m\gcb
+gcs := c:\m\gcs
+ge0 := c:\p\dirt\shr\ge0
+ge2 := c:\p\dirt\shr\ge2
+geb := c:\p\dirt\shr\geb
+ged := c:\p\dirt\shr\ged
+gem := c:\p\vrt\gem
+ges := c:\p\dirt\shr\ges
+gls := c:\m\gls
+hab := c:\p\vrt\hab
+ham := k:\hammo\hammo\beathoven
+has := c:\p\vrt\has
+hd0 := pdp:rthd.dsk
+hd7 := g:\pdp\a.a
+his := c:\m\his
+hlb := c:\p\vrt\hlb
+hlp := c:\m\hlp
+hls := c:\p\vrt\hls
+home := @ini@:
+ian := c:\ian
+iat := c:\
+ini := c:\ini
+its := c:\p\vrt\its
+jos := c:\p
+k53 := c:\p\pdp\k53.dsk
+k55 := c:\p\vrt\k55
+key := c:\p\dirt\shr\key
+kit := c:\kit
+kkk := c:\p\kkk
+kmb := c:\p\vrt\kmb
+kms := c:\p\vrt\kms
+kub := c:\m\kub
+kus := c:\m\kus
+kzb := c:\ian\kzb
+kzs := c:\ian\kzs
+l := c:\l
+lbb := c:\p\vrt\lbb
+lbs := c:\p\vrt\lbs
+lbx := c:\p\vrt\lbx
+ld0 := c:\p\pdp\dlx.dsk
+ld1 := c:\p\archive\systems\fuzzball\dsk\fuzz3.dsk
+ld2 := c:\p\dirt\shr\20mcdmcv.dsk
+ld3 := c:\p\pdp\mcrsrc.dsk
+ld4 := c:\p\pdp\solo_rk.dsk
+ld5 := c:\p\dirt\old\16jan.dsk
+ld6 := c:\ian\sps.dsk
+ld7 := xxx
+led := c:\l\led
+leg := c:\l\leg
+lek := c:\l\lek
+leo := c:\l\leo
+les := c:\l\les
+lew := c:\l\lew
+lex := c:\l\lex
+lib := c:\m\lib
+lim := c:\m\lim
+lp := tt
+lp0 := lpt1
+m := c:\m
+mab := c:\m\mab
+mac := c:\p\dirt\vop\rt3src\mac
+mad := c:\p\vrt\mad
+man := c:\m\man
+mao := c:\p\vrt\mao
+mas := c:\m\mas
+mcp := c:\p\vrt\mcp
+mcs := c:\p\vrt\mcs
+meb := c:\m\meb
+med := c:\m\med
+mes := c:\m\mes
+mew := c:\m\mew
+mlb := c:\p\vrt\mlb
+mlp := c:\p\vrt\mlp
+mls := c:\p\vrt\mls
+mlw := c:\m\mlw
+mob := c:\p\vrt\mob
+mos := c:\p\vrt\mos
+mov := c:\ian\mov
+mrb := c:\p\vrt\mrb
+mrs := c:\p\vrt\mrs
+mss := c:\p\dirt\ret\mss
+myb := c:\m\winsys\chap10\bin
+myk := c:\m\winsys\bin
+mys := c:\m\winsys\chap10
+new := c:\new
+nhb := c:\p\vrt\nhb
+nhs := c:\p\vrt\nhs
+ntb := c:\p\vrt\ntb
+nts := c:\p\vrt\nts
+null := \nul
+o_wck := c:\p\dirt\vop\wck
+obs := c:\m\ozs\obs
+off := c:\p\dirt\a91\off
+old := c:\p\dirt\old
+oxcc := c:\ian\oxcc
+ozb := c:\m\ozb
+ozd := c:\m\ozd
+ozs := c:\m\ozs
+p := c:\p
+pcb := c:\m\pcb
+pco := c:\m\pco
+pcs := c:\m\pcs
+pcu := c:\m\pcu
+pdp := c:\p\pdp
+pdp:share.dsk := ld0
+pf := c:\program^files\
+pie := c:\m\pie
+pman := c:\p\dirt\shr\man
+pob := c:\m\pob
+pos := c:\m\pos
+prg := c:\Program Files
+program^files := c:\program^files
+programs := c:\windows\command
+prp := c:\p\vrt\prp
+prs := c:\p\vrt\prs
+ptb := c:\p\vrt\ptb
+pts := c:\p\vrt\pts
+pub := tmp
+qqq := c:\mydocu~1\config\other\w1
+ret := c:\p\dirt\ret
+rib := c:\m\rib
+rid := c:\m\rid
+rip := c:\m\rip
+ris := c:\m\ris
+rk0 := c:\p\pdp\solo_rk
+rl0 := pdp:rtv53_rl.dsk
+rlb := c:\m\rlb
+rll := c:\m\rid
+rlp := c:\p\vrt\rlp
+rlr := c:\p\vrt\rls
+rls := c:\m\rls
+rsb := c:\p\vrt\rsb
+rsl := c:\p\dirt\shr\rsl
+rss := c:\p\vrt\rss
+rst := c:\p\rsts
+rt3 := c:\p\dirt\vop\rt3src
+rt_bld := c:\p\dirt\a91\bld
+rt_dc1 := c:\p\archive\compilers\decusc\tcp\ccdsk1
+rt_dc2 := c:\p\archive\compilers\decusc\tcp\ccdsk2
+rt_doc := c:\p\dirt\a91\doc
+rt_dos := c:\p\dirt\a91\dos
+rt_dot := c:\p\dirt\a91\dot
+rt_dsd := c:\p\dirt\a91\dsd
+rt_dso := c:\p\dirt\a91\dso
+rt_lib := c:\p\vrt\lib
+rt_rl2 := c:\p\dirt\cd\shr\rls
+rt_rlb := rlp
+rt_rld := c:\p\dirt\cd\a91\rld
+rt_rlo := c:\p\dirt\cd\a91\rlo
+rt_rlp := c:\p\vrt\rlp
+rt_rls := c:\p\vrt\rls
+rt_rus := c:\p\dirt\cd\a91\rus
+rt_rus2 := c:\p\dirt\cd\shr\rus
+rt_vck := c:\p\dirt\cd\a91\vck
+rtb := c:\p\vrt\rtb
+rtk53.dsk := c:\p\archive\systems\rt11\releases\rtkp53.dsk
+rts := c:\p\vrt\rts
+rub := c:\m\rub
+rus := c:\m\rus
+rvl := c:\m\rvl
+sc := c:\m\sc
+sc32 := c:\m\sc\include\win32
+scb := c:\m\sc\bin
+scbin := c:\m\sc\bin
+scc := c:\m\scc
+scclib := c:\m\sc\lib
+sch := c:\m\w95\sch
+sci := c:\m\sc\include
+scinc := c:\m\sc\include
+scl := c:\m\sc\lib
+scw := c:\m\sc\include\win32
+ses := c:\p\vrt\ses
+session := c:\m\session
+shape := c:\m\pictures
+shape_definitions := ini:she.def
+shape_pictures := c:\m\pictures
+shb := c:\m\shb
+shell := @ini@
+shp := c:\p\pdp\share.dsk
+shr := c:\p\dirt\shr
+shs := c:\m\shs
+sk0 := c:\p\vrt\sk0
+skr := c:\m\skr
+sls := c:\p\vrt\sls
+smb := c:\p\vrt\smb
+sms := c:\p\vrt\sms
+sp3 := c:\p\vrt\sp3
+spb := c:\p\vrt\spb
+spk := c:\p\dirt\cd\shr\spk
+sps := c:\p\vrt\sps
+spu := c:\p\dirt\cd\shr\spu
+sss := c:\p\archive\networks\tcp\rt\sss
+std := c:\p\dirt\shr\std
+sts := c:\p\vrt\sts
+sub := c:\p\vrt\sub
+sup := c:\p\archive\emulators\pdp-11\supnik
+sus := c:\p\vrt\sus
+sxb := c:\m\sxb
+sxo := c:\m\sxs\two
+sxs := c:\m\sxs
+sy := syp
+sy2 := c:\p\vrt\wck
+syp := c:\p\vrt\sy
+sys := c:\p\vrt\sys
+system := c:\windows\system
+syx := c:\p\vrt\syx
+tcs := c:\m\tcs
+tinyc := c:\m\tinyc
+tlk := c:\p\vrt\tlk
+tmp := c:\tmp
+tpk := c:\p\vrt\tpk
+trb := c:\m\trb
+trk := c:\p\dirt\vop\trk
+trn := c:\p\pdp\trn
+trs := c:\m\trs
+tss := c:\p\dirt\cd\shr\tss
+tt := con:
+upd := c:\p\pdp\upd
+usb := c:\m\usb
+uss := c:\m\uss
+utb := c:\p\dirt\a91\utb\
+utd := c:\p\dirt\a91\utd
+uts := c:\p\vrt\uts
+uws := c:\m\uws
+uxb := c:\p\vrt\uxb
+uxc := c:\p\vrt\uxc
+uxi := c:\p\vrt\uxi
+uxk := c:\p\vrt\uxk
+uxl := c:\p\vrt\uxl
+uxm := c:\p\vrt\uxm
+uxs := c:\p\vrt\uxs
+uxt := c:\p\vrt\uxt
+v2_mls := c:p\dirt\old\mls
+v3_dcs := c:\p\dirt\vop\dcs
+v3_mad := c:\p\dirt\cd\shr\mad
+v3_mal := c:\p\dirt\cd\a91\mao
+v3_mcp := c:\p\dirt\cd\shr\mcp
+v3_mcs := c:\p\dirt\shr\mcs
+v3_mls := c:\p\dirt\cd\shr\mls
+v3_ntb := c:\p\dirt\cd\shr\ntb
+v3_nts := c:\p\dirt\cd\shr\nts
+v3_sll := c:\p\dirt\cd\shr\sll
+v3_spb := c:\p\dirt\vop\spb
+v3_sps := c:\p\dirt\vop\sps
+v3_sus := c:\p\dirt\a91\sus
+v3_tpk := c:\p\dirt\cd\shr\tpk
+v3_vis := c:\p\dirt\a91\vis
+v3_vps := c:\p\dirt\a91\vps
+v3k := c:\p\dirt\cd\a91\v3k
+v53 := c:\p\archive\systems\rt-11\releases\v53
+v54 := c:\p\archive\systems\rt-11\releases\v54
+v55 := c:\p\archive\systems\rt-11\releases\v55
+vas := c:\m\els\refs\vas
+vax := c:\p\archive\systems\vax
+vcb := c:\m\vc\bin
+vcc := c:\progra~1\devstudio\vc\bin
+vccbin := c:\m\vck\bin
+vcclib := c:\m\vc\lib
+vccrid := rvl
+vck := c:\m\vc
+vcl := c:\m\vc\lib
+vh0 := vh3
+vh1 := c:\p\pdp\rt11.dsk
+vh2 := c:\p\pdp\eleven.dsk
+vh3 := c:\p\xxdp\xxdp23.dsk
+vh4 := c:\p\pdp\gem.dsk
+vh5 := xxx
+vh6 := c:\p\xxdp\xxdp25.dsk
+vh7 := c:\p\pdp\wrk.dsk
+vib := c:\p\vrt\vib
+vis := c:\p\vrt\vis
+vm := tmp
+vms := c:\p\dirt\vms
+vop := c:\p\dirt\vop
+vpb := c:\p\vrt\vpb
+vps := c:\p\vrt\vps
+vrb := c:\m\vrb
+vrd := c:\p\dirt\ret\vrd
+vrs := c:\m\vrs
+vrt := c:\p\vrt
+vts := c:\m\els\vts
+vv := kub:
+vx := c:\m\p\vrt\sy
+vx5 := c:\p\dirt\ret\vx5
+vx7 := sy
+vxd := c:\m\vxd
+w32 := c:\m\w32
+w95 := c:\m\w95
+wav := c:\m\wav
+waz := c:\m\waz
+wck := c:\p\vrt\wck
+web := c:\m\web
+wes := c:\m\wes
+whb := c:\p\winrt\whb
+whs := c:\p\winrt\whs
+win := c:\windows
+windows := c:\windows
+windows_rt_startup := sy:winrt.com
+winlib := c:\m\sc\lib
+wlb := c:\m\wlb
+wls := c:\m\wls
+wnd := c:\m\wnd
+wns := c:\m\wns
+wrb := c:\m\wrb
+wrk := c:\m\wrk
+wrt := c:\p\winrt
+wrt_kit := c:\p\winrt\kit
+wrt_run := c:\progra~1\winrt
+wsb := c:\m\wsb
+wss := c:\m\wss
+wsy := c:\kit\sys
+wub := c:\m\wub
+wuo := c:\m\wuo
+wus := c:\m\wus
+wvb := c:\m\wvb
+wvo := c:\m\wvo
+wvs := c:\m\wvs
+www := c:\www
+x23 := c:\p\archive\systems\xxdp\xxdp23
+xd3 := c:\p\emu\xxdp\xxdp23
+xd5 := c:\p\emu\xxdp\xxdp25
+xdk := c:\p\xxdp
+xdp := c:\p\archive\systems\xxdp
+xtk := c:\p\archive\systems\pro\xtk
+xxp := c:\p\dirt\shr\rlp
+xxs := c:\p\archive\networks\tcp\rt\ccdsk1
+xxx := c:\p\pdp\env_fas3.dsk
+y1k := c:\p\vrt\y1k
+yyy := e:\pdp11.linux\work210-1\os\dl1.dsk
+zem := c:\p\emu\zemu
+zzz := c:\p\dirt\vop\wck
+                                                                                                                                                  Ú
+œ
+s
+i
+v
+‚
+t
+?
+ğ	¤	u	m	y	|	\		·b'	ûíÖº¡‹n=ğ0ğàû._~‚nBıœ!—–/Òp‘(Ö œ k . Õÿ^ÿ×şQşÔı]ıàüXüÌûKûäú–úPúöùzùßø<ø¯÷D÷óö ö2ö¤õ
+õ†ô3ôôôôôêóÄó¯ó´óÆóÎó·óó;óşòÙòÌòËòÆò½ò¸òËòóYóÄó.ôˆôÎôõ3õZõxõŒõœõµõèõ>ö´ö:÷»÷%øuø±øèø(ùzùŞùMúÂú7û«û üšüı§ı<şÔşfÿìÿa Ã X†œ—}Z?9Ox¦ÌäñùüìãïTã%h¸ˆôO—ÕxçV¯æ!X¹:	À	.
+r
+Œ
+Š
+|
+i
+N
+#
+é	©	x	g	y	¤	Ñ	ê	è	Ñ	´	¢	Ÿ	¥	¨	œ	€	Z	2		õİÄ¥…fI*ı³E¶,?cc4â‚)İ’4´\¯  ©ÿKÿíş…şş˜ı&ı½üXüìûvûıúú6úöùÃùŒùCùèø†ø+øá÷¡÷a÷÷Áömö'öõõÎõ¤õlõ*õïôÒôŞô
+õBõiõtõmõkõ„õ»õşõ/ö9ööèõ¿õ¶õÎõ÷õö1ö<öLöoö¤öÚöüöüöİö³ö™ö¡öËö÷Q÷÷Ä÷ı÷Cø˜øôøHù‰ù²ùÌùìù$ú~ú÷ú~û üoüÈüıuıëı}şÿ›ÿìÿ åÿ»ÿ¥ÿ»ÿúÿM – Ã × á ÷ !Y²ÁÇÖü9ˆáD¼QËŒ2¸%Œş~	
+v
+Ó
+
+Y
+™
+â
+-r®æ#
+i
+¬
+×
+Ğ
+
+#
+«Kı
+ç
+³
+k
+#
+í
+Ì
+±
+‰
+J
+ù	¨	e	4		Æm¦md}š–^÷wüšRä¨j3
+ııÿ÷×šDÛhñvõ i Õÿ@ÿ¶şCşîı°ı|ı>ıèüyü÷ûxû	û´úrú:úúÂùùBùùÂøuøøÅ÷|÷L÷/÷÷åö›öAöëõ³õŸõ¨õ¼õÎõÜõïõö8öcö~ö‚öpöRö4öööôõáõÒõÒõêõöcöªöáöúöùöéöÛöŞöòö÷+÷B÷\÷ƒ÷¿÷	øTøø³øÈøŞøù@ùŠùÓùú4úTú}úÃú-ûµûKüØüLı¢ıßı
+ş3şQşcşmşvşŠş´şôş?ÿ‹ÿÑÿ _ ³ lÇ#†õnîrÿ›Eôš.´9	È	`
+ï
+^
+¨
+×
+C–é&
+C
+N
+d
+š
+ñ
+Q“˜VÙ
+B
+²>ê
+¨
+d
+
+«
+;
+Î	n		ÓH¸_ì_Å9Ö¨¤²»°X®7³5Ò’tjls„ ÆéşùÕ—Hô ¥ Z  ½ÿ]ÿ÷şšşRş$şşÛı ıQıÿüºü†ü\ü3ü	üæûÒûÎûÈû¯û~ûCûûÿúòúĞúú	úˆù%ùíøÌøøFøÒ÷k÷:÷L÷ˆ÷º÷¾÷÷H÷÷ıö÷÷ßöƒöıõlõõô«ôôô“ô‹ôxô`ôOôCô0ôôÕóó€óóÎó!ônô¡ô¿ôÜôõcõÒõNöÈö7÷˜÷í÷<øŠøâøIùÁùGú×úoûü¯üHıÎı5ş‚şÂşÿDÿ|ÿŸÿ³ÿÍÿ „ !¾8„¶òK»,Œà?ºNåhÌ!~ïo	î	d
+Ó
+D
+·
+W`AE–ï3
+T
+R
+8
+
+
+ÓŠ.Ã
+U
+î
+˜
+T
+
+Ó	{		§V*ñ¢6Çp6øèïY•±m<%&.$ŞÓõ@˜ÚîÏEÏ•=´ş;¾lö M ‡ÿÍş?şÛı„ıı¦ü/üÔûšûkû"û±ú(ú®ùZù)ùûø±øGøÑ÷m÷ ÷Õöpöêõ\õğô¾ô½ôÄô®ôuô6ôô3ôsô­ô·ô†ô1ôÜó£ó‰ówóUóóëòÛòó€óôŠôÈôÊô°ô®ôãôKõÂõ"öYözö¤öìöO÷µ÷
+øSøŸøÿøpùÙù!úGúbú’úéú`ûÚûDüüùümıüı”şÿzÿ±ÿÊÿÖÿâÿõÿ 3 R f p  ® ¢9¨ÚŞé(¨EÍ KzÓ[òqÇO»A	»	
+
+	
+ó	ö	
+Z
+¥
+ò
+=
+†
+Î
+
+/1	À
+f
+
+È
+Š
+D
+ç	r	ü£{{†{M
+È—l7î¢rvªíèµ“‡|W	œ,Ú½Õ@S9Ë²¸¿š.…Æ2¼ ' ~ÿÜşXşèıpıİü7ü¢ûBûûûåúŠúúù:ùùêø³ø[ø÷÷¥÷s÷X÷7÷öö–ö'ö¾õfõõÑôŠôNô*ô'ôBôpô ôÆôİôáôÒô°ô|ô7ôéóójó_óóÈóôMô`ôTôAô>ôQôoôˆô“ô—ô ôºôäôõ]õ®õö„ö÷ö]÷°÷ø÷EøøùøNù›ùğùcúÿú³û^üæüOı¶ı9şİş„ÿ B O U t ² õ *,K— a—šeav˜¼ß	E›„~ókğ‰-È@	‹	´	Ú	
+ƒ
+
+}
+â
+1{Ì
+Y
+e
+<
+ô­|_A
+¶
+O
+ï
+«
+‰
+|
+r
+T
+
+¿	]		È¤Šh6üÓÌç
+ Õ‡5ë§i0ÿÕ©r1ôÍÀ½¦aîdßhókË % –ÿ0ÿéşŸş3ş¥ıı ügü[üWü;üùûû=ûëúªúpú7úüùÁùŒù[ù-ùÿøÏø‰”Ÿµá'€Û'WeY>üÓ›Lånò{
+
+*
+¬!
+
+~
+
+”		™_·pÏ'p¨Ö= „ÿÖş*şuı´üèûûYú®ùù¬øTøøã÷Å÷²÷¢÷ˆ÷X÷÷–ö
+öpõÖôKô×ó‚óPóCó]óšóïóLôœôÎôØôÁô™ôzôwôôçôIõ°õ
+öSö‰ö²öÖö÷ö÷-÷;÷<÷0÷÷ööÌöö{öoö‹ö×öN÷Ş÷køÖøùùíø¿ø¢ø¦øÊøù=ùnù“ùµùÜùúLú‰ú¾úçú
+û5ûrûÄûülü˜ü—üqü>üüüOü›üåüııîü³ü|üZüPüVü_üaüaüoüŸüşüı<şôş ÿ5 ´ 'štÜE¿VŞ·„7	Ë	D
+¬
+
+j
+Ä
+e«ñ@
+œ
+}ïP’¯¥S5:pÒRÒ5ge?îèöşâüBÒ
+K
+äˆ’
+é
+4
+Š	ú†!·9§†ÍEàYº‰–  fÿ’ş¡ı°üŞû>ûÏúú7úáù{ùù¹ø€øgø[øCøø™÷÷böÏõcõ,õ&õDõuõ¦õÊõÖõÃõõ@õàôô8ôôôAôwô¦ôÁôÅô·ô¤ô“ô‡ôuôTôôÌókóó©ò\ò$òÿñîñğñòò8òBò.òøñªñ[ñ&ñ ñLññóñ3òPòMòEò[ò¦ò*óØóô&õ”õÕõûõ"ö_ö¸ö-÷±÷8øÂøNùÜùnú ûƒûòûLüüÈüÿü3ıhııÓışuşüş±ÿ wWªsÊ1«,±5²9Õ‡	N
+
+Ş
+‡
+~
+Ó
+=G=÷
+û
+!oÖ&óxŞ
+^
+ÿÑÚäŞÔ´Š’™³¹¦££œ¯µˆHä
+T
+Ú
+w
+
+Ø	«	Y	
+	¼MùÃv3ïkÒ>‹ğ&Í€í ' NÿœşŞı&ı®ü:üÊû’ûPûúúÎúŸúcú`úbú:úúÇùùtøĞ÷%÷ĞöÁö±öÈöãö¶ööIöİõ}õ7õÃôYôô¼óóó•ó¨óäóğóŞóèóÒóµóÖóëóçóÿóìó¥ó‡ówóvó×ófôâô{õúõ-öpöÆö÷u÷ øKøˆø½ø¯ø¯øâøûø"ùoùˆùùñù=ú£úPûÚû3ü–ü¹ü­üŞüıGıÃı;şşèşBÿcÿ±ÿ  < a 2  ùÿŸÿdÿZÿ*ÿ.ÿ…ÿÄÿ/ á XÁK„¥	O™AÄ#½,x%Ôd=	ğ	B
+¶
+
+
+m
+Ì
+ß
+$ss³#
+K
+•
+ì
+À
+ˆ
+j
+ù´Ğ¶°ìÏ¤ÌÀº
+>
+;
+x
+j
+'
+>
+6
+
+6
+B
+ûòÅHü
+Œ
+`
+/
+“
+-
+â	I	üß`ú¬ğSy
+Ê
+5­â  ‹ÿÛş
+şıı\üüÄûBû%ûùú~úKúüù@ùºø.øH÷¸ödöàõÂõéõºõ¬õ·õGõæôÃôLôóóğó–ó<ó:óóò¶òğòøòïòFó^óEóŒó¡óqóŠócóØò¡ògòÿñ!òiòfò¯òîò¯òªòÆòò¯òó1óóôô7ô”ôˆô˜ôõQõ§õlö×ö$÷È÷
+ø$ø øÑøÆø$ùLù:ù¦ùşùú‘úøúûúbûÅûÂûüfü1ü8üSüıûÿûKü:üyüı@ı¬ısşÅş&ÿÓÿ ? ì H¬ƒk ¼©]Œ	‡
+%
+!×û[
+
+V
+£
+#QŞd><S÷ò<ê m¹°¾%ÎìĞ7A+üŠ—kŞ
+¬
+>
+d¥
+ñ
+µ
+}
+Ï	}	C	‘.êt	&†Cı¿Eå 
+ ÿ¡şÄıØüqü»ûÖúnúËùùùù
+ù€ù®ù>ù
+ù¥øÖ÷Œ÷^÷ÆöösöğõğõQöVö¤ö÷Ìö›öµöföXö¹ö›özö¼öœö öI÷ª÷ï÷”ø»øøøøùÍø÷ø¿øøï÷Æ÷x÷×÷4øø6ø<øÇ÷×÷(øøyøñøÒøïøFùù'ùnùùÕøîøøøçøãøÔø$ùöø©øÛø¶ønø­ø¤øiø¼øŞø¶øù?ùùŠùøùú€úÚúœú¯úÑú…ú«úûâúûƒûû+ü3ıÌı~şaÿ£ÿòÿÂ DãñtÀ{òt©§\r	+
+
+w
+5
+A
+ä
+O
+l
+Øâ°©óºš’ç
+n
+x
+=
+;
+š
+[
+ñáqejF‰_ë
+ò
+¸
+4
+)
+ê
+R
+>
+
+•	ƒ	`	À‡[ºuH“/t6DÍzsõ±FÎ£ö<ÿ m »ÿtÿĞşşäı¿ııçıêıSıëü>ü?ûÚúúâù‰ùù4øÓ÷Ñ÷—÷Á÷õ÷o÷ğöœöòõ®õÜõõ6õÿôCô­ó¼ó¬ó½ó8ô8ôıó$ôôÉóıóÙóZó<ó óªòøòHó8ófóYóÒò»òØò¿òó•ó‹ó¬óáóšó‰ó­ó]ó9ómóQótó
+ôLô–ô5õkõ“õ!öZöuöøö5÷S÷ñ÷gø©øWùÓùú³ú^ûÉûüTı‡ı÷ıZşUş®ş(ÿ:ÿ™ÿ4 ˆ Jk"à¥Çñ„ánW¸İEe§–	g
+
+šÚ‡
+SŞÆÍßÍGÊÌèâd;H÷Ğµ¨
+
+3
+
+"
+®#Ø
+I
+î
+
+
+î
+
+µ
+7
+
+Ò	h	Q	ï:ÓQ°z-.‘AíFğÄS€äj(3ğ ­ Š ûÿZÿ÷şKş’ııpüÄû–ûvûnûËûïû³û†ûûhúúĞùZù$ùáø]ø-ø0øø*øDøî÷¤÷€÷6÷9÷÷s÷J÷÷˜ö5öOöuöÊö_÷”÷ƒ÷÷Z÷÷1÷ ÷İöÉöö3ö@ö^ö]ö•öªögöTöTö;ö…öşö;÷•÷à÷¹÷—÷‚÷,÷÷+÷+÷V÷º÷Ö÷ì÷,ø)ø+øyø¡øÍø@ù„ù´ù#úeúˆúìú5ûkûüû‘ü
+ı¼ıCşlş¡ş³ş†şœşËşÒşÿ^ÿrÿ¹ÿ' p ê …áQà8¥1w­ö'’õm£	ˆÔıH	n	s	£	Æ	Ú	*
+|
+¸
+
+w
+¨
+ó
+1<VlZhœÁğïï 
+ù
+
+D
+k
+”
+Ë
+Ù
+Ø
+ä
+Ò
+®
+›
+o
+5
+
+ë¶–i&ô
+À
+z
+A
+ú
+‡
+	
+	çl¹l­3ÈYúª3¿¶ ÿ‡ş¶ı)ıÂünü6ü÷û˜û(û—úÛù ùpøË÷O÷òöŒö$ö³õ$õœô-ôÉó}óFóûò¥òQòõñªñ‰ñyñxññ¤ñ¿ñúñCò•òğò,ó9ó,ó
+óëòıò<ó”óùóDô\ôRô4ôôôô/ôXôˆô»ôõ]õ´õûõ!ööïõÎõÆõìõ9öŒöÍöôö÷÷Q÷­÷ø…øÀøÊø»øµøàøLùçù‘ú)ûûúû\üÕüdıôı[şşfş/şş5ş¨şPÿÿÿ„ Ì é JĞ‡GæEhqˆÌIî¢Pğ‡$	Ê	n
+ 
+k
+¥
+º
+Á
+×
+péd
+É
+0>EN_s‚‰„wfUE7%ö
+Ü
+Æ
+·
+­
+ 
+ˆ
+W
+
+œ”
+
+
+7
+Ú	~		·GÎK¼"…ïl ¨Tòvß>¬ = øÿÑÿ©ÿaÿäş3şbıüÓûAûÕú†úKú úúúú,ú-ú	ú·ùEùÌøiø.øøøøñ÷­÷T÷üö»ö™ö“ö•öölö1öçõõeõMõXõ†õÌõ"özöÉö÷-÷C÷N÷[÷r÷–÷Ä÷ğ÷øøøí÷Ä÷¡÷’÷Ÿ÷É÷
+øSø”øÂøÒøÊø¯øøwøjøjønøoøiø]øPøJøNøaøø¤øÏøüø(ùPùpù‡ù™ù°ùÚù"ú‹úûûüPü{üü˜ü¯üÕü	ı>ıoı›ıĞış€şşşƒÿÿÿh Ã Œ±NÙH¨”Eô»Y	Ñ	5
+š
+
+“
+Õ
+l
+Ú
+k¥EG1 $;U]IîÇ®ˆa-øÕÌÔÔ¯UÈ
+"
+†½
+‰
+R
+
+Š
+÷	Y	ÅDÏWÑ7’ğ_å€,å­Š}}yWsµ ßÿÿ`şİı‡ıRı0ıığüÁü„ü7üÚûqûû›ú<úèùšùKùõø•ø1øĞ÷|÷8÷÷Íö‘öAöÛõ_õØôTôàó†óMó6ó:óPókó€ó†ó{óeóLó:ó4ó;óJóXóYóGóóâòœòWò!òòòòIòyò¡ò¹ò¾ò¸ò®ò©ò®ò½òÓòğòóAóóÒó3ôœôõ^õ®õ÷õBö–ö÷öd÷Ú÷SøÑøXùìùú5ûÛûpüíüOııãı+ş|şÑş'ÿuÿ»ÿıÿH ¥ ªGåwö^´ıDãHÀLê”B	é	‚
+
+x
+Ö
+)uÀ
+Z
+ª
+ù
+EŒÊù!èÍ·£‹e)×
+s
+	
+¤Pç
+Ê
+±
+—
+y
+T
+'
+ñ
+¯
+c
+
+º	o	2		Ş¸ŠNÀ€Kô¿y%Ì}GªHá v  šÿ,ÿ¿şTşìıŠı1ıâü üküAüüüçûÓûÄûÀûÈûßûü3ükü§üäü!ı]ı˜ıÒı
+şEş~ş·şñş/ÿsÿ½ÿ _ ¯ ø 7k•½çQÍ5Zx’«ÅÛìòíŞË¸§›{^4şÁƒF
+Î‹?ë  5 áÿ•ÿQÿÿÏşˆş>ş÷ı¼ı’ı~ı|ı„ıı‘ıı„ı|ı{ı…ı—ı®ıÅıÙıìışşFşuş¨ş×şüşÿ+ÿAÿ_ÿˆÿ¹ÿíÿ 7 H N S ] p ‰   ® ª ” n @  êÿËÿ²ÿœÿ†ÿkÿLÿ*ÿÿâş¿ş şƒşlş[şRşPşSşXş[şXşPşDş7ş.ş-ş6şJşişş¶şßşÿ&ÿDÿaÿ~ÿŸÿÃÿèÿ
+ * ? J L K K N U [ Y M 2  éÿÇÿ¯ÿ£ÿŸÿÿ›ÿ“ÿ‡ÿzÿqÿoÿrÿuÿuÿpÿfÿ[ÿSÿTÿ]ÿjÿvÿ|ÿ{ÿtÿnÿlÿoÿwÿ~ÿ€ÿ|ÿsÿnÿqÿÿšÿ·ÿÑÿàÿæÿæÿêÿùÿ > k ” ´ Ë Ş ÷ H}µè>j×FiyzrlmtxoRàŸiB)óÃ4é ¨ v L " ïÿ¯ÿhÿ%ÿğşÑşÈşÉşÊşÀşªşşwşpş{ş”ş°şÁşÁş°ş™şˆş‡ş—ş¯şÄşÆş²şşdşGş@şOşkş„şŠşyşUş+şşşş>şlş“ş­ş»şÇşÙşøş&ÿ\ÿ’ÿ¿ÿáÿûÿ 2 X  ¦ ¾ Æ Á º º Í ó (`Œ£¡ua\ey™˜Št_OFA9(
+ß ¬ w G     äÿÇÿ¥ÿ|ÿNÿÿîşÂş™şsşOş+şşæıÉı°ıœıŒı}ıoıfıeıoı‡ı¬ıØış2şWşuş‘ş¯şÔşÿ5ÿiÿ›ÿÇÿîÿ ? m Ÿ Ñ û 0<FSe{Ÿ•…vnr}‹’yY3
+ì Ò » § “  r h a X F & ÷ÿ¼ÿ€ÿMÿ+ÿÿÿÿÿòşÃş‰şPş%şşşş(ş3ş9ş<şEş[ş‚ş·şòş'ÿQÿmÿ€ÿ’ÿ«ÿĞÿ  4 d ‰ ¢ ³ Â Õ î 
+,FV^adkvƒŒ‹vnkieW=ó Ğ ¹ ¯ ® ¬  € O  ×ÿ¦ÿ†ÿwÿsÿpÿgÿRÿ4ÿÿøşçşßşÜşØşÎşºş£şş€şşŠşœş®ş»şÂşÇşÎşÛşñş
+ÿ%ÿ6ÿ:ÿ3ÿ(ÿ ÿ!ÿ,ÿ;ÿCÿ=ÿ#ÿøşÇş›ş€şyşşş’ş‡şnşQş;ş:şSş‚ş»şïşÿ'ÿ2ÿAÿcÿÿïÿJ Ÿ à 
+#7TƒÄ
+Ly‘Œ‹—¯ËßàË¡m7×©v;ü ¿  l Y L = $ ÿÿÔÿ®ÿ–ÿÿ˜ÿ¤ÿ§ÿšÿ{ÿSÿ/ÿÿÿÿ#ÿ"ÿÿñşÍş°ş§ş²şÌşçşùşûşñşåşäşöşÿNÿ‚ÿªÿÂÿÍÿÕÿäÿ  * \  · × ñ +Ou–¬¹ÂÏé<cvmIÔ¡~j\I)ø ½ € J "  îÿÖÿ·ÿÿbÿ2ÿÿØş¯şˆşcşCş+şşşşşşèıÄı ı‡ı‚ı•ı»ıèış/ş<ş?ş>şDşUşrş™şÁşèş
+ÿ*ÿFÿaÿ{ÿ•ÿ¬ÿÂÿÚÿöÿ > e ‡ ›   – † y x ‡ £ Ä â õ ù ñ å İ Ş é ù 
+,?RahcXKDFRdu~zhH#ÿ ã Ñ È Ä ¿ ³ Ÿ „ f K 8 - &  
+ ôÿÕÿ·ÿ¥ÿ¥ÿ»ÿáÿ
+ ) 6 ,  ğÿÙÿÔÿåÿ * D I 8  êÿÄÿªÿŸÿ ÿ¦ÿ©ÿ¤ÿ”ÿ|ÿ`ÿDÿ.ÿÿÿÿ&ÿ6ÿHÿXÿbÿeÿdÿbÿgÿxÿ—ÿÁÿíÿ % %  ÿÿïÿìÿøÿ % 1 *  õÿÙÿËÿÎÿâÿüÿ # ' $ ! # . ? S e v ˆ  ¸ Ø ø !$!'=[zyT*é Ø Ê ¸  w L   úÿØÿ¶ÿŒÿXÿÿÕş˜şkşUşQşUşWşLş1ş	şàıÁı±ı±ı¾ıÎıÜıäıçıëıõışş9şTşkş€ş–ş®şÊşéş	ÿ%ÿ<ÿOÿbÿwÿÿ«ÿÉÿçÿ  4 N l ‹ ¨ Á Ô ã ó 	,ZÀåöğÖ±ŠlZTRM<î ¸ „ Y ; *   ùÿÓÿ£ÿpÿFÿ*ÿÿÿÿÿÿşÜş´ş“ş€ş}şˆş•şšş‘ş|şaşKşAşDşPş\şaş\şQşIşOşfşş¼şêş
+ÿ(ÿ>ÿZÿ„ÿ¿ÿ P ‘ Å ì 
+1_–Ñ+AKTd¤ÉãëßÄ¤ˆwng\G*éÒÃº²¤uY@+	ô Û ½ Ÿ † q b T D .  êÿÁÿ™ÿrÿMÿ(ÿÿ×ş«ş€şWş7ş şş
+şşşşıöığıîıôış!şGşoş•ş´şÇşÒş×şÛşäşõş
+ÿ%ÿ?ÿVÿgÿtÿ€ÿ‰ÿ‘ÿ•ÿ“ÿ‰ÿwÿaÿKÿ9ÿ/ÿ+ÿ,ÿ,ÿ(ÿÿÿÿşğşæşáşáşäşèşîş÷şÿÿ/ÿKÿeÿ|ÿ‹ÿ‘ÿ‘ÿÿ‹ÿÿŸÿ¼ÿåÿ G q  –  z a N E K ] v ‘ ¦ ´ » ½ ½ ¾ Â Ê Ô à í ü 5Nh‚—¦¬¨›‰ynknqkU,ò ¯ n 8  öÿàÿÃÿšÿbÿ ÿŞş§ş€şjşaş^ş]şXşQşKşGşFşHşKşNşSş]şoşŠş¬şÏşğş	ÿÿ1ÿIÿlÿ™ÿÍÿ / T r  ´ â Q‡¶Ş #Jv¢ÈäóöòëåÜĞ½£„fK3öÆˆAû À • z g Q /  Îÿœÿuÿ]ÿOÿDÿ2ÿÿïşÉş¬şœşœş¢ş¦ş şŒşqşVşDş=şAşFşGş=ş-şşş
+şş ş(ş)ş%ş#ş)ş<ş[şşŸşµşÁşËşÛşûş-ÿmÿ¯ÿçÿ ( 9 P s ¢ Ö ÿ õ ú 
+"ä ¦ d . 
+ øÿìÿÚÿ¹ÿ‰ÿPÿÿúşïşùşÿ$ÿ0ÿ2ÿ.ÿ/ÿ=ÿYÿÿ¬ÿÔÿôÿ " : W u  œ  ” ‡ € ƒ ‘ ¤ ± ° › w K "  ğÿèÿáÿØÿÊÿ¼ÿ³ÿ·ÿÇÿáÿûÿ   ôÿéÿëÿÿÿ  F e w { v o n s | … ‡ ‚ | | ‡  » Ô ß × ¼ ›  v „ £ É é ú û ô î ò "B\hg[MA:763.)%%')' ñ ç ã à Û Ò Á ® ›  ‹  š ¤ ª ª £ š  € m V 8  ğÿÌÿªÿŠÿhÿBÿÿåş²şşVş0şşìıÉı¡ıyıUı7ı!ıııùüêüÛüÎüÇüËüÙüğü
+ı.ıPıtı—ı¹ıÖıíııışş)şIşuş§şÙşÿ"ÿ9ÿNÿjÿ‘ÿÃÿûÿ0 Y u ‡ • © Æ é 
++?IOWf|“¤«¥—‰|{ufI#ú × ¿ ± © ¡ “ € j U D 5 %  òÿĞÿ°ÿ—ÿ‹ÿŠÿŒÿŠÿ~ÿiÿQÿ@ÿ<ÿHÿ^ÿsÿ|ÿuÿ_ÿEÿ2ÿ-ÿ7ÿIÿ[ÿbÿ_ÿVÿQÿTÿdÿ{ÿÿ˜ÿ”ÿ‡ÿzÿxÿ…ÿÿ¼ÿÔÿàÿâÿàÿåÿ÷ÿ 6 R ` _ W R Y q ” · Î Ô Ë ¼ ± ³ À Ñ İ Ü Ï ½ ® « µ Æ Ô × Ë ¶ ¤  ¦ ¹ Í × Ğ » ¥ — š ¯ Ì ã é Ù ¹ “ t b [ X O 8  êÿÂÿ¢ÿŒÿzÿfÿJÿ$ÿûşÓş´şœş‰ştşVş/şşäıĞıĞıßı÷ışş'ş,ş5şCşYşpş„ş’şšş¢ş±şÌşóş!ÿNÿsÿÿ£ÿ´ÿÈÿáÿşÿ ) 1 3 5 < L b x † ‹ ‡ € } ƒ ’ ¤ ° ± ¤  u a T L C 4  ÿÿáÿÊÿ¼ÿ²ÿ©ÿ™ÿÿ^ÿ=ÿ%ÿÿÿÿ"ÿÿÿÿÿ	ÿÿ;ÿXÿnÿzÿ‚ÿÿ¤ÿÌÿ ; o ” « ¹ Å × ğ 
+ ($'Dbw|qZB0#÷ Ü À ­ ª ¸ Ñ ë ü ş ò à Ğ È È Ë Ë Â ³ ¤  ¤ ¸ Ô ì ù ø ì ß Ù à ò !!!/E^rxreZZg|—y[=%ı à · „ N  üÿåÿÔÿ¾ÿœÿjÿ.ÿïş·ş‹şjşLş,şşØı®ıı~ızı|ı{ıoı[ıDı3ı2ıAı]ı|ı•ı¦ı¯ı·ıÇıàış#ş>şMşUş\şkş‹ş¹şîş"ÿLÿhÿ{ÿŒÿ£ÿÁÿäÿ  ) / 5 F d  ¼ ä ı 		
+ñ Ï ¯ ™ ‘ ” š ˜ Œ s U 9 #   íÿËÿÿpÿKÿ6ÿ4ÿAÿUÿgÿsÿzÿ‚ÿ‘ÿªÿÉÿèÿÿÿ	 	    / L uÿ§ÿßÿ 0 > C J V a ` P 7   
+  ñÿËÿÿwÿ]ÿLÿ8ÿÿğşÊş±ş¦şş‹şfş7şşùıòıîıâıÎı»ı¹ıÌıçıúıøıæıÔıÑıŞıïıõıíıæığışMşƒş§ş»şÎşòş+ÿlÿ¥ÿÏÿ÷ÿ0 ‡ õ bº÷)a§ğ)Lc†Ç!}Ãéü)CH,úÉ±³½¹›pPHRYJ& ëìïÜ¦XáÔ×ÖÎËßD`M¿|R7õÖÔù6iuTêÌ»¡s<4TU-ğ º  “ ~ M  ¿ÿ™ÿ’ÿ”ÿ€ÿHÿış¿ş¤ş¤ş¡ş€ş?şôı¿ı¨ıııFıøü¼ü­üÈüîüıüèüÂü§ü¤ü©ü˜ü\üü¬û€û…û£û¸û¶ûªû²ûŞû"üXüdüFüüü#üPütüü„üŸüêüaıàıCş}ş¡şĞşÿmÿ¬ÿÀÿ²ÿ¤ÿºÿùÿE x  m ^ k ˆ – w . Úÿ¢ÿ“ÿšÿÿYÿÿ¸ş‹şşzşWşşÃı•ıœıÆıíığıÒı¶ı¾ığı3ş`şhşaşqş±şÿxÿ²ÿÀÿÃÿâÿ. ’ ç /V¨—áõî÷(t·ÓÑÖ_ÂÿáÇÏôÎ‘vˆ«¶Œ<òÏÖâÏ‘E5D$Ü’o{™v8
+7VF³~u€t7Ö } P M N * Õÿmÿ!ÿÿÿÿóş­şlş[şş¼şßşÖşµşªşÖş-ÿ‡ÿºÿÃÿÇÿñÿP É +Y_hšòIsb63c€h!×´ÁÛÖ›Aö Ü æ ë Ã j 
+ ĞÿÏÿíÿúÿÙÿ–ÿ^ÿUÿuÿ˜ÿÿIÿìş¥şşœşœşmşş¿ı“ı™ı°ı¦ıdıı®üŠüü“üoüüÇûœû­ûàûüûûÑû²ûÅû	üSüvücü8ü)üRüŸüâüõüŞüÇüÛü"ıxıªı¢ıuıTıbı—ıÆıÊı¡ıoıfı–ıæı%ş3şşş6şˆşàşÿÿùş ÿ?ÿ¥ÿ , ) # H ¡ KN( ]•q8!?w™‰W1:q­Å¯Š†·Yxoe†ÛCŒ›…{¡ò<NØ³Éıã}ïüø'É¢Ró œ p q | l 5 ñÿÈÿĞÿøÿ 	 Ìÿ…ÿcÿ|ÿºÿéÿßÿ¡ÿ]ÿMÿ„ÿİÿ 	 Ãÿƒÿ€ÿ¼ÿ "  Îÿ¾ÿèÿ/ \ U 6 4 l Ä ı ì   Z V — ã ï Ÿ ! ÇÿÇÿ
+ K 4 ¹ÿÿŸş„ş¥ş²şişÖıBıüüıIıHıñüwü:ümüéüGı5ıÁüPüKüÍü‡ışşµı‚ı¾ı_ş
+ÿjÿVÿ
+ÿŞşÿfÿ½ÿÏÿšÿRÿ/ÿCÿkÿkÿ(ÿ½şiş]şŒş±ş†şÿı_ıı"ı‹ıÛıÅıRıßüÍü0ı½ışğııxıÁı[şèşÿêş¨ş¦ş÷şlÿºÿ¾ÿÿjÿrÿŸÿÇÿÈÿÿfÿ?ÿ-ÿÿ ÿĞş¨ş¢şÀşãşÜşšş:ş şşşÿ9ÿÿ–şPştşôş~ÿÃÿ·ÿ’ÿœÿéÿL € s P \ ± $nf.OÓWiã
+…ll(İÉÿ]¨µb\~ •]$V—¡`ı¿Ê#	Á„{· [æàâÍš`8-34ï © ^ %   < G + íÿ¨ÿvÿ]ÿWÿ\ÿlÿ…ÿ“ÿsÿÿ¢şVşlşÜşTÿzÿ0ÿ¶şwş®ş7ÿ³ÿÕÿ£ÿjÿuÿĞÿH š · Ã î A”²P5bÈ&8äN¾ { – ß Æ - }ÿÿëşÿÿêşş/şùıêıæıÓı´ı›ıŠısıHıı	ı3ıyıœıoıı°ü®üùü<ı#ı§üüñûBüÌüıçüWüĞû­ûõûgü°ü®üzüMüMüzü¹üğüıBı€ıÙı9ş{ş‰ştşwşĞşƒÿM Å ¸ [ 1 ¢ œ¯²Ê÷
+å2œµdî¸çCg}îÀûY€=¨Â Ø (dPí m  öÿ
+    âÿ˜ÿBÿåş‹şPşQş‰şÂş²ş<şııõüIı­ıÅıyııÂüÔü%ı{ıµıÔıìış
+şşşnşÿœÿöÿôÿÈÿÊÿ. Û ÙçÜèGr£ìC}q*çè6–¸€Å»ë,ß¸š_C3-"	â¶Œa3ã Ç £ d 
+ ©ÿ^ÿ8ÿ*ÿÿğş¶ş{şHşşêı¼ıŸı¢ı¼ıÒıÍı¦ıuıXıfı¡ıõı>şTş ş·ıWıOıºıfşâşÑş9ş‰ıIı°ıuşÿÿ…şõıÄı
+ş‹ş÷ş.ÿEÿWÿeÿ^ÿMÿ^ÿ»ÿT Ù ú ® I < ® _ÚÛ€#D‰¬©™ˆg)æ Ò x¯e¨ åÿ™ÿïÿ” û Ã  ;ÿëş9ÿØÿF % ÿ½şVş€ş
+ÿÿ¨ÿKÿÃşlş{şÎşÿÿİş•şyş“ş¹şÂş¢şsşWşUşZşKş şèı·ıšı’ıšı©ı­ı˜ınıPıqıâıwşÕş½şOşşKş=ÿa ˆ ; – kÍ‘!ıQâJ\7.OT0ÿ)gˆu>ôiÔ'/ÛOáÛBÊµ	f$Eyeì>¨ R ' ÷ÿ¦ÿBÿïş¼ş—şYşñıyı#ıı6ı_ıUıı˜üIüCü|üÅüëüæüÓüÔüëüõüÙü¥ü”üÖü\ıÒıçı–ı;ıEıÜı®ş7ÿ/ÿÌş–şïş»ÿ{ À ˆ > R Ú †íòÕî]êDH&t½áã×Â›b+#9&ÒTÛˆX(Ş z  ­ÿQÿñşş7şÿıáıÃı‡ı,ıÉüüeügühüQü%üöûÛûÛûêû÷û÷ûìûêûşû)üVüjüXü8ü4üküİü^ı¼ıàıİıŞışGşşóşGÿÿøÿF ‚ ¸ ÿ eÖ+KDEu×C¡Œf?#[– VÎT-^§´hï‘o`(µ ?  C š ¯ P ¦ÿÿóş'ÿ_ÿEÿÎş7şÓıÄıíışşïıÉı³ı©ıœıˆı{ıˆı°ıÛıíıÕı¤ıı…ı¾ış[şş…şƒş”şÁşşş;ÿsÿµÿ r Ì .påkÎïãŞ	a½îå¶Šy‡£»Â±…CûÂŸˆnDîÖ½Gü Ê ³ ˜ Q ×ÿPÿ÷şçşÿÿ½ş6ş­ıZıHıMı1ıÚüaüøûÁû»ûÈûÇû®û†ûbûSû`û…û¸ûèûüüü*ü`üµüırı¹ıíış*ş2ş2ş<şeş´şÿpÿŸÿ¤ÿŸÿ´ÿúÿc Í 2;Rå;khB:tªÈÉ¸[4
+â»^$é ª c  £ÿ4ÿÔş’şkşPş*şïı¨ıdı3ıııı
+ııóüâüÑüÊüÖüùü1ırı±ıèışGşwş¨şÖşÿ5ÿsÿÁÿ } Ñ =Yoˆ©Ô3Ve^E$ùú"!"(6I\hjaQ=)ûíßÍ¶ŸŠzoeU;ä ­ w I '    íÿÎÿŸÿaÿÿÜş¬ş‘ş‹ş’şšş˜şˆşmşMş7ş6şNş~şºşôşÿ/ÿ*ÿÿÿûşÿÿFÿpÿ–ÿ³ÿÇÿÒÿÙÿİÿàÿäÿèÿíÿóÿøÿûÿúÿóÿèÿÜÿÒÿÑÿÙÿêÿıÿ
+   ñÿâÿŞÿìÿ
+ 2 U i l b U R b … µ é 2DP[k}–“ˆxkdcaW?å ¬ v F  úÿÕÿ¬ÿ}ÿKÿÿÛşŸş]şşÎıŠıQı(ıııøüèüÎü«ü‰ürümü~ü£üÒüı/ıQıkı‚ı˜ı±ıÍıïışAşrş¥şÕşüşÿ"ÿ*ÿ7ÿUÿ‹ÿÕÿ) v ± Õ è ú V©^ÂÏ×êR˜Öı
+üÿ9a|€i@Ş¯J¹eÆ€5Ü m éÿ_ÿàş|ş<şşşãı®ıbıı¯ünüKüDüJüNüFü/üüıûùû
+ü.üXü€ü¤üÆüîü!ıbı«ıòı0şaşşÀşÿ\ÿÇÿ7 œ í &Px¬óJ£ò+KY^g|Åí#
+øŞÃ©’}fGÒu•*Ò  X % æÿ•ÿ0ÿÀşPşêı‘ıCıùü«üUüùû¡ûSûûæú¾ú“ú_ú úßù¦ù‚ùzùù¶ùèùúHúqú˜úÄú÷ú0ûmû«ûêû+üsüÃüı‚ıçıHşŸşíş5ÿ{ÿÅÿ m É 'ƒß9“ë=‰Ë2^‰µà)"ğÒ·¡uV)ï©\	µ`/* file -  elvxi - virtual interconnect */
+#include "c:\m\elb\elmod.h"
+#include "c:\m\elb\elmod.h"
+#include "c:\m\rid\vxdef.h"
+#include "c:\m\rid\lndef.h"
+#include "c:\m\rid\drdef.h"
+#define VAD(a) (PNB(VPR((long )((a)&0xffff))))
+void el_vxi()
+{ elTwrd cod = el_fwd (SP);
+  elTwrd a1 = el_fwd (SP+2);
+  elTwrd a2 = el_fwd (SP+4);
+  char *p1 = (char *)VAD(a1);
+  char *p2 = (char *)VAD(a2);
+  vxTvab *vab ;
+  switch ( cod) {
+  case vxVMP:
+    vab = (vxTvab *)(p1+vxETH+4);
+    vxPbuf = (char *)vab + vxVAB;
+    vx_ser (vab);
+   break; case vxMKD:
+    dr_mak (p2);
+  case vxDEF:
+    ln_def (p1, p2, 0);
+     }
+} 
+                                                                                                                                                                                                                                                                                                                                                                                                    ÿÿÿÿ3ÿXÿÿÖÿ( ~ Ğ W‹·áA~Â
+S”ÉîÿüçÂXã¯ƒ_C+ï¿{#¶ < ½ÿDÿŞş‘şeşXşeşƒş¤ş¿şËşÄş¬ş‰şdşIş@şQş{ş½şÿoÿÑÿ3 ” ó T»)şa´÷*Rs«ÂĞÑ¿—Y©FçEÇˆ@è€
+’  »ÿtÿNÿIÿ_ÿˆÿ³ÿÖÿæÿÜÿ¼ÿÿ\ÿ9ÿ1ÿRÿŸÿ ¯ Xÿ’ @P3ô¡Iø¹xokcN&é ˜ 5 ÈÿTÿáştşş³ıcııãü±ü‡übüDü(üüøûãûÓûÉûÊûØûõû$ü`ü§üñü6ılıı’ı{ıKı
+ıÁü|üDü!üüü4üOüaü`üGüüÆûiûû§úWúúñùÚùÍùÂù¯ùù]ùùÖøøNøøü÷í÷í÷õ÷ÿ÷ø
+ø	ø	øø!øBøsø®øìø#ùFùNù4ùûøªøIøé÷™÷d÷R÷g÷÷î÷Lø­øùJù|ù™ù¤ù¥ù¢ù¤ù­ùÄùêùúaú¯úûeûÅû#üyüÃüıü#ı6ı8ı.ı!ıı!ı?ıwıÈı/ş£şÿ—ÿ
+ u Û B°)°BÖcÛ4ixhG#
+-j¿zÇÿ.5A^“åPÎU	Ú	V
+Ã
+"
+v
+Ä
+gÃ&
+
+÷
+[·I~§ÃÕÛÔÀl.æ–Bí
+—
+B
+ê0Æ
+R
+Ó
+I
+·		‡ômö–O"'Gk­ÅÙéù	$&ó³Yègá]äwµOÙL¨ ğÿ/ÿqşÂı+ı¬ü@üÛûoûìúKúˆù®øÍ÷öö?ö´õXõ%õõîôÂôvôô|óîòwò/ò+òoòñòšóIôŞô=õYõ5õäô„ô5ôô5ô•ô)õÖõ€ö
+÷i÷˜÷¨÷¯÷Ê÷øˆø1ùöù¸úRûªû¬û[ûÇúúYùÆønøWøyø¾ø	ù?ùRù=ùùİøÉøêøQùşùáúİûÎü“ışRşJşşÔıŸıı©ıìıFş¢şëşÿÿ ÿŞşÇşÌşöşFÿ°ÿ$ ‘ ç #IfŒÊ(¦7ÇB–¹°ˆX66b¸-®(‹Òş9g®€ôX	œ	¶	¥	p	'	Ú™o^du„†tJËˆS/  '*şÇ|&ÏƒJ)%6FNJ7öÑ±–}b?Ò‡4àDş¶bû | åÿ?ÿœşş©ıxıı³ışıGşqşgş"ş¨ııwüüû»û¾ûüoüçüHıuı^ıı€üìûmû!ûûUûÂûCü·üÿü	ıÔülüêûiûûÂú¬ú³úÅúÌú·úú'ú¼ùOùïø§øvøSø-øô÷›÷÷ƒöÚõ:õ¶ô^ô7ô;ô[ôôô ôˆô\ô(ôô÷óôYôÀô:õ¸õ+ö‰öÏö÷0÷`÷÷ğ÷XøĞøPùÎù?úúåúû5ûFûPûYûgû~ûŸûËûü>ü}ü»üöü.ıeı ıæı;ş¢şÿÿ • ô 5[l{šÛLï½£‰Vö`•¢œ—§Õ"ä7	n	‚	w	W	3			1	^	–	Ì	ñ	 
+÷	Ú	³	Š	h	O	?	1	 		éÉ°©¾ñA	§	
+}
+Ô
+
+5
+B
+B
+<
+9
+=
+F
+Q
+Z
+[
+R
+@
+&
+	
+ë
+Ë
+¦
+v
+4
+Û	i	âM¶(®Jü¾ƒ?ê}øbÄ(›"Å ƒ Z E @ B G F < # úÿÃÿ‚ÿAÿ
+ÿèşâşış2ÿxÿ¼ÿîÿüÿİÿ‘ÿ"ÿ¢ş'şÅıŠızıı·ıÛıæıÆıtıóüRü¢ûùúhúöù¦ùoùGù"ùöø¾ø|ø4øî÷¯÷y÷O÷,÷÷ğöÖöÄö¿öÍöòö+÷r÷»÷ø÷ø(øøí÷½÷’÷{÷}÷˜÷Å÷õ÷ø+øøû÷È÷•÷s÷m÷÷Ï÷/øøùsùÅùÿù$ú9úEúNú]útú˜úÊú
+û\û¼û)ü üıŒıòıDşş¥şºşÅşÏşßşöşÿ5ÿSÿhÿrÿsÿrÿwÿŒÿ·ÿûÿR ³ f£ÉÛãéø<h§©—tN41NŒäJ®?anpt…¬ê>¡
+tÚ9’æ6Ãø	3	:	5	,	&	'	2	B	S	]	Y	D		í¶U3çÁŒLÁˆaKB>2ß-ÂWù©i/ò¤=ºt Çÿ'ÿŸş4şæı³ııuıYı9ııçü¸üŠü\ü.ü üÑû¡ûsûLû0û$û*û=ûZûwûˆû‰ûsûHû
+ûÍúú`úCú8ú=úJúWú\úUú@úúñù¾ùŠùWù'ùÿøàøÎøÍøßøù;ù{ù»ùñùúúúñùÌù­ù¢ù²ùİùúdú§ú×úîúìúÙúÁú´ú¾úæú,û†ûêûHü˜üÒüúüı2ıYı‘ıÚı1şŠşÚşÿCÿ[ÿkÿ~ÿ¤ÿäÿB » FÒR¸ı &ÿæÔËÍ×åô	ÿëËŸh)è¨pD( !!"&2D\x“«¿Ğàó-S|¢¾ÏÒÌÄÂÏğ$e¬ì2/öÕÃÈé%uĞ+€Çÿ)G[gkeS2Ê‹LçÆ®›†i>ºe	«Nö£S¼ t - êÿ¬ÿqÿ9ÿÿÇş‡şAşöı©ı]ııÚü¨üü\ü9üüãû­ûqû6ûû×ú½ú³ú¸úÇúÜúğúûû û2ûLûpûûÕûüJüü±üÙüıüıAıgıı¶ı×ıíıóıçıÊıılı7ııãüÊü»üµü²ü­ü¢üüoüEüüØûûdû2ûûôúíú÷ú
+û-ûPûpû‰û™û¡û¥ûªû¸ûÑûøû*übü™üÉüìü ı	ııı-ıSıŒıÓı#şoş±şàşış	ÿÿÿÿ=ÿpÿ´ÿ X ª ò /a‹³ŞH…Å6bƒšª¶ÁÎİîı	ğÔ³lN5"
+
+
+	
+/Jk³Öó,7BMZfow~„ˆŒ‹„xdJ+îÓ¼©škL"í°n'Ş“H» v , Ûÿÿ"ÿÀş`şÿı›ı5ıÑüsüüĞû†û<ûõú¶ú…úcúJú6ú#úúúúúúÿùúùıùú3úbú“úÀúéúû?ûiûŠûšûŸû¢û®ûÇûéû
+ü(üCübü‹üºüçü	ı"ı9ıYı†ıºıëış1şPşyş«şßş
+ÿ.ÿNÿjÁş$Er²ú3DÆSß}4ø ¾ { . ßÿšÿdÿ9ÿÿÙşş-şÆıkı*ıı
+ıı#ı%ı ıı.ıPı|ı£ıºıÂıÎıõıJşÍşjÿ ‚ Ø 
+1Rv›¿æb¾q¥¸½Èé ^‘°ÀÕ H£ı@\LÄg
+Ä“yhQ)ôÂ¦¬Íô
+	ş)sÈâÍ×õ
+ôßî1˜ü77
+İËã78Ï]3 ¯9¨
+yîhŞ J ±ÿÿŒşşµıqıEı%ı ıÀüYüÏû5û©ú?úúáùÈù¦ùyùIù%ùùùù'ù1ùBù[ùtù~ùrùTù>ùKùŒùûùwúÜúû%û'û7û`û™ûËûæûïûøûüIüü£üŸü|üWüMüfü’ü°ü§üvü7ü	üÿûü#üüÜûˆû8ûûñúóúøúıú
+û;û•ûüœüı{ıÊış|şöş{ÿûÿm Õ >°,¨|Ù8V”»İ
+I•İ1F]z”–s.Ù_F2	¿Zì‰7ñ§Pñ•O$ıÚš;É S çÿÿNÿ!ÿÿúşşşÿEÿÿèÿE ” Ì ë ![­R{‚wq¨×ü	%0$ü½s)âŸ_ å ¬ p & ÄÿDÿ¨şüıRı·ü7üÔûŠûVû-ûûÜú£ú\úú¹ùoù7ùùşøóøæøĞø®øƒøZøBøHøuøÅø*ù“ùğù>ú…úÓú4û¬û/ü±ü%ıŠıåı=şšşûş[ÿ¸ÿ
+ \ ¤ ß 
+G{¡¬ƒhWH0Ì  V /  èÿ¨ÿGÿÎşKşÏıdııÖü¸ü»üÛüıEıkıwıpıgıoı“ıÎış[şşŞş$ÿjÿ¡ÿ·ÿ¦ÿzÿOÿDÿhÿµÿ Z † › ¯ Ù  xÉ,;Y…³Øîù &ıØ½¼İpÊe—±¶ª—†ymZ;ìÔÖòNw™ºâBgy}{€Ÿ†O½ƒX5
+Ö—^7*-2)
+ß¸¢¥ºÕåŞ¸u¨2¿ \  Ïÿÿlÿ5ÿøş¼ş‰şeşLş:ş&ş
+şñıÕı½ı¥ı‰ıfı?ıı	ı
+ıı ııŞü‰ü$üÃûzûMû5û#û
+ûåúµúƒúUú2úúúùùñùèùÜùÊù¯ùùkùQùEùGùUùfùuù}ùù~ùù‹ù¢ùÊùúBú†úÂúîúûû&û>ûcûûÀûìûüJüüèüSıÅı2ş™şÿ{ÿ Â ‚;ÙV·_³;[eel~•¢”eĞ‘j]ZR9
+Õ›jD)şäÂ˜f-ò»xx¼ô-`‡¤¹ÊÜíûşı#O†Áø'Li‘Ÿ­¾Õò$$Ë{(â°‘xS¾OÓUÚ c íÿwÿÿ–ş2şØıƒı,ıÍü`üèûjûìúpúûùŒù)ùÔø–øtølø{ø˜ø·øÓøêøüøù%ùBùiù˜ùÕùúqúÌú$ûtû¶ûêûü7ü_üüÆüı?ıxı¬ıØıÿı$şHşmş’ş´şĞşäşòşşşÿ)ÿLÿrÿ‘ÿ¡ÿœÿ‰ÿmÿUÿFÿ<ÿ1ÿÿûşÏş¡şwşWş>ş$şşãı¿ı¤ı”ııı‡ıtıVı9ı%ı#ı6ıXı‚ı¯ıáışjşÊş9ÿ°ÿ$  ì AÛ!_³ÈÒÓÎÄ²™{^D0 
+ñÇ‘W%ü '*!!-1(DyµêAr¯ğ%:&ô½¡·şa¿ışåŞõ,vÆXœÛ8ID4#!
+îÆsGÅhş”8òÄ§’zW%ä”;à ‰ @ 
+ ëÿàÿâÿåÿßÿÆÿšÿ`ÿ#ÿğşÌş¶ş¥şşcş'şáııiıGı2ı#ııûüäüÑüÆü»ü§ü‚üJüüÉûûŠû‰ûûŒû€ûlûWûGû9û(û
+ûéúÅú°ú³úÑúüú"û1û ûõú¼ú…ú^úJúIúUúkú„úúµúÇúÒúİúíú
+û9ûtû´ûîûüFülüšü×ü$ııâıHş«ş	ÿ_ÿªÿíÿ) b ¡ ä *k¡ÅÚêû+=<$üÑ±§´ÎçòéÍ§eWYjŠ¶ê!U|“˜…„˜ÅQ™Ôû!'*(üòòı-;Om–Âë	èªOãz%ëÃš_
+¦D÷ Ã œ o ' ÁÿGÿÑştş9şşÿıÚıŸıTıı¿ü‡üXü)üøûÊû«û§ûÀûëûü)üüıûÕû½ûÆûíû%üWüoüeü?üüäûÑûÖûîûü#ü/ü1ü2ü;üPüpü“ü³üÌüàüôüı5ıaıŒı°ıÍıäıûış)ş9ş=ş6ş*ş&ş0şMşuşş¾şÓşáşìşüşÿ%ÿ7ÿEÿUÿmÿÿ¸ÿÛÿìÿåÿÈÿÿuÿXÿIÿEÿEÿEÿCÿCÿGÿNÿWÿ_ÿfÿlÿwÿ‹ÿ©ÿÓÿ ; s ¤ Ç Õ Ê ¬ ‡ j d { ¨ Ş +8<@Nfˆ®×-Vy™˜•—¤ºÓçïîçâåõ2\‰·ã
+.CF5Øš`5÷Ü¹™ˆŠ¸ÌÕÒÌÇÄ¹ vD'^¢ß&6Vƒ³İû1^›àAG1
+âÀ¨”|WĞsµd#î¼†Cï ‹  ¤ÿ+ÿ¶şJşéı˜ıUı ığü¿ü„ü;üäûƒû"ûÈú|ú>ú
+ú×ùŸù`ùùæøÀø²øºøÍøÜøßøÖøÍøÖøşøKù´ù'ú‘úæú%ûWûˆûÁûüNü—üÛüıbı°ışVş™şÂşÎşÄş³ş¦ş¦ş¯ş·şµş£şˆşoşfşpş‡şœş¢ş•ş‚ş{ş“şÏş%ÿ}ÿÀÿâÿæÿŞÿØÿàÿòÿ  ıÿñÿïÿüÿ 7 N Z ` k  ¡ ½ É ¼ ¡ ‰ † £ Ú _”¾æI€±ØùCt«ãGq–³ÇÌÃ«†UÔT0%0BNI3óØ¿£‚aH;7/Ş—S$
+ò ¾  K 1 1 6 * üÿ±ÿ^ÿÿ÷şæşÔşªş]şñızıı¥üQüüºûxûEû'ûûû"û%û&û+û5ûAûIûDû5û"ûûû0ûHû]ûmû}û™ûÆûüEü}ü£ü·üÃüÒüæüşüı ı)ı5ıLıpııÊıñış2şYş‰şÀşõş$ÿKÿoÿ•ÿÀÿëÿ * < M e † ¬ Ë Ö Æ š Z  ½ÿjÿÿÂşnşşËı}ı2ıíü²üˆüsüsü„üŸüÄüöü=ıŸış¬ş?ÿÄÿ0 † Ì W¦öC†À÷0o²ñ$CK>" İ¼_@#
+õÛº‰M
+Ë™we`bjz¨ÀÒÙÔÃ§J
+Ã  I   şÿŞÿ¶ÿŠÿfÿZÿpÿªÿùÿK ” Ó bÄ3õ2aÓ.™a«çR‚¦¸¸ª™‹xlY;Ö„•uêfä`Ş g 
+ Íÿ§ÿˆÿZÿÿ·şVşşÁı‘ıbı'ıÜüŠü>ü üÑû¥ûrû1ûèú¡úeú3ú	úãùÁù©ù¤ùµùÔùõù
+úú#ú:úgú¬úıúNû•û×ûüuüÛüIı¯ışCşyş­şãşÿ@ÿYÿbÿfÿoÿÿÿ’ÿÿXÿ(ÿüşİşËş¹şœşoş7şşÚıÃı¹ı´ı­ı§ı§ı·ıØı
+şDş‚şÀşÿş@ÿ€ÿºÿçÿ   ) 5 A I I @ 5 - - 5 @ H K I G K X p  µ Ü ,Z’Ø)ÒU†¶ê"W~‡q[RWch[9Ø³•‚nXE<AM[c_N2ìË°œ‹~rfXD(şÆ€3á ‹ . ÇÿWÿãşwşşÛı¥ıkıı»üMüçûûsû_ûMû.ûûßúÑúèúûaû—û²û¸û»ûÌûóû%üLü[üPü9ü*ü0üIühü{üzüjüZüXükü‹ü¬üÄüÓüáüøüıJızı£ıÁı×ıêışş<ş`ş‰ş¹şğş-ÿhÿÿÈÿæÿøÿÿÿıÿôÿæÿÙÿÏÿÉÿÁÿ²ÿ”ÿeÿ+ÿìş¯şxşBş
+şÓı£ı‡ıˆı¤ıÑışış*ş2şBşeşŸşæş1ÿ{ÿÄÿ v â Nªì(<[ˆ¾ö)YRecord Sent
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    Çù‰ù¾ùùùèù·ùÌù@ú½úåúÃú´úôúRûwûOû%ûKû¿û7ütü†ü®üıŸı/şÀşdÿ § M·4rHZ`$ñ‡ÉÔ]ĞÅEÂÆo'
+Ûlï `İ¡ ¿ )!T 9ÿ†şmş‡şqş=ş2şIş'şı¼üüñûüVü§ü ıBıJı"ıııRı›ıèıGş±şÿFÿkÿŠÿ£ÿÀÿ » ©uÑÑÓIfr«jwe|·¾]Ó†|Zí}p¯±$s 4 	 ˆÿÁşşÀııMııÔü¬üGü“ûÔúbú<úúßù¥ù¦ùÉùÆù‚ù?ùMù¯ùú3úúÖù¯ù£ù»ù
+úŸúaû)üáüŒı.şÀşBÿÃÿQ ç tú•U!Å,uÓ[ğkºò1‰ğL	ƒ		w	T	&	ßsø”U¼!pæ¡{'iJ"S  òÿºÿ ÿJş”ı/ııİü¡ünügü€üü1ü†ûªúåùtù^ùqùfù"ùĞø±øØøùù×øøoøyø„øuøSø8ø5øNø‚øÁøéøÚøøaøDø4ø
+øÅ÷™÷»÷ø€ø¾øìø1ù‹ùËùĞù¤ùdùù¬øSøGø§ø7ùŒùqùùÏøÑøùøùÿøÛøÃøÊøÿøjùøù„úíúDûÁûŒüı„ş3ÿ›ÿéÿI Ä PáƒH-É>öHı—	
+•
+ù
+@
+v
+¾
+ x“Š£ÆÂ“k¿æÉ‚KAMQLJ@Æ
+~
+V
+1
+Ó
+4
+™	N	B		:õ¾³Z˜{h¹ | € † ` ùÿWÿœşúı‡ı"ı›üèûDûóúùúûûÎú±úÎúûúóú­úoú„úèúNûvûiûaûxû—û›ûû¢ûâû6üpü‰üüÀüßüãü×üëü<ı­ışşşşOşœşşşƒÿ2 ä _„wnpWÆ Ô L×üŒÌ , ŞÿÀÿ•ÿJÿúşÍşÕşÿDÿaÿ,ÿŸşóııxı¨ı²ıbıáüŠü•üğüZı¦ıÍıäıüışJş‡şÒş%ÿzÿÈÿ 1 > 8 3 B n ¬ å  H‹ÉŞÏÄáIJ3:÷k±¼xw¨ìÅFÏ’x6¤å K  
+  ùÿŸÿÿşşÁıgıßüüZûàúßú4ûŠûûoû2û!ûRû°ûüBüCü4üNü¶ü_ış©şÿuÿÜÿB  µ Ì ö G¹)yœ¬Ï}Ó
+:…õh¬­‘™ò-Š‘iN[ud¡_wËÊ
+öä‚r¸  ~ÿ6ÿÿş›şòıı]üÚûœû|ûLûõúúOúaú¼ú,ûuû‡ûŠû·û+üÎünıÜışúıÖı¼ı·ı¾ıÇıÏıäı
+ş1ş8şş¿ısı8ı ı®ü3ü ûû¥ú\ú-úúàù¿ù±ù½ùËù´ù_ùãøxøLø]øxøjø%øĞ÷›÷š÷´÷°÷d÷Öö8öÎõ¶õĞõÑõˆõÿô{ôCôiôÀôõõôôŞôüôSõÅõ5ö ö*÷ ø+ùú¸ûŸü?ı×ı¨şÊÿ^jC
+æİØ¸l	ÿ	„
+
+‡
+ö
+S¬
+~
+Ü
+
+ü
+¾
+s
+7
+
+øÚÀ¿ì@
+“
+µ
+
+)
+³Nş
+­
+I
+×
+y
+N
+L
+A
+ï	9	>C‹Óc³Ş"¥XûMG !ÿ4ş»ı²ıàışÿıçıáıûı"ş/şşäıĞıøıRş¯şàşÙş¿şËş"ÿºÿa ã "#ş Ã y  ¼ÿiÿ;ÿ3ÿ<ÿ9ÿÿÜşœşfş6şıı²ı_ııÿüıüøüÑüƒü(üæûÑûÜûåûÔû°û›û®ûáûüùû¥û4ûÜú½úÄú¹úoúğùxùQù”ùú…ú˜úQúğùÇùú†úûeû‚û‘ûÉû?üÜüqıßı*şoşËş=ÿ®ÿ U ¡ }ğ:H.=J>$	òËœxnx‚€skv–»×ì7w°ËÂ°¸ê1^GíuÕ§VÃ  ]ÿÿÿş$ÿ)ÿâşdşóıÍıüıHşdş$şŸııòü7ıÔıŠş#ÿˆÿÂÿàÿíÿèÿÖÿÊÿ×ÿ b º û !5FO<ø † 	 °ÿ›ÿÅÿ #  Ñÿ‡ÿQÿ9ÿ7ÿAÿVÿ}ÿÃÿ'   $«4·(w¢¾îKÎN™•Wæá×“@’1&DF½   › … L  äÿ	 w u¢‡=ì µ « Ğ ˆğ9M*áCõ ‘  aÿÄşTş#şşşı¬ııRüûñúƒú7úûùÆùùŒù–ù´ùÙùıùú%ú ú
+úíùàùıùJúªúëúÚúiú¹ùù‰øHø$øì÷†÷÷™öjöyööö_öïõ}õ;õ>õzõÎõ#ötöĞöF÷Ø÷{øù¶ùFúÒúeûü³üsıAşÿÏÿp ó eİi¢!}ÀeÜW¹ô
+'K}±à
+@}Ã	b	º	
+w
+Ç
+ö
+ş
+è
+É
+°
+
+~
+A
+à	j	ş°|CãJŒÕRûÑxı|
+®]Ê˜‹¬òJ˜ÇÊŸOê‚$Ö š k J 8 4 ; A 9  éÿ¯ÿ|ÿVÿ:ÿ ÿÿŞş½şŸş|şJşş¸ıyı`ıvı¯ıòı+şVş{ş¡şÈşÚş¿şpşÿııFı3ıJıhımıKı	ı¸üeüü±ûAûÇúZúú
+ú6úúÊú÷ú ûîú×úÎúŞúûEû™ûüƒüı­ı1şş¸ş´şş`ş2şş
+şşNşšşóşFÿ}ÿ‘ÿŠÿyÿtÿ‚ÿ ÿÂÿáÿ 7 ƒ ã >x~X(?¤+´*òdäZ¥¶‘Y6@s°Ï¹q
+©S¨3«'Ä’¢ˆM» ˆ j ^ Y W W [ d n r h K  ØÿŒÿDÿÿ÷şÿ+ÿ[ÿ|ÿ‚ÿnÿOÿ<ÿBÿ\ÿ|ÿ•ÿ¢ÿ±ÿÙÿ' ” M_@6¢1¾5œ
+”4Î9[9õ¾²Îòö¿QÆ>È]èYµ‘ B !  óÿ¯ÿBÿÀş@ş×ıı^ıAı3ı0ı=ıWıyı™ı¬ıªı‘ıeı/ıüüßüäü
+ıTı§ıñı"ş:şFşRşgş}ş‡şuşGşşâıÕıåıÿışçı¬ınıNı\ııÅıáıÒı¦ıuıZıTıQı3ıåümüçûsû ûäú¡ú9ú ùãø ør÷âödöäõUõºô)ô·ónóHó/óóæò·ò•òò¤òÎòÿò0óbóœóçóEô²ô'õ¡õ!öªö>÷Û÷€ø+ùÛù“úSûüÚü”ıBşêş’ÿ? í “*±1ºV	Ä{"»QòŸ	N
+î
+o
+Ò
+#rÉ!
+h
+Š
+€
+T
+
+ñÑ·Qü
+¡
+M
+
+¼
+_
+ß	=	ŒèdÅTã¼Ÿ}CçlælÎ¥†kVMR`nmU'ë©g(é « p =   üÿ  6 W w ‘ ¡ ª ° » Î é &+,,'ã ˜ 9 Õÿÿ;ÿÿÕş–şFşìı”ıHııÇü}ü$üÅûqû9û!û!û%ûûÿúÕú¯ú˜ú•úœú úœú“ú•ú¯úæú4ûˆûÔûüBüsü«üëü)ıYıtıyısınıtı…ıı·ıÏıçış*şXşŒşÀşïşÿFÿwÿ³ÿûÿO © T˜Ìğ&3@O_w˜Ãó ?KG9-*,/)ïÅ›p>ş©DÙ v $ âÿ¨ÿjÿ#ÿÖşşVş2şş	şğıÏı©ı‡ımı\ıJı0ı	ıÛü°ü•üü—ü©ü¼üÊü×üêüı2ıhı£ıãı(şuşÌş-ÿ‘ÿòÿH  É ö =_ƒ«Ù
+A|ºşG”á)iœÄáóøíÎ_ßÖP6ÉzÜÓmC:Éõ³[®$á	ôé.wˆá|ì8ZrB=RÍº[]>GkRóMñÓ†
+–f[:ëvç`´ › ® Œ:Ñ  ÎÿâÿÉÿ% Z f # Íÿj ° € ¶ÿEÿUÿ»ÿ ½ÿäÿ0 ™ ‚ } Ÿ (  lÿìş½ş\şäıPı{ı»üØûFûwú¦úàúªú…úûnûÛú‹úúêùĞúğúHú8úÍù(ùÊø¤øÕ÷÷÷.öñöøƒ÷J÷äöÔö}öĞöOörõ”ööìõÈöS÷øgøcøÁö¦ö„öJõ
+ö&öÛõö‚ö¦öN÷•øĞ÷0ø·ù2úŞú¢û—ûìû¤ığı şcÿöÿ5 QÍU.8½‡_ÜÑéıxIˆ
+Ô	À	g
+«
+^
+ÑoÃ
+EÀ
+t	
+#
+À
+7
+¿
+¯
+í„¿ê‚®×óÿ®“À
+b&l“¹º¨ V(¾ WÌ : { C ³ÿ©ÿÿØÿl Úÿºÿ& ûÿÍÿA Êÿjÿ ÿeÿ‰ÿ¨ Â è +MNÚ>f6½ºØû»ã˜‘Ùò¤m:>Ó 3 Q Á … 
+ Ëÿÿ¯ş$şı±üòüSıı7ııuüiüßûûÚû@üTü\üúü¯ü½üXı©ı„ş	ÿÚş‰şlÿk ¶ ^@#æmˆœ9lõQŒÕ‹ŞVû‰t@–D>no. †  œşş°ıuüVü˜üËûqû€û½ú{ú—úOùpøÚøuøÕ÷Ş÷&÷±ö—÷¸÷W÷ù÷æ÷ãöİöÕö}öy÷Aøé÷eøıø›ø=ùúëúPûŸû½ú¼úöû#üüÖüéü/ıpşÈşÅş¨ÿÈÿ;ÿÈÿ* ìÿƒ Ò n ê G¡ Ğ sÏ » ïÿÌÿG ±ÿJÿâÿôÿ÷ÿƒ r G î ğ e ¬  )  6ZØ«6æ…>§ÓÅY1` c°í;M'x«ä×
+£
+
+i
+l
+B
+,
+?
+
+Û
+é
+N=w-Iw—@ø›à
+l
+¹
+Ó
+µ
+&
+
+	ÜœiÿÖ#l“ 	 Áÿnÿöş%şÖü«ûÍúàùOùçø"ø÷cöööõ7öÒõôôbôãódó.óótòâñ
+ñêï‚ïÕï2ğµğbñ„ñ·ñ ò>ò•òó4óúòUó¼óôğôSõÀõö÷÷Y÷ó÷,øíø”ùÊù†ú(û‹ûŞû[ü]üGü²üÁü8ıØıæıèı0ş~ş¡ş(ÿrÿÿéÿşÿ ¤ jàP‘’òSŞ¹¶Ö%m;ÚÊ«ĞĞ‰(~Å§°÷).%R?VªóVÊ0Pbëäìò9äp¬µñRÍ [ îÿVÿÚşšşXş.şìı^ı¬ü ükûûûúÚú“úAúíùßù>úÚú}ûÿû;ü9ü/ü)ü'ü.üüñûÄû±û¿ûîûü#üõû™û+û×ú¶úÍúûmûØûJü½ü$ıƒı×ı1ş¡ş.ÿáÿ¯ Dû§Nøf»‘j“{7+(	Ç	%
+B
++
+ã	’	5	¢ã_æ×÷Ì;·EóÕ«V ›)à›4Õ s ùÿ¤ÿhÿÿş&şpıÀü2üšû'ûñúºú¦úÍúİú×úÔú™úKúDúbú§ú8û¹û	üdü¥üÆüı-ııØü›üRü\ü¦üáüııÎüˆüüüûüqı™ızı1ı°ü5üåû’ûBûûíúöúIû±ûü&üëûcûÎúIúúùôùú^ú±ú ûIû„û›û“ûrû<ûûûû3ûbûƒûµûôûü1üAü&ü$üiüÒü‡ı}şJÿşÿº KëĞ˜AùqÔV	µ	
+¢
+.
+–
+;°”a
+u
+P
+
+°
+YË
+}
+·
+æ	@	@SŞWóõ ız’f–² ²ÿ4ÿÊş?şşóı^ıñüoü‰ûéúlú™ùñøføƒ÷×ö~öîõõLõÃôKô;ô#ô3ôšô¬ôpôFôâó~óóáó$ô®ôõNõ¶õ ö]ö»ö÷÷O÷´÷ø¦ø5ùfùaù>ùöøŞøù€ùú±ú,û€ûµû¹ûûxûQûCû\ûûşû`ü¹üıTı›ışbşÇşNÿĞÿ] $ä„+šË x´"„İ<½7`&gÊ>	J	F	¤	İ	#
+Ö
+<
+T
+­
+»
+
+¬
+±
+^
+m
+{
+D
+
+ù
+í
+
+W
+Â
+\
+’	#	'	Ó±è±ªdM}Ã íÿ´ÿjÿïşúşŞşBşêınıƒüüßû[û6û3û±úkúnúúúDúúèù
+úÔù£ùÉù‘ù,ùùÄø{øÄøùGù½ùéù±ùªù¡ù…ùÜùdúÏúoûüBüjüoüü¿ûû`û|ûëûdüìü|ıÜı!şhş şİş-ÿ‚ÿ×ÿ  S j U .  ôÿüÿ; u ¬ õ 
+;MGmi5<?'e¤œÈê¯«´S k  Z D v ( ÖÿçÿœÿYÿÿÿZÿ£ÿ˜ÿSÿ ÿ¿ÿ—ÿ H  R e Üÿºÿ ÿÿßşüşş…şÄşoşgşÌşªşºş=ÿ,ÿÿ|ÿOÿÿ5ÿğş{ş¡ş€ş+şuşş&şIşDşÜışOş1şˆşäş°şÅş÷ş®ş¶şÿåşøşOÿ.ÿÿXÿ-ÿÿPÿOÿKÿŸÿ¢ÿpÿ|ÿNÿÿ*ÿgÿ¬ÿ_ ‘%Š™·×à(£±I®ú2No¢ã0t­ÓÙä1 	¢	/
+À
+ş
+
+
+Ë
+^
+
+¸	\	d	_	V	¨	Ô	Å	ø	ô	•	x	@	·•=GaîšJ`Ÿ#8†D•üÏ![ 
+ Rÿˆşaşùı_ıQıëüüÇûTûú€ú„ú ú?úYúËùùbù•ø$øÿ÷R÷ööıötöö+öÇõ†õŞõÏõºõ öö—õõõFôô•óôòøòøò ò´ò¥òòÒñ¬ñ8ñ?ñŠñuñ—ñÜñ¯ñ³ñò#ògòöò(óJóóœó‡ó»óÃóÉó/ô–ôõÍõ‰ö$÷ä÷øùÇù}úûÔû‘ü@ış	ÿ F†µÁay˜ßQ	õ	Ë
+z
+É
+CTt¹ÂÌ
+
+
+
+O
+9
+óâ—)Í
+B
+ 
+
+
+
+ù	ş	º	¼	“	ÒAÈú—øŸyË?qíØWË§+ ¾ÿÿ2şşş×ıHş•şyşÌşÿş¸şŞşÿ±şÈş ÿ´ş¦ş¨şş‰ı]ıÛü°üşüİüµüÉü_üñûüÛû¥ûÌû’ûûÿúÅúkú…úƒú7ú=ú8úøùú.ú úú>úDú¡ú4û‚ûÒûü üùû5üiüÌüiıÚı=ş´şış0ÿkÿvÿ^ÿSÿ>ÿ*ÿ4ÿ<ÿCÿgÿ²ÿ6 ø Ø«D°»ŞIæ˜l,¼B”“Y-6JFÛi«dH×?µßm¬Ù P ¯ÿÿÃşbş¿ıEı¢üÑûzû_û/ûKûSûãúšú~úCúnúÙúŞúÒúÆúIúŞùÊù„ùVù~ùpùdù´ùÈù¡ù›ù9ù™ø_øEøAøÅøYùªù%ú…úŠúÁú
+ûûzûü™üQı/ş­şÿ|ÿÿÿáÿëÿäÿ
+   Š ï 0yu-!E1Ï
+ñƒ:!Y£,üÉ‡*…Å2É’‡	W
+Ô
+
+
+ı
+Ì
+µ
+Å
+ó
+>
+‰
+±
+°
+…
+2
+Ğ
+~
+J
+5
+6
+4
+
+»	L	ÉEŞŒL5>Vƒ—^á+N” ÊP×IØt0§ ıÿ/ÿ/ş&ıTüû²úáùóøæ÷÷Xö¬õ/õ¸ôô‹óó„òòÖñzñ9ñ#ññ÷ğ
+ñğğÀğ›ğSğ
+ğõïáïÜïğ`ğ©ğñQñUñWñSñ_ñÍñò;óô«ôõbõÓõIöñö»÷tøDùAúQû‘üìıÿıÿ¿ Rî¿¥˜˜|Q5
+	É	`
+§
+¤
+Œ
+s
+u
+¦
+æ
+
+E
+Z
+V
+K
+(
+Ü
+u
+ù		7			)	,			üìÎˆ
+jËY5O|—ŠSÿûCt§²©Ïôë¸zPC<Ñ o 	 »ÿÿ{ÿoÿZÿAÿDÿÿãÿ< Y / åÿ®ÿ›ÿŸÿ ÿ…ÿ?ÿĞşLşÕıı;ıÔü/übû¦ú&úâùºùùUùù—ø)øâ÷á÷øMøRø,øø8øøİøñøÉø’ø‚ø²øù ù&ú“úãú"ûaû¬ûüûFü—üıØıæşüÿÅ  .8i¹S²:é®|Fç72BÌƒ	U	f	t		¦	¥	|		w¥àZ
+°>g»8¿;©  Dÿ€şàı„ıcıKıı¤üüzûóúœú|úyúmúOúAúcú¢úÀú›úTú-úFúúçúBûûîû-ükü¿üı7ıÿü§ü™üı¢ış,ş&ş>ş}şÌş'ÿ•ÿùÿ àÿ¤ÿÆÿI Æ è Æ º ç 
+Î › ‚ Y  ×ÿÛÿòÿ¼ÿÿNş€ c:\m\elb\elvxi.rx ˆ  3nO ˆ  ¡CV –L  FLAT_TEXTCODE_DATADATACONST_BSSBSS$$TYPESDEBTYP	$$SYMBOLSDEBSYM ™	 ©Ã    ™	 ©     ™	 ©     ™	 ©    	 ™	 ¡È   
+ ™	 ¡  
+
+ š  °
+ _elAstkb ° _elVprbtb ° _elVhwmtb ˆ  ŸSNN ŒI _ln_def _dr_mak _vx_ser _vxPbuf _elPmem _el_vpr _el_fwd _elPreg  ‘  _el_vxi     ¡É     È  SVW‹
+    ·IQè    ƒÄ‰Ç‹
+    ·IƒÁQè    ƒÄf‰Eü‹
+    ·IƒÁQè    ƒÄf‰Eş·MüQè    ƒÄ‰Ã    ·MşQè    ƒÄ‰Æ5    ·Ïƒùtƒùt"ƒùt&ë0‹óƒÆ‰ñƒÁ.‰
+    Vè    ƒÄëVè    ƒÄj VSè    ƒÄ_^[ÉÃ G ä	
+¤
+ä
+¤+
+ä8
+¤E
+¤V	äa¤k	äväš¤ ¤«¤· ¡          	  !    
+                 " vxTvab_tÒ       Vfun     Vflg!    Vcid!    Vsta!    Vlen!    Vdbc  
+ Afna!    Vblk!    Vrwc!    Vtwc!    Vfmt!    Vvid     Vjid     Vjcn!    Vhck!     Vdck  
+  ¡Î        
+   € Z7.0r1       elAstk       t elVprb       t elVhwm*             Ã      ¾          el_vxi
+  !  codt
+  üÿÿÿ! a1
+  şÿÿÿ! a2
+  p p1 
+  p p2 
+   vab    ìhì=ì*ì •K  	     
+    
+ 6    P   
+ e    z            §    ©    ²    ¾    Š                                                                                                                                                                                                                                                                                                                       /-->
+</SCRIPT>
+    
+<SCRIPT LANGUAGE="Javascript">
+<!-- hide from pre-script browsers
+
+	var haveqt = false;
+
+        if (navigator.plugins) {
+                for (i=0; i < navigator.plugins.length; i++ ) {
+                        if (navigator.plugins[i].name.indexOf("QuickTime") >= 0)
+                                { haveqt = true; }
+                }
+        }
+    
+        if (    (navigator.appVersion.indexOf("Mac") > 0)
+           &&   (navigator.appName.substring(0,9) == "Microsoft")
+           &&   (parseInt(navigator.appVersion) < 5) )
+          { haveqt = true; }
+//-->
+</SCRIPT>
+
+
+</head>
+<body leftmargin="0" topmargin="0" marginwidth="0" marginheight="0"  background="images/movieshow_bg.gif">
+<script> 
+function MM_jumpMenu(targ,selObj,restore){ //v3.0
+  eval(targ+".location='"+selObj.options[selObj.selectedIndex].value+"'");
+  if (restore) selObj.selectedIndex=0;
+}
+function clearfield(){
+ document.AdvSearchForm.query0.value=""
+}
+
+//-->
+</script>
+<style>
+input,textarea, select {color : #000000;font-family:Verdana, Arial, Helvetica,sans-serif;font-size:12px;border-color:#000000;border-style:thin}
+.sbshomelink{font-family:arial;font-size:12px;color:#000000;}
+.sbshomelink a, .sbshomelink a:visited{font-family:arial;font-size:12px;color:#000000;text-decoration:none}
+.sbshomelink a:hover, .sbshomelink a:active{font-family:arial;font-size:12px;color:#000000;text-decoration:underline}
+</style>
+<style>
+/* Import the fancy styles for IE only (NS4.x doesn't use the @import function) */
+@import url("http://www.sbs.com.au/sbs_front/lib/iestyles.css");
+-->
+</style>
+<table cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF" valign="top">
+<form name="form1">
+<tr>
+	<td width="48" valign="middle" bgcolor="#E0DFDF" height="33"><a href="http://www.sbs.com.au"><img src="http://www.sbs.com.au/nav/gnav_sbslogo2.gif" width="45" height="33" border="0" alt=""></a></td>
+	<td valign="middle" bgcolor="#E0DFDF" class="sbshomelink" width="67" height="33" nowrap><a href="http://www.sbs.com.au">SBS&nbsp;HOME</a>&nbsp;</td>
+	<td bgcolor="#D7D7D7" valign="middle" height="33" nowrap>&nbsp;<select name="menu1" onChange="MM_jumpMenu('parent',this,0)" class="navdrop">
+	 <option value="" selected>SBS Sites</option>
+				<option value="http://www.sbs.com.au/dateline">- Dateline</option>
+<option value="http://www.sbs.com.au/insight">- Insight</option>
+<option value="http://www.sbs.com.au/livingblack">- Living Black</option>
+<option value="http://www.theworldnews.com.au">- The World News</option>
+<option value="http://203.15.102.140/news/worldview/worldnews.php3?choser=now">- World View</option>
+<option value="http://203.15.102.140/news/worldwatch/worldwatch.php3?choser=now">- World Watch</option>
+<option value=""></option>
+<option value="http://www.sbs.com.au/alchemy">- Alchemy Radio</option>
+<option value="http://www.sbs.com.au/radio/">- Radio</option>
+<option value="http://www.sbs.com.au/radio_new/sched.html">- Radio Language Programs</option>
+<option value=""></option>
+<option value="http://www.sbs.com.au/fork">- A Fork in Africa</option>
+<option value="http://www.sbs.com.au/australiabynumbers">- Australia By Numbers</option>
+<option value="http://www.sbs.com.au/crankyankers">- Crank Yankers</option>
+<option value="http://www.sbs.com.au/eatcarpet">- Eat Carpet</option>
+<option value="http://www.sbs.com.au/foodlovers">- Food Lovers' Guide To Australia</option>
+<option value="http://www.sbs.com.au/globalvillage/">- Global Village</option>
+<option value="http://www.sbs.com.au/hotline/">- Hotline</option>
+<option value="http://www.sbs.com.au/ifonly">- If Only</option>
+<option value="http://www.sbs.com.au/ironchef">- Iron Chef</option>
+<option value="http://www.sbs.com.au/lifesupport">- Life Support</option>
+<option value="http://www.sbs.com.au/movieshow/">- Movie Show</option>
+<option value="http://www.sbs.com.au/mums/">- Mum's The Word</option>
+<option value="http://www.sbs.com.au/pizza/">- Pizza</option>
+<option value="http://www.sbs.com.au/queerasfolk/">- Queer as Folk</option>
+<option value="http://www.sbs.com.au/sport">- SBS Sport</option>
+<option value="http://www.sbs.com.au/southpark/">- South Park</option>
+<option value="http://www.theworldfeast.com.au">- The World Feast</option>
+<option value="http://www.twentyfourseven.com.au">- TwentyFourSeven</option>
+<option value="http://www.sbs.com.au/whatson/">- What's On TV</option>
+<option value=""></option>
+<option value="http://www.sbs.com.au/art/">- Art Award</option>
+<option value="http://www.sbs.com.au/artsinfocus">- Arts in Focus</option>
+<option value="http://www.cornerfold.com.au">- Cornerfold</option>
+<option value="http://www.sbs.com.au/desktopdelivery">- Desktop Delivery</option>
+<option value="http://www.sbs.com.au/gold/">- Gold</option>
+<option value="http://www.sbs.com.au/myspace">- My Space Is An Amazing Place</option>
+<option value="http://www.theworldgame.com.au">- The World Game</option>
+<option value="http://www.sbs.com.au/whatever">- Whatever</option>
+<option value=""></option>
+<option value="http://www.sbs.com.au/sbscorporate">- SBS Corporate</option>
+<option value="http://www.sbs.com.au/digital">- SBS Digital Television</option>
+<option value="http://www.sbs.com.au/publicity/">- SBS Publicity</option>
+<option value="http://www.sbs.com.au/sales">- SBS Sales Division</option>
+<option value="http://www.sbs.com.au/sbsshop/">- SBS Shop</option>
+<option value="http://www.sbs.com.au/transmission.html">- SBS Transmission</option>
+<option value="http://www.sbs.com.au/sbsi">- SBSi</option>
+<option value="http://www.sbs.com.au/SBSin">- SBSin</option>
+
+
+	 </select>&nbsp;</td>
+	</form>
+	 <td bgcolor="#E0DFDF" valign="middle" width="150" nowrap><form name="AdvSearchForm" action="http://203.15.102.129/NSearch/SearchServlet" method="get" >
+	 <INPUT TYPE="HIDDEN" NAME="site" VALUE="sbsvs1">
+	 <input type="hidden" name="encoding" value="UTF-8">		
+	 <input type="text" name="query0" size="15" value="SEARCH SBS" onfocus="clearfield()" class="navsearch"></td>
+	 <td bgcolor="#E0DFDF" valign="middle" width="20" nowrap><input type="image" src="http://www.sbs.com.au/sbs_front/images/go.gif" name="submit" value="Go" border="0">
+	  <input type="hidden" name="operator0" value="1">
+	  <input type="hidden" name="numhits" value="25">
+	  <input type="hidden" name="collection" value="SBS"></td>
+	 <td bgcolor="#D4D3D3" align="right" width="100%"><img src="http://www.sbs.com.au/nav/spacer.gif" width="242" height="33" alt="" border="0"></td>
+	</tr>
+	 </form>
+	<tr>	
+		<td height="14" colspan="3" bgcolor=s"><a href="reviews.php3?id=1061">The Kid Stays In The Picture</a></font><br>
+<font class="nounderlinedvdlinks"><a href="reviews.php3?id=1078">24 Hour Party People</a></font><br>
+
+						<br>
+						<br>
+					</td>					
+					<td width="5" class="sbstvthisweek"><img src="images/blank.gif" width="1" height="1"></td>
+					<td width="1" class="sbstvthisweek"><img src="images/blank.gif" width="1" height="1"></td>
+				</tr>
+				<tr>
+					<td width="210" colspan="5"><img src="images/bot3.gif" width="210" height="7" border="0" alt=""></td>
+				</tr>
+				</table>
+			</td>
+		</tr>
+		</table>
+		<br>
+		<br>
+		<br>
+		<table border="0" cellspacing="0" cellpadding="0">
+		<tr>
+			<td align="center" class="bottomnav" width="667">
+				<a href="http://www.sbs.com.au/sbscorporate">About SBS</a>  |  <!-- <a href="">Help</a>  |--><a href="http://www.sbs.com.au/sbscorporate/index.html?id=369">Feedback</a> | <a href="http://www.sbs.com.au/sbscorporate/index.html?id=400">&#169; 2002 Special Broadcasting Service</a> | <a href="http://www.sbs.com.au/sbscorporate/index.html?id=399">Terms and Conditions</a>  |  <a href="http://www.sbs.com.au/sbscorporate/index.html?id=402">Privacy</a>  |  <a href="http://www.sbs.com.au/sbscorporate/index.html?id=403">Disclaimer</a></td>
+			</td>
+		</tr>
+		</table>
+		<br>
+		<!-- BEGIN: End Content -->
+	</td>
+</tr>
+</table>
+<br>
+<br>
+<!-- STARTRedMeasureV4-Java v1.1  Revision: 1.8-->
+<!--COPYRIGHT 2000 Red Sheriff Limited-->
+
+<script language="JavaScript"><!--
+var pCid="au_sbs_0";
+var w0=1;
+var refR=escape(document.referrer);
+if (refR.length>=252) refR=refR.substring(0,252)+"...";
+//--></script>
+<script language="JavaScript1.1"><!--
+var w0=0;
+//--></script>
+<script language="JavaScript1.1" src="http://server-au.imrworldwide.com/a1.js">
+</script>
+<script language="JavaScript"><!--
+if(w0){
+var imgN='<img src="http://server-au.imrworldwide.com/cgi-bin/count?ref='+
+	refR+'&cid='+pCid+'" width=1 height=1>';
+if(navigator.userAgent.indexOf('Mac')!=-1){document.write(imgN);
+}else{
+	document.write('<applet code="Measure.class" '+
+	'codebase="http://server-au.imrworldwide.com/"'+'width=1 height=2>'+
+	'<param name="ref" value="'+refR+'">'+'<param name="cid" value="'+pCid+
+	'"><textflow>'+imgN+'</textflow></applet>');
+	}
+}
+document.write("<COMMENT>");
+//-->
+</script>
+<noscript>
+</body>
+</html>                                                                                                                                                                             -÷ Ş Ñ ± w A . = F # Õÿ…ÿbÿxÿ©ÿÆÿ¸ÿÿxÿœÿ	 © J½ìğôX™¿Ç¾´µÆê1·2¸jA· / ÿúş€ş/şşş7ş7şüıııĞü¶ü¿üÔüôü0ıŒıøıVş‹ş“şşgşbş{şµş
+ÿsÿæÿQ œ ³ š  š •ú ½…’Òú×ˆ\‚Íàˆñ { c ‹ — J ´ÿ$ÿäşüş/ÿ5ÿíşuşşåıñıııØıyıı©üxüeüfüƒüÌü5ıı°ıı_ıPılı“ı¥ı©ıÆışuşÊşûşÿ)ÿ:ÿ2ÿÿøşÿ|ÿşÿg œ « · Ù _±ü1Nk¬ŠÅ­f6M™Şê¾~J!ç‚õcü ß û ÿ œ  ¤ÿ^ÿÿ¬ş şPıâüÌüäüõüúüıwıûıjş ş¯şÑş&ÿŸÿ! ¡ -ÍeÑ$Ci}q[ZtŠzA ÛĞÁŒ)§– - èÿÀÿ›ÿ^ÿÿ©şeşBş.şşàı¢ı_ı ıîüËü°ü‰üEüùûÎûèû1ügüQüúû ûwûuûgû1ûõúéúûDûDûûûzû+üÜüBıdı†ıãı{ş%ÿÀÿO å ‚}È8k–¹Üÿ;Xz¡ÃÙÛÁƒ"µ]'ş»SŞ…Hÿ € Ñÿ%ÿ¨şUş	şµıvıiı}ıoıızüüóû5ü~üœü›ü¯üíü4ıZıXıUıyıÁış\ş¸şEÿÿÿ» A€‘¢Ó'‡Ö1b£Í½v Ü¨^ñˆf¨uv/Ñ~6î ³ œ ® É Æ š Y  Ôÿÿÿ¿şmş!şĞıŠıvı©ııı#şíı|ı&ı)ıvıËıøışşFşjşlşSş=şFşiş˜ş×ş>ÿØÿ -¬ª¯Ö$‹ôDq…{HÊ güiê ¾ ä ¿ P îÿÿ
+ÿbşÆı€ıœıØıèı³ıbı,ıı
+ıáü übü7üüü2üˆüılı ı£ı¦ıÕı.ş‹şĞşúşÿNÿ‚ÿ®ÿĞÿéÿ   ' C m ¦ ï L½1‰±¹Ô#“èûŞÌßöÚ„)
+¾9Ã–£­†9í ² o 
+ ŒÿÿÄşş[şşÈııuı~ı’ı’ı\ıæüPüãûŞûGüØü:ıLı4ı<ı‚ıêıCş~ş¶ş
+ÿzÿäÿ. ]  Ö 0ƒ·Ä¿Ïœ+€v1eŠ\şÅ×ø‡êvL@« J ) S ˜ Ã ¼ • g E 6 7 : & äÿyÿÿÕşÛşÿ6ÿDÿ'ÿÛş]ş·ııšü~ü¬üòüııæüµüœü¤üÅüçüñüéüóü6ı¶ıDş ş·ş³şÓş-ÿÿõÿ+ h È 1k_;I¨"j]$
+ø–® m J ) ûÿÄÿÿaÿ;ÿÿĞş‚ş?ş)şLşˆş¦ş…ş8şùıúı:şşÙşÿ6ÿbÿ‡ÿ˜ÿÿ¯ÿÜÿ# y Ô -|¶Ûõ9J<*@’÷"éjûÙü).
+Û¸œs9ü Ë ¬ š ” ™ Ÿ ’ h & ßÿœÿZÿÿÓş°ş°ş·ş™ş?şÃıZı*ı*ı5ı(ııüÄü”üvügübü^ü`üsü¢üêü/ıQı8öyöZöÍõ)õÑôÛôõDõoõÄõcö3÷î÷Tø\ø4ø!øXøßøŒù$úúîúŒû‡ü¥ı|şÏş×şÿêÿ&DÖò—€bÜæÌß+€ q¥nvŸ«lísDcC’¶
+±gß  HÿåşûşIÿrÿKÿëş…ş7şÿıÖıÄıİı)ş ş-ÿÀÿG « Õ Æ œ … • » Ô Ì ¶ ´ Ñ ÷ ß § | u “ Ì n·èYé¦=^
+¨£½ ­‚¦íöb±ÖÇ,Š¡Ë R  ÿÿìÿ´ÿ6ÿwş®ııÌüšüOüòûÅûü™ü)ıbı=ıøüÑüÑüâüñü ı	ıúüÉüœü®ü
+ıvı‡ı#ı–üJüZü~ü`ü ü²ûÁûüvü ü¹üñü:ıOı	ıüqü²üıYıFı(ıDııÂı¿ı¿ışÔşÿãÿÁÿ…ÿ‡ÿÁÿİÿ™ÿ
+ÿ“şqşŸşßşûşŞş’ş*ş¼ı_ı!ıüüãüÕüæüıaıŠı†ı{ı›ıïıHşrşsşşÁşÿ?ÿ)ÿÿ5ÿ©ÿ M B M Ÿ J Ö Ü fC°&¢(“¿´–„{qjq‚Œ€Z&ö×½“FÚkØ£k6
+Ôh· òÿiÿBÿNÿ:ÿôşÄşÿ¹ÿp » ” e ™ 0×I™ÿ€Ñ­)¯—Ü(5ÛØñôºE»O5}‰¹9ø×µw0ô Î p  Óÿşÿ4  SÿŠşşşÃıüü×ûãú}úrúOúêù…ù^ùEùÍøĞ÷·öööWöcö5ö&övö ÷w÷Æ÷#ø¿ø‚ù.ú¶úTûFümı_şÌşÑşßşRÿ! ò p…Nÿ » — ˜ ¯ ¹ ¥ ƒ  ¬ Ù Å ] åÿ²ÿÔÿúÿÏÿcÿÿ2ÿsÿ`ÿ×şGşCşÜşŠÿÉÿ¤ÿœÿşÿˆ Â œ … à Š
+&.•^6ŞuHC&ß•s­şsî60÷&j„hHW—ÒËmÕ;É„W.ù;n“¢—{ezÂ)ï£šİîn`©«–¼&Œ¢jéÉ«‰nY> ş¬I |ÿÀş,şèışPşdşşWıÊüšü˜üoü	üœû\û8ûùúŒúúµùMù¼øø«÷˜÷¬÷•÷E÷÷÷l÷³÷Ì÷è÷Køòø”ùú[úïúÖû×ü£ışcş¦şíş)ÿUÿ‹ÿìÿz ¦ŠüODÃ“K4ÙƒGò ^ µÿ<ÿõşšşşuıfıÜıNş4ş±ızı
+şÿéÿ' 2  5tà 0‹†6	2qwQN‚™<“ . n f#¾Š÷Æ6³rW0	{E…§¥ “se¨@Ôş±Fè†Ö3 %(Â2ö *kZõ Bµ÷C´
+Ú*p
+é ¨ $ ÿeÿxÿ‹ÿ]ÿôşşş¥ıı‚üóû…ûAû ûûùúÃú{ú@ú úúÛù«ù•ù™ù†ù8ùÙøÇø-ùÑùSúúõúûGü¿üåüı“ılş0ÿ˜ÿÂÿùÿH u T  ãÿ N ” Ô awX8WÂOÎ0tŒm!Ëy˜ş n øÿ‘ÿ3ÿöşòşÿ ÿúşºşƒşFşÙıBıÕüÛü6ıyılıQıı#şşœşAşş$şbşkşKş^ş×ş}ÿôÿ' P š ë I¯[÷ ÑkGm˜YäÒàş
+ô×ìJÂ1eä•5õ—;á‰<õ˜³«hbóWaEæ ‚ l © ù %&¼ K ßÿ·ÿÔÿìÿ·ÿNÿÿ?ÿÿÇÿ›ÿVÿDÿfÿ…ÿuÿ7ÿÛşeşäıˆısı‚ı\ıÍüü}ûAûû—úğù~ù~ùÊùúúú9úŠúû¨ûüaıúı)ş)şRşºş*ÿlÿ”ÿãÿn ş TdS@10W«ÿ$(M´š×62Ö =· ` { ê WšİG­´IÆ’°Ç˜I*P~Dğ ‹  Wÿ¾şoşwş¹şÿ|ÿÔÿüÿéÿ½ÿ©ÿ¹ÿÎÿÌÿÆÿÚÿùÿõÿÈÿ®ÿåÿY ³ ½ ›  — o  §ÿ´ÿ%  ° Æ 3ìh<¢Cy÷6çó$3RªŞò$“	:åÉ³wÍÊBI÷Ov¯ 6  áÿÿ*ÿ	ÿBÿ‚ÿ_ÿÕşCşùıÌı[ı‘üÅûPûûÏúWúÿùú3úúmùÓø¸øù$ùËøLø:ø·øUù§ùÂù
+ú©ú:û`û/û$û—ûfü)ı­ışˆşÿuÿ­ÿÕÿ! ¢ @ÔFšç3g]¥n~ŸR2V†`×Aî À Z ¸ÿYÿ´ÿ— GDÑ Š £ ³ N ¨ÿTÿ‹ÿßÿÉÿUÿÿDÿ ÿÿ ÿuşişÀşúşÛş­şÌş.ÿlÿLÿÿÜşáşÇşcşíıÅışoş±şÂşÓş ÿ.ÿ-ÿşşÙşşşÿ9 æ _£Îô	ïŸE'kózÎó	'EN4ó–=SÃŞµãLŠUÆ8ùR²È×ÚÆ˜`J‚
+ªå})"KNî;vÛ € W @  ·ÿ$ÿ‡şşÙı¢ı>ı½üdüfüü¯üiüöû¤ûˆûfû ûhúõùçù3ú¢úû²ûbüôü"ıæüüuüªüıWı±ı*ş¶ş ÿCÿ6ÿ)ÿ'ÿÿÆşqşUş’şÿeÿ—ÿ©ÿ©ÿÿOÿ
+ÿÿwÿ' ¾ ì º u r Î ^Òé›° † “ ­ » Ğ U˜Ÿ\î … J Q ™ 
+{ÉâÌ€î  &ÿş“şÿÅÿ& 1      îÿ‚ÿÿìşÿnÿ³ÿÌÿÁÿÿkÿ4ÿÿÿÿÿæş³ş«şŞş-ÿlÿ’ÿºÿ j Ï %'.PšÍ%§èXA–‘	5òmë9QvºüÄ`íYµÉ ˆ   EÿÑşøşgÿ_ÿtşûü°û û¹úpúú¥ùpùAùìø‡øKø?ø)øÚ÷‡÷”÷øÄø5ù|ùÿùïú÷û–ü²ü¼ü,ışİşiÿÁÿ3 Ø zÖåÈ”C× | j ¬ n¥¼ªOœ ºÿÿÈşÿªÿ9 … ƒ C ßÿhÿùş¯ş˜şœş†ş@şôıûı~şCÿÑÿØÿuÿÿ¼şşXşşãıÖıĞı¶ı›ı£ıÉıÑı’ı2ıÿüıbı—ıÛızşzÿn Ú Á ° ô¥ÚÑ°†+‚ŸŠ3±Xuöt¨ªÃöòu¬@jKÙÔÚÉ–8 Ñù \ & L ­ )¢äµB µÿ¡ÿÛÿ
+   ½ÿpÿ4ÿÿáşºş“şfş+şäı™ıaıWı”ışşÿ+ÿ;ÿ_ÿ“ÿ˜ÿIÿÖşªşış™ÿ  ²ÿNÿüş¯şdş@şeş·ş÷şÿÿXÿÈÿ ! ÿÿ
+ ^ ¸ Ğ µ Ï iW
+‰ß‰–¾±j-@®*Qì1 }ÿÿ
+ÿÿÿÙş^şÎıbı&ıçüoüËûWû`ûÄûüüĞûĞû8üÏüKı®ı9şúşŸÿÇÿ€ÿ@ÿdÿÎÿ  ÿÿ" Z C Àÿ,ÿøş*ÿ]ÿKÿ!ÿ?ÿ«ÿşÿÙÿ]ÿ
+ÿ0ÿ£ÿ < w Ô †   Z ª ² – · @ú~7°-Ô » ä 0dJ× - ‚ÿüşªşş«şğş0ÿ/ÿËş.şÂıæı¥ş©ÿŒ &œêüEÇL˜¥›”ƒUèÂxñSäº–&e ªÿMÿSÿpÿZÿÿ…şìı(ı9üJûúTúZú~ú¢úÁúãúû)ûFûXû\û_û„ûíû“üAı¹ıåıãıÙıÓıËıĞı şfş×şÿ
+ÿÕşµşÌşÿ ÿH ñ edjÇS§Š'ÕÀÆ½¦£¶¶€0 ø Õ \ ¨ÿ&ÿ(ÿÿçÿìÿÁÿ¼ÿıÿC 8 ÏÿIÿíş·şvşşÀı·ıñışàıZıòüøüFıfıı›üqüÊüHıhı
+ı¢üœüôü<ı"ıÓüÁüızı”ıiıfıÙıœş?ÿ—ÿòÿ¸ í İ9‰	v¡œ™¶å-Jhu[
+–}	½Ÿ¥¼ÒÙÌ¨s4õ¶u2øàø3gs[DL_DÚHŞ Ê ä Õ x ÿÿ½ÿÃÿÀÿ[ÿ”şÉıMıı¦üáûôúXúMú¨úûcûºû,ü“ü³üŒünü¬üBıÒışşNşİşŸÿ> ‘ · Ø ò è Â ¹ ù f¬šU1RŒšl2õ •  ¥ÿ`ÿ4ÿÿÿXÿÕÿE g 1 Ôÿÿ=ÿúşÈşÒş*ÿŸÿåÿâÿÒÿ  g ¦ X „ÿ ş#ş şBş7şşçış]ş†şkş.şııäı×ı/* file -  vt_vx - VX native directories/files ACP */
+#include "c:\m\elb\vtmod.h"
+#include "c:\m\rid\medef.h"
+#include "c:\m\rid\stdef.h"
+#include "c:\m\rid\cadef.h"
+#define CABS  1
+#define V4  1
+int vxVreq = 0;
+int vxVtra = 0;
+char *vtAtra [] =  {
+  "Error", "Read", "Write", "Lookup", "Enter","Close", "Delete", "Rename",
+  };
+int vxAfun [] =  {
+  (vxREA | vxCSW_|vxDAT_),
+  (vxWRI | vxCSW_|vxDAT_|vxSDA_),
+  (vxCLO | vxCSW_|vxSPU_),
+  (vxDEL | vxCSW_|vxFNA_|vxSPU_),
+  (vxLOO | vxCSW_|vxFNA_|vxSPU_|vxDIR_),
+  (vxENT | vxCSW_|vxFNA_|vxSPU_|vxDIR_),
+  (vxREN | vxCSW_|vxFNA_|vxSPU_),
+  };
+int vxVflg = 0;
+/* code -  file blocks */
+/* code -  vt_vx_iop - vamp device */
+int vt_vx_pre (vtTqel *,vxTvab *);
+int vt_vx_win (vtTqel *,vxTvab *);
+vt_vx_pos (vtTqel *,vxTvab *);
+vt_vx_iop(
+vtTqel *qel ,
+int req )
+{ vxTvab vab = {0};
+  vt_vx_pre (qel, &vab);
+  vt_vx_win (qel, &vab);
+  vx_ser (&vab);
+  vt_vx_pos (qel, &vab);
+} 
+/* code -  vt_vx_exi - exit handler */
+/* code -  vt_vx_pre - preprocess i/o request */
+vt_vx_pre(
+vtTqel *qel ,
+vxTvab *vab )
+{ rtTchn *chn ;
+  elTwrd *buf ;
+  elTwrd *nam ;
+  char spc [16];
+  int req = 0;
+  int fun = 0;
+  int flg = 0;
+  spc[0] = 0;
+  vab->Vsta = 0;
+  vab->Vdbc = 0;
+  chn = ADR(qel->Vcsw);
+  vab->Vcid = chn->Vblk;
+  if ( (req = REQ(qel->Vfun)) != 0) {
+    ++req;
+  } else if ( qel->Vcnt & 0100000) {
+    ++req;
+    qel->Vcnt = -qel->Vcnt; }
+  flg = vxAfun[req];
+  vxVflg = flg;
+  vab->Vfun = flg;
+  fun = REQ(flg);
+  if ( flg & vxFNA_) {
+    vab->Vblk = qel->Vblk;
+    nam = vab->Afna + 1;
+    buf = (elTwrd *)ADR(qel->Vqbu);
+    *nam++ = *buf++;
+    *nam++ = *buf++;
+    *nam++ = *buf++;
+    if ( fun == vxREN) {
+      *nam++ = *buf++;
+      *nam++ = *buf++;
+      *nam++ = *buf++;
+      *nam++ = *buf++; }
+    vab->Afna[0] = *buf++;
+    vab->Vjid = buf[1]&0xff;
+    vab->Vjcn = buf[1]>>8;
+    vr_unp (vab->Afna, spc, -4);
+    if ( vxVtra) {PUT("spec=[%s] ", spc) ;} }
+  if ( vxVtra) {PUT("\n") ;}
+  if ( fun == vxENT) {
+    vab->Vlen = qel->Vcnt; }
+  if( fun != vxCLO)return 1;
+  vab->Vlen = chn->Vuse;
+  if( chn->Vlen == -1)return 0;
+  if( chn->Vlen == 0)return 0;
+  return 1;
+} 
+/* code -  vt_vx_win - setup transfer window */
+vt_vx_win(
+vtTqel *qel ,
+vxTvab *vab )
+{ rtTchn *chn = ADR(qel->Vcsw);
+  if( !(vxVflg & vxDAT_))return 1;
+#if CABS
+  vab->Vjcn = (chn->Vblk);
+  vab->Vjcn = 4096;
+#else 
+  vab->Vjcn = (chn->Vblk - 1000) & 0xff;
+#endif 
+  vab->Vblk = qel->Vqbl;
+#if V4
+  vab->Vrwc = qel->Vcnt;
+  vab->Vtwc = qel->Vcnt;
+  vxPbuf = (char *)ADR(qel->Vqbu);
+#endif 
+  if( !(vxVflg & vxSDA_))return 1;
+  vab->Vdbc = vab->Vtwc * 2;
+  return 1;
+} 
+/* code -  vt_vx_pos - post process i/o request */
+#define PUTW(a,v)  el_swd(a,v)
+#define GETW(a)  el_fwd(a)
+vt_vx_pos(
+vtTqel *qel ,
+vxTvab *vab )
+{ rtTchn *chn = ADR(qel->Vcsw);
+  elTwrd ptr ;
+  if (( vxVflg & vxSPU_)
+  &&(vab->Vsta)) {
+    vab->Vsta = vxFNF; }
+  if ( vab->Vsta == vxIOX) {
+     chn->Vcsw |= chHER_;return; }
+  if ( vxVflg & vxDIR_) {
+    chn->Vcsw |= 0200;
+    chn->Vblk = vab->Vcid;
+    chn->Vlen = vab->Vlen;
+    qel->Vcnt = chn->Vlen;
+    if ( REQ(vab->Vfun) == vxLOO) {
+      chn->Vuse = vab->Vfmt;
+      chn->Vcsw &= ~(0200); } }
+  if ( vxVflg & vxSPU_) {
+    PUTW(_rmon+spusr, vab->Vsta);
+    return; }
+  if( vab->Vsta != vxEOF)return;
+  chn->Vcsw |= chEOF_;
+} 
+                                                                                                                                                                ÖÎF6>	á	è	l	ÃE0h‘¥°¶şå{)+s²¼ ¾ÿÿŞşéşÖşdş©ıãü2ü û4ûûZûëûvü«ü‰ü?üşû¿û_ûİújúAú]úú¯úàúcû9ü
+ıdı$ı±üü1ı3ş/ÿáÿZ Ò SºäÛÄ­z˜ U † ¯øÕjæ c æÿ{ÿ6ÿ"ÿ9ÿdÿÿ ÿ{ÿöşşÇü¢ûØúhúú®ùPùBù§ùBú úzúõù€ù}ù÷ù°ú`ûéûUü·üı|ıÔış7ş7ş+ş'ş*şşíıØı&şóşõÿ® Ô › … Ş €ş-RÚİü¾*N;Ş‹º‹—?3Ÿ÷‰`YZVDÑ”h"t@Çˆ Õÿÿ;ÿŒş“ı°ü5ü%üJülütü`ü3üøûÓûôûjüı¨ışaşÎş^ÿÜÿ »ÿ4ÿÁş¦şÿÉÿ× æ¨õèØ
+|ñ9f³AæUh?üÙ“D!8T%—æh;3
+²5®k ´ÿÿšşş6ı
+üÔúïùgùïø1ø2÷Yööfüü¢üÏüı1ııÿü6ıÉıxşÿşTÿÿ»ÿÍÿÛÿ  ½ }$)lş•ìC±9¢ĞÎ¥RÜfá­[ìx
+«Qú ˜ $ ³ÿuÿˆÿÏÿ 
+ öÿ O ¨ ô 4‚Ø$lß=œ£¶7ëMRM`\µxkIÖ)Œ´E}Ú K ¹ÿ9ÿóşèşèşÄşƒşGş"şÿıËı‘ımıdıdıVı/ıîü’ü.üæûÎûÍû¬ûSûçú—úgú5úöùÕùöù4ú;úôù¯ùÖùkúşú)ûşúäúû•ûü„üı¥ı şpşÏş{ÿX ø ı (ÉŒı
+D¡]ø¼»ÏÆ€üSµ N  áÿiÿ¼ş#şĞı©ı^ıÂüêûû}ú-ú$úAúOú&úáùÏùúnú[úÈù;ùfùnú¼ûšüÙüØüıüPı©ış•şVÿ ‡ á k9÷MKU®6©şdëSPê|Vq”œ›¬ËÛÇ“HûÆÂä	[{GĞZß¤m_nJ½ğHî    Gÿ‘şş¥ı
+ıgüüïû±ûïúÚùùù¨ù!ú1úúúAú¡úûûUü
+ı’ıïıbşÿåÿŒ î )g­ëKx”¡°¼®‰oopOĞ£n#é ï ø N ^ÿ¾ş³şèşÕş]şèıÕış0şş¼ıısı3ıÔü–ü§üâüñüÅü‹üZüÿûHû[úºù»ùú4úÖù>ùóø)ù‘ù·ùtùóøøÒø¢ùÉúÛû|üºüÿü•ımş:ÿÊÿE '|ÇÖ”3aËaĞçØ
+	”	ø	ª	¨ºRÚfå­
+1hÄ , –ÿ$ÿ
+ÿ,ÿ9ÿ&ÿ!ÿ=ÿbÿCÿÄşMşKş»şfÿşÿW  õ E˜÷>u¯èHÚW²ò¤5J–’Pöá)MëÂ¥™lIƒ·„¢XYX¨ C 
+ äÿjÿ¥ş5şşİı“ı ı‰ü.üŞûPûëúÍú¶úÀú´úKúñù¾ùnùKù`ùSùTùmùdù£ù<ú¤úêú&û
+ûîúüúòú/ûñû™üıPıAı<ı…ııyıÄı#ş€şãşâşèşœÿX … - 9ÿJş1ş`ş]şjş4ş²ıZıÎüüšû5ûƒúúíùıù£ú/ûû	û=û~ûü€üLüVüâü¥ıóşI Ğ õ ì ¢ ã ¡W¿äKçíÑğÁ—›Azµş£İº|µ,¾’-œ_¤1e°\˜°œ%­Êù·ı¬Bn¿6ÿ‡k¤
+' ¯ÿPÿ|ş÷ı—ıÚü¢üÔü­üÂüìüvüüñû_ûNûäû!üMüiüÛû¢û'übü˜üıŞüÄüıïüóüÃıcş×şZÿÿ¡şßşçş×şVÿ—ÿºÿO ` ' ³ E›58ÇhOİà'ü¢9~f^Ñ ­  ¾ÿ~ÿmÿÇşrş/ş_ıı#ı·üÆü:ııìü£üaûTúàù#ùâø2ùôøÄøÈøş÷b÷š÷‹÷‚÷¯÷÷Æö”÷^ø:ùzúóú ûÑûûûüæü¯ı†ş% [-{7g2Îm1¨-b	J	e»ê¼||ñçÛ,ÒÃÉø ! K  U “ ¿ u k ±ÿ‹ÿa ì ·ºªüîY¶
+²A‹[VÃº W ’ÿÍşÿ>ÿ2ÿØÿäÿZÿÿ_ÿäş6ÿ<ÿºş÷şÿ±ş7ÿ³ÿÿ÷ÿ
+ Aÿ
+ÿãş9ş|şÿÿÿ	 qÿHÿNÿ—şfşyşÉı¥ıëıxıˆı!şş4ş›şìıcıvıı;ıFş°ş5ÿ!  Ãÿ# áÿ¾ÿU / ñÿ‚ “ « œã¾Œ’ z ' Ñÿ‹ ß  é  …ÿ?ÿ¯şıfıúüüîûÔû*ûRûZûŒúFúËù€øøø¬÷VøUù€ùú²úcú±útûûDü]ı¢ı`şœÿ à 
+X˜$U“‘¥‹äTÔAú°³“^§Â¢¨ù\zÊ©tíœ‚bŒYìy:|{e›µ*•ˆîæóz  ãşvşşïıÉışÅıóı‡şIşfşÖş şdı ıOü&üæüıœıÁşÈşŸş!ÿÿ7ÿ" + 6 4gR#æ@6 ıÿMÿRşªşğşàş›ÿwÿyş¬şÌş8ş¤ş
+ÿÎşwÿîÿ‡ÿ5 –  q vÿÿöşş1ş2ÿ;ÿRÿŠÿĞşqşwş°ı}ış®ıIıiı'ıRıÇı)ı‰üiü}ûyúôù6ù)ùÉù£ùù*úäùùØùÖù€úàû'üsüÅı‹ş^ÿÕ OµÓ¥+du”Ù±›9ÈãÏ—‰ƒ`pÀÈ¡jå ø ¥­ Ú øyvùÉ k X½ ’ Õ§l„Ù”¬æo$j…X__nƒ´Îf$Œ×xfı0X°³¡Òo€>E  ÚÿÏş‡şvşùıbş şëı,ş¨şLşÏşPÿkşş ıüÙûeü”ûOû‘ûkúúú–ù-ùúùXù‡úKúúyû¯ûËû£ış]ı5ş0ş—ı
+ÿÓÿ:ÿ# ‰ “ÿd N¶ …úÆ!KPÄÃ”…kxwÉ ‹äÿÂÿÒş†ı–ı-ıüûû¡ûú«úáú\ú€úãú¯úëú/ûyúçùúúpú!û^û_û¥ûâû6üıÔış#ş\ş«ş
+ÿ‡ÿÍÿòÿ‹ ï Î İ ^‡¹‰ –8…&ø®A1Ü¦—Ë(áXÓÙİ‚?…ü`,o3é
+ìÅ Q ‘ ¥ÿ|ş'ş•ı1ıgı¤ü’ûÄû®ûÿú‰ûBüü!üüeû>ü²ıˆııiş…şÊş°ÿ„ÿ¢ÿ	.¨ †ÏK6ç 1Î‚Tú¹+Ç-Ã®2L]~326¥UĞX;ë‡¿¦©1yj ’ ­ Fÿşáı9ııûıú	ú†ù„ùøøCø[ø`ø÷›ö…ö÷q÷÷>öôõ´ör÷‰÷ä÷ÚøwùŸùÙù2úûAüü½üoş  ÷ ~SşƒåÒ¢¶†îú«Ø¶`á¥‹ô(28y+§^ @[% ­ÿæşÄşçşßı±ıÿÿŒş'ÿ¢ÿ³ÿşÿ}ÿÿO Ï ›ÿ'ÿÌÿv Y±#_ıWÕ ®j¡yç/[d€j¤y#ÂT!âô÷
+p5zSæä4] 

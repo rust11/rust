@@ -1,0 +1,752 @@
+;.title	lds.mac
+;
+;	%build
+;	run sy:strip smb:lds.mla=sms:lds.mac
+;	%end
+;	%date
+;	<18-Jan-2005 21:10:23.03>
+;	%edit
+;	<69   >
+;
+;	$sbdef		SHAREplus system build
+;	$scdef		SHAREplus scheduler
+;	$sedef		SHAREplus process SET options
+;	$sfdef		RT-11 special functions
+;	$sgdef		RT-11 SYSGEN flags
+;	$shdef		SHARE-eleven system calls
+;	$sidef		SHAREplus signal codes
+;	$smdef		Structured macro setup
+;	$spdef		SHAREplus spooler structures
+;	$srdef		SHAREplus system rights
+;	$ssdef		SHAREplus system services
+;	$stdef		SHAREplus process states
+;	$svdef		Shift values
+;-----------------------;
+; SYSTEM BUILD		;
+;-----------------------;
+;
+; System build parameter file
+;
+;	NOTE: Compile SPS:BDA.MAC for any changes to this macro.
+;
+;	BDA	Reserve space for SB record
+;	ESB	Process SB record
+;	ERE	Report SB record
+;	SHAPE	Create SB record
+;
+.MACRO	$SBDEF
+;
+;			;meaning		default
+map	sb.gua	word,0	;guard word		^rSBG
+map	sb.ver		;SHAPE version		4
+map	sb.sys		;system disk		SYS
+map	sb.scf	word*4	;startup command file	SY:SHARE.COM
+map	sb.sdh	word*4	;system device handler	SY:ccX.SYS (boot device)
+map	sb.ads		;number of ads		10.	???	8
+map	sb.tbs		;number of tbs		3
+map	sb.tps		;number of tps		10.	???	6
+map	sb.wsd		;working set default	128.
+map	sb.syp		;en/disable sys prot	disable
+;			;
+;	2 - V2.0	;
+;			;
+map	sb.vds		;VM: directory segments	1
+map	sb.kp6		;reserve kernel par6
+;			;
+;	3 - V2.1	;
+;			;
+map	sb.u22		;unibus_22		disable
+;			;
+;	4 - V2.3	;
+;			;
+map	sb.lim		;memory limit
+;
+;	5 - V3.0
+;
+map	sb.dbg		;kernel_debug
+;			;
+;map	sb.lto		;login timeout		20.
+;map	sb.mps		;monitor pool size	none
+;map	sb.hps		;handler pool size	none
+;map	sb.kbs		;kernel block size
+;map	sb.bfs		;build flags
+;map	sb.cfs		;configuration flags
+;map	sb.pps		;physical block size
+map	sb.bbs		;size
+;
+map	sbadl.,,1	;low	This is probably too small
+map	sbadd.,,8.	;usual	AD's are small
+map	sbadh.,,128.	;high	Sanity check
+;
+map	sbtbl.,,1	;low 	At least one for directories
+map	sbtbd.,,3	;usual	Enough for overlapped i/o
+map	sbtbh.,,16.	;high	8kw leaves little else in the pool
+;
+map	sbtpl.,,1	;low	At least one required.
+map	sbtpd.,,6.	;usual	I/O bound systems may need more.
+map	sbtph.,,32.	;high	Either queue for TP or queue for device.
+;
+map	sbwsl.,,64.	;low	At least 64 for startup file.
+map	sbwsd.,,128.	;usual	32kw process.
+map	sbwsh.,,128.	;high	32kw process.
+;
+map	sbvdl.,,1	;low	1 segment
+map	sbvdd.,,1	;usual	1 segment
+map	sbvdh.,,8.	;high	fits in one par
+;			;
+.ENDM
+;-----------------------;
+; SCHEDULER		;
+;-----------------------;
+;
+; Scheduler data
+;
+.MACRO	$SCDEF
+;
+; Scheduler queue element
+;
+map	sc.suc	word,0	;successor
+map	sc.pre		;predecessor
+map	sc.bbs		;scheduler queue element size
+;
+; Scheduler wait conditions
+;
+map	scwti.,,1	;terminal input
+map	scwto.,,2	;terminal output
+map	scwre.,,3	;resource
+map	scwqu.,,4	;quota
+map	scwio.,,5	;i/o
+map	scwsi.,,6	;signal
+map	scwac.,,7	;activation
+map	scwtw.,,8.	;twait
+map	scwrs.,,9.	;resume
+map	scwme.,,10.	;message
+map	scwrc.,,11.	;record
+map	scwmu.,,12.	;mutex
+;
+; Scheduler priorities
+;
+map	scpbg.,,0	;background
+map	scpba.,,2	;batch
+map	scpin.,,4	;interactive
+map	scpio.,,9.	;i/o
+map	scpto.,,10.	;terminal output
+map	scpti.,,11.	;terminal input
+map	scpsi.,,12.	;signal
+map	scprt.,,16.	;real-time
+map	scplm.,,32.	;priority limit
+;
+.ENDM
+;-----------------------;
+; SUB-DIRECTORIES	;
+;-----------------------;
+;
+; RUST mapped directories
+;
+.MACRO	$SDDEF
+map	sd.bas,,0	; base block
+map	sd.len		; directory file length
+map	sd.idx	1	;
+map	sd.uni	1	; unit
+map	sd.log		; logical name
+map	sd.bbs
+.ENDM
+;-----------------------;
+; SET			;
+;-----------------------;
+;
+; SET constants
+;
+.MACRO	$SEDEF
+;
+; p$hset - $terms, $$term
+;
+map	setcy$,,1	;ctrl/y
+map	setcb$,,2	;ctrl/b
+map	setcf$,,4	;ctrl/f
+map	setct$,,10	;ctrl/t
+map	setid$,,20	;set spool identify
+map	setch$,,40	;ctrl/h
+map	setnm$,,200	;nomessages (nosend/notell)
+map	settr$,,400	;set trace
+map	setdb$,,1000	;set debug
+map	seted$,,2000	;set edit
+map	setlo$,,4000	;set logger log/nolog
+map	setnt$,,10000	;set trace [no]native
+map	setft$,,20000	;set trace [no]feature
+map	seste$,,40000	;set [no]step
+map	senov$,,100000	;set noverify
+;
+.ENDM
+;-----------------------;
+; STRUCTURED MACRO	;
+;-----------------------;
+;
+.MACRO	$SMDEF
+.include "lib:sm.mlb"
+smini$
+.ENDM
+;-----------------------;
+; SPECIAL FUNCTIONS	;
+;-----------------------;
+;
+;	Special function definitions
+;
+;	.spfun	area, chan, func, buf, wcnt, blk [,crtn]
+; 
+;	[ func	| chan	]
+;	[ blk		]
+;	[ buff		]
+;	[ wcnt		]
+;	[ func	| 377	]
+;	[ crtn		]
+;
+.MACRO	$SFDEF
+;
+.macro	$sfdev	cod, adr
+.if nb <cod>
+	.word	cod
+	.word	adr
+.iff
+	.word	-1
+.endc
+.endm
+;
+.macro	$sfent	fun, ctl=0, dat=0, dum=0
+.if nb <fun>
+	.word	ctl
+	.word	dat
+	.byte	fun
+	.byte	0
+.iff
+	.word	-1
+.endc
+.endm
+;
+; Special function device entry
+;
+map	sf.cod	word,0	;device code
+map	sf.adr		;device descriptor address
+map	sf.dbs		;
+;
+; Special function table entry
+;
+map	sf.ctl	word,0	;control
+map	sf.dat		;data (wordcount or limit)
+map	sf.fun	byte	;function code
+map	sf.fre	byte	;free
+map	sf.ebs		;entry byte size
+;
+; sf.ctl
+;
+map	sfwct$,,1	;force word-count
+map	sflim$,,2	;limit word-count
+map	sfonc$,,4	;once-only - dont repeat on buffered I/O
+map	sferb$,,10	;error-block present
+map	sfctl$,,20	;control - no buffer/word-count
+map	sfphy$,,40	;physical (dio only)
+map	sfrea$,,100	;read = iorea$
+map	sfwri$,,200	;write = iowri$
+map	sfbct$,,400	;request uses byte count
+map	sfbyp$,,1000	;mscp bypass request - convert wordcount to address
+;		10000	;
+map	sfund$,,20000	;undescribed spfun
+map	sfphw$,,40000	;physical write (also set by write)
+map	sfrws$,,100000	;DM: read/write status
+;
+; sf.fun
+;
+;	sfd%%.		disk functions
+;	sft%%.		tape functions
+;	sfc%%.		cassette functions
+;	sfx%%.		xl functions
+;	sfn%%.		ethernet functions
+;
+; Disk functions - generic	
+;
+map	sfgvs.,,373	;get variable size
+;
+; Disk functions - dl dm dx dy ld du dw dz
+;
+map	sfdpr.,,377	;physical read			du dl dm dx dy dw dz
+map	sfdpw.,,376	;physical write			du dl dm dx dy dw dz
+map	sfdwd.,,375	;write with deleted data mark	         dx dy
+map	sfdrb.,,374	;read badblock table		   dl dm
+map	sfdgs.,,373	;get device size		du dl dm ld dy dw
+map	 sfd32.,,1	; iq.blk 32bit size (see $gddef)du
+map	sfdtt.,,372	;read/write translation table	du       ld
+map	sfdms.,,371	;direct mscp function call (old)du 
+map	sfdmx.,,360	;direct mscp function call (new)du mu
+;
+; Magtape functions - ms:, mm:, mt:
+;
+map	sfmwe.,,377	;write eof
+map	sfmfb.,,376	;forward blocks
+map	sfmbb.,,375	;backspace blocks
+map	sfmwg.,,374	;write with extended gap
+map	sfmrw.,,373	;rewind
+map	sfmro.,,372	;rewind and off-line
+map	sfmpw.,,371	;physical write
+map	sfmpr.,,370	;physical read
+map	sfmst.,,367	;stream - ms: only
+;
+; Cassette functions
+;
+map	sfclf.,,377	;forward to last file
+map	sfclb.,,376	;forward to last block
+map	sfcnf.,,375	;forward to next file
+map	sfcnb.,,374	;forward to next block
+map	sfcrw.,,373	;rewind (same as mt:)
+map	sfcwg.,,372	;write file gap
+;
+; XL/XC functions
+;
+map	sfxcl.,,201	;clr - clear connection
+map	sfxbr.,,202	;brk - break
+map	sfxrb.,,203	;srd - bytecount read
+map	sfxrs.,,204	;sts - read status word
+map	sfxof.,,205	;off - switch it off
+;
+; NQ functions
+;
+map	sfnal.,,200	;allocate/deallocate unit
+map	sfnpm.,,201	;enable/disable promiscuous mode
+map	sfnpr.,,202	;enable/disable protocol type
+map	sfnma.,,203	;enable/disable multicast address
+map	sfntr.,,204	;transmit ethernet frame
+map	sfnre.,,205	;receive ethernet frame
+.ENDM
+;-----------------------;
+; SYSGEN 		;
+;-----------------------;
+;
+; RT-11 sysgen
+;
+.MACRO	$SGDEF
+;
+; RT-11 sysgen
+;			;rt-11	handler
+map	sgerl$,,1	;erlg$	erl$g	error logging
+map	sgmmg$,,2	;mmgt$	mmg$t	memory management
+map	sgtim$,,4	;timit$	tim$it	device timeout
+map	sgrtm$,,10	;rtem$	rte$m
+			;rt-11	general
+map	sgfpu$,,400	;fpu11$		FPU
+map	sgmpt$,,1000	;mpty$		memory parity
+map	sgsjt$,,2000	;timer$		SJ timer
+map	sgmtt$,,20000	;mtty$		multi-terminal
+map	sgsjb$,,40000	;stask$		system job
+map	sgtsx$,,100000	;tsxp$		TSX
+;
+.ENDM
+;-----------------------;
+; SHARE CALLS		;
+;-----------------------;
+;
+;	SHARE-eleven system call codes
+;
+;	Was non-standard SY.%%%.
+;
+.MACRO	$SHDEF
+;
+map	shhin.	word,-46;-46	install/remove handler
+map	shhse.		;-44	set handler
+map	shxpo.		;-42	xm$pok	xm poke
+map	shxpe.		;-40	xm$pee	xm peek
+map	shxin.		;-36	xm$ini	xm setup
+map	shser.		;-34	server
+map	shpob.		;-32	poke byte
+map	shpeb.		;-30	peek byte
+map	shuba.		;-26	user-mode buffer address
+map	shmat.		;-24	table manager			nope
+map	shlic.		;-22	check a license
+map	shstj.		;-20	stop a job			nope
+map	shpro.		;-16	spooler processes
+map	shjba.		;-14	get job buffer kernel address	nope
+map	shpok.		;-12	poke r1 into address r0
+map	shpee.		;-10	peek into address r0
+map	shtab.		;-6	return system table address	nope
+map	shboo.		;-4	reboot rt-11
+map	shpti.		;-2	put date (r0=rt11 date)
+;
+.ENDM
+;-----------------------;
+; SIGNALS		;
+;-----------------------;
+;
+;
+.MACRO	$SIDEF
+;
+map	siter$,,1	;terminal
+map	sidbg$,,2	;debug
+map	siabt$,,4	;abort
+map	siexi$,,10	;exit (unused)
+map	sirtm$,,20	;real-time (unused)
+;
+.ENDM
+;-----------------------;
+; SPOOLER RECORDS	;
+;-----------------------;
+;
+;
+.MACRO	$SPDEF	
+;
+map	spmdn.,,8.	;eight diversions
+map	spmcn.,,8.	;eight consignments
+map	spmpn.,,8.	;eight printers
+;
+; Diversion, consignment and printer entry
+;
+map	sp.sta	word,0	;status
+map	sp.req		;requests
+map	sp.dev	null	;diversion device
+map	sp.pri		;printer name
+map	sp.int		;intermediate device
+map	sp.con		;consignment name
+map	sp.seq		;sequence number
+map	sp.ebs		;entry byte size
+;
+map	sp.pcr	word,0	;spooler pcr address
+map	sp.csn		;current sequence number
+map	sp.ch0	byte	;sequence number generation
+map	sp.ch1	byte	;
+;
+map	sp.dit	sp.ebs*spmdn. ;diversion table
+map	sp.cot	sp.ebs*spmcn. ;consignment table
+map	sp.prt	sp.ebs*spmpn. ;printer table
+;
+map	sp.kbs		;kernel record byte size
+;
+; Diversion status
+;
+map	spdlg$,,100		;logical
+map	spdlu$,,200		;lookup
+map	spdnp$,,400		;no purge
+map	spdgn$,,1000		;generic
+;
+; Consignment/printer requests & status
+;
+map	spsta$,,1		;start
+map	spsto$,,2		;stop
+map	spabo$,,4		;abort
+map	spnex$,,10		;next
+map	sptop$,,20		;top
+map	spreq$,,40		;requeue
+map	spdon$,,100		;consignment done
+;
+;map	spmod$,,400		;modify request in progress
+;
+map	spier$,,2000		;input error
+map	spoer$,,4000		;output error
+map	spsus$,,10000		;suspended
+;
+map	spnew$,,20000		;new work for consignment
+map	sprun$,,20000		;run the printer process
+map	spbus$,,40000		;busy - i/o pending
+map	spact$,,100000		;active
+;
+.ENDM 
+;-----------------------;
+; SYSTEM RIGHTS		;
+;-----------------------;
+;
+; System rights
+;
+; 	sr.sr0	vax/vms
+;	sr.sr1	vax/vms
+;	sr.sr2	currently unused
+;	sr.sr3	currently share
+;
+.MACRO	$SRDEF
+$ardef			;require $ardef
+;
+map	sr.sr0,,0	;mask
+map	sr.sr1		;
+map	sr.sr2		;
+map	sr.sr3		;
+map	sr.bbs		;
+;
+; System rights
+;
+;	srXXX$	word bit pattern
+;	srXXX.	.byte	word-in-arr, bit-in-word*2
+;
+.macro	ma$map c d e f
+.iif nb <f>,assume  ma$bit eq f
+;	c'd'$=:ma$bit
+;	c'd'.=:ma$vit*256.*2+ma$wor
+;	sr.'d=:ma$wor
+map	c'd'$,,ma$bit
+map	c'd'.,,ma$vit*256.*2+ma$wor
+map	sr.'d',,ma$wor
+;
+	ma$bit=ma$bit*2
+	ma$vit=ma$vit+1
+	.if eq ma$vit-16.
+	ma$bit=1
+	ma$vit=0
+	ma$wor=ma$wor+2
+	.endc
+.endm
+;
+; VAX/VMS compatible system rights	
+;
+ma$bit=1
+ma$vit=0
+ma$wor=sr.sr0
+;
+ma$map	sr cmk	;0	;cmkrnl	- all    - change mode to kernel
+ma$map	sr cme	;1	;cmexec	- all    - change mode to executive
+ma$map	sr sna	;2	;sysnam	- all    - system logical names
+ma$map	sr gna	;3	;grpnam	- devour - group logical names
+ma$map	sr asp	;4	;allspo	- devour - allocate spooled devices
+ma$map	sr det	;5	;detach	- all    - detached processes
+ma$map	sr dia	;6	;diagno	- files  - diagnose devices
+ma$map	sr lio	;7	;log_io	- all    - logical i/o
+ma$map	sr grp	;8	;group	- group  - control group processes
+ma$map	sr nac	;9	;noacnt	- devour - disable accounting - acnt
+ma$map	sr peb	;10	;prmceb	- devour - permanent event flag clusters
+ma$map	sr pmb	;11	;prmmbx	- devour - permanent mailboxes
+ma$map	sr swp	;12	;pswapm	- system - change process swap mode
+ma$map	sr pri	;13	;setpri	- system - alter priority - altpri
+ma$map	sr prv	;14	;setprv	- all    - set any right
+ma$map	sr tmb	;15	;tmpmbx	- normal - temporary mailboxes
+;
+ma$map	sr wor	;16	;world	- system - control any process
+ma$map	sr mnt	;17	;mount	- normal - may mount devices
+ma$map	sr opr	;18	;oper	- system - operator (above)
+ma$map	sr quo	;19	;exquot - devour - exceed quota
+ma$map	sr nmb	;20	;netmbx	- normal - network mailboxes
+ma$map	sr vol	;21	;volpro	- files  - override volume protection
+ma$map	sr pio	;22	;phy_io -   	 - physical i/o
+ma$map	sr bug	;23	;bugchk	- devour - make bug-check entries
+ma$map	sr pgb	;24	;prmgbl - 	 - permanent global sections
+ma$map	sr sgb	;25	;sysgbl	- files  - system global sections
+ma$map	sr pfn	;26	;pfnmap	- all    - map physical pages, i/o page
+ma$map	sr shm	;27	;shmem	- devour - shared memory
+ma$map	sr sys	;28	;sysprv -	 - system rights
+ma$map	sr byp	;29	;bypass	- all    - bypass uic protection
+ma$map	sr slk	;30	;syslck -	 - system lock
+;
+; SHARE-eleven system rights	
+;
+; These will be replaced with VMS compatible values.
+;
+ma$bit=1
+ma$vit=0
+ma$wor=sr.sr3		;sr.sr3
+;
+ma$map	sr man,,1	;manage
+ma$map	sr ope,,2	;operate
+ma$map	sr phy,,4	;physical i/o
+;ma$map	sr syu,,10	;system user
+ma$map	sr boo,,10	;boot
+ma$map	sr lgo,,20	;logout (unused)
+ma$map	sr cli,,40	;set cli
+ma$map	sr cty,,100	;set ctrly
+;
+ma$map	sr tel,,200	;tell and stop
+ma$map	sr pro,,400	;change file-protection
+;
+.ENDM
+;-----------------------;
+; SYSTEM SERVICE CODES	;
+;-----------------------;
+;
+;	ssitm.	Define system service subcodes
+;	ss$itm	Define system service entry points
+;
+.MACRO	$SSDEF TAB
+;
+.if nb <tab>
+.macro	ma$map	c d e f=0
+	.word	ss$'d!f
+.endm
+.iff
+$=0
+.macro	ma$map	c d e f
+	.iif ne $-e,,.error e ;;;call alignment error
+	map	ss.'d,byte,e
+.endm
+.endc
+;
+;	     code pid/prn
+$=0
+ma$map	ss nop	0	;zero is not used
+ma$map	ss cpr	1	;create process
+ma$map	ss dpr	2   1	;delete process
+ma$map	ss rpr	3	;remove process
+ma$map	ss smd	4	;set mode
+ma$map	ss spn	5	;set process name
+ma$map	ss ssr	6	;set system rights
+ma$map	ss spr	7   1	;set priority
+ma$map	ss res	8.  1	;resume
+ma$map	ss wak	9.  1	;wake
+ma$map	ss fex	10. 1	;forcex
+ma$map	ss sch	11.	;schedule
+ma$map	ss ssa	12.	;set signal address 
+ma$map	ss ssg	13. 1	;send signal to process
+;ma$map	ss srm	11.	;set resource mode	?unused
+;ma$map	ss sfm	12.	;set fail  mode		?unused
+;ma$map	ss ssm	13.	;set swap mode		?unused
+ma$map	ss spu	14.	;set powerup		?unused
+ma$map	ss sxv	15.	;set exception vector	?unused
+ma$map	ss sus	16. 1	;suspend
+ma$map	ss hib	17.	;hibernate
+.if b <tab>
+ma$map	ss cls	18.	;subcodes
+.endc
+;
+.ENDM
+;;-----------------------;
+;; SYSTEM MESSAGE CODES	;
+;;-----------------------;
+;;
+;;	$S$TXT defines text for these.
+;;
+;;	This macro is called often and must be fast.
+;;	The absolute numbers are used.
+;;
+;;.MACRO	$S$DEF	
+;;
+;$$=0			;att/fac=0
+;map	s$suc.,,$$+000.	;<I-FINE-Success>
+;map	s$was.,,$$+001.	;<I-WASSET-Was set>
+;map	s$wac.,,$$+002.	;<I-WASCLR-Was clear>
+;map	s$sup.,,$$+003.	;<I-SUPERSEDE-Superseded existing name>
+;map	s$ntr.,,$$+004.	;<I-NOTRAN-No translation>
+;map	s$nar.,,$$+005.	;<I-NOTALLSET-Not all rights were set>
+;;
+;$$=^o100000		;att=1, fac=0
+;map	s$eof.,,$$+032.	;<I-ENDFILE-End of file reached>
+;map	s$nop.,,$$+033.	;<I-NOP-No operation performed>
+;;
+;map	s$msr.,,$$+72.	;<E-NORIGHT-Missing system rights>
+;map	s$nxp.,,$$+73.	;<E-NONEXPR-No such process>
+;map	s$iln.,,$$+74.	;<E-IVLOGNAM-Invalid logical name>
+;map	s$inm.,,$$+75.	;<E-INSFMEM-Insufficient memory>
+;map	s$inx.,,$$+76.	;<E-INSFXMEM-Insufficent extended memory>
+;map	s$exq.,,$$+78.	;<E-EXQUOTA-Exceeds quota>
+;map	s$dpn.,,$$+79.	;<E-DUPLNAM-Duplicate name>
+;map	s$ipm.,,$$+80.	;<E-INVPARAM-Invalid parameter>
+;;
+;map	s$iql.,,$$+96.	;<E-IVQUOTAL-Invalid quota list>
+;map	s$ifl.,,$$+97.	;<E-IVSTSFLG-Invalid status flag>
+;map	s$ilt.,,$$+98.	;<E-IVLOGTAB-Invalid logical name table>
+;map	s$rov.,,$$+99.	;<E-RESULTOVF-Result overflows buffer>
+;map	s$nsl.,,$$+100.	;<E-NOSLOT-No slot available>
+;map	s$ifn.,,$$+101.	;<E-INVFILNAM-Invalid file name>
+;;
+;; fatal errors - standard RT-11 codes
+;;
+;map	s$sp4.,,$$+233.	;<F-RT233-Unknown RT-11 error>
+;map	s$sp3.,,$$+234.	;<F-RT234-Unknown RT-11 error>
+;map	s$sp2.,,$$+235.	;<F-RT235-Unknown RT-11 error>
+;map	s$sp1.,,$$+236.	;<F-RT236-Unknown RT-11 error>
+;map	s$sp0.,,$$+237.	;<F-RT237-Unknown RT-11 error>
+;map	s$ovr.,,$$+238.	;<F-OVRERR-Overlay error>
+;map	s$sst.,,$$+239.	;<F-INVSST-Invalid SST>
+;map	s$mmu.,,$$+240.	;<F-MMUERR-Memory management error>
+;map	s$mem.,,$$+241.	;<F-PARERR-Memory parity error>
+;map	s$fpu.,,$$+242.	;<F-FPUERR-Floating point error>
+;map	s$unl.,,$$+243.	;<F-NOTLOAD-Handler not loaded>
+;map	s$din.,,$$+244.	;<F-INVDIR-Invalid directory>
+;map	s$cpu.,,$$+245.	;<F-INVINST-Invalid instruction>
+;map	s$bus.,,$$+246.	;<F-INVMEM-Invalid memory access>
+;map	s$cal.,,$$+247.	;<F-INVCAL-Invalid system call>
+;map	s$chn.,,$$+248.	;<F-INVCHN-Invalid channel>
+;map	s$adr.,,$$+249.	;<F-ADRERR-Invalid address>
+;map	s$ful.,,$$+250.	;<F-DIRFULL-Directory full>
+;map	s$ovl.,,$$+251.	;<F-OVRLYERR-Error reading overlay>
+;map	s$fet.,,$$+252.	;<F-FETCH-Fetch error>
+;map	s$dio.,,$$+253.	;<F-DIRERR-Directory I/O error>
+;map	s$ndv.,,$$+254.	;<F-NODEV-Device not loaded>
+;map	s$acm.,,$$+255.	;<F-INVMOD-Invalid access mode>
+;.ENDM
+;-----------------------;
+; STATES		;
+;-----------------------;
+;
+; Gate states
+;
+;	s$csta	scheduler state
+;	pr.ast	monitor asts
+;	p$hast	client asts
+;
+.MACRO	$STDEF
+;
+map	stact$,,1	;active
+map	stdis$,,2	;disabled
+map	stdor$,,4	;dormant - nothing pending
+;
+; Scheduler locks
+;
+map	sthol$,,10	;hold lock - used during build
+map	stfea$,,20	;feature lock on scheduler
+map	stbyp$,,40	;bypass lock on scheduler
+map	stmut$,,100	;mutex lock on scheduler
+map	sttmp$,,200	;temporary lock - closed routines only
+;
+; High order byte reserved for counting lock
+;
+; High order byte for scheduler
+;
+map	stlim$,,400	;limbo lock on
+map	streq$,,100000	;set to request limbo fork
+.ENDM
+;-----------------------;
+; SHIFT VALUES		;
+;-----------------------;
+;
+;	Shift values for multiply and divide
+;	These are also bit numbers.
+;
+;	ash	#sv02k.,r1	;multiply r1 * 2048.
+;	ash	#-sv008.,r1	;divide r1 by 8
+;
+.MACRO	$SVDEF
+;
+map	sv001.,,0	;multiply by one
+map	sv002.,,1	;
+map	sv004.,,2	;
+map	sv008.,,3	;
+map	sv016.,,4	;
+map	sv032.,,5	;
+map	sv064.,,6	;
+map	sv128.,,7.	;
+map	sv256.,,8.	;
+map	sv512.,,9.	;
+map	sv01k.,,10.	;
+map	sv02k.,,11.	;
+map	sv04k.,,12.	;
+map	sv08k.,,13.	;
+map	sv16k.,,14.	;
+map	sv32k.,,15.	;
+;
+.ENDM
+;-----------------------;
+; SYSTEM CODES		;
+;-----------------------;
+;
+; A shorter list than $OSDEF
+;
+.MACRO	$SYDEF
+map	syemu$,,
+map	syunk.,,0	; unknown
+map	syboo.,,1	; BOOT
+map	syrus.,,2	; RUST/SJ
+map	syrux.,,3	; RUST/XM
+map	syrts.,,4	; RT-11/SJ
+map	syrtf.,,5	; RT-11/FB
+map	syrtx.,,6	; RT-11/XM
+map	sytsx.,,7	; TSX
+;			;
+map	syvms.,,40	; VMS
+map	syrsx.,,41	; RSX
+;			;
+map	sywin.,,50	; Windows
+map	sye11.,,51	; E11
+map	syg11.,,52	; G11
+map	sysmh.,,53	; SIMH
+.ENDM
+

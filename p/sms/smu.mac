@@ -1,0 +1,591 @@
+;	------------------------------------------------------------------------
+;	Error messages
+;	------------------------------------------------------------------------
+;
+;	SMFAC$	Define message facility macro SMERR$
+;
+;	CODE, DATA, PAGE, PROC and SUBR define 
+;
+.MACRO	smfac$	FAC
+.MACRO	smerr$	MSG,VAL
+.error	VAL ;;?FAC-E-MSG;
+.ENDM
+.ENDM
+;
+;	Default error message
+;
+.MACRO	smerr$	MSG,VAL
+.error	VAL ;?SM-E-MSG;
+.ENDM
+;	------------------------------------------------------------------------
+;	Store literal string
+;	------------------------------------------------------------------------
+;
+;	SMSTR$	STR
+;
+;	/string/	store in pure
+;	"string"	store in pure
+;
+;	Out	s$mstp	0	not pure
+;		s$mslc		string pure location
+
+.MACRO	SMSTR$	STR
+	s$mstp=0			;default type
+	.irpc	ma$cha,<STR>
+	 .iif IDN ma$cha,", s$mstp=1	;pure string
+	 .iif IDN ma$cha,/, s$mstp=1	;pure string
+	 .mexit
+	.endr
+	.iif eq s$mstp, .mexit		;not pure string
+	smsto$	<STR>			;store it
+.ENDM
+
+.MACRO	SMSTO$	STR
+	pure				;go into pure
+	s$mslc=.			;remember string location
+	.asciz	STR			;store it
+pdp$	.even				;even it up
+	default				;back to default
+.ENDM
+;	------------------------------------------------------------------------
+;	Labels and nests
+;	------------------------------------------------------------------------
+;
+;	Called just before control operations to setup M.xxxx values
+;	smplb$ is used to set these values
+;
+;	smglb$	NST BGN TYP LNG		get begin label
+;	smgle$	...			get end label
+;
+;		NST		Current nesting level XX
+;		BGN	s$ml ..	Begin label
+;		TYP	s$mt ..	Block type
+;		LNG	s$mm ..	Long flag
+;		END		End label
+
+.MACRO	smglb$ NST,BGN,TYP,LNG
+	BGN=s$ml'NST			;return label
+	TYP=s$mt'NST			;return type
+	LNG=s$mm'NST			;return long flag
+.ENDM
+
+.MACRO	smgle$ NST,BGN,TYP,LNG
+	BGN=s$ml'NST+smend.		;return end label
+	TYP=s$mt'NST			;return type
+	LNG=s$mm'NST			;return long flag
+.ENDM
+
+;	SMPLB$	Define labels for conditional
+;
+;	smplb$	NST BGN TYP LNG
+;
+;		NST		Nesting level
+;		BGN		Begin label
+;		TYP		Block type
+;		LNG		Long or short
+
+.MACRO	smplb$	NST,BGN,TYP,LNG
+	s$ml'NST=BGN
+	s$mt'NST=TYP
+	s$mm'NST=LNG!s$mlon
+.ENDM
+
+;	SMGRB$	Get repeat block values
+;
+;	smgrb$	RPT BLK
+;
+;		RPT		Repeat nest level
+;		BLK	s$mr ..	Block number
+;		s$mbbl	s$mb'RPT block begin label
+
+.MACRO	smgrb$ RPT,BLK
+	BLK=s$mr'RPT
+	s$mbbl=s$mb'RPT		;return loop begin label
+.ENDM
+
+;	SMPRB$	Define repeat block nesting level
+
+.MACRO	smprb$	RPT,BLK
+	s$mr'RPT=BLK
+	s$mb'RPT=s$mbgn		;remember loop begin label
+.ENDM
+
+;	SMGEE$	Get else block end label
+;	SMPEE$	Get else block end label
+
+.MACRO	smgee$	LEV LAB
+	LAB=s$me'LEV
+.ENDM
+.MACRO	smpee$	LEV LAB
+	s$me'LEV=LAB
+.ENDM
+
+;	SMLBL$	Generate an internal label
+;
+;	.LBL:	Internal label
+
+.MACRO	smlbl$ LBL
+.list
+.'LBL:
+.nlist
+.ENDM
+;	------------------------------------------------------------------------
+;	SMIFx$	Generate conditional test code
+;	------------------------------------------------------------------------
+;
+;	Called by LEAVE, NEXT etc to handle conditional branch
+
+.MACRO	SMIFx$	XIF,C1,C2,C3,LBL,STM
+.if idn	XIF,IF
+	smtst$	<>,C1,C2,C3,LBL,jt
+	.mexit
+.endc
+.if idn	XIF,IFB
+	smtst$	B,C1,C2,C3,LBL,jt
+	.mexit
+.endc
+.if idn	XIF,IFW
+	smtst$	W,C1,C2,C3,LBL,jt
+	.mexit
+.endc
+.if idn	XIF,IFNOT
+	smtst$	<>,C1,C2,C3,LBL,jf
+	.mexit
+.endc
+.if idn	XIF,IFNOTB
+	smtst$	B,C1,C2,C3,LBL,jf
+	.mexit
+.endc
+.if idn	XIF,IFNOTW
+	smtst$	W,C1,C2,C3,LBL,jf
+	.mexit
+.endc
+	smerr$	<Invalid IF in "STM">
+.ENDM
+;	------------------------------------------------------------------------
+;	SMTST$	Generate test code
+;	------------------------------------------------------------------------
+;
+;	Called by the conditional control macros to do the hard work
+;	Works together with AND, OR and ELSE
+;
+;	smtst$	MOD C1 C2 C3 LBL DIS
+;
+;		MOD		Null, B or W
+;		C1		First operand or condition
+;		C2		Condition
+;		C3		Second operand
+;		LBL		Target label
+;		DIS		smjtr$ or smjfl$ macro to do test with
+;
+;	Generates a branch/jump to LBL if the test meets DIS
+;
+;		C2=MS/MC		bit'MOD	C1,C2
+;		C2=ON		DIS	bne	LBL
+;		C2=OFF		DIS	beq	LBL
+;
+;		C2=BS		DIS	C1,C3	LBL
+;		C2=BC		DIS	C1,C3	LBL
+;
+;					b'MOD	LBL
+;		CNT=1		DIS	C1	LBL
+;
+;		CNT=2			tst'MOD	C1
+;				DIS	C2	LBL
+;
+;		CNT>2			cmp'MOD	C1,C3
+;				DIS	C2	LBL
+
+.MACRO	SMTST$	MOD,C1,C2,C3,LBL,DIS
+	.IF	B <C2>
+		sm'DIS'0$ C1,LBL		;if cond
+		.mexit
+	.ENDC
+	.IF	DF SM'C2'..			;this a special case?
+		sm'C2'$$ MOD,C1,C2,C3,LBL,DIS
+		.mexit
+	.ENDC
+	.IF	B <C3>
+		TST'MOD	C1			;if arg cond
+		sm'DIS'0$ C2,LBL
+		.mexit
+	.ENDC
+	.IF IDN C2,seton
+		BIT'MOD	C1,C3			;bit% C1,C3
+		sm'DIS'0$ NE,LBL
+		.mexit
+	.ENDC
+	.IF IDN C2,setoff
+		BIT'MOD	C1,C3			;bit% C1,C3
+		sm'DIS'0$ EQ,LBL
+		.mexit
+	.ENDC
+		CMP'MOD	C1,C3			;if l cond r
+		sm'DIS'0$ C2,LBL
+.ENDM
+;	------------------------------------------------------------------------
+;	SM...$$	IF tests
+;	------------------------------------------------------------------------
+;
+;	MS/MC	Mask-set and Mask-clear use BIT
+;	LBC/LBS	Low-bit-clear/set use BLBC/BLBS
+;	BC/BS	Bit-set/clear use BBC/BBS
+
+.MACRO	SMMC$$	MOD,C1,C2,C3,LBL,DIS
+		BIT'MOD	C1,C3		;bit% C1,C3
+		sm'DIS'0$ EQ,LBL	;MC
+.ENDM
+.MACRO	SMMS$$	MOD,C1,C2,C3,LBL,DIS
+		BIT'MOD	C1,C3		;bit% C1,C3
+		sm'DIS'0$ NE,LBL	;MS
+.ENDM
+.MACRO	SMOFF$$	MOD,C1,C2,C3,LBL,DIS
+		BIT'MOD	C1,C3		;bit% C1,C3
+		sm'DIS'0$ EQ,LBL	;MC
+.ENDM
+.MACRO	SMON$$	MOD,C1,C2,C3,LBL,DIS
+		BIT'MOD	C1,C3		;bit% C1,C3
+		sm'DIS'0$ NE,LBL	;MS
+.ENDM
+
+.MACRO	SMLBC$$	MOD,C1,C2,C3,LBL,DIS
+		sm'DIS'1$ LBC,LBL,C1,C3;LBC
+.ENDM
+.MACRO	SMLBS$$	MOD,C1,C2,C3,LBL,DIS
+		sm'DIS'1$ LBS,LBL,C1,C3;LBS
+.ENDM
+.MACRO	SMBC$$	MOD,C1,C2,C3,LBL,DIS
+		sm'DIS'2$ BC,LBL,C1,C3	;BC
+.ENDM
+.MACRO	SMBCC$$	MOD,C1,C2,C3,LBL,DIS
+		sm'DIS'2$ BCC,LBL,C1,C3 ;BCC
+.ENDM
+.MACRO	SMBCS$$	MOD,C1,C2,C3,LBL,DIS
+		sm'DIS'2$ BCS,LBL,C1,C3 ;BCS
+.ENDM
+.MACRO	SMBS$$	MOD,C1,C2,C3,LBL,DIS
+		sm'DIS'2$ BS,LBL,C1,C3	;BS
+.ENDM
+.MACRO	SMBSC$$	MOD,C1,C2,C3,LBL,DIS
+		sm'DIS'2$ BSC,LBL,C1,C3 ;BSC
+.ENDM
+.MACRO	SMBSS$$	MOD,C1,C2,C3,LBL,DIS
+		sm'DIS'2$ BSS,LBL,C1,C3 ;BSS
+.ENDM
+;	------------------------------------------------------------------------
+;	SMJTx$	Jump if true
+;	------------------------------------------------------------------------
+;
+;	Branch if true using nest parameters
+
+.MACRO	SMJT0$	CND,LBL,?SKP
+	smglb$	\s$mnst,s$mlbl,s$mtyp,s$mmod
+	.IF	EQ s$mlon!<s$mmod&1>		;long form
+		B'CND	.'LBL
+	.IFF
+		sm$'CND SKP
+		BRW	.'LBL
+	SKP:
+	.ENDC
+.ENDM 
+
+.MACRO	SMJT1$	CND,LBL,C1,?SKP
+	smglb$	\s$mnst,s$mlbl,s$mtyp,s$mmod
+	.IF	EQ s$mlon!<s$mmod&1>
+		B'CND	C1,.'LBL
+	.IFF
+		sm$'CND C1,.'SKP
+		BRW	LBL
+	SKP:
+	.ENDC
+.ENDM 
+
+.MACRO	SMJT2$	CND,LBL,C1,C3,?SKP
+	smglb$	\s$mnst,s$mlbl,s$mtyp,s$mmod
+	.IF	EQ s$mlon!<s$mmod&1>
+		B'CND	C1,C3,.'LBL
+	.IFF
+		sm$'CND C1,C3,SKP
+		BRW	.'LBL
+	SKP:
+	.ENDC
+.ENDM 
+;	------------------------------------------------------------------------
+;	SMJFx$	Jump if false
+;	------------------------------------------------------------------------
+; 
+;	Uses internal nest and internal labels
+;	The test condition must be inverted
+
+.MACRO	SMJF0$	CND,LBL,?SKP
+	smglb$	\s$mnst,s$mlbl,s$mtyp,s$mmod
+	.IF	EQ s$mmod&1!s$mlon
+		sm$'CND	.'LBL
+	.IFF
+		B'CND	SKP
+		BRW	.'LBL
+	SKP:
+	.ENDC
+.ENDM 
+.MACRO	SMJF1$	CND,LBL,C1,?SKP
+	smglb$	\s$mnst,s$mlbl,s$mtyp,s$mmod
+	.IF	EQ s$mmod&1!s$mlon
+		sm$'CND C1,.'LBL
+	.IFF
+		B'CND	C1,SKP
+		BRW	.'LBL
+	SKP:
+	.ENDC
+.ENDM 
+.MACRO	SMJF2$	CND,LBL,C1,C3,?SKP
+	smglb$	\s$mnst,s$mlbl,s$mtyp,s$mmod
+	.IF	EQ s$mmod&1!s$mlon
+		sm$'CND C1,C3,.'LBL
+	.IFF
+		B'CND	C1,C3,SKP
+		BRW	.'LBL
+	SKP:
+	.ENDC
+.ENDM 
+;	------------------------------------------------------------------------
+;	SMJBx$	Branch to user label
+;	------------------------------------------------------------------------
+; 
+;	Generate code for BRTO
+
+.MACRO	SMJB0$	CND,LBL,?SKP
+	.IF	EQ s$mlon			;long form
+		B'CND	LBL
+	.IFF
+		sm$'CND SKP C1 C3
+		BRW	LBL
+	SKP:
+	.ENDC
+.ENDM 
+
+.MACRO	SMJB1$	CND,LBL,C1,?SKP
+	.IF	EQ s$mlon
+		B'CND	C1,LBL
+	.IFF
+		sm$'CND C1,SKP
+		BRW	LBL
+	SKP:
+	.ENDC
+.ENDM 
+
+.MACRO	SMJB2$	CND,LBL,C1,C3,?SKP
+	.IF	EQ s$mlon
+		B'CND	C1,C3,LBL
+	.IFF
+		sm$'CND C1,C3,SKP
+		BRW	LBL
+	SKP:
+	.ENDC
+.ENDM 
+
+.MACRO	SMJBL$	LBL
+.if eq s$mlon
+	br	LBL
+.iff
+	brw	LBL
+.endc
+.ENDM
+;	------------------------------------------------------------------------
+;	SMJGx$	GOTO to user label
+;	------------------------------------------------------------------------
+; 
+;	Generate code for GOTO
+
+.MACRO	SMJG0$	CND,LBL,?SKP
+	sm$'CND SKP C1 C3
+		JMP	LBL
+	SKP:
+.ENDM 
+
+.MACRO	SMJG1$	CND,LBL,C1,?SKP
+	sm$'CND C1,SKP
+		JMP	LBL
+	SKP:
+.ENDM 
+
+.MACRO	SMJG2$	CND,LBL,C1,C3,?SKP
+	sm$'CND C1,C3,SKP
+		JMP	LBL
+	SKP:
+.ENDM 
+
+.MACRO	SMJGL$	LBL
+	jmp	LBL
+.ENDM
+;	------------------------------------------------------------------------
+;	Internal jumps
+;	------------------------------------------------------------------------
+;
+;	SMJRB$	Branch to loop component
+; 
+;	Used for LEAVE, NEXT and SKIP with s$mmod preset
+
+.MACRO	SMJRB$	XL
+	.IF	EQ s$mmod&1!s$mlon
+		BR	.'XL
+	.IFF
+		BRW	.'XL
+	.ENDC
+.ENDM 
+
+;	SMJLB$	Branch to numeric label using nest parameters
+
+.MACRO	SMJLB$	X
+	smglb$	\s$mnst,s$mlbl,s$mtyp,s$mmod
+	.IF	EQ s$mmod&1!s$mlon
+		BR	.'X
+	.IFF
+		BRW	.'X
+	.ENDC
+.ENDM 
+;	------------------------------------------------------------------------
+;	Internal branchs
+;	------------------------------------------------------------------------
+;
+;	FINE and FAIL are used to test system call completion.
+;	These branchs are produced by conditional statements, such as:
+;
+;		QIO_S	..
+;	begin:	IF	FAIL		BFINE	end
+;		...
+;	end:
+;
+;	TRUE and FALSE test SM/SL status
+;
+;	TRUE	r0 ne 0
+;	FALSE	r0 eq 0
+
+.MACRO	BFINE	XL
+pdp$	bcc	XL
+vax$	blbs	r0,XL
+.ENDM
+
+.MACRO	BFAIL	XL
+pdp$	bcs	XL
+vax$	blbc	r0,XL
+.ENDM
+
+.MACRO	BTRUE	XL
+	tst	r0
+	bne	XL
+.ENDM
+.MACRO	BFALSE	XL
+	tst	r0
+	beq	XL
+.ENDM
+;	------------------------------------------------------------------------
+;	Inverted branchs
+;	------------------------------------------------------------------------
+;
+;	Each branch does just the opposite of what it says
+
+.MACRO	sm$EQ	X
+	BNE	X
+.ENDM
+
+.MACRO	sm$NE	X
+	BEQ	X
+.ENDM
+
+.MACRO	sm$PL	X
+	BMI	X
+.ENDM
+
+.MACRO	sm$MI	X
+	BPL	X
+.ENDM
+
+.MACRO	sm$VC	X
+	BVS	X
+.ENDM
+
+.MACRO	sm$VS	X
+	BVC	X
+.ENDM
+
+.MACRO	sm$CC	X
+	BCS	X
+.ENDM
+
+.MACRO	sm$CS	X
+	BCC	X
+.ENDM
+
+.MACRO	sm$GE	X
+	BLT	X
+.ENDM
+
+.MACRO	sm$LT	X
+	BGE	X
+.ENDM
+
+.MACRO	sm$GT	X
+	BLE	X
+.ENDM
+
+.MACRO	sm$LE	X
+	BGT	X
+.ENDM
+
+.MACRO	sm$HI	X
+	BLOS	X
+.ENDM
+
+.MACRO	sm$LOS	X
+	BHI	X
+.ENDM
+
+.MACRO	sm$HIS	X
+	BLO	X
+.ENDM
+
+.MACRO	sm$LO	X
+	BHIS	X
+.ENDM
+
+.MACRO	sm$FINE	X
+	BFAIL	X
+.ENDM
+.MACRO	sm$FAIL	X
+	BFINE	X
+.ENDM
+
+.MACRO	sm$TRUE	X
+	BFALSE	X
+.ENDM
+
+.MACRO	sm$FALSE X
+	BTRUE	X
+.ENDM
+
+.MACRO	sm$LBC	X1,XL
+	blbs	X1,XL
+.ENDM
+.MACRO	sm$LBS	X1,XL
+	blbc	X1,XL
+.ENDM
+
+.MACRO	sm$BC	X1,X3,XL
+	bbs	X1,X3,XL
+.ENDM
+.MACRO	sm$BCC	X1,X3,XL
+	bbsc	X1,X3,XL
+.ENDM
+.MACRO	sm$BCS	X1,X3,XL
+	bbss	X1,X3,XL
+.ENDM
+.MACRO	sm$BS	X1,X3,XL
+	bbc	X1,X3,XL
+.ENDM
+.MACRO	sm$BSC	X1,X3,XL
+	bbcc	X1,X3,XL
+.ENDM
+.MACRO	sm$BSS	X1,X3,XL
+	bbcc	X1,X3,XL
+.ENDM
+

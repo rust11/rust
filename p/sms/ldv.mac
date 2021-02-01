@@ -1,0 +1,433 @@
+;.title	ldv
+;
+;	%build
+;	run sy:strip smb:ldv.mla=sms:ldv.mac
+;	%end
+;	%date
+;	<24-Jan-2008 17:38:17.13>
+;	%edit
+;	<97   >
+;
+;	$vadef		VAMP access block (old)
+;	$vcdef	lrs	VAX file characteristics
+;	$vddef	lxr	SHAREreal vector dispatch
+;	$vedef		PDP-11 vector definitions
+;	$videf		VAMP information definitions
+;	$vpdef		RUST/XM vector packet
+;	$vfdef	lrs	VMS FIB - file information block
+;	$vrdef		V11 API
+;	$vvdef		RUST/XM virtual volume
+;	$v1def		ANSII VOL1 label
+;-----------------------;
+; VAMP ACCESS		;
+;-----------------------;
+;
+; VAMP communication packet
+;
+;	va.uic	uic
+;	va.pro	protection code
+;	va.nod	16-bit number
+;	va.prn	16-bit number
+;	va.rat	
+;
+;	EVE package
+;
+
+.MACRO	$VADEF
+;
+map	va.fun	word,0	;00 function (see below)
+map	va.cid	byte	;02 cab id		transfer	directory
+map	va.seq	byte	;03 cab id sequence
+map	va.sta		;04 status (see below)	all
+			;04 TPnet UIC for directory operation
+map	va.len		;06 file block length	enter		directory
+map	va.dbc		;08 data byte count	write		read,message
+map	va.fna	word*4	;10 filename		directory
+			;
+map	va.fnb	null	;18 filename #2
+map	va.blk 		;18 block number or open seqnum
+map	va.rwc 	null	;20 remaining word-count read/write
+map	va.nod	byte	;20 sid - node id	look/enter/delete
+map	va.npn	byte	;21 sjn - node proc id	look/enter/delete
+map	va.twc		;22 transfer word count	read/write
+			;22 TPnet protection for directory operation
+map	va.fmt 		;24 open result format	enter?		lookup
+			;24 TPnet process file privileges
+			;
+map	va.vid		;26 vab id
+map	va.prn	byte	;28 jid - process number lookup/enter/delete/rename
+			;returns node status
+map	va.pch	byte	;29 jcn - process channel number
+			;returns node system
+map	va.cbs	null	;30 header check size
+map	va.hck		;30 header checksum
+map	va.dck		;32 data checksum
+map	va.bbs	null	;34 communication area size
+			;34-46 unused
+map	va.ebs,,46.	;46 ethernet size
+;			;
+map	va.nst,,va.prn	;return node status - byte
+map	va.sys,,va.pch	;return operating system type - byte
+map	va.no0,,va.hck	;node name overlay for ethernet
+map	va.no1,,va.dck	; (does not use checksums)
+;
+;	va.fun - functions
+;
+map	vaabt.,,0	;error
+map	varea.,,1	;read
+map	vawri.,,2	;write
+map	valoo.,,3	;lookup
+map	vaent.,,4	;enter
+map	vaclo.,,5	;close
+map	vadel.,,6	;delete
+map	varen.,,7	;rename
+map	vasiz.,,8.	;get device size
+map	vafus.,,9.	;number of functions
+map	vapur.,,9.	;purge
+map	vainf.,,10.	;info
+map	vaclz.,,11.	;close-with-size
+map	vainv.,,12.	;extended function limit
+			;lookup format modifier
+map	vamnt.,,40001	;mount channel
+map	vadsm.,,40002	;dismount channel
+
+			;va.flg
+map	vasub$,,4000	;sub-directory
+map	vawlk$,,10000	;directory walk in progress
+map	vadsk$,,20000	;disk I/O
+map	vainp$,,40000	;init this process
+map	vaini$,,100000	;init this node
+;
+;	va.sta - return status
+;
+map	vasuc$,,0	;ok
+map	vafnf$,,1	;file not found
+map	vaeof$,,1	;eof
+map	vaiox$,,2	;i/o exception
+map	vaabo$,,-1	;connection abort
+map	vaign$,,200	;non-file open was ignored
+;
+;	va.dbc - data byte count
+;
+map	vadts.,,512.	;default byte count
+;
+;	va.fna+fn.typ - file type controls	
+;
+map	vatac$,,<^r ac>	;acp internal request
+map	vatif$,,<^r if>	;information file
+map	vatvt$,,<^r vt>	;virtual terminal
+map	vatpt$,,<^r pt>	;permanent terminal
+;			;
+map	vatri$,,<^r ri>	;reset image
+map	vatrp$,,<^r rp>	;reset process
+map	vatrn$,,<^r rn>	;reset node
+map	vatrs$,,<^r rs>	;reset server
+;
+map	vaboo.,,117740	;boot CID signature
+;
+.ENDM
+;-----------------------;
+; VAX CHARACTERISTICS	;
+;-----------------------;
+;
+;	LRS.MAC defines this.
+;
+;.MACRO	$VCDEF
+;.ENDM
+;
+;-----------------------;
+; VECTOR DEFINITION	;
+;-----------------------;
+;
+;	LXR.MAC defines this.
+;
+;.MACRO	$VDDEF
+;.ENDM
+;-----------------------;
+; VECTORS		;
+;-----------------------;
+;
+.MACRO	$VEDEF	
+;
+; Vector structure
+;
+map	ve.pc,,0	;vector pc
+map	ve.ps		;vector ps
+map	ve.bbs		;vector size
+;
+; Vector addresses
+;
+map	v$ebus,,4	;bus vector
+map	v$ecpu,,10	;cpu vector
+map	v$ebpt,,14	;bpt
+map	v$eiot,,20	;iot
+map	v$epow,,24	;power fail
+map	v$eemt,,30	;emt
+map	v$etrp,,34	;trap
+map	v$ekbd,,60	;keyboard
+map	v$eter,,64	;terminal
+map	v$eclk,,100	;clock
+map	v$eclp,,104	;clock programmable - kw11p
+map	v$emem,,114	;memory parity
+map	v$efpu,,244	;fpu
+map	v$emmu,,250	;mmu
+map	v$emax,,600	;maximum vector address
+;
+; Vector conditions
+;
+map	venop.	1,0	;zero is not a condition
+map	vebus.	1	;conditions
+map	vecpu.	1	;cpu
+map	vebpt.	1	;bpt
+map	veiot.	1	;iot
+map	vepow.	1	;powerfail
+map	veemt.	1	;emt
+map	vetrp.	1	;trap
+map	veadr.	1	;previous mode adr error
+map	vemem.	1	;memory parity
+map	vefpu.	1	;fpu
+map	vemmu.	1	;mmu
+;
+map	veusp.	1	;user stack pointer
+map	veksp.	1	;kernel stack pointer
+map	veunv.	1	;unvectored interrupt
+map	vebug.	1	;bug check
+;
+map	vemax.	1	;maximum condition
+;
+map	veuse$,,100000	;user-mode trap
+map	vefat$,,40000	;fatal trap
+map	veprc$,,20000	;process trap
+map	vesst$,,10000	;SST trap
+map	vesys$,,4000	;System state trap
+map	vewea$,,2000	;Weak condition (e.g. BPT)
+map	vetrn$,,1000	;transfer to user mode
+;
+.ENDM
+;-----------------------;
+; VAMP INFORMATION	;
+;-----------------------;
+;
+;	VAMP information packet items
+;
+;	Block number specifies the item
+;
+.MACRO	$VIDEF	
+;
+;	tokens
+;
+map	vires$,,0	;reserved
+map	vinod$,,1	;node information
+map	vinet$,,2	;network information
+map	vitim$,,3	;time block
+map	vilon$,,4	;logon
+map	vilof$,,6	;logoff
+;map	videv$,,5	;devices
+;map	viter$,,6	;terminals
+;map	viprc$,,7	;processes
+;map	viusr$,,10	;users
+;
+;	Returned data includes token number and byte count
+;
+map	vi.gua	word,0	;guard word
+map	vi.tok		;token
+map	vi.bct		;byte count
+map	vi.hbs	null	;header size
+map	vi.dat	null	;data
+;
+map	vigua$,,<^rvif>	;VAMP information block
+;
+;	Time data block
+;
+map	vi.yea,,vi.dat	;year
+map	vi.mon		;month
+map	vi.day		;day
+map	vi.hou		;hour
+map	vi.min		;minute
+map	vi.sec		;second
+map	vi.mil		;millisecond
+map	vi.zon		;timezone
+map	vi.tbs,,$-vi.dat;
+;
+;	Node data block
+;
+;	These are accumulated by all servers
+;	Therefore they must be short
+;	Multicast ACP messages always send the node data block
+;	The first CONNECT sets up this block
+;	
+;	6 word block - 80 in 2 block message
+;
+map	vi.nfl	byte,vi.dat;node flags
+map	vi.nos	byte	;node operating system - see $osdef
+map	vi.nod	4	;node name in rad50
+map	vi.nad	6	;node station address
+map	vi.nbs,,$-vi.dat;
+;
+;	Node flags - must correspond with unit information
+;
+map	vikno$,,1	;known - seen
+map	viuse$,,2	;used - response
+map	vinap$,,40	;has ACP
+map	vinse$,,100	;has server
+map	vinac$,,200	;node active
+;
+;	LOGON/LOGOFF packet
+;
+map	vi.mem	word,vi.dat ;member
+map	vi.grp	word	;group
+map	vi.prt	word	;default protection
+map	vi.prv	quad	;privileges
+map	vi.usr	12.	;username
+map	vi.pwd	12.	;password
+map	vi.non	12.	;node name
+map	vi.lbs,,$-vi.dat;login byte size
+;
+.ENDM
+;-----------------------;
+; VECTOR PACKET		;
+;-----------------------;
+;
+; RUST/XM
+;
+.MACRO	$VPDEF
+map	vp.rea	byte,0	;reason
+map	vp.typ	byte	;type
+map	vp.vec		;vector
+map	vp.r4		;saved r4
+map	vp.r5		;saved r5
+map	vp.pc		;interrupt pc
+map	vp.ps		;interrupt ps
+.ENDM
+;-----------------------;
+; V11 API		;
+;-----------------------;
+;
+; See els:elvap.r
+;
+.MACRO	$VRDEF
+map	vrSIG.,,110706		; API signature
+map	vrNFI.,,1		; NF: VRT I/O processor
+map	vrMKD.,,2		; Make directory
+map	vrDEF.,,3		; Define logical
+map	vrNFW.,,4		; NF: RUST windows driver
+map	vrDET.,,5		; VRT detect
+ map	 vrNAT.,,0		;  Native PDP-11
+ map	 vrPDP.,,1		;  PDP-11 emulator
+ map	 vrVRT.,,2		;  RT-11 emulator
+;map	 vrE11.,,3		;  E11
+;map	 vrSMH.,,4		;  SIMH
+map	vrVCL.,,6		; V11 command line reset
+map	vrPAU.,,7		; Pause
+map	vrEXI.,,8.		; Exit emulator
+map	vrHTZ.,,9.		; get/set hertz
+map	vrTIM.,,10.		; get RT-11 time (dat,hot,lot,era)
+.ENDM
+;-----------------------;
+; VMS FIB		;
+;-----------------------;
+;
+; VMS file information block
+;
+; LRS.MAC defines this.
+;
+;.MACRO	$VFDEF	
+;.ENDM
+;-----------------------;
+; VIRTUAL VOLUMES	;
+;-----------------------;
+;
+;	Virtual volumes
+;	$LDDEF copies some data
+;
+;	VV & VU depend entirely on this table structure.
+;	Both handlers have to be modified for any changes.
+;
+.MACRO	$VVDEF
+;
+map	vvuns.,,8.	;eight units
+map	vvdec.,,202	;vv device code
+;
+;.if eq V4
+;map	vv.lqe,,-14	;handler lqe
+;map	vv.cqe,,-12	;handler cqe
+;map	vv.beg,,-10	;handler starts here
+;.iff
+map	vv.lqe,,-16	;handler lqe
+map	vv.cqe,,-14	;handler cqe
+map	vv.beg,,-12	;handler starts here
+;.endc
+map	vv.gua,,-6	;guard word during transfers
+;			;
+map	vv.vid	byte,0	;vid (slot, unit)
+map	vv.uni	byte	;unit
+map	vv.off		;offset into device
+map	vv.siz		;device size
+map	vv.dev		;generic device name - zero => not mounted
+map	vv.fil		;fil - uic
+map	vv.nam		;nam - 
+map	vv.typ		;typ
+map	vv.bbs	null	;block byte size
+map	vv.dat	vv.bbs*<vvuns.-1> ;seven more unit records
+map	vv.tbs	null	;table byte size
+map	vv.sta	null	;handler start routine
+;
+map	vvtbs.,,vv.tbs	;table byte size
+map	vvgua$,,<^rld >	;control access guard
+;ap	vvgua$,,<^rvv >	;control access guard
+;
+; status, unit, slot
+;
+map	vvact$,,100000	;slot is active
+map	vvrem$,,40000	;remote unit (NF:)			;V4
+map	vvrdo$,,20000	;read-only unit
+;map	vvpri$,,10000	;private volume
+map	vvuni$,,3400	;unit area
+map	vvuof$,,200	;unit offline (unused)
+map	vvunx$,,100	;unloaded unit (redundant)
+map	vvind$,,76	;unit index (zero means not located)
+map	vvun$n,,177770	;unit negative
+map	vvin$n,,177701	;index negative
+;
+.ENDM
+;-----------------------;
+; VOL1 LABEL		;
+;-----------------------;
+;
+; Magtape Vol1 label
+;
+.MACRO	$V1DEF
+;
+map	v1.lab	byte*3,0	;volume label	"VOL"
+map	v1.num	byte,3		;label number	"1"
+map	v1.vol	byte*6,4	;volume name	"RT11A "
+map	v1.acc	byte,10.	;accessibility	" "
+map	v1.res	byte*26.,11.	;reserved	"                  "
+map	v1.own	null*13.,37.	;owner id
+map	 v1.dec	byte*2,37.	;system owner	"D%"
+map	 v1.cpu	byte,39.	;cpu		8=PDP-8, A=DEC10, B=PDP-11, C=VAX-11
+;				;		F=PDP-15, K=DEC20
+;				;rt-11
+map	 v1.usr	byte*10.,40.	;rt-11 user	"OWNER      1"
+;				;rsx		"ownerdata   "
+map	v1.dsw	byte,50.	;dec standard version
+map	v1.pro	null*4.,51.	;protection
+map	 v1.sya	byte,51.	;system prot	0=none, 1=read, 2=extend/append
+map	 v1.owa	byte,52.	;owner access	3=read/extend, 4=all
+map	 v1.gra	byte,53.	;group access	"0" ... "4"
+map	 v1.wla	byte,54.	;world access
+map	v1.uic	null*6,55.	;uic
+map	 v1.grp	byte*3,55.	;group code	"001"
+map	 v1.mem	byte*3,58.	;member code	"002"
+;				;end rsx/rt-11
+map	v1.ops	byte,61.	;oper. sys	space=rsx, 1=rt-11
+;map	v1.rs2	byte*28.,61.	;reserved 2	"                  "
+map	v1.rs2	byte*18.,61.	;reserved 2	"                  "
+map	v1.lsv	byte,79.	;lab. stan. ver."1"
+map	v1.bbs			;
+assume	v1.bbs eq 80.		;
+;
+map	v1.bup,,252		;rt-11 backup data - same as disk homeblock
+;
+.ENDM
+

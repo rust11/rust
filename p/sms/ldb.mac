@@ -1,0 +1,278 @@
+;.title	ldb.mac
+;
+;	%build
+;	run sy:strip smb:ldb.mla=sms:ldb.mac
+;	%end
+;	%date
+;	<11-Nov-2004 17:14:28.36>
+;	%edit
+;	<53   >
+;
+;	$badef		BATCH control file
+;	$brdef		RT-11 bootstrap data
+;	$budef		SHAREplus build constants
+;-----------------------; 
+; BATCH CONTROL	FILE	;
+;-----------------------;
+;
+; Define batch control file records
+;
+;	file size	= 512. words
+;	control size	=   8. words
+;	record size	=  16. words
+;
+;	30.*16. = 480. words for records
+;
+.MACRO	$BADEF
+;
+map	batyp.,,<^rBAQ>		; default file type
+map	bablk.,,4		;two block batch control file
+map	bacnt.,,56.		;number of batch entries
+;
+; p$hbat
+;
+map	baini.,,0		;init batch
+map	baent.,,2		;get entry
+map	bacom.,,4		;execute command file
+map	badon.,,6		;post-process job
+map	bamax.,,6		;
+;
+; Control area
+;
+map	ba.act,byte,0		;number of entries
+map	ba.fre,byte		;number of free entries
+map	ba.ctl			;control word
+map	ba.bot			;bottom
+map	ba.top			;top
+map	ba.ins			;insert pointer
+map	ba.rem			;remove pointer
+map	ba.seq			;current entry id
+map	ba.bpi			;batch pid
+map	ba.cbs			;control area size
+;
+;	ba.ctl
+;
+map	baact$,,1		;active
+map	basto$,,200		;queue stopped
+map	basus$,,100000		;suspended
+;
+; Batch job entry
+;	
+map	ba.ent,,0		;entry ID
+map	ba.rct			;record control word
+map	ba.pid			;process id
+map	ba.uic			;process uic
+map	ba.nam,word*2		;process name
+map	ba.fil,word*4		;filename
+map	ba.dat			;date of submission
+map	ba.tim,word*2		;time of submission
+map	ba.log,word*4		;output file name
+map	ba.alc			;allocated size
+map	ba.bbs			;length of record
+;
+;	ba.ctl
+;
+map	bapi$m,,177400		;pid mask
+map	bacur$,,400		;currently active
+map	bapen$,,1000		;pending
+map	basyn$,,2000		;synchronize active
+map	banot$,,4000		;notify
+;
+map	baacc$,,10000		;set batch accounting
+map	baver$,,20000		;set batch verify
+map	baide$,,40000		;set batch identify
+map	badel$,,100000		;entry deleted
+;
+.ENDM
+;-----------------------; 
+; BOOTSTRAP RT-11	;
+;-----------------------;
+;
+; Defines RT-11 bootstrap data
+;
+; The bootstrap consists of both monitor and driver code. The monitor
+; could be V5 with a V4/V5 driver bootstrap.
+;
+;	V1	Unknown
+;	V2	Unknown
+;	V2	?B-NO BOOT ON VOLUME		No volume ID, Reserved wrong
+;	V3	?BOOT-F-No boot on volume	Volume ID, Reserved wrong
+;	V5	?BOOT-U-No boot on volume
+;
+;	V4	If entry-2 <> 400 or 1400
+;	V5	If entry-2 == 400 or 1400	
+;
+;	DU:	0:2	nop, branch
+;		14:22	load csr
+;		40:42	jmp	#boot
+;		44:60	load csr
+;		70:74	
+;		104:110	
+;		120:...	read etc
+;	
+;	DX:	0:2	nop, branch
+;		14:22	vectors
+;		34:52	boot1
+;		56	data
+;		70:76	code
+;		120:...	code
+;		606:...	boot
+;
+;	000:002	nop, branch
+;	004:006	bus
+;	010:012	cpu
+;	014:016	bpt
+;	020:022	2
+;	024:032	4 avoided
+;	034:036	2
+;	040:042	2 jmp @#boot
+;	044:056	6	
+;	060:066	4 (terminal)
+;	070:076	4
+;	100:102	clock
+;	104:112	4
+;	114:116	4 avoided
+;
+.MACRO	$BRDEF
+;
+map	b$rduf,,0	;dup flag
+map	br$beg,,2	;boot start branch
+			;v2 none pattern (Upper case message?)
+map	brv3n$,,12700	;v3 none pattern (Lower case message)
+map	b$rv3p,,4	;v3 string pointer
+map	brv4n$,,4067	;v4 none pattern
+map	b$rv4s,,6	;v4 string itself
+			;
+map	brv4b$,,416	;v4 boot pattern (except dx)
+map	brv5b$,,415	;v5 boot pattern (except dx)
+;		4:12	;bus,cpu traps
+map	br$bpt,,14	;set if DX bootstrap
+map	br$sja,,40	;standard jump address
+			;v3	jmp boot1
+			;v4	jmp @#boot1
+map	br$sra,,120	;standard read address
+			;
+map	b$rtop,,664	;top of primary boot
+map	br$ioe,,664	;bioerr - boot i/o error routine
+map	brioe$,,4167	;	- bit pattern in brioe.
+map	br$rep,,672	;report - routine to print a message
+			;
+map	br$sec,,1000	;start of secondary boot
+map	brsbn.,,2	;secondary boot block number
+map	brswc.,,256.*4	;secondary boot word count
+;
+;3776			;
+; Boot common area
+;
+;				- Static
+;				= COPY/BOOT or BOOT
+;				+ Driver Boot
+;				* Monitor Boot
+; RUST area precedes RT-11 area
+;
+map	b$rims,,4700	;b$rims	- Executable asciz name ("RUSTxx.SAV"<0>)
+;
+; RT-11 area with RUST interpolations
+;
+map	b$rtmv,,4714	;rtever - RTEM version (rts$id)
+map	b$rdvn,,4716	;b$devn = DLX - device name with suffix in rad50
+map	b$rdvs,,4720;?? ;b$devs + DL  - device name without suffix in rad50
+map	b$rdvu,,4722	;b$devu - ^rBOT or ^rRTE flag
+			;	+ device unit
+map	b$rfn0,,4724	;b$fnam = filename 0 (e.g. /RT1/
+map	b$rfn1,,4726	;	= filename 1 (e.g. /1FB/)
+map	b$rrea,,4730	;b$read = read routine start address
+
+map	b$rhto,,4732	;syhtop * system handler top address
+map	b$rdup,,4734	;dupflg * copied from @#0 - 0 if from DUP
+			;	
+map	b$rrms,,4736	;$rmsiz - v3/v5 monitor size in bytes
+map	b$rnam,,4740	;	- v3/v5 boot string ("BOOT V2.2"<0>)
+map	brnbs.,,28.	;	- length of boot string - standard
+map	brrbs.,,12.	;	- length of boot string - RUST
+			;	- 2 free bytes
+map	b$rimg,,4762	;	- Executable RAD50 name (/RUST  .SAV/)
+map	b$rrst,,4772	;	- RUST ident .rad50 /RST/
+map	b$rsfx,,4774	;suffx	- __X - v5 rad50 handler suffix
+map	b$rsyg,,4776	;syop	- v5 sysgen options (probably v4 as well)
+;			;	- v3 swap file size (zero)
+;
+; Dynamic area constructed outside secondary boot
+;
+map	b$rhot,,5000	;btime  - time booted (if from DUP)
+map	b$rlot,,5002	;
+map	b$rdat,,5004	;bdate  - date booted
+map	b$rend,,5006	;end of standard boot area
+map	b$rers,,5006	;	  .rad50/era/
+map	b$rera,,5010	;	- boot era
+map	b$renx,,5012	;	- extended end
+;			;
+map	b$rksp,,10000	;	- kernel sp for boot
+;
+; Boot entry point data
+;
+map	b$rbot,,62	;	- handler - points to ddBOOT
+;			;ddBOOT:nop
+;			;	br	entry-2
+;			;
+;			;entry-6	usually 32
+map	br.ept,,0	;	.byte	processor type byte
+map	br.ect,,1	;	.byte	controller type
+			;entry-4
+map	br.eft,,2	;	.byte	file-structure type
+map	br.eck,,3	;	.byte	checksum of ept,ect,eft
+			;entry-2
+map	br.ebo,,4	;	.byte	branch offset (mbz)
+map	br.edt,,5	;	.byte	diskette type (1=single, 3=double)
+map	br.ebs,,6	;size of entry area
+			;entry:	jmp	@#boot1		;usually 40
+;
+; Processor types
+;
+map	brp11.,,20	;pdp-11 type
+;
+; Controller types
+;
+map	brcub$,,1	;ubus	- unibus
+map	brcqb$,,2	;qbus	- qbus
+map	brccb$,,4	;cbus	- cti
+map	brcum$,,10	;umscp	- unibus mscp
+map	brcqm$,,20	;qmscp	- qbus mscp
+map	brccm$,,40	;cmscp	- cti mscp
+map	brcge$,,100	;bus	- generic bus code
+;
+; File-structure types
+;
+map	brfrt.,,20	;rt-11
+;
+.ENDM
+;-----------------------;
+; BUILD CONSTANTS	;
+;-----------------------;	
+;
+; SHAREplus system build constants
+;
+.MACRO	$BUDEF
+$mmdef				;define mmu stuff
+;
+;	Build-time par assignments
+;
+map	buutp.,,<28.*mmpik.>	;UTL page address during build
+map	busyp.,,<32.*mmpik.>	;SYS page address during build
+map	buacp.,,<36.*mmpik.>	;ACP page address during build
+map	buhap.,,<40.*mmpik.>	;HAN page address during build
+;		44k.		;top of HAN
+;		48k.		;copy of HAN
+;
+map	bukbl.,,<24.*4.>	;KER block size - 24kw
+;map	buubl.,,<2.*4.-1>	;UTL block size - 1.75kw
+map	buubl.,,<3.*4.>		;UTL block size - 3kw
+map	buabl.,,<4.*4.>		;ACP block size - 4kw
+map	busbl.,,<4.*4.>		;SYS block size - 4kw
+;
+map	buutb.,,<buubl.*512.>	;UTL byte size
+map	buacb.,,<buabl.*512.>	;ACP byte size
+map	busyb.,,<busbl.*512.>	;SYS byte size
+;
+.ENDM
+

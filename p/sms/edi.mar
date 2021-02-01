@@ -1,0 +1,583 @@
+;-------------------------------;
+; I73 - 730 I/O SPACE		;
+;-------------------------------;
+;
+;	776000	3fc00	c00	fffc00
+;
+.MACRO	$I73_DEF
+;
+map$	i73_ub0,,<^xfc0000>	;unibus zero
+map$	i73_iob,,<^x3f000>	;offset to i/o page
+map$	i73_io0,,<i73_ub0+i73_iob> ;i/o page 0
+map$	i73_ios,,<^xfff000>	;i/o space
+;
+.ENDM	$I73_DEF
+;-------------------------------;
+; ICL - IMAGE CLI INTERFACE	;
+;-------------------------------;
+;
+.MACRO	$ICL_DEF
+;
+map$	icl.cnt	long.,0		;parameter count
+map$	icl.iha	long.		;address of transfer array
+map$	icl.cli	long.		;address of sys$cli
+map$	icl.ihd	long.		;address of ihd - image header
+map$	icl.ifd	long.		;address of ifd - image file descriptor
+map$	icl.lnk	long.		;ihd.lnk - link flags
+map$	icl.flg	long.		;cli flags - see below
+map$	icl.bbs	null.		;
+map$	icl.arg	long.		;cli arg list
+;
+;	icl.flg - cli flags
+;
+map$	icl_dbg_,,0		;debug
+map$	icl_dbt_,,1		;dbgtru
+map$	icl_vfy_,,2		;verify
+map$	icl_bat_,,3		;batch
+map$	icl_ind_,,4		;indirect
+map$	icl_vfi,,5		;vfyinp
+map$	icl_trm_b,,8		;trmvrblv - terminal verbosity level
+map$	icl_trm_l,,2		;
+map$	icl_dbx_16		;dbgexcp
+;
+.ENDM	$ICL_DEF
+;-------------------------------;
+; IFD - IMAGE FILE DESCRIPTOR	;
+;-------------------------------;
+;
+.MACRO	$IFD_DEF
+;
+map$	ifd.siz	word.,0		;size of ifd
+map$	ifd.fof	word.		;file name offset
+map$	ifd.f00	long.		;
+map$	ifd.chn	word.		;chan
+map$	ifd.cmc	word.		;cmchan
+map$	ifd.cmf	long.		;cmfkiadr
+map$	ifd.flg	long.		;flags
+;
+.ENDM	$IFD_DEF
+;-------------------------------;
+; IHA - IMAGE HEADER ACTIVATE 	;
+;-------------------------------;
+;
+.MACRO	$IHA_DEF
+;
+map$	iha.ta1	long.,0		;transfer address 1
+map$	iha.ta2	long.		;
+map$	iha.ta3	long.		;
+map$	iha.bbs			;
+;
+.ENDM
+;-------------------------------; 
+; IHD - IMAGE HEADER		;
+;-------------------------------;
+;
+.MACRO	$IHD_DEF
+; 
+map$	ihd.siz	word.,0		;IHD size
+map$	ihd.iha	word.		;activate offset
+map$	ihd.ihs	word.		;symbol table offset
+map$	ihd.ihp	word.		;patch table offset
+map$	ihd.f00	word.		;
+map$	ihd.maj	word.		;major id
+map$	ihd.min	word.		;minor id
+map$	ihd.hbc	byte.		;header block count
+map$	ihd.itp	byte.		;image type
+map$	ihd.f01	word.		;
+map$	ihd.prv	quad.		;privilege required
+map$	ihd.chc	word.		;channel count
+map$	ihd.ioc	word.		;image i/o count
+map$	ihd.flg	long.		;link flags
+map$	ihd.idt	long.		;ident
+map$	ihd.ver	long.		;STB version
+map$	ihd.iaf	long.		;unknown
+; 
+.ENDM	$IHD_DEF		;
+;-------------------------------;
+; IHI - IMAGE HEADER IDENT	;
+;-------------------------------;
+;
+.MACRO	$IHI_DEF
+;
+map$	ihi.img	byte.*16,0	;image name
+map$	ihi.idt	byte.*16	;image id
+map$	ihi.tim	quad.		;link time
+map$	ihi.lnk	byte.*16	;link id
+;
+.ENDM	$IHI_DEF
+;-------------------------------;
+; IHP - IMAGE HEADER PATCHS	;
+;-------------------------------;
+;
+.MACRO	$IHP_DEF
+;
+map$	ihp.ec1	long.,0		;eco 1
+map$	ihp.ec2	long.		;
+map$	ihp.ec3	long.		;
+map$	ihp.ec4	long.		;
+map$	ihp.rws	long.		;r/w patch size
+map$	ihp.rwa	long.		;r/w patch address
+map$	ihp.ros	long.		;r/o patch size
+map$	ihp.roa	long.		;patch address
+map$	ihp.txt	long.		;patch comment text
+map$	ihp.dat	quad.		;patch date
+map$	ihp.bbs			;
+;
+.ENDM	$IHP_DEF
+;-------------------------------;
+; IHS - IMAGE HEADER SYMBOLS	;
+;-------------------------------;
+;
+.MACRO	$IHS_DEF
+;
+map$	ihs.dvb	long.,0		;dst vbn
+map$	ihs.gvb	long.		;gst vbn
+map$	ihs.dbl	word.		;dst blks
+map$	ihs.grc	word.		;gst recs
+map$	ihs.bbs			;
+;
+.ENDM	$IHS_DEF
+;-------------------------------;
+; IO - I/O FUNCTIONS		;
+;-------------------------------;
+;
+;	I/O functions and modifiers
+;
+.MACRO	$IO_DEF
+;
+;	Function code and modifiers
+;
+map$	io_cod_b,,0		;fcode - function code
+map$	io_cod_l,,6		;
+map$	io_cod$p,,<<1@6>-1>	;positive
+map$	io_mod_b,,6		;modifiers
+map$	io_mod_l,,10		;
+map$	io_dep_b,,6		;device dependent modifiers
+map$	io_dep_l,,7		;
+map$	io_ind_b,,13		;device independent modifiers
+map$	io_ind_l,,3		;
+;
+;	Function codes
+;
+map$	io_nop.,,0		;nop
+map$	io_unl.,,1		;unload
+map$	io_lmc.,,1		;loadmcode
+map$	io_sek.,,2		;seek
+map$	io_spf.,,2		;spacefile
+map$	io_smp.,,2		;startmproc
+map$	io_rcl.,,3		;recal		recalibrate
+map$	io_stp.,,3		;stop		stop
+map$	io_drc.,,4		;drvclr		drive clear
+map$	io_ini.,,4		;initialize
+map$	io_rel.,,5		;release	release
+map$	io_scp.,,5		;setclockp	set clock
+map$	io_off.,,6		;offset		offset
+map$	io_etp.,,6		;erasetape	erase tape
+map$	io_sdp.,,6		;startdatap	start data
+map$	io_rcn.,,7		;retcenter	ret center
+map$	io_qst.,,7		;qstop		q stop
+map$	io_pak.,,8		;packack	pack acknowledge
+map$	io_sch.,,9		;search		search
+map$	io_spr.,,9		;spacerecord	space record
+map$	io_wck.,,10		;writecheck	write check
+map$	io_wpb.,,11		;writepblk	write physical
+map$	io_rpb.,,12		;readpblk	read physical
+map$	io_whd.,,13		;writehead	write header
+map$	io_rds.,,13		;rdstats	read stats
+map$	io_rhd.,,14		;readhead	read head
+map$	io_wtd.,,15		;writetrackd	write track d
+map$	io_rtd.,,16		;readtrackd	read track d
+map$	io_avl.,,17		;available	available
+;		 18:20		;
+map$	io_dse.,,21		;dse		dse
+map$	io_rrn.,,22		;rereadn	reread n
+map$	io_rrp.,,23		;rereadp	reread p
+map$	io_wrt.,,24		;writeret	write ret
+map$	io_wch.,,25		;writecheckh	write check h
+map$	io_rps.,,25		;readpreset	read preset
+map$	io_ssp.,,25		;startspndl	start spindle
+map$	io_stc.,,26		;setchar	set characteristics
+map$	io_snc.,,27		;sensechar	sense characteristics
+map$	io_wmk.,,28		;writemark	write mark
+map$	io_wtm.,,29		;wrttmkr	
+map$	io_dia.,,29		;diagnose	diagnose
+map$	io_fmt.,,30		;format		format
+map$	io_cln.,,30		;clean		clean
+map$	io_phy.,,31		;physical	physical
+map$	io_wlb.,,32		;writelblk	write logical
+map$	io_rlb.,,33		;readlblk	read logical
+map$	io_rof.,,34		;rewindoff	rewind offline
+map$	io_stm.,,35		;setmode	set mode
+map$	io_rwd.,,36		;rewind		rewind
+map$	io_skf.,,37		;skipfile	skip file
+map$	io_skr.,,38		;skiprecord	skip record
+map$	io_snm.,,39		;sensemode	sense mode
+map$	io_wef.,,40		;writeeof	write eof
+;		 41:46		;
+map$	io_log.,,47		;logical	logical
+map$	io_wvb.,,48		;writevblk	write virtual
+map$	io_rvb.,,49		;readvblk	read virtual
+map$	io_acc.,,50		;access		access
+map$	io_cre.,,51		;create		create
+map$	io_dac.,,52		;deaccess	deaccess
+map$	io_del.,,53		;delete		delete
+map$	io_mod.,,54		;modify		modify
+map$	io_ntc.,,54		;netcontrol	net control
+map$	io_rpr.,,55		;readprompt	read with prompt
+map$	io_scl.,,55		;setclock	set clock
+map$	io_frc.,,55		;force		force
+map$	io_acp.,,56		;acpcontrol	acp control
+map$	io_sdt.,,56		;startdata	start data
+map$	io_mnt.,,57		;mount		mount
+map$	io_tra.,,58		;ttyreadall	tty readall
+map$	io_er1.,,58		;endru1		end ru 1
+map$	io_trp.,,59		;ttyreadpall	tty read passall
+map$	io_er2.,,59		;endru2		end ru 2
+map$	io_cir.,,60		;conintread	connect-interrupt read
+map$	io_rin.,,60		;readinit	read init
+map$	io_ciw.,,61		;conintwrite	connect-interrupt write
+map$	io_nvr.,,61.		;newversion	create new journal file version
+;		,62		;
+map$	io_vir.,,63		;virtual	virtual
+;
+;	Disk
+;
+map$	io_iel_,,11		;inherrlog	inhibit error log
+map$	io_isk_,,12		;inhseek	inhibit seek
+;		 13		;
+map$	io_dck_,,14		;datacheck	data check
+map$	io_irt_,,15		;inhretry	inhibit retry
+;
+;	ACP
+;
+map$	io_acc_,,6		;access		access
+map$	io_cre_,,7		;create		create
+map$	io_del_,,8		;delete		delete
+map$	io_mnt_,,9		;mount		mount
+map$	io_dsm_,,10		;dmount		dismount
+;
+;	Mailbox
+;
+map$	io_now_,,6		;now		now
+map$	io_rat_,,7		;readattn	read attention
+map$	io_wat_,,8		;wrtattn	write attention
+map$	io_spr_,,9		;setprot	set protection
+;
+;	Terminal read
+;
+map$	io_nec_,,6		;noecho		noecho
+map$	io_tim_,,7		;timed		timed
+map$	io_cvl_,,8		;cvtlow		convert lower
+map$	io_nfl_,,9		;nofiltr	nofilter
+map$	io_dmb_,,10		;dsablmbx	disable mailbox
+map$	io_prg_,,11		;purge		purge
+map$	io_tne_,,12		;trmnoecho	terminator noecho
+map	io_ref_,,13		;refresh	rewrite input 
+map$	io_esc_,,14		;escape		escape
+map$	io_ext_,,15		;extend		extend
+;
+;	Terminal write
+;
+map$	io_cco_,,6		;canctrlo	cancel ctrl/o
+map$	io_emb_,,7		;enablmbx	enable mailbox
+map$	io_nfm_,,8		;noformat	no format
+map$	io_brt_,,9		;breakthru	force output
+map$	io_nln_,,10		;newline	output newline
+;
+;
+;	Terminal sense mode
+;
+map$	io_tac_,,6		;typeahdcnt	type ahead information
+map	io_mdm_,,7		;rd_modem
+;
+;	Terminal set mode
+;
+map$	io_mai_,,6		;maint		maintenance
+map$	io_cya_,,7		;ctrlyast	ctrl/y ast
+map$	io_cca_,,8		;ctrlcast	ctrl/c ast
+map$	io_hup_,,9		;hangup		hangup
+map$	io_obd_,,10		;outband	out of band ast
+map$	io_cdt_,,11		;connect	connect detached terminal
+map$	io_ddt_,,12		;discon		disconnect detached terminal
+map$	io_dpr_,,13		;process	define controlling process
+map$	io_brd_,,14		;broadcast	define broadcast mask
+;
+;	Terminal set mode out of band
+;
+map$	io_inc_,,11		;include	include character in stream
+map$	io_abo_,,12		;abort		abort current I/O operation
+;
+;map$	io_eal_,,11		;enabl_alt	enable alt
+;map$	io_dal_,,12		;dsabl_alt	disable alt
+;
+.ENDM	$IO_DEF
+;-------------------------------;
+; INTERNAL PROCESSOR REGISTERS	;
+;-------------------------------;
+;
+;	mfpr	#reg, dst
+;	mtpr	src, #reg
+;
+.MACRO	$IPR_DEF
+;
+map$	ipr_ksp.,,00	;00	ksp	kernel stack pointer
+map$	ipr_esp.,,01	;01	esp	executive stack pointer
+map$	ipr_ssp.,,02	;02	ssp	supervisor stack pointer
+map$	ipr_usp.,,03	;03	usp	user stack pointer
+map$	ipr_isp.,,04	;04	isp	interrupt stack pointer
+map$	ipr_p0b.,,08	;08	p0br	p0 base register
+map$	ipr_p0l.,,09	;09	p0lr	p0 length register
+map$	ipr_p1b.,,10	;0a	p1br	p1 base register
+map$	ipr_p1l.,,11	;0b	p1lr	p1 length register
+map$	ipr_sbr.,,12	;0c	sbr	system base register
+map$	ipr_slr.,,13	;0d	slr	system length register
+;		,,14	;0e
+;		,,15	;0f
+map$	ipr_pcb.,,16	;10	pcbb	process control block base
+map$	ipr_scb.,,17	;11	scbb	system control block base
+map$	ipr_ipl.,,18	;12	ipl	interrupt priority level
+map$	ipr_ast.,,19	;13	astlvl	AST level
+map$	ipr_sir.,,20	;14 w/o	sirr	system interrupt request
+map$	ipr_sis.,,21	;15	sisr	system interrupt summary
+;		,,22	;16
+map$	ipr_cmi.,,23	;17	cmierr	730/750 cmi error summary
+map$	ipr_icc.,,24	;18	iccs	interval clock control
+map$	ipr_nic.,,25	;19 w/o	nicr	next interval count
+map$	ipr_icr.,,26	;1a r/o	icr	interval count
+map$	ipr_tod.,,27	;1b	todr	optional time of year
+map$	ipr_crs.,,28	;1c	csrs	console storage receiver status -780
+map$	ipr_crd.,,29	;1d	csrd	console storage reciever data	-780
+map$	ipr_cts.,,30	;1e	csts	console storage transmit status	-780
+map$	ipr_ctd.,,31	;1f	cstd	console storage transmit data	-780
+map$	ipr_rcs.,,32	;20	rxcs	terminal receiver control/status
+map$	ipr_rdb.,,33	;21	rxdb	receiver data buffer
+map$	ipr_tcs.,,34	;22	txcs	transmitter control/status
+map$	ipr_tdb.,,35	;23	txdb	transmitter data buffer
+;
+map$	ipr_tbd.,,36	;24	tbdr	730/750 tb disable register
+map$	ipr_car.,,37	;25	cadr	730/750 cache disable register
+map$	ipr_mce.,,38	;26	mcer	730/750 machine check error summary
+map$	ipr_cae.,,39	;27	caer	730/750 cache error summary
+map$	ipr_ubr.,,40	;28	ubreset	730/750 unibus I/O reset register
+;
+map$	ipr_men.,,56	;38	mapen	memory mapping enable
+map$	ipr_tia.,,57	;39 w/o	tbia	translation buffer invalidate all -730
+map$	ipr_tis.,,58	;40 w/o	tbis	translation buffer invalidate single-730
+map$	ipr_pmr.,,61	;3d	pmr	performance monitor enable	-730
+map$	ipr_sid.,,62	;3e	sid	system identification
+map$	ipr_tbc.,,63	;3f	tbchk	translation buffer check	-730
+;
+.ENDM	$IPR_DEF
+;-------------------------------;
+; IOQ - I/O QUEUE ELEMENT	;
+;-------------------------------;
+;
+.MACRO	$IOQ_DEF
+;
+map$	ioq.suc	long.,0		;successor (cnt)
+map$	ioq.pre	long.		;predecessor (efn)
+map$	ioq.chn	word.		;chan	- channel id
+map$	ioq.efn	byte.		;efn	- event flag
+map$	ioq.opr	byte.		;opr	- operation code
+map$	ioq.fun	word.		;func	- function code
+map$	ioq.ctl	word.		;control flags
+map$	ioq.isb	long.		;iosb	- i/o status block
+map$	ioq.ast	long.		;astadr	- ast address
+map$	ioq.prm	long.		;astprm	- ast parameter
+map$	ioq.p1	long.		;p1 p1v	- address/value
+map$	ioq.p2	long.		;p2
+map$	ioq.p3	long.		;p3
+map$	ioq.p4	long.		;p4
+map$	ioq.p5	long.		;p5
+map$	ioq.p6	long.		;p6
+map$	ioq.p7	long.		;p7
+map$	ioq.p8	long.		;p8
+;
+map$	ioq.pid	long.		;process id
+map$	ioq.ccb	long.		;ccb address -> ucb
+map$	ioq.stc	long.		;status code
+map$	ioq.stv	long.		;status value
+map$	ioq.tbd	long.		;transfer buffer descriptor
+map$	ioq.bbs			;
+;
+;	Transfer I/O
+;
+map$	ioq.rba,,ioq.p1		;request buffer address
+map$	ioq.rbc,,ioq.p2		;request byte count - remaining bytecount
+map$	ioq.rbn,,ioq.p3		;request block number
+;
+;	Buffered I/O
+;
+map$	ioq.sba,,ioq.p4		;segment buffer address
+map$	ioq.sbc,,ioq.p5		;segment byte count
+map$	ioq.sbn,,ioq.p6		;segment block number
+map$	ioq.tbc,,ioq.stv	;transferred byte count
+;
+;	Control word
+;
+map$	ioq_buf_,,0		;buffered
+map$	ioq_rea_,,1		;read i/o
+map$	ioq_pag_,,2		;paging i/o
+map$	ioq_com_,,3		;complex i/o
+map$	ioq_vir_,,4		;virtual i/o
+map$	ioq_swp_,,5		;swap i/o
+map$	ioq_dia_,,6		;diagnostic buffer present
+map$	ioq_phy_,,7		;physical i/o
+map$	ioq_ter_,,8		;terminal i/o
+map$	ioq_mbx_,,9		;mailbox i/o
+map$	ioq_ext_,,10		;irp extension present
+map$	ioq_acp_,,11		;acp i/o
+map$	ioq_wri_,,12		;write i/o
+;
+;	Operation codes
+;
+map$	ioq_nop.,,0		;unknown
+map$	ioq_rea.,,1		;read
+map$	ioq_wri.,,2		;write
+map$	ioq_acc.,,3		;access - lookup
+map$	ioq_cre.,,4		;create - enter
+map$	ioq_dac.,,5		;deaccess - purge/close
+map$	ioq_del.,,6		;delete - delete
+map$	ioq_mod.,,7		;modify - rename/protection/date etc.
+map$	ioq.acp.,,8		;acp control
+map$	ioq_mnt.,,9		;mount
+;
+map$	ioq_ini.,,8		;init
+;
+.ENDM	$IOQ_DEF
+;-------------------------------;
+; IRP - I/O REQUEST PACKAGE	;
+;-------------------------------;
+;
+.MACRO	$IRP_DEF
+;
+map$	irp.suc	long.,0		;successor
+map$	irp.pre	long.		;predecessor
+map$	irp.siz	word.		;dynamic size
+map$	irp.typ	byte.		;dynamic type
+;
+map$	irp.acm	byte.		;requestor access mode
+map$	irp.pid	long.		;requestor pid
+map$	irp.ast	long.		;ast address
+map$	irp.prm	long.		;ast parameter
+map$	irp.wcb	long.		;wcb address
+map$	irp.ucb	long.		;ucb address
+;
+map$	irp.fun	word.		;function code
+map$	irp.efn	byte.		;efn
+map$	irp.pri	byte.		;requestor base priority
+map$	irp.isb	long.		;iosb address
+map$	irp.chn	word.		;channel number
+map$	irp.sts	word.		;request status
+map$	irp.pte	long.		;svapte for direct i/o
+;				;sva of buffer for buffered i/o
+map$	irp.bof	word.		;byte offset for direct i/o
+;				;bytecount for buffered i/o accounting
+map$	irp.bct	word.		;transfer bytecount - moved to ucb.bct
+;				;buffered i/o transfer count
+map$	irp.p1	null.		;p1
+map$	irp.stc	long.		;status code - r0
+map$	irp.p4	null.		;p4
+map$	irp.stv	long.		;status value - r1
+;
+map$	irp.abc	word.		;accumulated bytecount
+map$	irp.p
+map$	irp.obc	word.		;original wordcount
+map$	irp.vbn	word.		;current vbn in transfer
+map$	irp.dia	long.		;diagnostic buffer address
+map$	irp.seq	long.		;i/o transaction sequence number
+map$	irp.ext	long.		;address of irp extension
+map$	irp.arb	long.		;address of process arb
+;
+map$	irp.sbf	null.		;system buffer dummy
+map$	irp.tba	long.,0		;transfer buffer address
+map$	irp.uba	long.		;user buffer address
+;
+map$	irp.p1	long.		;qio.p1
+map$	irp.p2	long.		;qio.p2
+map$	irp.p3	long.		;qio.p3
+map$	irp.p4	long.		;qio.p4
+map$	irp.p6	long.		;qio.p5
+map$	irp.p6	long.		;qio.p6
+map$	irp.bbs			;
+;
+;	Buffered I/O
+;
+map$	irp.bio,,ioq.bof	;buffered I/O count - word
+map$	irp.sba,,ioq.pte	;system buffer address
+map$	irp.sbs,,ioq.bof	;system buffer byte size
+;
+map$	irp.wbc,,ioq.bct	;window bytecount
+map$	
+
+map$	ioq.rbu,,ioq.p1			;remaining buffer
+map$	ioq.rbc,,ioq.p2			;remaining bytecount
+map$	ioq.rbl,,ioq.p3			;remaining block
+map$	ioq.wbu,,ioq.p3			;window buffer address
+map$	ioq.wbc,,ioq.p4			;window bytecount
+map$	ioq.wbl,,ioq.stc		;window block
+map$	ioq.tbc,,qio.stv		;transferred bytecount
+;
+;	irp.sts
+;
+map$	irp_buf_,,0		;buffered
+map$	irp_rea_,,1		;read operation
+map$	irp_pag_,,2		;paging i/o
+map$	irp_com_,,3		;complex i/o
+map$	irp_vir_,,4		;virtual i/o
+map$	irp_swp_,,5		;swap i/o
+map$	irp_dia_,,6		;diagnostic buffer present
+map$	irp_phy_,,7		;physical i/o
+map$	irp_ter_,,8		;terminal i/o
+map$	irp_mbx_,,9		;mailbox i/o
+map$	irp_ext_,,10		;irp extension present
+map$	irp_acp_,,11		;acp i/o
+;
+map$	irp.sbf	null.		;system buffer dummy
+map$	irp.tba	long.,0		;transfer buffer address
+map$	irp.uba	long.		;user buffer address
+.ENDM	$IRP_DEF
+;-------------------------------;
+; ISD - IMAGE SECTION		;
+;-------------------------------;
+;
+;	VMS image section descriptor
+;
+.MACRO	$ISD_DEF
+;
+map$	isd.siz	word.,0		;size of ISD
+map$	isd.pct	word.		;page count
+map$	isd.vpn	byte.*3		;start virtual page
+map$	isd.clu	byte.		;cluster size
+map$	isd.flg	byte.*3		;section flags
+map$	isd.typ	byte.		;section type
+map$	isd.zbs	null.		;dzero size
+map$	isd.vbn	long.		;image file VBN
+map$	isd.pbs	null.		;process private size
+map$	isd.idt	long.		;global ident
+map$	isd.gnc	byte.		;global name count
+map$	isd.gnm	byte.*15.	;gsd name
+map$	isd.gbs			;gsd size
+;
+;	isd.flg	- section flags
+;
+map$	isd_gbl_,,0		;global
+map$	isd_crf_,,1		;copy on reference
+map$	isd_zer_,,2		;demand zero
+map$	isd_wrt_,,3		;writable
+map$	isd_mat_,,4		;match field
+map$	isd_mat_l,,3		;
+map$	isd_lp0_,,7		;last cluster in p0
+map$	isd_cop_,,8		;copy always
+map$	isd_bas_,,9		;based image
+map$	isd_fix_,,10		;fixup vector
+map$	isd_vec,,17		;vector in section
+map$	isd_prt_,,18		;protected section
+;
+;	isd.typ - section type
+;
+map$	isd_nor.,,0		;normal section
+map$	isd_usp.,,253		;user stack
+;
+.ENDM	$ISD_DEF
+                                                                                                                                   

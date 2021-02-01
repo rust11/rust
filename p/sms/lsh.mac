@@ -1,0 +1,307 @@
+	U N U S E D
+
+	Macros moved to DRS:DRVMAC
+
+.end
+
+;.title	lsh - RUST/XM handler services
+;
+;	%build
+;	run sy:strip smb:lsh.mla=sms:lsh.mac
+;	%end
+;	%date
+;	<20-Apr-2003 16:51:12.00>
+;	%edit
+;	<21   >
+;	%end
+;	------------------------------------------------------------------------
+;	$DRALC - Allocate driver region
+;	------------------------------------------------------------------------
+;
+;	$DRALC	SIZ RN0 RN1
+;
+;	siz	region size in pages
+;	rn0	first word of region name
+;	rn1	second word of region name
+;
+;	c=0	fine
+;
+;	c=1	fail
+;	r0	reason
+;
+;	All registers are used.
+;	The stack is not used.
+;
+;	$dralc	#size, #<^rreg>, #<^rnam>
+;	bcs error
+;
+;MACRO	$DRALC SIZ NAM1 NAM2 ?$10 ?$20 ?$30 ?$40
+;$rmdef					;
+;$rrdef					;
+;					;
+;	mov	@#r$mmon,r4		;point to RMON
+;	mov	rm.mpt(r4),r0		;r0 = memptr(rmon)
+;	add	r4,r0			;r0 = memptr(rmon)+#rmon
+;					;r0 > memtab
+;	mov	rr.xfo(r0),r5		;r5 = corptx(memtab)
+;	add	r4,r5			;r5 = corptx(memtab)+#rmon
+;					;
+;$10:	cmp	#-1,(r5)+		;skip to end of first table
+;	bne	$10			;must be found
+;					;
+;;	Find free region		;
+;					;
+;$20:	mov	(r5),r0			;is this one free?
+;	beq	$30			;yes
+;	inc	r5			;is this the last one?
+;	beq	$40			;yes - no region available
+;	add	#rr.gbs,r5		;no - check next
+;	br	$20			;
+;					;
+;;	Found free control block	;
+;					;
+;$30:	mov	SIZ,r2			;r2 = page size
+;	mov	rm.p1x(r4),r0		;r0 = p1ext(rmon)
+;	cmp	#-1,(r5)+		;skip to end of first table
+;	call	p1.xal(r0)		;call xalloc
+;	bcs	$40			;no space
+;	mov	r2,(r5)+		;store page size
+;	mov	r1,(r5)+		;store page address
+;	mov	#rrpvt$,(r5)+		;setup status
+;	mov	NAM1,(r5)+		;setup name
+;	mov	NAM2,(r5)+		;
+;$40:					;
+;ENDM
+;	------------------------------------------------------------------------
+;	$DRALC - Allocate driver region
+;	------------------------------------------------------------------------
+;
+;	$DRALC	SIZ NAM1 NAM2
+;
+;	siz	region size in pages
+;	rn0	first word of region name
+;	rn1	second word of region name
+;
+;	All parameters may be passed on the stack
+;	No parameters may be passed in registers
+;
+;	c=0	fine
+;
+;	c=1	fail
+;	r0	reason
+;
+;	r0:r5	burnt
+;
+;	Examples:
+;
+;	alc:	$dralc	siz=#128. nam1=#<^rdd > nam2=#<^r$  >
+;		bcs	error
+;
+;	alc:	psh	#128.
+;		psh	#<^r$  >
+;		psh	#<^rdd >
+;		$dralc	4(sp), 2(sp), (sp)
+;
+.MACRO	$DRALC SIZ NAM1 NAM2 ?$10
+.iif ndf r$mmon, r$mmon=^o54		;sysptr
+.iif ndf rm.p1x, rm.p1x=^o432		;p1ext(rmon)
+.iif ndf p1.xal, p1.xal=-6.		;xalloc(p1ext(rmon))
+.iif ndf p1.fgr, p1.fgr=-10.		;findgr(p1ext(rmon))
+.iif ndf rrpvt$, rrpvt$=^o100000	;gr.pvt - private region
+	stack	etc			;
+	mov	@#r$mmon,r4		;point to RMON
+	mov	rm.p1x(r4),r4		;get the p1 area
+	clr	-(sp)			;get a blank name
+	clr	-(sp)			;for the search
+	stack	nm1 nm2 etc		;
+	mov	sp,r5			;point to them
+	call	p1.fgr(r4)		;find the region
+	bit	(sp)+,(sp)+		;cleanup the stack
+	stack	etc			;
+	bcs	10$			;no free regions
+	mov	r1,r5			;get the control block
+	mov	SIZ,r2			;r2 = page size
+	call	p1.xal(r4)		;call xalloc
+	bcs	$10			;no space
+	mov	r2,(r5)+		;rr.gsz - store page size
+	mov	r1,(r5)+		;rr.gsb - store page address
+	mov	#rrpvt$,(r5)+		;rr.gst - setup status
+	mov	NAM1,(r5)+		;rr.gn0 - move in the name
+	mov	NAM2,(r5)+		;rr.gn1
+$10:	stack	etc			;
+.ENDM
+;	------------------------------------------------------------------------
+;	$DRCKP	- Convert kernel to physical
+;	------------------------------------------------------------------------
+;
+;	$drckp	buf ext
+;
+;		buf		the address of the buffer address
+;		ext		the address of the external address
+;
+;	Sample	$drckp	bufadr,extadr
+;		$drckp	q$buff(r5),q$par(r5)
+;
+;	Note	.include "lib:rust.mac" must be used at the module start
+;		$DRMKP must be used to define the mapping subroutine
+;
+;	------------------------------------------------------------------------
+;
+.MACRO	$DRCKP	BUF EXT
+	clr	-(sp)
+	psh	buf
+	call	dr$mkp
+	pop	buf
+	pop	ext
+.ENDM
+;	------------------------------------------------------------------------
+;	$DRGKP - Get kernel to physical mapping
+;	------------------------------------------------------------------------
+;
+;	$drgkp	buf
+;
+;		buf		the address of the buffer address
+;
+;	result	0(sp)	sp.buf(sp)	the physical buffer address
+;		2(sp)	sp.ext(sp)	the physical extended address
+;
+;	Sample	$drgkp	bufadr
+;		pop	bufadr
+;		pop	extadr
+;
+;	Note	.include "lib:rust.mac" must be used at the module start
+;		$DRMKP must be used to define the mapping subroutine
+;
+;	------------------------------------------------------------------------
+;
+.MACRO	$DRGKP	BUF
+	clr	-(sp)
+.iif nb <BUF>	psh	buf
+	call	dr$mkp
+	stack	buf ext
+.ENDM
+;	------------------------------------------------------------------------
+;	$DRMKP	- Map kernel virtual to physical
+;	------------------------------------------------------------------------
+;
+;	Convert virtual kernel address to physical address
+;
+;	Call	clr	-(sp)		;external dummy
+;		psh	buf		;kernel virtual address
+;		call	dr$mkp
+;
+;	Result	2(sp)	ext		;sp.ext
+;		0(sp)	buf		;sp.buf	
+;
+;	Notes	Usually called with $drckp or $drgkp macros
+;
+;		This macro creates a short subroutine in the device handler.
+;		It should be placed between the .DRBEG and .DREND macro calls.
+;
+;	Macro	$drmkp	xls=4 gbl
+;
+;		xls=4	extended address left shift - usually four
+;		gbl	use gbl=yes to define DR$MKP as a global address
+;
+;	------------------------------------------------------------------------
+;
+.MACRO	$DRMKP	XLS=4 GBL
+.iif ndf m$kip0, $mmdef
+	stack	ret buf ext
+.if nb <GBL>
+dr$mkp::
+.iff
+dr$mkp:
+.endc
+.if ne mmg$t				;redundant on unmapped system
+	pshs	<r1,r0>			;yes
+	stack	r0 r1 ret buf ext	;
+	mov	sp.buf(sp),r1		;get the physical address
+	ash	#-<mmpav.-1>,r1		;isolate the par number
+	bic	#^c16,r1		;r2 = par offset
+	clr	r0			;clear high order
+	mov	m$kip0(r1),r1		;get the par value
+	ashc	#mmvip.,r0		;r1 = page number
+	bic	#mmpa$p,sp.buf(sp)	;remove par number
+	add	r1,sp.buf(sp)		;store the result buffer
+	adc	r0			;overflow to r0
+.if ne <XLS>
+	ash	#XLS,r0			;put high order in right place
+.endc
+	mov	r0,sp.ext(sp)		;send them back
+	pops	<r0,r1>			;restore these
+	return				;
+.endc
+.ENDM
+;	------------------------------------------------------------------------
+;	$DRTKP	- Translate kernel to physical
+;	------------------------------------------------------------------------
+;
+;	Convert virtual kernel address to physical address
+;	Use this simplified version to handle fixed addresses.
+;
+;	Call	call	dr$tkp		;call the routine
+;
+;	Result	buf,ext			converted
+;
+;	Macro	$drmkp	buf ext xls=4 gbl
+;
+;		buf	the address of the buffer address
+;		ext	the address of the extended address
+;		xls=4	extended address left shift - usually four
+;		gbl	use gbl=yes to define DR$MKP as a global address
+;
+;	Sample	call	dr$tkp
+;
+;		<...>
+;
+;		$drtkp	buf=oldba ext=extadr
+;
+;	Notes	This macro creates a short subroutine in the device handler.
+;		It should be placed between the .DRBEG and .DREND macro calls.
+;
+;	------------------------------------------------------------------------
+;
+.MACRO	$DRTKP	BUF EXT XLS=4 GBL
+.iif ndf m$kip0, $mmdef
+.if nb <GBL>
+dr$tkp::
+.iff
+dr$tkp:
+.endc
+.if ne mmg$t				;redundant on unmapped system
+	pshs	<r1,r0>			;yes
+	stack	r0 r1			;
+	mov	BUF,r1			;get the physical address
+	ash	#-<mmpav.-1>,r1		;isolate the par number
+	bic	#^c16,r1		;r2 = par offset
+	clr	r0			;clear high order
+	mov	m$kip0(r1),r1		;get the par value
+	ashc	#mmvip.,r0		;r1 = page number
+	bic	#mmpa$p,BUF		;remove par number
+	add	r1,BUF			;store the result buffer
+	adc	r0			;overflow to r0
+.if ne <XLS>
+	ash	#XLS,r0			;put high order in right place
+.endc
+	mov	r0,EXT			;send them back
+	pops	<r0,r1>			;restore these
+	return
+.endc
+.ENDM
+;	------------------------------------------------------------------------
+;	$DR22B	- Setup RUST/XM 22-bit flag
+;	------------------------------------------------------------------------
+;
+.MACRO	$DR22B
+.if eq mmg$t				;check for mmu enabled
+	.error	;!$DR22B-E-MMG$T not enabled
+.iff					;mmu enabled
+.save					;save psect
+.asect					;absolute section
+.=0					;location zero
+	.rad50	"22b"			;setup 22-bit flag
+.restor					;restore psect
+.endc					;
+.ENDM
+

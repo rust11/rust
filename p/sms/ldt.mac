@@ -1,0 +1,1099 @@
+;V4=1
+;.title	ldt
+;
+;	%build
+;	run sy:strip smb:ldt.mla=sms:ldt.mac
+;	%end
+;	%date
+;	<04-Mar-2008 00:38:00.44>
+;	%edit
+;	<73   >
+;
+;	$tcdef		RT-11 terminal configuration structure
+;	$tedef		SHAREplus terminal structure
+;	$tddef		TILdb server
+;	$ttdef		SHAREplus terminal type structure
+;	 td		General device codes
+;	 tl		LA* family
+;	 tv		VT* family
+;	$thdef		DHV11 hardware
+;	$tmdef		SHAREplus terminal mailer
+;
+;	$tbdef		SHAREplus transaction buffer structure
+;	$tidef		RT-11 time structures
+;	$todef		RT-11 TimeOut queue element
+;	$tpdef		SHAREplus transaction packet
+;	$tsdef		SHAREplus TSX AME structures
+;	$txdef		Text - ASCII definitions
+;-----------------------;
+; TERMINAL CONFIG	;
+;-----------------------;
+;
+; Standard RT-11 terminal configuration bits
+;
+;	ttcnfg
+;	mtt status
+;	ast word
+;
+;
+.MACRO	$TCDEF
+;
+; multi-terminal configuration
+;
+map	tc.cf0	word,0	;m.tsts	ttcnfg
+map	tc.cf1		;m.tst2	
+map	tc.cf2	null	;
+map	tc.fil	byte	;m.tfil - fill char
+map	tc.cnt	byte	;m.tcnt	- fill count
+map	tc.wid	null	;m.twid	- line width
+map	tc.cf3		;m.tstw	- status
+map	tc.bbs		;
+;
+; asynchronous status word
+;
+map	tc.asw	word,0	;t.ast		ast word
+;
+; tc.cf0	
+;			rt-11	usage		mtt	tm.sta	target
+map	tc0tb$,,1	;hardware tab		r/o		ttmht$
+map	tc0wr$,,2	;wrap - ignored		clear
+map	tc0ff$,,4	;hardware ff		set
+map	tc0fb$,,10	;^b,^f,^x				te.ct%
+map	tc0rm$,,100	;return mode		r/w	tmrm
+map	tc0xn$,,200	;xon/xoff		r/o		te.cts
+;		7400	;baud rate
+map	tc0sm$,,10000	;single mode		r/w	rmsm
+map	tc0rt$,,20000	;remote terminal	r/o
+map	tc0lm$,,40000	;lower case mode	set	
+map	tc0sc$,,100000	;scope mode		set
+;
+; tc.cf1
+;
+map	tc1cl$,,3	;char length (5,6,7,8)
+map	tc1sb$,,4	;stop bits (1,2!1.5)
+map	tc1pe$,,10	;parity enable
+map	tc1po$,,20	;parity odd
+;		140	;unused
+map	tc1ra$,,200	;read pass all		r/w	tmra
+map	tc1wa$,,100000	;write pass-all		set
+;
+; tc.cf3
+;
+;			rt-11	usage		mtt	tm.sta	target
+map	tc3dt$,,20	;detach in progress	r/o	tmdt	
+map	tc3oe$,,100	;output expected	r/o		te.oct
+map	tc3xn$,,200	;xon/xoff enabled	r/o		teocs$
+map	tc3st$,,2000	;shared terminal	r/o		ttope$
+map	tc3hu$,,4000	;terminal has hung up
+map	tc3dz$,,10000	;terminal is dz or dh	r/o		te.con
+map	tc3cc$,,40000	;double [ctrl/c] seen	clear		
+map	tc3cn$,,100000	;console terminal	r/o		p$hter
+;
+; tc.asw
+;
+;			;rt-11	usage			tm.sta	target
+map	tcahu$,,100	;as.hng	- remote hung-up
+map	tcaca$,,200	;as.car	- carrier present
+map	tcaou$,,20000	;as.out	- output ring empty		te.oct
+map	tcain$,,40000	;as.inp	- input available		te.ict
+map	tcacc$,,100000	;as.ctc	- double [ctrl/c] seen
+;
+.ENDM
+;-----------------------;
+; TERMINAL		;
+;-----------------------;
+;
+; Generic terminal unit record.
+;
+; ???	Permanent characteristics
+; ???	Owner, UIC and protection
+; ???	Autobaud, modems, hangup
+; ???	Read/write access (precede T$EMAP with device record)
+; ???	return - line-feed fill
+; ???	Split input and output speeds
+; ???	DH poll routine
+;
+;	ttv	define yes to produce control bit numbers
+;
+.MACRO	$TEDEF TTV	
+;
+; Ring sizes
+;
+teirs.=80.		;input ring-buffer size
+teors.=256.		;output ring-buffer size
+teiof$=^c<<7*256.>!7>	;eight input or output fails
+teifc.=6
+teoth.=96.		;output restart threshold
+teist.=60.		;input stop threshold
+teirt.=20.		;input restart threshold
+;
+; Generic data
+;
+map	te.tc0,,0	;terminal characteristics
+map	te.tc1		;
+map	te.tc2		;
+map	te.tc3		;
+map	te.wid	byte	;terminal width (80)
+map	te.len	byte	;page length (24)
+map	te.par	byte	;0:1 parity, 2:3 bits, 4 stop bits
+map	te.spe	byte	;speed encoding
+;			;
+map	te.typ		;terminal type (te100.=vt100)
+map	te.mod	word*2	;terminal model - rad50 brandname
+map	te.nam		;terminal name (T02:)
+;map	te.cor		;controller record address (below at present)
+;			;
+map	te.tid		;	- terminal id
+map	te.csr	null	;	- CSR address
+map	te.tks		;tks
+map	te.tkb		;tkb	- input buffer
+map	te.tps		;tps	- output status
+map	te.tpb		;tps	- output buffer
+map	te.vec		;vec	- vector address
+map	te.uni	byte	;uni	- unit of controller
+map	te.cot	byte	;cot	- controller type
+map	te.iie		;ie	- input enable bit
+map	te.oie		;ie	- output enable bit
+map	te.ipr	byte	;n	- input priority
+map	te.opr	byte	;n	- output priority
+;
+; Process specific data
+;
+map	te.pcr		;pcr	- pcr of owner
+map	te.con		;bits	- ctrl character mask
+map	te.sig		;bits	- pending signals
+map	te.msk		;te7b$m	- 7/8 bit mode mask
+;
+map	te.sbs	null	;status block byte size ($gette)
+;
+; Input 
+;			;ordered
+map	te.isr	word*2	;jsr r5,@#dl$isr - input isr
+map	te.ikb		;tkb	- input buffer address
+map	te.ich	byte	;0	- input character buffer
+map	te.iid	byte	;tid	- terminal id for input
+;			;unordered
+map	te.ict		;0	- input count
+map	te.igt		;te.irn	- input ring get pointer
+map	te.ito		;te.ire	- input ring top pointer
+map	te.ipt		;te.irn	- input ring put pointer
+map	te.ibo		;te.irb	- input ring bottom pointer
+;
+map	te.ifc	byte	;0	- input get fail counter
+map	te.ofc	byte	;0	- output fail count
+map	te.ila	byte	;0	- last input character (ctrl/c, ctrl/y)
+map	te.roo	byte	;	- process number of root
+map	te.iqu		;queue	- input scheduler queue
+;
+; Output
+;			;ordered
+map	te.osr	word	;jsr r5,@#dl$osr - output isr
+map	te.obc	word	;te.obc	- DH dma byte count or dl$osr
+map	te.oct		;0	- output character count
+map	te.ogt		;te.orb	- output ring get pointer
+map	te.oto		;te.ore	- output top pointer
+;			;unordered
+map	te.opt		;te.orb	- output put pointer
+map	te.obo		;te.orb	- output bottom pointer
+;
+map	te.omo	null	;0	- output mode (see below)
+map	te.ocs	byte	;0	- ctrl/s state - other terminal id
+map	te.oco	byte	;0	- ctrl/o state
+map	te.oen		;ie	- output enable state
+;
+;			;??? temporary
+map	te.cor	null	;controller record address
+map	te.ola		;0	- output last character - te.cor
+map	te.oqu		;	- output scheduler queue
+;
+; Fork
+;
+map	te.frk		;suc	- output done fork block
+map	te.fpc		;te$frk	- fork goto
+map	te.fr5		;te.ter	- setup by install
+map	te.sel	null	;te.sel	- DH unit selector. Fudged for DL/DZ.
+map	te.fr4		;	- unused
+;
+; Rings
+;
+map	te.irb	teirs.	;	- input ring
+map	te.ire	null	;	- input ring end
+map	te.orb	teors.	;	- output ring
+map	te.ore	null	;	- output ring end
+;
+map	te.mbx		;	- mbx pcr
+map	te.mt0	byte	;	- mtt attach control
+map	te.mt1	byte	;	- mtt connect control
+map	te.pco		;	- permanent controls - restored after exit
+map	te.ith	byte	;	- input threshold
+map	te.fgd	byte	;	- foreground process number
+map	te.flo		;	- flow control
+map	te.bbs
+;
+; te.cot - controller type
+;
+map	tedlt.,,0	;dl type
+map	tedzt.,,1	;dz type
+map	tedht.,,2	;dh type
+map	tembt.,,3	;mb type
+map	tequt$,,100003	;quiet type (unused???)
+;
+; te.obc - dma control
+;
+map	teodm$,,100000	;dma in progress
+;
+; te.omo -  output mode
+;
+map	tecsp$,,200	;ctrl/s pending
+map	tecsi$,,100	;ctrl/s from input ring
+map	tecso$,,40	;ctrl/s from output
+map	tecsm$,,20	;ctrl/s from mailbox
+;			;
+map	teocs$,,377	;ctrl/s enabled
+map	teoco$,,177400	;ctrl/o enabled
+;
+; te.msk - 7/8 bit mask
+;
+map	te7b$m,,177600	;7-bit mask
+map	te8b$m,,177400	;8-bit mask (default)
+;
+; te.con/te.sig 
+;
+map	tectc$,,1	;ctrl/c
+map	tecth$,,2	;ctrl/h - backspace
+map	tecty$,,4	;ctrl/y
+map	tecat$,,10	;attach
+map	tecdt$,,20	;detach - not used
+map	tecto$,,40	;ctrl/o
+map	tectt$,,100	;ctrl/t
+map	tecli$,,200	;[cliast] - continue cli ast - can move - see rcl
+map	tectb$,,400	;ctrl/b
+map	tectf$,,1000	;ctrl/f
+map	tectx$,,2000	;ctrl/x
+map	tects$,,4000	;ctrl/s - also ctrl/q
+map	tectp$,,10000	;ctrl/p
+map	tect0$,,20000	;ctrl/0 - actually null for rall/wall
+map	tecrt$,,40000	;realtime signal
+map	tesdt$,,100000	;sdat
+;			;default set and permanent controls
+map	tecds$,,tectc$!tecty$!tecat$!tecto$!tectt$!tects$
+map	tecdp$,,tects$!tecto$!tecat$
+;
+; te.con bit numbers
+;
+.if nb <ttv>
+map	tecc$v,,0	;ctrl/c
+map	tech$v,,1	;ctrl/h - backspace
+map	tecy$v,,2	;ctrl/y
+map	teca$v,,3	;attach
+map	tecd$v,,4	;detach - not used
+map	teco$v,,5	;ctrl/o
+map	tect$v,,6	;ctrl/t
+map	tecl$v,,7	;[cliast] - continue with cli ast
+map	tecb$v,,8.	;ctrl/b
+map	tecf$v,,9.	;ctrl/f
+map	tecx$v,,10.	;ctrl/x
+map	tecs$v,,11.	;ctrl/s - also ctrl/q
+map	tecp$v,,12.	;ctrl/p
+map	tec0$v,,13.	;ctrl/0 - actually null for rall/wall
+;		14.
+;		15.
+.endc
+;
+; te.flo
+;
+map	tefcs$,,100000	;flow ctrl/s active
+;
+; te.sel - class dispatch offsets
+;
+map	tesse.,,0	;terminal select
+map	tesde.,,-2.	;terminal deselect
+map	tesxf.,,-4.	;terminal xoff
+map	tesxn.,,-6.	;terminal xon
+;
+; physical terminal
+;
+map	tks,,177560	;terminal keyboard status
+map	tkb,,177562	;terminal keyboard buffer
+map	tps,,177564	;terminal printer status
+map	tpb,,177566	;terminal printer buffer
+;
+map	te.rsr,,0	;receiver status
+map	te.rbu		;receiver buffer
+map	te.xsr		;transmitter status
+map	te.xbu		;transmitter buffer
+;
+.ENDM
+;-----------------------;
+; TERMINAL TYPES	;
+;-----------------------;
+;
+;	TT TD TV TL
+;
+;	Defines terminal types and codes
+;
+;	Each characteristic has it own offset
+;	These are word offsets into the mask.
+;
+;	CHAR=no		Do not define characteristics
+;	CHAR=yes (D)	Define terminal characteristics
+;	CODE=no		Do not define terminal codes
+;	CODE=yes (D)	Define terminal codes
+;	CODE=list	Define terminal code list
+;
+;
+.MACRO	$TTDEF CHAR=yes CODE=yes
+.if idn <char>,<yes>
+;
+;	Define the mask
+;
+map	tt.tc0,word,0	;characteristics
+map	tt.tc1		;
+map	tt.tc2		;
+map	tt.tc3		;
+map	tt.wid	byte	;page width
+map	tt.len	byte	;page length * 2
+map	tt.par		;line parameters
+map	tt.typ		;terminal type code
+map	tt.mod	word*2	;terminal model
+map	tt.nam		;terminal name
+;map	tt.tid		;terminal id
+;map	tt.cnt		;controller name
+map	tt.bbs		;
+;
+; Terminal characteristics
+;
+;	ttXXX$	word bit pattern
+;	ttXXX.	.byte	word-in-arr, bit-in-word*2
+;	tt.XXX	offset in array - addresses words
+;
+.macro	ma$map c d e
+.iif nb <e>,assume  ma$bit eq e
+	c'd'$=:ma$bit
+	c'd'.=:ma$vit*256.*2+ma$wor
+	c'.'d=:ma$wor
+;
+	ma$bit=ma$bit*2
+	ma$vit=ma$vit+1
+	.if eq ma$vit-16.
+	ma$bit=1
+	ma$vit=0
+	ma$wor=ma$wor+2
+	.endc
+.endm
+;
+; VAX/VMS compatible flags
+;
+ma$bit=1
+ma$vit=0
+ma$wor=tt.tc0
+;
+; te.tc0
+;
+ma$map	tt pas	1		;passall
+ma$map	tt nec	2		;noecho
+ma$map	tt nta	4		;notypeahd
+ma$map	tt esc	10		;escape
+ma$map	tt hsy	20		;hostsync
+ma$map	tt tsy	40		;ttsync
+ma$map	tt scr	100		;script
+ma$map	tt low	200		;lower
+ma$map	tt mht	400		;mechtab
+ma$map	tt wra	1000		;wrap
+ma$map	tt crf	2000		;crfill
+ma$map	tt lff	4000		;lffill
+ma$map	tt sco	10000		;scope
+ma$map	tt rem	20000		;remote
+ma$map	tt hld	40000		;hold
+ma$map	tt 8bt	100000		;eightbit
+;
+; te.tc1
+;
+ma$bit=1
+ma$vit=0
+ma$wor=tt.tc1
+;
+ma$map	tt nmb	1		;mbxdsabl
+ma$map	tt nbc	2		;nobrdcst
+ma$map	tt rsy	4		;readsync
+ma$map	tt mff	10		;mechform
+ma$map	tt hlf	20		;halfdup
+ma$map	tt mdm	40		;modem
+ma$map	tt ope	100		;oper
+ma$map	tt fr0	200		;?
+ma$map	tt pag	400		;page size - byte
+;
+; te.tc2
+;
+ma$bit=1
+ma$vit=0
+ma$wor=tt.tc2
+;
+ma$map	tt loc	1		;localecho
+ma$map	tt aut	2		;autobaud
+ma$map	tt hng	4		;hangup
+ma$map	tt mhg	10		;modhangup
+ma$map	tt bmb	20		;brdcstmbx
+ma$map	tt xon	40		;xon
+ma$map	tt dma	100		;dma
+ma$map	tt ata	200		;alttypahd
+ma$map	tt ssp	400		;setspeed
+ma$map	tt dmb	1000		;dcl_mailbx
+ma$map	tt dob	2000		;dcl_outbnd
+ma$map	tt dcc	4000		;dcl_ctrlc
+ma$map	tt edg	10000		;editing
+ma$map	tt ins	20000		;insert
+ma$map	tt fbk	40000		;fallback
+ma$map	tt dlp	100000		;dialup
+;
+; te.tc3
+;
+ma$bit=1
+ma$vit=0
+ma$wor=tt.tc3
+;				;SHAREplus
+ma$map	tt lfc	1		;login fail count
+;		7		;occupies byte
+;
+ma$bit=1
+ma$vit=0
+ma$wor=tt.tc3
+;				;VAX/VMS
+ma$map	tt sec	1		;secure
+ma$map	tt dsc	2		;disconnect
+ma$map	tt ptr	4		;pastethru
+ma$map	tt spw	10		;syspwd
+ma$map	tt sxl	20		;sixel
+ma$map	tt drc	40		;drcs
+ma$map	tt prt	100		;printer
+ma$map	tt akp	200		;app_keypad
+ma$map	tt ans	400		;ansii
+ma$map	tt reg	1000		;regis
+ma$map	tt blk	2000		;block
+ma$map	tt avo	4000		;avo
+ma$map	tt edi	10000		;edit
+ma$map	tt dec	20000		;deccrt
+ma$map	tt de2	40000		;deccrt2
+ma$map	tt de3	100000		;deccrt3
+;
+; Terminal parameters
+;
+map	ttpn$m,,177770	;unused (dz line number)
+map	ttpl$m,,177747	;length (5,6,7,8)
+map	ttpsc$,,40	;0=>1, 1=>2 stop bits
+map	ttpar$,,100	;1 => parity
+map	ttpod$,,200	;1 => odd parity
+;
+map	tt050.,,1	;50 baud
+map	tt075.,,2	;75 baud
+map	tt110.,,3	;110 baud
+map	tt134.,,4	;134 baud
+map	tt150.,,5	;150 baud
+map	tt300.,,6	;300 baud
+map	tt600.,,7	;600 baud
+map	tt12h.,,8.	;1200 baud
+map	tt18h.,,9.	;1800 baud
+map	tt20h.,,10.	;2000 baud
+map	tt24h.,,11.	;2400 baud
+map	tt36h.,,12.	;3600 baud
+map	tt48h.,,13.	;4800 baud
+map	tt72h.,,14.	;7200 baud
+map	tt96h.,,15.	;9600 baud
+map	tt19k.,,16.	;19200 baud
+;
+; Multiterminal - temporary
+;
+map	ttpct$,,10000	;connected terminal
+map	ttpmt$,,20000	;multi-terminal attached
+map	ttpcm$,,40000	;connect return mode
+map	ttprm$,,100000	;return mode
+;
+.endc		;CHAR=yes
+;
+; Terminal codes
+;
+;	TD	general device codes
+;	TV	VT100 series
+;	TL	LA100 series
+;
+.if idn <code>,<yes>
+meta	<ma$map c,d,e,f><map c,d,e>
+.endc
+.if idn <code>,<no>
+meta	<ma$map c,d,e,f>
+.endc
+.if idn <code>,<list>
+meta	<ma$map c,d,e,f><.word c><.rad50 &f&>
+.endc
+;
+;	NAME must be at least four characters for LIST option
+;
+;	symbol	code	name
+;
+ma$map	tdunk.,,0	uknown	;	0
+ma$map	tv005.,,1	VT05	;	1
+ma$map	tvk1h.,,2	VK100	;	2
+ma$map	tv173.,,3	VT173	;	3
+;
+ma$map	tdf01.,,16.	<FT1   >;	16
+ma$map	tdf02.,,17.	<FT2   >;	17
+ma$map	tdf03.,,18.	<FT3   >;	18
+ma$map	tdf04.,,19.	<FT4   >;	19
+ma$map	tdf05.,,20.	<FT5   >;	20
+ma$map	tdf06.,,21.	<FT6   >;	21
+ma$map	tdf07.,,22.	<FT7   >;	22
+ma$map	tdf08.,,23.	<FT8   >;	23
+;
+ma$map	tl036.,,32.	LA36	;	32	LA36 before LAX for list
+ma$map	tl00x.,,32.	<LAX   >;	32
+ma$map	tl120.,,33.	LA120	;	33
+ma$map	tl034.,,34.	LA34	;	34
+ma$map	tl038.,,35.	LA38	;	35
+ma$map	tl012.,,36.	LA12	;	36
+ma$map	tl024.,,37.	LA24	;	37
+ma$map	tl100.,,37.	LA100	;	37
+ma$map	tlq02.,,38.	LQP02	;	38
+;
+ma$map	tv052.,,64.	VT52	;	64	VT52 before VT5X for LIST
+ma$map	tv05x.,,64.	VT5X	;	64
+ma$map	tv055.,,65.	VT55	;	65
+;
+ma$map	tv100.,,96.	VT100	;	96
+ma$map	tv101.,,97.	VT101	;	97
+ma$map	tv102.,,98.	VT102	;	98
+ma$map	tv105.,,99.	VT105	;	99
+ma$map	tv125.,,100.	VT125	;	100
+ma$map	tv131.,,101.	VT131	;	101
+ma$map	tv132.,,102.	VT132	;	102
+ma$map	tv080.,,103.	VT80	;	103
+ma$map	tv200.,,110.	VT200	;	110	VT200 series
+ma$map	tvpro.,,111.	<PRO   >;	111	Pro
+ma$map	tv300.,,112	VT300	;	112	VT300 series
+;
+$$=100000
+;
+ma$map	tddia.,,$$+1024. diablo	;	100002
+ma$map	tdqum.,,$$+1025. qume	;	100003
+;
+ma$map	tdadm.,,$$+2048. adm3a	;	100001
+ma$map	tdhaz.,,$$+2049. hazel	;	100001
+;
+.ENDM
+;-----------------------;
+; DH TERMINAL		;
+;-----------------------;
+;
+; DH terminal controller record
+;
+.MACRO	$THDEF
+;
+map	th.suc	word,0	;successor
+map	th.pre		;predecessor
+map	th.csr		;csr address
+map	th.vec		;vector address
+map	th.con		;controller name
+map	th.ref		;number of units referenced
+map	th.tim	byte*8.	;terminal id map
+map	th.tem	word*8.	;terminal record map
+map	th.par	word*8.	;terminal parameters
+map	th.isr	word*2	;input service routine
+map	th.ifs	word	;input fork semaphore
+map	th.ifb	word*4	;input fork block
+map	th.osr	word*2	;output service routine
+map	th.ofs	word	;output fork semaphore
+map	th.ofb	word*4	;output fork block
+map	th.bbs		;
+;
+.ENDM
+;-----------------------;
+; TERMINAL MAILER	;
+;-----------------------;
+;
+; Terminal mailer
+;
+.MACRO	$TMDEF
+;
+map	tmmrm$,,1	;return mode
+map	tmmsm$,,2	;single mode
+map	tmmra$,,4	;read all
+map	tmmlo$,,100	;logout on disconnect
+map	tmmsv$,,200	;server end
+;
+.ENDM
+;;-----------------------;
+; DZ CONTROLLER		;
+;-----------------------;
+
+.MACRO	$TZDEF
+map	tz.suc	word,0		;successor
+map	tz.pre	word		;predecessor
+map	tz.csr	word		;csr address
+map	tz.vec	word		;vector address
+map	tz.con	word		;controller rad50 name
+map	tz.ref	word		;number of units referenced
+map	tz.tim	byte*8.		;terminal id map
+map	tz.tem	word*8.		;terminal record pointer map
+map	tz.par	word*8.		;line parameters
+map	tz.isr	word*2		;input service routine
+map	tz.rbp	word*6		;dz.rbu pointer
+map	tz.tip	word*3		;terminal id byte
+map	tz.hsp	word*3		;h$sput address
+;				;
+map	tz.osr	word*2		;output service routine
+map	tz.cst	word*5		;@#dz.csr+1
+map	tz.tep	word*6		;@#tz.tem
+map	tz.bbs			;
+.ENDM
+;-----------------------;
+; TRANSACTION BUFFER	;
+;-----------------------;
+;
+;	Multi-purpose transaction buffer.
+;
+;	Transaction buffers are 2 blocks long. Suitable for directories.
+;	2-block I/O is somewhat better than single-block I/O.
+;	Longer buffers can cause a process to block the system during copy.
+;
+;	18-bit memory could be used for 18-bit devices and 22-bit memory.
+;	Par6 was not used for data when TB's were first implemented.
+;	One 16-bit TB and a number of 18-bit TB's is probably the best choice.
+;
+;	The buffer header records the system block address of the data.
+;	TB's are used as a simple directory cache for RT11A/RT11X devices.
+;	Additional 18-bit buffers would help here too.
+;
+.MACRO	$TBDEF		
+;
+map	tb.suc,,0	;successor
+;
+;	Cache information
+;
+map	tb.sta		;state (see below)
+map	tb.vid		;vid of buffer
+map	tb.blk		;start block
+map	tb.wct		;word count
+;
+;	Buffered I/O information
+;
+;map	tb.bfa		;buffer address (unused)
+map	tb.nxt		;next in tb linkage
+map	tb.off		;mmu offset
+map	tb.pag		;mmu kernel par1 page
+;
+;	Buffer
+;
+map	tb.buf	word*513.;buffer (extra word for DM physical)
+map	tb.bbs
+;
+;	Transaction buffer state
+;
+;			;zero indicates unused
+map	tbrea$,,1	;buffer is valid. Has been read.
+map	tbwri$,,100000	;buffer has been written
+;.if ne V4
+map	tbdat$,,2	;buffer has valid data
+map	tbmod$,,4	;buffer has been modified		;V4
+;
+map	tb16b$,,10	;16-bit buffer
+map	tbkp6$,,20	;16-bit buffer mapped to kp6
+map	tb18b$,,40	;18-bit buffer
+map	tbmap$,,tbkp6$!tb18b$
+;.endc
+;
+.ENDM
+;-----------------------;
+; TIME			;
+;-----------------------;
+;
+;	EraMonthDay     Year
+;	e emm mmd ddd dyy yyy
+;
+;	1 1 1 1 1 1                      E = Era Y<<5  0:3  
+;	5 4 3 2 1 0 9 8 7 6 5 4 3 2 1 0  M = Month     1:15
+;	E E M M M M D D D D D Y Y Y Y Y	 D = Day       1:31
+;	Era Month   Day       Year	 Y = Year-1972 0:31  1972-2003
+;	2   4       5         5i	 E:Y eYear     0:127 1972-2099
+;
+;		date	Day	Month	Year
+;	RT-11:	age	1..n	1..n	1972..Y2K
+;	RUST:	era/ext	1..n	1...n	1972..Y2M
+;
+;	C 	long	1..n	0..n-1	1972-2038?  
+;	Rider	quad	1..n	0..n-1	0000-Y2M
+;
+;	See $RTDEF for RT11A time representation
+;
+.MACRO	$TIDEF
+;
+map	ti.hot	word,0	;high order time
+map	ti.lot		;low order time
+map	ti.dat		;date
+map	ti.fre	byte	;frequency
+map	ti.dax	byte	;date extension
+map	ti.bbs		;
+;
+map	titwi.,,-1	;twait id
+map	tirti.,,-2	;realtime id
+;
+map	ti50h.,,101	;50-herz high-order midnight
+map	ti50l.,,165400	;50-herz low-order midnight
+map	ti50f.,,50.	;50 herz frequency
+map	ti60h.,,117	;60-herz high-order
+map	ti60l.,,15000	;60-herz low-order
+map	ti60f.,,60.	;60 herz frequency
+;
+; shift count
+;
+map	tidav.,,5.	;day shift count
+map	timov.,,10.	;month shift count
+map	tiyev.,,0	;year shift count
+map	tierv.,,9.	;era shift count			;Y2K
+;
+; factors
+;
+map	tidaf.,,32.	;day factor
+map	timof.,,1024.	;month factor
+map	tiyof.,,1	;year factor
+;
+; negatives
+;
+map	tida$n,,177740	;day negative mask
+map	timo$n,,177760	;month negative mask
+map	tiye$n,,177740	;year negative mask
+map	tier$n,,177637	;era negative mask
+;
+; in-place negatives
+;
+map	tiid$n,,176037	;in-place day negative
+map	tiim$n,,141777	;in-place month negative
+map	tiiy$n,,177740	;in-place year negative
+map	tiie$n,,037777	;in-place era negative			;Y2K
+;
+; base values
+;
+; ???	Not sure what these are. RT-11 day and month base is 1.
+;
+map	tidab.,,0	;day base
+map	timob.,,0	;month base
+map	tiyeb.,,72.	;year base
+;
+; STB date
+;
+;	It's called the "STB date" because it was initially designed
+;	to represent the build date in the system STB RUSTX.OBJ.
+;	Because it can be used in date comparisons its also used
+;	by VIR.SAV and MARK.SAV etc.
+;
+;	Year      Month Day
+;	e eyy yyy m mm mdd ddd	STB
+;	e emm mmd d dd dyy yyy	RT-11
+;	EraMonthDay     Year
+;
+; shift values
+;
+map	tisdv.,,0	;stb day position
+map	tismv.,,5	;stb month position
+map	tisyv.,,9.	;stb year position
+;
+; negatives
+;
+map	tisd$n,,177740	;stb day negative mask
+map	tism$n,,177760	;stb month negative mask
+map	tisy$n,,177600	;stb year negative mask
+map	tise$n,,037777	;stb era negative mask			;Y2K
+;
+; base values
+;
+map	tisdb.,,0	;stb day base
+map	tismb.,,0	;stb month base
+map	tisyb.,,72.	;stb year base
+;
+.ENDM	
+;-----------------------;
+; TIMER QUEUE ELEMENT	;
+;-----------------------;
+;
+;	RT-11 timer element
+;
+.MACRO	$TODEF
+;
+map	to.hot	word,0	;c.hot	- high-order time
+map	to.lot		;c.lot	- low order time
+map	to.suc		;c.link	- next element
+map	to.job		;c.jnum	- job number - ignored
+map	to.seq		;c.seq	- sequence - 177000:177377
+map	to.tmo		;c.sys	- timout signature = 177777
+map	to.com		;c.comp	- completion routine - zeroed on call
+map	to.bbs		;
+;
+.ENDM	
+;V4? Move tp.sfe down one
+;-----------------------;
+; TRANSACTION PACKET	;
+;-----------------------;
+;
+; I/O transaction packet
+;
+.MACRO	$TPDEF		
+;
+map	tp.suc,,0	;successor
+map	tp.pre	null	;predecessor (used for process private)
+;			;1
+map	tp.kad		;kernel ast link
+map	tp.kpc		;kernel ast pc
+map	tp.kpr	null	;kernel priority (retired)
+map	tp.kps		;kernel ps
+map	tp.kp1		;kernel par1
+map	tp.kr4		;kernel r4
+;			;5
+map	tp.pcr		;pcr address
+map	tp.der		;device record
+map	tp.unr		;unit record
+map	tp.tbr		;tp buffer address (zero indicates none)
+map	tp.csw		;csw address
+map	tp.spu		;spusr status
+;			;spsize in tp.wct
+;			;6
+;	request parameters	
+;
+map	tp.rch	byte	;request channel
+map	tp.asp	byte	;address space
+map	tp.rbl		;remainder block
+map	tp.rbu		;remaining buffer
+map	tp.rwc		;remaining word count
+map	tp.rmo	byte	;request mode
+map	tp.rfu	byte	;request function
+map	tp.rcr		;request completion
+map	tp.rps		;request ps for ast
+;			;7
+;	transaction window parameters
+;
+map	tp.twc		;transaction word count
+map	tp.tbu		;transaction buffer displacement
+map	tp.tp1		;transaction par 1
+;			;3
+;	i/o queue element	
+;			;queue element
+map	tp.qsu		;q.link
+map	tp.qcs		;q.csw
+map	tp.qbl		;q.blkn
+map	tp.qfu	byte	;q.func
+map	tp.qun	0	;q.unit
+map	tp.qjn	byte	;q.jnum
+map	tp.qbu		;q.buff
+map	tp.qwc		;q.wcnt
+map	tp.qco		;q.comp
+map	tp.qp1		;q.par
+map	tp.sfe	null	;q.free - spfun error block [temp]
+map	tp.qfr	word*2	;q.free
+;			;10
+;	fork block (used by io$don)
+;
+map	tp.frk		;f.blnk
+map	tp.fad		;f.badr
+map	tp.fr5		;f.br5
+map	tp.fr4		;f.br4
+;			;4
+;	special function
+;
+map	tp.sfc		;spfun control
+map	tp.sfd		;spfun data
+;			;2
+map	tp.bbs		;
+;
+assume	tp.kad eq word	;see rio
+assume	tp.kpc eq word*2;
+.ENDM
+;-----------------------;
+; TSX feature		;
+;-----------------------;
+;
+;	ts.d%%	detached jobs
+;	ts.e%%	emts
+;	ts.f%%	file access & locking
+;	ts.g%%	gval
+;	ts.k%%	kernel
+;	ts.m%%	messages
+;	ts.r%%	realtime calls
+;	ts.s%%	shared runtimes
+;	ts.t%%	terminal
+;
+.MACRO	$TSDEF
+;
+;	Feature transfer vectors
+;
+set	$,fetsx.*512.+fe.bbs
+map	.tsgvl	long	;gval
+map	.tsacp	long	;acp call
+map	.tsacd	long	;acp dispatch
+map	.tstti	long	;terminal input
+map	.tstto	long	;terminal output
+;
+;	Feature constants
+;
+map	tsdws.,,4.	;default workspace in blocks
+;			;
+map	tsemb.,,101	;emt base code
+map	tsems.,,160	;number of emts
+map	tsgvs.,,30.	;maximum gval code
+map	tsrts.,,18.	;realtime calls
+;
+;	Resident header
+;
+map	ts.gua	word,0	;guard word for first time
+map	ts.srb		;runtime file base page - zero => none
+map	ts.srl		;runtime file page length
+map	ts.ter		;terminal record
+map	ts.bbs		;
+assume	ts.bbs le 12.	;maximum 12 bytes
+;			;
+map	tsgua.,,<^rtsx>	;tsx guard word
+map	tssrc.,,16.	;shared runtime channel
+;			;
+;-----------------------;
+; Detached jobs		;
+;-----------------------;
+;			;
+map	tsdjc.,,8.	;eight detached job slots
+map	tsdcs.,,16.	;command file spec size
+;			;			null
+map	ts.djn	word,0	;job slot number	end of table
+map	ts.dsn	word	;server pid		no server
+map	ts.dpn	word	;caller pid		no job or aborted
+map	ts.dcf	tsdcs.	;command file name	available
+map	ts.dbs		;
+;			;
+;-----------------------;
+; Record locking	;
+;-----------------------;
+;			;
+map	tsffs.,,30.	;30 shared files
+map	tsfcs.,,30.	;30 shared channels (unused)
+map	tsfbs.,,3	;3 blocks per channel
+;			;
+map	ts.fsu	word,0	;successor
+map	ts.fpr		;predecessor
+map	ts.fpi	null	;process id
+map	ts.fpn	byte	;process number		owner area
+map	ts.fcn	byte	;channel number
+map	ts.fvi	null	;volume id		file area
+map	ts.fdn	byte	; device slot number
+map	ts.fun	byte	; unit number
+map	ts.fcs		;csw address
+map	ts.ffi		;file id (ch.sbl)
+;			;
+map	ts.fac	byte	;access mask		lock area
+map	ts.fst	byte	;general status
+map	ts.fb0	word*tsfbs. ;first locked block
+map	ts.fbs		;
+;
+; ts.fet - File element type
+;
+map	tsfet.,,<^rshr>	;shared file
+;
+; ts.fac - File access types
+;
+map	tsfxi.,,0	;exclusive input
+map	tsfxu.,,1	;exclusive update
+map	tsfpi.,,2	;protected input
+map	tsfpu.,,3	;protected update
+map	tsfsi.,,4	;shared input
+map	tsfsu.,,5	;shared update
+;
+; ts.fst - file status
+;
+map	tsfc$p,,77	;maximum 64. locks
+map	tsfc$n,,177600	;block count negative
+map	tsfsv$,,100	;saved channel
+map	tsfwr$,,200	;file written flag
+;			;
+;-----------------------;
+; Messages		;
+;-----------------------;
+;			;
+map	tsmcs.,10.	;10 message channels (4)
+map	tsmbs.,,64.	;64 byte message buffers (240)
+;			;
+map	ts.msc	word,0	;successor
+map	ts.mpr		;predecessor
+map	ts.mnm	word*3	;ascii message channel name
+map	ts.mln		;message byte length
+map	ts.mbu	null	;variable length message buffer
+map	ts.mbs		;
+;			;
+;-----------------------;
+; Terminal		;
+;-----------------------;
+;			;
+map	ts.tst	word,0	;terminal state
+map	ts.toc	byte	;terminal output command
+map	ts.tov	byte	;terminal output value
+map	ts.tru	byte	;rubout character
+map	ts.tli	byte	;lead in character
+map	ts.ttm	byte	;timeout activation character
+map	ts.tiw	byte	;input line width
+map	ts.taw	byte	;input line activation width
+map	ts.tac	byte*6	;activation character list
+map	ts.ttv	word	;timeout value
+map	ts.tbs		;
+;			;
+map	tstes$,,1	;escape sequence recognition
+map	tstqu$,,2	;quiet - no echo
+map	tsttu$,,4	;uppercase
+map	tstpa$,,10	;passall output
+map	tstts$,,20	;single char input
+map	tsttr$,,40	;return mode input
+map	tstap$,,100	;tape mode
+map	tstnl$,,200	;nolinefeed echo
+map	tsthe$,,400	;high efficiency mode
+;			;
+map	tslch.,,29.	;lead-in character
+;			
+.ENDM
+;-----------------------; 
+; TEXT 			;
+;-----------------------;
+;
+; Standard mnemonics
+;
+; SEE $ALDEF
+;
+.MACRO	$TXDEF
+;
+map	ctrla,,	1	;ctrl/a
+map	ctrlb,,	2	;ctrl/b
+map	ctrlc,,	3	;ctrl/c
+map	ctrld,,	4	;ctrl/d
+map	ctrle,,	5	;ctrl/e
+map	ctrlf,,	6	;ctrl/f
+map	bell,,	7	;bell
+map	ctrlh,,	10	;backspace
+map	bs,,	10	;backspace
+map	ht,,	11	;tab
+map	lf,,	12	;line feed
+map	vt,,	13	;vertical tab
+map	ff,,	14	;formfeed
+map	cr,,	15	;return
+map	ctrln,,	16	;ctrl/n
+map	ctrlo,,	17	;ctrl/o
+map	ctrlp,,	20	;ctrl/p
+map	ctrlq,,	21	;ctrl/q
+map	ctrlr,, 22	;ctrl/r
+map	ctrls,,	23	;ctrl/s
+map	ctrlt,,	24	;ctrl/t
+map	ctrlu,,	25	;ctrl/u
+map	ctrlw,,	27	;ctrl/w
+map	ctrlx,,	30	;ctrl/x
+map	ctrly,,	31	;ctrl/y
+map	ctrlz,,	32	;ctrl/z
+map	esc,,	33	;escape
+map	space,,	40	;[space]
+map	quote,,	47	; '
+map	semi,,	73	; ;
+map	hat,,	136	; ^
+map	rubout,,177	;delete
+map	csi,,233	;VT200 command string
+map	ss3,,217	;VT200 keypad 
+;
+.ENDM
+

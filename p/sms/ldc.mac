@@ -1,0 +1,405 @@
+;.title	ldc
+;
+;	%build
+;	run sy:strip smb:ldc.mla=sms:ldc.mac
+;	%end
+;	%date
+;	<26-Jan-2008 12:26:46.15>
+;	%edit
+;	<64   >
+;
+;	$cadef		SHAREnet cabs
+;	$ccdef		SHAREplus critical code interface
+;	$cfdef		RT-11/SHAREplus command file status word
+;	$chdef		RT-11/SHAREplus channel status area
+;	 cs		Channel status word
+;	$cidef		RT-11 .CSTAT channel status information area
+;	$cldef		RT-11 CLI flags - DCL, CCL, UCL etc.
+;	$cndef		RT-11 config and confg2 status flags
+;	$codef		PDP-11 console hardware
+;	$cpdef		DEC hardware CPU id codes - PDP-11
+;	$cxdef		SHAREplus context switch stack structure
+;-----------------------;
+; CHANNEL ACCESS	;
+;-----------------------;
+;
+; SHAREnet channel access block
+;
+.MACRO	$CADEF
+;
+map	ca.suc	word,0	;successor
+map	ca.pre		;predecessor
+map	ca.sta	byte	;status - see below
+map	ca.chn	byte	;channel number
+map	ca.cid	byte	;cab id
+map	ca.seq	byte	;cab id sequence number
+;
+map	ca.nod	byte	;node number
+map	ca.npn	byte	;node process number
+map	ca.prn	byte	;caller process number
+map	ca.pch	byte	;caller process channel
+;
+map	ca.dev		;filename
+map	ca.fil		;
+map	ca.nam		;
+map	ca.typ		;
+;
+map	ca.csw		;csw area
+map	ca.sbl		;start block
+map	ca.len		;file length
+map	ca.use		;blocks used
+map	ca.ioc	byte	;i/o count
+map	ca.uni	byte	;unit number
+;
+map	ca.sa0		;ethernet station address
+map	ca.sa2		;
+map	ca.sa4		;
+;
+map	ca.bbs	null	;block size
+;
+; ca.cid - cab id	
+;
+map	caacp.,,077777	;ACP request CID
+map	caboo.,,100577	;bootstrap CID
+;
+; ca.sta - cab status
+;
+map	cachn$,,1	;cab channel is valid
+map	caopn$,,2	;cab channel is open
+map	casav$,,4	;cab channel status is saved
+;		10	;
+map	caift$,,20	;cab is information channel
+map	cavtt$,,40	;cab is virtual terminal
+map	casta$,,100	;cab channel is static
+map	caact$,,200	;cab is active
+;
+.ENDM
+;-----------------------; 
+; CRITICAL CODE CALLS	;
+;-----------------------;
+;
+;???
+;	Common interface to user routines to handle critical code.
+;	The flag ICCRI$ must be set in P$HIC1.
+;	This flag can only be set by a $CMKRNL call.
+;
+;	p$hsig		Address of user dispatch table
+;
+.MACRO	$CCDEF
+;
+map	cc.rtm	word,0	;Realtime call
+map	cc.cli	word	;CLI AST point
+map	cc.inp	word	;Terminal input
+;
+;	Routines return status in cbit and r1
+;
+;	c=1	Ignore further processing
+;	c=0	Continue processing
+;
+map	ccast$,,100000	;call user mode AST with r0/r1
+;
+.ENDM
+;-----------------------; 
+; COMMAND FILES		;
+;-----------------------;
+;
+.MACRO	$CFDEF
+;
+; p$hcfs - command file status
+;
+;map	cflnk$,,1	;iflif		- link overlay active
+map	cftti$,,1	;	ifrt	+ set terminal nocommand
+;map	cfeol$,,2	;ifleof		- eof in link overlay
+map	cfral$,,2	;		+ read-all, no display, pass ctrl/c
+map	cfind$,,4	;ifind	ifind	+ use IND for command files
+;map	cfdol$,,10	;ifdol		- dollar sign entered
+;map	cfsch$,,20	;ifspcd		- special chain
+;map	cfbex$,,40	;ifbext		- batch forcing exit
+map	cfinx$,,40	;		+ IND is executing
+;map	cfrvt$,,100	;ifrvtt		- revert to terminal
+map	cfspd$,,100	;ifrvtt		+ suspended for cli ast
+;map	cfgtc$,,200	;ifgtcc		- ctrl/c seen in gline
+map	cfdis$,,200	;	ifall	+ display/everything
+map	cfact$,,400	;ifactv	ifactv	+ command file active
+;map	cfcha$,,1000	;ifchai		- chain to command file
+map	cfqui$,,2000	;ifeok$	ifeko$	+ command file is set quiet
+;map	cfctc$,,4000	;ifctlc		- ctrl/c
+map	cfdat$,,10000	;ifdat		+ data in command file buffer
+;map	cfeof$,,20000	;ifeof$		- eof in command file
+;map	cfabt$,,40000	;ifabrt		- abort command file
+map	cfcon$,,40000	;	ifcon	+ KMON command file continuation
+map	cfdcl$,,100000	;ifinp	$dcls	+ DCL command doing input
+;			;		  detects .ttyin during DCL command
+;
+map	cfplf.,,0	;psuedo linefeed
+map	cfpcr.,,<-1>	;pseudo carriage return
+map	cfeos.,,<-4>	;end of dcl section.
+;
+.ENDM
+;-----------------------; 
+; CHANNEL DEFINITION	;
+;-----------------------;
+;
+; Channel area and flags	
+; $CSDEF included
+; 
+.MACRO	$CHDEF	
+;
+map	ch.csw	byte,0	;csw
+map	ch.pro	byte	;protection
+map	ch.sbl		;start block - zero indicates logical channel
+map	ch.len		;file length
+map	ch.use		;used - highest block written
+map	ch.ioc	byte	;i/o count
+map	ch.uni	byte	;device unit & job number
+map	ch.bbs		;
+;
+; csw bits
+;
+map	csher$,,1	;RT hard error
+map	csin$p,,76	;RT device index pattern
+map	cstti$,,0	;rt tt: index is null
+map	csin$m,,177701	;rt index mask
+map	csin$n,,177701	;rt index negative
+;;;	csren$,,100	;rt rt-11 rename
+;;;	cssha$,,100	;rx shared file (was never used)
+map	cswlk$,,100	;RU recursive directory walk
+map	csten$,,200	;RT tentative file
+			;
+map	csrw$p,,1400	;RX read/write pattern
+map	csrw$m,,176377	;RX read/write mask
+map	csnre$,,400	;RX no read
+map	csnwr$,,1000	;RX no write
+;ap	csfid$,,2000	;rx start block is file id
+map	csnph$,,2000	;RX no physical i/o (i.e. spfuns) (unused see 40000)
+map	csspl$,,4000	;RX spool file
+map	csnpu$,,10000	;RX no purge - convert purge to close
+			;-------
+map	cseof$,,20000	;RT eof
+;;;		40000	;RT rt reserved
+map	cswri$,,40000	;RX written to (see TSS:TRE.MAC) (move to 2000)
+map	cssub$,,40000	;RU sub-directory
+map	csact$,,100000	;RT active
+;
+map	chimg.,,15.	;image channel
+map	chopt.,,<-1>	;process output channel id
+map	chipt.,,<-2>	;process input channel id - reserved
+map	chker.,,<-3>	;kernel channel channel id - floating channel
+map	chmin.,,1	;minimum number of channels
+map	chmax.,,252.	;maximum number of channels
+map	chext.,,1	;extra channels per process
+;
+.ENDM
+;-----------------------; 
+; CHANNEL INFORMATION	;
+;-----------------------;
+;
+; RT-11 .CSTAT information area
+;
+.MACRO	$CIDEF
+;
+map	ci.csw	word,0	;csw
+map	ci.sbl		;start block
+map	ci.len		;length
+map	ci.use		;used
+map	ci.uni		;unit
+map	ci.nam		;rad50 device name
+map	ci.bbs		;
+;
+.ENDM
+;-----------------------; 
+; CLI 			;
+;-----------------------;
+;
+;V4 - Seems to be unused
+;
+; RT-11 CLI flags
+;
+.MACRO	$CLDEF	
+;
+map	cl.flg	byte,0	;ph.clf	- cli flags
+map	cl.typ	byte	;ph.clt	- cli type
+;
+;	cl.flg
+;
+map	clucf$,,1	;ucf
+map	cldcl$,,2	;dcl
+map	clccl$,,4	;ccl
+map	clucl$,,10	;ucl
+map	clkmn$,,200	;kmon
+;
+;	cl.typ
+;
+map	clucf.,,0	;ucf
+map	cldcl.,,1	;dcl
+map	clccl.,,2	;ccl
+map	clucl.,,3	;ucl
+map	clct$n,,177774	;cl.typ negative
+;
+.ENDM
+;-----------------------; 
+; CONFIG 1, 2 & 3	;
+;-----------------------;
+;
+.MACRO	$CNDEF	
+;
+; config
+;
+map	cnfbm$,,1	;FB monitor
+map	cnslk$,,2	;SL kmon fetch (unused)
+map	cnvts$,,4	;VT11 or VS11 (unused)
+map	cnbat$,,10	;BATCH is running (obselete)
+map	cnsle$,,20	;ED: is active
+map	cn50h$,,40	;50 herz clock (default)
+map	cnfpu$,,100	;FPU present	
+map	cnfgj$,,200	;FG job active (unused)
+map	cngtl$,,400	;GT link (obselete)
+map	cnusr$,,1000	;USR set noswap (default)
+map	cnque$,,2000	;FG QUEUE is running (unused)
+map	cnp03$,,4000	;PDP-11/03 LSI11	
+map	cnxmm$,,10000	;XM monitor - set for virtual jobs
+map	cnlks$,,20000	;Clock status register present
+map	cnkwc$,,40000	;KW11P clock
+map	cnclo$,,100000	;Clock present
+;
+; confg2
+;
+map	c2cac$,,1	;Cache memory
+map	c2mpy$,,2	;Parity memory
+map	c2swr$,,4	;Readable switch register
+map	c2sww$,,10	;Writeable switch register
+map	c2lds$,,20	;LD: status
+map	c2kms$,,40	;KMON swap status (set for default)
+map	c2bus$,,100	;0=unibus or cnpro$, 1=q-bus
+map	c2cis$,,200	;CIS present
+map	c2eis$,,400	;EIS present
+map	c2v60$,,1000	;VS60 present (unused)
+map	c2dbg$,,2000	;DBGSY$
+map	c2kxj$,,4000	;KXJ11 single-board computer
+map	c2gcc$,,10000	;Global .SCCA supported
+map	c2pro$,,20000	;Running on a Pro
+map	c2p70$,,40000	;PDP-11/70	
+map	c2p60$,,100000	;PDP-11/60
+;
+; confg2 - old names
+;
+map	cncac$,,1	;Cache memory
+map	cnmpy$,,2	;Parity memory
+map	cnswr$,,4	;Readable switch register (unused)
+map	cnsww$,,10	;Writeable switch register (unused)
+map	cnlds$,,20	;LD: status
+map	cnkms$,,40	;KMON swap status (set for default)
+map	cnbus$,,100	;0=unibus or cnpro$, 1=q-bus
+map	cncis$,,200	;CIS present
+map	cneis$,,400	;EIS present
+map	cnv60$,,1000	;VS60 present (unused)
+map	cngcc$,,10000	;Global .SCCA supported
+map	cnpro$,,20000	;Running on a Pro
+map	cnp70$,,40000	;PDP-11/70	
+map	cnp60$,,100000	;PDP-11/60
+;
+; confg3
+;
+map	c3nin$,,20	;cf3.ui - ub is set noinstall
+map	c3act$,,40	;cf3.ua - ub is active
+map	c3res$,,100	;cf3.ub - ub is resident
+map	c3dma$,,200	;cf3.dm - at least one handler uses dma
+map	c364u$,,400	;cf3.64 - 64 unit support
+map	c3att$,,1000	;cf3.at - AT: address translation present
+map	c3own$,,2000	;cf3.ow - $OWNER table present
+;
+.ENDM
+;-----------------------;
+; CONSOLE HARDWARE	;
+;-----------------------;
+;
+; Just the minimal stuff for a terminal
+;
+.MACRO	$CODEF
+;
+map	c$otks,,177560		; standard terminal console
+map	c$otkb			;
+map	c$otps			;
+map	c$otpb			;
+map	c$otkv,,60		; vectors
+map	c$otpv,,64		;
+map	coBRK$,,1		; break
+map	coENB$,,100		; interrupt enable
+map	coDON$,,200		; done
+map	ht.,,9.		;11	; tab
+map	lf.,,10.	;12	; line feed
+map	cr.,,13.	;15	; return
+map	sp.,,32.	;40	; space
+map	ru.,,127.	;177	; rubout
+;
+.ENDM
+;-----------------------;
+; CPU CODES		;
+;-----------------------;
+;
+.MACRO	$CPDEF
+;
+;	DEC PDP-11 hardware definitions
+;
+;	03 04 10 20 23 24 34 40 44 45 53 55 60 73 83 84 94 
+;
+map	cpunk.,,0	;unknown
+map	cpe44.,,1	;		11/44
+map	cpf00.,,2	;
+map	cpf11.,,3	;f11	fonz	11/23	11/24
+map	cpt11.,,4	;t11	tiny	11/21	KXT11
+map	cpj11.,,5	;j11	jaws	see below
+;
+;	J11 maintenance register codes (h$wcpm)
+;
+map	cpsc$p,,360	;sub-code positive
+map	cpj73.,,20	;kd j11a 11/73
+map	cpj83.,,40	;kd j11b 11/73B 11/83 11/84
+map	cpx73.,,60	;kx j11c KXJ11
+map	cpj53.,,100	;kd j11d 11/53
+;ap	cpj93.,,120	;kd j11e 11/93 11/94
+;
+;	Emulator codes (rust)
+;
+map	cpnon.,,0	;no emulator
+map	cpv11.,,1	;V11 emulator
+map	cpe11.,,2	;E11 emulator
+map	cpsmh.,,3	;SIMH emulator
+.ENDM
+;-----------------------; 
+; CONTEXT SWITCH	;
+;-----------------------;
+;
+;	SHAREplus context switch stack state
+;	Note, user pars are saved in PHD - not on the stack
+;
+;	pr.phd	Kernel par1 page
+;	pr.ksp	Kernel stack pointer
+;
+.MACRO	$CXDEF	
+;
+map	cx.ac0	long,0	;ac0
+map	cx.ac1	long	;ac1
+map	cx.ac2	long	;ac2
+map	cx.ac3	long	;ac3
+map	cx.ac4	long	;ac4
+map	cx.ac5	long	;ac5
+map	cx.fps	word	;fpu status
+map	cx.fbs	null	;fpu size
+;
+map	cx.usp		;usp
+map	cx.kps		;kernel ps
+map	cx.kp1		;kernel par1
+map	cx.kp6		;kernel par6
+map	cx.r0		;r0
+map	cx.r1		;r1
+map	cx.r2		;r2
+map	cx.r3		;r3
+map	cx.r4		;r4
+map	cx.r5		;r5
+map	cx.pc		;pc
+map	cx.ps		;ps
+map	cx.bbs		;
+;
+.ENDM
+

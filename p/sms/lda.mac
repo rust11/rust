@@ -1,0 +1,553 @@
+;.title	lda - data macros a
+;
+;	%build
+;	run sy:strip smb:lda.mla=sms:lda.mac
+;	%end
+;	%date
+;	<26-Feb-2004 00:15:41.00>
+;	%edit
+;	<42   >
+;
+;	$abdef		PDP-11 absolute binary format
+;	$addef		SHAREplus AST delivery packets
+;	$ahdef		SHAREnet/TPnet/F11A ACP handler interface
+;	$aldef		ASCII and alphabet - complete
+;	$apdef		SHAREplus kernel ACP structures
+;	$ardef		SHAREplus access rights - see $srdef also
+;	$asdef		SHAREplus I/O address space definitions
+;	$atdef	lrs	RSX file attributes - see LRS.MAC
+;-----------------------;
+; ABSOLUTE BINARY	;
+;-----------------------;
+;
+;	PDP-11 absolute binary format
+;
+;	Packets may be separated by anything except a 1.
+;	Byte count includes the 6-byte header but not the checksum.
+;
+;	Byte-count=6: address specifies start address
+;	              Execution preceded by HALT for odd start addresses.
+;	Byte-count=5: specifies address bits 16&17 bits 0&1 of address word
+;
+;	The checksum is the negated sum of all bytes except the checksum.
+;
+.MACRO	$ABDEF
+;
+map	ab.sta	byte,0	;start byte
+map	ab.nul	byte	;unused
+map	ab.lbc	byte	;low order byte count
+map	ab.hbc	byte	;high order byte count
+map	ab.lad	byte	;low order address
+map	ab.had	byte	;high order address
+map	ab.hbs	null	;header byte size
+map	ab.dat	null	;data
+map	ab.chk	byte	;checksum
+;
+map	ab.bct,,ab.lbc	;byte count - as word
+map	ab.adr,,ab.lad	;address - as word
+;
+map	absta.,,1	;start pattern
+map	absbc.,,6	;start byte count
+;
+.ENDM
+;-----------------------; 
+; AST DELIVERY PACKETS	;
+;-----------------------;
+;
+; 5-word ast delivery packet.
+; Dynamic from ast packet queue.
+; 
+.MACRO	$ADDEF	
+;
+; kernel monitor ast
+;
+map	ad.suc,,0	;successor
+map	ad.kpc		;kernel pc
+map	ad.kpr	0	;kernel priority (0 thru 15)
+map	ad.kps		;kernel ps
+map	ad.kp1		;kernel par1
+map	ad.kr4		;kernel r4
+map	ad.kf0		;unused
+map	ad.kf1		;unused
+map	ad.bbs		;
+;
+; client ast
+;
+			;ad.suc = 0 from above
+map	ad.cpc,,2	;client pc
+map	ad.cps		;client ps - (kernel ps for realtime timer)
+map	ad.cr0		;client r0 - timer sequence number
+map	ad.cr1		;client r1 - timer or terminal pcr
+map	ad.hot		;(terminal r2) or timer high-order time
+map	ad.lot		;(terminal r3) or timer low-order time
+;
+; ad.cps 
+;
+map	adint.,,-1	;AST is user-mode interrupt
+;
+.ENDM
+;-----------------------;
+; ACP HANDLER INTERFACE	;
+; F11A/FA INTERFACE	;
+;-----------------------;
+;
+;	Interface between ACP and handler
+;	Used by SHAREplus SHAREnet/TPnet/F11A
+;???	F11A is different
+;
+.MACRO	$AHDEF
+;
+map	ah.vec	word,0	;data area
+map	ah.isr		;offset to isr
+map	ah.hol		;handler hold flag
+map	ah.lqe		;last queue entry
+map	ah.cqe		;current queue entry
+map	ah.nop		;v5.4 nop instruction
+map	ah.beg		;begin entry point
+map	ah.fin		;ast entry point
+map	ah.ctl		;control
+map	ah.ipl	32.	;init process list
+map	ah.bbs		;
+;
+; ah.ctl
+;
+map	ahreq$,,1	;request is available
+map	ahpro$,,2	;request is being processed
+;map	ahrep$,,4	;reply is available
+map	ahspu$,,10	;report acp status
+map	ahexi$,,200	;ACP process in exit/abort
+map	ahabt$,,100000	;request was aborted by handler
+;
+.ENDM
+;-----------------------; 
+; ALPHABET & ASCII	;
+;-----------------------;
+;
+; SEE $TXDEF
+;
+;	dig0. = 0	dig1. = 1	...
+;	upra. = A	uprb. = B	...
+;	lowa. = a	lowb. = b	...
+
+.MACRO	$ALDEF
+;	char	    dec oct
+	ctrla.	=    1.	;1	
+	ctrlb.	=    2.	;2
+	ctrlc.	=    3.	;3
+	ctrld.	=    4.	;4
+	ctrle.	=    5.	;5
+	ctrlf.	=    6.	;6
+	bell.	=    7.	;7
+	bs.	=    8.	;10
+	tab.	=    9.	;11
+	ht.	=    9.	;11
+	lf.	=   10.	;12
+	vt.	=   11. ;13
+	ff.	=   12.	;14
+	cr.	=   13.	;15
+	si.	=   14.	;16
+	so.	=   15.	;17
+	ctrlp.	=   16.	;20
+	ctrlq.	=   17.	;21
+	ctrlr.	=   28.	;22
+	ctrls.	=   19.	;23
+	ctrlt.	=   20.	;24
+	ctrlu.	=   21.	;25
+	ctrlv.	=   22.	;26
+	ctrlw.	=   23.	;27
+	ctrlx.	=   24.	;30
+	ctrly.	=   25.	;31
+	ctrlz.	=   26.	;32
+	esc.	=   27.	;33	ctrl/[
+	ctbsl.	=   28.	;34	ctrl/\
+	ctrsb.	=   29.	;35	ctrl/]
+	cthat.	=   30.	;36	ctrl/^
+	ctund.	=   31.	;37	ctrl/_
+			;
+	sp.	=   32.	;40	;space
+	space.	=   32.	;40	;space
+	xclam.	=   33.	;41	;!
+	dquot.	=   34.	;42	;"
+	hash.	=   35.	;43	;#
+	dolar.	=   36.	;44	;$
+	perct.	=   37.	;45	;%
+	ampsd.	=   38.	;46	;&
+	squot.	=   39.	;47	;'	squot.
+	quote.	=   39.	;47	;'
+	lparn.	=   40.	;50	;(
+	rparn.	=   41.	;51	;)
+	astrx.	=   42.	;52	;*
+	plus.	=   43.	;53	;+
+	comma.	=   44.	;54	;,
+	minus.	=   45.	;55	;-
+	dot.	=   46.	;56	;.
+	slash.	=   47.	;57	;/
+	ma$val=48.		;digits - dig0. ... dig9.
+.irpc	ma$let,<0123456789>
+	dig'ma$let'.=ma$val
+	ma$val=ma$val+1
+.endr
+	colon.	=   58.	;72	;:
+	semi.	=   59.	;73	;;
+	langl.	=   60.	;74	;<
+	equal.	=   61.	;75	;=
+	rangl.	=   62.	;76	;>
+	qmark.	=   63.	;77	;?
+	atsgn.	=   64.	;100	;@
+	ma$val=65.		;uppercase - uprA. ... uprZ.
+.irpc	ma$let,<abcdefghijklmnopqrstuvwxyz>
+	upr'ma$let'.=ma$val
+	ma$val=ma$val+1
+.endr
+	lsqua.	=   91.	;133	;[ 	lsqua.
+	lbrac.	=   91.	;133	;[
+	bslas.	=   92.	;134	;\
+	rbrac.	=   93.	;135	;]
+	rsqua.	=   93.	;135	;]	rsqua.
+	hat.	=   94.	;136	;^
+	under.	=   95.	;137	;_
+	tick.	=   96.	;140	;`
+	ma$val=97.		;lowercase letters lowa. ... lowz.
+.irpc	ma$let,<abcdefghijklmnopqrstuvwxyz>
+	low'ma$let'.=ma$val
+	ma$val=ma$val+1
+.endr
+	lsqig.	=  123.	;173	;{
+	vbar.	=  124.	;174	;|
+	rsqig.	=  125.	;175	;}
+	tilda.	=  126.	;176	;~
+	del.	=  127.	;177	;del
+.ENDM
+;-----------------------; 
+; ACP PACKET DEFINITION	;
+;-----------------------;
+;
+;	ACP packet definitions
+;
+;	RAC	Assumes sequences
+;	PHD	Assumes complete sequence
+;	SHOPRO	Displays parts of AP
+; ???	ap.siz+10 used to track free space
+; 
+.MACRO	$APDEF
+.if ndf apdef$
+map	apdef$,,1	;
+;
+; I/O area for ACP	
+;
+map	ap.chn	byte,0	;channel to use for operation
+map	ap.cod	byte	;emt code for i/o operation
+map	ap.blk		;i/o block
+map	ap.buf		;i/o buffer
+map	ap.wct		;i/o word count
+map	ap.mod	byte	;i/o mode
+map	ap.fun	byte	;i/o function
+map	ap.com		;i/o completion
+;
+; Parameter & status area designed for networks.
+;
+; ACP request parameters
+;
+map	ap.opr		;operation code
+map	ap.con		;operation control
+map	ap.uad		;unit access demanded (positive)
+map	ap.fad		;file access demanded (positive)
+map	ap.rch	byte	;request channel
+map	ap.rco	byte	;request code
+map	ap.fil	null	;filename pointer
+map	ap.p0		;
+map	ap.seq 0	;seq = p1
+map	ap.p1		;
+map	ap.len 0	;len = p2
+map	ap.p2		;
+map	ap.p3		;EVE FOP parameter
+map	ap.p4		;EVE package MMU page
+map	ap.p5		;EVE package par6 mapped buffer address
+;
+map	ap.nod		;node number
+map	ap.prn		;process number
+map	ap.uic		;process uic
+map	ap.pro		;process default protection
+;
+map	ap.uar		;unit access rights (negative)
+map	ap.far		;file access rights (negative)
+map	ap.fpr		;file protection (from entry after lookup)
+map	ap.fui		;file uic (from entry after lookup)
+;
+; ACP status return
+;
+map	ap.sta		;acp return status
+map	ap.r0		;r0 return
+map	ap.sps	word*2	;spfun status
+;
+; Filenames
+;
+map	ap.log		;logical device name
+map	ap.per		;permanent device name
+map	ap.fna	word*4	;first filename
+;			;image cache returns entry overlapping fnb/fns/csa
+map	ap.fnb	word*4	;second filename
+map	ap.fns	word*4	;filename supplementary area
+;
+;.ift xtm$c
+map	ap.f00	word*4	;four free words
+map	ap.osp		;saved stack for ACP exits
+;.iff
+;map	ap.csa	word*5	;csw area (unused)
+;.endc
+;
+; Internal structures
+;
+map	ap.csw		;points to CSW
+map	ap.der		;points to DER
+map	ap.unr		;points to UNR
+map	ap.tbr		;points to TBR - zero -> none
+map	ap.cal		;call-back processor
+;
+map	ap.vid	null	;volume id
+map	ap.ind	byte	;device index
+map	ap.uni	byte	;unit number
+map	ap.act		;acp type code (from unit)
+;
+; ACP dependent structures
+;
+; Following are defined for RT-11
+;
+map	ap.ebs		;directory entry byte-size
+map	ap.sus		;segment used (for split)
+map	ap.sbl		;current start block
+map	ap.seg		;segment number
+map	ap.hgh		;highest segment used
+map	ap.siz	word*6	;sizes - see below
+map	ap.dat		;date (from entry after lookup)
+map	ap.tim	word*2	;time (from entry after lookup)
+			;ctl & pro after lookup
+;.if ne xtm$c
+map	ap.era		;era
+;.iff
+;map	ap.osp		;old sp (from entry)
+;.endc
+;
+map	ap.bbs		;acp package byte size
+;
+; AP.SIZ - size area for RT11A
+;
+map	ap.stp	word,0	;size type
+map	ap.sbh		;biggest hole
+map	ap.ssh		;second biggest hole
+map	ap.sf0		;
+map	ap.czf		;close zero file counter
+map	ap.cfs		;close deallocate size
+;			;
+map	apeha.,,0	;enter half algorithm =0
+map	apexa.,,1	;enter exact algorithm >0
+map	apeba.,,-1	;enter biggest algorithm <0
+;
+; ACP operation codes	
+;
+map	acloo.,,0	;lookup
+map	acent.,,1	;enter
+map	acren.,,2	;rename
+map	acdel.,,3	;delete
+map	acclo.,,4	;close
+map	acpur.,,5	;purge
+map	acsav.,,6	;savestatus
+map	acreo.,,7	;reopen
+map	acgfi.,,8.	;get file (reserved)
+map	acsfi.,,9.	;set file
+;
+map	acgvo.,,10.	;get volume (unused - remove)
+map	acsvo.,,11.	;set volume (unused - remove)
+map	acmnt.,,12.	;mount (unused - remove)
+map	acdsm.,,13.	;dismount (unused - remove)
+map	acomx.,,14.	;operation maximum code
+;			;
+; ACP control flags	
+;
+; remove entire low byte
+;
+; Replace with FOP or STS flags.
+;
+map	acseq$,,1	;sequence number
+map	aclen$,,2	;length parameter
+map	acdel$,,4	;deletion control
+map	acdat$,,10	;date
+map	actim$,,20	;time (unused - remove)
+map	acpro$,,40	;protection (unused - remove)
+map	acuic$,,100	;uic (unused - remove)
+map	acblk$,,200	;block number (unused - remove)
+;
+;map	acpur$,,400	;purge after operation (unused - remove)
+map	acret$,,1000	;return after operation (unused - remove)
+map	acchn$,,2000	;channel operation (purge, close)
+map	acopn$,,4000	;open file - increment access counts
+map	accls$,,10000	;close file - decrement access counts
+map	acchr$,,20000	;characteristics present (unused - remove)
+;
+; ACP errors
+;
+map	acerr$,,100000	;error seen
+map	acciu.,,0	;channel in use
+map	acfnf.,,1	;file not found or created
+map	acdiu.,,2	;device in use
+map	acprf.,,3	;protected file already exists
+map	acsnf.,,4	;sequence number not found
+map	acivp.,,5	;invalid parameter (sequence number or filename)
+;
+;
+; ACP call-back codes
+;
+map	acatb.,,0	;acquire tb
+map	acdtb.,,1	;dispose tb
+map	acrtb.,,2	;read tb
+map	acwtb.,,3	;write tb
+map	aclun.,,4	;lock unit
+map	acfun.,,5	;free unit
+map	acscs.,,6	;set critical section
+map	acccs.,,7	;clear critical section
+map	acgtm.,,8.	;get date & time
+map	acgfp.,,9.	;get file protection
+map	acpep.,,10.	;process eve package
+;			;
+map	accmx.,,11.	;call-back maximum
+;
+; ACP types
+;
+map	acrtn.,,0	;RT11N
+map	acrta.,,1	;RT11A
+map	acrtx.,,2	;RT11X
+map	acrts.,,3	;RT11S
+map	acspo.,,4	;spooler acp
+;map	acvmp.,,4	;VAMP
+;map	acf1a.,,4	;F11A
+;map	acf1b.,,5	;F11B
+;map	acunx.,,6	;UNIX
+;map	acdmt.,,7	;DOS magtape
+;map	accpm.,,8.	;CP/M
+;
+.endc			;apdef$
+.ENDM
+;
+;-----------------------; 
+; ACCESS RIGHTS		;
+;-----------------------;
+;
+; Access rights
+;
+.MACRO	$ARDEF
+.iif df ar.bbs,.mexit	;once-only
+;
+; Access rights record
+;
+map	ar.uic,0,0	;uic
+map	ar.mic	byte	;member id
+map	ar.gic	byte	;group id
+map	ar.pro		;protection mask
+map	ar.sr0		;system rights 0
+map	ar.sr1		;system rights 1
+map	ar.sr2		;system rights 2
+map	ar.bbs
+;
+;	1 = right denied
+;	0 = right allowed
+;
+map	arrea$,,1	;read
+map	arwri$,,2	;write
+;
+map	arexe$,,4	;execute
+map	arcre$,,4	;create (volume)
+map	arphy$,,4	;physical I/O
+;
+map	ardel$,,10	;delete
+map	arlog$,,10	;logical I/O
+;
+map	arfd$m,,177760	;field mask
+;
+map	arsy$v,,0	;system bit offset
+map	arow$v,,4.	;owner bit offset
+map	argr$v,,8.	;group bit offset
+map	arwo$v,,12.	;world bit offset
+;
+map	aral$p,,-1	;all pattern
+map	arsy$p,,17	;system pattern
+map	arow$p,,360	;owner pattern
+map	argr$p,,7400	;group pattern
+map	arwo$p,,170000	;world pattern
+;
+;
+; default protection
+;
+map	ardu$p,,0	;default unit protection
+map	ardd$p,,0	;default directory protection
+map	ardf$p,,0	;default file protection
+;
+.ENDM
+;-----------------------; 
+; ADDRESS SPACE		;
+;-----------------------;
+;
+.MACRO	$ASDEF	
+;
+; physical address space
+;
+;	Defines physical address space of target.
+;	Defines access coverage of device handler.
+;	Targets include kernel, process root and regions.
+;
+;	Used in RP.ASP, DE.ASP & UN.ASP
+;
+map	as16b$,,1	;16-bit space - kernel
+map	as18b$,,2	;18-bit space - process
+map	as22b$,,4	;22-bit space - process
+map	asvab$,,10	;virtual space - process - devab$ - almost retired
+map	asmap$,,20	;mapped address used - demap$
+;map	aslog$,,40	;logical device - delog$
+;map	asext$,,40	;external device handler - deext$
+map	assin$,,100	;single unit device - desin$
+map	asprc$,,200	;per-process device - deprc$
+;
+map	as16c$,,1	;16-bit coverage - unmapped & system
+map	as18c$,,3	;18-bit coverage - mapped
+map	as22c$,,7	;22-bit coverage - mapped & system
+map	asvac$,,17	;virtual coverage - VM:, TT:, NL:, MB:
+;
+;	Used in RP.MOD for I/O calls
+;
+map	asdep.,,0	;use callers default address space
+map	as16p.,,1	;16-bit address space
+map	as18p.,,2	;18-bit address space
+map	as22p.,,3	;22-bit address space
+map	asph$m,,177770	;physical address space mask
+;
+;	address modes
+;
+map	asdem.,,0	;callers default instruction mode
+map	askim.,,1*4	;kernel instruction
+map	asuim.,,2*4	;user instruction
+map	assim.,,3*4	;supervisor instruction
+map	asddm.,,4*4	;callers default data mode
+map	askdm.,,4*5	;kernel data
+map	asudm.,,4*6	;user data
+map	assdm.,,4*7	;supervisor data
+map	asmo$m,,177743	;mode mask
+;
+;	Process header
+;
+map	as22r$,,40	;22-bit root
+;map	asstr$,,100	;striate root
+map	aspla$,,200	;plas active
+;
+;	address mode flags
+;	used to record address spaces available to process
+;
+;		400	;free
+map	askim$,,1000	;kernel instruction
+map	asuim$,,2000	;user instruction
+map	assim$,,4000	;supervisor instruction
+;		10000	;free
+map	askdm$,,20000	;kernel data
+map	asudm$,,40000	;user data
+map	assdm$,,100000	;supervisor data
+;
+.ENDM
+

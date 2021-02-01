@@ -1,0 +1,98 @@
+	U N U S E D
+
+	REC:RECMAC.MAC and SMS:LXS.MAC have the current macros
+.end
+
+
+;.title	lsr - RUST/XM record locking
+;
+;	%build
+;	run sy:strip smb:lsr.mla=sms:lsr.mac
+;	%end
+;	%date
+;	<19-Mar-2003 23:19:55.10>
+;	%edit
+;	<20   >
+;	%end
+.MACRO $REDEF
+;
+;	Record control block definitions
+;
+map	re.fun	byte,0	;re$fun	- function code
+map	re.chn	byte	;re$chn	- channel
+map	re.sbl		;re$sbl	- start block
+map	re.bct		;re$bcn	- byte count
+map	re.nam	word*4	;re$nam - name
+map	re.use	byte	;re$use - user?
+map	re.nod	byte	;re$nod - node number
+map	re.job	word	;re$job - job number
+map	re.csw	word	;re$csw - csw address
+map	re.bbs		;
+map	re.bws,,re.bbs/word
+;
+;	re.fun
+;
+map	refre.,,0	;re$fre - free lock
+map	reloc.,,1	;re$loc - lock
+map	reitm$,,200	;re$ite - item lock
+;
+;	return status
+;
+map	resuc.,,0	;re$suc - success
+map	resof.,,1	;re$sof - soft error - use retry
+map	rehar.,,2	;re$har - hard error
+map	rechn.,,3	;re$cha - channel error
+map	rehan.,,4	;re$han - handler error
+;
+.MACRO	$REINI	chn
+.iif nb <CHN>,	mov	CHN,r0
+	.globl	re.qui
+	call	re.ini
+.ENDM
+;
+.MACRO	$REQUI
+	.globl	re.qui
+	call	re.qui
+.ENDM
+;
+.MACRO	$REOPF	RCB,CHN,FNM
+.iif nb <rcb>,	mov	rcb,r0
+.iif nb <chn>,	mov	chn,2.(r0)
+.iif nb <fnm>,	mov	fnm,4.(r0)
+	.globl	re.file
+	call	re.file
+.ENDM
+;
+.MACRO	$REOPL	RCB,CHN,FNM
+.iif nb <rcb>,	mov	rcb,r0
+.iif nb <chn>,	mov	chn,2.(r0)
+.iif nb <fnm>,	mov	fnm,4.(r0)
+	.globl	re.list
+	call	re.list
+.ENDM
+;
+.MACRO	$RELCK	RCB,SBL,BCT
+.iif nb <rcb>,	mov	rcb,r0
+.iif nb <sbl>,	mov	sbl,2.(r0)
+.iif nb <bct>,	mov	bct,4.(r0)
+	.globl	re.lock
+	call	re.lock
+.ENDM
+;
+.MACRO	$RECHK	RCB,SBL,BCT
+.iif nb <rcb>,	mov	rcb,r0
+.iif nb <sbl>,	mov	sbl,2.(r0)
+.iif nb <bct>,	mov	bct,4.(r0)
+	.globl	re.check
+	call	re.check
+.ENDM
+;
+.MACRO	$REFRE	RCB,SBL,BCT
+.iif nb <rcb>,	mov	rcb,r0
+.iif nb <sbl>,	mov	sbl,2.(r0)
+.iif nb <bct>,	mov	bct,4.(r0)
+	.globl	re.free
+	call	re.free
+.ENDM
+.ENDM
+

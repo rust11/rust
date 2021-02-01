@@ -1,0 +1,784 @@
+;.title	ldp
+;
+;	%build
+;	run sy:strip smb:ldp.mla=sms:ldp.mac
+;	%end
+;	%date
+;	<03-Feb-2008 22:32:32.42>
+;	%edit
+;	<43   >
+;
+;	$pbdef		RUST/XM process build structures
+;	$pcdef		RUST/XM process creation - $creprc
+;	$pedef		RUST/XM process enable flags
+;	$pgdef		RT-11 program definitions
+;	$phdef		RUST/XM process header (special)
+;	$pldef		Maree plex
+;	$pndef		RUST/XM native phd
+;	$podef		RUST/XM pool structures
+;	$pqdef		RUST/XM process quotas structures
+;	$prdef		RUST/XM process control record
+;	$psdef		PDP-11 PSW
+;	$ptdef		Maree put operations
+;	$p1def		RT-11 P1EXT dispatch
+;-----------------------; 
+; PROCESS BUILD		;
+;-----------------------;	
+;	 
+; Process build packet
+;
+.MACRO	$PBDEF
+$pqdef			;we require this
+;	 
+; Requires $pqdef
+;
+map	pb.img	word*4,0;image rad50 filename (.com for command file)
+map	pb.inp	word*4	;input rad50 filename - terminal name
+map	pb.out	word*4	;output rad50 filename - terminal name
+map	pb.err	word*4	;error rad50 filename (not currently used)
+map	pb.nam	word*2	;rad50 process name (fil,nam,typ)
+map	pb.pri		;base priority (is divided by two)
+map	pb.mbx		;mailbox unit
+map	pb.pe0		;process enables
+map	pb.pe1		;
+map	pb.own		;owner pcr
+;
+map	pb.jib		;job pcr
+map	pb.usn	word*2	;Username.
+map	pb.acn	word*2	;Accounting name.
+map	pb.cli	word*4	;CLI name
+map	pb.dsk		;Default disk name.
+map	pb.uic		;UIC
+map	pb.pro		;protection
+map	pb.sr0	word*4	;system rights
+map	pb.ar0	word*4	;authorized rights
+map	pb.pr0	word*4	;process current rights
+;
+map	pb.quo	byte*pq.bbs ;quota list
+map	pb.bbs		;
+;
+.ENDM 
+;	
+;-----------------------; 
+; PROCESS CREATION	;
+;-----------------------;	
+;	 
+; Create process packet	
+; 
+.MACRO	$PCDEF	
+; 
+map	pc.chn,,0	;unused
+map	pc.pid		;address of word receive pid
+map	pc.img		;address of asciz image filename
+map	pc.inp		;address of asciz input filename
+map	pc.out		;address of asciz output filename
+map	pc.err		;address of asciz error filename
+map	pc.prv		;address of 4-word system rights mask
+map	pc.quo		;address of quota list
+map	pc.nam		;address of asciz process name
+map	pc.pri		;base priority of process
+;			;if high byte is non-zero it is maximum priority
+map	pc.uic		;uic of process. Detached process flag.
+map	pc.mbx		;mailbox unit number
+map	pc.sts		;status flags
+map	pc.bbs		;
+;	
+; pc.sts - status flag bits
+;
+map	pcdrw$,,1	;disable resource wait mode
+map	pcesf$,,2	;enable system service failure exception mode
+map	pcnsw$,,4	;noswap (pswapm) - inhibit process swapping
+map	pcnac$,,10	;noacnt (noacnt) - inhibit accounting
+map	pcbat$,,20	;batch (detach) - non-interactive process
+map	pchib$,,40	;hibernate - force process to hibernate
+map	pclgn$,,100	;login  (detach) - login using creator rights
+map	pcnet$,,200	;network (detach) - process is network connect object
+map	pcdws$,,400	;disable working set adjustment
+map	pcsmx.,,9.	;maximum number of flags
+;
+; Create process errors
+;
+map	pcdup.,,1	;Duplicate name.
+map	pcexq.,,2	;Exceeded quota.
+map	pcidm.,,3	;Insufficient dynamic memory. Returns immediately.
+map	pcivl.,,4	;Invalid logical name.
+map	pcivq.,,5	;Invalid quota list.
+map	pcivs.,,6	;Invalid status flag.
+map	pcmsr.,,7	;Missing system right.
+map	pcslo.,,8.	;No slot available.
+map	pcipm.,,9.	;Insufficient permanent memory.
+map	pcacc.,,10.	;Access violation.
+map	pcifn.,,11.	;Invalid filename.
+;
+.ENDM
+;-----------------------;
+; PROCESS ENABLES	;
+;-----------------------;
+;
+; Process enables	
+;
+; ph.pe0 - symbols end with consonant
+; ph.pe1 - symbols end with vowel
+;
+;	PELGO$ used by LOGOUT to remember SY:LOGOUT.COM has been called.
+;
+.MACRO	$PEDEF
+;
+; ph.pe0 - process enables.
+;
+; All symbols end with consonant.
+;
+map	peres$,,1	;res
+map	pedel$,,2	;delete pending
+map	peexp$,,4	;forcepen - exit pending
+map	peinq$,,10	;inquan
+map	pensw$,,20	;pswapm
+map	peskf$,,100	;system failure kernel
+map	pesef$,,200	;system failure executive
+map	pessf$,,400	;system failure supervisor
+map	pesuf$,,1000	;system failure user
+map	pedrw$,,2000	;disable resource wait
+map	pewak$,,10000	;wake pending
+map	pewal$,,20000	;wall
+map	pebat$,,40000	;batch
+map	penac$,,100000	;no accounting
+;
+; ph.pe1 - second status word
+;
+; All symbols end with vowel.
+;
+map	pesva$,,1	;swapvbn
+map	peape$,,2	;ast pending
+map	pepre$,,4	;phdres
+map	pehbe$,,10	;hibernate
+map	pelgi$,,20	;login
+map	penwo$,,40	;network object
+map	pepwa$,,100	;pwrast
+map	pende$,,200	;nodelete
+map	pedwa$,,400	;disable working set adjustment
+;
+map	petwa$,,40000	;.twait outstanding
+map	pelgo$,,100000	;logout in progress - RUXT/XM only
+;	
+.ENDM	
+;-----------------------;
+; RT-11 PROGRAMS	;
+;-----------------------;
+;
+.MACRO	$PGDEF
+;
+; 	rm.edt
+;
+map	pgked.,,222	; ked
+map	pgk52.,,224	; kex
+map	pgkex.,,225	; kex
+map	pgedt.,,226	; edit
+map	pgtec.,,227	; tec
+map	pgkpd.,,377	; keypad ???
+;
+;	rm.for
+;
+map	pgfor.,,206	; fortran
+map	pgf77.,,230	; f77
+.ENDM
+
+;-----------------------;
+; PROCESS HEADER	;
+;-----------------------;
+;
+; RUST/XM process header
+;
+; Process header offsets, ph.xxx, are defined by sps:phd.mac
+; and accessed as globals via RUSTX.OBJ, the system STB.
+;
+;MACRO $PHDEF
+;ENDM
+;-----------------------;
+; PLEX			;
+;-----------------------;
+;
+; Maree plex
+;
+.MACRO	$PLDEF		;
+;			;
+;	minimal header	;
+;			;
+map	pl.dis	word,-2	;m$task	type	-> type dispatcher
+map	pl.cur	word,0	;m$cur	cur	-> points to current element
+;			;
+;	array limits	;
+;			;
+map	pl.bas	word,2	;m$base	base	-> start of memory array
+			;m$end
+map	pl.top	word,4	;m$top	top	-> top of memory array
+;			;
+;	file header	;
+;			;
+map	pl.mod	word,6	;m$mode	mode	=  acp mode
+map	pl.sta	byte,7	;m$stat		=  acp status
+map	pl.low	word,8.	;m$low	?	=  file window index base
+map	pl.siz	word,10.;m$size	?size	=  file window index size
+map	pl.chn	byte,12.;m$chan	?	=  acp channel
+map	pl.upd	byte,13.;m$upda		=  file update flag
+map	pl.blk	word,14.;m$block	=  block window base
+map	pl.obs,,16.	;8 word area
+map	pl.hgw	word,16.;		= header guard word ^rv02
+;map	pl.lim	word,18.;		= last word of array in memory
+;map	pl.len	word,20.;		= file length in blocks
+map	pl.bbs,,32.	;16 word area
+;			;
+;	pl.dis offsets	;
+;			;
+map	p.ldis	word,0	;
+map	p.lcur		;current
+map	p.lbas		;base
+map	p.ltop		;top
+map	p.lmod	byte	;mode
+map	p.lsta	byte	;status
+map	p.llow		;low file
+map	p.lsiz		;file word size
+map	p.lchn	byte	;channel
+map	p.lupd	byte	;update flag
+map	p.lblk		;block
+;			;
+;	pl.mod		;
+;			;
+map	pldud$,,1	;do not close
+map	plman$,,2	;manual open
+map	plold$,,4	;find old file
+map	plnew$,,10	;create new file
+map	plcre$,,10	;create new file
+map	plnop$,,20	;no output
+map	plnip$,,40	;no input
+map	pleof$,,100	;end of file
+map	plnac$,,100	;no access
+map	plerr$,,200	;device error
+;			;
+map	plany$,,<plold$!plnew$>	;old or new
+map	pltmp$,,<pldud$!plnew$>	;temporary file
+map	plrea$,,<plold$!plnop$>	;old & no output
+map	plwri$,,<plnew$!plnip$>	;new & no write
+map	plmut$,,<plnip$!plnop$>	;no read & no write
+;			;
+map	pleva$,,20000	;eva package follows
+map	plchn$,,40000	;channel allocated
+map	plopn$,,100000	;file is open
+;			;
+; PLXIOP control	
+;
+map	plrea.,,0	;read
+map	plwri.,,1	;write
+map	plfun.,,2	;function
+;			;
+map	plwai.,,0	;wait
+map	plret.,,1	;return
+;			;
+;	plex dispatch 	;
+;			;
+map	pl.dga	word,-2	;		get address of plex table
+map	pl.dcu	long,0	;c		current
+map	pl.dpo	long	;p	pop	autoincrement
+map	pl.dpu	long	;u	push	push
+map	pl.din	long	;i		index
+map	pl.dof	long	;o		offset
+map	pl.dke	long	;k	key	current key (computed)
+map	pl.dsi	long	;s  	size	array size in units (computed)
+map	pl.dun	long	;l	unit	unit size in bytes (computed)
+;			;
+map	pl.dba	long	;b	base	base array address
+map	pl.dto	long	;t	top	top array address	
+map	pl.dmo	long	;m	mode	mode
+map	pl.gua		;		guard word for buff$t/strm$t plex
+map	pl.see		;	seek	position buff$t/strm$t plex
+map	plgua.,,<^rgpb>	;		guard value
+.ENDM
+;-----------------------;
+; NATIVE PHD		;
+;-----------------------;
+;
+;	This area is defined by SPS:PHD.MAC
+;	The origin is PH.NAT
+;
+.MACRO	$PNDEF
+;
+$apdef				;
+$pqdef				;
+;
+map	pn.nat	null,0		;native area
+map	pn.ksb	word*32. 	;kernel stack bottom
+map	pn.ksl	word*128. 	;kernel stack limit
+map	pn.kst	null		;kernel stack top
+;				;
+map	pn.uip	word*8.		;user instruction page registers
+map	pn.uid	word*8.		;user instruction descriptors
+;				;
+map	pn.cip	word*8.		;client instruction pages (backup)
+map	pn.cid	word*8.		;client instruction descriptors
+;				;
+map	pn.val			;root virtual address limit
+map	pn.asp	byte*2		;root address space (free byte)
+map	pn.prn			;pid (word avoid sign extension)
+map	pn.hpn			;handler style process number
+map	pn.xpn			;rad50 process number ^R004
+;
+;	status
+;
+map	pn.sta			;same as pr.sta	
+map	pn.stc			;cli status
+map	pn.stx			;address space options
+map	pn.ssz			;spsize
+;
+;	kernel structure pointers
+;
+map	pn.pcr			;-> pcr
+map	pn.ter			;-> terminal record. 0=>none.
+map	pn.chs		;byte	;=  number of channels
+map	pn.chr			;-> kernel channels.
+map	pn.rti			;-> scheduler exit (in$rti or ab$rti)
+map	pn.tti			;-> ttyin path
+map	pn.tto			;-> ttyout path (simple, edit, quiet)
+map	pn.bug		;unused	;-> process debugger			?remove
+map	pn.crp			;-> current rp
+map	pn.xmr			;-> xm context
+;
+;	client addresses
+;
+map	pn.phc			;-> phd client address
+map	pn.rmc			;-> rt-11 client address
+map	pn.ktc			;=  kernel to client address delta
+;				;   add to kernel address, subtract from client
+;	counters	
+;
+map	pn.ioc			;i/o operations counter
+;
+;	asts & signals
+;
+map	pn.ast			;client ast level
+map	pn.asq			;client ast queue
+map	pn.sig			;cli signal
+map	pn.ask			;saved ast kernel stack
+map	pn.asm			;saved ast monitor stack
+;				;
+map	pn.f10			;					?remove
+map	pn.f11			;					?remove
+map	pn.urv			;unconditional restart vector
+;				;
+map	pn.jsw			;kernel copy of jsw
+map	pn.err	byte		;kernel saved error
+map	pn.rea	byte		;kernel abort reason
+map	pn.exc			;kernel exception routine
+map	pn.mr0	word*4		;ph.mr0	- missing rights
+;				;
+map	pn.scc			;\ scca word
+map	pn.trp			;! trpset
+map	pn.sfp			;! sfpa word
+map	pn.ser			;! serr/herr
+map	pn.imf	byte		;! reserved - image flags
+map	pn.cdf	byte		;/ cdfn - channels defined
+;				;
+map	pn.fpu			;set if ph.sfp & fpu present
+map	pn.fpx			;fpu exception flag
+map	pn.fec			;fpu fec for exceptions
+map	pn.fea			;fpu fea for exceptions
+;				;
+map	pn.ic0			;image control 0
+map	pn.ic1			;image control 1			?remove
+;				;
+map	pn.umm	word*16. 	;unit mount map (256 units)		?remove
+map	pn.acp	byte*ap.bbs	;acp call area
+map	pn.are	word*7		;emt area
+;				;
+map	pn.mbu			;message buffer address
+map	pn.mas			;message ast address
+map	pn.msw	word*5		;message channel
+;
+;	Following section is copied from the process build skeleton.
+;	See SDA for the layout.
+;
+map	pn.img	word*4		;ph.img - bp.img - initial or current image
+map	pn.inp	word*4		;ph.inp - bp.inp - input device
+map	pn.out	word*4		;ph.out - bp.out - output device
+map	pn.erd	word*4		;ph.erd - bp.err - error device 	?remove
+map	pn.nam	word*2		;ph.nam	- bp.nam - process name
+map	pn.pri	byte		;ph.pri - bp.pri - priority
+map	pn.tpr	byte		;ph.tpr - bp.tpr - top priority
+map	pn.mbx			;ph.mbx - bp.mbx - termination mailbox
+;				;
+map	pn.pe0			;ph.pe0 - bp.pe0 - creation status 0
+map	pn.pe1			;ph.pe1 - bp.pe1 - creation status 1
+map	pn.own			;ph.own - bp.own - owner pcr
+;
+;	This sub-section is copied to sub-processes and detached processes:
+;	it is also the section altered by login.
+;
+map	pn.jib			;ph.jib - bp.jib - job pcr
+map	pn.usn	null		;ph.usn - bp.usn - user name
+map	pn.un0			;ph.un0
+map	pn.un1			;ph.un1
+map	pn.acn	word*2		;ph.acn - bp.acn - accounting name
+map	pn.cln	word*4		;ph cln	- bp.cli - current cli name
+map	pn.dsk	word		;ph dsk	- bp.dsk - default disk
+;				;
+map	pn.arr	null		;ph.arr - access rights record
+map	pn.uic	null		;ph.uic - bp.uic - uic
+map	pn.mic	byte		;ph.mic - bp.mic - member code
+map	pn.gic	byte		;ph.gic - bp.gic - group code
+map	pn.pro			;ph.pro - bp.pro - default protection
+;				;
+map	pn.sr0	word*4		;ph.sr0 - bp.sr0 - current system rights
+;				;		 - (process!image)
+map	pn.ar0	word*4		;ph.ar0 - bp.ar0 - authorized
+map	pn.pr0	word*4		;ph.pr0 - bp.pr0 - process rights
+;
+;	end of section copied from phd
+;
+map	pn.quo	byte*pq.bbs	;ph.quo - bp.quo - quotas for process
+map	pn.lim	byte*pq.bbs	;ph.lim - bp.lim - limits for process
+;
+;	end of section copied to phd
+;
+map	pn.ir0	word*4		;ph.ir0 - image rights 
+;
+;	Accounting
+;
+map	pn.cpu	word*2		;cpu ticks
+map	pn.dio	word*2		;direct i/o
+map	pn.bio	word*2		;buffered i/o
+map	pn.avo	word		;account volumes mounted
+map	pn.aim	word		;account images run
+map	pn.ali	word*2		;account login ticks
+;
+;	Terminal editor
+;
+map	pn.edc			;edit count & control
+map	pn.edl	byte*82. 	;edit line buffer
+map	pn.asl	byte*82.	;ast line buffer
+;
+;	Last line buffers
+;
+map	pn.edb			;edit buffer - user address
+map	pn.eds			;number of lines in buffer
+;
+;	Log file control & buffer pointer
+;
+map	pn.los			;logger status (see $lodef)
+map	pn.lob			;logger buffer - user address
+map	pn.lof			;logger flags
+map	pn.loc		;???	;lastline counters
+;
+;	Mixed
+;
+map	pn.fem			;feature reference map
+map	pn.lot			;logger terminal
+map	pn.dbc			;debug control
+map	pn.msg			;exit message - unused			?remove
+map	pn.uvl			;user vector list
+map	pn.xl0			;exit list 0 - unlinked
+map	pn.xl1			;exit list 1 - linked
+map	pn.ifc			;input fail count
+map	pn.mvb			;monitor vector bypass
+map	pn.lui			;login uic
+map	pn.emb			;emt bypass
+map	pn.uif			;uic file default
+;				;
+map	pn.fr0	word*4.		;5 free ones for expansion
+;				;
+map	pn.mer	word*32.	;internal sdat message buffer
+;				;
+.ENDM
+;-----------------------;
+; POOL			;
+;-----------------------;
+;
+; Kernel pool
+;
+;	n o t e
+;
+; Update DCL:SHOMEM.MAC for new pool elements
+;
+.MACRO	$PODEF
+;
+map	po.suc,,0	;successor
+map	po.pre		;predecessor
+map	po.len		;byte length including header
+map	po.typ	byte	;type
+map	po.prn	byte	;process
+map	po.bbs	0	;control block size
+;.if ne 0
+;map	po.xsu		;secondary successor page
+;map	po.xpr		;secondary predecessor page
+;map	po.xln		;pool length (bytes)
+;map	po.xfl		;pool flags
+;map	po.xpg		;pool page
+;map	po.xnm	word*3	;pool name
+;map	po.xbs	0	;
+;.iff
+;map	po.kp6		;pool header par6 value
+;map	po.hbs		;pool header size
+;.endc
+;
+; pool types
+;
+map	poemp.,,0	;empty
+map	popcr.,,1	;pr
+map	poadr.,,2	;ad
+map	potbr.,,3	;tb
+map	potpr.,,4	;tp
+map	poder.,,5	;der
+map	pounr.,,6	;unr
+map	poter.,,7	;ter
+map	pochr.,,8.	;chr
+map	pound.,,9.	;undefined
+map	pohar.,,10.	;handler
+map	pompr.,,11.	;message packet
+map	ponar.,,12.	;logical name table
+map	pocor.,,13.	;controller record
+map	poxmr.,,14.	;xm record
+map	pofer.,,15.	;feature record
+map	pospr.,,16.	;spooler record
+map	podbg.,,17.	;debug record
+map	porea.,,18.	;realtime record
+map	poidb.,,19.	;interrupt dispatch block
+.if ne 0
+map	posec.,,20.	;secondary pool
+map	poext.,,21.	;secondary pool extension
+map	pospp.,,22.	;secondary private pool
+map	pospx.,,23	;secondary private pool extension
+map	popag.,,24.	;
+map	pomax.,,25.	;
+.iff
+map	pomax.,,20.	;for limit checks
+.endc
+map	pohdr.,,377	;header bumpers
+.if ne 0
+map	posec$,,20000	;map to system secondary pool
+.endc
+;			;prn|typ flags for create
+map	poclr$,,40000	;clear pool element
+map	poprc$,,100000	;process element
+.ENDM
+;-----------------------; 
+; PROCESS QUOTAS	;
+;-----------------------;	
+;	 
+.MACRO	$PQDEF
+.if ndf pqdef$
+map	pqdef$,,1
+; 
+; Quotas are words, with the exception of CPU limit.
+; Quota numbers start with 1. Thus, the first word of the table
+; is unused. We store the high-order word of the CPU limit there.
+;
+map	pq.cph,,0	;unused		min	def	typ
+map	pq.ast		;astlm		2	6	non-deductible
+map	pq.bio		;biolm		2	6	non-deductible
+map	pq.byt		;bytlm		1024	8192	pooled
+map	pq.cpu		;cpulm		0	0	deductible
+map	pq.dio		;diolm		2	6	non-deductible
+map	pq.fil		;fillm		17	256	non-deductible
+map	pq.pgf		;pfglm		48	128	
+map	pq.prc		;prclm		0	8	pooled
+map	pq.tqe		;tqelm		0	8	pooled
+map	pq.wsd		;wsdefault	10	128	non-deductible
+map	pq.wsq		;wsquota	10	128	non-deductible
+map	pq.enq		;enqlm	
+map	pq.wse		;wsextent
+map	pq.bbs		;
+; 
+map	pqast.,,pq.ast/2;
+map	pqbio.,,pq.bio/2;
+map	pqbyt.,,pq.byt/2;
+map	pqcpu.,,pq.cpu/2;long word
+map	pqdio.,,pq.dio/2;
+map	pqfil.,,pq.fil/2;
+map	pqpgf.,,pq.pgf/2;
+map	pqprc.,,pq.prc/2;
+map	pqtqe.,,pq.tqe/2;
+map	pqwsd.,,pq.wsd/2;
+map	pqwsq.,,pq.wsd/2;
+map	pqenq.,,pq.enq/2;
+map	pqmax.,,pq.bbs/2;
+map	pqend.,,0	;
+;	
+map	pqnde$,,1	;non-deductible
+map	pqded$,,2	;deductible
+map	pqpoo$,,4	;pooled
+;
+.endc			;pqdef$
+.ENDM 
+;-----------------------;
+; PROCESS		;
+;-----------------------;
+;
+; Process control record
+; ???	Add pr.usn	
+;	Remove pr.jib
+;	Remove pr.swt
+;	Remove pr.sqn
+;
+.MACRO	$PRDEF	
+;
+map	pr.suc,,0		;successor
+map	pr.pre			;predecessor
+map	pr.que			;current scheduler queue
+map	pr.wai	byte		;current wait (0 if none)
+map	pr.swt	byte		;saved wait condition (unused)
+map	pr.sta			;current state
+;				;
+map	pr.bqu			;base queue address (may go no lower)
+map	pr.tqu			;top queue address (may go no higher)
+;				;
+map	pr.ast			;ast state
+map	pr.asq			;ast queue
+map	pr.sig			;monitor signals
+;				;
+map	pr.ksp			;kernel stack pointer - move to phd
+map	pr.pag		;-	;first page number (redundant)
+map	pr.len		;-	;process page length (mer.mac)
+map	pr.phd			;phd page
+;				;
+map	pr.ter			;terminal record
+map	pr.phx			;phd page switch (see plas.mac)		;RXM
+;;;	pr.mer		;-	;message record - unused		;RXM
+map	pr.chr			;kernel channel record
+map	pr.chs	byte		;channels available
+map	pr.cnt	byte		;subprocess count (was pr.sqn)
+;				;
+map	pr.jib		;-	;jib address, unused
+map	pr.job			;job pcr address, i.e. root
+map	pr.own			;owner pcr address, i.e. parent
+;				;
+map	pr.pid	null		;process identification
+map	pr.prn	byte		;process number
+map	pr.prs	byte		;process sequence number
+;				;
+map	pr.uic	null		;process uic
+map	pr.mic	byte		;member
+map	pr.gic	byte		;group
+map	pr.pro		;-	;process protection - remove
+map	pr.nam	word*2		;process name
+map	pr.acq			;client ast queue	
+map	pr.bbs
+;
+; pr.sta, p$hsta
+;
+; low-byte only maintained in p$hsta
+;
+map	prcha$,,1	;chain in progress (phd only)
+map	prast$,,2	;process is in CLI ast
+map	prcli$,,4	;process is in CLI
+map	prcom$,,10	;CLI has command available
+map	prdbg$,,20	;process is in debugger (???)
+map	prsus$,,40	;process is suspended internally
+map	primg$,,100	;process has valid image
+map	pract$,,200	;process has image active
+;
+; high-byte also maintained in pr.sta
+;
+map	prwak$,,400	;process has wake pending
+map	prlog$,,1000	;login/logout in progress
+map	prrem$,,2000	;
+map	prcri$,,4000	;critical section in progress
+map	prdel$,,10000	;delete pending
+map	prexi$,,20000	;exit pending
+map	prabp$,,40000	;abort pending
+map	prabt$,,100000	;aborting
+;
+; pr.wai
+;
+map	prwti.,,1		;terminal input
+map	prwto.,,2		;terminal output
+map	prwre.,,3		;resource
+map	prwqo.,,4		;quota
+map	prwio.,,5		;i/o
+map	prwsi.,,6		;signal
+map	prwhi.,,7		;hibernate
+map	prwtw.,,8.		;.twait
+map	prwsu.,,9.		;suspend 
+map	prwme.,,10.		;message
+map	prwrc.,,11.		;record
+map	prwmu.,,12.		;mutex
+map	prwli.,,13.		;login
+;
+; process parameters
+;
+map	prmin.,,4*4		;minimum block size of process = 4k words
+map	prmax.,,32.*4		;maximum block size of process = 32k words
+;
+; fixed process numbers and indexes
+;
+map	prnln.,,0		;null process number
+map	prsyn.,,1		;system process number
+map	prsyi.,,2		;system process index
+;
+.ENDM	
+;-----------------------;
+; PS			;
+;-----------------------;
+;
+; Standard mnemonics are used for the PS
+;
+.MACRO	$PSDEF	
+map	ps,,	177776	;ps
+map	psw,,	177776	;psw
+;
+map	cbit,,	1	;carry
+map	vbit,,	2	;overflow
+map	zbit,,	4	;zero
+map	nbit,,	10	;negative
+map	tbit,,	20	;trace bit
+;
+map	pspr$v,,5	;priority start bit
+map	pr0,,	0	;pr0
+map	pr4,,	200	;pr4
+map	pr5,,	240	;pr5
+map	pr6,,	300	;pr6
+map	pr7,,	340	;pr7
+;
+;ap 	      ,,400	;unused
+;ap 	      ,,1000	;
+;ap 	      ,,2000	;
+map	psreg$,,4000	;register set
+;			
+map	pspum$,,30000	;previous user mode
+map	pscum$,,140000	;current user mode
+map	psdum$,,170000	;default user mode
+;
+map	psker.,,0	;kernel mode
+map	pssup.,,1	;supervisor mode
+map	psinv.,,2	;invalid mode
+map	psusr.,,3	;user mode
+;
+map	ie,,100		;interrupt enable
+;
+.ENDM
+;-----------------------; 
+; P1EXT DISPATCH	;
+;-----------------------;
+;
+; $P1EXT dispatch offsets
+;
+.MACRO	$P1DEF
+;
+map	p1.xdl,,-18.	;$xdept	- jmp xdealc	io$xdl - v5.4 ???
+map	p1.cvp,,-14.	;$cvppt - jmp $usrph	io$cup - v5.2
+map	p1.fgr,,-10.	;$fgrpt - jmp findgr	io$fgr - v5.2 ???
+map	p1.xal,,-6.	;$xalpt - jmp xalloc	io$xal - v5.2 ???
+map	p1.blm,,-2.	;$blmpt - br $blkmv	io$blm
+map	p1.p1x,,0	;$p1ext - $p1ext	io$p1x
+map	p1.utl,,2.	;	- 		dr$utl
+;		6.
+;
+; Driver call dispatch works as follows:
+;
+;	$p1ext offset to $drdis:	p1xxx.=p1.xxx+2/2
+;	At runtime is cted to account for call
+;
+;map	p1xdl.,,-8.	;-18.+2/2
+;map	p1cvp.,,-6.	;-14.+2/2
+;map	p1fgr.,,-4.	;-10.+2/2
+;map	p1xal.,,-2.	;-6.+2/2
+;map	p1blm.,,-0.	;-2+2/2
+;map	p1utl.,,2	;2+2/2
+.ENDM 
+

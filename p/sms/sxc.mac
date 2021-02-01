@@ -1,0 +1,306 @@
+;	------------------------------------------------------------------------
+;	SMCAL$	Define CALL and CALLN
+;	------------------------------------------------------------------------
+;
+;	CALL	Call procedure
+;	CALLN	Call native procedure
+;
+;		ROU		Routine name
+;		X1...X7		Upto seven parameters
+;
+;	local	smoff.		Stack depth for SP relative pushs
+;		smpsh$	XX	Local to push actuals
+;		smpad$	XX	Local to push address
+
+.MACRO	SMCAL$
+.if ne smpdp.
+	smpca$
+	smppv$
+;	smppa$
+.iff
+	smvca$
+	smvpv$
+	smvpa$
+.endc
+.ENDM
+;	------------------------------------------------------------------------
+;	SMPCA$	Define PDP-11 CALL
+;	------------------------------------------------------------------------
+
+.MACRO SMPCA$
+
+.MACRO	CALL	 ROU,X1,X2,X3,X4,X5,X6,X7,X8,X9
+	.NARG	s$mnrg
+	smoff.=-cell.					;init stack depth
+.IF NB <X1>
+  .IRP	XX,<X9 X8 X7 X6 X5 X4 X3 X2 X1>			;push parameters
+	.IF NB <XX>
+		smoff.=smoff.+cell.			;next slot
+		smpsh$	<XX>	\smoff.			;push it
+	.ENDC						;
+  .ENDR
+.ENDC
+	JSR	PC,ROU					;call the procedure
+	.IIF	EQ s$mnrg-2,	INC	(SP)+		;cleanup stack
+	.IIF	EQ s$mnrg-3,	BIT	(SP)+,(SP)+
+	.IIF	GE s$mnrg-4,	ADD	#s$mnrg-1*cell.,SP
+.ENDM	CALL
+
+;	CALLN native
+
+.MACRO	CALLN	 ROU,X1,X2,X3,X4,X5,X6,X7
+	.NARG	s$mnrg
+	smoff.=-cell.					;init stack depth
+	psh	r5					;save r5
+	smoff.=smoff.+cell.				;adjust for it
+.IF NB <X1>
+  .IRP	XX,<X7 X6 X5 X4 X3 X2 X1>			;push parameters
+	.IF NB <XX>
+		smoff.=smoff.+cell.			;next slot
+		smpsh$	<XX>	\smoff.			;push it
+	.ENDC						;
+  .ENDR
+.ENDC
+	psh	#s$mnrg-1				;push the frame
+	mov	sp,r5					;point to frame
+	JSR	PC,ROU					;call the procedure
+	.IIF	EQ s$mnrg-2,	TST	(SP)+		;cleanup stack
+	.IIF	EQ s$mnrg-3,	CMP	(SP)+,(SP)+
+	.IIF	GE s$mnrg-4,	ADD	#s$mnrg-1*cell.,SP
+	pop	r5					;restore r5
+.ENDM	CALLN
+
+.ENDM
+;	------------------------------------------------------------------------
+;	SMVCA$	Define VAX CALL
+;	------------------------------------------------------------------------
+
+.MACRO SMVCA$
+
+.MACRO	CALL	 ROU,X1,X2,X3,X4,X5,X6,X7
+	.NARG	s$mnrg
+	smoff.=-cell.					;init stack depth
+.IF NB <X1>
+  .IRP	XX,<X7 X6 X5 X4 X3 X2 X1>			;push parameters
+	.IF NB <XX>
+		smoff.=smoff.+cell.			;next slot
+		smpsh$	<XX>	\smoff.			;push it
+	.ENDC						;
+  .ENDR
+.ENDC
+	JSB	ROU					;call the procedure
+	.IIF	EQ s$mnrg-2,	TST	(SP)+		;cleanup stack
+	.IIF	GE s$mnrg-3,	ADD	#s$mnrg-1*cell.,SP
+.ENDM	CALL
+
+;	CALLN native
+
+.MACRO	CALLN	 ROU,X1,X2,X3,X4,X5,X6,X7
+	.NARG	s$mnrg
+	smoff.=-cell.					;init stack depth
+.IF NB <X1>
+  .IRP	XX,<X7 X6 X5 X4 X3 X2 X1>			;push parameters
+	.IF NB <XX>
+		smoff.=smoff.+cell.			;next slot
+		smpsh$	<XX>	\smoff.			;push it
+	.ENDC						;
+  .ENDR
+.ENDC
+	CALLS	#s$mnrg-1,ROU				;call it
+.ENDM	CALLN
+
+.ENDM
+;	------------------------------------------------------------------------
+;	SMPPV$	Define PDP-11 SMPSH$
+;	------------------------------------------------------------------------
+;
+;	SMPSH$	VAL OFF
+;
+;		VAL		Actual parameter to push
+;		OFF		Stack offset in \literal form
+
+.MACRO	SMPPV$
+
+.MACRO	SMPSH$	VAL OFF
+	.ntype	s$mmod,VAL		;get parameter addressing mode
+	.if	ne s$mmod&7-6		;not SP
+	 .if idn #0,VAL			;can we clear it?
+		clr	-(sp)		;push a zero
+		.mexit			;
+	 .endc				;
+		mov	VAL,-(SP)	;just a push
+		.mexit			;
+	.endc				;
+;
+;	SP value
+;
+	.if	eq s$mmod&^o70-^o60	;x(sp)
+		mov	OFF+VAL,-(sp)	;mov o+x(sp),-(sp)
+		.mexit			;
+	.endc				;
+	.if	eq s$mmod&^o70-^o10	;(sp)
+	  .if ne OFF			;got offset
+		mov	OFF'VAL,-(sp)	;mov x(sp),-(sp)
+	  .iff				;
+		mov	VAL,-(sp)	;0(sp) => (sp)
+	  .endc				;
+		.mexit			;
+	.endc				;
+	smerr$	<"VAL" has invalid argument mode>
+.ENDM
+
+.ENDM
+;	------------------------------------------------------------------------
+;	SMVPV$	VAX SMPSH$
+;	------------------------------------------------------------------------
+
+.MACRO	SMVPV$
+
+.MACRO	SMPSH$	VAL OFF
+	.if	idn <%extract(0,1,VAL)> <&>	;got &address?
+		SMPAD$	<%extract(1,60,VAL)> <OFF>;push address
+		.mexit				;done
+	.endc					;
+;
+	.ntype	s$mmod,VAL			;get mode
+						;
+	.if	ne s$mmod&^x0f-^x0e		;not register sp
+	  .if	idn #0,VAL			;psh #0
+		clrl	-(sp)			;is clrl -(sp)
+		.mexit				;
+	  .endc					;
+		pushl	VAL			;just push
+		.mexit				;
+	.endc					;
+;
+;	Stack value
+;
+	s$mmod=s$mmod@-4&^xF			;isolate the mode
+						;
+	.if	eq s$mmod-6			;(sp) exactly
+		pushl	OFF(sp)			; => off(sp)
+		.mexit				;
+	.endc					;
+
+	.if	ge s$mmod-^x0a			;a...	byte(sp)
+	 .if	le s$mmod-^x0e			;a...e	word(sp)
+	  .if	eq s$mmod&1			;a.c.e	long(sp)
+		pushl	OFF+VAL			; => off+idx(sp)
+		.mexit				;
+	  .endc					;
+	 .endc					;
+	.endc					;
+;
+	.if	eq s$mmod&6			;(sp)
+	 .if	ne OFF				;
+		pushl	OFF'VAL			;mov x(sp),-(sp)
+	  .iff					;
+		pushl	VAL			;0(sp) => (sp)
+	  .endc					;
+		.mexit				;
+	.endc					;
+	smerr$	<"VAL" has invalid argument mode>
+.ENDM
+
+.ENDM
+;	------------------------------------------------------------------------
+;	SMVPA$	VAX SMPAD$ - push address
+;	------------------------------------------------------------------------
+
+.MACRO	SMVPA$
+
+.MACRO	SMPAD$	ADR OFF
+	.ntype	s$mmod,ADR			;get mode
+;
+	.if	ne s$mmod&^x0f-^x0e		;not register sp
+	  .if	idn 0,ADR			;psh #0
+		clrl	-(sp)			;is clrl -(sp)
+		.mexit				;
+	  .endc					;
+		pushal	ADR			;just push
+		.mexit				;
+	.endc					;
+;
+;	Stack address
+;
+	s$mmod=s$mmod@-4&^xF			;isolate the mode
+						;
+	.if	eq s$mmod-6			;(sp) exactly
+		pushal	OFF(sp)			; => off(sp)
+		.mexit				;
+	.endc					;
+
+	.if	ge s$mmod-^x0a			;a...	byte(sp)
+	 .if	le s$mmod-^x0e			;a...e	word(sp)
+	  .if	eq s$mmod&1			;a.c.e	long(sp)
+		pushal	OFF+ADR			; => off+idx(sp)
+		.mexit				;
+	  .endc					;
+	 .endc					;
+	.endc					;
+;
+	.if	eq s$mmod&6			;(sp)
+	 .if	ne OFF				;
+		pushal	OFF'ADR			;mov x(sp),-(sp)
+	  .iff					;
+		pushal	ADR			;0(sp) => (sp)
+	  .endc					;
+		.mexit				;
+	.endc					;
+	smerr$	<"ADR" has invalid argument mode>
+.ENDM
+
+.ENDM
+;	------------------------------------------------------------------------
+;	CALLB	Call procedure with byte parameter
+;	------------------------------------------------------------------------
+; 
+;	The standard CALL does not support byte parameters. They are rarely
+;	required, and when they are usually only one is needed.
+
+.MACRO	CALLB	ROU BYT P2
+.if nb P2
+	smpsh$	P2 0
+.endc
+pdp$	MOVB	BYT,-(sp)			;get the byte
+vax$	MOVZBL	BYT,-(sp)			;ditto
+	JSR	PC,ROU				;call the routine
+.if nb P2
+	BIT	(sp)+,(sp)+
+.iff
+	TST	(sp)+				;and cleanup
+.endc
+.ENDM
+;	------------------------------------------------------------------------
+;	COUNT	Counted loop
+;	------------------------------------------------------------------------
+; 
+;	begin:	REPEAT
+;			...
+;		COUNT register		SOB register,begin
+;	end:
+
+.MACRO	COUNT	XREG
+	.IIF	LE s$mrns, smerr$	<COUNT not in repeat block>
+	smglb$	\s$mnst,s$mlbl,s$mtyp,s$mmod
+	.irp	ma$lbl,<\s$mlbl>
+		sob	XREG,.'ma$lbl
+	.endr
+	smgle$	\s$mnst,s$mlbe,s$mtyp,s$mmod
+	smlbl$	\s$mlbe
+	s$mnst=s$mnst-1
+	s$mrns=s$mrns-1
+.ENDM 
+;	------------------------------------------------------------------------
+;	CASE	
+;	------------------------------------------------------------------------
+; 
+;	begin:	SELECT	sel
+;		other
+;	lab0:	CASE 0
+;		br	end
+;	lab1:	CASE 1
+;		br	end
+;		END
+;	end:
+

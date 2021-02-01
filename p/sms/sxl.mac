@@ -1,0 +1,52 @@
+;	------------------------------------------------------------------------
+;	LEAVE 	Exit loop 
+;	------------------------------------------------------------------------
+;
+;	begin:	REPEAT
+;			...
+;		LEAVE			goto end
+;			...
+;		END
+;	end:
+;
+;		LEAVE	IFx cond	Conditional leave
+;
+;	Warn if LEAVE is in BEGIN/END block but still do it
+
+.MACRO	LEAVE	CND X1,X2,X3
+	.IIF	LE s$mrns,  smerr$	<LEAVE not in repeat block>
+	smgrb$	\s$mrns,s$mrbl
+	smgle$	\s$mrbl,s$mlbe,s$mtyp,s$mmod	;get end label
+	.IIF	EQ s$mtyp-smblk.,smerr$	<LEAVE in BEGIN/END block>
+.if nb CND
+	smifx$	CND,X1,X2,X3,\s$mlbe,LEAVE
+.iff
+	smjrb$	\s$mlbe				;jump to end
+.endc
+.ENDM
+;	------------------------------------------------------------------------
+;	LOCAL	Local ENTRY, PROC or SUBR prefix
+;	------------------------------------------------------------------------
+;
+;	LOCAL PROC name temps saves
+;	LOCAL SUBR name temps saves
+;	LOCAL ENTRY name
+;
+;	Entry, procedure and subroutine names are global by default.
+;	Use the LOCAL preface to make them private to the module.
+;
+;	The local mechanism can be disabled with the SMLOC. constant
+;
+;	PROC, SUBR and ENTRY clear the count - this permits the
+;	following syntax:
+;
+;	LOCAL
+;	  PROC MYPROC ...
+
+.MACRO	LOCAL	XNAM X0 X1 X2 X3 X4 X5 X6 X7 X8 X9
+	s$mloc=smloc.			;signal local procedure
+	.if nb <XNAM>
+		XNAM X0 X1 X2 X3 X4 X5 X6 X7 X8 X9
+	.endc
+.ENDM
+

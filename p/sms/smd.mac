@@ -1,0 +1,475 @@
+;SMD.MAC	DATA STATEMENTS
+;
+;bit	map	set	
+;base	fill	byte	cell	null	vary	item
+;STACK	twice
+;	-----------------------------------------------------------------------
+;	Section types
+;	-----------------------------------------------------------------------
+;
+;	code	default
+;	data	pure,impure
+;	form
+
+.MACRO	FILE	C D E F G H I
+	.title	C
+	smfac$	C
+	smsec$	C
+.ENDM
+.MACRO	PAGE	C D E F G H I
+	.sbttl	C D E F G H I
+	smfac$	C
+.ENDM
+.MACRO	UNIT	C D E F G H I
+	.sbttl	C D E F G H I
+	smfac$	C
+.ENDM
+.MACRO	CODE	C D E F G H I
+	.sbttl	C D E F G H I
+.iif eq s$mnst, smfac$	C	;leave previous facility if nesting shot
+	s$maln=0
+.if eq smcrt.
+.iif ne s$msec-smdat., SMDAT$
+	smstc$			;define code STACK macro
+.endc
+	default
+.ENDM
+.MACRO	DATA	C D E F G H I
+	.sbttl	C D E F G H I
+	smfac$	C
+	s$maln=0
+.if eq smcrt.
+.iif ne s$msec-smdat., SMDAT$
+	smstd$			;define data STACK macro
+.endc
+	impure
+.ENDM
+.MACRO	FORM	C D E F G H I
+	.sbttl	C D E F G H I
+	smfac$	C
+	s$maln=0
+.iif ne s$msec-smdef., SMDEF$
+.ENDM
+.MACRO	PLEX	C D E F G H I
+	.sbttl	C D E F G H I
+	smfac$	C
+	s$maln=0
+.iif ne s$msec-smdef., SMDEF$
+	$=0
+.ENDM
+;	------------------------------------------------------------------------
+;	DEFAULT	Return to default section
+;	PURE	Pure data section
+;	IMPURE	Impure data section
+;	------------------------------------------------------------------------
+; 
+;	Psect control.
+;
+;	DEFAULT	Code, shareable
+;	PURE	Shareable
+;	IMPURE	Private
+;
+;		PURE	SCT	Swap to pure section
+;		IMPURE	SCT	Swap to impure section
+;		DEFAULT		Return to default section
+; 
+;			SCT	Optional section name
+;
+;		s$mpsc	0	In DEFAULT section
+;		s$mpsc	1	In PURE or IMPURE section
+;
+;	SMPUR$ and SMIMP$ are responsible for defining the section attributes.
+
+.MACRO	DEFAULT
+.if ne smcrt.
+	cccod$			; crt code section
+	s$mpsc=0
+.iff
+pdp$	.even			;PDP-11 data is in-line
+.iif eq s$mpsc,.mexit		;already in default
+	s$mpsc=0		;setup default
+	.restore		;restore it
+.endc
+.ENDM 
+
+.MACRO	PURE SCT ALN
+.if ne smcrt.
+	ccdat$
+	s$mpsc=1		;setup pure section
+.iff
+.if b <SCT>
+ .iif eq smvax.,.mexit
+.endc
+.iif eq s$mpsc,.save		;save default section
+.iif eq s$mpsc-1,.mexit		;already in pure section
+	s$mpsc=1		;setup pure section
+	smpur$	SCT ALN		;enter pure section
+.endc
+.ENDM 
+
+.MACRO	IMPURE SCT ALN		;
+.if ne smcrt.
+	ccdat$
+	s$mpsc=2		;setup impure section
+.iff
+.if b <SCT>			;
+ .iif eq smvax.,.mexit		;ignore this on PDP's
+.endc				;
+.iif eq s$mpsc,.save		;save default section
+.iif eq s$mpsc-2,.mexit		;already in impure section
+	s$mpsc=2		;setup impure section
+	smimp$	SCT ALN		;impure section
+.endc
+.ENDM 
+;	-----------------------------------------------------------------------
+;	Constant values
+;	-----------------------------------------------------------------------
+;
+;	SERIES	NAM TYP=(bits,type)
+;		..	NAM	VAL CNT POS
+;			bits, values
+;
+;		MASK	FLAG	FIELD
+;
+;bit	map	set	
+;base	fill	byte	cell	null	vary	item
+;
+.MACRO	SERIES	SNAM TYP=1
+.if idn TYP,bits
+	.macro	..	nam val cnt=1 pos msk
+		.if	nb <pos>
+			m$asym=POS			;VAX MACRO needs symbol
+			.irp m$atmp,<\m$asym>
+				$b=bit'm$atmp'$
+			.endr
+		.endc
+		.iif	nb <msk>,$b=msk
+		.if	nb <val>
+			m$asym=VAL
+			.irp m$atmp,<\m$asym>
+			.if ne bit'm$atmp'$-$b
+				smerr$	<Series missmatch "VAL">
+			.endc
+			.endr
+		.endc
+		.iif nb <nam>,nam=$b
+		.rept	cnt
+			$b=$b*2
+		.endr
+	.endm
+	$b=1
+.iff
+	.macro	..	nam val cnt=TYP off
+		.iif	nb <off>,$v=off
+		.if	nb <val>
+			.if ne val-$v
+				smerr$	<Bit series missmatch "VAL">
+			.endc
+		.endc
+		.iif nb <nam>,nam=$v
+		$v=$v+cnt
+	.endm
+	$v=0
+.endc
+.ENDM
+;	-----------------------------------------------------------------------
+;	Constant values
+;	-----------------------------------------------------------------------
+;
+;	SERIAL	Integer sequence
+;	POWERS	Power sequence
+;
+;	..	NAM VAL CNT=1 POS MSK
+;	..	NAM VAL CNT=1 POS
+;
+;	..	Invokes the macro
+;	NAM	The symbol name
+;	VAL	The symbol value - it is checked
+;	POS	The new position 
+;	OFF	The new offset
+;	MSK	An absolute mask for the field
+
+.MACRO	POWERS	C D E F G H I
+.MACRO	..	NAM VAL CNT=1 POS MSK
+	.if	nb <pos>
+		m$asym=POS			;VAX MACRO needs symbol
+		.irp m$atmp,<\m$asym>
+			$b=bit'm$atmp'$
+		.endr
+	.endc
+	.iif	nb <msk>,$b=msk
+	.if	nb <val>
+		m$asym=VAL
+		.irp m$atmp,<\m$asym>
+		.if ne bit'm$atmp'$-$b
+		 smerr$	<Series missmatch "VAL">
+		.endc
+		.endr
+	.endc
+	.iif nb <nam>,nam=$b
+	.rept	cnt
+		$b=$b*2
+	.endr
+.ENDM
+$b=1
+.ENDM
+
+.MACRO	SERIAL	C D E F G H I
+.MACRO	..	NAM VAL CNT=1 POS
+	.iif	nb <pos>,$v=pos
+	.if	nb <val>
+		.if ne val-$v
+		 smerr$	<Bit series missmatch "VAL">
+		.endc
+	.endc
+	.iif nb <nam>,nam=$v
+	$v=$v+cnt
+.ENDM
+$v=0
+.ENDM
+;	-----------------------------------------------------------------------
+;	General type drivers
+;	-----------------------------------------------------------------------
+
+.MACRO	SMSIN$
+	smdsn$	ADDRESS .addr	addr.
+	smdsn$	BYTE	.byte	byte.
+	smdsn$	CHAR	.byte	byte.
+	smdsn$	CLASS	.int	int.
+	smdsn$	COORD	.int	int.
+	smdsn$	COUNTER	.int	int.
+	smdsn$	FLAGS	.int	int.
+	smdsn$	INDEX	.int	int.
+	smdsn$	INT	.int	int.
+	smdsn$	LATCH	.int	int.
+	smdsn$	MODE	.int	int.
+	smdsn$	OFFSET	.int	int.
+	smdsn$	POINTER	.addr	addr.
+	smdsn$	SIZE	.int	int.
+	smdsn$	STATE	.int	int.
+	smdsn$	VALUE	.int	int.
+	smdsn$	WORD	.word	word.
+.ENDM
+.MACRO	SMMUL$
+	smdml$	ARRAY	.int	int.
+	smdml$	TABLE	.int	int.
+	smdml$	TEXT	.byte	byte.
+	smdml$	AREA	.byte	byte.
+.ENDM
+.MACRO	SMFIL$
+	smdfl$	FILLER	.byte	byte.
+	smdfl$	UNUSED	.byte	byte.
+	smdfl$	RESERVE	.byte	byte.
+.ENDM
+;	-----------------------------------------------------------------------
+;	Data macros
+;	-----------------------------------------------------------------------
+
+.MACRO	SMDAT$
+	s$msec=smdat.
+;
+;	Singular idioms
+;
+;	IDIOM	NAM VAL TYP POS
+;
+.MACRO	SMDSN$	IDM GTYP=.INT DUM
+	.macro	IDM NAM VAL TYP=GTYP POS
+		label	NAM
+	.iif nb <POS>,.=POS
+	.if nb <VAL>
+		.iif idn VAL,VOID, .mexit
+	.endc
+		TYP	VAL
+	.iif ne s$maln,ALIGN s$maln
+	.endm
+.ENDM
+;
+;	Multiple idioms
+;
+.MACRO	SMDML$	IDM DUM GTYP=INT.
+	.MACRO	IDM	NAM CNT TYP=GTYP
+		label	NAM
+		m$abot=.
+		m$atop=.
+	.iif b <CNT>,.mexit
+	.iif idn CNT,VOID,.mexit
+		.blkb	TYP*CNT
+	.iif ne s$maln,ALIGN s$maln
+		m$atop=.
+	.ENDM
+.ENDM
+;
+;	Fillers
+;
+.MACRO	SMDFL$	IDM DUM GTYP
+	.MACRO	IDM CNT=1 TYP=GTYP
+		.blkb	CNT*TYP
+	.ENDM
+.ENDM
+;
+;	Declare single, multiple, fillers
+;
+	SMSIN$
+	SMMUL$
+	SMFIL$
+;
+;	Other things
+;
+.MACRO	OVERLAY	POS
+.if nb <POS>
+	.=POS
+.iff
+	.=m$abot
+.endc
+.ENDM
+.MACRO	ALIGN	TYP=int.
+.if idn TYP,END
+	.=m$atop
+.iff
+	.iif	eq TYP-1,.align	0
+	.iif	eq TYP-2,.align	1
+	.iif	eq TYP-4,.align	2
+	.iif	eq TYP-8,.align	3
+	.iif	eq TYP-512,.align 9
+.endc
+.ENDM
+.MACRO	STRING	NAM STR TER
+	label	NAM
+	.ascii	STR
+.if nb <TER>
+	.byte	TER
+.endc
+	.iif ne s$maln,ALIGN s$maln
+.ENDM
+;
+.ENDM;	SMDAT$
+
+.macro	smstd$
+.if eq smcrt.
+.MACRO	STACK	BOT TOP CNT=0 ELM=0
+	label	bot
+	.blkb	ELM*CNT
+	label	top
+.ENDM
+.endc
+.endm
+;	-----------------------------------------------------------------------
+;	Definition macros
+;	-----------------------------------------------------------------------
+;
+.MACRO	SMDEF$
+	s$msec=smdef.
+;
+;	Singlular idioms
+;
+;	IDIOM	NAM CNT TYP POS
+;
+.MACRO	SMDSN$	IDM DUM GTYP=.INT
+	.macro	IDM	NAM CNT=1 TYP=GTYP POS
+	.iif nb <POS>,$=POS
+	.iif nb <NAM>,NAM=$
+	.iif idn CNT,VOID, .mexit
+		$=$+<CNT*TYP>
+	.iif ne s$maln,$=$+<s$maln-1>&^C<s$maln-1>
+	.endm
+.ENDM
+;
+;	Multiple idioms
+;
+.MACRO	SMDML$	IDM DUM GTYP=int.
+	.MACRO	IDM	NAM CNT TYP=GTYP POS
+	.iif nb <POS>,$=POS
+	.iif nb <NAM>,NAM=$
+		m$abas=$
+	.iif b <CNT>,.mexit
+	.iif idn CNT,VOID, .mexit
+		$=$+<CNT*TYP>
+	.iif ne s$maln,$=$+<s$maln-1>&^C<s$maln-1>
+		m$atop=$
+	.ENDM
+.ENDM
+;
+;	Filler idioms
+;
+.MACRO	SMDFL$	IDM DUM GTYP=int.
+	.MACRO	IDM NAM CNT=1 TYP=GTYP
+		$=$+<CNT*GTYP>
+	.ENDM
+.ENDM
+;
+;	Declare them
+;
+	SMSIN$
+	SMMUL$
+	SMFIL$
+;
+;	Other idioms
+;
+.MACRO	OVERLAY	POS
+.if nb <POS>
+	$=POS
+.iff
+	$=0
+.endc
+.ENDM
+;
+.MACRO	ALIGN	TYP=INT.
+	$=$+<TYP-1>&^C<TYP-1>
+.ENDM
+;
+.MACRO	FILLER	CNT TYP=1
+	$=$+<CNT>
+.ENDM
+;
+;V4.MACRO	STACK	BOT TOP CNT=0 ELM=0
+;V4	BOT=$
+;V4	$=$+<ELM*CNT>
+;V4	TOP=$
+;V4.ENDM
+;
+.MACRO	GAMUT	NAM
+	NAM=$
+.ENDM
+;
+.ENDM
+;	-----------------------------------------------------------------------
+;	Random, general
+;	-----------------------------------------------------------------------
+;
+.MACRO	ALIGNED	TYP=int.
+	s$maln=TYP
+.ENDM
+;
+.MACRO	LABEL	NAM
+.iif b <NAM>,.mexit
+.if ne s$mloc
+	s$mloc=s$mloc-1
+.list
+NAM:
+.nlist
+.iff
+.list
+NAM::
+.nlist
+.endc
+.ENDM
+
+.MACRO	SET	NAM VAL
+	NAM=VAL
+.ENDM
+;	------------------------------------------------------------------------
+;	Data storage
+;	------------------------------------------------------------------------
+
+.MACRO	.ADDR	VAL=0
+.if ne smpdp.
+	.word	VAL
+.iff
+	.address VAL
+.endc
+.ENDM
+
+.MACRO	.CHAR	VAL
+	.byte	VAL
+.ENDM
+

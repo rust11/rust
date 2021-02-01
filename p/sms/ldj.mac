@@ -1,0 +1,229 @@
+;.title	ldj
+;
+;	%build
+;	run sy:strip smb:ldj.mla=sms:ldj.mac
+;	%end
+;	%date
+;	<03-Feb-2005 22:45:58.00>
+;	%edit
+;	<36   >
+;
+;	$jbdef		RT-11/RUST jobspace 
+;	$jidef		RT-11 .GTJB structures
+;	$jsdef		RT-11 JSW bits
+;-----------------------;
+; JOB			;
+;-----------------------;
+;
+;	A SHAREplus JOB is an executable image.
+;	Defines executable images, on-disk and in-memory.
+;	These must be combined since they usually may not conflict.
+;
+;	o	Executable .SAV, .REL and virtual .SYS program images.
+;	o	In-memory syscom & block zero layout
+;	o	Device handlers
+;	o	VMS AME structures
+;
+.MACRO	$JBDEF
+;
+.macro	ma$map	c d e f	;jb. and j$b definitions
+madol.=$
+map	jb.'d,e,f
+$=madol.
+map	j$b'd,e,f
+.endm
+$=0
+;
+;	Runtime constants
+;
+ma$map	jb exi,,0	;exit vector
+ma$map	jb upc,,40	;userpc	- job start address
+ma$map	jb usp,,42	;usersp	- job stack pointer
+map	jsw,,44		;jsw
+ma$map	jb jsw,,44	;jsw	- job status word
+ma$map	jb usa,,46	;ufloat - usr address
+ma$map	jf dsw,,46	;$dsw   - RSX directive status word (RTX)
+ma$map	jb top,,50	;usertop - job top address
+ma$map	jb err,,52	;errbyt	- emt error return (byte)
+ma$map	jb sev,,53	;userrb - severity (byte)
+ma$map	jb lev,,53	;userrb	- error level (byte) - use j$bsev
+ma$map	jb sys,,54	;sysptr	- pointer to $rmon
+ma$map	jb ttf,,56	;ttfill	- tt fill character (byte) (unused)
+ma$map	jb ttn,,57	;ttnfil	- fill count (byte) (unused)
+;
+;	Image constants
+;
+ma$map	jb vif,,0	;.Vir - virtual flag (^RVIR)
+ma$map	jb vto,,2	;.Vir - virtual top address
+;
+ma$map	jb rrs,,52	;.Rel root size
+ma$map	jb rss,,54	;.Rel stack size
+ma$map	jb ros,,56	;.Rel overlay region size
+ma$map	jb kwl,,56	;Not-Rel kiloword address limit
+ma$map	jb ref,,60	;.Rel flag (^rREL)
+ma$map	jb rbl,,62	;.Rel - first relocation block
+;
+ma$map	jb lot,,64	;low overlay table
+ma$map	jb vot,,66	;virtual overlay table
+;
+;	Handler constants
+;
+ma$map	jb hdc	byte,20	;handler device classification
+ma$map	jb hdv	byte,21	;handler device classification variations
+ma$map	jb hbt	word,22	;handler internal bad block table address
+ma$map	jb hf0	word,22	;handler function list [sic]
+ma$map	jb hf1	word,24	;handler function list
+ma$map	jb hft	word,26	;handler function table address
+ma$map	jb hit	word,70	;handler internal table address
+ma$map	jb hic	word,72	;handler internal table classification
+;
+ma$map	jb hsz,,52	;handler size
+ma$map	jb dsz,,54	;device size in blocks
+ma$map	jb dst,,56	;device status word (was j$bdsw)
+ma$map	jb syg,,60	;sysgen options
+ma$map	jb bpt,,62	;boot pointer - start address of primary boot
+ma$map	jb ble,,64	;boot byte length
+ma$map	jb brd,,66	;boot read offset from @j$bbot
+ma$map	jb bda,,70	;boot data offset (unclear)
+;
+;	70:110		;reserved for RT-11
+;	110:140		;rt-11 audit area
+;
+ma$map	jb aur,,110	;audit release number: ^rVnn (also guard)
+ma$map	jb aul,,112	;audit versions list
+map	jbaun.,,100000	;audit list N/A entry
+map	jbaut.,,-1	;audit list terminator
+ma$map	jb aut,,140	;maximum extension of audit list
+;
+;	110:170		;program id area
+;
+ma$map	jb ivn,,110	;.rad50	/v0n/	;version number
+ma$map	jb iun,,112	;.word	update	;update number
+ma$map	jb irg,,114	;.word	-1	;resorc guard
+ma$map	jb iig,,116	;.rad50	/img/	;image information guard
+ma$map	jb isi,,120	;.rad50	/shp/	;system id
+ma$map	jb isd,,122	;.word	stbdat	;stb date or zero
+ma$map	jb inm,,124	;.rad50	/imgnam/;image name
+ma$map	jb ifn,,130	;.rad50	/fun/	;image function
+ma$map	jb iib,,132	;.word	info	;further information address
+ma$map	jb ici,,134	;.rad50	/crenam/;creator id
+ma$map	jb iai,,140	;.rad50	/abc/	;author initials
+ma$map	jb ius,,142	;.word	imguse	;pointer to usage string
+ma$map	jb icd,,144	;.word	credat	;pointer to creation date string
+ma$map	jb ied,,146	;.word	edit	;edit number
+ma$map	jb iux,,172	;		;
+;
+;	140:170		;audit grows up, csrs grow down
+;	170:2xx		;handler installation area
+;
+ma$map	jb cs1,,172	;next display csr
+ma$map	jb cs0,,174	;first display csr
+ma$map	jb csr,,176	;csr in handlers
+ma$map	jb inh,,200	;install handler routine
+ma$map	jb ins,,202	;install system device routine
+;
+;	200:400		;device installation routines
+;	210:214		;SHAREplus image control area
+;	210:300		;floating SHAREplus image control area
+;	360:400		;rt-11 bitmap (not for RSTS or some handlers)
+;
+ma$map	jb vic,,210	;start of image control area
+ma$map	jb vie,,300	;end of image control area
+map	jbvic.,,<^rvic>	;virtual image control (15,7,1 are set).
+map	jb.vc0	word,0	;control zero
+map	jb.vc1		;control two
+;
+ma$map	jb rtx,,254	;RTX API pointer
+ma$map	jb sig,,256	;RTX signature
+map	jbRTX.,,<^rRTX>	;RTX signature
+;
+ma$map	jb map,,360	;bitmap
+;
+;	400:+		;AME filename
+;	400:776		;Handler SET routines
+;
+;			;376 & SET routines
+ma$map	jb afn,,400	;AME filename
+ma$map	jb hst,,400	;Handler SET tables
+;
+;	500:1000	;Chain area
+;
+ma$map	jb cha,,500	;chain area
+ma$map	jb cfn,,500	;chain filename
+ma$map	jb cct,,510	;chain character count
+ma$map	jb cst,,512	;chain character string
+;
+;	Edit & Help
+;
+ma$map	jb efl,,510	;Edit flags
+map	jbein$,,100000	;inspect flag
+map	jbecr$,,200	;create flag
+map	jbete$,,-1	;teco, make, mung
+map	jbeex$,,377	;execute
+ma$map	jb eif,,512	;edit input file - asciz
+ma$map	jb eof,,540	;edit output file
+ma$map	jb hcs,,600	;help command string	;V4: was jb.hst
+;
+ma$map	jb amf,,776	;VMS AME flag
+ma$map	jb jsp,,1000	;Default SP
+;
+;	Handler header
+;
+ma$map	jb vec,,1000	;vector address or offset to vector table
+ma$map	jb isr,,1002	;ddINT-. - offset to isr
+ma$map	jb ips,,1004	;new psw - unused - handler hold flag
+ma$map	jb lqe,,1006	;ddLQE	 - last queue entry pointer
+ma$map	jb cqe,,1010	;ddCQE	 - current queue entry pointer
+ma$map	jb ept,,1012	;	 - handler entry point
+;
+.ENDM
+;-----------------------;
+; JOB INFORMATION	;
+;-----------------------;
+;
+; RT-11 .GTJB job information area
+;
+.MACRO	$JIDEF
+;
+map	ji.num	word,0	;job number * 2
+map	ji.top		;top address (settop)
+map	ji.low		;low address
+map	ji.csa		;channel status area - virtual in SHAREplus
+map	ji.imp		;impure area address - zero in SHAREplus
+map	ji.ter	byte	;terminal number
+map	ji.fr0	byte	;free byte
+map	ji.vhi		;virtual high limit for XM programs
+map	ji.fr1		;free word
+map	ji.3bs	null	;v3 byte size
+map	ji.fr2		;free word
+map	ji.nam	byte*6	;ascii jobname. null filled.
+map	ji.bbs		;
+;
+.ENDM
+;-----------------------;
+; JOB STATUS WORD	;
+;-----------------------;
+;
+; RT-11 JSW bits	
+;
+.MACRO	$JSDEF	
+;
+map	jsgtl$,,10	;gtlin$	disable command file input	
+map	jsedi$,,20	;edit$	disable SL
+map	jsind$,,40	;spxit$	add IND line to command file (old name)
+map	jsdcx$,,40	;spexi$ exit to DCL commands	(new name)		;V4
+map	jsttr$,,100	;tcbit$	failed ttinr/ttoutr return to process
+map	jshlt$,,200	;hlter$	SJ halt on error flag (unused)
+map	jsvbg$,,200;sic	;vbgex$	XM virtual background flag
+map	jscha$,,400	;chain$	chain to image
+map	jsovr$,,1000	;ovly$	overlayed image
+map	jsvir$,,2000	;virt$	XM virtual image
+map	jscom$,,4000	;chnif$	chain to command file (old name)
+map	jsdcc$,,4000	;chnif$	chain to DCL commands			;V4
+map	jstts$,,10000	;ttspc$	single character terminal mode
+map	jsrst$,,20000	;rstrt$	restart image is supported
+map	jsttl$,,40000	;ttlc$	lower case terminal input
+map	jsusr$,,100000	;uswap$	SJ usr swap address (unused).
+;
+.ENDM
+

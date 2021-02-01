@@ -1,0 +1,316 @@
+;.title	ldm
+;
+;	%build
+;	run sy:strip smb:ldm.mla=sms:ldm.mac
+;	%end
+;	%date
+;	<11-Feb-2004 02:15:12.00>
+;	%edit
+;	<41   >
+;
+;	$madef		Maree definitions
+;	 mcdef$	hanmac	MSCP command codes
+;	$mcdef	mpp	MPP clock
+;	$mddef	mpp	MPP data
+;	$mfdef	mpp	MPP files
+;	$midef	mpp	MPP I/O
+;	$mhdef	mpp	MPP header
+;	$mmdef		MMU
+;	$mpdef	mpp	MPP process
+;	 mpdef$	hanmac	MSCP packet
+;???	$msdef		Mouse
+;???	$msdef		Messages
+;	 msdef$	hanmac	MSCP status
+;	$mtdef		Magtape
+;	$mvdef	mpp	MPP interrupts
+;	$mudef		Mutexs
+;	$mxdef	mpp	MPP exceptions
+;-----------------------;
+; MAREE			;
+;-----------------------;
+;
+; Maree setup
+;
+.MACRO	$MADEF	SCT
+.psect	$mlib
+;
+meta	<go><jmp @(r4)+>
+meta	<maree><jsr r4,m$maree>
+;
+.macro	maabt$	str adr ?ma$lab	;runtime error
+.if nb <adr>			;got an address
+	mov	#adr,r1		;point to it
+	jmp	ma$abm		;abort
+.iff				;
+	mov	#ma$lab,r1	;point to it
+	jmp	ma$abm		;and abort
+ma$lab:.asciz	&str&		;the string
+.endc				;
+.endm				;
+;				;
+.macro	maonc$	adr sec=onc
+.save
+.psect	m$aonb
+.psect	m$aon0		;reserved
+.psect	m$aon1		;memory primitives	PLX
+.psect	m$aon2		;static structures	STR
+.psect	m$aon3		;system structures	SIG MSG
+.psect	m$aon4		;package structures	CLI ACP
+.psect	m$aonc		;common once only
+.psect	m$aont
+.psect	m$lib
+.psect	m$a'sec
+	.word	adr-m$gfn
+.restore
+.endm
+.if nb <SCT>
+	maonc$	sct
+.endc
+;
+.ENDM	
+;-----------------------;
+; MMU			;
+;-----------------------;
+;
+.MACRO	$MMDEF	
+.if ndf mmdef$
+map	mmdef$,,1	;remember it
+;
+; MMU page registers	
+;
+map	m$kip0,,172340	;kisar0 - kernel par0	
+map	m$kip1,,172342	;kisar1 - kernel par1
+map	m$kip2,,172344	;kisar2 - kernel par2
+map	m$kip3,,172346	;kisar3 - kernel par3
+map	m$kip4,,172350	;kisar4 - kernel par4
+map	m$kip5,,172352	;kisar5 - kernel par5
+map	m$kip6,,172354	;kisar6 - kernel par6
+map	m$kip7,,172356	;kisar7 - kernel par7
+;
+map	m$kid0,,172300	;kisdr0
+map	m$kid1,,172302	;kisdr1
+map	m$kid2,,172304	;kisdr2
+map	m$kid3,,172306	;kisdr3
+map	m$kid4,,172310	;kisdr4
+map	m$kid5,,172312	;kisdr5
+map	m$kid6,,172314	;kisdr6
+map	m$kid7,,172316	;kisdr7
+;
+map	m$uip0,,177640	;uisar0 - user par0	
+map	m$uip1,,177642	;uisar1 - user par1
+map	m$uip2,,177644	;uisar2
+map	m$uip3,,177646	;uisar3
+map	m$uip4,,177650	;uisar4
+map	m$uip5,,177652	;uisar5
+map	m$uip6,,177654	;uisar6
+map	m$uip7,,177656	;uisar7 - user par7
+;
+map	m$uid0,,177600	;uisdr0
+map	m$uid1,,177602	;uisdr1
+map	m$uid2,,177604	;uisdr2
+map	m$uid3,,177606	;uisdr3
+map	m$uid4,,177610	;uisdr4
+map	m$uid5,,177612	;uisdr5
+map	m$uid6,,177614	;uisdr6
+map	m$uid7,,177616	;uisdr7
+;
+;         Space
+;	  |Mode
+;	  ||Reg
+;	  vvv
+;;;	m$kid0,,172300	;ker ins pdr 
+map	m$kdp0,,177320	;    dat pdr 
+;;;	m$kip0,,172340	;    ins par	
+map	m$kdd0,,177360	;    dat par
+
+map	m$sid0,,172200	;sup ins pdr 
+map	m$sdp0,,177220	;    dat pdr   
+map	m$sip0,,172240	;    ins par	
+map	m$sdd0,,177260	;    dat par      
+
+;;;	m$uid0,,177600	;usr ins pdr
+map	m$udd0,,177620	;    dat pdr      
+;;;	m$uip0,,177640	;usr ins par
+map	m$udp0,,177660	;    dat par   
+;
+; MMU status/control registers
+;
+map	m$msr0,,177572	;sr0 - csr
+map	m$msr1,,177574	;sr1 - reg
+map	m$msr2,,177576	;sr2 - vpc
+map	m$msr3,,172516	;sr3 - 22b
+;
+; sr0	
+;
+map	mmnra$,,100000	;non-resident abort
+map	mmpla$,,40000	;page length abort
+map	mmroa$,,20000	;read-only abort
+map	mmmod$,,140	;abort ps mode
+map	mmspc$,,20	;abort space (i/d)
+map	mmpag$,,16	;abort page number
+map	mmenb$,,1	;activate
+;			
+; sr1
+;
+map	mminc$,,170	; register increment
+map	mmreg$,,3	; register number
+;
+; sr3
+;
+map	mm22b$,,20	;22-bit mode
+;
+; psw
+;
+map	mmpum$,,30000	;previous user mode
+map	mmcum$,,140000	;current user mode
+map	mmdum$,,170000	;default user mode
+;
+; Offsets within page sets
+;
+map	mm.p0	word,0	;
+map	mm.p1		;
+map	mm.p2		;
+map	mm.p3		;
+map	mm.p4		;
+map	mm.p5		;
+map	mm.p6		;
+map	mm.p7		;
+;
+; MMU par addresses
+;
+map	m$mpa0,,0	;par 0
+map	m$mpa1,,20000	;par 1
+map	m$mpa2,,40000	;par 2
+map	m$mpa3,,60000	;par 3
+map	m$mpa4,,100000	;par 4
+map	m$mpa5,,120000	;par 5
+map	m$mpa6,,140000	;par 6
+map	m$mpa7,,160000	;par 7
+map	mmpav.,,13.	;par mask bit
+map	mmpa$m,,17777	;par mask
+map	mmpa$p,,160000	;par mask negative - new form
+map	mmpa$n,,17777	;par mask negative - new form
+map	mmp61.,,120000	;par 6 offset from par 1
+map	mmp62.,,100000	;par 6 offset from par 2
+map	mmp12.,,-20000	;par 1 offset from par2
+;
+; page constants
+;
+map	mmvip.,,6	;bits in page
+map	mmbip.,,64.	;bytes in page
+map	mmwip.,,32.	;words in page
+map	mmpib.,,8.	;pages in block
+map	mmpik.,,32.	;pages in kiloword
+map	mmpis.,,128.	;pages in 4kw segment
+map	mmpiv.,,1024.	;pages in virtual address space
+map	mmp18.,,1600	;first 18-bit page
+map	mmi18.,,7600	;18-bit I/O page
+map	mmp22.,,10000	;first 22-bit page
+map	mmi22.,,177600	;22-bit I/O page
+map	mmpn$n,,176000	;virtual page number negative
+;
+map	mmkp0.,,0	;kernel page 0
+map	mmkp1.,,128.	;kernel page 1
+map	mmkp2.,,256.	;kernel page 2
+map	mmkp3.,,384.	;kernel page 3
+map	mmkp4.,,512.	;kernel page 4
+map	mmkp5.,,640.	;kernel page 5
+map	mmkp6.,,768.	;kernel page 6
+map	mmkp7.,,896.	;kernel page 7
+;
+; descriptor bits - page type
+;
+map	mmdno.,,0 ;73	;non-resident page
+map	mmdra.,,1	;read-only - access trap
+map	mmdro.,,2 ;73	;read-only
+;		3	;unused
+map	mmdwa.,,4 ;73	;read/write - access trap
+map	mmdwm.,,5	;read-write - modify trap
+map	mmdrw.,,6 ;73	;read/write
+;		7	;abort - unused
+;
+; (following use wrong symbol patterns)
+;
+map	mmded.,,40	;expansion direction
+map	mmdmo.,,100	;modified page
+map	mmd4k.,,77406	;4kw read/write page
+;
+; descriptor bits (corrected)
+;
+map	mmdpt$,,7	;page type (above)
+;		10	;
+;		20	;
+map	mmded$,,40	;expansion direction
+map	mmdmo$,,100	;modified page
+map	mmdws$,,77406	;4k read/write section
+map	mmdrs$,,77402	;4k read only section
+;
+;	mm_inf
+;
+map	mmprs$,,1	;MMU present
+map	mmmap$,,2	;MMU is mapped (enabled)
+map	mmsys$,,4	;MMU operating system
+map	mm22m$,,10	;22bit MMU
+;			;
+;	mm_sav/mm_res
+;
+map	mm.sbs,,8.*2*2	;save area byte size 
+.endc			;mmdef$
+.ENDM
+;-----------------------;
+; MAGTAPE VOLUMES	;
+;-----------------------;
+;
+;	$V1DEF	VOL1 definitions.
+;	$H1DEF	HDR1 definitions.
+;	$H2DEF	HDR2 definitions.
+;	$H3DEF	HDR3 definitions.
+;	$E1DEF	EOF1 definitions.
+;	$E2DEF	EOF2 definitions.
+;	$D1DEF	DOS  definitions.
+;	$SFDEF	RT-11 special functions.
+;
+;	RT-11 tapes
+;	RT-11 ends a tape with three tape marks, others use two.
+;
+;	file	hdr1 + data... + eof1 +
+;	volume	vol1 hdr1 + data... + eof1 + + +
+;	volume	vol1 hdr1 + data... + eof1 + hdr1 + data... + + +
+;
+;	RSX-11 tapes
+;	RSX adds hdr2 and eof2.
+;
+;	file	hdr1 hdr2 + data... eof1 eof2 +
+;	volume	vol1 hdr1 hdr2 + data... + eof1 eof2 + +
+;		v1 h1 h2 + d... + e1 e2 + h1 h2 + d... + e1 e2 + +
+;
+;	VMS tapes
+;	VMS adds hdr3 and implements eov1 and eov2.
+;
+;	file	hdr1 hdr2 hdr3 + data... eof1 eof2 +
+;	volume	vol1 hdr1 hdr2 hdr3 + data... + eof1 eof2 + +
+;		v1 h1 h2 h3 + d... + e1 e2 + h1 h2 h3 + d... + e1 e2 + +
+;
+;	voln	v1 h1 h2 h3 + d... + ev1 ev2 + +
+;	voln+1	v1 h1 h2 h3 + d... + ef1 ef2 + +
+;
+;	DOS tapes
+;-----------------------;
+; MUTEX			;
+;-----------------------;
+;
+; Mutexs
+;
+.MACRO	$MUDEF
+;
+map	mu.suc	word,0	;successor
+map	mu.pre		;predecessor
+map	mu.own		;number of owners - initially -1
+map	mu.sta		;status flags
+;
+; mu.sta - status
+;
+map	muwri$,,100000	;write current or pending
+;
+.ENDM
+

@@ -1,0 +1,1256 @@
+;.title	lde
+;
+;	%build
+;	run sy:strip smb:lde.mla=sms:lde.mac
+;	%end
+;	%date
+;	<911Nov-2005 14:57:15.45>
+;	%edit
+;	<99   >
+;
+;???	$ecdef		Ethernet CTI 
+;	$eddef		SHAREplus terminal editor
+;???	$egdef		Ethernet general - see $eqdef/$eudef
+;	$ehdef		Expert header
+;	$ekdef		SHAREplus external kernel handler
+;	$emdef		RT-11/SHAREplus emt codes
+;	$endef		SHAREplus environment database
+;	$eqdef		Ethernet q-bus
+;	$erdef		SHAREplus errors
+;	$esdef		RT-11 error severity 
+;	$etdef		Ethernet constants
+; ???	$eudef		Ethernet unibus 
+;	$evdef		EVA structures
+;	 $evbeg		Begin a package
+;	 $evend		End a package
+;	 $evgro		Begin a group
+;	 $evcal		EVA call
+;	 $evitm 	EVA item
+;	 $evpro		Process a table
+;	 $evdgr		Define group
+;	 $evdca		Define call
+;	 $evgrs		Define EVA group ids
+;	 $evtyp		Define EVA type codes
+;	 $evsys		Define EVA system call lengths
+;	 $evfil		Define EVA file structures
+;	$exdef		SHAREplus external feature interface
+;	$e1def		RT, RSX, VMS magtape EOF1 label
+;-----------------------; 
+; EDITOR		;
+;-----------------------;
+;
+; Terminal editor
+; EDIT & TECO interfaces	
+;
+.MACRO	$EDDEF
+;
+; p$hedc control bits
+;
+map	edint$,,100000	;interrupt editor
+map	edrpt$,,40000	;repaint screen
+map	edlbs.,,82.	;line buffer size
+;
+; Edit, Teco and MLE interfaces
+;
+map	e$dimg,,500	;edit image name
+map	e$dcon,,510	;control flags - see below
+map	e$dipt,,512	;input file specification
+map	e$dopt,,540	;output file specification
+map	e$dexe,,600	;teco execute string
+;			;
+map	edcre$,,100000	;create new file
+map	edins$,,200	;inspect only
+;
+.ENDM
+;-----------------------; 
+; EXPERT HEADER		;
+;-----------------------;
+;
+.MACRO $EHDEF
+;
+map	eh.net	byte,0		;000	$net	-		spare
+map	eh.for	byte		;001	$fort	0=>fortran, 1=>f77
+map	eh.cls			;002	cli status (was $nets)
+map	eh.sid			;004	$sid	?		spare
+map	eh.csr			;006	$csr	?		spare
+map	eh.edi	byte		;010	$edit	edit type = ked
+map	eh.crd	byte		;011	$card	wildcard flag
+map	eh.job			;012	$job	client ph.rcs
+map	eh.jor			;014	client ph.rcs
+map	eh.jof			;016	$jobf	cp echo flag
+map	eh.joc			;020	$jobc	cp byte count
+map	eh.kmf			;022	$power	-2
+map	eh.sub			;024 V4	s$dptr	Sub-directory pointer ($mesg)
+map	eh.1	byte		;026	$smon
+map	eh.tab	byte		;027	$tab	tt [no]tab
+map	eh.bas	byte		;030	$bas	'A
+map	eh.ffd	byte		;031	$formf	set tt [no]form
+map	eh.clb			;032	$line	client ph.lin
+map	eh.res			;034	$reset	client ph.dum
+map	eh.kma			;036	$km	kmon address
+map	eh.top			;040	p$htop	phd copy of usertop (was $us)
+map	eh.rol	word*2		;042-44	t$irol	RUST rollover ($cut/$link)
+map	eh.cli			;046	$force	cli buffer
+map	eh.pth			;050	$paths	path table
+map	eh.met			;052	$metas	meta table
+map	eh.set			;054	$terms	set term
+map	eh.san	byte		;056	$satn	satellite number
+map	eh.sas	byte		;057	$sats	total satellites
+map	eh.jon	byte		;060	$jobn	job number
+map	eh.jos	byte		;061	$jobs	total jobs
+map	eh.mel			;062 V4	p$hmel	meta table byte length ($vector)
+map	eh.tmk			;064 V4	e$htmk	terminal 7/8bit mask
+;map	eh.aid	byte		;064	$aid	ugh
+;map	eh.ici	byte		;065	$cid	-
+map	eh.rix			;066	$right	user rights -1
+map	eh.wro			;070	$wrong	-1
+map	eh.uix			;072	$uic	[g,m]
+map	eh.use	word*2		;074	$user	username
+map	eh.rty			;100	$retry	-
+map	eh.led			;102	$lined	client ph.rcs
+map	eh.sre			;104	$sreset	-
+map	eh.prm			;106	$prompt	ed: csi prompt
+map	eh.sgl			;110	$signal	mrt signal routine
+map	eh.ind	word*4		;112	$ind	ind file name
+.if ne 0
+map	eh.exh			;122	$exeunt	dclexh
+map	eh.prt			;124	$print	tab support - client ph.rcs
+.iff
+map	eh.phy			;122 V4	e$hphy	physical terminal output
+map	eh.rst			;124 V4	e$hrst	reset image hook
+.endc
+map	eh.ucl	word*4		;126	$ucl	UCL filename
+map	eh.dot	byte*10.	;136	$dot	10. byte monitor prompt
+map	eh.img	word*4		;150	file	Monitor image name
+map	eh.fil	word*5		;160	file	Monitor image name
+map	eh.bbs			;172	
+;
+.ENDM
+;-----------------------; 
+; EXTERNAL KERNEL	;
+;-----------------------;
+;
+;	dcs:insde3.mac
+;	sps:udr.mac dr$utx
+;
+.MACRO	$EKDEF
+;
+map	ek.han	0,0	;
+map	ek.vec		;ha.vec
+map	ek.iso		;ha.isr
+map	ek.hol		;ha.hol
+map	ek.lqe		;ha.lqe
+map	ek.cqe		;ha.cqe
+map	ek.beg	word*2	;ha.beg - nop, branch
+map	ek.gua		;guard word - ^rext
+map	ek.vtb	word*7	;vector table
+map	ek.fqu	word*2	;fork queue
+map	ek.fbl	word*4	;fork block
+map	ek.sta	word*3	;start i/o
+map	ek.don	word*3	;i/o done
+map	ek.abx	word*3	;abort i/o
+map	ek.pfk	word*3	;post fork
+map	ek.dfk	word*3	;deliver fork
+map	ek.abt	word	;abort entry
+map	ek.is0	word*3	;isr 0
+map	ek.pc0		;isr pc
+map	ek.ps0		;isr ps
+map	ek.is1	word*3	;isr 1
+map	ek.pc1		;isr pc
+map	ek.ps1		;isr ps
+map	ek.trn	word*2	;transfer interrupt
+map	ek.pag		;extended handler page
+map	ek.bas		;virtual base address
+map	ek.top	null	;
+map	ek.bbs	null	;
+;
+; time out extension
+;
+map	ek.tmo	word*3	;timio or ctimio
+map	ek.dtm	word*3	;deliver time out
+;
+map	ek.tsu		;successor
+map	ek.tpc		;timer pc - ek$dtm
+map	ek.tps		;timer ps - unused
+map	ek.tr0		;timer r0 - tirti. - sequence number
+map	ek.tr1		;timer r1 - handler tbl address
+map	ek.tho		;timer hot
+map	ek.tlo		;timer lot
+;
+map	ek.xbs		;
+;
+.ENDM
+;-----------------------; 
+; EMTS			;
+;-----------------------;
+;
+; RT-11 EMT codes
+;
+; emspg.		reserved in MEP
+;
+.MACRO	$EMDEF
+;
+map	em.chn	byte,0	;channel
+map	em.sub	byte	;subcode
+map	em.p0		;parameters
+;
+;	340
+;
+map	emtti.,,340	;ttyin
+map	emtto.,,341	;ttyout
+map	emdst.,,342	;dstatus
+map	emfet.,,343	;fetch/release
+map	emcsg.,,344	;csigen
+map	emcss.,,345	;csispc/gtlin
+map	emlck.,,346	;lock
+map	emulk.,,347	;unlock
+map	emexi.,,350	;exit
+map	empri.,,351	;print
+map	emsrs.,,352	;sreset
+map	emqst.,,353	;qset
+map	emstp.,,354	;settop
+map	emrco.,,355	;rctrlo
+map	emasx.,,356	;astx
+map	emhrs.,,357	;hreset
+;
+map	emsof.,,360	;soft
+map	emsys.,,373	;sys
+;
+;	373
+;
+map	emcmk.,,3	;cmkrnl
+;ap	emclk,,0	;.callk - sp-> address, r0:r5 parameters
+;
+;	374
+;
+map	emwai.,,0	;wait
+map	emspd.,,1	;spnd
+map	emrsm.,,2	;rsum
+map	empur.,,3	;purge
+map	emser.,,4	;serr
+map	emher.,,5	;herr
+map	emclo.,,6	;close
+map	emtlk.,,7	;tlock
+map	emcha.,,10	;chain
+map	emmwt.,,11	;mwait
+map	emdat.,,12	;date
+map	emabi.,,13	;abtio
+map	em74h.,,13	;374 high limit
+;
+;	375
+;
+map	emdel.,,0	;delete
+map	emloo.,,1	;lookup
+map	ement.,,2	;enter
+map	emtrp.,,3	;trpset
+map	emren.,,4	;rename
+map	emsav.,,5	;savestatus
+map	emreo.,,6	;reopen
+;		7	;close
+map	emrea.,,10	;read
+map	emwri.,,11	;write
+;		12	;wait
+map	emchc.,,13	;chcopy
+map	emdev.,,14	;device
+map	emcdf.,,15	;cdfn
+;		16	;e16 - 340 list
+;		17	;soft
+map	emgjb.,,20	;gtjb
+map	emgtm.,,21	;get time
+map	emmkt.,,22	;mrkt
+map	emcmt.,,23	;cmkt
+map	emtwt.,,24	;twait
+map	emsda.,,25	;sdata
+map	emrcd.,,26	;rcvd
+map	emcst.,,27	;cstat
+map	emsfp.,,30	;sfpa
+map	empro.,,31	;protect/unprotect
+map	emspf.,,32	;spfun
+map	emctx.,,33	;cntxsw
+map	emgvl.,,34	;gval
+map	emgvl$,,<34*256.> ;gval with subcode
+map	empee$,,emgvl$!1;peek
+map	empvl$,,emgvl$!2;pval
+map	empok$,,emgvl$!3;poke
+map	emscc.,,35	;scca
+map	empla.,,36	;plas
+map	emmtt.,,37	;mtty
+map	emsdt.,,40	;sdttm (stimx/gtimx: RUST extensions)	
+map	emsdt$,,<40*256.>
+map	emgtx$,,emsdt$!1;gtimx (RUST extension)
+map	emstx$,,emsdt$!2;stimx (RUST extension)
+map	emspp.,,41	;spcps
+map	emsfd.,,42	;sfdat
+map	emfpr.,,43	;fprot
+map	eminf.,,44	;get/set file info
+;ap	emgfd.,,44	;.gfdat chan,dblk,0   ,14|0
+;ap	emgfi.,,44	;.gfinf chan,dblk,0   ,offset|0
+;ap	emgfs.,,44	;.gfsta chan,dblk,0,  ,0|0
+;ap	emsfi.,,44	;.sfinf chan,dblk,valu,offset|oper
+;ap	emsfs.,,44	;.sfsta chan,dblk,valu,offset|oper
+;			; oper: 0=>get,1=bic,2=bis,3=mov
+map	emclz.,,45	;.closz chan,size
+map	em75h.,,45	;V5.5 emt 375 limit
+map	emcmp.,,46	;.cmap/.gcmap/.msds
+;ap	em75h.,,46	;V5.6 emt 375 limit
+map	emtsx.,,101	;tsx
+;			;
+map	emhar.,,376	;hard
+map	emrsx.,,377	;rsx
+;
+.ENDM
+;-----------------------; 
+; ENVIRONMENT		;
+;-----------------------;
+;
+; Host environment
+;
+.MACRO	$ENDEF
+;
+map	en.mod,,0	;cpu mode (see below)
+;
+map	en.ops		;operating system (see below)
+map	en.opv		;operating system version
+map	en.opu		;operating system update
+map	en.syg		;rt-11 sysgen (see $sgdef)
+map	en.cfg		;rt-11 config (see $cndef)
+map	en.cf2		;rt-11 confg2 (see $cndef)
+;
+map	en.tet		;terminal type (see below)
+map	en.tec		;terminal numeric code
+map	en.tcs		;terminal csr
+map	en.tve		;terminal vector
+;
+map	en.cpp		;cpu processor (see below)
+map	en.cpc		;cpu numeric code
+map	en.cpi		;cpu internal code
+map	en.cpt		;cpu type (from mfpt)
+map	en.cpr		;cpu revision level (from mfpt)
+map	en.cpx		;cpu extensions (see below)
+map	en.cpf		;cpu fingerprints
+map	en.cpe		;cpu expected fingerprints
+;
+map	en.clk		;clock (see below)
+;
+map	en.mem		;mmu options (see below)
+map	en.mep		;memory size in pages
+map	en.meb		;memory size in blocks
+map	en.mek		;memory size in kwords
+map	en.mio		;i/o page page number
+;
+map	en.ers		;error severity (see $esdef)
+map	en.syh		;system handler (see below)
+map	en.syu		;system device unit
+;
+map	en.bst		;build status
+map	en.kst		;kmon status
+map	en.rr4		;runtime r4 (stb)			;V4 catchup
+map	en.rr5		;runtime r5 (shp)			;V4 catchup
+map	en.emu		;emulator				;V4
+;
+map	en.bbs		;
+;
+; en.mod	cpu mode
+;
+map	endkm$,,1	;kernel mode
+map	endsm$,,2	;supervisor mode
+map	endum$,,4	;user mode
+map	endcm$,,10	;compatibility mode
+map	endvm$,,100000	;virtual environment
+;
+; en.ops	operating system
+;
+map	ensrt$,,1	;rt-11
+map	ensha$,,2	;share-eleven
+map	ensat$,,4	;star-eleven satellite
+map	ensvr$,,10	;vrt
+map	ensrm$,,20	;rtem
+map	ensts$,,40	;tsx
+map	ensv4$,,100	;v4 or v5
+map	ensfb$,,200	;rt-11 fb
+map	ensxm$,,400	;rt-11/xm
+map	enssj$,,1000	;rt-11/sj
+map	enshp$,,2000	;SHAREplus
+;
+; en.syg	sgXXX$
+; en.cfg	cnXXX$
+; en.cf2	cnXXX$
+;
+; en.tet	terminal type
+;
+map	entfc$,,1	;terminal fill character
+map	entsc$,,2	;scope terminal
+map	entvt$,,4	;vt-11
+;
+; eb.emu	cpu emulator
+;
+map	enunk$,,1	;Unknown
+map	env11$,,2	;V11
+map	envrt$,,4	;VRT
+map	ene11$,,10	;E11
+map	ensim$,,20	;SIMH
+;
+;
+; eb.cpp	cpu processor
+;
+map	enp03$,,1	;pdp-11/03
+map	enp04$,,2	;pdp-11/04
+map	enp10$,,4	;pdp-11/10 pdp-11/05
+map	enp20$,,10	;pdp-11/20 pdp-11/15
+map	enp21$,,20	;pdp-11/21 t11
+map	enp23$,,40	;pdp-11/23 pdp-11/24 f11
+map	enp24$,,100	;pdp-11/24
+map	enp34$,,200	;pdp-11/34
+map	enp40$,,400	;pdp-11/40 pdp-11/35
+map	enp44$,,1000	;pdp-11/44
+map	enp45$,,2000	;pdp-11/45
+map	enp60$,,4000	;pdp-11/60
+map	enp70$,,10000	;pdp-11/70
+map	enp73$,,20000	;pdp-11/73 j11
+map	enpvx$,,40000	;pdp-11/700 - vax
+map	enpun$,,100000	;undefined
+;
+; en.cpi	cpu internal code
+;
+map	eni03.,,0	;pdp-11/03
+map	eni04.,,1	;pdp-11/04
+map	eni10.,,2	;pdp-11/10 pdp-11/05
+map	eni20.,,3	;pdp-11/20 pdp-11/15
+map	eni21.,,4	;pdp-11/21 t11
+map	eni23.,,5	;pdp-11/23 pdp-11/24 f11
+map	eni24.,,6	;pdp-11/24
+map	eni34.,,7	;pdp-11/34
+map	eni40.,,8.	;pdp-11/40 pdp-11/35
+map	eni44.,,9.	;pdp-11/44
+map	eni45.,,10.	;pdp-11/45
+map	eni60.,,11.	;pdp-11/60
+map	eni70.,,12.	;pdp-11/70
+map	eni73.,,13.	;pdp-11/73 j11
+map	enivx.,,14.	;pdp-11/700 - vax
+map	eniun.,,15.	;undefined
+;
+; en.cpx	CPU extensions
+;
+map	enxei$,,1	;eis
+map	enxmm$,,2	;mmu
+map	enxfp$,,4	;fpu
+map	enxfs$,,10	;fis
+map	enxci$,,20	;cis
+map	enxwc$,,40	;wcs
+map	enxea$,,100	;eae
+;
+; en.clk	clock
+;
+map	enclk$,,1	;we have a clock
+map	encsr$,,2	;clock has csr
+map	enclp$,,4	;programmable clock
+map	enc50$,,10	;50-herz clock
+map	encac$,,20	;clock is ticking
+;
+; en.mem	memory management
+;
+map	enmmu$,,1	;mmu present
+map	enm18$,,2	;18-bit memory only
+map	enm22$,,4	;22-bit memory present
+map	enmid$,,10	;i/d space
+map	enmsu$,,20	;supervisor mode
+map	enmum$,,40	;unibus map
+map	enmsp$,,100	;two stacks
+map	enm30$,,400	;switched for 30kw
+map	enmvi$,,1000	;running in virtual mode
+;
+; en.cpf	cpu finger prints
+;
+map	enfmp$,,1	;mov pop	mov r0,(r0)+
+map	enfmx$,,2	;mov index	mov pc,index
+map	enfjp$,,4	;jmp pop	jmp (r0)+
+map	enfjr$,,10	;jmp register	jmp r0
+map	enfod$,,20	;odd trap	tst @#1
+map	enfop$,,40	;odd pop	tst (odd)+
+;
+map	enfsv$,,400	;swab clears vbit
+map	enfrt$,,1000	;rtt
+map	enfsp$,,4000	;spl
+map	enfmf$,,10000	;mfps
+;
+; en.cpe	expected fingerprints
+;
+map	enf03.,,<0!				enfsv$!enfrt$!enfmf$>
+map	enf04.,,<enfod$!			enfsv$!enfrt$>
+map	enf10.,,<enfjp$!enfod$!			enfsv$>
+map	enf20.,,<enfmp$!enfmx$!enfjp$!enfod$>
+map	enf21.,,<enfmp$!enfmx$!			enfsv$!enfrt$!enfmf$>
+map	enf23.,,<enfmp$!enfmx$!			enfsv$!enfrt$!enfmf$>
+map	enf34.,,<enfod$!			enfsv$!enfrt$!enfmf$>
+map	enf40.,,<enfmp$!enfmx$!enfod$!enfop$!	enfsv$!enfrt$>
+map	enf44.,,<enfjr$!enfod$!enfop$!		enfsv$!enfrt$!enfsp$>
+map	enf45.,,<enfjr$!enfod$!enfop$!		enfsv$!enfrt$!enfsp$>
+map	enf60.,,<enfmp$!enfmx$!enfod$!		enfsv$!enfrt$>
+map	enf70.,,<enfjr$!enfod$!enfop$!		enfsv$!enfrt$!enfsp$>
+;map enf73.,,<enfmp$!enfmx$!enfjr$!enfod$!enfop$ enfsv$!enfrt$!enfsp$!enfmf$>
+map	enf73.,,<enfmp$!enfmx$!enf70.!		enfmf$> ;above is too long
+map	enfv3.,,<enfjr$!enfod$!			enfsv$!enfrt$>
+map	enfv5.,,<enfod$!			enfsv$!enfrt$>
+map	enfv8.,,<enfod$!			enfsv$!enfrt$>
+map	enfun.,,<0>
+;
+; en.syh	system handler
+;
+map	enhfc.,,14.	;handler file channel
+map	enhnf$,,1	;handler not found
+map	enhio$,,2	;handler i/o error
+map	enhcs$,,4	;handler csr not present
+map	enhic$,,10	;handler installation check failed
+map	enhii$,,20	;invalid handler image
+map	enhiv$,,40	;invalid vector address
+map	enhit$,,100	;invalid vector table address
+map	enhis$,,200	;invalid isr address
+map	enhnr$,,400	;no room to load handler
+map	enhrn$,,1000	;rt11n handler non-file structured
+;
+; en.bst	build status
+;
+map	enbfc.,,13.	;build file channel
+map	enbnf$,,1	;-I-build file not found
+map	enbio$,,2	;-W-build file i/o error
+map	enbgd$,,4	;-W-invalid build file
+map	enbv1$,,10	;-W-version 1 only monitor
+map	enbpl$,,20	;-W-parameter limits exceeded
+;
+; en.kst	kmon status
+;
+;map	enknb$,,1	;nobuild file - /NOSHAPE	
+;
+.ENDM
+;-----------------------; 
+; DEQNA			;
+;-----------------------;
+;
+.MACRO	$EQDEF
+;
+map	e$gcs0,,174440	;first CS bank
+map	e$gcs1,,174460	;second CS bank
+map	egcss.,,8.	;eight CS registers
+;
+map	eg.sa0,,0	;station address zero
+map	egsas.,,6	;six station address bytes
+;
+map	eg.sa0	,,0	;station address 0
+map	eg.sa1	,,2	;station address 1 - etc
+map	eg.rbl	,,4	;receive BDL low in 15:0
+map	eg.rbh	,,6	;receive BDL high in 5:0
+map	eg.tbl	,,10	;transmit BDL low
+map	eg.tbh	,,12	;transmit BDL high
+map	eg.vec	,,14	;vector address in 9:2
+map	eg.csr	,,16	;csr
+map	eg.rbs		;register byte size
+;
+map	egren$,,1	;r/w 0 - receiver enable
+map	egres$,,2	;r/w 0 - soft reset
+map	egnxm$,,4	;r/o 0 - non-existent memory interrupt
+map	egboo$,,10	;r/w 0 - boot/diagnostic
+map	egtiv$,,20	;r/o 1 - transmit BDL invalid (done)
+map	egriv$,,40	;r/o 1 - receive BDL invalid (done)
+map	egien$,,100	;r/w 0 - receive/transmit interrupt enable
+map	egtin$,,200	;r/w 0 - transmit interrupt - clear to permit next
+map	egind$,,400	;r/w 0 - internal loopback disable
+map	egext$,,1000	;r/w 0 - external loopback enable
+map	egtim$,,2000	;r/w ? - sanity timer enable
+map	egfus$,,10000	;r/o 1 - fuse o.k.
+map	egcar$,,20000	;r/o 0 - carrier sense signal
+map	egrin$,,100000	;r/w 0 - receiver interrupt - clear to permit next
+;
+; 	Buffer descriptor list
+;
+map	eg.flg	word,0	;flag word - see below
+map	eg.adh	null	;high order address - in low byte
+map	eg.dsc		;address descriptor - in high byte - see below
+map	eg.adl		;low order address
+map	eg.cbs	null	;chain byte size
+map	eg.wct		;buffer word count - twos complement
+map	eg.st0		;status 0
+map	eg.st1		;status 1
+map	eg.dbs	null	;descriptor byte size
+;
+;	eg.flg	flags
+;
+map	egbus$,,40000	;buffer in use - from deqna
+map	egbok$,,100000	;buffer o.k. - from user
+;
+;	eg.dsc	descriptors
+;
+map	egah$p,,77	;address high positive
+map	eghbs$,,100	;high byte start
+map	eglbe$,,200	;low byte end
+map	egsup$,,10000	;setup packet
+map	egend$,,20000	;end of message - includes this packet
+map	egchn$,,40000	;chain flag
+map	egdok$,,100000	;descriptor o.k. - clear for end of BDL
+;
+;	ge.st0	transmit status 0
+;
+map	eges$n,,037777	;end status negative
+map	egunu$,,100000	;unused
+map	egint$,,140000	;intermediate packet
+map	egdon$,,000000	;done - no errors
+map	egerr$,,040000	;done - with errors
+;
+map	egcc$p,,360	;collision count positive
+map	eghcc$,,400	;hearbeat collision check failure
+map	egcol$,,1000	;aborted by excessive collisions
+map	egs16$,,2000	;sanity timer hardware enabled - four minute period
+map	egnca$,,4000	;no carrier
+map	eglos$,,10000	;carrier lost during transmit
+;
+;	ge.st1	transmit status 1
+;
+map	egtd$p,,037777	;tdr - maintenance counter
+;
+;	ge.st0	receive status 0
+;
+;	see buffer o.k
+;
+map	egovf$,,1	;overflow - messages lost - valid only if egdis$ set
+			; current message o.k. if crc and runt are clear
+map	egcrc$,,2	;crc error - valid only if egdis$ set
+map	egfrm$,,4	;frame error - valid only if crc set
+map	eghl$p,,3400	;high order received length
+map	egrnt$,,4000	;runt 
+map	egdis$,,10000	;discarded packet - set by any of three above
+map	egsur$,,20000	;setup reply 
+;
+;	ge.st1	receive status 1
+;
+map	eg.rll	byte,eg.st1 ;receive byte length low
+			;high byte same - complete when matched
+;
+;	setup mode data block
+;
+;	At least one address must be the node physical address.
+;	At least one address must be the broadcast pattern - all ones.
+;	All unused addresses should be the physical address.
+;
+map	eg.t00,,1	;target address 0, byte 0
+map	eg.t01,,11	;ta 0, byte 1
+map	eg.t80,,101	;target address 8, byte 0
+map	eg.te7,,157	;last byte of parameters
+map	eg.sbs,,160	;setup byte size
+map	egtad.,,8.	;eight bytes between digits
+map	egtas.,,6.	;6 bytes in target address
+map	egmul$,,1	;multicast bit in byte 0 of ta
+;
+;	When the byte length of the data block exceeds 127. bits 6:0
+;	are used as control parameters.
+;	Clear receive enable (egren$) if the byte length exceeds 127.
+;
+map	egamc$,,1	;recognise all multicast addresses
+map	egpro$,,2	;promiscuous - recognise any address
+map	egle1$,,4	;turn off led 1
+map	egle2$,,10	;turn off led 2
+map	egle3$,,14	;turn of led 4
+map	egst$p,,260	;sanity timer mask
+;
+;	Ethernet frame
+;
+map	eg.dst	byte*6,0;destination address
+map	eg.src	byte*6	;source address
+map	eg.pro	word	;protocol
+map	eg.fbs		;frame byte size
+map	egmfs.	,,64.-4	;minimum frame size (64.-(4_byte CRC))
+;			;nq: has 64. as minimum
+map	egxfs.,,1518.	;759.*2
+;
+;	Frame size limits
+;
+;	NQ:	64	  1518
+;	XQ:	60=46+14  1514=1500+14
+;
+;	RT-11 forget that CRC is added by hardware
+.ENDM
+;-----------------------; 
+; ERRORS		;
+;-----------------------;
+;
+; Error constants	
+;
+;-----------------------; 
+; MER/KVE are dependent	;
+;-----------------------;
+;
+.MACRO	$ERDEF	
+;
+; Error packet
+;
+map	ep.flg	byte,0	;flags
+map	ep.lst	byte	;last character
+map	ep.fil		;fill character
+map	ep.bas		;numeric base
+map	ep.out		;output routine address
+map	ep.bbs		;
+;
+map	eplow$,,200	;dont convert to uppercase (internal)
+map	epsgn$,,100	;display signed number
+map	epr5l$,,40	;display rad50 in lower case
+;
+; RT-11 standard hard errors
+;
+map	eracm.,,377	;-1		invalid access mode
+map	erusr.,,377	;-1	usrx$e	usr recursion	
+map	erndv.,,376	;-2	nodv$e	no device
+map	erdio.,,375	;-3	diri$e	directory i/o
+map	erfet.,,374	;-4	fetc$e	fetch error
+map	erovl.,,373	;-5	ovly$e	overlay error
+map	erful.,,372	;-6	dovr$e	directory full
+map	eradr.,,371	;-7	addr$e	invalid address
+map	erchn.,,370	;-10	chan$e	invalid channel
+map	eremt.,,367	;-11	emt$e	invalid emt
+map	erbus.,,366	;-12	tr04$e	trap to 4
+map	ercpu.,,365	;-13	tr10$e	trap to 10
+map	erdin.,,364	;-14	illd$e	invalid directory
+map	erunl.,,363	;-15	udrv$e	unloaded handler
+map	erfpu.,,362	;-16	fpu$e	FPU trap
+map	ermem.,,361	;-17	mpar$e	Memory parity
+map	ermmu.,,360	;-20	mmuf$e	MMU error
+map	ersst.,,357	;-21	isst$e	invalid sst
+map	erovr.,,356	;-22	over$e	Overlay error
+map	ersp0.,-1,355	;-23	rt-11 spares
+map	ersp1.	-1	;	
+map	ersp2.	-1	;	
+map	ersp3.	-1	;	
+map	ersp4.	-1	;	
+;
+; CSI errors
+;
+map	ercsi.	0	;	CSI errors
+;			;
+map	ercom.	-1	;	Invalid command
+map	erdev.	-1	;	Invalid device DEV:FILNAM.TYP
+map	erpro.	-1	;	Protected file DEV:FILNAM.TYP
+map	erdvf.	-1	;	Device full DEV:FILNAM.TYP
+map	erfil.	-1	;	File not found DEV:FILNAM.TYP
+;
+; CLI errors
+;
+map	ercli.	0	;	CLI errors
+;			;
+map	erism.	-1	;	Insufficient memory DEV:FILNAM.TYP
+map	erimg.	-1	;	Invalid image DEV:FILNAM.TYP
+map	erioe.	-1	;	I/O error DEV:FILNAM.TYP
+map	ersta.	-1	;	Invalid start address DEV:FILNAM.TYP
+;
+; Vector errors
+;
+map	ervec.	0	;	vector errors
+;			;
+map	erusp.	-1	;	Invalid user stack
+map	erksp.	-1	;	Invalid kernel stack
+map	erbug.	-1	;	Kernel bugcheck
+map	erunv.	-1	;	Invalid interrupt
+map	erpow.	-1	;	Power fail
+map	erbpt.	-1	;	BPT trap
+map	eriot.	-1	;	IOT trap
+map	ertrp.	-1	;	TRAP trap
+;
+; System errors
+;
+map	eracp.	-1	;	ACP error
+map	eruns.	-1	;	Directory unsafe DEV:FILNAM.TYP
+map	eracr.	-1	;	Missing rights
+;
+; Other errors
+;
+map	erprc.	-1	;	Invalid process
+map	erter.	-1	;	Invalid terminal
+map	erats.	-1	; ???	Free slot - was attach message
+map	erctt.	-1	;	[ctrl/t] - process time image
+map	ercra.	-1	;	Fatal system halt
+;
+map	erpni.	-1	;	PLAS not installed
+map	erstb.	-1	;	Invalid STB DEV:FILNAM.TYP
+map	erspf.	-1	;	File queued to DEV:FILNAM.TYP
+map	ercrp.	-1	;	Process corrupted
+map	erikm.	-1	;	Insufficient kernel memory DEV:FILNAM.TYP
+;
+map	ermax.		;	maximum error code
+;
+; Postive message codes
+;
+map	ernew.	1,0	;	newline
+map	eroct.	1	;	octal number
+map	erdec.	1	;	decimal number
+map	err50.	1	;	rad50 value
+map	err5l.	1	;	rad50 in lower case
+;
+map	erpoc.	1	;	put octal
+map	erpde.	1	;	put decimal
+map	erpr5.	1	;	put rad50
+map	erpgj.	1	;	put gtjb process name
+;
+.ENDM
+;-----------------------; 
+; ERROR SEVERITY	;
+;-----------------------;
+;
+.MACRO	$ESDEF
+.if ndf esdfn$		;check already defined
+map	esdfn$,,1	;we are now defined
+;			;			v5.1 and earlier
+map	essuc$,,1	;success		essuc$,,1
+map	esinf$,,1	;informational		esinf$,,1
+map	eswar$,,2	;warning		eswar$,,2
+map	eserr$,,4	;error			eserr$,,4
+;			;			essev$,,10
+map	esfat$,,10	;fatal			esfat$,,20
+;ap	esunc$,,20	;unconditional		esunc$,,40 & 200
+map	esunc$,,220	;unconditional		esunc$,,40
+map	esdef$,,eserr$!esfat$!esunc$
+;
+; Following are soft definitions in case user has them
+; already defined.
+;
+	succs$=essuc$	;define standard codes
+	succ$=essuc$	;european spelling
+	info$=esinf$	;information
+	warn$=eswar$	;warning
+	error$=eserr$	;error
+	fatal$=esfat$	;fatal
+	uncon$=esunc$	;unconditional
+.endc			;
+.ENDM
+;-----------------------; 
+; Ethernet constants	;
+;-----------------------;
+;
+.MACRO	$ETDEF
+;
+;	Header
+;
+map	et.dst	null,0	;destination station address
+map	et.da0		;
+map	et.da1		;
+map	et.da2		;
+map	et.src	null	;source station address
+map	et.sa0		;
+map	et.sa1		;
+map	et.sa2		;
+map	et.pro		;protocol
+map	et.hbs	null	;header size
+;
+;	et.da0/et.sa0	
+;
+map	etmca$,,1	;multicast address flag
+;
+;	CRC trailer	
+;
+map	et.crc	null,0	;crc
+map	et.cr0		;
+map	et.cr1		;
+map	et.cbs	null	;crc size
+;
+;	Frame size limits
+;
+map	etsps.,,64.		;64.	smallest physical size
+map	etlps.,,1518.		;1518.	largest physical size
+;				;
+map	etsls.,,etsps.-et.cbs.	;60.	smallest logical size
+map	etlls.,,etlps.-et.cbs.	;1514.	largest logical size
+;				;
+map	etsds.,,etsls.-et.hbs	;46.	smallest data size
+map	etlds.,,etlls.-et.hbs	;1500.	largest data size
+;				;
+; Note, RT-11 sizes include 2-word NI: header
+;
+.ENDM
+;-----------------------; 
+; EVE			;
+;-----------------------;
+;
+; Define EVE structures
+;
+;	ev%%%$ may not be used here.
+;
+.MACRO	$EVDEF	
+;
+; Following are redefined - dont use map
+;
+	evdef.=1	;set defined flag
+	evpan.=0	;package number
+	evgrn.=0	;group number
+;
+; Define an item
+;
+map	ev.itk	word,0	;item token
+map	ev.idl	word	;item length code
+map	ev.ihs	null	;item header byte size
+map	evil$n,,176001	;isolate item length
+map	evif$n,,003777	;isolate item format
+map	evif$p,,176000	;item format positive
+map	evip$p,,1	;item processed flag
+;
+; Define the header
+;
+map	ev.htk	word,0	;header start-of-message token
+map	ev.hdl	word	;header data length
+map	ev.hps	word	;header package byte size
+map	ev.hs0	byte	;header system byte 0
+map	ev.hs1	byte	;
+map	ev.hs2	byte	;
+map	ev.hs3	byte	;
+map	ev.hbs	null	;header byte size
+map	evhdl.,,ev.hbs-ev.hps ;standard header length (and minimum)
+map	evhtk.,,<^rsom>	;header som token value
+;
+; Define the group prefix	
+;
+map	ev.gtk	word,0	;group sog token
+map	ev.gdl	word	;group data length
+map	ev.ggs	word	;group total size
+map	ev.gnm	word	;group name
+map	ev.gbs	null	;group item byte size
+map	evgdl.,,ev.gbs-ev.ggs	;group item length
+;
+; Define calls
+;
+map	ev.ctk	word,0	;call token
+map	ev.cdl	word	;call data length
+map	ev.cd0	null	;first word of data
+;
+; Define system tokens and token boundaries	
+;
+map	evlvc.,,16.	;lowest valid code
+map	evhvc.,,-16.	;highest valid code
+map	evnop.,,<^rnop>	;nop			evn
+map	evsop.,,<^rsop>	;start of package	evp
+map	eveop.,,<^reop>	;end of package		evt
+map	evsog.,,<^rsog>	;start of group		evg
+map	eveve.,,<^reve>	;explore world		eve
+map	evevx.,,<^revx>	;explore group		evx
+;
+; Define group and call dispatch structures
+;
+; Define data types.
+;
+;map	evasc$,,	;ascii type
+;map	ev		;
+;
+.ENDM
+;-----------------------; 
+; EVE CALLS		;
+;-----------------------;
+;
+;	$evbeg	begin a package
+;	$evend	end a package
+;	$evgro	begin a group
+;	$evnop	nop
+;
+;	$EVBEG	Begin a package
+;
+;	$evbeg
+;
+.MACRO	$EVBEG nam lab
+	evpan.=evpan.+1		;new package
+	evgrn.=evgrn.+1		;new group
+	.word	^rsom
+	.word	6.
+.irp	$,<\evpan.>
+	.word	e$vp'$'-.+4.	;total package size
+.endr
+	.blkb	4.		;system area
+.iif nb <nam>,$evgro nam lab
+.ENDM
+;
+;	$EVGRO	Begin a group
+;	$EVGRP	Begin a group
+;
+;	$evgro	nam
+;	$evgrp	nam
+;
+;	nam	Three character name of the group
+;
+;	There are two names for this macro because
+;	of a missmatch between implementation and documentation.
+;
+.MACRO	$EVGRO	nam lab		;EVE group
+.irp	$,<\evgrn.>		;finish previous group
+e$vg'$':			;
+.endr
+	evgrn.=evgrn.+1		;next group
+	.rad50	/sog/		;start a group
+	.word	4		;data size
+.irp	$,<\evgrn.>		;
+	.word	e$vg'$'-.+4.	;group byte size
+.endr
+.iif nb <lab>,lab:
+	.rad50	/nam/		;name of the group
+.ENDM
+;
+.MACRO	$EVGRP	nam lab		;EVE group
+.irp	$,<\evgrn.>		;finish previous group
+e$vg'$':			;
+.endr
+	evgrn.=evgrn.+1		;next group
+	.rad50	/sog/		;start a group
+	.word	4		;data size
+.irp	$,<\evgrn.>		;
+	.word	e$vg'$'-.+4.	;group byte size
+.endr
+.iif nb <lab>,lab:
+	.rad50	/nam/		;name of the group
+.ENDM
+;
+;	$EVEND	End package
+;
+;	$evend
+;
+.MACRO	$EVEND			;End of package
+.irp	$,<\evgrn.>		;finish previous group
+e$vg'$':			;
+.endr				;
+	.rad50	/eom/		;end the package
+	.word	0		;no data
+.irp	$,<\evpan.>		;finish package
+e$vp'$':			;
+.endr
+.ENDM
+;
+;	$EVCAL	EVE call
+;
+;	$evcal	nam len lab	
+;
+.MACRO	$EVCAL	NAM LEN=0 LAB DAT
+	.rad50	/nam/
+	.word	<len>+1&3776
+.iif nb <lab>,lab:
+.if nb <dat>
+.iff
+.iif ne <len>,.blkb <len>+1&3776
+	.even
+.endc
+.ENDM
+;
+;	Handle table items
+;
+.MACRO	$EVITM	OFF LEN=0 LAB DAT
+	.rad50	/itm/
+	.word	<len>+1&3776+2
+	.word	off
+.iif nb <lab>,lab:
+.if nb <dat>
+.iff
+.iif ne <len>,.blkb <len>+1&3776
+	.even
+.endc
+.ENDM
+;-----------------------; 
+; EVE PROCESSING	;
+;-----------------------;
+;
+;	$evpro
+;	$evdgr	
+;	$evdca
+;
+;	Call EVE processor
+;
+.MACRO	$EVPRO PAC TAB
+	$mov	pac,-(sp)
+	$mov	tab,-(sp)
+	call	@#ev$pro
+.ENDM
+;
+;	Define a group
+;
+.MACRO	$EVDGR	nam adr
+.if nb <nam>
+	.rad50	/nam/
+	.word	adr-.
+.iff
+	.word	0
+.endc
+.ENDM
+;
+;	Define a call
+;
+.MACRO	$EVDCA	nam len par adr
+.if nb <nam>
+	.rad50	/nam/
+	.word	len
+	.word	par
+	.word	adr-.
+.iff
+	.word	0
+.endc
+.ENDM
+;
+;-----------------------; 
+; EVE GROUPS		;
+;-----------------------;
+;
+; Declare EVE groups
+; 
+;	All EVE groups should be defined here.
+;	A group name may not start with a double letter.
+;	This list is potentially quite long.
+; 
+.MACRO	$EVGRS	
+; 
+map	evsys$,,<^rsys>	;system			sys
+map	evgsy$,,<^rgsy>	;get system
+map	evssy$,,<^rssy>	;set system
+; 
+map	evprc$,,<^rprc>	;process
+map	evgpr$,,<^rgpr>	;get process
+map	evspr$,,<^rspr>	;set process
+; 
+map	evter$,,<^rter>	;terminal
+map	evgte$,,<^rgte>	;get terminal
+map	evste$,,<^rste>	;set terminal
+; 
+map	evdev$,,<^rdev>	;device
+map	evgde$,,<^rgde>	;get device
+map	evsde$,,<^rsde>	;set device
+; 
+map	evuni$,,<^runi>	;unit
+map	evgun$,,<^rgun>	;get unit
+map	evsun$,,<^rsun>	;set unit
+; 
+map	evvol$,,<^rvol>	;volume
+map	evgvo$,,<^rgvo>	;get volume
+map	evsvo$,,<^rsvo>	;set volume
+; 
+map	evfil$,,<^rfil>	;file
+map	evgfi$,,<^rgfi>	;get file
+map	evsfi$,,<^rsfi>	;set file
+; 
+map	evchn$,,<^rchn>	;channel
+map	evgch$,,<^rgch>	;get channel
+map	evsch$,,<^rsch>	;set channel
+; 
+map	evclo$,,<^rclo>	;clock
+map	evgcl$,,<^rgcl>	;get clock
+map	ecscl$,,<^rscl>	;set clock
+;
+.ENDM
+; 
+; Define EVE types
+;
+.MACRO	$EVTYP	
+;
+;	The basic types are:
+;
+;	ascii	byte	string
+;	binary	bytes	words
+;	decimal	bytes	words
+;	hex	bytes	words	longs
+;	octal	bytes	words
+;	rad50	words	names	filenames
+;	rt-11	date	time			octal words
+;	system	 uic	protection		octal bytes, hex word
+;
+map	evas$f,,33.*1024. ; a	asciz string	"string"
+map	evbw$f,,34.*1024. ; b	binary word	10011101010
+map	evab$f,,35.*1024. ; c	ascii byte	'c
+map	evdw$f,,36.*1024. ; d	decimal word	1234.
+map	evob$f,,37.*1024. ; e	octal bytes	003	
+map	evrf$f,,38.*1024. ; f	rad50 filename	dev:filnam.typ
+;		39.*1024. ; g			
+map	evhw$f,,40.*1024. ; h	hex word	0a34b
+map	evid$f,,41.*1024. ; i	1234.		variable decimal integer
+;		42.*1024. ; j			
+;		43.*1024. ; k	
+map	evhl$f	44.*1024. ; l	hex long	0a2345			
+map	evbb$f,,45.*1024. ; m	binary byte	1100011
+map	evrn$f,,46.*1024. ; n	rad50 name	somnam
+map	evow$f,,47.*1024. ; o	octal word	01234
+map	evsp$f,,48.*1024. ; p	protection	s:,o:,g:,w:
+map	evhq$f,,49.*1024. ; q	hex quad	0a23345aa567ff
+map	evrw$f,,50.*1024. ; r	rad50 word	awr
+map	evdb$f,,51.*1024. ; s	decimal bytes	123.,45.
+map	evrt$f,,52.*1024. ; t	12:24:35.22	2-word rt-11 time
+map	evsu$f,,53.*1024. ; u	system user	[004,101]
+;		54.*1024. ; v
+;		55.*1024. ; w
+map	evhb$f,,56.*1024. ; x	hex byte	01a
+map 	evrd$f,,57.*1024. ; y	rt-11 date	12-Mar-84
+;  		58.*1024. ; z			unknown format
+.ENDM
+;
+.MACRO	$EVSYS	
+;
+; Define EVE system call lengths
+; 
+map	cod.sy,,word	;system code (16-bit system code)
+map	nam.sy,,byte*12.;12-byte ascii name
+map	ver.sy,,word	;system version
+map	rel.sy,,word	;system release
+;			;system time
+.ENDM
+; 
+.MACRO	$EVFIL
+;
+; Define EVE file call lengths
+; 
+map	len.fi,,word*2	;file length in blocks
+map	pro.fi,,word	;dec protection
+map	mem.fi,,word	;dec member code
+map	grp.fi,,word	;dec group code
+map	dat.fi,,word*2	;date numeric (day,month,year-year)
+map	tim.fi,,word*2	;time numeric (seconds)
+map	del.fi,,word	;rt-11 deletion
+;
+.ENDM 
+;-----------------------; 
+; EOF1 LABEL		;
+;-----------------------;
+;
+; EOF1 label - RT-11, RSX, VMS
+; 
+; VMS EOV1 is same except that E1.LAB = "EOV".
+;
+.MACRO	$E1DEF
+; 
+map	e1.lab	byte*3,0;label id	"EOF"			
+map	e1.num	byte	;label number	"1"
+map	e1.fil	byte*17.;file id	"FILE  .TYP      " or "FILE.TYP   "
+map	e1.vid	byte*6	;volume id	"RT11A " (volume id)
+map	e1.fsn	byte*4	;file sect num	"0001"
+map	e1.seq	byte*4	;file seq num	"0000" new tape, "0001" first file
+map	e1.gen	byte*4	;generation num	"0001"
+map	e1.ver	byte*2	;gen. version	"00"
+map	e1.cre	byte*6	;creation date	" yyddd"
+map	e1.exp	byte*6	;expiry date	" 00000" is expired file
+map	e1.acc	byte	;accessibility	" "
+;			;
+map	e1.blc	byte*6	;block count	"000000"
+;			;
+map	e1.sys	byte*13.;system code	"DECRT11A     "
+map	e1.res	byte*7.	;reserved 2	"      "
+map	e1.bbs		;80.
+assume	e1.bbs eq 80.	;check this length
+;
+.ENDM
+;-----------------------; 
+; EXTERNAL FEATURE	;
+;-----------------------;
+;
+.MACRO	$EXDEF
+;
+;	preface dispatch offsets
+;
+map	ex.ker	word,0	;feature kernel record address
+map	ex.pbg		;feature begin
+map	ex.pex		;feature exit
+map	ex.pds		;feature dispatch
+;
+;	forward dispatch offsets
+;
+map	ex.fst	word,0	;forward start
+map	ex.fdn		;forward done
+map	ex.fab		;forward abort
+map	ex.fpf		;forward post fork
+map	ex.fdf		;forward deliver fork
+map	ex.tmo	word*2	;forward timio
+map	ex.dtm	word*2	;forward deliver timio
+map	ex.fis	word*2	;forward interrupt
+;
+.ENDM
+

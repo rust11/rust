@@ -1,0 +1,1523 @@
+;.title	ldd - data macros d
+;
+;	PDP-11 data definitions
+;
+;	%build
+;	run sy:strip smb:ldd.mla=sms:ldd.mac
+;	%end
+;	%date
+;	<26-Jan-2008 12:25:15.45>
+;	%edit
+;	<68   >
+;
+;	da	RUST/XM device attributes
+;	db	RUST/XM debugger
+;	dc	RT-11 device codes
+;	dd	RT-11 (RSX) Device descriptions and categories
+;	de	RUST/XM device record
+;	df	reserved for DF define flags
+;	dg	PDP-11 DH terminal interface
+;	dh	PDP-11 DHV terminal interface
+;	di	RT-11 .DSTAT device information area
+;	dl	PDP-11 DL/DLV terminal interface
+;	dm	RUST/SJ dynamic memory
+;	dn	RUST directory names
+;	dp 	Device processors (see MOUNT)
+;	dr	RT-11 driver structures - V5.4 handlers
+;	ds	RT-11 device status word
+;???	du	Reserved for DU: handler
+;	dv	Maree device information
+;	dy	RX01/RX02 DX:/DY:
+;	dz	PDP-11 DZ/DZV terminal interface
+;	d1	DOS magtape header 1 label
+;-----------------------; 
+; DEVICE ATTRIBUTES	;
+;-----------------------;
+;
+;	RUST/XM device attributes
+;	Applied only to mapped handlers
+;
+;	DAddS$	de.sta & device code
+;	DAddC$	de.ctl flags
+;	DAddT$	de.typ flags
+;
+;	Special check required for DL: 22bit option
+;
+.MACRO	$DADEF MAP
+$dedef			;device flags
+;
+.macro	ma$map	dev sta ctl typ
+	ma$ctl=0
+	ma$typ=0
+  .if nb <CTL>
+    .irp ma$flg,<CTL>
+      .if nb <ma$flg>
+  	ma$ctl=ma$ctl!de'ma$flg'$
+      .endc
+    .endr
+  .endc
+  .if nb <TYP>
+    .irp ma$flg,<TYP>
+      .if nb <ma$flg>
+  	ma$typ=ma$typ!de'ma$flg'$
+      .endc
+    .endr
+  .endc
+	map	da'DEV'c$,,ma$ctl
+	map	da'DEV't$,,ma$typ
+.ENDM
+;	
+;	sta	var gab fun hab spc won ron rta
+;	ctl	16B 18B 22b vab MAP log sin prc v2h spf inv
+;	typ	dma rem dmx syn spo tim abo unl ext dmi abt mnt cac ser p6h
+;
+;		sta	ctl			typ
+ma$map	rk	<>	<>		<dma,ext,cac>		;rk:
+ma$map	dt	<>	<>		<dma,ext,cac>		;dt:
+ma$map	el	<>	<inv>		<>			;el:
+ma$map	lp	<>	<22b>		<ext,abt>		;lp:
+ma$map	tt	<>	<22b,inv>	<>			;tt:
+ma$map	ba	<>	<inv>		<>			;ba:
+ma$map	dl	<>	<>		<dma,p6h,cac,dmi>	;dl:
+;	dl	<>	<22b>		<dma,p6h,cac,dmi>	;dl: 22-bit
+ma$map	dy	<>	<>		<dma,p6h,abt,dmi>	;dy:
+ma$map	pc	<>	<22b,sin>	<ext,abt>		;pc:
+ma$map	pp	<>	<22b,sin>	<ext,abt>		;pp:
+ma$map	mt	<>	<>		<dma,p6h,abt,dmi>	;mt:
+ma$map	rf	<>	<>		<dma,ext,cac>		;rf:
+ma$map	ct	<>	<22b>		<ext,abt>		;ct:
+ma$map	cr	<>	<22b>		<ext,abt>		;cr:
+ma$map	ds	<>	<>		<dma,ext,cac>		;ds:
+ma$map	mm	<>	<>		<dma,p6h,abt,dmi>	;mm:
+ma$map	dp	<>	<>		<dma,ext>	;???	;dp:
+ma$map	dx	<>	<22b>		<ext,abt>		;dx:
+ma$map	dm	<>	<>		<dma,p6h,cac,dmi>	;dm:
+ma$map	nl	<>	<22b>		<ext,sin>		;nl:
+ma$map	dd	<>	<22b>		<ext,abt>		;dd:
+ma$map	ms	<>	<22b>		<dma,p6h,abt,dmi>	;ms:
+ma$map	pd	<>	<inv>		<>			;pd:
+ma$map	pq	<>	<inv>		<>			;pq:
+?ma$map	sl	<>	<inv>		<>			;sl:
+ma$map	mq	<>	<inv>		<>			;mq:
+ma$map	dr	<>	<22b>		<ext,sin,abt>		;dr:
+;	ib
+ma$map	xt	<>	<22b>		<ext,abt,sin>		;xt:
+ma$map	ld	<>	<22b>		<ext>			;ld:
+ma$map	vm	<>	<22b>		<>			;vm:
+ma$map	du	<>	<22b>		<dma,cac,dmi>		;du: - floppies?
+ma$map	sl	<>	<inv>		<>			;sl
+ma$map	dz	<>	<inv>		<>			;dz:
+ma$map	dw	<>	<inv>		<>			;dw:
+ma$map	pi	<>	<inv>		<>			;pi:
+ma$map	sp	<>	<inv>		<>			;sp:
+ma$map	xc	<>	<inv>		<>			;xc:
+ma$map	xl	<>	<22b>		<ext,abt,sin>		;xl:
+ma$map	mu	<>	<22b>		<dma,abt,dmi>		;mu:
+ma$map	nq	<>	<22b>		<dma,p6h,abt,dmi,sin>	;nq:
+ma$map	nc	<>	<inv>		<>			;nc:
+ma$map	nu	<>	<22b>		<dma,p6h,abt,dmi,sin>	;nu:
+ma$map	sd	<>	<inv>		<>			;sd:
+ma$map	st	<>	<inv>		<>			;st
+;
+ma$map	vx	<spc>	<22b>		<ext,abt,sin>		;nt:
+ma$map	nt	<spc>	<22b>		<ext,abt,sin>		;nt:
+ma$map	vv	<>	<>		<ext>			;vv:
+ma$map	fa	<spc>	<22b>		<abt,sin>		;fa:
+ma$map	sn	<spc>	<22b>		<abt,sin>		;ns:
+ma$map	tp	<spc>	<22b>		<abt,sin>		;tp:
+;
+;	re	<spc>	<22b>		<ext,sin>		;re:
+;	mb	<spc>	<22b>		<ext,sin>		;mb:
+;	tc	<spc>	<22b>		<ext,sin>		;tc:
+;	no	<spc>	<22b>		<ext,sin>		;mb:
+.ENDM
+;-----------------------; 
+; DEBUG 		;
+;-----------------------;
+;
+; Debugger control flags
+;
+.MACRO	$DBDEF
+;
+;	Symbolic debugger switch
+;
+.iif ndf dbrev.,dbrev.=0;reverse compile option
+;
+;	Debug switch location
+;
+map	d$bctl,,500	;debug switchs
+;
+map	dbtra$,,1	;trace all processes
+map	dbcra$,,2	;turn on debugger for crashs
+map	dbbpt$,,4	;turn on debugger for kernel bpts
+map	dboff$,,10	;turn off debugger
+;map	dbpre$,,100000	;kernel debugger is present
+;
+;	Debug frame
+;
+map	db.sta	word,0	;status
+map	db.val		;current value
+map	db.adr		;current address
+map	db.pre		;previous address
+.if ne dbrev.
+map	db.loc		;location
+map	db.vpc		;virtual pc
+map	db.ins		;instruction
+map	db.dst		;destination
+.endc
+map	db.lin		;line buffer address
+map	db.r0		;
+map	db.r1		;
+map	db.r2		;
+map	db.r3		;
+map	db.r4		;
+map	db.r5		;
+map	db.sp		;
+map	db.pc		;
+map	db.ps		;
+map	db.idb		;idb return
+map	db.op1		;old par1 value
+map	db.kve		;kve return
+map	db.rea		;reason
+map	db.vec		;vector
+map	db.kr4		;kernel r4
+map	db.kr5		;kernel r5
+map	db.kpc		;kernel pc
+map	db.kps		;kernel ps
+map	db.bbs		;
+;
+;	Status - internal
+;
+map	dbr50$,,1	;rad50
+map	dbasc$,,2	;ascii
+;
+map	dbdec$,,10	;decimal
+map	dboct$,,20	;revert to octal
+map	dbbyt$,,40	;bytes
+;
+map	dbins$,,200	;inspect registers only
+map	dbdis$,,400	;display mode
+map	dbrev$,,1000	;reverse compile
+map	dbtbt$,,2000	;entry by trace trap
+map	dbuse$,,100000	;usermode only
+;
+;	Control - ph.dbc
+;
+map	dbctp$,,1	;trace pending - no header
+;
+.ENDM
+;-----------------------; 
+; DEVICE CODES		;
+;-----------------------;
+;
+; RT-11 device codes
+; RT-11 V5.3 device classifications
+;
+;	DEddC.		device code
+;	DExxT.		device classification type
+;	DExxT$		classification variations (mod)
+;	DExxM$		MOD2 variations
+;
+.MACRO	$DCDEF
+;
+map	derkc.,,0	;rk:	rk05 disk
+map	dedtc.,,1	;dt:	tc11 dectape
+map	deelc.,,2	;el:	error logger
+map	delpc.,,3	;lp:	line printer
+map	dettc.,,4	;tt:	terminal
+map	debac.,,4	;ba:	batch
+map	dedlc.,,5	;dl:	rl01/rl02 disk
+map	dedyc.,,6	;dy:	rx02 diskette
+map	depcc.,,7	;pc:	pc11 reader/punch
+map	deppc.,,10	;pp:	v2 punch
+map	demtc.,,11	;mt:	magtape
+map	derfc.,,12	;rf:	rf11 disk
+map	dectc.,,13	;ct:	ta11 DECassette
+map	decrc.,,14	;cr:	cr11/cm11 card reader
+;		15	;
+map	dedsc.,,16	;ds:	rjs03/rjs04 fixed disk
+;		17	;
+map	demmc.,,20	;mm:	tju16/tu45 magtape
+map	dedpc.,,21	;dp:	rp11/rp02/rp03 disk
+map	dedxc.,,22	;dx:	rx11/rx02 diskette
+map	dedmc.,,23	;dm:	rk611/rk06/rk07 disk
+;		24	;
+map	denlc.,,25	;nl:	null handler
+;		26:30	;	decnet
+;		31:33	;	cts-300
+map	deddc.,,34	;dd:	tu58 DECtape II
+map	demsc.,,35	;ms:	ts11/ts04 magtape
+map	depdc.,,36	;pd:	pdt-11/130
+map	depqc.,,37	;pd:	pdt-11/150
+;		40	;
+map	delsc.,,41	;ls:	Serial line printer
+map	demqc.,,42	;mq:	FB message queue
+map	dedrc.,,43	;dr:	mrrt drv11j
+;		43	;ib:	ibv-11a ieee bus
+map	dextc.,,44	;xt:	mrrt serial transfer
+;		45	;
+map	deldc.,,46	;ld:	logical disk
+map	devmc.,,47	;vm:	virtual memory disk
+map	deduc.,,50	;du:	ra80/rc25 mscp disk
+map	deslc.,,51	;sl:	single line editor
+map	dedzc.,,52	;dz:	pro rx50 floppy
+map	dedwc.,,53	;dw:	pro rd50/rd51 disk
+map	depic.,,54	;pi:	pro profession interface
+map	despc.,,55	;sp:	transparent spooler
+;		56	;	
+map	dexcc.,,57	;xc:	pro communication port
+map	dexlc.,,57;[sic];xl:	dl(v)-11 communication port
+map	demuc.,,60	;mu:	tmscp magtape
+map	dencc.,,61	;nc:	pro ethernet
+map	denqc.,,61	;nq:	q-bus ethernet
+map	denuc.,,61	;nu:	unibus ethernet
+map	desdc.,,62	;sd:	dbg-11
+map	destc.,,63	;st:	dbg-11 symbol table
+;
+map	dehdc.,,175	;hd:	hypothetical disk
+;
+;
+; Internal and special directory device codes
+;
+.if ne 0		;these weren't ever used			;V4
+map	denxc.,,174	;disk	normalized disk with no size
+map	denfc.,,175	;disk	normalized disk with fixed size
+map	denvc.,,176	;disk	normalized disk with variable size	
+.endc
+map	devxc.,,200	;vx:	vamp connection
+map	dentc.,,201	;nt:	SHAREnet connection
+map	devvc.,,202	;vv:	virtual volume with variable size
+map	defac.,,203	;fa:	f11a acp
+map	deftc.,,204	;ft:	fat16				;V4
+;
+map	desnc.,,204	;sn:	SHAREnet front end handler (?? remove)
+map	detpc.,,205	;tp:	TPnet front end handler
+map	denfc.,,205	;nf:	NF:
+map	defxc.,,206	;fx:	RTX FX:
+;
+.if ne 0
+map	decpc.,,	;cp:	
+.endc
+;
+;	deibc.,,375	;ib:	ibv-11 ieee bus
+;
+; RT-11 V5.3++ device classifications
+;
+map	deukt.,,0	;dvc.uk	unknown
+map	denlt.,,1	;dvc.nl	null handler - nl
+map	dettt.,,2	;dvc.tt	terminal class handler - tt
+map	detpt.,,3	;dvc.tp	reserved; ?terminal port
+map	dedkt.,,4	;dvc.dk	rt-11 disk - dd dl dm dp dt du dw dx dy dz rk
+map	demtt.,,5	;dvc.mt	file structured magtape - mm ms mt mu
+map	dectt.,,6	;dvc.ct	cassette tape - ct
+map	delpt.,,7	;dvc.lp line printer - lp ls sp
+map	dedec.,,10	;dvc.de	decnet executive psuedo-handler
+map	dedpt.,,11	;dvc.dp decnet protocol psuedo-handler
+map	dedlt.,,12	;dvc.dl decnet port/line handler
+map	denit.,,13	;dvc.ni	ethernet port handler - nc nq
+map	depst.,,14	;dvc.ps	psuedo handler - pi sl sd
+map	devtt.,,15	;dvc.vt	virtual terminal port handler - xl xc
+map	desit.,,16	;dvc.si serialised input
+map	desot.,,17	;dvc.so serialised output
+map	desbt.,,20	;dvc.sb serialised input/output
+;
+;	dr.mod - classification modifications
+;
+map	dedxt$,,1	;dvm.dx	dedkt. is rx01 compatible
+map	dedmt$,,2	;dvm.dm	dedkt. has prefix word to spfun read/write
+map	denft$,,200	;dvm.nf	generic - device must be loaded - not fetched
+;
+;	dr.md2 - runtime modifications in dr.cqe
+;
+map	dev2q$,,40000	;	- mod2 v2
+map	denfq$,,100000	;	- mod2 nofetch
+.macro $dcdef
+.endm
+.ENDM
+;-----------------------; 
+; DEVICE DESCRIPTIONS	;
+;-----------------------;
+;
+;	Device descriptions
+;
+;	Monster macro to define device descriptor tables for utilities.
+;	Record each module that uses this macro below and rebuild them
+;	each time this macro is updated. Inform documentation each time.
+;
+;	source		command		usage
+;	dcl:shodev.mac	@dcl:dcl	SHOW DEVICE
+;	t:handle.mac	valid handler	SHOW HANDLER
+;	t:volume.mac	valid volume	SHOW VOLUME
+;
+;	$dddef	rtd hsd usd gnd
+;
+;	rtd	emits standard RT-11 devices
+;	hsd	emits standard HS devices
+;	usd	emits others or prototypical
+;	gnd	emits generic ACP codes
+;
+;	Describes each device with the following
+;
+;	desc	nam cod cat acp sht lng
+;
+;	nam	2 or 3 character device name
+;	cod	device code (100000=dont care)
+;	cat	category (rt, hs, us, gn)
+;	acp	acp type
+;	sht	short 8-character description
+;	lng	long 23-character description
+;
+;	The categories are used to select devices. The rules are:
+;
+;	rtd	<cod> defines the device.
+;		cod=0 is common mistake. Require filst$ for RK.
+;		Dn and Ft do not have defined names that I know about.
+;		nam=<> is used to fill in reserved slots.
+;		xl & xc are moved to the user section since they have
+;		the same device code.
+;	hsd	<nam> and <acp> must match.
+;		VX: requires that code=128. and acp=rt11s.
+;	usd	<nam> must match.
+;	gnd	Use the ACP type to select the entries you want.
+;
+;	The ACP types are shown below. These are not assigned values.
+;	They should be considered guesses.
+;
+;	rt11a		rt-11 disk file structure
+;	rt11x		RUST/XM extended rt-11 disk structure
+;	rt11n		rt-11 non-file sequential device
+;	rt11s		rt-11 Stranger file structure
+;	rt11m		rt-11 magtape
+;	rt11c		rt-11 cassette
+;	rt11u		rt-11 utility handler
+;	rt11d		rt-11 decnet
+;	rt11q		rt-11 message queue
+;	f11a		files11a, ods1
+;	f11b		files11b, ods2
+;	vampa		vax message processor
+;	usera		unknown
+;
+;	A/D	B	Card	Disk	Error	F	Graphic
+;		BA	CT	db	ei	fa
+;
+;	H	Indust	J	K	L Print	Mag	N Etheret	
+;						MQ	NL nf 
+;
+;	O	Paper	Q	R	S	TT	U
+;		PDT PI	qu	RF re	SD SL SP
+;
+;	VM	W	X Comm	Y	Z
+;
+;	RSX devices
+;
+;	desc	AD			<ADC>		<AD01 ADC>
+;	desc	AF			<ADC>		<AFC11 ADC>
+;	desc	AR			<LPS>		<AR11 LPS>
+;	desc	DB			<Disk>		<RP04/05/06 disk>
+;	desc	DF			<Disk>		<RF11/RS11 disk>
+;	desc	DK			<Disk>		<RK11/RK05 disk>
+;	desc	DS			<Disk>		<RS03/04 fixed disk>
+;	desc	GR			<Graphic>	<VT11/VS60 Graphics>
+;	desc	IC			<ICS>		<Industrial control>
+;	desc	IS			<DIO>		<DSS/DSR digital I/O>
+;	desc	UD			<DIO>		<UDC11 universal DIO>
+;	desc	XB			<Link>		<DA11B unibus link>
+;	desc	XL			<Line>		<DL11E async. line>
+;	desc	XM			<Line>		<DMC11 sync. line>
+;	desc	XP			<Line>		<DP11 sync. line>
+;	desc	XQ			<Line>		<DQ11 sync. line>
+;	desc	XU			<Line>		<DU11 sync. line>
+;	desc	XW			<Line>		<DUP11 sync. line>
+;
+;	desc	CL			<Listing>	<Console listing>
+;	desc	CO			<Output>	<Console output>
+;	desc	TI			<Input>		<Terminal input>
+;	desc	SY			<System>	<System device>
+;
+;	VMS drivers
+;
+;	desc	YC			<Terminal>	<DMF async terminal>
+;	desc	DZ					<DZ driver>
+;-----------------------;
+; $DDDEF CONTINUED	;
+;-----------------------;
+;
+.MACRO	$DDDEF RTD HSD USD GND
+;
+.if nb <rtd>;	name  code  cat	acp	short (8)	long (23)
+	desc	RK	0    rt	rt11a	<Disk>		<RK05 disk>
+	desc	DT	1    rt	rt11a	<DECtape>	<TC11 DECtape>
+	desc	EL	2    rt	rt11s	<Errors>	<Error logger>
+	desc	LP	3    rt	rt11a	<Printer>	<Line printer>
+	desc	TT	4    rt	rt11n	<Terminal>	<Terminal>
+	desc	DL	5    rt	rt11a	<Disk>		<RL01/RL02 disk>
+	desc	DY	6    rt	rt11a	<Floppy>	<RX02 floppy disk>
+	desc	PC	7    rt	rt11n	<Paper>		<PC11 paper tape>
+	desc	PP	8.   rt	rt11n	<Punch>		<Paper tape punch>
+	desc	MT	9.   rt	rt11m	<Magtape>	<TU10 magtape>
+	desc	RF	10.  rt	rt11a	<Disk>		<RF11 disk>
+	desc	CT	11.  rt	rt11c	<Cassette>	<TA11 cassette>
+	desc	CR	12.  rt	rt11n	<Cards>		<CR11/CM11 card reader>
+	desc	<>	13.  rt	<>	<>		<>
+	desc	DS	14.  rt	rt11a	<Disk>		<RJS03/04 fixed disk>
+	desc	<>	15.  rt	<>	<>		<>
+	desc	MM	16.  rt	rt11m	<Magtape>	<TJU16 magtape>
+	desc	DP	17.  rt	rt11a	<Disk>		<RP02/RP03 disk>
+	desc	DX	18.  rt	rt11a	<Floppy>	<RX01 floppy disk>
+	desc	DM	19.  rt	rt11a	<Disk>		<RK06/RK07 disk>
+	desc	<Ft>	20.  rt	<>	<>		<Fortran internal>
+	desc	NL	21.  rt	rt11n	<Null>		<Null device>
+	desc	<Dn>	22.  rt	rt11d	<DECnet>	<DECnet>
+	desc	<Dn>	23.  rt	rt11d	<DECnet>	<DECnet>
+	desc	<Dn>	24.  rt	rt11d	<DECnet>	<DECnet>
+	desc	LQ	25.  rt	rt11n	<Letters>	<CTS-300 LQ:>
+	desc	LR	26.  rt	rt11n	<Printer>	<CTS-300 LR:>
+	desc	LS	27.  rt	rt11n	<Printer>	<CTS-300 LS:>
+	desc	DD	28.  rt	rt11a	<DECtape>	<TU58 DECtape II>
+	desc	MS	29.  rt	rt11m	<Magtape>	<TS11 magtape>
+	desc	PD	30.  rt	rt11a	<PDT 130>	<PDT-11/130>
+	desc	PD	31.  rt	rt11a	<PDT 150>	<PDT-11/150>
+	desc	<>	32.  rt	<>	<>		<>
+	desc	LS	33.  rt	rt11n	<Printer>	<Serial line printer>
+	desc	MQ	34.  rt	rt11q	<Messages>	<Message queue>
+;sic]	desc	DR	35.  rt	rt11n	<Serial>	<MRRT DRV11J serial>
+;sic]	desc	IB	35.  rt	rt11n	<IEEE bus>	<IBV-11A IEEE bus>
+	desc	XT	36.  rt	rt11n	<Loader>	<MRRT down-line load>
+	desc	<>	37.  rt	<>	<>		<>
+	desc	LD	38.  rt	rt11a	<Disk>		<Logical disk>
+	desc	VM	39.  rt	rt11a	<Memory>	<Virtual memory disk>
+	desc	DU	40.  rt	rt11a	<Disk>		<RA80,RC25 MSCP disk>
+	desc	SL	41.  rt	rt11u	<Editor>	<Single-line editor>
+	desc	DZ	42.  rt	rt11a	<Floppy>	<Pro RX50 floppy>
+	desc	DW	43.  rt	rt11a	<Disk>		<Pro RD50/51 disk>
+	desc	PI	44.  rt	rt11u	<Terminal>	<Professional interface>
+	desc	SP	45.  rt	rt11n	<Spooler>	<Transparent spooler>
+	desc	<>	46.  rt	<>	<>		<>
+;[sic]	desc	XL	47.  rt	rt11n	<Connect> <DL11/Pro communications>
+;[sic]	desc	XC	47.  rt	rt11n	<Connect> <DL11/Pro communications>
+	desc	MU	48.  rt rt11s	<Magtape>	<TMSCP magtape>
+;[sic]	desc	NC/NQ/NU 49 rt rt11n	<Connect>	
+	desc	SD	50.  rt <>	<Debug>		<DBG-11 debugger>
+	desc	ST	51.  rt <>	<Symbols>	<DBG-11 symbols>
+
+.endc
+;
+;	The following are isolated by checking the device name, code and
+;	ACP type.
+;
+.if nb <hsd>
+	desc	VX	128. hs	vamp	<VAMP>		<VAX connection>
+	desc	ED	<>   hs	rt11u	<Editor>	<Command editor>
+	desc	TR	<>   hs	rt11u	<Trace>		<TRACE utility>
+	desc	DB	<>   hs	rt11u	<Debugger>	<Debug utility>
+	desc	EI	<>   hs	rt11u	<EIS>		<EIS emulator>
+	desc	VM	<>   hs	rt11a	<Memory>	<Virtual memory>
+	desc	QU	<>   hs	rt11s	<Spooler>	<Spooler queue>
+	desc	RE	<>   hs	rt11s	<Records>	<Record locker>
+	desc	LP	<>   hs	rt11n	<Printer>	<Line printer>
+	desc	MB	<>   hs	rt11s	<Mailbox>	<Mailbox & terminals>
+	desc	AL	<>   hs	rt11u	<Alias>		<Device alias>
+	desc	TC	<>   hs	rt11u	<Clock>		<Clock emulator>
+	desc	FA	131. hs f11a	<RSX disk>	<RSX Files-11A disks>
+	desc	VD	<>   HS rt11a	<Virtual>	<Virtual disk>
+	desc	VV	130. hs rt11a	<Volume>	<Virtual volume>
+	desc	SP	<>   hs	rt11s	<Spooler>	<Transparent spooler>
+	desc	NT	129. hs rt11s	<SHAREnet>	<SHAREnet connection>
+	desc	TP	129. hs	rt11s	<TPnet>		<TPnet connection>
+	desc	SN	132. hs rt11s	<SHAREnet>	<SHAREnet front end>
+.endc
+;
+.if nb <usd>
+	desc	DR	35.  rt	rt11n	<Serial>	<MRRT DRV11J serial>
+	desc	IB	35.  rt	rt11n	<IEEE bus>	<IBV-11A IEEE bus>
+	desc	IB	375  rt rt11n	<IEEE bus>	<IBV-11 IEEE bus>
+	desc	IB	375  rt rt11s	<IEEE bus>	<IBV-11 IEEE bus>
+	desc	XL	47.  rt	rt11n	<Connect> <DL11/Pro communications>
+	desc	XC	47.  rt	rt11n	<Connect> <DL11/Pro communications>
+	desc	NQ	49.  rt rt11n	<Connect>	<Q-Bus ethernet>
+	desc	NC	49.  rt rt11n	<Connect>	<Pro ethernet>
+	desc	NU	49.  rt rt11n	<Connect>	<Unibus ethernet>
+	desc	IB	375
+	desc	CL	<>   us	rt11n	<Connect>	<Communication lines>
+	desc	QN	<>   us	rt11s	<Connect>	<Q-bus connect>
+	desc	LP	<>   us	rt11n	<Printer>	<Line printer>
+	desc	LQ	<>   us	rt11n	<Letters>	<Letter printer>
+	desc	KB	<>   us	rt11n	<Terminal>	<Terminal>
+	desc	PL	<>   us	rt11n	<Plotter>	<Plotter>
+.endc
+;
+.if nb <gnd>
+	desc	<>	<>   gn	rt11a	<Disk>		<Disk file structure>
+	desc	<>	<>   gn	rt11s	<Stranger>	<Stranger structure>
+	desc	<>	<>   gn	rt11n	<Non-file>	<Sequential device>
+	desc	<>	<>   gn	rt11m	<Magtape>	<RT-11 Ansii magtape>
+	desc	<>	<>   gn rt11c	<Cassette>	<RT-11 Cassette>
+	desc	<>	<>   gn rt11u	<Utility>	<Utility handler>
+	desc	<>	<>   gn	rt11q	<Message>	<RT-11 message queue>
+	desc	<>	<>   gn rt11d	<DECnet>	<RT-11 DECnet>
+	desc	<>	<>   gn f11a	<RSX disk>	<RSX Files-11A disk>
+	desc	<>	<>   gn f11b	<VMS disk>	<VMS Files-11B disk>
+	desc	<>	<>   gn vampa	<VAMP>		<VAX message processor>
+	desc	<>	<>   gn usera	<User>		<User structure>
+	desc	
+.endc
+;
+.ENDM
+;-----------------------; 
+; DEVICE		;
+;-----------------------;
+;
+.MACRO	$DEDEF	
+;
+; Dstatus support 
+;
+map	de.sta,,0	;device status word (rt-11)
+map	de.hsz		;driver byte size
+map	de.ent		;driver entry point (lqe)
+map	de.dsz		;device block size
+;
+; RUST/XM
+;
+map	de.syg		;sysgen options
+map	de.typ		;device type & status
+map	de.con		;device control
+map	de.asp	byte	;address space coverage
+map	de.act	byte	;default acp type code
+;
+; Driver
+;
+map	de.dev		;device name
+map	de.fnm	word*4	;driver filename
+map	de.csr		;csr address
+map	de.vec		;primary vector address
+map	de.ve2		;secondary vector address
+map	de.pri	;byte	;device scheduler priority (make this a byte)
+map	de.que		;device scheduler queue - unused by v2.1+
+map	de.ind	;byte	;device index
+;
+map	de.han		;driver address
+map	de.acc		;acp access count (normalise with unit)
+map	de.ioc		;i/o access count (normalize with unit)
+;
+; unit map
+;
+map	de.unm	word*8.	;unit record map
+;
+map	de.sfr		;special function record (move up for long maps)
+;
+map	de.bbs		;
+;
+; DE.CON - RUST/XM device control
+;
+map	de16b$,,1	;16-bit device (always set)
+map	de18b$,,2	;18-bit device
+map	de22b$,,4	;22-bit device
+map	devab$,,10	;virtual address device
+map	demap$,,20	;mmu mapped addresses
+map	delog$,,40	;logical device
+map	desin$,,100	;single unit device
+map	deprc$,,200	;per-process (do not schedule)
+map	de64u$,,400	;64 unit support			;V4
+map	dev2h$,,40000	;2 vector tables present
+map	despf$,,100000	;permit all special functions
+;
+; DE.TYP - SHARE-eleven device type
+;
+map	dedma$,,1	;dma device (xm driver)
+map	derem$,,2	;remote device (star host)
+map	dedmx$,,4	;22-bit device
+map	desyn$,,10	;synchronous device (NL,VM,RE,TT)
+map	despo$,,20	;spooled device (unused)
+map	detim$,,40	;time-out supported
+map	deabo$,,100	;device abort supported
+;
+; DE.TYP - RUST/XM installation defaults
+;
+map	deunl$,,200	;driver has v5.4 unload routine
+map	deext$,,400	;external driver
+map	dedmi$,,1000	;performs internal dma
+map	deabt$,,2000	;abort by default
+map	demnt$,,4000	;mount by default
+map	decac$,,10000	;cache by default
+map	deser$,,20000	;serialize by default
+map	dep6h$,,40000	;par6 driver
+;
+; DE.STA - RT-11 device status (high byte)
+;
+map	devar$,,400	;varsz$	variable size device
+map	degab$,,1000	;abtio$	generic abort
+map	defun$,,2000	;spfun$	accepts spfun
+map	dehab$,,4000	;hndlr$	driver abort
+map	despc$,,10000	;specl$	special directory
+map	dewon$,,20000	;wonly$	write-only
+map	deron$,,40000	;ronly$	read-only
+map	derta$,,100000	;filst$	rt11a file-structured
+;
+; Builtin device indexes
+;
+map	detti.,,0	;tt: index
+map	desyi.,,2	;sy: index
+map	devmi.,,4	;vm: index
+map	denli.,,6	;nl: index
+;ap	deldi.,,7	;ld: index
+;
+;map	desec$,,	;secondary pool
+;map	decsr$,,400	;check csr before transfer
+;map	dewat$,,1000	;check with watchdog
+;map	depow$,,2000	;supports power-fail (abort-2)
+;
+.macro $dedef
+.endm
+.ENDM
+;-----------------------; 
+; DG TERMINAL		;
+;-----------------------;
+;
+; DG - Unibus DH terminal
+;
+; (DG: is unlikely to be used by DEC)
+;
+;
+.MACRO	$DGDEF
+;
+map	dg.csr	word,0	;00 rw  csr
+map	dg.rbu		;02 ro	receive buffer
+map	dg.par		;04 rw	line parameters
+map	dg.car		;06 rw	current address
+map	dg.bcr		;10 rw	bytecount register
+map	dg.bar		;12 rw	buffer active - transmit enables
+map	dg.bkr		;14 rw	break register
+map	dg.ssr		;16 rw	silo status
+map	dg.sts		;
+;
+; dg.csr 
+;
+map	dgcln$,,17	; line number
+map	dgcl$n,,177760	; line number negative
+map	dgcse$,,40	; master scan enable
+map	dgc16$,,20	; address bit 16
+map	dgc17$,,40	; address bit 17
+map	dgcri$,,100	; recieve interrupt enable
+map	dgcrd$,,200	; receiver done
+map	dgccm$,,400	; clear maintenance condition
+map	dgcmn$,,1000	; maintenance mode
+map	dgcnx$,,2000	; non-existant memory
+map	dgclr$,,4000	; master clear
+map	dgcsi$,,10000	; silo alarm enable
+map	dgcti$,,20000	; transmit interrupt enable
+map	dgcsa$,,40000	; silo alarm
+map	dgctd$,,100000	; transmit done
+;
+; dg.rbu - receive buffer
+;
+map	dgrc$m,,177400	; character mask
+map	dgrl$m,,170377	; received line
+map	dgrpa$,,10000	; parity error	
+map	dgrfr$,,20000	; framing error
+map	dgrov$,,40000	; overrun error
+map	dgrva$,,100000	; data valid
+;
+; dg.par - line parameters
+;
+map	dgpn$m,,177770	; line number mask
+map	dgpl$m,,177747	; length mask (5,6,7,8 bit)
+map	dgpsc$,,40	; stop code (0=1, 1=1.5 or 2)
+map	dgpar$,,100	; parity enable
+map	dgpod$,,200	; odd parity select
+map	dgpr$m,,170377	; receive speed
+map	dgpre$,,10000	; receiver enable
+;
+map	dgpl5.,,00	; 5 bits
+map	dgpl6.,,10	; 6 bits
+map	dgpl7.,,20	; 7 bits
+map	dgpl8.,,30	; 8 bits
+;
+map	dg050.,,0	; 50
+map	dg075.,,400	; 75
+map	dg110.,,1000	; 110
+map	dg134.,,1400	; 134.5
+map	dg150.,,2000	; 150
+map	dg300.,,2400	; 300
+map	dg600.,,3000	; 600
+map	dg12h.,,3400	; 1200
+map	dg18h.,,4000	; 1800
+map	dg20h.,,4400	; 2000
+map	dg24h.,,5000	; 2400
+map	dg36h.,,5400	; 3600
+map	dg48h.,,6000	; 4800
+map	dg72h.,,6400	; 7200
+map	dg96h.,,7000	; 9600
+map	dginv.,,7400	; invalid - but accepted
+;
+; dg.tsr - transmit control
+;
+map	dgte$m,,177400	; transmit enable mask (8 bits)
+map	dgtr$m,,377	; data terminal ready mask (8 bits)
+;
+; dg.mod - modem control
+;
+map	dgmr$m,,177400	; ring mask (8 bits)
+map	dgmc$m,,377	; carrier mask (8 bits)
+;
+; dg.tbu - transmit buffer
+;
+map	dgtc$m,,177400	; character mask
+map	dgtb$m,,377	; break mask (8 bits)
+;
+.ENDM
+;-----------------------; 
+; DEVICE INFORMATION	;
+;-----------------------;
+;
+; RT-11 .DSTAT information area
+; 
+.MACRO	$DIDEF
+;
+map	di.dsw	word,0	;stat	device status word - see $dsdef
+map	di.hsz		;hsize	handler size in bytes
+map	di.ent		;entry	entry point of cqe
+map	di.dsz		;dsize	device size in blocks
+map	di.bbs		;
+;
+.ENDM
+;-----------------------; 
+; DH TERMINAL		;
+;-----------------------;
+;
+; DH terminal support
+;
+; Q-bus DH terminal
+;
+.MACRO	$DHDEF
+;			;   multiple
+;			;     read/only - write/only
+map	dh.csr	word,0	;00	 csr
+map	dh.rbu	null	;02   ro receive buffer
+map	dh.xbu		;02 m wo transmit buffer
+map	dh.par		;04 m	 line parameters
+map	dh.mod		;06 m ro modem status
+map	dh.lin		;10 m	 line control
+map	dh.tb1		;12 m	 transmit buffer address 1
+map	dh.tb2		;14 m	 transmit buffer address 2
+map	dh.tbc		;16 m	 transmit byte count
+map	dh.bbs		;
+;
+; dh.csr 
+;
+map	dhch$m,,177760	;	 channel mask
+;		20	;	 unused
+map	dhcmr$,,40	;	 master reset
+map	dhcri$,,100	;init	 recieve interrupt enable
+map	dhcrd$,,200	;set	 receiver done
+map	dhcl$m,,170377	;	 line mask
+map	dhcbu$,,10000	;	 transmit dma bus error
+map	dhcdf$,,20000	;	 diagnostic failure
+map	dhcti$,,40000	;init	 transmit interrupt enable
+map	dhctd$,,100000	;clear	 transmit done
+;
+; dh.rbu - receive buffer
+;
+map	dhrc$m,,177400	;	 character mask
+map	dhrl$m,,170377	;	 received line
+map	dhrpa$,,10000	;	 parity error	
+map	dhrfr$,,20000	;	 framing error
+map	dhrov$,,40000	;	 overrun error
+map	dhrmo$,,70000	;	 modem status in character byte
+map	dhrva$,,100000	;set	 data valid
+;
+; dh.xbu - transmit buffer
+;
+map	dhxc$m,,177400	;	 character mask
+map	dhxva$,,100000	;	 data valid
+;
+; dh.par - line parameters
+;
+;		1	;	 unused
+map	dhpd$m,,177771	;clear	 diagnostic code
+map	dhpl$m,,177747	;set	 character length
+map	dhppe$,,40	;clear	 parity enable
+map	dhpev$,,100	;clear	 even parity (0=odd)
+map	dhpst$,,200	;clear	 stop code (0=1, 1=2 or 1.5)
+map	dhpr$m,,170377	;1101	 receive speed (default=9600)
+map	dhpt$m,,007777	;1101	 transmit speed (default=9600)
+;
+; dh.mod - modem status
+;
+map	dhmct$,,4000	;	 CTS - clear to send
+map	dhmdc$,,10000	;	 DCD - data carrier detected
+map	dhmri$,20000	;	 RI  - ring
+map	dhmds$,,10000	;	 DSR - dataset ready
+;
+; dh.lin - line control
+;
+map	dhlab$,,1	;clear	 DMA abort
+map	dhlia$,,2	;clear	 input auto xon/xoff
+map	dhlre$,,4	;clear	 receive enable
+map	dhlbr$,,10	;clear	 break
+map	dhloa$,,20	;clear	 output auto xon/xoff
+map	dhlxo$,,40	;clear	 force xoff
+map	dhlm$m,,300	;clear	 maintenance mask - 0=normal
+;			;	 1=echo, 2=local loop, 3=remote loop
+map	dhlmo$,,400	;clear	 modem - 1=modem connection
+map	dhldt$,,1000	;clear	 sets dtr - data terminal ready
+map	dhlrt$,,10000	;clear	 sets rts - request to send
+;
+; dh.tb1/dh.tb2
+;
+map	dhta$m,,177700	;clear	 22-bit address extension
+map	dhtde$,,200	;clear	 dma enable
+map	dhtte$,,100000	;clear	 transmit enable
+;
+; Baud rates
+;
+map	dh050.,,0	;A	 50
+map	dh075.,,1	;    B	 75
+map	dh110.,,2	;A & B	 110
+map	dh134.,,3	;A & B	 134.5
+map	dh150.,,4	;    B	 150
+map	dh300.,,5	;A & B	 300	
+map	dh600.,,6	;A & B	 600
+map	dh12h.,,7	;A & B	 1200
+map	dh18h.,,10	;    B	 1800
+map	dh20h.,,11	;    B	 2000
+map	dh24h.,,12	;A & B	 2400
+map	dh48h.,,13	;A & B	 4800
+map	dh72h.,,14	;A	 7200
+map	dh96h.,,15	;A & B	 9600
+map	dh19k.,,16	;    B	 19200
+map	dh38k.,,17	;A	 38400
+;
+.ENDM
+;-----------------------; 
+; DL TERMINAL		;
+;-----------------------;
+;
+; DL terminal hardware	
+;
+.MACRO	$DLDEF
+;
+map	dl.csr	null,0	;
+map	dl.rsr		;00 rw	receiver status & control
+map	dl.rbu		;02 ro	receive buffer
+map	dl.xsr		;04 rw 	transmitter status & control
+map	dl.xbu		;06 wo	transmitter buffer
+;
+map	dlren$,,1	;reader enable
+map	dlrie$,,100	;recieve interrupt enable
+map	dlrdn$,,200	;receiver done
+;
+map	dlrda$,,377	;receiver data
+map	dlrpa$,,10000	;reciever parity error
+map	dlrfr$,,20000	;reciever framing error
+map	dlrov$,,40000	;reciever overrun error
+map	dlrer$,,100000	;receiver error
+;
+map	dlxbr$,,1	;transmit break
+map	dlxie$,,100	;transmitter interrupt enable
+map	dlxrd$,,200	;transmitter ready
+;
+map	dlxda$,,377	;transmitter data
+;
+.ENDM
+;-------------------------------;
+; $DMDEF - RUST Dynamic Memory	;
+;-------------------------------;
+;
+.MACRO	$DMDEF
+map	dm.siz,,0	; byte size
+map	dm.typ		; member type (rad50)
+map	dm.hdr,0	; header size
+map	dm.dat,0	; data area -- in storage
+map	dm.ptr		; pointer   -- as result
+map	dm.bbs		;
+;
+; RUST/SJ CORPTR 
+;
+map	dm.fst,,0	; memptr/corptr
+map	dm.lst		; last element
+map	dm.dir		; directory entries
+map	dm.csi		; csi entries
+map	dm.csx		; end of csi entries
+.ENDM
+;-------------------------------;
+; $DNDEF - RUST Directory Names	;
+;-------------------------------;
+;
+.MACRO	$DNDEF
+map	dn.cnt,,0	; status/count
+map	dn.sta,,0	; status/count
+;ap	dn.blk		; start block
+;ap	dn.len		; length
+map	dn.log		; logical name
+map	dn.dev		; host device name
+map	dn.sub,2*2	; sub-directory names
+map	dn.bbs		; minimum size
+map	dnSUB.,,4	; length of sub-directory name
+.ENDM
+;-----------------------; 
+; DEVICE PROCESSORS	;
+;-----------------------;
+;
+; Device processors
+;
+;	Low-byte has the type code.
+;	High-byte has the internal ACP type (rt11n,rt11a,rt11s)
+;
+;	0:128.	Disks
+;	127:0	Networks
+;	128:255	Magtapes
+;	255:128	Other
+;
+.MACRO	$DPDEF INT
+;
+.if b <int>
+.macro	ma$map	cod len val nam idt dsc
+	map	cod,len,val
+.endm
+.endc
+;
+; High byte specifies internal ACP dispatcher type code
+;
+.if ndf dponc$			;once-only definitions
+map	dponc$,,1		;once only
+map	dpfst$,,<^o100000>	;file structured structure
+map	dpacp$,,<^o40000>	;requires process ACP
+map	dpwin$,,<^o20000>	;requires transfer windowing
+map	dpnet$,,<^o10000>	;network connection
+;map		^o4000
+;map		^o2000
+;
+; describe device type
+;
+map	dpseq$,,<^o0>		;nonfile
+map	dpdsk$,,<^o400>		;disklike
+map	dptap$,,<^o1000>	;magtape
+map	dpnet$,,<^o1400>	;transfer
+;
+map	dpapa.,,<dpfst$!dpdsk$>	;rt11a dispatch
+map	dpapm.,,dptap$		;rt11a magtape
+map	dpapn.,,0		;rt11n dispatch
+map	dpaps.,,<3.*256.>	;rt11s dispatch
+map	dpapw.,,<<128.+3.>*256.>;rt11s with transfer windows
+map	dpapu.,,<255.*256.>	;unknown
+;
+.endc	;end of once-only stuff
+;
+;	000:127	disks
+;
+;	cod len	val		nam	idt		dsc
+;	dprta.	dpapa.+0.	rt11a	DECRT11A	<RT-11 disk>
+;	dprtx	dpapa.+0	rt11x	DECRT11A	<RUST/XM disk>
+;
+ma$map	dprta.,,dpapa.+0.	rt11a	DECRT11A	<RT-11 disk>
+ma$map	dprtx.,,dpapa.+1.	rt11x	DECRT11A	<RUST/XM disk>
+ma$map	dprty.,,dpapa.+2.	rt11y	DECRT11A	<Reserved>
+ma$map	dprtz.,,dpapa.+3.	rt11z	DECRT11A	<reserved>
+;
+ma$map	dprsx.,,dpapw.+4.	f11a	DECFILE11A	<RSX disk>
+ma$map	dpvms.,,dpapw.+5.	f11b	DECFILE11B	<VMS disk>
+ma$map	dpvmc.,,dpapw.+6.	f11c	DECFILE11C	<VMS V4 disk>
+;ma$map	dpdos.,,dpaps.+6.	dos11	DECDOS11A	<DOS11 disk>
+;ma$map	dprst.,,dpaps.+7.	rsts	DECRSTS11A	<RSTS disk>
+;ma$map	dpunx.,,dpaps.+8.	unix	DECUNIX11A	<UNIX disk>
+;
+;map	dpcpm.,,15.		;CP/M floppy
+;map	dpibf.,,		;IBM floppy
+;
+;	[add disks above in ascending order];
+;
+;	127:000	networks
+;
+;	[add networks below in descending order]
+;
+ma$map	dpkmt.,,dpapn.+124.	kmt11	KERMIT11A	<KERMIT connect>
+ma$map	dpvtc.,,dpapn.+125.	vtc11a	VTCOM11A	<VTCOM connect>
+ma$map	dpdcn.,,dpaps.+126.	dcn11a	DECNET11A	<DECnet connect>
+ma$map	dpvmp.,,dpaps.+127.	vmp11a	VAMP11A		<VAMP connect>
+;
+;	128:255	magtapes
+; 
+ma$map	dprts.,,dpaps.+128.	rt11s	RT11S		<Stranger>
+; 
+ma$map	dprtm.,,dpaps.+129.	rt11mt	DECRT11A	<RT-11 magtape>
+ma$map	dprxm.,,dpaps.+130.	rsxmt	DECFILE11A	<RSX magtape>
+ma$map	dpvmm.,,dpaps.+131.	vmsmt	DECFILE11B	<VMS magtape>
+ma$map	dpdom.,,dpaps.+132.	dosmt	DECDOS11A	<DOS magtape>
+ma$map	dp08m.,,dpaps.+133.	p08mt	DECPDP8		<PDP/8 magtape>
+ma$map	dp10m.,,dpaps.+134.	d10mt	DECDEC10	<DEC10 magtape>
+ma$map	dp15m.,,dpaps.+135.	p15mt	DECPDP15	<PDP-15 magtape>
+ma$map	dp11m.,,dpaps.+136.	p11mt	DECPDP11	<PDP-11 magtape>
+ma$map	dpstm.,,dpaps.+137.	strmt	STRANGERMT	<Stranger magtape>
+ma$map	dpdem.,,dpaps.+138.	decmt	DECDECMT	<DEC magtape>
+ma$map	dpbum.,,dpaps.+139.	bupmt	DECRTBUP	<RT-11 backup tape>
+ma$map	dp20m.,,dpaps.+140.	d20mt	DECDEC20	<DEC20 magtape>
+; 
+;	[add magtapes above in ascending order]
+; 
+;	255:128	other
+; 
+;	[add others below in descending order]
+; 
+ma$map	dpnfd.,,dpapn.+254.	nfdisk	NONFILEDISK	<Non-file disk>
+ma$map	dprtn.,,dpapn.+255.	rt11n	NONFILE		<Non-file device>
+;
+.ENDM 
+;-------------------------------;
+; $DRDEF - RT-11 Driver		;
+;-------------------------------;
+;
+; RT-11 handler/driver summary
+;
+.MACRO	$DRDEF
+;				;
+map	dr.gua	word,0		;drest handler guard
+map	 drgua$,,<^rhan>	;handler guard
+;
+; FETCH/LOAD/UNLOAD/REMOVE SERVICE ROUTINEs
+;
+;	r0 ->	service routine
+;	r1 ->	getvec routine
+;	r2 =	$slot*2
+;	r3 =	service call code
+;	r4 ->	read routine (r0=blk,r1=buf,r2=wct)
+;	r5 ->	RMON $hentry for driver
+;
+;	c=0	fine
+;	c=1	some error
+;
+map	dr.ptr	null,2		;driver call pointers
+map	 drftc.,,0		;fetch
+map	 drrlc.,,2		;release
+map	 drloc.,,4		;load
+map	 drunc.,,6		;unload
+map	 drrsc.,,10		;reset release (dispatched as drrlc.)
+map	 drslc.,,12		;system device load (dispatched as drloc.)
+;ap	 drfoc.,,10		;format
+;ap	 drshc.,,12		;show
+map	 drmuc.,,12		;maximum utility code
+map	 drnfl$,,100000		;nofetch/noload flag
+map	dr.ftp	word,2		;fetch pointer
+map	dr.rsp	word,4		;release
+map	dr.lop	word,6		;load
+map	dr.unp	word,10		;unload
+map	dr.fop	word,12		;format
+map	dr.shp	word,14		;show
+map	dr.f0p	word,16		;reserved pointer
+;				;
+map	dr.cla	byte,20		;drest class code			$dcdef
+map	dr.mod	byte,21		;drest class variant mod flags		$dcdef
+;				;drptr destroys dr.mod
+map	dr.sfm	byte*6,22	;drspf special function map
+;				;map clears dr.sft
+map	dr.sft	word,30		;drspf special function table address
+map	dr.rep	word,32		;drest replacement table address
+;		34:40		;unused
+map	dr.hsz	word,52		;handler size
+map	dr.dsz	word,54		;device size
+map	dr.sta	word,56		;device status				$dsdef
+map	dr.syg	word,60		;sysgen options				$sgdef
+map	dr.bpt	word,62		;boot pointer
+map	dr.ble	word,64		;boot length
+map	dr.brd	word,66		;boot read routine
+;				;
+map	dr.dat	word,70		;drest data - data table address
+map	dr.typ	word,72		;drest type - .rad50 "typ"
+;				;
+map	dr.daf	word,70		;drdat - data usage flag
+map	dr.dap	word,72		;drdat - data table pointer
+map	dr.dal	word,74		;drdat - data control table byte length
+;				;
+map	dr.uni	word,74		;druni - data table pointer
+;				;
+map	dr.use	word,102	;druse table pointer
+;				;
+;
+;	INSTALLATION ROUTINE ENVIRONMENT
+;
+;		SJ	XM	
+;	r0	#$rmon	#$rmon
+;	r1	$ramsz	$ramsz	(RT-11) 
+;	r2	0	-> unit
+;	r3	?	stbdat	STB date
+;	r4	^rrst	^rshp	RUST signatures
+;	r5	0	0	(dispatch pointer)
+;		^rprb	^rprb	Probe driver
+;
+;	r0	^rshp		XM handshake
+;	r1	^rshp 		XM fail reason
+;	c=1			installation check failed
+;
+;	Perform overlay etc I/O on channel #0.
+;	Use "clrb d$riob" to use $drovl etc.
+;
+map	dr.ccs	word,172	;cti csr if mod2&v2
+map	dr.pcs	word,174	;pdp csr if mod2&v2
+map	dr.dcs	word,174	;display csr
+map	dr.csr	word,176	;csr address
+				;
+map	dr.ind	word,200	;data installation
+map	dr.ins	word,202	;system installation
+;
+;	SET ROUTINE ENVIRONMENT
+;
+;	r0	user value (e.g. SET RETRY 8)
+;	r1	available
+;	r2	available
+;	r3	default value (from SET table)
+;	r4	reserved by standard RT-11
+;	r5	points to reversed command string in standard RT-11
+;
+;	entry+0	standard entry	
+;	entry+4	NO entry
+;
+;	return	c=0 okay
+;		c=1 invalid command
+;
+map	dr.set	word,400	;set table
+map	 dr.svl	word,0		;set - value
+map	 dr.so0	word,2		;set - option name 0
+map	 dr.so1	word,4		;set - option name 1
+map	 dr.sro	byte,6		;set - routine (word) offset from 400
+map	 dr.smo	byte,7		;set - option mode
+map	  drshx$,,20		;set - hex				;V4
+map	  drshn$,,120		;set - hex numeric			;V4
+map	  drsoc$,,40		;set - octal 
+map	  drsnu$,,100		;set - numeric
+map	  drson$,,140		;set - octal numeric
+map	  drsno$,,200		;set - no
+map	 dr.sbs	null		;
+map	drsfx.,,24.		;XM suffix ^R<  X>
+map	drsfp.,,16.		;RUST/XM suffix ^R<  P>
+;				;
+;	DRIVER SECTION
+;
+map	dr.dri	null,1000	;driver section
+map	dr.vec	word,1000	;vector or vector table
+map	dr.isr	word,1002	;interrupt service offset
+map	dr.hol	word,1004	;handler hold flag
+map	 drhol$,,100000		;handler hold flag
+map	 drhdo$,,40000		;handler done during hold
+				;entry point table points to lqe
+map	dr.lqe	word,1006	;last queue entry
+map	dr.cqe	word,1010	;current queue entry
+map	dr.md2	word,1010	;drest mod2 flags ! nofetch		$dcdef
+ map	 drv2q$,,40000		; v2
+ map	 drnfq$,,100000		; nofetch
+map	dr.beg	null,1012	;handler begin
+map	dr.ptf	word,1012	;drptr flags - signal v5.3 handler
+map	 drpfl.,,240		; pointer flags low
+map	 drpfh.,,277		; pointer flags high
+map	 drftp$,,1		; fetch pointer present
+map	 drrlp$,,2		; release pointer present
+map	 drlop$,,4		; load pointer present
+map	 drunp$,,10		; unload pointer present
+map	 drf0p$,,20		; reserved
+;				;
+; .drvtb - vector tables	;
+;
+map	dr.vvc	word,0		;vector address
+map	dr.vof	word,2		;offset to isr
+map	dr.vps	word,4		;psw & condition codes
+map	dr.vbs	null		;
+map	dr.ven	word,0		;end of table
+ map	drvt0.,,0		;v5.0 terminator
+ map	drvt1.,,100000		;v5.1 terminator
+;
+; .drast - isr entry point	;
+;				;
+map	dr.aae	word,-2		;ast - abort entry point
+map	dr.are	word*3,0	;ast - raw entry point
+map	dr.aie	null,6		;ast - $inten entry point
+;				;
+; .drend - handler pointers	;
+;				;
+map	dr.fkp	-word,-2;$fkptr	;fk$enq - fork - always
+map	dr.itp	-word	;$inptr	;in$int - inten - always
+map	dr.tmp	-word	;$timit	;io$tid	- timeout - sgtim$ in ha/de.syg
+map	dr.elp	-word	;$elptr	;io$erd	- error log - sgerl$ in ha/de.syg
+map	dr.pwp	-word	;$ptwrd	;io$ptw	- put word - sgmmg$ in ha/de.syg
+map	dr.pbp	-word	;$ptbyt	;io$ptb	- put byte
+map	dr.gbp	-word	;$gtbyt	;io$gtb - get byte
+map	dr.mpp	-word	;$mpptr	;io$chp	- map physical
+map	dr.rlp	-word	;$rlptr	;io$cum	- relocate user
+.macro $drdef
+.endm
+.ENDM
+;-----------------------; 
+; DEVICE STATUS		;
+;-----------------------;
+;
+; RT-11 device status word
+;
+.MACRO	$DSDEF
+;
+map	dscod$,,377	;low byte is device code - see $dcdef
+;
+map	dsvar$,,400	;variable size device
+map	dsgab$,,1000	;generic abort
+map	dsfun$,,2000	;accepts spfun
+map	dshab$,,4000	;handler abort
+map	dsspc$,,10000	;special directory
+map	dswon$,,20000	;write-only
+map	dsron$,,40000	;read-only
+map	dsrta$,,100000	;rt11a file-structured
+;
+.ENDM
+;-----------------------; 
+; MAREE DEVICE INFO	;
+;-----------------------;
+;
+; Maree device information
+;
+.MACRO	$DVDEF
+;
+map	dv.cha	word,0	;characteristics
+map	dv.cod		;local device
+map	dv.cat		;category				
+map	dv.siz		;device size
+map	dv.acp		;device acp
+map	dv.f00		;
+map	dv.f01		;
+map	dv.f02		;
+map	dv.bls		;block size
+;
+;	dv.cha
+;
+map	dvseq$,,1	;sequential
+map	dvrec$,,1	;record - non-file
+map	dvccl$,,2	;carriage control
+map	dvtrm$,,4	;terminal
+map	dvdir$,,10	;directory
+;		20	;
+map	dvtap$,,40	;magtape
+map	dvdsk$,,100	;disk like
+map	dvnet$,,200	;network
+map	dvvar$,,400	;variable size
+		1000	;9
+		2000	;10
+		4000	;11
+map	dvacp$,,10000	;own acp
+map	dvwon$,,20000	;write-only
+map	dvron$,,40000	;read-only
+map	dvval$,,100000	;valid
+;
+map	dvrt$p,,170400	;valid RT-11 bits
+map	dvrt$n,,007377	;
+map	dvrs$p,,000057	;valid RSX bits
+map	dvrs$n,,177720	;
+;
+;	dv.cat - category
+;
+map	dvnfs.,,0	;non-file
+map	dvtrm.,,1	;terminal
+map	dvdsk.,,2	;disk
+map	dvstr.,,3	;stranger
+map	dvtap.,,4	;tape
+map	dvnet.,,5	;network
+;
+;	dv.acp - acp
+;
+map	dvnon.,,0	;no acp
+map	dvacp.,,1	;own acp
+map	dvrta.,,2	;rt11a
+map	dvrtx.,,3	;rt11x
+map	dvrtp.,,4	;rt11 tape
+map	dvfad.,,5	;files11a disk
+map	dvfbd.,,6	;files11b disk
+;
+.ENDM
+;-----------------------; 
+; DY:/DX: 		;
+;-----------------------;
+;
+; DOS magtape labels	
+;
+.MACRO	$DYDEF
+map	dycsr.,,177170	; csr
+ map	dy.csr,,0	; csr
+ map	dy.buf		; buffer
+map	dyvec.,,264	; vector
+map	dycs2.,,177150	; secondary
+map	dyvc2.,,270	;
+map	dysiz.,,494.	; single-sided, single-density size
+map	dymax.,,494.*4	; maximum logical sector number
+map	dypri.,,5	; interrupt priority
+map	dyunc.,,2	; units per 
+;
+;	CSR definitions
+;
+map	dygo$,,1	; DX DY W/O - start operation
+map	dyfun$,,7*2	; DX DY W/O - function
+map	dyuni$,,20	; DX DY R/W - unit (W/O for RX01)
+map	dyrdy$,,40	; DX DY R/O - function done
+map	dyenb$,,100	; DX DY R/W - interrupt enable
+map	dystp$,,200	; DX DY R/O - step completed
+;			;
+map	dyden$,,400	;    DY R/W - density
+map	dyhea$,,1000	;    DY R/W - head select
+;		2000	;    
+map	dyrx2$,,4000	;    DY R/O - RX02 flag
+map	dyext$,,30000	;    DY W/O - extended address (18-bit)
+map	dyini$,,40000	; DX DY ?/W - init controller 
+map	dyerr$,,100000	; DX DY R/O - error seen
+;
+map	dyfil.,,0*2	; DX DY W/O - fill, word count, address
+map	dyemp.,,1*2	; DX DY W/O - empty, word count, address
+map	dywri.,,2*2	; DX DY W/O - write, sector, track
+map	dyrea.,,3*2	; DX DY W/O - read, sector, track
+map	dyfmt.,,4*2	;    DY W/O - format, #7
+map	dysta.,,5*2	; DX DY W/O - read status
+map	dywdd.,,6*2	; DX DY W/O - write with deleted data, count, address
+map	dyerr.,,7*2	; DX DY W/O - read error, address
+map	dyfmx.,,111	; DY: format guard word
+;	
+;	Status definitions
+;
+;	Available after each operation in dy.buf
+;
+map	dscrc$,,1	; DX DY R/O CRC error
+map	dspar$,,2	; DX    R/O parity error (conflicts with RX02 dshea$)
+map	dshea$,,2	;    DY R/O double-sided media loaded
+map	dsini$,,4	; DX DY R/O init done
+map	dsacl$,,10	; RX221 R/O A/C low 
+map	dsder$,,20	;    DY R/O density error detected
+map	dsden$,,40	;    DY R/O double-density media loaded
+map	dsdel$,,100	; DX DY R/O deleted data mark seen
+map	dsrdy$,,200	; DX DY R/O drive ready
+map	dsuni$,,400	;    DY R/O unit selected by previous operation
+map	dswct$,,2000	;    DY R/O word count overflow detected
+map	dsnxm$,,4000	;    DY R/O bus error
+;			;
+map	dsrx1$,,3	; DX    R/O RX01 error mask
+map	dsrx2$,,6001	;    DY R/O RX02 error mask
+;
+.macro $dydef
+.endm
+.ENDM
+;-----------------------; 
+; DZ TERMINAL		;
+;-----------------------;
+;
+; DZ terminal hardware - 8 units
+;
+.MACRO	$DZDEF
+;
+map	dz.csr	word,0	;00 rw	csr
+map	dz.rbu	null	;02 ro	receive buffer
+map	dz.par		;02 wo	transmit buffer
+map	dz.tsr		;04 	transmitter control
+map	dz.tbu	null	;06 wo	transmitter buffer
+map	dz.mod		;06 ro	modem status
+map	dz.bbs		;
+;
+; dz.csr 
+;
+;		7	; not used
+map	dzcmn$,,10	; maintenance
+map	dzclr$,,20	; master clear
+map	dzcse$,,40	; master scan enable
+map	dzcri$,,100	; receive interrupt enable
+map	dzcrd$,,200	; receiver done
+map	dzcl$m,,174377	; line mask
+;		4000	; unused
+map	dzcsi$,,10000	; silo alarm enable
+map	dzcsa$,,20000	; silo alarm
+map	dzcti$,,40000	; transmit interrupt enable
+map	dzctd$,,100000	; transmit done
+;
+; dz.rbu - receive buffer
+;
+map	dzrc$m,,177400	; character mask
+map	dzrl$m,,170377	; received line
+map	dzrpa$,,10000	; parity error	
+map	dzrfr$,,20000	; framing error
+map	dzrov$,,40000	; overrun error
+map	dzrva$,,100000	; data valid
+;
+; dz.par - line parameters
+;
+map	dzpn$m,,177770	; line number mask
+map	dzpl$m,,177747	; length mask (5,6,7,8 bit)
+map	dzpsc$,,40	; stop code (0=1, 1=1.5 or 2)
+map	dzpar$,,100	; parity enable
+map	dzpod$,,200	; odd parity select
+map	dzpr$m,,170377	; receive speed
+map	dzpre$,,10000	; receiver enable
+;
+map	dzpl5.,,00	; 5 bits
+map	dzpl6.,,10	; 6 bits
+map	dzpl7.,,20	; 7 bits
+map	dzpl8.,,30	; 8 bits
+;
+map	dz050.,,0	; 50
+map	dz075.,,400	; 75
+map	dz110.,,1000	; 110
+map	dz134.,,1400	; 134.5
+map	dz150.,,2000	; 150
+map	dz300.,,2400	; 300
+map	dz600.,,3000	; 600
+map	dz12h.,,3400	; 1200
+map	dz18h.,,4000	; 1800
+map	dz20h.,,4400	; 2000
+map	dz24h.,,5000	; 2400
+map	dz36h.,,5400	; 3600
+map	dz48h.,,6000	; 4800
+map	dz72h.,,6400	; 7200
+map	dz96h.,,7000	; 9600
+map	dz19k.,,7400	; 19800
+map	dzinv.,,7400	; invalid - but accepted
+;
+; dz.tsr - transmit control
+;
+map	dzte$m,,177400	; transmit enable mask (8 bits)
+map	dztr$m,,377	; data terminal ready mask (8 bits)
+;
+; dz.mod - modem control
+;
+map	dzmr$m,,177400	; ring mask (8 bits)
+map	dzmc$m,,377	; carrier mask (8 bits)
+;
+; dz.tbu - transmit buffer
+;
+map	dztc$m,,177400	; character mask
+map	dztb$m,,377	; break mask (8 bits)
+;
+.ENDM
+;-----------------------; 
+; DOS LABEL 1		;
+;-----------------------;
+;
+; DOS magtape labels	
+;
+;	ascii	STM11 format
+;	binary	LDA format
+;
+;	date	year-70.*1000+day
+;
+;	file	hdr data... + 	
+;	volume	hdr data... + hdr data.. + +
+;
+.MACRO	$D1DEF	
+;
+map	d1.fil	word,0	;rad50 file
+map	d1.nam		;
+map	d1.typ		;rad50 file type
+map	d1.uic	null	;uic
+map	d1.mic	byte	;member
+map	d1.gic	byte	;group
+map	d1.pro		;protection
+map	d1.dat		;date
+map	d1.f00		;unused
+map	d1.bbs		;
+;
+;	d1.pro
+;
+map	d1pro.,,233	;default protection
+;
+;	d1.dat
+;
+map	d1yef.,,1000.	;year factor
+map	d1yeb.,,70.	;year base
+;
+.ENDM
+

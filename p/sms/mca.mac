@@ -1,0 +1,500 @@
+;	------------------------------------------------------------------------
+;	AND	AND conditional clause
+;	------------------------------------------------------------------------
+;
+;	begin:	IF cond 
+;		  AND cond		false => end
+;			...
+;	end:
+
+.MACRO	AND	X1,X2,X3
+	.NARG	s$mnrg
+	smtst$	<>,s$mnrg,X1,X2,X3,\s$mend,smjfl$
+.ENDM
+
+.MACRO	ANDB	X1,X2,X3
+	.NARG	s$mnrg
+	smtst$	<B>,s$mnrg,X1,X2,X3,\s$mend,smjfl$
+.ENDM
+;	------------------------------------------------------------------------
+;	AUTO	Define automatic storage
+;	------------------------------------------------------------------------
+;
+;	AUTO	NAME,SIZE
+;
+;		NAME		Defined as SP offset
+;		SIZE		Size of object in bytes
+;
+
+.MACRO	AUTO	XNAM,XSIZ
+.IF NB <XNAM>
+	.iif lt auto.,auto.=0			;reset it
+	XNAM = auto.*cell.			;define it
+	auto.=auto.+<XSIZ/cell.>		;recompute it
+.IFF
+	auto.=0					;just reset it
+.ENDC
+.ENDM	
+;	------------------------------------------------------------------------
+;	ASSERT	Check runtime time assumptions
+;	ASSUME	Check compile time assertions
+;	------------------------------------------------------------------------
+;
+;	ASSERT	cond
+;
+;		cond		If condition is false generate breakpoint.
+;
+;	ASSERT is implemented with structured MACRO IF statements
+;	If the ASSERT statement fails the code issues a BPT instruction
+;
+;	AND and OR may not be applied to ASSERT conditions
+;
+;	ASSERT is usually turned off in production systems
+
+.MACRO	ASSERT	X1,X2,X3
+	.IIF	EQ smass.,	.MEXIT	;Don't want ASSERTs in
+	.NARG	s$mnrg
+	IFNOT  X1 X2 X3
+		BPT
+	END
+.ENDM
+
+.MACRO	ASSERB	X1,X2,X3
+	.IIF	EQ smass.,	.MEXIT	;Don't want ASSERTs in
+	.NARG	s$mnrg
+	IFNOTB  X1 X2 X3
+		BPT
+	END
+.ENDM
+
+.MACRO	ASSUME	X1,XC,X2
+.iif XC <X1>-<X2>, .mexit
+	.error	X1 ;?STRMAC-E-Assumption X1 XC X2 fails;
+.ENDM	ASSUME
+;	------------------------------------------------------------------------
+;	BEGIN	Begin block
+;	------------------------------------------------------------------------
+;
+;	BEGIN	NAME
+;
+;		NAME		Dummy name
+;
+;
+;	begin:	BEGIN	name
+;
+;		SKIP			Goto end
+;
+;			....
+;		END	name
+;
+;	end:
+;
+;	BEGIN is implemented as a REPEAT 
+;	The main use of BEGIN is to document code and permit LEAVE
+	
+.MACRO	BEGIN XNAM
+	s$mbgn=s$mbgn+1
+	s$mend=s$mbgn+smend.
+	s$mnst=s$mnst+1
+	s$mrns=s$mrns+1
+	smplb$	\s$mnst,s$mbgn,smblk.,smsho.	;TYPE=block,LONG=0
+	smprb$	\s$mrns,\s$mnst
+	smlbl$	\s$mbgn
+.ENDM
+;	------------------------------------------------------------------------
+;	BRTO	Branch To
+;	------------------------------------------------------------------------
+;
+;	BRTO label IF cond
+;	BRTO label IFB cond
+;
+;	BRTO	XLBL XI X1 X2 X3
+;
+;		XLBL		user label
+;		XI		"IF" or "IFB"
+;		X1		source or cond
+;		X2		cond
+;		X3		destination
+
+.MACRO	BRTO	XLBL,XI,X1,X2,X3
+	.NARG	s$mnrg
+	s$mnrg=s$mnrg-2
+	.NCHR	s$mnch,XI
+	.IF	EQ,s$mnch-2			;IF
+		smtst$	<>,s$mnrg,X1,X2,X3,XLBL,smjbr$
+	.IFF
+		smtst$	<B>,s$mnrg,X1,X2,X3,XLBL,smjbr$
+	.ENDC
+.ENDM
+;	------------------------------------------------------------------------
+;	CALL	Classic CALL
+;	SMCAL$	Structured macro CALL macro
+;	SMPSH$	Push actual parameter
+;	------------------------------------------------------------------------
+;
+;	There are three versions of the CALL macro. The standard and
+;	structured macro versions are compatible.
+;
+;	Standard MACRO CALL	
+;	Structured MACRO call
+;
+;	SMCAL$			Invoke structured macro CALL
+;
+;	CALL	Call procedure
+;
+;		XP		PROC name
+;		X1...X7		Upto seven parameters
+;
+;	local	smoff.		Stack depth for SP relative pushs
+;		smpsh$	XX	Local to push actuals
+
+.MACRO	SMCAL$
+.MACRO	CALL	 XP,X1,X2,X3,X4,X5,X6,X7
+	.NARG	s$mnrg
+	smoff.=-2					;init stack depth
+.IF NB <X1>
+  .IRP	XX,<X7 X6 X5 X4 X3 X2 X1>			;push parameters
+	.IIF NB <XX>,	smpsh$	<XX>			;sic] macro error
+  .ENDR
+.ENDC
+	.IIF	NE smumd.,	MOV	#1,U.MDBG	;call check
+	JSR	PC,XP					;call the procedure
+	.IIF	EQ s$mnrg-2,	TST	(SP)+		;cleanup stack
+	.IIF	EQ s$mnrg-3,	CMP	(SP)+,(SP)+
+	.IIF	GE s$mnrg-4,	ADD	#s$mnrg-1*2,SP
+.ENDM	CALL
+
+;	Push argument
+;
+;	Handle special case of XX(sp)
+;
+;	Separate macros are defined for PDP-11 and VAX.
+;
+;	SMPSH$	XA
+;
+;		XA		Actual parameter to push
+
+.if ne gcpdp.
+.MACRO	SMPSH$	XA
+	smoff.=smoff.+cell.		;bump stack depth
+	.NTYPE	XM,XA			;get parameter addressing mode
+	.IF	NE XM&7-6		;not register sp
+	  .IF IDN #0,XA
+		CLR	-(SP)		;push a zero
+		.MEXIT
+	  .ENDC
+		MOV	XA,-(SP)
+		.MEXIT
+	.ENDC
+	.IF	EQ XM&^o70-^o60		;x(sp) - ok
+		.irp	XO,<\smoff.>	;
+		MOV	XO+XA,-(SP)	;mov x(sp),-(sp)
+		.endr			;
+		.MEXIT
+	.ENDC
+	.ERROR	;?STRMAC-E-Invalid argument address type 'XA
+.ENDM
+.iff					;vax
+.MACRO	SMPSH$	XA
+	smoff.=smoff.+cell.		;bump stack depth
+	.NTYPE	XM,XA			;get parameter addressing mode
+	.IF	NE XM&^xF-^xE		;not register sp
+	  .IF	IDN #0,XA		;psh #0
+		CLRL	-(SP)		;is clrl -(sp)
+		.MEXIT
+	  .ENDC
+		MOVL	XA,-(SP)
+		.MEXIT
+	.ENDC
+	XM=XM@-4&^xF			;isolate the mode
+	.IF	GE XM-^xA		;A...
+	  .IF	LE XM-^xE		;A...E
+	    .IF EQ XM&1			;A.C.E
+		.irp	XO,<\smoff.>	;
+		MOVL	XO+XA,-(SP)	;mov x(sp),-(sp)
+		.endr			;
+		.MEXIT
+	   .ENDC
+	  .ENDC
+	.ENDC
+	.ERROR	;?STRMAC-E-Invalid argument address type 'XA
+.ENDM
+.endc
+
+.ENDM SMCAL$
+;	------------------------------------------------------------------------
+;	COUNT	Counted loop
+;	------------------------------------------------------------------------
+;
+;	begin:	REPEAT
+;			...
+;		COUNT register		SOB register,begin
+;	end:
+
+.MACRO	COUNT	XREG
+	smglb$	\s$mnst,s$mlbl,s$mtyp,s$mmod
+	.irp	ma$lbl,<\s$mlbl>
+		sob	XREG,.'ma$lbl
+	.endr
+	smgle$	\s$mnst,s$mlbe,s$mtyp,s$mmod
+	smlbl$	\s$mlbe
+	s$mnst=s$mnst-1
+	s$mrns=s$mrns-1
+.ENDM
+;	------------------------------------------------------------------------
+;	DO	Call subroutine
+;	------------------------------------------------------------------------
+;
+;	DO	XP
+;
+;		XP		Subroutine
+;
+;	This is a straight subroutine call.
+
+.MACRO	DO	XP
+	.IIF	NE smumd.,	CLR	U.MDBG	;do signal = 0
+	JSR	PC,XP
+.ENDM
+;	------------------------------------------------------------------------
+;	ELSE	Classic ELSE statement
+;	------------------------------------------------------------------------
+;
+;	begin:	IF cond		false => goto end
+;			...
+;		ELSE		goto end+1
+;	end:		...
+;
+;	end+1:	END
+
+.MACRO	ELSE
+	s$mbgn=s$mbgn+1				;new label
+	s$mend=s$mbgn+smend.			;new end label
+	smjlb$	\s$mend				;true branch, go to end of block
+	smgle$	\s$mnst,s$mlbe,s$mtyp,s$mmod	;get previous label
+	smlbl$	\s$mlbe				;label end of prior block
+	smplb$	\s$mnst,s$mbgn,s$mtyp,s$mmod	;store new label
+.ENDM
+;	------------------------------------------------------------------------
+;	END	End control block
+;	------------------------------------------------------------------------
+;
+;	END	XNAM
+;
+;		XNAM		Optional name - ignored
+;
+;			if
+;			block
+;			while
+;			repeat
+;			procedure
+;			subroutine
+
+.MACRO	ENDLESS	XNAM
+	s$mles=1				;endless mode
+	END	XNAM				;end it
+.ENDM
+
+.MACRO	END	XNAM
+	smgle$	\s$mnst,s$mlbe,s$mtyp,s$mmod	;get end label & mode
+;
+;	Check for too many END statements
+;
+	.IF	LE,s$mnst
+		.ERROR			;?STRMAC-E-Too many ENDs;
+		s$mles=0		;once-only ENDLESS flag
+		.MEXIT
+	.ENDC
+;
+;	Dispatch to appropriate END macro
+;
+	.IRP	XX,<\s$mtyp>		;dispatch it
+		smen'XX'$		;call the end macro
+	.ENDR				;
+	s$mles=0			;once-only ENDLESS flag
+.ENDM
+
+;	END WHILE
+;
+;	begin:	WHILE cond	false => goto end
+;
+;		END		goto begin
+;	end:
+
+.MACRO	smen0$
+	smgrb$	\s$mrns,s$mrbl		;get repeat block beginning
+.if eq s$mles
+	smjlb$	\s$mbbl			;goto loop beginning
+.endc
+	smlbl$	\s$mlbe			;label loop end
+	s$mnst=s$mnst-1			;bump nest count
+	s$mrns=s$mrns-1			;bump repeat nest count
+.ENDM
+
+;	END IF
+;
+;	begin:	IF cond		false => goto end
+;
+;		END
+;	end:
+
+.MACRO	smen1$
+	smlbl$	\s$mlbe			;label block end
+	s$mnst=s$mnst-1			;bump nest count
+.ENDM
+
+;	END REPEAT
+;	END BLOCK
+;
+;	begin:	REPEAT
+;
+;		END		goto begin
+;	end:
+
+.MACRO	smen2$
+	smgrb$	\s$mrns,s$mrbl		;get repeat block beginning
+.if eq s$mles
+	smjlb$	\s$mbbl			;goto loop beginning
+.endc
+	smlbl$	\s$mlbe			;label the end 
+	s$mnst=s$mnst-1			;bump nest level
+	s$mrns=s$mrns-1			;bump repeat nest level
+.ENDM
+
+;	END SUBR
+
+.MACRO	smen3$
+.if eq s$mles
+	smlbl$	\s$mlbe			;label the end 
+	.IIF	EQ s$mtmp-1,	TST	(SP)+
+	.IIF	EQ s$mtmp-2,	CMP	(SP)+,(SP)+
+	.IIF	GE s$mtmp-3,	ADD	#s$mtmp*cell.,SP
+	smres$				;restore registers - see SUBR
+	.IF	GT smspm.		;if stack mark checking 
+;sic]		ASSERT	SP,EQ,(SP)	;check stack alignment
+		TST	(SP)+		;
+	.ENDC				;
+	RTS	PC			;return
+.endc
+	auto.=-1			;kill auto parameter count
+	s$mnst=s$mnst-1			;bump nest level
+.ENDM
+
+;	END PROC
+
+.MACRO	smen4$
+.if eq s$mles
+	smlbl$	\s$mlbe			;label the end 
+	.IIF	EQ s$mtmp-1,	TST	(SP)+
+	.IIF	EQ s$mtmp-2,	CMP	(SP)+,(SP)+
+	.IIF	GE s$mtmp-3,	ADD	#s$mtmp*cell.,SP
+	smres$				;restore registers
+	.IF	GT smspm.
+;sic]		ASSERT	SP,EQ,(SP)
+		TST	(SP)+
+	.ENDC
+	RTS	PC
+.endc
+	auto.=-1			;kill auto parameter count
+	s$mnst=s$mnst-1
+.ENDM
+
+;	END BLOCK
+;
+;	begin:	BEGIN
+;
+;		END
+;	end:
+
+.MACRO	smen5$
+	smgrb$	\s$mrns,s$mrbl		;get repeat block beginning
+	smlbl$	\s$mlbe			;label the end 
+	s$mnst=s$mnst-1			;bump nest level
+	s$mrns=s$mrns-1			;bump repeat nest level
+.ENDM
+;	------------------------------------------------------------------------
+;	ENTRY	Subroutine entry point
+;	------------------------------------------------------------------------
+;
+;	Generates label and optional global symbol
+;
+;	ENTRY	XN XV
+;		XN		Global entry point name
+;		XV		Unused
+;
+;	LOCAL ENTRY XN
+;
+;	LOCAL
+;	  ENTRY XN
+
+.MACRO	ENTRY	XN,XV
+XN:	.iif eq s$mloc,	.GLOBL	XN	;not local
+	s$mloc=0			;clear once only local flag
+.ENDM
+;	------------------------------------------------------------------------
+;	EXIT	Exit procedure or subroutine
+;	------------------------------------------------------------------------
+;
+;	EXIT	val
+;	EXITB	val
+;
+;		VAL		Optional value for r0
+;
+;
+;	EXITIF	cond
+;	EXITIB	cond
+;
+;	begin:	PROC name ...
+;			...
+;		EXIT value		Goto end
+;			...
+;		END
+;	end:
+
+.MACRO	EXIT	XVAL
+	.if nb	XVAL
+		.if dif XVAL,R0
+			mov	XVAL,r0
+		.endc
+	.endc
+	smgle$	\s$mpns,s$mlbe,s$mtyp,s$mmod	;get end label
+	smjrb$	\s$mlbe				;jump to end label
+.ENDM
+
+.MACRO	EXITB	XVAL
+	.if nb	XVAL
+		.if dif XVAL,R0
+			movb	XVAL,r0
+		.endc
+	.endc
+	smgle$	\s$mpns,s$mlbe,s$mtyp,s$mmod	;get end label
+	smjrb$	\s$mlbe				;jump to end label
+.ENDM
+
+.MACRO	EXITIF	X1,X2,X3
+	.NARG	s$mnrg
+	smgle$	\s$mpns,s$mlbe,s$mtyp,s$mmod	;get end label
+	smtst$	<>,s$mnrg,X1,X2,X3,\s$mlbe,smjtr$ ;to end label
+.ENDM
+
+.MACRO	EXITIB	X1,X2,X3
+	.NARG	s$mnrg
+	smgle$	\s$mpns,s$mlbe,s$mtyp,s$mmod	;get end label
+	smtst$	<B>,s$mnrg,X1,X2,X3,\s$mlbe,smjtr$ ;to end label
+.ENDM
+;	------------------------------------------------------------------------
+;	FALL	Check adjacent label
+;	------------------------------------------------------------------------
+;
+;		FALL	label
+;
+;	label:	....
+;
+;
+;	Checks that nothing is inserted between the FALL statement and
+;	the label definition.
+
+.MACRO	FALL	XL
+.iif	eq .-<XL>,.mexit
+.error	;?STRMAC-E-Label XL is missplaced;
+.ENDM	FALL
+

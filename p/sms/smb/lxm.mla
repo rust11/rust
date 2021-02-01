@@ -1,0 +1,707 @@
+V4=1
+ ` .GTIMX/.STIMX
+.MACRO	.GTIMX	AREA,ADDR,CODE
+.IF NDF ...V1
+.MCALL	.MACS
+.MACS
+.ENDC
+...CM6	<AREA>,32.,1.,<CODE>,<ADDR>,E
+.ENDM
+.MACRO	.STIMX	AREA,ADDR,CODE
+.IF NDF ...V1
+.MCALL	.MACS
+.MACS
+.ENDC
+...CM6	<AREA>,32.,2.,<CODE>,<ADDR>,E
+.ENDM
+ ` $ASCII	
+________________________________________________________________________________
+	$ASCII STR TYP
+	typ	c	.byte	chrs
+		i	.ascii	str		(default)
+		t	.ascii	str<200>
+		z	.ascii	str<0>
+		e	.even
+	del	"	delimiter
+________________________________________________________________________________
+$ASCII expects strings to be enclosed in angle brackets.
+.MACRO	$ASCII ASCSTR ASCTER=I
+ma$as2=0
+.irpc	ma$as0,<ascter>
+.if idn <ma$as0>,C
+	.nchr	ma$as1,<ascstr>
+	.byte	ma$as1-2
+.endc
+.if eq ma$as2
+.irpc	ma$as3,<ascstr>
+	.byte	''ma$as3
+.endr
+.endc
+.iif idn <ma$as0>,T,	.byte	128.
+.iif idn <ma$as0>,Z,	.byte	0
+.iif idn <ma$as0>,E,	.even
+ma$as2=ma$as2+1
+.endr
+.ENDM
+.MACRO	$ASCZE	ASCSTR
+.irpc	ma$as0,<ascstr>
+.iif dif <ma$as0>,",	.byte	''ma$as0
+.endr
+	.ascii	ascstr
+	.byte	0
+	.even
+.ENDM
+.MACRO	$ASCTE	ASCSTR
+.irpc	ma$as0,<ascstr>
+.iif dif <ma$as0>,",	.byte	''ma$as0
+.endr
+	.byte	128.
+	.even
+.ENDM
+ ` ASSUME	
+Check compile-time assumptions.	
+________________________________________________________________________________
+	assume	ex1 cnd ex2 com
+	ex1.sv	MACRO expression
+	cnd	MACRO condition
+	ex2.sv	MACRO expression
+	com	Comment string
+________________________________________________________________________________
+ASSUME is used to check assumptions that are made at  compile-time,  usually  to
+optimise  code.  ASSUME  displays  an  error  message  during the compile if the
+assumption is false. The optional comment string (com) is also displayed. 
+For example, consider the following code:	
+	mov	po.suc(r0),r1
+If it is known that PO.SUC=0 the code above can be optimised to:	
+	mov	(r0),r1
+However, the optimised code is less explicit and will not function if the  value
+of  PO.SUC  changes. The ASSUME below makes the code more explicit and will warn
+during compilation if the value of PO.SUC is not 0: 
+	assume	po.suc eq 0	<check po.suc=0>
+	mov	(r0),r1
+P	00002	po.suc-0
+.MACRO	ASSUME EX1 CND EX2 COM
+.iif cnd <ex1>-<ex2>,.mexit	
+.error <ex1>-<ex2>
+.ENDM	
+ ` .ASTX	
+Exit ast or image.	
+________________________________________________________________________________
+	.ASTX	
+________________________________________________________________________________
+.ASTX is used to exit from an AST. .ASTX is interpreted as .EXIT if issued  from
+the root. 
+.ASTX is defined by RT-11/XM but not documented.  RT-11/XM  emulates  the  usual
+completion  routine exit by pushing a return address of zero. Location zero con~
+tains a nop followed by a .ASTX in location two. This technique is used for most
+mapped  systems.  Note,  the  most common programming error is clearing location
+zero. 
+.MACRO	.ASTX	
+	emt	356
+.ENDM 
+ ` .BLKB	
+ ` .BLKW	
+Blank byte & blank word directive replacements. 
+________________________________________________________________________________
+	.blkb	cnt
+	.blkw	cnt
+	cnt.sv	Number of bytes or words to zero
+________________________________________________________________________________
+The standard MACRO .BLKW & .BLKW directives do not zero fill. These do. Call  in
+any environment. An explicit .MCALL must be used to invoke these. 
+.MACRO	.BLKB	CNT
+.rept	cnt
+	.byte	0
+.endr	
+.ENDM	
+.MACRO	.BLKW	CNT
+.rept	cnt
+	.word	0
+.endr	
+.ENDM	
+ ` $DOxxx - see lxd.mac - driver overlays
+ ` $DRxxx - see lxd.mac - drivers
+ ` $DSxxx - see lxd.mac - driver set code
+ ` $ELXM
+________________________________________________________________________________
+	$elxm	area
+________________________________________________________________________________
+Eliminates entire XM context.	
+.MACRO	$ELXM	AREA
+	$mov	area,r0
+	$mov	#36*256.+7,(r0)
+	clr	2(r0)
+	emt	375
+.ENDM
+ ` FALL			
+Fall to address.		
+________________________________________________________________________________
+	fall	loc
+	loc.sa	Address to fall too.
+________________________________________________________________________________
+Ensures no code inserted between fall.	Use in any environment.
+Produces no code. 
+	<code>
+	fall 10$
+ 10$:	
+.MACRO	FALL C
+	.iif eq c-.,.mexit	
+	.error c-.
+.ENDM 
+ ` GLOBAL		
+Declare global mode for definitions.	
+________________________________________________________________________________
+	global
+________________________________________________________________________________
+MAP declarations are local by default. The GLOBAL call sets MAP declarations  to
+global. Call from any environment. Produces no code. 
+Assumes LOCAL has already been called. 
+	global
+.MACRO	GLOBAL
+	.macro	map c d=2 v
+	.iif nb <v>,$=v
+	c==:$
+	$=$+<d>
+	.endm
+.ENDM 
+ ` HEADER		
+Define a table header.
+________________________________________________________________________________
+	header	pre
+	pre.sv	prefix symbol
+________________________________________________________________________________
+.MACRO	HEADER C
+$=0
+.iif b <c>,.mexit
+map	c'.suc
+map	c'.pre
+.ENDM
+ ` $HEX
+Create a hexadecimal string
+________________________________________________________________________________
+	$hex	str
+	str	hexadecimal string
+________________________________________________________________________________
+$HEX expects strings to be enclosed in angle brackets. $HEX accepts seperated
+strings, .i.e. $HEX   <00-21-2-03-4>.
+Data is stored as follows:
+	.byte	^x00
+	.byte	^x21
+	.byte	^x02
+	.byte	^x03
+	.byte	^x04
+.MACRO	$HEX	STR
+	mapos. = 0
+	.irpc	m$acha,<str>
+	  .if dif m$acha,-
+	    mahex. = 0
+	    mafnd. = 0
+	    .irpc m$ahex,<0123456789ABCDEF>
+	      .if idn m$acha,m$ahex
+		mafnd.= 200!mahex.
+	      .endc
+	      mahex. = mahex. + 1
+	    .endr
+	    .if eq mafnd.
+	      .error ;?HEX-W-Invalid character ''m$acha'' in hex string ''str'';
+	      .mexit
+	    .endc
+	    .if eq mapos.
+	      manib. = <mafnd.&17>*20
+	    .iff
+	      .byte  manib.!<mafnd.&17>
+	    .endc
+	    mapos. = <-mapos.>+1
+	  .iff
+	    .if ne mapos.
+	      .byte  manib./20
+	      manib.=0
+	    .endc
+	  .endc
+	.endr
+	.if ne mapos.
+	  .byte  manib./20
+	.endc
+.ENDM
+ ` $IMGGEN	
+ ` $IMGHAM	
+ ` $IMGDEF	
+ ` $IMGINF	
+ ` $IMGIDT
+ ` $IMGNAM
+ ` $IMGVER
+ ` $IMGUPD
+ ` $IMGDAT
+ ` $IMGEDT
++------------------------------------------------------------------------------+
+! 	All I$Mxxx global symbols must be removed from SHARE.STB via the       !
+!	exclusion table in SUS:GLOBAL.MAC. Otherwise LINK produces multiple    !
+!	definition error messages for the component link.		       !
++------------------------------------------------------------------------------+
+________________________________________________________________________________
+	$imggen	nam ver upd fun aut yea use
+	$imgdef	nam ver upd
+	$imginf fun cre aut stb blk use con
+	$imgidt	st1 st2 alt cop
+	$imgdat str
+	$imgedt edt
+	$imguse use
+________________________________________________________________________________
+.MACRO	$IMGGEN NAM VER UPD FUN AUT YEA USE
+$imgdef	NAM VER UPD
+$imginf	<FUN> <hammo> <AUT> <> <> <USE> <>
+	$imgidt st1=<(c) HAMMONDsoftware> st2=<YEA> cop=yes
+i$mnam::$imgnam	$ascte
+.ENDM
+.MACRO	$IMGHAM	yrs oth icr
+	$imgidt st1=<(c) HAMMONDsoftware> st2=<yrs> alt=<oth>
+i$mnam::$imgnam	$ascte
+.ENDM
+.MACRO	$IMGDEF NAM=ANON VER=1 UPD=0
+.macro	$imgnam mod pre pos fol
+.if idn <mod>,.word
+	.word	pre''nam''pos
+.iff
+	mod	"pre''nam''pos"
+.endc
+	fol
+.endm
+.macro	$imgver mod pre pos fol
+.radix	10
+.irp $,\ver'.
+.if idn <mod>,.word
+	.word	pre''$''pos
+.iff
+	mod	"pre''$''pos"
+.endc
+	fol
+.endr
+.radix	8
+.endm
+.macro	$imgupd mod pre pos fol
+.radix	10
+.irp $,\upd'.
+.if idn <mod>,.word
+	.word	pre''$''pos
+.iff
+	mod	"pre''$''pos"
+.endc
+	fol
+.endr
+.radix	8
+.endm
+.ENDM
+.MACRO	$IMGINF FUN CRE AUT STB BLK USE CON
+.save
+.asect
+.if b <con>
+.=^o110
+	$imgver	.rad50	pre=<v>
+.=^o112
+	$imgupd	.word
+.=^o114
+	.word	-1
+	.rad50	/img/
+	.rad50	/shp/
+.endc
+.if nb <stb>
+.=^o122
+	.word	stb
+.endc
+.if b <con>
+.=^o124
+	$imgnam	.rad50
+.endc
+.if nb <fun>
+.=^o130
+	.rad50	/fun/
+.endc
+.if nb <blk>
+.=^o132
+	.word	blk'.
+.endc
+.if nb <cre>
+.=^o134
+	.rad50	/cre/
+.endc
+.if nb <aut>
+.=^o140
+	.rad50	/aut/
+.endc
+.restore
+.if nb <use>
+$imguse <use>
+.endc
+.ENDM
+.MACRO $IMGUSE USE
+.save
+.asect
+.if nb <use>
+.=^o142
+	.word	i$muse
+.endc
+.restore
+.if nb <use>
+i$muse::.ascii	"use"<200>
+	.even
+.endc
+.ENDM
+.MACRO	$IMGIDT	ST1 ST2 ALT COP
+	.dsabl	lc
+i$midt::$imgnam	.ascii	pre=<?> pos=<-I->
+	.enabl	lc
+.if nb <alt>
+	.ascii	"alt "
+.iff
+	$imgnam	.ascii  pos=< >
+.endc
+	$imgver	.ascii	pre=<V>
+	$imgupd	.ascii	pre=<.> pos=< >
+.if nb <st1>
+	.ascii	"st1 "
+.endc
+	.ascii	"st2"
+.if nb <cop>
+.if gt 1987.-st2'.
+	.ascii	",1987"
+.endc
+.endc
+	.byte	0
+	.even
+.ENDM
+.MACRO	$IMGDAT str
+.if nb <str>
+.save
+.asect
+.=^o144
+	.word	i$mdat
+.restore
+i$mdag::.rad50	/dat/
+i$mdat::.ascii	"str"<200>
+	.even
+.endc
+.ENDM
+.MACRO	$IMGEDT	EDT
+.save	
+.asect	
+.=^o146
+	.word	^d'EDT
+.restore
+.ENDM
+ ` INSQUE		
+________________________________________________________________________________
+	insque	qel pre adr
+________________________________________________________________________________
+	as=c		cs
+	ap		cp=a
+	as=b	bs=c	cs
+	ap	bp=a	cp=b
+ or
+	as=a
+	ap=a
+	as=b	bs=a
+	ap=b	bp=a
+	r5 -> a
+	r4 -> b
+	insque	r4,r5			r5 -> predecessor
+	insque	r4,r5,2(r5)		before predecessor
+	insque	r4,r5,#x$yque		start of queue
+	insque	r4,r5,x$yque+qu.pre	end of queue
+.MACRO	INSQUE	QEL,PRE,ADDR
+.iif nb <addr>,mov addr,pre
+	mov	(pre),(qel)
+	mov	qel,(pre)
+	mov	pre,2(qel)
+	mov	(qel),pre
+	mov	qel,2(pre)
+	mov	2(qel),pre
+.ENDM
+ ` LOCAL			
+Set definitions local.
+________________________________________________________________________________
+	local
+________________________________________________________________________________
+Defines local version of MAP. Call in any environment. Produces no code.
+	Defines following variables:
+	bits=-1
+	null=0
+	byte=1
+	word=2
+	long=4
+	quad=8.
+	vary=0
+	true=1
+	false=0
+	bit%$=bit number
+.MACRO	LOCAL
+	.macro	map c d=2 v
+	.iif nb <v>,$=v
+	c=:$
+	$=$+<d>
+	.endm
+	bits=-1
+	null=0
+	byte=1
+	word=2
+	long=4
+	quad=8.
+	vary=0
+	true=1
+	false=0
+	bit0$=1
+	bit1$=2
+	bit2$=4
+	bit3$=^o10
+	bit4$=^o20
+	bit5$=^o40
+	bit6$=^o100
+	bit7$=^o200
+	bit8$=^o400
+	bit9$=^o1000
+	bit10$=^o2000
+	bit11$=^o4000
+	bit12$=^o10000
+	bit13$=^o20000
+	bit14$=^o40000
+	bit15$=^o100000
+.ENDM
+ ` META			
+Define single-line MACRO definer.
+________________________________________________________________________________
+	meta	m n o p
+	m	name of macro
+	n:p	macro parameters
+________________________________________________________________________________
+.MACRO	META	M N O P
+.macro m
+n
+o
+p
+.endm
+.ENDM
+ ` $MOV	
+ ` $MOVB	
+Move macro parameters.	
+________________________________________________________________________________
+	$mov	src,dst
+	$movb	src,dst
+	src.mv	Ignore if blank or "*".
+		If src = #0, clear destination.
+		Else move to destination.
+	dst.ma	Destination address.
+________________________________________________________________________________
+.MACRO	$MOV	SRC,DST
+.if nb <src>	
+.if dif <src>,<dst>
+.if dif <src>,*	
+.if idn <src>,#0	
+	clr	dst
+.iff	
+	mov	src,dst
+.endc
+.endc	
+.endc	
+.endc
+.ENDM	
+.MACRO	$MOVB	SRC,DST
+.if nb <src>	
+.if dif <src>,<dst>
+.if dif <src>,*	
+.if idn <src>,#0	
+	clrb	dst
+.iff	
+	movb	src,dst
+.endc	
+.endc
+.endc	
+.endc
+.ENDM	
+ ` MOVI			
+________________________________________________________________________________
+	movi	off reg dst
+	off.sv	Register offset.
+	reg.dv	Register.
+	dst.da	Destination to store result.
+________________________________________________________________________________
+	movi	tb.buf,r3,r1
+.MACRO	MOVI C D E
+	mov d,e
+	add #c,e
+.ENDM
+.MACRO	MOVTD C D E
+	psh c
+	mtpd d
+.iif nb <e>,bvs e
+.ENDM
+.MACRO	MOVTI C D E
+	psh c
+	mtpi d
+.iif nb <e>,bvs e
+.ENDM
+.MACRO	MOVZBW C D
+	clr	d
+	bisb	c,d
+.ENDM
+ ` PSH			
+ ` PSHS			
+ ` POP			
+ ` POPS			
+________________________________________________________________________________
+	psh	val
+	pshs	val, val, ...
+	val.dv	Value to push on stack.
+________________________________________________________________________________
+.MACRO	PSH C
+.iif idn <c>,#0,clr -(sp)	
+.iif dif <c>,#0,mov c,-(sp)	
+.ENDM	
+.MACRO	PSHS C D E F G H I J
+.irp	x,<c d e f g h>
+	psh x
+.endr	
+.ENDM	
+.MACRO	POP C
+	mov (sp)+,c
+.ENDM	
+.MACRO	POPS C D E F G H I J
+.irp	x,<c d e f g h>
+	mov (sp)+,x
+.endr	
+.ENDM	 
+ ` REMQUE		
+	as=b	bs=c	cs
+	ap	bp=a	cp=b
+	as=c		cs
+	ap		cp=a
+________________________________________________________________________________
+	remque	r4		r4 -> element
+	remque	r4,,10$		10$ if queue empty
+	remque	r4,x$yque+qu.pre  remove from end of queue
+________________________________________________________________________________
+We make the entry we remove look like an empty queue. This means  that  routines
+need not test to see if the element is in a queue before removing it. 
+	KEV	post scheduler
+	KIN	deliver scheduler
+	KVE	deliver resource
+.MACRO	REMQUE	QEL,ADDR,EMPTY,SUCC,?NONE
+.iif nb <addr>,mov addr,qel 
+.if nb <empty> 
+	cmp	(qel),qel
+	beq	empty
+.endc 
+.if nb <succ>
+	cmp	(qel),qel
+	beq	none
+.endc
+	mov	(qel)+,@(qel)+
+	add	#2,-4(qel)
+	mov	-(qel),@-(qel)
+	mov	qel,(qel)
+	mov	qel,2(qel)
+.if nb <succ>
+	br	succ
+none:
+.endc
+.ENDM 
+ ` SERIES		
+________________________________________________________________________________
+	series	pre siz [ini] d e f g h i j k l m n
+	pre.sv	Prefix name.
+	siz.sv	Byte size of element.
+	ini.sv	Initial value.
+		Default is continue with previous.
+	d:n	Values to check.
+	series	po,word,suc pre,rec
+________________________________________________________________________________
+.MACRO	SERIES	PREFIX,SIZE=2, C D E F G H I J K L M N
+.if nb <prefix>
+.iif nb <c>,maval.=prefix'.'c+<size>
+.irp manam.,<d e f g h i j k l m n>
+.if nb <manam.>
+.if ne maval.-<prefix'.'manam.>	
+.error maval.
+.endc
+.endc
+maval.=maval.+<size>
+.endr
+.iff
+.iif nb <c>,maval.=c+<size>
+.irp manam.,<d e f g h i j k l m n>
+.if nb <manam.>
+.if ne maval.-<manam.>	
+.error maval.
+.endc
+.endc
+maval.=maval.+<size>
+.endr
+.endc
+.ENDM
+ ` SET			
+.MACRO	SET C D E F G H I J K L M N
+	c=d
+.iif nb <e>,	set e f g h i j k l m n
+.ENDM
+ ` STACK & FRAME			
+Define a stack frame with upto 24 items.
+.MACRO	STACK C D E F G H I J K L M N O P Q R S T U V W X Y Z
+maval.=0
+.irp manam.,<c d e f g h i j k l m n o p q r s t u v w x y z>
+	sp.'manam.=maval.
+	maval.=maval.+2
+.endr
+.ENDM
+.MACRO	FRAME C D E F G H I J K L M N O P Q R S T U V W X Y Z
+maval.=0
+.irp manam.,<c d e f g h i j k l m n o p q r s t u v w x y z>
+	fp.'manam.=maval.
+	maval.=maval.+2
+.endr
+.ENDM
+ ` SYSTEM		
+.MACRO	SYSTEM C
+	iot
+	.rad50	/sys/
+	.word	c
+.ENDM
+` $SYCAL	
+Call FORTRAN system library routine dispatcher	
+.MACRO	$SYCAL	NAM COD PAR	
+	frame	pct par bbs
+NAM::	jsr	r2,sc$cal
+	.word	fp.bbs
+	.word	COD
+.ENDM
+ ` $SXTSTA	
+.MACRO	$SXTSTA	sta, cat,loc=@#53
+.if nb <sta>
+	bisb sta,loc
+.iff
+.if nb <cat>
+$=0
+.iif idn <cat>,succes,$=$!1
+.iif idn <cat>,warn,$=$!2
+.iif idn <cat>,error,$=$!4
+.iif idn <cat>,fatal,$=$!10
+	bisb #$,loc
+.endc
+.endc
+.ENDM
+ ` TABLE			
+.MACRO	TABLE ENTRY, STEP
+.if eq step-bits
+	$=1
+	.macro	item	c d
+	.iif nb <d>,assume d eq $
+		.'entry	c
+		$=$*2
+	.endm
+.iff
+	$=0
+	.macro	item	c d
+	.iif nb <d>,assume d eq $
+		.'entry	c
+		$=$+<step>
+	.endm
+.endc
+.ENDM
+                                                                                                                                                                                        

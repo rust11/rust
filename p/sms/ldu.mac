@@ -1,0 +1,357 @@
+;.title	ldu
+;
+;	%build
+;	run sy:strip smb:ldu.mla=sms:ldu.mac
+;	%end
+;	%date
+;	<19-Mar-2003 23:19:52.40>
+;	%edit
+;	<25   >
+;
+;	$ucdef	lrs	RSX device unit characteristics
+;	$uidef		DEC PDP-11 UIC structures
+;	$undef		SHAREplus unit record
+;	$usdef		SHAREplus user authorisation record
+;	$uvdef		SHAREplus user vector block
+;;	-> moved to sms:lrs.mac
+;;
+;;-----------------------;
+;; UNIT CHARACTERISTICS	;
+;;-----------------------;
+;;
+;; RSX unit characteristics word
+;;
+;.MACRO	$UCDEF
+;;
+;map	ucrec$,,1	;record oriented device
+;map	ucccl$,,2	;carriage control device
+;map	uctty$,,4	;terminal device
+;map	ucdir$,,10	;directory device
+;map	ucsdi$,,20	;single directory device
+;map	ucsqd$,,40	;sequential device
+;;
+;map	ucmsd$,,100	;mass storage device
+;map	ucspl$,,100	;device is being spooled (fcs)
+;;
+;map	ucumd$,,200	;usermode diagnostics supported
+;map	ucext$,,400	;supports extended 22-bit controller
+;;
+;map	ucswl$,,1000	;software write locked
+;map	ucmxd$,,1000	;mixed massbus device (fcs)
+;;
+;map	ucisp$,,2000	;input spooling
+;map	ucosp$,,4000	;output spooling
+;;
+;map	ucpse$,,10000	;psuedo device
+;map	uccom$,,20000	;network line device
+;map	ucf11$,,40000	;files11 device
+;map	ucmnt$,,100000	;device mountable
+;;
+;; generic device characteristics
+;;
+;map	ucgrm$,,ucrec$				;rms
+;map	ucgte$,,ucrec$!ucccl$!uctty$!ucmnt$	;terminal
+;map	ucgdk$,,ucdir$!ucf11$!ucmsd$!ucmnt$	;disk
+;map	ucgmt$,,ucrec$!ucsqd$!ucmnt$		;magtape
+;map	ucgct$,,ucrec$!ucsqd$!ucmnt$		;cassette
+;map	ucglp$,,ucrec$!ucccl$			;lineprinter
+;map	ucgcr$,,ucrec$				;cardreader
+;map	ucgnf$,,0				;non-file device
+;map	ucgnt$,,uccom$!ucmnt$			;commucications
+;;
+;; generic device buffer sizes - printer is special
+;;
+;map	ucbrm.,,512.	;rms
+;map	ucbte.,,80.	;terminal - line width
+;map	ucbdk.,,512.	;disk
+;map	ucbmt.,,512.	;magtape
+;map	ucbct.,,128.	;cassette
+;map	ucblp.,,80.	;printer - or 132.
+;map	ucbcr.,,80.	;cardreader
+;map	ucbnf.,,0	;non-file device
+;map	ucbnt.,,0	;lowbyte - number of syncs to turnaround.
+;;			;highbyte - current sync counter
+;;
+;.ENDM
+;;
+;; vms device bits
+;;
+;	map	ucrec$,,1	;record oriented - sequential - not random
+;	map	ucccl$,,2	;carriage control device
+;	map	uctrm$,,4	;terminal device
+;	map	ucdir$,,10	;directory oriented device
+;	map	ucsdi$,,20	;single directory device (mfd only)
+;	map	ucsqd$,,40	;sequential block oriented device - magtape
+;	map	ucspl$,,100	;device is being spooled
+;	map	ucopr$,,200	;good question
+;	map	ucrct$,,400	;good question
+;				;
+;	map	ucnet$,,20000	;network device
+;	map	ucfod$,,40000	;file oriented device - disk or tape
+;	map	ucdua$,,100000	;dual controller? - always set for RSX AME
+;
+;	map	ucshr$,,1	;shareable device
+;	map	ucgen$,,2	;generic device
+;	map	ucavl$,,4	;device is available for use
+;	map	ucmnt$,,10	;device is mounted
+;	map	ucmbx$,,20	;mailbox device
+;	map	ucdmt$,,40	;device is marked for dismount
+;	map	ucelg$,,100	;error logging is enabled
+;	map	ucall$,,200	;device is allocated
+;	map	ucfor$,,400	;device is mounted foreign
+;	map	ucswl$,,1000	;device is software writelocked
+;	map	ucidv$,,2000	;input device
+;	map	ucodv$,,4000	;output device
+;	map	ucrnd$,,10000	;random access device
+;	map	ucrtm$,,20000	;realtime device
+;	map	ucrck$,,40000	;read check is enabled
+;	map	ucwck$,,100000	;write check is enabled
+;.endc
+;-----------------------;
+; UIC			;
+;-----------------------;
+;
+; Standard UIC's
+;
+.MACRO	$UIDEF
+;
+map	ui.mic	byte,0	;member code
+map	ui.gic	byte	;group code
+map	ui.bbs		;
+;
+map	uimin.,,1	;minimum code
+map	uimax.,,377	;maximum code
+;
+map	uismx.,,10	;system user maximum
+map	uisys.,,<1*256.!4> ;[1,4] - system uic
+;
+.ENDM
+;-----------------------;
+; UNIT			;
+;-----------------------;
+;
+; Device unit - save 5
+;
+;	un.erc	un.mcc at present
+;	un.opc	un.hof at present
+;	un.lab	expand to four words
+;
+.MACRO	$UNDEF	
+;
+; Directory access
+;
+map	un.suc,,0	;successor
+map	un.pre		;predecessor
+map	un.sem		;semaphore
+map	un.pcr		;unit semaphore pcr address
+;
+map	un.acc		;access count - files open
+map	un.ioc		;i/o count - operations active - byte
+;
+map	un.own	byte	;allocated process number
+map	un.mnc	byte	;mount count - processes mounted - unused
+;
+map	un.acp		;acp address
+map	un.der		;der pointer
+map	un.vid	null	;vid of unit
+map	un.ind	byte	;device index
+map	un.uni	byte	;unit number
+map	un.dsz		;unit block size
+;
+map	un.con		;unit control
+map	un.uic		;unit uic	
+map	un.pro		;unit protection
+map	un.pri	byte	;unit priority
+map	un.asp	byte	;address space coverage
+map	un.fpr		;file protection
+map	un.lab	word*2	;unit label
+map	un.erc		;error count
+map	un.opc		;operation count
+map	un.lof		;low-order free blocks
+map	un.acn	word*2	;acp name - remove			
+;
+map	un.bbs
+;
+; UN.CON
+;
+map	unnwr$,,1	;/nowrite - software write protect	mount	write
+map	unloa$,,2	;/loaded - unit has been loaded		kernel
+map	uncac$,,4	;/cache directory segments		load	cache
+map	unspl$,,10	;/spooled - information only		kernel
+map	unser$,,20	;/serialize				load	noser
+map	ungrp$,,40	;/group - information only		mount	nogroup
+map	unfor$,,100	;/foreign - information only		mount	nofor
+map	unalc$,,200	;/allocated				kernel
+;
+map	unsha$,,400	;shared volume				mount	shared
+map	unfil$,,1000	;file-structured volume			???
+map	unpur$,,2000	;purge segment cache			kernel
+map	unfpr$,,4000	;use file-protection			mount	nofpr
+map	unonl$,,10000	;on-line				kernel
+map	unpub$,,20000	;public /system 			mount	system
+map	unsys$,,20000	;/system - preferred name
+map	undsm$,,40000	;dismount pending			kernel
+map	unmou$,,100000	;mounted				kernel
+;
+.ENDM
+;-----------------------;
+; USER ACCESS		;
+;-----------------------;
+;
+; User authorisation record
+;
+; Block zero of UAF contains an EXPERT UAF.
+; Block one contains an EVE UAF.
+;
+; EVE UAF's may only be maintained under SHAREplus.
+; EVE AUTHOR is written in MAREE.
+;
+; ???	614	long	uaf$q_lastlogin_i	last interactive login
+; ???	624	long	uaf$q_lastlogin_n	last non-interactive login
+; ???	544	long	uaf$w_logfails		number of failed logins
+;
+.MACRO	$USDEF
+;
+map	us.ver,,0	;uaf version number
+map	us.nm0		;user name
+map	us.nm1		;second word of it
+map	us.pa0		;password
+map	us.pa1		;second word of it
+;map	us.uic	null	;UIC
+map	us.mic	byte	;member ic
+map	us.gic	byte	;group ic
+map	us.sr0		;system rights
+map	us.com	byte*16.;start-up command file
+map	us.cli	byte*16.;user CLI
+map	us.def	byte*4.	;default disk
+map	us.loc		;lock code
+map	us.xbs	null	;expert byte size
+;
+; us.ver - UAF versions
+;
+map	usv00.,,0	;version 0 -> SHARE/ordinairre
+map	usv01.,,1	;version 1 -> SHARE/plus
+;
+; us.sys - SHARE11 system rights
+;
+map	ussma$,,1	;system manager
+map	ussop$,,2	;system operator
+map	ussph$,,4	;physical i/o
+map	ussus$,,10	;system user
+map	ussbo$,,10	;boot
+map	usslo$,,20	;logout
+map	usscl$,,40	;set cli
+map	ussct$,,100	;set ctrly
+map	usste$,,200	;tell and stop
+map	usspr$,,400	;change file-protection
+;
+; EVE tokens
+;
+;map	ususn.,,<evcha$,,12.>	;user name
+;map	usacn.,,<evcha$,,12.>	;accounting name
+;map	usuic.,,<evbyo$,,2>	;UIC
+;map	uspro.,,<evhxw$,,2>	;protection
+;map	usarr.,,<evhxw$,,8.>	;access rights
+;
+;-----------------------;
+; SHAREplus UAF		;
+;-----------------------;
+;
+map	us.use,byte*12.,0	;000 username	12 bytes username
+map	us.pwd,word*4		;014 pwd	pass word
+map	us.acc,byte*8.		;024 account	8 bytes accounting name
+map	us.uic,null		;034 uic	uic
+map	us.mem,word		;034 mem	member code
+map	us.grp,word		;036 grp	group code
+map	us.ddi,byte*32.		;040 defdir	default directory
+map	us.dde,byte*16.		;100 defdev	default device
+map	us.dcl,byte*9.		;120 defcli	default command language
+map	us.enc,byte		;131 encrypt	??
+map	us.cpu,word*2		;132 cputim	cpu time allowed
+map	us.prv,word*4		;136 priv	privileges
+map	us.bio,word		;146 biolm	buffered i/o limit
+map	us.byt,word		;150 w_bytlm	byte limit
+map	us.dio,word		;152 diolm	direct i/o limit
+map	us.fil,word		;154 fillm	file limit
+map	us.tqc,word		;156 iqcnt	timer queue
+map	us.prc,word		;160 prccnt	subprocesses??
+map	us.wsq,word		;162 wsquota	working set quota
+map	us.dfw,word		;164 dfwscnt	working set default
+map	us.ast,word		;166 astlm	ast limit
+map	us.enq,word		;170 enqlm	enque limit
+map	us.pgf,word*2		;172 pgflquota	page fault quota
+map	us.own,byte*32.		;176 owner	user description
+map	us.fpt,word		;236 filprt	file protection
+map	us.pri,byte		;240 pri	priority
+map	us.flg,byte		;241 flags	login flags
+map	us.lev,word*2		;242 level	??
+map	us.lgi,byte*32.		;246 lgicmd	login command file?
+map	us.mai,word		;306 mail	new mail messages
+map	us.pby,word*2		;310 pbytlm	pool bytlm (not implemented)
+map	us.shr,word		;314 shrfillm	share file limit?
+map	us.usr,word		;316 usrdatoff	user data offset
+map	us.sal,word		;320 salt	??
+map	us.wse,word		;322 wsextent	working set extend
+map	us.pdh,byte*3		;324 pdayhours	
+map	us.pdf,byte		;327 pdayflags	
+map	us.sdh,byte*3		;330 sdayhours
+map	us.sdf,byte		;333 sdayflags
+map	us.mpr,byte		;334 maxproc	not yet
+map	us.mgp,byte		;335 maxgrproc	not yet
+map	us.prd,byte		;336 primedays
+map	us.xxv,byte		;337 unused
+map	us.byl,word*2		;340 l_bytlm
+map	us.xxw,byte*8.		;344 -
+map	us.xxx,word*6		;354 -
+map	us.xxy,word*11.		;370
+map	us.nda			;416		non-interactive date
+map	us.nho			;420		non-interactive high order time
+map	us.nlo			;422		non-interactive low order time
+map	us.lfc			;424 		login fail count
+map	us.dat			;426		last date of login
+map	us.hot			;430		high order login time
+map	us.lot			;432		low order login time
+;				;434
+;	us.flg - login flags
+;
+map	usfcy$,,1		;disable [ctrl/y]
+map	usfdc$,,2		;change cli
+map	usflp$,,4		;change password
+map	usfcp$,,10		;change any defaults at login
+map	usfda$,,20		;disable account for login
+map	usfdw$,,40		;"welcome to..."
+map	usfdm$,,100		;"new mail..."
+map	usfcc$,,200		;no ctrl/c
+;
+.ENDM
+;-----------------------;
+; USER VECTOR BLOCK	;
+;-----------------------;
+;
+; 13-word user vector block
+; Order-dependent
+;
+.MACRO	$UVDEF
+map	uv.suc	word,0	;next UV block
+map	uv.isr	word*2	;jsr r5,@#in$frk
+map	uv.sem		;uv.sem - throttle semaphore
+			;
+map	uv.frk	0	;fork block
+map	uv.fsu		;fk.suc
+map	uv.fpc		;fk.fpc - as$pma
+map	uv.fr5		;fk.fr5 - uv.kad
+map	uv.fr4		;fk.fr4 - callers pcr
+			;
+map	uv.kad	0	;kernel ast block
+map	uv.ksu		;ad.suc
+map	uv.kpc		;ad.kpc - uv$ast
+map	uv.kps		;ad.kps - previous user mode
+map	uv.kp1		;ad.kp1 - UTL overlay par1
+map	uv.vec	0	;	- vector address
+map	uv.kr4		;ad.kr4 - vector address
+;			;ad.kf0 - unused
+;			;ad.kf0 - unused
+map	uv.bbs	0	;
+.ENDM				
+
+                                                                                                  

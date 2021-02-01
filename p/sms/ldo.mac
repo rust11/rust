@@ -1,0 +1,290 @@
+;.title	ldo
+;
+;	%build
+;	run sy:strip smb:ldo.mla=sms:ldo.mac
+;	%end
+;	%date
+;	<19-Mar-2003 23:19:49.10>
+;	%edit
+;	<22   >
+;
+;	$okdef		Kernel overlays
+;	$opdef		In-house output library
+;	$osdef		Operating system codes
+;	$ovdef		RT-11 overlay structures
+;--------------------------;
+; $OKDEF - Kernel Overlays ;
+;--------------------------;
+;
+; Kernel overlays
+;
+;	XEV.MAC
+;
+.MACRO	$OKDEF
+map	ok.ovr	word,0	;overlay return address
+map	ok.op1		;old par1
+map	ok.ret		;caller return address
+map	ok.dat	null	;call data
+map	ok.bbs		;size
+.ENDM
+;-----------------------;
+; OUTPUT		;
+;-----------------------;
+;
+; DCL output processing
+;
+.MACRO	$OPDEF
+;
+; output macro format
+;
+map	low,,400	;lower case
+map	upr,,1000	;upper case
+map	tit,,2000	;Title (first is upper case)
+map	rig,,4000	;right justify
+map	zer,,10000	;zero fill number
+map	sgn,,20000	;signed number
+;
+; standard format
+;
+map	oplow$,,400	;lower case
+map	opupr$,,1000	;upper case
+map	optit$,,2000	;title
+map	oprig$,,4000	;right justify
+map	opzer$,,10000	;zero fill number
+map	opsgn$,,20000	;signed number
+;
+.macro	output	rou par ctl cnt opr
+	$mov'opr par,r1
+.if b <ctl>
+.if b <cnt>
+	call	op$com
+	.word	op$'rou
+.iff
+	$mov	cnt,r0
+	call	of$com
+	.word	op$'rou
+.endc
+.iff
+	$mov	ctl,r0
+.if nb <cnt>
+	bis	cnt,r0
+.endc
+	call	of$com
+	.word	op$'rou
+.endc
+.endm
+;
+.macro	type	c
+	jsr	r1,op$typ
+	.asciz	&c&
+	.even
+.endm
+;
+.macro	print	c
+.if nb <c>
+	jsr	r1,op$typ
+	.asciz	&c&<377>
+	.even
+.iff
+	call	op$new
+.endc
+.endm
+;
+.macro	put cha
+	$movb	cha,r0
+	call	op$out
+.endm
+;
+;	Error message routines
+;
+.macro	message	txt rou par ctl cnt txa opr
+;
+.if nb <txa>
+mov	txa,r0
+jsr	r5,of$mes
+.iff
+jsr	r5,op$mes
+.endc
+.asciz	&txt&
+.even
+;
+.if nb <rou>
+output	rou par ctl cnt opr
+.endc
+call	@(sp)+
+.endm
+;
+.ENDM
+;-----------------------;
+; OPERATING SYSTEMS	;
+;-----------------------;
+;
+; IND codes:
+;
+;	rsx11d	0	
+;	rsx11m	1
+;	rsx11s	2
+;	ias	3
+;	rsts	4
+;	vms	5
+;	rsx11m+	6
+;	rt11sj	7
+;	rt11xm	8
+;	pos	9
+;
+.MACRO	$OSDEF
+;			;
+map	ossln.,,7	;section length is seven
+;			;
+;		000:007	;special cases
+map	osunk.,,0	;unknown
+map	osnat.,,1	;native
+map	osrdp.,,2	;remote device protocol (use this to get system)
+;			;
+;		010:017	;pdp-8 operating systems
+map	ospd8.,,10	;pdp-8
+map	oswp8.,,10	;wps-8
+map	osos8.,,11	;os-8
+map	oscos.,,12	;cos
+;			;
+;		020:027	;rt-11 systems - see also 220, 310, 320
+map	osrt0.,,20	;rt-11
+map	osrtj.,,20	;rt-11/sj
+map	osrtb.,,21	;rt-11/fb
+map	osrtm.,,22	;rt-11/xm
+			;
+map	osrts.,,23	;rsts/rt-11 emulator
+map	osrtx.,,24	;rsx/rtem
+map	osrtv.,,25	;vms/rtem
+map	osrtc.,,26	;pro/rt-11/fb (cti)
+map	osrtp.,,27	;pro/rt-11/xm (pro)
+;			;
+;		030:037	;rsts systems
+map	osrs0.,,30	;rsts
+map	osrse.,,30	;rsts-e
+;			;
+;		040:047	;rsx systems - see also 340
+map	osrx0.,,40	;rsx family - also GTSK base
+map	osrxd.,,40	;rsx-11d
+map	osrxm.,,41	;rsx-11m
+map	osrxu.,,42	;rsx-11s
+map	osrxi.,,43	;ias
+map	osrxs.,,44	;rsts/rsx
+map	osrxv.,,45	;vax/vms/rsx
+map	osrxp.,,46	;rsx-11m/plus			pro
+map	osrxc.,,47	;pro rsx-11m/plus (cti)
+;			;
+; Following two returned by GTSK and remapped 
+;
+map	osrxj.,,47	;rsx gtsk sj
+map	osrxb.,,50	;rsx gtsk fb
+;			;
+;		050:057	;unix systems
+map	osunx.,,50	;unix
+map	osdsm.,,60	;dsm
+map	osf02.,,70	;reserved
+map	oscpm.,,100	;cp/m
+map	osucp.,,110	;uscd p-systems
+map	osmsd.,,120	;ms-dos
+map	osw32.,,130	;win32 systems		;V4
+;		140	;reserved
+;		150	;reserved
+;		160	;reserved
+map	osvax.,,170	;vax operating systems
+map	osvms.,,171	;vax/vms
+map	osvmu.,,172	;micro/vms
+map	oseln.,,173	;vax/eln
+map	osult.,,174	;ultrix
+;			;
+;			;
+;		220:227	;DEC RT-11 runtimes
+map	osrem.,,220	;remote-11
+map	osmnc.,,221	;minc
+map	osmrt.,,222	;mrrt
+map	osrct.,,223	;rt-11 CTS
+;			;
+;		260:267	;random things
+map	oscap.,,260	;caps
+map	osmpp.,,261	;micropower pascal
+;			;
+;		310:317	;TSX systems
+map	ostsx.,,310	;TSX
+map	ostsp.,,311	;TSX/plus
+map	ostsc.,,312	;Pro TSX/plus
+map	ostsm.,,313	;SHAREplus SHAREtsm TSX
+;			;
+;		320:327	;STAR & SHARE systems
+map	ossta.,,320	;STAR-eleven
+map	ossha.,,321	;SHARE-eleven
+map	osshs.,,322	;SHARE-eleven satellite
+map	osshv.,,323	;VMS SHARE-eleven -> VRT
+map	osshp.,,324	;SHAREplus
+map	osshb.,,325	;SHAREboot
+			;
+map	osrxm.,,324	;RUST/XM
+map	osrbt.,,325	;RUSTboot
+map	osrsj.,,326	;RUST/SJ
+;
+;		340:347	;Add-on RSX
+map	osrxr.,,340	;RUST/XM SHAREmcr RSX
+;
+map	osnon.,,377	;no name for system
+.ENDM
+;-----------------------;
+; RT-11 OVERLAYS	;
+;-----------------------;
+;
+; RT-11 overlay structure
+;
+.MACRO	$OVDEF
+;
+;	This table is located with:
+;
+;	mov	j$blot,r0
+;	sub	#ov.lot,r0
+;
+map	ov.wde	word,0	;$vdf5 -> $ovdf5 - WDB end pointer
+map	ov.wdb		;$vdf4 -> $ovdf4 - WDB table begin pointer
+map	ov.rdb	null	;RDB
+map	ov.rid		;RDB - region id
+map	ov.rsz		;RDB - region page size (= $ovdf3 from linker)
+map	ov.rst		;RDB - region status
+map	ov.rha		;$vdf1 -> $ovdf1 - root high address
+map	ov.lha		;$vdf2 -> $ovdf1 - low overlay area high address
+map	ov.lot	null	;$ovtab <- j$blot - overlay table (origin)
+map	ov.bbs	null	;overlay descriptor table byte size
+;
+; j$blot -> $ovtab = start of low overlay table
+;
+map	ov.lva	word,0	;low-memory virtual address
+map	ov.lbl		;low-memory - block number
+map	ov.lwc		;low-memory - word-count
+map	ov.lbs	null	;low overlay table entry byte size
+;			;(variable number of these)
+;
+; j$bvot -> virtual overlay table
+;
+map	ov.vwd	word,0	;virtual - wdb pointer (va in wdb)
+map	ov.vbl		;virtual - block number
+map	ov.vwc		;virtual - word-count
+map	ov.vbs	null	;virtual table entry byte size
+;			;(variable number of these)
+;
+; No pointer - must be searched for with pattern matching
+;
+map	ov.djs	word,0	;dummy - jsr r5,$ovrh(v) (pattern=4767)
+map	ov.dad		;dummy - $ovrh(v) (pattern $ovrh(v))
+map	ov.dsn		;dummy - segment number * 6
+map	ov.dva		;dummy - virtual address
+map	ov.dbs	null	;dummy byte size
+;			;(variable number of these)
+;
+; ov.wdb==$vdf4 -> $ovdf4 - wdb begin
+;
+map	ov.wdt	null,0	;wdb's (xm.wbs)
+;			;(variable number of these)
+;
+; ov.wdb==$vdf5 -> $ovvd5 - wdb end
+;
+.ENDM
+

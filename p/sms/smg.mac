@@ -1,0 +1,342 @@
+;smmod.?
+;	------------------------------------------------------------------------
+;	SMINI$ - Structured MACRO definitions	
+;	------------------------------------------------------------------------
+;
+;	SMINI$ must be invoked by any module using the macros.
+;	SMCAL$ must also be invoked
+
+.MACRO	SMINI$	FAC SCT
+.mcall	smenv$				;
+smenv$					;
+.if nb <FAC>				;
+	gm'FAC'$ SCT			;	
+.endc					;
+smmod.=0
+.if ndf smcrt.
+	smcrt.=0			;not CRT version
+.endc
+	smass.=0			;generate assertions = NO
+	smspm.=0			;SP marker on stack for procs and subrs
+	smloc.=1			;local procedures/subroutines o.k.
+	small.=0			;???
+	smtra.=0			;not tracing
+	smbpt.=1			;BPT on STOP errors
+	smend.=^o4000			;end label offset
+	auto.=0				;init automatic count
+;	
+;	Section types
+;
+	smdef.=0			;definition section
+	smdat.=1			;data section
+	smcod.=2			;code section
+	s$msec=smcod.			;assume code section
+	s$maln=0			;section alignment
+;
+;	Initial values
+;
+	s$mbgn=0			;number of begins - begin label
+	s$mend=smend.			;end label - s$mbgn+smend.
+	s$mnst=0			;nesting level
+	s$mrns=0			;repeat nests
+	s$mpns=0			;proc/subr nest level
+	s$mloc=0			;not local yet
+	s$mlon=0			;not long yet
+	s$mmee=0			;no meet point so far
+	s$mmsc=0			;meet save count
+	s$mmtc=0			;meet temp count
+	s$mles=0			;endless flag is off
+	s$mdup=0			;endup flag is off
+	s$mpsc=0			;no saved psect so far
+	s$mnat=0			;not native yet
+	s$mpoo=0			;proc once-only flag
+	s$mels=0			;if else in progress
+;
+;	s$mlbl=0			;branch label target
+;	s$mlbe=0			;end label - s$mlbl+smend.
+;	s$mtyp=0			;block type (if, while, etc)
+;	s$mmod=0			;block mode (long etc)
+;	s$mrbl=0			;repeat count nest?
+;	s$mbbl=0			;begin block label
+;	s$ml ..				;current branch target
+;	s$mt ..				;current block type
+;	s$mm ..				;current block flag
+;	s$mr ..				;current repeat thing
+;	s$mb ..				;current block begin label
+;	s$me ..				;else block end labels
+;	s$ms ..				;skip block end labels
+;
+;	s$msav=0			;pushed items in subr/proc
+;	s$mtmp=0			;pushed temps in subr/proc
+;	s$mnrg=0			;number of macro arguments
+;	s$mnch=0			;characters in argument
+;	s$mdum=0			;dummy
+;	s$mstp=0			;string type from SMSTR$
+;	s$mslc=0			;string location from SMSTR$
+;
+;	s$mtyp - Block codes
+;
+	smwhi.=0			;while - actually <=0
+	smif.=1				;if
+	smrep.=2			;repeat
+	smsub.=3			;subr
+	smpro.=4			;proc
+	smblk.=5			;begin/end block
+	smels.=6			;if-else block
+;	
+;	s$mmod - Long or short
+;
+	smsho.=0			;short branch
+	smlon.=1			;long branch
+	smnat.=2			;native mode
+;
+;	PDP & VAX register mode masks
+;
+pdp$	smadm$=^o70			;address mode positive
+pdp$	smrgm$=^o0			;register mode - 0
+vax$	smadm$=^xF0			;address mode positive
+vax$	smrgm$=^x50			;register mode - 5
+;
+;	Parameter offsets
+;
+	sm.ppc=0			;previous pc
+	p1=2				;offsets to PROC and SUBR parameters
+	p2=4				;relative to (sp)
+	p3=6
+	p4=8.
+;	...
+;
+;	Stack temporaries
+;
+	t1=0
+	t2=int.
+	t3=int.*2
+	t4=int.*3
+	t5=int.*4
+	t6=int.*5
+	t7=int.*6
+	t8=int.*7
+	t9=int.*8.
+	t10=int.*9.
+	t11=int.*11.
+	t12=int.*12.
+;
+;	Special branch/test types
+;
+	smmc..=1
+	smms..=1
+	smon..=1
+	smoff..=1
+	smlbc..=1
+	smlbs..=1
+	smbc..=1
+	smbcc..=1
+	smbcs..=1
+	smbs..=1
+	smbsc..=1
+	smbss..=1
+
+	.mcall	false, true	; not automatic 'cos also constants
+.ENDM
+;	------------------------------------------------------------------------
+;	SMENV$	CPU dependent definitions
+;	------------------------------------------------------------------------
+
+.MACRO	SMENV$	FAC SCT
+;mdone$	SMENV$			;	done it
+				;
+.if ge 65535.			;	a vax
+	smpdp.=0		;	and not a pdp-11
+	smvax.=1		;	this is the vax
+.iff				;
+	smpdp.=1		;	and not a pdp-11
+	smvax.=0		;	this is the vax
+.endc				;
+				;
+.if ne smpdp.			;	PDP-11 prologue
+.enabl	lc, gbl, mcl		;
+.list	ttm			;
+.radix	10			;	decimal radix
+.mcall	.print			;
+.iff				;	VAX prologue
+;.noshow			;	listing directives
+.endc				;
+				;
+	smmac$	pdp$	smpdp.	;	define these macros
+	smmac$	vax$	smvax.	;
+pdp$	smpdp$			;	define PDP specifics
+vax$	smvax$			;	define VAX specifics
+	smcal$			;	define strmac call and push
+				;
+	none.=0			;	no bytes
+	null.=0			;	null size
+	bit.=1			;	bit size
+	byte.=1			;	byte size
+	char.=1			;
+pdp$	<half.=2>		;	half word - 1 for VAX
+vax$	<half.=1>		;	
+	word.=2			;	word size
+	word$l=1		;	word left shift
+	word$r=-1		;	word right shift
+	long.=4			;	long size
+	long$l=2		;	left shift
+	long$r=-2		;	right shift
+pdp$	<int.=2>		;	cell size - 4 for VMS
+pdp$	<int$l=1>		;	left shift
+vax$	<int.=4>		;	vax cell size
+vax$	<int$l=2>		;	left shift
+cell.=int.
+	int$r=-int$l		;	right shift
+	addr.=int.		;	address size
+	addr$l=int$l		;	left shift
+	addr$r=-addr$l		;	right shift
+	addr$n=^c<addr.-1>	;	address negative
+	vary.=0			;	variable length area
+				;
+	bit0$=1			;	bits
+	bit1$=2			;
+	bit2$=4			;
+	bit3$=8.		;
+	bit4$=16.		;
+	bit5$=32.		;
+	bit6$=64.		;
+	bit7$=128.		;
+	bit8$=256.		;
+	bit9$=512.		;
+	bit10$=1024.		;
+	bit11$=2048.		;
+	bit12$=4096.		;
+	bit13$=8192.		;
+	bit14$=16384.		;
+	bit15$=32768.		;
+				;
+	$77777=-1		;sign extended octal constants
+	$77776=-2		;
+	$77774=-4		;
+	$77770=-8		;
+	$77760=-16		;
+	$77740=-32		;
+	$77700=-64		;
+	$77600=-128		;
+	$77400=-256		;
+	$77000=-512		;
+	$76000=-1024		;
+	$74000=-2048		;
+	$70000=-4096		;
+	$60000=-8192		;
+	$40000=-16384		;
+pdp$	<$00000=bit15$>		;the sign bit
+vax$	<$00000=1@31>		;
+.ENDM 
+;	------------------------------------------------------------------------
+;	Section definitions
+;	------------------------------------------------------------------------
+;
+;	Code, pure and impure definitions
+
+.MACRO	SMCOD$	SCT=CODE ALN=long	;Code
+pdp$	<.psect	SCT	ro,i,gbl,rel,con>
+pdp$	<.psect	SCT	ro,i>
+vax$	<.psect	SCT	ALN,nowrt,exe,shr,gbl,con>
+.ENDM
+
+.MACRO	SMPUR$	SCT=PURE ALN=long	;Pure data
+pdp$	<.psect	SCT	ro,d,gbl,rel,con>
+pdp$	<.psect	SCT	rw,d>
+vax$	<.psect	SCT	ALN,nowrt,noexe,shr,gbl,con>
+.ENDM
+
+.MACRO	SMIMP$	SCT=IMPURE ALN=long	;Impure data
+pdp$	<.psect	SCT	rw,d,gbl,rel,con>
+pdp$	<.psect	SCT	rw,d>
+vax$	<.psect	SCT	ALN,wrt,noexe,noshr,gbl,con>
+.ENDM
+
+.MACRO	SMABS$	SCT=AAAABS ALN=page
+pdp$	.asect
+vax$	<.psect	SCT	ALN,wrt,noexe,noshr,gbl,ovr>
+.ENDM
+
+.MACRO	SMSEC$	SCT=IMPURE ALN=long	;General purpose
+;V4pdp$	<.psect	SCT	rw,d,gbl,rel,con>
+pdp$	<.psect	SCT	rw,d>
+vax$	<.psect	SCT	ALN,wrt,exe,shr,gbl,con>
+.ENDM
+;	------------------------------------------------------------------------
+;	SMMAC$	Define conditional macros
+;	------------------------------------------------------------------------
+;
+;	These macros implement the major conditional statements.
+;	Since they are frequently used they are defined with the conditional
+;	code implicit.
+;
+;	For example, the PDP$ macro produces code only if SMPDP. is defined.
+;	Otherwise it is a nop. SMDEF$ is responsible for calling SMMAC$.
+;
+;	PDP$	C D E
+;
+;	PDP$	C D	C	D
+;	PDP$	C D E	C	D,E
+;	PDP$	<C>	....
+;
+;	The comma between C & D (... C,D) is necessary for MACRO bops (ADD etc).
+
+.MACRO	SMMAC$	NAM,CND
+;
+.if ne CND
+;
+;	Condition is true
+;
+.MACRO	NAM	C D E F G H
+.if nb E
+	C	D,E F G H
+.iff
+	C	D
+.endc
+.ENDM
+;
+ .iff
+;	Condition is false
+;
+.MACRO	NAM	C D E F G H
+.ENDM
+;
+ .endc
+.ENDM
+;	------------------------------------------------------------------------
+;	MCALL$	Once-only .MCALL
+;	MDONE$	Register macro call done
+;	------------------------------------------------------------------------
+;
+;	MCALL$	MAC
+;
+;		MAC		Name of macro to .MCALL
+;
+;	Usage:	Macro specified is invoked once-only
+;
+;		When a macro is defined it calls MDONE$ to define a symbol
+;		that signals that the macro has been called.
+;		MCALL$ only invokes the macro if that symbol is not defined.
+;
+;		This mechanism is necessary since all values are locked with
+;		the '=:' once-only mechanism on the PDP-11 implementation - VAX
+;		rejects '=:'.
+;
+;		The symbol is formed by prefixing a dollar to the macro name.
+;		Thus, JIDEF$ uses the symbol $JIDEF$ (truncated to six
+;		characters by MACRO-11).
+;
+;	------------------------------------------------------------------------
+
+.MACRO	MCALL$	MAC
+.if ndf $'MAC
+	.mcall	MAC
+	MAC
+.endc
+.ENDM
+
+.MACRO	MDONE$	MAC
+;	$'MAC =: 1
+	$'MAC = 1
+.ENDM
+

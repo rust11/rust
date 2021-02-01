@@ -1,0 +1,41 @@
+;	------------------------------------------------------------------------
+;	OR	Conditional OR clause
+;	------------------------------------------------------------------------
+;
+;	begin1:	IF	cond1		false => goto end1
+;		 OR	cond2
+;					goto begin2
+;	end1:	if 	cond2		false => goto end2
+;	begin2:				either true
+;
+;		END
+;	end2:
+;
+;	WHILE has problems with this construction since the begin label is
+;	incremented (not the nesting level).
+;	The block begin variable, S$MBBL & S$MB.., is used to locate the
+;	begin label of the loop.
+
+.MACRO	OR	X1,X2,X3
+	smorg$	X1,X2,X3,<>
+.ENDM
+
+.MACRO	ORB	X1,X2,X3
+	smorg$	X1,X2,X3,<B>
+.ENDM
+
+.MACRO	ORW	X1,X2,X3
+	smorg$	X1,X2,X3,<W>
+.ENDM
+
+.MACRO	smorg$	X1,X2,X3,XB				;B1:	false => E1
+	s$mbgn=s$mbgn+1					;
+	smjlb$	\s$mbgn					;	GO B2
+	smlbl$	\s$mend					;E1:	previous end
+	s$mend=s$mbgn+smend.				;
+	smglb$	\s$mnst,s$mdum,s$mtyp,s$mmod		;
+	smplb$	\s$mnst,s$mbgn,s$mtyp,s$mmod		;
+	smtst$	XB,X1,X2,X3,\s$mend,jf			;Test, false -> E2
+	smlbl$	\s$mbgn					;B2:
+.ENDM
+

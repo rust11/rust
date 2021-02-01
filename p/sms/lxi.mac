@@ -1,0 +1,357 @@
+;.title	lxi - instruction macros
+;
+;	%build
+;	run sy:strip smb:lxi.mla=sms:lxi.mac
+;	%end
+;	%date
+;	<31-Jan-2006 17:43:46.35>
+;	%edit
+;	<58   >
+;	%end
+;	ADDA, MOVA, PUSHA	
+;
+;	ADDA	SRC,DST
+;	MOVA	SRC,DST
+;
+;	SRC	Plain address - without #
+;	DST	Anywhere
+;
+;	mova	fred,r0
+;	mova	fred,ted
+;	mova	fred,@-(r4)
+;
+;	46		-(sp)	pusha
+;	2n,3n	()+,@()+	mov	pc,-()
+;				add	#src-.,()
+;	4n,5n	-(),@-()	
+;	6n,7n	x(n),@x(n)	
+;
+;	pc,(pc),(pc)+,@(pc)+,-(pc),@-(pc),x(pc),@x(pc)
+
+.MACRO	ADDA	SRC,DST
+	mova	<SRC>,<DST>,ins=add
+.ENDM
+
+.MACRO	MOVA	SRC,DST,INS=MOV
+	.ntype	ma$typ,DST	;get DST type
+	ma$reg=ma$typ&7		;ma$reg - register
+	ma$mod=ma$typ/8.&7	;ma$mod - mode
+.IRP	r$,<\ma$reg>		;get the register
+
+.if ne ma$reg-7			;register 7 always special
+.if eq ma$mod-0			;rn
+	INS	pc,DST		;
+	add	#src-.,DST	;
+	.mexit
+.endc
+.if eq ma$mod-1			;(rn)
+	INS	pc,(r$)		;
+	add	#src-.,(r$)	;
+	.mexit			;
+.endc
+.if eq ma$mod-2			;(rn)+
+	INS	pc,(r$)		;
+	add	#src-.,(r$)+	;
+	.mexit			;
+.endc
+.if eq ma$mod-4			;-(rn)
+	INS	pc,-(r$)	;
+	add	#src-.,(r$)	;
+	.mexit			;
+.endc
+.endc				;pc
+;
+;	anything else
+;
+	mov	pc,-(sp)	;pc dst, @dst
+	add	#src-.,(sp)	;
+	INS	(sp)+,dst	;
+;				;
+.ENDR				;.irp
+.ENDM
+
+;	PUSHA	ADR
+;
+;	ADR	Plain address without hash
+
+.MACRO	PUSHA	ADR
+	mov	pc,-(sp)
+	add	#adr-.,(sp)
+.ENDM
+;	BEQB, BEQW, ...
+;
+;	Combined compare and branch instructions
+;
+;	beqb	r0,#32.,10$
+;
+;		cmpb	r0,#32.
+;		beq	10$
+;
+;
+;	bnew	r5,20$
+;
+;		tstb	r5
+;		bne	20$
+
+.macro	brab$$	cnd,src,dst,bra
+.if nb <bra>
+	cmpb	src,dst
+	b'cnd	bra
+.iff
+	tstb	src
+	b'cnd	dst
+.endc
+.endm
+
+.macro	braw$$	cnd,src,dst,bra
+.if nb <bra>
+	cmp	src,dst
+	b'cnd	bra
+.iff
+	tst	src
+	b'cnd	dst
+.endc
+.endm
+
+.macro	beqb src,dst,bra
+	brab$$	eq,src,dst,bra
+.endm
+.macro	beqw src,dst,bra
+	braw$$	eq,src,dst,bra
+.endm
+.macro	bneb src,dst,bra
+	brab$$	ne,src,dst,bra
+.endm
+.macro	bnew src,dst,bra
+	braw$$	ne,src,dst,bra
+.endm
+
+
+.macro	bccb src,dst,bra
+	brab$$	cc,src,dst,bra
+.endm
+.macro	bccw src,dst,bra
+	braw$$	cc,src,dst,bra
+.endm
+.macro	bcsb src,dst,bra
+	brab$$	cs,src,dst,bra
+.endm
+.macro	bcsw src,dst,bra
+	braw$$	cs,src,dst,bra
+.endm
+
+.macro	bvcb src,dst,bra
+	brab$$	vc,src,dst,bra
+.endm
+.macro	bvcw src,dst,bra
+	braw$$	vc,src,dst,bra
+.endm
+.macro	bvsb src,dst,bra
+	brab$$	vs,src,dst,bra
+.endm
+.macro	bvsw src,dst,bra
+	braw$$	vs,src,dst,bra
+.endm
+
+.macro	bmiw src,dst,bra
+	braw$$	mi,src,dst,bra
+.endm
+.macro	bmib src,dst,bra
+	brab$$	mi,src,dst,bra
+.endm
+.macro	bplb src,dst,bra
+	brab$$	pl,src,dst,bra
+.endm
+.macro	bplw src,dst,bra
+	braw$$	pl,src,dst,bra
+.endm
+
+
+.macro	blob src,dst,bra
+	brab$$	lo,src,dst,bra
+.endm
+.macro	blow src,dst,bra
+	braw$$	lo,src,dst,bra
+.endm
+.macro	blosb src,dst,bra
+	brab$$	los,src,dst,bra
+.endm
+.macro	blosw src,dst,bra
+	braw$$	los,src,dst,bra
+.endm
+.macro	bhisb src,dst,bra
+	brab$$	his,src,dst,bra
+.endm
+.macro	bhisw src,dst,bra
+	braw$$	his,src,dst,bra
+.endm
+.macro	bhib src,dst,bra
+	brab$$	hi,src,dst,bra
+.endm
+.macro	bhiw src,dst,bra
+	braw$$	hi,src,dst,bra
+.endm
+
+.macro	bltb src,dst,bra
+	brab$$	lt,src,dst,bra
+.endm
+.macro	bltw src,dst,bra
+	braw$$	lt,src,dst,bra
+.endm
+.macro	bleb src,dst,bra
+	brab$$	le,src,dst,bra
+.endm
+.macro	blew src,dst,bra
+	braw$$	le,src,dst,bra
+.endm
+.macro	bgeb src,dst,bra
+	brab$$	ge,src,dst,bra
+.endm
+.macro	bgew src,dst,bra
+	braw$$	ge,src,dst,bra
+.endm
+.macro	bgtb src,dst,bra
+	brab$$	gt,src,dst,bra
+.endm
+.macro	bgtw src,dst,bra
+	braw$$	gt,src,dst,bra
+.endm
+;	BPSxx, BPSBxx - branch on pattern set/clear
+;
+;	C S MI PL GT LE
+
+.macro	bpsb$$	cnd,src,dst,bra
+	bitb	src,dst
+	b'cnd	bra
+.endm
+
+.macro	bpsw$$	cnd,src,dst,bra
+	bit	src,dst
+	b'cnd	bra
+.endm
+
+.macro	bpcb	src,dst,bra
+	bpsb$$	eq,src,dst,bra
+.endm
+.macro	bpcw	src,dst,bra
+	bpsw$$	eq,src,dst,bra
+.endm
+.macro	bpsb	src,dst,bra
+	bpsb$$	ne,src,dst,bra
+.endm
+.macro	bpsw	src,dst,bra
+	bpsw$$	ne,src,dst,bra
+.endm
+
+.macro	bpmib src,dst,bra
+	bpsb$$	mi,src,dst,bra
+.endm
+.macro	bpmiw src,dst,bra
+	bpsw$$	mi,src,dst,bra
+.endm
+.macro	bpplb src,dst,bra
+	bpsb$$	pl,src,dst,bra
+.endm
+.macro	bpplw src,dst,bra
+	bpsw$$	pl,src,dst,bra
+.endm
+.macro	bpltb src,dst,bra
+	bpsb$$	lt,src,dst,bra
+.endm
+.macro	bpltw src,dst,bra
+	bpsw$$	lt,src,dst,bra
+.endm
+.macro	bpleb src,dst,bra
+	bpsb$$	le,src,dst,bra
+.endm
+.macro	bplew src,dst,bra
+	bpsw$$	le,src,dst,bra
+.endm
+.macro	bpgeb src,dst,bra
+	bpsb$$	ge,src,dst,bra
+.endm
+.macro	bpgew src,dst,bra
+	bpsw$$	ge,src,dst,bra
+.endm
+.macro	bpgtb src,dst,bra
+	bpsb$$	gt,src,dst,bra
+.endm
+.macro	bpgtw src,dst,bra
+	bpsw$$	gt,src,dst,bra
+.endm
+;	MOVxx, MOVBxx
+;
+;	EQ NE MI PL GT LE
+
+.macro	movb$$	cnd,src,dst,bra
+	mov	src,dst
+	b'cnd	bra
+.endm
+
+.macro	movw$$	cnd,src,dst,bra
+	mov	src,dst
+	b'cnd	bra
+.endm
+
+.macro	movbeq	src,dst,bra
+	movb$$	eq,src,dst,bra
+.endm
+.macro	movweq	src,dst,bra
+	movw$$	eq,src,dst,bra
+.endm
+.macro	movbne	src,dst,bra
+	movb$$	ne,src,dst,bra
+.endm
+.macro	movwne	src,dst,bra
+	movw$$	ne,src,dst,bra
+.endm
+
+.macro	movbmi src,dst,bra
+	movb$$	mi,src,dst,bra
+.endm
+.macro	movwmi src,dst,bra
+	movw$$	mi,src,dst,bra
+.endm
+.macro	movbpl src,dst,bra
+	movb$$	pl,src,dst,bra
+.endm
+.macro	movwpl src,dst,bra
+	movw$$	pl,src,dst,bra
+.endm
+.macro	movblt src,dst,bra
+	movb$$	lt,src,dst,bra
+.endm
+.macro	movwlt src,dst,bra
+	movw$$	lt,src,dst,bra
+.endm
+.macro	movble src,dst,bra
+	movb$$	le,src,dst,bra
+.endm
+.macro	movwle src,dst,bra
+	movw$$	le,src,dst,bra
+.endm
+.macro	movbge src,dst,bra
+	movb$$	ge,src,dst,bra
+.endm
+.macro	movwge src,dst,bra
+	movw$$	ge,src,dst,bra
+.endm
+.macro	movbgt src,dst,bra
+	movb$$	gt,src,dst,bra
+.endm
+.macro	movwgt src,dst,bra
+	movw$$	gt,src,dst,bra
+.endm
+;	Others
+;
+
+.macro	sobw	reg,lab
+	dec	reg
+	bne	lab
+.endm
+
+.macro	sobb	reg,lab
+	decb	reg
+	bne	lab
+.endm
+

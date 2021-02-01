@@ -1,0 +1,469 @@
+ ` $ATTACH	
+Attach a terminal.	
+________________________________________________________________________
+	$attach	area, pid, prn, tid	
+	pid.dv	pid of of process to attach
+	prn.da	Address of asciz process name	
+	tid.dv	tid of terminal to attach (future)
+________________________________________________________________________
+Used by the terminal to swap processes.	
+Return status:
+377	s$adr.	Access error on pid or pnm.
+0	s$nxp.	No such process.
+1	s$msr.	Missing right to access process.
+2		Invalid terminal
+	$ATTACH	AREA, PID, TID
+	$mov	area,r0 
+	$mov	#5.*256.,(r0)
+	$mov	pid,2.(r0)	
+	$mov	tid,4.(r0) 
+	emt	^o373
+.MACRO	$ATTACH	AREA, PID, PRN, TID
+	$mov	area,r0 
+	$mov	#5.*256.,(r0)
+	$mov	pid,2.(r0)	
+	$mov	prn,4.(r0)
+	$mov	tid,6.(r0) 
+	emt	^o373
+.ENDM 
+ ` $CMKRNL
+Change mode to kernel.	
+________________________________________________________________________
+	$CMKRNL	area, rtn, p0, p1, p2, p3, p4, chn, pic
+	rtn.da	Address of routine to execute in kernel mode.
+		Stored in p5
+	chn.dv	Channel number. Cleared if not specified.
+	pic	Position independent call flag.
+	p0:p4	Parameters to pass to kernel
+	0	System right CMKRNL is missing
+________________________________________________________________________
+$CMKRNL is used to execute a  specified  routine  in  kernel  mode.  The
+user's par1 is mapped to the kernel. Control is passed to the routine in
+kernel mode. The routine executes  as  a  program  request.  Control  is
+returned  to  the  caller  with a RETURN instruction or a .SOFT or .HARD
+error. 
+If the PIC parameter is specified the page  containing  the  routine  is
+mapped to kernel par1. The RTN address is relocated. 
+The system right CMKRNL is required. 
+STATIC is used by RSI. 
+ ` $CMKRNL	
+.MACRO	$CMKRNL	AREA, RTN, P0, P1, P2, P3, P4, CHN, PIC, STATIC
+.if nb <STATIC> 
+ .if nb <CHN>
+	.byte	CHN,3
+ .iff
+	.byte	0,3
+ .endc
+ .irp	ma$par,<p0,p1,p2,p3,p4>
+  .if nb <MA$PAR>
+	.word	MA$PAR
+  .iff
+	.word	0
+  .endc
+ .endr
+ .if nb <PIC>
+	.word	RTN+1
+ .iff
+	.word	RTN
+ .endc
+.iff 
+	$mov	area,r0
+.if nb <chn> 
+	$movb	chn,(r0)
+.iff 
+	clrb	(r0)
+.endc 
+	movb	#3.,1(r0)
+	$mov	rtn,12.(r0)	
+.iif nb <pic>,bis #1,12.(r0) 
+	$mov	p0,2(r0)	
+	$mov	p1,4(r0)	
+	$mov	p2,6(r0)	
+	$mov	p3,8.(r0)	
+	$mov	p4,10.(r0)	
+	emt	^o373
+.endc
+.ENDM 	
+ ` $CRELOG	
+Create logical name.	
+________________________________________________________________________
+	$crelog	area, tbl, log, equ, acm
+	tbl.dv	Name table: 0=system, 1=group, 2=process.
+	log.da	Asciz logical name.
+	equ.da	Asciz equivalence name.
+	acm.dv	Access mode. Currently unused.
+________________________________________________________________________
+You use this request to create a logical name in system, group  or  pro~
+cess name tables. You must have SYSNAM rights to create system names and
+GRPNAM rights to create group names. 
+Note: the default parameter for $CRELOG is blank not 0.
+.MACRO	$CRELOG	AREA, TBL, LOG, EQU, ACM
+	$mov	area,r0
+	$mov	#6.*256.,(r0)
+	$mov	tbl,2.(r0)
+	$mov	log,4.(r0)
+	$mov	equ,6.(r0)
+	$mov	acm,8.(r0)
+	emt	^o373
+.ENDM 
+ ` $CREPRC	
+Create a process.	
+________________________________________________________________________
+	$creprc	area, pid,img,inp,out,err,prv,quo,nam,pri,uic,mbx,sts,con
+	pid.da	Word to receive PID of created process
+	img.da	Asciz filename of image (.SAV or .COM).
+	inp.da	Asciz filename of input. Currently terminal only.
+	out.da	Asciz filename of output. Currently same as INP.
+	err.da	Asciz filename of error output. Currently ignored.
+	prv.da	4-word privilege mask. Maximised with current rights.
+	quo.da	Quota list. Maximised with current quotas.
+	nam.da	Asciz name of process (PRCNAM.SUB).
+	pri.dv	Base priority (0 to 31). High byte indicates top priority.
+	uic.dv	2-byte UIC. If set indicates detached process.
+	mbx.dv	Mailbox unit number for termination message.
+	sts.da	Status flags (word).
+	con	Specify this to continue spec on next line.
+________________________________________________________________________
+$CREPRC allows a process to create another  process.  SHAREplus  obtains
+additional  information  from the calling process. This, and the parame~
+ters included in the call, may be modified after the process begins. 
+	usn	Username.
+	acn	Accounting name.
+	dsk	Default disk name.
+	prt	Default file protection.
+	cli	Default CLI (not implemented).
+	prv	Privilege mask. Used to maximise privileges.
+	quo	Quota list. Used to maximise quotas.
+IMG, INP, OUT, ERR and NAM are  ASCIZ  character  strings  -  not  RAD50
+filenames. They are converted to and stored internally in RAD50 format. 
+The parameter values you supply are not necessarily those that  will  be
+given to the created process. SHAREplus ensures that some parameters lie
+within minimum and maximum permitted values. 
+ ` $CREPRC	
+The current implementation of SHAREplus interprets the following parame~
+ters as: 
+	inp	Should be a terminal name (T00: through T99:)
+		If blank the process is created without a terminal.
+		The name CO0: connects the process to the console - this
+		value should not be used by user $creprc calls.
+	pri	Specify priority between 0 and 31. SHAREplus divides the
+		priority number by two for an internal priority number.
+		If the high-byte is set it represents the maximum priority
+		the process may use.
+	pqwsq.	Working set quota is number of pages to allocate the process.
+		The default value is currently 128.
+	pqfil.	File-limit is number of channels to allocate. Default is 17.
+	$creprc	#area,pid,img,inp,,,,quo,nam,4,1*256.+4
+	bcs	error
+	pid:	.word	0,0
+	img:	.asciz	/sy:login.sav/	
+	inp:	.asciz	/t03:/
+		.even
+	quo:	.word	pqwsq.,128.,pqfil.,17.,pqend.
+See also the following:	
+	$CPDEF	Defines $CREPRC parameter block offsets.
+	$BPDEF	Defines internal representation of $CREPRC parameters.
+	$PRDEF	Defines process control record - PCR.
+	$PQDEF	Defines process quotas.
+	$ARDEF	Defines access rights.
+	PHD.MAC	Defines process header - PHD.
+ ` $CREPRC	
+.MACRO	$CREPRC	AREA, PID,IMG,INP,OUT,ERR,PRV,QUO,NAM,PRI,UIC,MBX,STS,CON
+	$mov	area,r0
+	$mov	#512.+1.,(r0) 
+	$mov	pid,2.(r0)
+	$mov	img,4.(r0)
+	$mov	inp,6.(r0)
+	$mov	out,8.(r0)
+	$mov	err,10.(r0)
+	$mov	prv,12.(r0)
+	$mov	quo,14.(r0)
+	$mov	nam,16.(r0)
+	$mov	pri,18.(r0)
+	$mov	uic,20.(r0)
+	$mov	mbx,22.(r0)
+	$mov	sts,24.(r0)
+.if b <con>		
+	emt	^o373	
+.endc			
+.ENDM	$CREPRC
+ ` $CRERG	
+________________________________________________________________________ 
+	$CRERG	area, rdb
+	rdb.da	Address of named region definition block
+________________________________________________________________________ 
+You use this call to create or attach a shared region. This  call  is  a
+superset of the standard RT-11 .CRRG program request. 
+An extended RDB is used:	
+.MACRO	$CRERG	AREA RDB
+	$mov	area,r0
+	$mov	#30.*256.+128.,(r0)
+	$mov	rdb,2.(r0)
+	emt	^o375
+.ENDM 
+ ` $DELLOG	
+Delete logical name.	
+________________________________________________________________________ 
+	$dellog	area, tbl, log, acm
+	tbl.dv	Name table: 0=system, 1=group, 2=process.
+	log.da	Ascii logical name.
+	acm.dv	Access mode. Currently unused.
+________________________________________________________________________ 
+You use this request to delete a logical name in either the system, gro~
+up  or  process  name tables. You require SYSNAM rights to delete system
+names and GRPNAM rights to delete group names. 
+Note: the default parameter for $DELLOG is blank not 0.
+.MACRO	$DELLOG	AREA, TBL, LOG, ACM
+	$mov	area,r0
+	$mov	#256.*7.,(r0)
+	$mov	tbl,2.(r0)
+	$mov	log,4.(r0)
+	$mov	#0,6.(r0)
+	$mov	acm,8.(r0)
+	emt	^o373
+.ENDM 
+ ` $DELPRC	
+Delete a process.	
+________________________________________________________________________ 
+	$delprc	area, pid, prn
+	pid.da	Address of process ID of process to delete.
+	prn.da	Address of asciz process name.
+________________________________________________________________________ 
+You use this system service to delete a process. 
+This service is asynchronous. Control returns from  the  system  service
+before the target process has been deleted. 
+A process can always delete its own subprocesses or other processes with
+the  same  UIC. GROUP rights are required to delete other processes in a
+group and WORLD rights to delete processes outside the group. 
+A process is deleted in a number of steps. First an abort signal is sent
+to  the target process. This causes the process to dispose of any tempo~
+rary resources. The process then executes  an  internal  $REMPRC  system
+service. 
+$REMPRC first deletes any subprocesses. It then passes  control  to  the
+system  process  to  complete  process  deletion. Note, a process cannot
+delete itself in its own context since that context will disappear. 
+The system process deletes a process with the following steps: 
+o__The process terminal is returned to its root process or detached.
+o__The process PCR address is removed from the process map.
+o__The process body file on VM: is deleted.
+o__The process channel record is deleted.
+o__The process control record (PCR) is deleted.
+Return status:
+	s$adr.	Access error on pid or pnm.
+	s$nxp.	No such process.
+	s$msr.	Missing right to access process.
+.MACRO	$DELPR	AREA, PID, PRN
+	$sys	area, tsk=#2, p0=pid, p1=prn
+.ENDM 
+ ` $DELRG	
+Delete a shared plas region.	
+________________________________________________________________________ 
+	$DELRG	area, rdb
+	rdb.da	Address of named region definition block
+________________________________________________________________________ 
+This program request is a superset of the standard RT-11 .ELRG  request.
+It is used to delete a shared plas region in extended memory. 
+.MACRO	$DELRG	AREA RDB
+	$mov	area,r0
+	$mov	#30.*256.+129.,(r0)
+	$mov	rdb,2(r0)
+	emt	^o375
+.ENDM 
+ ` $EXIT	
+Exit program	
+________________________________________________________________________
+	$EXIT	SEV COD IMG CMD LEN	
+	SEV	Exit severity code
+	COD	R0 value for exit
+	IMG	Address of image filename to chain too
+	CMD	Address of command string to execute
+	LEN	Length of command string
+________________________________________________________________________
+Specifying the severity code causes the following values to be defined:	
+	succs$=1
+	succ$=1
+	info$=1
+	warn$=2.
+	error$=4.
+	fatal$=8.
+	uncon$=16.
+Setting the exit status:	
+	$exit	#error$
+	$exit	sev=#succ$
+	$exit
+Chaining to another image:	
+	$exit	#succ$, img=#filnam
+Executing a single command line:	
+	$exit	cmd=#cmdstr
+	cmdstr:	.asciz	"dir dl2:"
+Executing multiple command lines:	
+	$exit	cmd=#cmdstr, len=#cmdlen
+	cmdstr:	.asciz	"dir dl2:"
+		.asciz	"dir dl3:"
+		cmdlen=.=cmdstr
+.MACRO	$EXIT	SEV COD IMG CMD LEN ?$10
+.if nb <SEV>
+$esdef
+	bisb	sev,@#^o53
+.endc
+.if nb <COD>
+	mov	COD,r0
+.endc
+.if nb <IMG>
+	mov	IMG,r1
+	mov	#^o500,r2
+	mov	(r1)+,(r2)+
+	mov	(r1)+,(r2)+
+	mov	(r1)+,(r2)+
+	mov	(r1)+,(r2)+
+	mov	#^o10*256.,r0
+	emt	^o374
+.endc
+.if nb <CMD>
+	mov	CMD,R1
+	mov	#^o510,r2
+.if nb <LEN>
+	mov	LEN,r3
+	mov	r3,(r2)+
+$10:	movb	(r1)+,(r2)+
+	dec	r3
+	bgt	$10
+.iff
+	mov	r2,r3
+	clr	(r2)+
+$10:	inc	(r3)
+	movb	(r1)+,(r2)+
+	bne	$10
+.endc
+	clr	r0
+	bis	#^o4040,@#^o44
+.endc
+	emt	^o350
+.ENDM
+ ` $FORCX	
+Forces an exit to be issued from the specified process. 
+________________________________________________________________________
+	$forcx	area, pid, prn	
+	pid.da	Address of process ID to be forced to exit.	
+	prn.da	Address of asciz process name.	
+________________________________________________________________________
+$FORCX is equivalent to VAX/VMS $FORCEX which enables a process to  force
+another  process to exit using normal exit procedures. The AST mechanism
+is used to force the process to exit. User mode ASTs must  therefore  be
+enabled for the exit to be carried out ($FORCX will not stop a suspended
+process). If ASTs are disabled the process will not be  forced  to  exit
+and the process from which the $FORCX was issued will not be notified of
+the failure of completion. 
+A process can always force an exit from one of its own  subprocesses  or
+from  a  process  with  the same UIC. GROUP rights are required to force
+exit from other processes in a group and WORLD rights  are  required  to
+force exit from processes outside the group. 
+Return status:
+	s$adr.	Access error on pid or pnm.	
+	s$nxp.	No such process.	
+	s$msr.	Missing right to access process.	
+.MACRO	$FORCX	area pid prn
+	$sys	area, #512.+10., pid, prn
+.ENDM
+ ` $HIBERNATE
+Hibernate a process.	
+________________________________________________________________________
+	$hiber	
+________________________________________________________________________
+The $HIBER request causes a process to make  itself  inactive,  allowing
+itself to be interrupted only by I/O and mark time requests. 
+When the hibernating process becomes active again (by  using  the  $WAKE
+request,  for  example) the process begins execution at the instructions
+immediately following the hibernate call. 
+RT-11 and VAX/VMS use different terms for the same operations for hiber~
+nating  processes.  See the Process Control chapter in the Overview sec~
+tion of this guide. 
+.MACRO	$HIBER	area
+	$sys	area, #512.+17.
+.ENDM
+ ` $IMGACT	
+Internal system call to activate an image.	
+________________________________________________________________________ 
+	$imgact	area, img, ctl, sta, par
+	img.da	Image filename address.
+	ctl.dv	Image activator control flags ($imdef).
+	sta.dv	Optional start address.
+	par.dv	Variable to pass image in r0.
+	0	File not found
+	1	Invalid device
+	erimg.	Invalid image
+	erism.	Insufficient memory
+	eracr.	Access right failure
+________________________________________________________________________ 
+$IMGACT is used to activate an image. This system call is  used  by  the
+system
+them. 
+The control flags are defined by $IMDEF. They are:	
+	imget$	Get command. Do not start image.
+	imchn$	Chain to image.
+	imopn$	Image is open on channel 17.
+	imsta$	Start only. Start address specified by STA.
+		If STA is null, image start address is used.
+	imree$	Reenter only.
+	imres$	Reset phd information (used by DCL).
+For example:	
+	$imgact	#area, #name, #0, #0, #0
+name:	.rad50	/sy myprogsav/
+.MACRO	$IMGACT	AREA, IMG, CTL, STA, PAR
+	$mov	area,r0 
+	$mov	#4.*256.,(r0)
+	$mov	img,2.(r0)	
+	$mov	ctl,4.(r0) 
+	$mov	sta,6.(r0)
+	$mov	par,8.(r0)
+	emt	^o373
+.ENDM 
+ ` $IO	
+Extended I/O requests.	
+________________________________________________________________________ 
+	$io	area, chn, fun, mod, buf, wct, blk, crt
+	chn.dv	Channel number. Byte parameter.
+	fun.dv	I/O function. See below.
+	mod.dv	Mode qualifiers. See below.
+	buf.da	Buffer address.
+	wct.dv	Word-count.
+	blk.dv	Block number
+	crt.da	Completion routine address. Default is none.
+________________________________________________________________________ 
+$IO is used to access SHAREplus extended I/O capability. 
+0	rp.chn	chn
+1		cod
+2	rp.p0	blk
+4	rp.p1	buf
+6	rp.p2	wct
+8.	rp.p3	mod	
+		fun
+10.	rp.p4	crt
+.MACRO	$IO	AREA, CHN, FUN, MOD, BUF, WCT, BLK, CRT
+	$mov	area,r0
+	$movb	#0,1.(r0)
+	$mov	chn,(r0)
+	$movb	fun,9.(r0)
+	$movb	mod,8.(r0)
+	$mov	buf,4(r0)
+	$mov	wct,6(r0)
+	$mov	blk,2(r0)
+	$mov	crt,10.(r0)
+	emt	^o373
+.ENDM 
+ ` $CREATE	
+$CREATE is used to create a new file of a specified length. 
+________________________________________________________________________
+	$create	area, chn, dbl, seq, len
+	chn.dv	Channel to use for the operation
+	dbl.da	Filename block address
+	seq.dv	Sequence number
+	len.dv	File-length
+	0	Insufficient space for file
+	1	
+	2	Device is allocated
+	3	Protected file
+	4	
+________________________________________________________________________
+The file created using $CREATE is created and made permanent. 
+                                        

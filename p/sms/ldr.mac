@@ -1,0 +1,581 @@
+;.title	ldr
+;
+;	%build
+;	run sy:strip smb:ldr.mla=sms:ldr.mac
+;	%end
+;	%date
+;	<14-Jan-2006 18:37:44.35>
+;	%edit
+;	<99   >
+;
+;???	 rb	RAB
+;	 rg 	RT-11 regions - user structures - see $rrdef
+;	$rmdef	Resident monitor - conflicts with RM: disk
+;	$rpdef	Request packet
+;	$rrdef	RT-11 regions - monitor structures
+;	$rsdef	RT11S
+;	$rtdef	RT11A/RT11X
+;	$rxdef	Rad50
+;	$rxapi	RTX API
+;-----------------------; 
+; RESIDENT MONITOR	;
+;-----------------------;
+;
+;  RT-11 resident monitor
+;
+.MACRO	$RMDEF
+; 
+map	rm.mon,,000	;$rmon	- word*2
+map	rm.csw,,004	;$csw	- word*5*17.
+map	rm.sch,,244	;$sysch - system channel
+map	rm.blk,,256	;blkey	- directory segment id
+map	rm.chk,,260	;chkey	- directory device & unit id
+map	rm.dat,,262	;$date	- word - system date 
+map	rm.dfl,,264	;dflag	- word = directory operation flag
+map	rm.usr,,266	;$usr	- address = usr (default USR swap address)
+map	rm.qco,,270	;qcomp	- address = queue completion routine
+map	rm.spu,,272	;spusr	- word - rt11s return status flags
+map	rm.syu,,274	;syunit - word - system unit in high byte
+map	rm.syv,,276	;sysver - byte = system version number
+map	rm.sup,,277	;sysupd - byte = system update level
+map	rm.cfg,,300	;config - word = config flags
+map	rm.scr,,302; rsj;scroll	- address = vt scroller (rt-11: obselete)
+map	rm.tks,,304	;ttks
+map	rm.tkb,,306	;ttkb
+map	rm.tps,,310	;ttps
+map	rm.tpb,,312	;ttpb	- address = tpb
+map	rm.max,,314	;maxblk	- word = maximum size for opens
+map	rm.e16,,316	;e16lst - offset to emt 16 dispatch table
+map	rm.tim,,320	;$time	- long = system ticks
+map	rm.cxt,,320	;cntxt 	- address = job impure area
+map	rm.jnm,,322	;jobnum - word = job number
+map	rm.syn,,324	;synch	- address = synch routine - see below
+map	rm.lmp,,326	;lowmap - 20. bytes - 0:500 protection map
+;			; following values overlay end of lowmap in RUST/XM
+map	rm.net,,342	;s$ynet - kernel only - first page of NET server
+map	rm.ucf,,342	;p$hucf - ucl image name (overlays bitmap)
+map	rm.drp,,350; hs	;d$rpnm - v5.4 dummy pname area
+;			;	- end of bitmap
+map	rm.usl,,352	;usrloc - address = floating usr EPT; 0=>unloaded
+map	rm.gtv,,354; rsj;gtvect - address = vt11 stop vector (rt-11: obselete)
+map	rm.erc,,356;-obs;errcnt - byte = BATCH error count, unused by RT
+;ap	rm.   ,,356;+fre;
+			;	  (planned to pass errors from cusps to batch)
+map	rm.mtp,,360	;$mtps	- word = branch tp mtps routine
+map	rm.mfp,,362	;$mfps	- word = branch to mfps routine
+map	rm.syi,,364	;syindx - word = system device index
+map	rm.cfs,,366	;statwd - word = command file status flags (unused)
+map	 rm.idt,,366	;	- byte - BOOT identify flag (200=set)
+map	 rm.run,,367	;	- byte - BOOT run flag (200=set)
+map	rm.cf2,,370	;confg2 - word = confg2 flags
+map	rm.syg,,372	;sysgen - word = sysgen option flags
+map	rm.usa,,374	;usrare - word = usr area = 2
+map	rm.erl,,376	;errlev - byte = error severity level flags
+;ap	rm.cfn,,377;-rt	;ifmxns - byte = maximum nesting level
+map	rm.cpu,,377;+rst;r$mcpu - byte = cpu flags ($cpdef) (was ifmxns)
+map	rm.emr,,400	;emtrtn - address = emt return path - unused
+map	rm.frk,,402	;fork 	- offset = fork processor
+map	rm.pnp,,404	;pnptr	- offset = $pname table
+map	rm.mnm,,406	;moname	- word*2 = monitor rad50 name
+map	rm.suf,,412	;suffix - word = rad50 suffix
+map	rm.spl,,414;-rt	;spstat	- word = spool status flags
+;ap	rm.   ,,414;+fre;
+map	rm.inx,,416	;extind - byte = ind error forwarding
+map	rm.ins,,417	;indsta - byte = ind control & status
+;			;v4.0 end
+map	rm.msz,,420	;$memsz - word - new name of rm.mes
+map	rm.mes,,420	;$memsz - word = kernel size in mmu pages
+map	rm.clg,,422;-obs;conlog - word = unused
+;ap	      ,,422;-rtm;       - word - RTEM offset to host time routine
+;ap	rm.   ,,422;+fre;
+map	rm.tcf,,424	;$tcfig - address = ttcnfg
+map	rm.idv,,426	;$inddv - address = inddev
+map	rm.mpt,,430	;memptr - offset = corptr - see $rrdef
+map	rm.p1x,,432; xm	;p1ext	- address = $p1ext (sj/fb=0)
+;			;v5.0 end
+map	rm.tpl,,434;-xm	;trplst	- xm trap list - reused as SJ net pointer					v5.4
+map	rm.cal,,434;+rst;r$mcal - RUST/SJ catch-all device
+map	rm.gvc,,436	;getvec - address = pro getvec routine
+map	rm.dwt,,440	;dwtype - word = pro dw type
+;			;v5.1 end
+;			;v5.2 end
+;			;v5.3 end
+map	rm.trs,,442	;trpset	- i.trap
+map	rm.nul,,444	;$nuljb - ..nulj
+			;
+map	rm.iml,,446;-rfb;imploc	- SJ=0, FB/XM->impure pointers
+map	rm.   ,,446;+fre;
+map	rm.kmn,,450	;kmonin - 1=KMON in and running
+map	rm.pgd,,452	;progdf - ked, kex etc.
+map	rm.edt,,452	;	- editor
+map	rm.for,,453	;	-- fortran, f77
+map	rm.wld,,454	;wildef - wildcards
+map	rm.f00,,455	;
+map	rm.v54,,456	;v5.4 end
+map	rm.bbs,,456	;rmon size
+;
+;v5.5
+map	rm.jbs,,455	;$jobs	- number of job slots in system
+map	rm.qhk,,456	;$qhook - rmon cache and UB hooks
+map	rm.hub,,460	;$h2ub	- pointer to ub entry vectors
+;ap	rm.hca,,462; v55;$h2ca  - undocumented cache hooks ???remove
+map	rm.xof,,462;-v56;$xoff  - XOFF flag (RT-11 only)
+;ap	rm.   ,,462;+fre;
+map	rm.rts,,464	;$rtspc - communications vector (C=1)
+map	rm.cf3,,466	;$cnfg3	- configuration word 3
+;ap	rm.t2r,,470; v55;$tt2rm - $xxtnr
+map	rm.xnr,,470; v56;$xxtnr - reject input char
+;ap	rm.rco,,472;-v55;$rm2co - (RT-11 only)
+map	rm.thp,,472;-v56;$thkpt - MTT hooks (RT-11 only)
+;ap	rm.   ,,472;+fre;
+map	rm.dec,,474;-obs;$decnt - decnet communications word - obsolete
+;ap	rm.   ,,474;+fre;
+map	rm.xps,,476	;$xttps - TTPS hook
+map	rm.xpb,,500	;$xttpb - TTPB hook
+map	rm.sl2,,502	;$slot2 - value of $slot*2 (byte)
+map	rm.emu,,503;+rst;unused - rust emulator code ($cpdef)
+map	rm.sps,,504	;spsize	- special device file size
+map	rm.v55,0,506	;v5.5 end
+;			;
+; kmon/dcl		;
+;			; 
+;map	rm.prd,,442	;progdf - byte*4 - obsolete in v5.4	;V4
+;map	rm.mtr,,446	;$mtpr routine - obselete in v5.4	;V4
+;			;
+; rm.syn synch 		;kmon/dcl 
+;			;
+map	rmnet.,,-2	;net = adr(synch)-2
+;			;
+; emt vector		; 
+;			;
+map	rmtcf.,,-2	;ttcnfg = @v$eemt-2
+;			;
+; rm.mpt corptr		;see $rrdef 
+;			;
+map	rmrsz.,,-2	;$ramsz - physical memory size in mmu pages
+			;$ramsz = adr(corptr)-2 - v5.1
+map	rmxmp.,,4	;offset to xm freelist $xmsize
+;			;
+;			;r$mxml:.word	0,0, ..., -1
+;			;r$mgrl:.word	0,0,0,0,0, ..., -1
+; inddev 		; 
+;			;
+map	rmclf.,,-2	;cliflg/clf = adr(inddev)-2 - v5.2
+map	rmclt.,,-1	;clityp/clt = adr(inddev)-1 - v5.2
+;			;
+; p1x offsets		;see $p1def 
+;			;
+;map	rmcvp.,,-14.	;$cvppt - jmp $usrph	io$cup - v5.2
+;map	rmfgr.,,-10.	;$fgrpt - jmp findgr	io$fgr - v5.2 ???
+;map	rmxal.,,-6.	;$xalpt - jmp xalloc	io$xal - v5.2 ???
+;map	rmblm.,,-2.	;$blmpt - br $blkmv	io$blm
+;map	rmp1x.,,0	;$p1ext - $p1ext	io$p1x
+;
+; rm.gvc offsets	;default: nop, nop, sec, return
+;
+;map	rmgvc.,,0 ;nop	;$gtvec: psh #id, call (); pop #vector
+;map	rmgcs.,,2 ;nop	;$gtcsr: psh #id; call (); pop #csr
+;map	rmgvc.,,4 ;sec	;$gtslt: psh #id; call (); pop #slot
+;
+.ENDM 
+
+;-----------------------;
+; REQUEST PACKET	;
+;-----------------------;
+;
+;	19-word EMT request packet stack frame
+;	In process header stack.
+;
+;	RP.CHN is assumed to be the first entry of the rp by many modules.
+;
+;	Some modules (csi) build extensions to the RP.
+;	They assume that rp.chn=rp.ret where rp.ret is the subroutine
+;	return to the EMT processor.
+;
+.MACRO	$RPDEF
+;
+map	rp.ret,,-2	;return address from emt
+map	rp.chn	byte,0	;00	channel
+map	rp.cod	byte	;01	subcode
+map	rp.p0		;02	parameter 0
+map	rp.p1		;04
+map	rp.p2		;06
+map	rp.p3		;10
+map	rp.p4		;12
+map	rp.p5		;14
+map	rp.req	byte	;16	request code
+map	rp.err	byte	;17	error code
+map	rp.exc		;20	exception handler
+map	rp.orp		;22	old rp
+map	rp.op1		;24	old par1
+;ap	rp.op6		;xx	old par6
+map	rp.r0		;26	registers
+map	rp.r1		;30
+map	rp.r2		;32
+map	rp.r3		;34
+map	rp.r4		;36
+map	rp.r5		;40
+map	rp.pc		;42	pc of emt
+map	rp.ps		;44	ps of emt
+map	rp.bbs		;46	(19 words)(20 words)
+;
+.ENDM
+;;-----------------------; 
+; RT-11 REGIONS		;
+;-----------------------;
+;
+;	$RRDEF - RT-11 memory regions - monitor structures
+;
+;	r$mmon:				$rmon:
+;	r$mmpt	rm.mpt	r$mmpd-$rmon	memptr	offset to corptr
+;
+;
+;		rr.rsz	.word	0	$ramsz:	memory size in pages
+;	r$mmpd:	rr.kfl			corptr: kernel free list
+;		 rr.ksz	.word	0		entry byte size
+;		 rr.ksu	.word	r$mmpd		successor address
+;		rr.xfo	r$mxfl-r$mmon 	corptx:	offset to extended memory list
+;
+;	r$mxfl:				$xmsiz: xm free list
+;		 rr.xps	.word	0		page size
+;		 rr.xsp	.word	1600	$xmptr:	start page
+;		 rr.xbs
+;			.blkw 	rr.xbs*9.	free list entries
+;		 rr.xen	.word	-1		terminate free area list
+;			
+;	r$mgrl:				$glrcb	global region control blocks
+;		rr.gps	.word	0	gr.siz	page size, 0=>free, -1=>end 
+;		rr.gsp	.word		gr.adr	start page
+;		rr.gst	.byte	0	gr.sta	status (may include rr.gsc)
+;		rr.gsc	.byte	0	gr.shc	share count & private flag
+;		rr.gn0	.rad50	/reg/	gr.nam	region name
+;		rr.gn1	.rad50	/nam/
+;		rr.gbs			gr.esz	control block size
+;
+;			.blkb	rr.gbs*n	control block entries
+;
+;			.word	200		i/o page entry size
+;			.word	177600		
+;			.word	gr.nrf!gr.prm
+;			.rad50	/iopage/
+;
+;		rr.gen	.word	-1		region table terminator
+;
+.MACRO	$RRDEF
+;
+map	rrxfc.,,10.	;	- number of xm (free) regions
+map	rrgrc.,,10.	;x$rcbs - number of global region control blocks
+;			;	  does not count IOPAGE region
+;
+;	rm.mpt - region table
+;
+map	rr.rsz	word,-2	;r$mrsz - $ramsz
+map	rr.kfl	word*2,0;r$mkfl - corptr - kernel free list
+map	rr.xfo	word	;r$mxfo - corptx - rmon offset to r$mxfl
+;			;
+;			;r$mxfl	- $xmsiz - xm free page list
+;			;-1
+;			;r$mgrl - $glrcb - global region list
+;			;-1
+;
+;	r$mkfl - kernel free list
+;
+map	rr.ksz	word,0	;byte size
+map	rr.ksu	word	;successor
+map	rr.kbs		;
+;
+;	r$mxfl - xm free list
+;
+map	rr.xps	word,0	;page size
+map	rr.xsp	word	;start page
+map	rr.xbs	null	;
+;			;
+map	rr.xen	word	;terminator word
+map	rrxen$,,-1	;-1 terminator
+;
+;	r$mgrl - global region control block list
+;
+map	rr.gps	word,0	;gr.siz - page size
+map	rr.gsp	word	;gr.adr - start page
+map	rr.gst	byte	;gr.sta - status
+map	rr.gsc	byte	;gr.shc - share count
+map	rr.gn0	word	;gr.nam - region name 0
+map	rr.gn1	word	;	- region name 1
+map	rr.gbs	null	;
+;			;
+map	rr.gen	word	;terminator
+map	rrgen$,,-1	;terminator
+;
+;	rr.gst
+;
+map	rrnrf$,,40	;gr.nrf - no return to free list
+map	rrprm$,,100	;gr.prm - permanent
+map	rrage$,,200	;gr.age - auto global elimination
+map	rrpvt$,,100000	;gr.pvt - private region status
+;
+;	gr.shc
+;
+map	rrprv$,,200	;gr.pvt - private global region after create
+;			;
+;-----------------------;
+;
+;	Use $RGDEF for user structures
+;	User structures
+;	Global region descriptor
+;
+;map	rg.did	word,0	;r.gid  - region id
+;map	rg.dsz		;r.gsiz - size in pages
+;map	rg.dst		;r.gsts - region status
+;map	rg.dnm	word*2	;r.name - name
+;
+;	rg.dst - region descriptor status		
+;
+;map	rgcrr$,,100000	;created region - success
+;map	rgunm$,,40000	;window was unmapped
+;map	rgnal$,,20000	;not previously allocated
+;map	rgnew$,,10000	;new
+;map	rggbl$,,4000	;create global region - error
+;map	rgcgr$,,2000	;create global region
+;map	rgage$,,1000	;automatic global elimination
+;map	rgegr$,,400	;eliminate global region
+;map	rgexi$,,200	;eliminate global region on exit
+;			;
+.ENDM
+;-----------------------;
+; RT11S			;
+;-----------------------;
+;
+; RT11S filestructure
+;
+;	a$pfna	filnam	penfilnamtyp
+;	a$pfnb	filnam	penfilnamtyp	rename only
+;	a$pfns		pen		penultimate name
+;			^rxvx
+;		byte	prn	process number
+;		byte	chn	channel number
+;		word	0	satellite information
+;			eve package - maximum 500. bytes
+;
+;	p$hspu	r$mspu	error code
+;	p$hsps	iq.wct	enter/lookup size
+;
+.MACRO	$RSDEF
+;
+;	RT11S function codes
+;
+map	rstrn.,,0	;transfer function
+map	rsclo.,,1	;close
+map	rsdel.,,2	;delete
+map	rsloo.,,3	;lookup
+map	rsent.,,4	;enter
+map	rsren.,,5	;rename
+map	rsfus.,,6	;six standard functions
+			;
+map	rspur.,,6	;purge
+;ap	rspro.,,6 ;???	;purge (protect)						;V4
+map	rsinf.,,7	;sfinf
+map	rsclz.,,8.	;cloz
+			;
+map	rssiz.,,6	;device size - TP:/NT:/VX: only
+map	rsfxs.,,8.	;seven with extensions
+;
+;	RT11S error codes reported in r$mspu or tb.spu
+;
+map	rsciu.,,0	;channel in use - unused by rt11s
+map	rsopn.,,1	;file not found or created
+map	rsfnf.,,1	;file not found
+map	rsfnc.,,1	;file not created - no space on device on in directory
+map	rsdiu.,,2	;non-shareable device in use
+map	rsprt.,,3	;protection error
+map	rsseq.,,4	;sequence number not found
+map	rsarg.,,5	;null filename or invalid sequence number
+;			;
+;	TB layout	;
+;			;
+map	rs.fna	word*4,0;file spec
+map	rs.fnb	word*4	;second file name
+map	rs.fnc	word*4	;
+;			;
+;	VAMP data	;
+;			;
+map	rs.vmu,,rs.fnb	;usual location
+map	rs.vmr,,rs.fnc	;rename location
+;			;
+map	rs.pen	word,0	;penultimate name
+map	rs.gua	word	;guard
+map	rs.prn	byte	;process number
+map	rs.chn	byte	;channel number
+map	rs.nod	word	;node info - unused
+			;
+map	rs.fre	word*4	;four unused till rs.eva
+;			;
+; rs.gua		;
+;			;
+map	rsgua.,,<^rxvx>	;VAMP guard word
+;			;
+;	EVA data	;
+;			;
+map	rs.eva,,32.	;eva package start
+map	rsebs.,,500.	;maximum eva byte size
+;
+.ENDM
+;-----------------------;
+; RT11A/RT11X		;
+;-----------------------;
+;
+; RT-11 file-structure
+;
+; RT11A 73 7-word entries  plus 1 rtEND$ 1-word entry
+; RT11X 51 10-word entries plus 1 rtEND$ 2-word entry 
+;
+.MACRO	$RTDEF
+;
+; Directory header
+;							Invalid tests
+map	rt.tot,,0	;total segments			rt.tot eq
+map	rt.nxt		;next segment			rt.tot lo rt.nxt
+map	rt.hgh		;highest segment in use
+map	rt.ext		;extra bytes per entry		rt.ext & 1
+map	rt.blk		;start block of first entry   ((rt.tot*2)+6) hi rt.blk
+map	rt.hbs		;header byte size
+;
+; Directory entry
+;
+map	rt.sta,,0	;00 entry status word
+map	rt.fil		;02 fil
+map	rt.nam		;04 nam
+map	rt.typ		;06 typ
+map	rt.len		;10 file length
+map	rt.tim	null	;12 time	after close	
+map	rt.chn	byte	;12 channel	.enter only
+map	rt.job	byte	;13 job number	.enter only
+map	rt.dat		;14 date
+map	rt.ebs	null	;16 entry byte size	
+;
+map	rt.ctl	byte	;16 control
+map	rt.ver	byte	;17 version number (unused)
+map	rt.uic		;20 uic
+map	rt.pro		;22 protection
+map	rt.xbs		;24 rt11x entry byte size
+;
+; rt.sta - entry status	
+;
+map	rtxtr$,,100	;extra???
+map	rtten$,,400	;tent	- tentative file
+map	rtemp$,,1000	;empty	- empty area
+map	rtper$,,2000	;perm	- permanent file
+map	rtend$,,4000	;endblk	- end of segment
+			;
+map	rtron$,,40000	;	- read-only file (V5.5)
+map	rtpro$,,100000	;prot	- protected file
+map	rtprp$,,102000	;	- protected permanent
+map	rtiv$p,,70377	;5.4	- invalid entry positive
+			;5.5 additions
+map	rtblu$,,0	;blue		4-bit .STINF MOV field
+map	rtgrn$,,1	;green
+map	rtred$,,2	;red
+map	rtcus$,,4	;customer
+map	rtpre$,,10	;prefix		file has prefix
+map	rttxt$,,20	;text 		text file
+map	rtarc$,,40	;archive	archive file
+map	rtfix$,,10000	;fix		fixed length records?
+map	rthgh$,,20000	;high
+map	rtrea$,,40000	;read
+;
+; rt.dat - date
+;
+map	rtdt$p,,37777	;037777	- date positive
+map	rtpdl$,,100000	;100000	- pending delete if rtten$
+;
+; rt.ctl - entry control
+;
+map	rtti$m,,3	;time remainder
+map	rtex$m,,177774	;extended date
+;
+; rt-11 get/set file info
+;
+;ap	rt.chn	1,0	; channel
+;ap	rt.emt	1	; emt subcode
+;ap	rt.fna		; filename pointer
+;ap	rt.val		; value to write
+;ap	rt.opr	1	; op code -- see below
+;ap	rt.off		; offset rt.sta..rt.pro
+;			; op codes
+map	rtGET.,,0	; get
+map	rtBIC.,,1	; bic
+map	rtBIS.,,2	; bis
+map	rtMOV.,,3	; move
+.ENDM
+;-----------------------; 
+; RAD50			;
+;-----------------------;
+;
+; csi	&_ABCDEFGHIJKLMNOPQRSTUVWXYZ$%*0123456789?&
+; macro	&_ABCDEFGHIJKLMNOPQRSTUVWXYZ$._0123456789?&
+;	 ^					^
+;	 0					47
+;	 0					39.
+;
+;	oct dec macro csi decusC
+;	00  00  space (_)
+;	01  01   A
+;	32  26	 Z
+;	33  27	 $    ($)   ~	
+;	34  28	 .     %    _
+;	35  29	 n/a   *    n/a
+;	36  30	 0
+;	47  39	 9
+;	--  --
+;	50  40
+;
+.MACRO	$RXDEF
+map	rxDG1.,,40.*40.	; first digit multiplier
+map	rxDG2.,,40.	; second
+map	rxDG3.,,1	; third
+;
+map	rxDOL.,,27. ;33 ; dollar sign
+map	rxPCT.,,28. ;34	; percent
+map	rxDOT.,,28. ;34	; dot (period)
+map	rxAST.,,29. ;35	; asterix
+;
+map	rxWLD.,,rxAST.*rxDG1.
+.ENDM
+;-----------------------; 
+; RTX API		;
+;-----------------------;
+;
+;  RTX API etc
+;
+.MACRO	$RXAPI
+.iif ndf j$brtx,,$jbdef
+;
+;	Jobspace pointer and signature
+;
+;	map	j$xdsw,,46	;
+;	map	j$xapi,,254	; jobspace RTX API pointer
+;	map	j$xsig,,256	; signature ^rRTX
+;	map	jxSIG.,,<^rRTX>	; signature
+;
+;	API codes/offsets
+;
+map	rx.sig,,0		; signature (^rRTX)
+map	rx.rtx			; RTX data pointer
+map	rx.fap			; F11 data pointer
+map	rx.for			; FX: foreign disk entry point (obsolete)
+map	rx.exi			; exit RTX (RSX QUIT)
+map	rx.wsg			; wait for significant event (DRS:SLV.MAC)
+map	rx.ins			; install device (KMS:LOAD.MAC)
+map	rx.ati			; attach terminal (CUS:MCR/DCL)
+map	rx.dti			; detach terminal
+map	rx.sta			; start clock (CUS:MCR/DCL)
+map	rx.stp			; stop clock
+;
+;	RTX detect
+;
+	.macro	rxdet$ suc,fai	; detect RTX.TSK
+	cmp	@#j$bsig,#jbRTX.; test signature
+.iif nb suc,beq suc
+.iif nb fai,bne fai
+;	bne	notrtx		;
+	.endm
+.ENDM

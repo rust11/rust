@@ -1,0 +1,317 @@
+(not in prog ref)	
+ ` $REMPRC	
+Remove a process.	
+________________________________________________________________________
+	$remprc	area
+	Undocumented
+________________________________________________________________________
+Removes calling process. May only be issued from kernel state. Issued by
+system only. 
+.MACRO	$REMPR	AREA
+	$sys	area, tsk=#512.+3
+.ENDM 
+Return status:	
+	s$acm.		F-INVACCMOD - Invalid access mode.
+ ` $RESUM	
+Resume execution of a previously suspended process.	
+________________________________________________________________________
+	$resum	area, pid, prn	
+	pid.da	Address of process ID. 
+	prn.da	Adress of asciz process name.	
+________________________________________________________________________
+Use this request to continue execution of a process that has  been  sus~
+pended.  If the request is issued to a process that is not suspended the
+effects of a subsequent suspend request will be cancelled by the  resume
+request. A count of the resume requests issued to a process is not kept.
+Return status: 
+	s$adr.	Access error on pid or pnm	
+	s$nxp.	No such process.	
+	s$msr.	Missing right to access process.	
+RT-11 and VAX/VMS use different terms for the same functions with hiber~
+nating  and  reactivating  processes. See the Process Control chapter in
+the Overview section of this guide. 
+.MACRO	$RESUM	area pid prn
+	$sys	area, #512.+8., pid, prn
+.ENDM
+ ` $SCHEDULE
+Force schedule
+________________________________________________________________________
+	$sched	area
+________________________________________________________________________
+.MACRO	$SCHED	area	
+	$sys	area, #512.+11.
+.ENDM
+ ` $SIGNAL
+Send signal to a process.
+.MACRO	$SIGNA	area, pid, prn
+	$sys	area, #512.+13., pid, prn
+.ENDM
+ ` $STAST	
+Enables or disables the delivery of ASTS.	
+________________________________________________________________________
+	$stast	area, enb	
+	enb.dv	AST delivery indicator	
+________________________________________________________________________
+This request is used to enable or disable AST  delivery  in  the  access
+mode  from  which  the  call  was  issued. The parameter, ENB, indicates
+whether ASTs are enabled or disabled. 1 indicates that AST  delivery  is
+enabled
+ASTs issued to a process when ASTs are disabled are  put  into  a  queue
+with higher access modes at the front of the queue. 
+ ` $STSEV
+Set severity status	
+________________________________________________________________________
+	$STSEV	SEV
+	SEV	Exit severity code
+________________________________________________________________________
+This macro defines the following severity codes:	
+	succs$=1
+	succ$=1
+	info$=1
+	warn$=2.
+	error$=4.
+	fatal$=8.
+	uncon$=^o220
+Setting the exit status:	
+	$stsev	#error$
+	$stsev	#succ$
+.MACRO	$STSEV	SEV
+$esdef
+.if nb <SEV>
+	bisb	sev,@#^o53
+.endc
+.ENDM
+(not implemented)
+ ` $STEXV	
+Assigns or cancels a condition handler address to an exception vector.	
+________________________________________________________________________
+	$stexv	area, vec, adr, mod, pre	
+	vec	Vector number.	
+	adr	Condition handler address.	
+	mod	Access mode for which the vector is to be modified.	
+	pre	Address to receive previous contents of vector.	
+________________________________________________________________________
+In order to modify the primary vector specify 0  as  the  vector  number
+parameter  (this  is  the default). Use 1 to modify the secondary vector
+and 2 to modify the last chance exception vector. 
+The primary exception vector and the last chance  exception  vector  are
+used  by  the  system  debugger.  The  command interpreter uses the last
+chance exception vector. 
+(not in prog ref)	
+ ` $STPRA	
+Set power recovery AST.	
+________________________________________________________________________
+	$stpra	area, adr, acm	
+	adr	Address of entry mask for a power recovery AST routine.	
+	acm	Access mode of power recovery AST routine.	
+________________________________________________________________________
+This system call specifies the routine that is to get control using  the
+AST  mechanism  after  a  power recovery occurs. Only one routine may be
+specified for a process. The time that the power was off is kept in  the
+AST parameter in hundredths of seconds. 
+ ` $STPRI	
+ ` $STMOD
+ ` $STBAT
+ ` $STINT
+Changes a process' priority.	
+________________________________________________________________________
+	$stpri	area, pid, prn, pri, pre	
+	pid.da	Address of PID of process whose priority is to be set.	
+	prn.da	Address of asciz process name.	
+	pri.dv	New priority for the process.	
+	pre.da	Address to receive previous priority of process.	
+________________________________________________________________________
+Use $STPRI to set a process' priority. Bits 0 through 4 of the high ord~
+er  byte of parameter pri.dv specify the top priority. Normal priorities
+range from 0 to 15, real-time priorites range from 16 to 31. 
+If a process has a priority value of 0, the process priority may not  be
+changed.  If the newly set priority is higher than the caller's priority
+and the caller does not have sufficient rights to set the priority at  a
+higher value, the priority of the process is set to the caller's priori~
+ty. 
+A process needs the ALTPRI privilege in order to change a process'  pri~
+ority  to  a value higher than the caller's initial base priority. GROUP
+privileges are required to change the priority of processes in the  same
+group and WORLD privileges are required for processes in the system. 
+Return status: 
+	s$adr.	Access error on pid or pnm.	
+	s$nxp.	No such process.	
+	s$msr.	Missing right to access process.	
+.MACRO	$STPRI	area pid prn pri pre
+	$sys	area, #512.+7., pid, prn, pri, pre
+.ENDM
+.MACRO	$STMOD	area mod
+	$sys	area, #512.+4., mod
+.ENDM
+.MACRO	$STBAT
+	psh	#-1
+	psh	#512.+4.
+	mov	sp,r0
+	emt	^o373
+	bit	(sp)+,(sp)+
+.ENDM
+.MACRO	$STINT
+	psh	#-2.
+	psh	#512.+4.
+	mov	sp,r0
+	emt	^o373
+	bit	(sp)+,(sp)+
+.ENDM
+ ` $STPRN	
+Establish or change process name.	
+________________________________________________________________________
+	$stprn	area, nam	
+	nam.da	Asciz name of process.	
+________________________________________________________________________
+This system call allows a process to set or change its own process name.
+If  no process name is specified, the call will be ignored. Duplications
+of a name are not permitted. The specified name can be up to  six  char~
+acters long and cannot start with 'log'. A process name will remain val~
+id until the process name is changed with this system call or  the  pro~
+cess is deleted. 
+Return status:
+	s$adr.	Access error on pid or pnm.	
+.MACRO	$STPRN	area nam
+	$sys	area, #512.+5., nam
+.ENDM
+ ` $STPRV	
+Set privileges.	
+________________________________________________________________________
+	$stprv	area, enb, prv, per, pre	
+	enb.dv	Enable indicator.	
+	prv.da	4-word privilege mask defining enabled rights.	
+	per	Permanent indicator.	
+	pre.da	Address to receive previous privilege mask.	
+________________________________________________________________________
+Use this system call to enable or disable certain  user  privileges.  If
+the  parameter  'ENB'  is  set  (1)  the privileges located in 'PRV' are
+enabled. The default setting of ENB (0) disables these privileges. 
+The 'PER' parameter indicates whether the privilege changes made are  to
+be  permanent  or  temporary.  If  the value of this parameter is 0 (the
+default), all changes are temporary and will be be  set  back  when  the
+image  is  exited
+permanent and will remain enabled or disabled  until  they  are  changed
+again or the process is deleted
+mask is missing. You can find out which privilege  mask  is  missing  by
+examining this parameter. 
+The system has four different privilege masks for each process: 
+AUTHPRIV	Privileges that the process is allowed to enable. This	
+		mask never changes. 
+PROCPRIV	Permanently enabled privileges for the process.	
+IMAGPRIV	Privileges installed with the current image.	
+CURPRIV		Currently enabled privileges.	
+.MACRO	$STPRV	area  enb prv per pre
+	$sys	area, #512.+6., enb, prv, per, pre
+.ENDM
+(ignored)	
+ ` $STRWM - Set Resource Wait Mode	
+ ` $STSFM - Set System Failure Mode	
+ ` $STSWM - Set Swap Mode
+ ` $STPRA - Set Power Recovery Ast
+.MACRO	$STRWM	area enb
+	$sys	area, #512.+11., enb
+.ENDM
+.MACRO	$STSFM	area enb
+	$sys	area, #512.+12., enb
+.ENDM
+.MACRO	$STSWM	area enb
+	$sys	area, #512.+13., enb
+.ENDM
+.MACRO	$STPRA	area adr acm
+	$sys	area, #512.+14., adr, acm
+.ENDM
+ ` $STSIG
+Set signal AST address.
+.MACRO	$STSIG	area adr	
+	$sys	area, #512.+12., adr
+.ENDM
+ ` $STSRG	
+Set system rights.	
+________________________________________________________________________ 
+	$stsrg	area, 
+________________________________________________________________________ 
+.MACRO	$STSRG	area  enb rig per pre
+	$sys	area, #512.+6., enb, rig, per, pre
+.ENDM
+ ` $STSWM	
+Controls whether a process can be swapped out of the balance set.	
+________________________________________________________________________ 
+	$stswm	area, swp	
+	swp	Swap indicator.	
+________________________________________________________________________ 
+ ` $SYS
+Send task to system process. 
+________________________________________________________________________ 
+	$sys	area, tsk, p0, p1, p2, p3, p4, p5
+	p0:p5	General purpose parameters.
+________________________________________________________________________ 
+.MACRO	$SYS	AREA, TSK, P0, P1, P2, P3, P4, P5
+	$mov	area,r0
+	$mov	tsk,(r0)
+	$mov	p0,2(r0)
+	$mov	p1,4.(r0)
+	$mov	p2,6.(r0)
+	$mov	p3,8.(r0)
+	$mov	p4,10.(r0)
+	$mov	p5,12.(r0)
+	emt	^o373
+.ENDM 
+ ` $SUSPND	
+Suspend a process.	
+________________________________________________________________________
+	$suspend area, pid, prn	
+	pid.da	Address of process ID.	
+	prn.da	Address of asciz process name.	
+________________________________________________________________________
+$SUSPND cannot be interrupted by ASTs or execute at all until  a  $RESUM
+is issued from another process or the process is deleted. 
+RT-11 and VAX/VMS use different terms for the same functions in  dealing
+with  suspending and resuming processes. See the Process Control chapter
+in the Overview section of this guide. 
+.MACRO	$SUSPND	area pid prn
+	$sys	area, #512.+16., pid, prn
+.ENDM
+ ` $TRNLOG 	
+Translate logical name.	
+________________________________________________________________________
+	$trnlog	area, log, rsl, buf, tba, aca, msk
+	log.da	Address of asciz logical name string.
+	rsl.da	Address to store length of result. Unused.
+	buf.da	Address to store asciz result name.
+	tba.da	Address of word to store table number.
+	aca.da	Address of word to store access mode.
+	msk.dv	Disable mask: 1=system, 2=group, 4=process.
+________________________________________________________________________
+$TRNLOG searches through the logical name tables and returns the corres~
+ponding  equivalence  name.  The  process, group and system logical name
+tables are all searched, in that order. 
+Note: the default parameter for $TRNLOG is blank not 0.	
+.MACRO	$TRNLOG	AREA, LOG, RSL, BUF, TBA, ACA, MSK, COD=#8.*256.
+	$mov	area,r0
+	$mov	cod,(r0)
+	$mov	log,2.(r0)
+	$mov	rsl,4.(r0)
+	$mov	buf,6.(r0)
+	$mov	tba,8.(r0)
+	$mov	aca,10.(r0)
+	$mov	msk,12.(r0)
+	emt	^o373
+.ENDM 
+ ` $WAKE	
+Activates a process which is in hibernate state.	
+________________________________________________________________________
+	$wake	area, pid, prn	
+	pid.da	Address of process ID	
+	prn.da	Address of asciz process name.	
+________________________________________________________________________
+Use $WAKE to reactivate a process that has been put into hibernate state
+with $HIBER. If the $WAKE call is issued to a process that is not hiber~
+nating, subsequent $HIBER calls  will  be  immediately  reactivated.  No
+count is kept of the $WAKE calls. 
+RT-11 and VAX/VMS use different terms for the same functions when  deal~
+ing  with activating hibernating processes. Refer to the Process control
+chapter in the Overview section of this guide. 
+.MACRO	$WAKE	area pid prn
+	$sys	area, #512.+9., pid, prn
+.ENDM
+                           

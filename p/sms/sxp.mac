@@ -1,0 +1,267 @@
+;	------------------------------------------------------------------------
+;	PROC	Define procedure prologue
+;	TASK	Define procedure prologue
+;	------------------------------------------------------------------------
+;
+;		AUTO	...
+;	NATIVE/LOCAL
+;	  PROC	NAM SAV=<Rm...Rn>
+;		P1	...
+;
+;		NAM		Procedure name
+;		AUTO.		Temporary space in bytes
+;		SAV=<Rm...Rn>	Registers to save
+;
+;	begin:	PROC	....
+;
+;		EXIT	...
+;
+;	end:	END
+;
+;	NATIVE
+;	  PROC	NAM ...		Native procedure
+;
+;	Procedures may not be nested
+;	Arguments may be modified by the call
+;	Some procedures locate the previous frame with SM.PPC.
+;
+;		s$msav		Counts saved items 
+;		s$mtmp		Counts temporary items
+;		sm.cpc		Current pc - 0 => no stack context
+
+.MACRO	PROC	NAM SAV
+	TASK	<NAM><SAV>
+.ENDM
+
+.MACRO	TASK	NAM SAV
+	.iif eq s$mpoo,smpoo$		;do PROC once-only code
+	.NARG	s$mnrg			;in case a PROC needs them
+.if gt s$mnst				;nesting is shot
+	smerr$ <"NAM" is nested>,s$mnst
+	s$mnst=0			;reset it
+.endc					;
+	smfac$	NAM			;define new error message facility
+NAM:	.iif 	eq s$mloc, .GLOBL NAM	;global name
+	s$mloc=0			;clear once only local flag
+;
+;	Handle NATIVE procedures
+;
+	ma$mod=smsho.			;assume not native
+.if ne s$mnat				;native
+	s$mnat=0			;once-only
+ .if ne smvax.				;
+	ma$mod=ma$mod!smnat.		;native
+	.word	0			;VAX native mode mask
+ .endc					;
+.endc
+;
+;	Handle TRACE
+;
+.if ne smtra.				;trace routines
+	smtra.=smtra.-1			;remove one-shot
+	pure				;store string in data
+	ma$dot=.			;remember where it starts
+	.asciz	"NAM"			;store the name
+	.even				;even it up
+	default				;back to code
+	call	os$tln	#ma$dot		;trace line
+.endc
+;
+;	Setup temp count
+;
+	s$mtmp=AUTO.+<cell.-1>/cell.	;compute temp cells
+	AUTO.=0				;no more now
+	s$msav=0			;none pushed so far
+;
+;	Handle debug mode
+;
+	.IF	GT smspm.
+		TST	-(SP)
+		MOV	SP,(SP)
+		s$msav=1			;count it
+	.ENDC
+;
+;	Push save items
+;
+;	smres$	created by smsav$
+;
+	smsav$	SAV
+;
+;	Create temporary space
+;
+;	First temporary is guaranteed on stack top
+;
+	.IIF	EQ s$mtmp-1,	TST	-(SP)
+	.IIF	EQ s$mtmp-2,	CMP	-(SP),-(SP)
+	.IIF	GE s$mtmp-3,	SUB	#s$mtmp*cell.,SP
+;
+;	Register PROC block
+;
+	s$mbgn=s$mbgn+1
+	s$mend=s$mbgn+smend.
+	s$mnst=s$mnst+1
+	s$mpns=s$mnst				;remember proc nesting level
+	smplb$	\s$mnst,s$mbgn,smpro.,ma$mod	;setup procedure block
+	s$mlon=0				;cancel long block
+;
+;	Calculate address of stack items
+;
+	sm.ppc=s$mtmp+s$msav*cell.
+	P1=sm.ppc+cell.
+	P2=P1+cell.
+	P3=P2+cell.
+	P4=P3+cell.
+	P5=P4+cell.
+	P6=P5+cell.
+	P7=P6+cell.
+	P8=P7+cell.
+	P9=P8+cell.
+	s$mpan=1				;setup first parameter check
+.ENDM
+;	------------------------------------------------------------------------
+;	SMSAV$	Save registers
+;	SMRES$	Restore registers
+;	------------------------------------------------------------------------
+;
+;	Save registers for PROC or SUBR
+;	Create SMRES$ macro for PROC/SUBR END 
+;
+;	Out:				Registers saved
+;		s$msav			Number of registers saved
+;		smres$			MACRO to restore registers
+;
+;	PUSHR is used for multiple VAX registers - PUSHL for a single register.
+;	PUSHL is apparently faster (PUSHR rotates a 16-bit word to check).
+;	Registers are saved other way around on VAX/VMS.
+;
+;	Crazy formatting on this page required for VAX/VMS LIBRARIAN
+
+.MACRO	SMSAV$	X1 X2 X3 X4 X5 X6 X7
+;
+.if b <X1>
+.MACRO	smres$
+;
+.ENDM	smres$
+	.mexit
+.endc
+;
+.if idn X1,R0..R5
+	jsr	r5,sm$s05
+	s$msav = 6+1			; +1 for ret
+	.macro	smres$
+	.endm
+	.mexit
+.endc
+.if idn X1,R2..R5
+	jsr	r5,sm$s25
+	s$msav = 4+1			; +1 for ret
+	.macro	smres$
+	.endm
+	.mexit
+.endc
+
+.if idn X1,ALL
+	smsav$	R0 R1 R2 R3 R4 R5
+	.mexit
+.endc
+;
+.if ne smpdp.
+	.IRP	XX,<X7 X6 X5 X4 X3 X2 X1>
+		.IF NB <XX>
+			s$msav=s$msav+1		;increment count
+			PUSH	XX		;push the parameter
+		.ENDC
+	.ENDR
+;
+.MACRO	smres$			;restore macro
+	.irp	xx,<x1 x2 x3 x4 x5 x6 x7>
+		.iif nb <xx>,	 mov	(sp)+,xx
+	.endr
+.ENDM	smres$
+	.mexit
+;
+.iff						;pdp/vax
+  .narg	ma$arg
+  .if eq ma$arg-1				;single register to save
+		s$msav=1			;one saved
+		PUSHL	X1			;save it
+.MACRO	smres$
+		movl	(sp)+,X1		;restore it
+.ENDM	smres$
+		.mexit
+  .endc
+
+	XM=0
+	.IRP	XX,<X1 X2 X3 X4 X5 X6 X7>
+		.IF NB <XX>
+			s$msav=s$msav+1		;increment count
+			.NTYPE	XR,XX
+			XM=XM!<1@<XR&^x0F>>	;add register to mask
+		.ENDC
+	.ENDR
+	PUSHR	#XM				;save the registers
+;
+	.irp	xx,<\xm>
+.MACRO	smres$
+		popr	#xx
+.ENDM	smres$
+	.endr
+.endc
+;
+.ENDM	SMSAV$
+;	------------------------------------------------------------------------
+;	Parameter definitions
+;	------------------------------------------------------------------------
+;
+;	Define input parameters
+;
+;	P1	nam,reg
+;
+;		nam = p1
+;		mov	p1,reg
+;
+;	------------------------------------------------------------------------
+
+.MACRO	SMPOO$	
+	s$mpoo=1			;once only once only
+	.mcall	p1,p2,p3,p4,p5,p6,p7,p8,p9 ;make these explicit
+.ENDM
+
+.MACRO	P1	NAM,DST
+	smpar$	1,nam,dst
+.ENDM
+.MACRO	P2	NAM,DST
+	smpar$	2,nam,dst
+.ENDM
+.MACRO	P3	NAM,DST
+	smpar$	3,nam,dst
+.ENDM
+.MACRO	P4	NAM,DST
+	smpar$	4,nam,dst
+.ENDM
+.MACRO	P5	NAM,DST
+	smpar$	5,nam,dst
+.ENDM
+.MACRO	P6	NAM,DST
+	smpar$	6,nam,dst
+.ENDM
+.MACRO	P7	NAM,DST
+	smpar$	7,nam,dst
+.ENDM
+.MACRO	P8	NAM,DST
+	smpar$	8,nam,dst
+.ENDM
+.MACRO	P9	NAM,DST
+	smpar$	9,nam,dst
+.ENDM
+
+;	SMPAR$	Setup parameter
+
+.MACRO	SMPAR$	PX,NAM,DST
+;.iif eq P'PX-1, smerr$ <Parameter "NAM" is invalid>
+.iif ne s$mpan-PX, smerr$ <Parameter "P'PX" out of order">	;check order
+	s$mpan=PX+1						;reset it
+.iif nb <NAM>,	NAM = P'PX					;define name
+.iif nb <DST>,	MOV	P'PX(SP),DST				;init default
+.ENDM
+

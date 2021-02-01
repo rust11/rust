@@ -1,0 +1,48 @@
+;	------------------------------------------------------------------------
+;	NATIVE	Native mode prefix
+;	------------------------------------------------------------------------
+;
+;	NATIVE
+;	  PROC	NAM ...
+;
+;	Declare native mode procedure
+;
+;	PDP	Nothing
+;	VAX	Setup null entry mask, use RET to exit
+;	------------------------------------------------------------------------
+;
+.MACRO	NATIVE
+	s$mnat=1
+.ENDM
+;	------------------------------------------------------------------------
+;	NEXT	Next REPEAT or WHILE loop
+;	------------------------------------------------------------------------
+;
+;	NEXT			Repeat loop
+;
+;	NEXT	CND cond
+;
+;	begin:	REPEAT
+;			...
+;		NEXT			goto begin
+;			...
+;		END
+;	end:
+;
+;	begin:	WHILE	cond		false => end
+;		 OR	cond		
+;
+;		NEXT
+;		END
+
+.MACRO	NEXT CND X1 X2 X3
+	.IIF	LE s$mrns, smerr$	<NEXT not in repeat block>
+	smgrb$	\s$mrns,s$mrbl
+	smglb$	\s$mrbl,s$mlbl,s$mtyp,s$mmod ;get block mode
+.if nb <CND>
+	smifx$	CND,X1,X2,X3,\s$mlbl,NEXT
+.iff
+	smjlb$	\s$mbbl			;jump to begin label
+.endc
+.ENDM
+

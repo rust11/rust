@@ -1,0 +1,264 @@
+;	------------------------------------------------------------------------
+;	SMV	VAX instructions
+;	------------------------------------------------------------------------
+;
+;	Clear and set single bit
+;
+.MACRO	BICV$	POS BAS ?MAC$LAB
+	bbcc	pos,bas,mac$lab
+mac$lab:
+.ENDM	BICV$
+;
+.MACRO	BISV$	POS BAS ?MAC$LAB
+	bbss	pos,bas,mac$lab
+mac$lab:
+.ENDM	BISV$
+
+.MACRO	.ASECT
+	.PSECT	ASECT	LONG,OVR
+.ENDM
+
+;	SMVAX$	VAX environment setup
+;
+;	Define .INT and .BLKI
+
+.MACRO	SMVAX$
+
+.macro	.int	c,d,e,f,g,h,i,j
+.if nb <c>
+	.irp $,<c d e f g h i j>
+	 .if nb <$> 
+		.long	$
+	 .endc
+	.endr
+.iff
+	.long	0
+.endc
+.endm
+
+.macro	.blki	c
+	.blkl	c
+.endm
+
+.ENDM
+;***;	SMS:SMV - Macro translation from PDP-11 to VAX assembler
+;	------------------------------------------------------------------------
+;	PDP instruction set
+;	------------------------------------------------------------------------
+;
+;	These macros translate PDP-11 code into VAX assembler
+;
+;???	ADCB/SBCB/ROLB/RORB are not supported (for some forgotten reasoning)
+
+.macro	clr	c			;clr	clrb
+	clrl	c
+.endm
+.macro	dec	c
+	decl	c
+.endm
+.macro	inc	c
+	incl	c
+.endm
+.macro	neg	c			;neg
+	mnegl	c,c			;		neg	no pop
+;	mull	#-1,c
+.endm
+.macro	negb	c			;	negb
+	mnegb	c,c			;		negb	no pop
+;	mulb	#-1,c
+.endm
+.macro	tst	c			;tst	tstb
+	tstl	c
+.endm
+.macro	com	c			;com
+	mcoml	c,c
+.endm
+.macro	comb	c			;	comb
+	mcomb	c,c
+.endm
+
+;	ASR & ASRB clear the C bit
+
+.macro	asr	c			;asr
+	divl	#2,c
+;	ashl	#-1,c,c			;		asr	no pop
+.endm
+.macro	asrb	c			;	asrb
+	divb	#2,c
+.endm
+
+;	ASL & ASLB clear the C bit
+
+.macro	asl	c			;asl
+	mull	#2,c
+;	ashl	#1,c,c			;		asl	no pop
+.endm
+.macro	aslb	c			;	aslb
+	mulb	#2,c
+.endm
+.macro	adc	c,?ma$lab		;adc
+	adwc	#0,c
+ma$lab:
+.endm
+;.macro	adcb	c,?ma$lb1,?ma$lb2	;	adcb
+;	bcc	ma$lb1
+;	incb	c
+;	brb	ma$lb2
+;ma$lb1:tstb	c
+;ma$lb2:
+;.endm
+.macro	sbc	c			;sbc
+	sbwc	#0,c
+.endm
+;.macro	sbcb	c,?ma$lb1,?ma$lb2	;	sbcb
+;	bcc	ma$lb1
+;	decb	c
+;	brb	ma$lb2
+;ma$lb1:	tstb	c
+;ma$lb2:
+;.endm
+.macro	sxt	c,?ma$lb1,?ma$lb2	;sxt
+	bgeq	ma$lb1
+	movl	#-1,c
+	brb	ma$lb2
+ma$lb1:	clrl	c
+ma$lb2:
+.endm
+.macro	rol	c			;rol
+	adwc	c,c
+.endm
+;.macro	rolb	c
+;smerr$	<Invalid instruction ROLB>
+;.endm
+.macro	ror	c
+	.error	;ror			;ror;
+.endm
+;.macro	rorb	c
+;smerr$	<Invalid instruction RORB>
+;.endm
+.macro	swab	c
+smerr$	<Invalid instruction SWAB>
+.endm
+.macro	mov	c,d
+	movl	c,d			;mov	movb
+.endm
+.macro	add	c,d
+	addl	c,d			;add
+.endm
+.macro	sub	c,d
+	subl	c,d			;sub
+.endm
+.macro	cmp	c,d
+	cmpl	c,d			;cmp	cmpb
+.endm
+.macro	mul	c,d
+	mull	c,d			;mul
+.endm
+.macro	div	c,d
+	divl	c,d			;div
+.endm
+.macro	xor	c,d
+	xorl	c,d			;xor
+.endm
+.macro	bis	c,d
+	bisl	c,d			;bis	bisb
+.endm
+.macro	bic	c,d
+	bicl	c,d			;bic	bicb
+.endm
+.macro	bit	c,d
+	bitl	c,d			;bit	bitb
+.endm
+.macro	ash	c,d
+	ashl	c,d,d			;ash
+.endm
+.macro	ashc	c,d
+	ashl	c,d,d			;ashc
+.endm
+.macro	br	c
+	brw	c
+.endm
+.macro	beq	c
+	beql	c
+.endm
+.macro	bne	c
+	bneq	c
+.endm
+.macro	bmi	c
+	blss	c
+.endm
+.macro	bpl	c
+	bgeq	c
+.endm
+.macro	blo	c
+	bcs	c
+.endm
+.macro	bhis	c
+	bcc	c
+.endm
+.macro	blt	c
+	blss	c
+.endm
+.macro	bge	c
+	bgeq	c
+.endm
+.macro	ble	c
+	bleq	c
+.endm
+.macro	bgt	c
+	bgtr	c
+.endm
+.macro	bhi	c
+	bgtru	c
+.endm
+.macro	blos	c
+	blequ	c
+.endm
+.macro	sob	c d
+	sobgtr	c,d
+.endm
+;					;jmp
+.macro	jsr	c,d
+ .if eq s$mlon				;not long mode
+	.ntype	ma$typ,d		;get destination type
+	.if eq ma$typ-^xEF		;relative
+		bsbw	d
+		.mexit
+	.endc
+  .endc
+		jsb	d
+.endm
+.macro	rts	c
+	rsb				;rts pc
+.endm
+.macro	rti
+	rei
+.endm
+.macro	rtt
+	rei
+.endm
+.macro	clc
+	bicpsw	#1
+.endm
+.macro	sec
+	bispsw	#1
+.endm
+.macro	clv
+	bicpsl	#2
+.endm
+.macro	sev
+	bispsl	#2
+.endm
+.macro	cln	
+	bicpsl	#8
+.endm
+.macro	sen
+	bispsl	#8
+.endm
+.macro	clz
+	bicpsl	#4
+.endm
+.macro	sez
+	bispsl	#4
+.endm
+

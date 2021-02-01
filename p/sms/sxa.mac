@@ -1,0 +1,116 @@
+;	------------------------------------------------------------------------
+;	...	END etc
+;	------------------------------------------------------------------------
+;
+;	The command sequence:
+;
+;		IF	cond
+;		...	command
+;
+;	Produces:
+;
+;		IF	cond
+;			command
+;		END
+
+.MACRO	...	C1,C2,C3,C4,C5,C6,C7,C8
+
+	.narg	ma$cnt
+.if eq ma$cnt-3
+	C1	C2,C3
+.iff
+ .if eq ma$cnt-4
+	C1	C2,C3,C4
+ .iff
+	C1 C2 C3 C4 C5 C6 C7 C8
+ .endc
+.endc
+	END
+.ENDM
+;	------------------------------------------------------------------------
+;	AND	AND conditional clause
+;	------------------------------------------------------------------------
+;
+;	begin:	IF cond 
+;		  AND cond		false => end
+;			...
+;	end:
+
+.MACRO	AND	X1,X2,X3
+	smtst$	<>,X1,X2,X3,\s$mend,jf
+.ENDM
+
+.MACRO	ANDB	X1,X2,X3
+	smtst$	<B>,X1,X2,X3,\s$mend,jf
+.ENDM
+
+.MACRO	ANDW	X1,X2,X3
+	smtst$	<W>,X1,X2,X3,\s$mend,jf
+.ENDM
+;	------------------------------------------------------------------------
+;	ASSERT	Check runtime time assumptions
+;	ASSUME	Check compile time assertions
+;	------------------------------------------------------------------------
+;
+;	ASSERT	cond
+;
+;		cond		If condition is false generate breakpoint.
+;
+;	ASSERT is implemented with structured MACRO IF statements
+;	If the ASSERT statement fails the code issues a BPT instruction
+;
+;	AND and OR may not be applied to ASSERT conditions
+;
+;	ASSERT is usually turned off in production systems
+
+.MACRO	ASSERT	X1,X2,X3
+	.IIF	EQ smass.,	.MEXIT	;Don't want ASSERTs in
+	.NARG	s$mnrg
+	IFNOT  X1 X2 X3
+		STOP
+	END
+.ENDM
+
+.MACRO	ASSERB	X1,X2,X3
+	.IIF	EQ smass.,	.MEXIT	;Don't want ASSERTs in
+	.NARG	s$mnrg
+	IFNOTB  X1 X2 X3
+		STOP
+	END
+.ENDM
+
+.MACRO	ASSERW	X1,X2,X3
+	.IIF	EQ smass.,	.MEXIT	;Don't want ASSERTs in
+	.NARG	s$mnrg
+	IFNOTW  X1 X2 X3
+		STOP
+	END
+.ENDM
+
+.MACRO	ASSUME	X1,XC,X2=0
+.iif XC <X1>-<X2>, .mexit
+smerr$	<Assumption "X1 XC X2" failed>,X1-X2
+.ENDM	ASSUME
+;	------------------------------------------------------------------------
+;	AUTO	Define automatic storage
+;	------------------------------------------------------------------------
+; 
+;	AUTO	NAM,SIZ
+; 
+;		NAM		Defined as SP offset
+;			blank	Reset AUTO flag
+;		SIZ		Size of object in bytes
+;			cell.	Default size
+; 
+;	auto.	The number of bytes to allocate on the stack
+;		AUTO. is rounded up to the next cell boundary
+
+.MACRO	AUTO	NAM,SIZ=int.
+.IF NB <NAM> 
+	NAM = auto.				;define it
+	auto.=auto.+SIZ+<int.-1>&^C<int.-1>	;recompute it
+.IFF 						;
+	auto.=0					;just reset it
+.ENDC 
+.ENDM	
+

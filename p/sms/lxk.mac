@@ -1,0 +1,675 @@
+V4=1
+;.title	lxk - kernel macros
+;
+;	%build
+;	run sy:strip smb:lxk.mla=sms:lxk.mac
+;	%end
+;	%date
+;	<31-Jan-2006 17:43:47.07>
+;	%edit
+;	<37   >
+;	%end
+;
+;call addresses should be absolute for kernel
+;	$CANTH
+;
+ ` $CANTH	
+
+Cancel kernel trap handler.	
+
+________________________________________________________________________________
+
+	$canth
+
+________________________________________________________________________________
+
+$CANTH cancels a kernel trap handler declared with  $DCLTH.  The  stack  address
+must be the same as when $DCLTH was called. Kernel-only call. 
+
+For example:	
+
+
+	$dclth	#20$		;catch traps
+	...			;trap sensitive code
+	$canth			;cancel last trap handler
+
+
+.MACRO	$CANTH
+	call @#ve$cth
+.ENDM	
+;	$CLRBUF
+;
+ ` CLRBUF	
+
+Clear a buffer.	
+
+________________________________________________________________________________
+
+	clrbuf	dst, bct
+
+	dst.sa	Destination address. Note static address.
+	bct.sv	Byte-count. Note static value.
+
+________________________________________________________________________________
+
+Kernel only. Clear a buffer.
+
+.MACRO	CLRBUF	DST BCT
+	jsr	r3,@#ut$cbf
+	.word	dst
+	.word	bct
+.ENDM
+ ` $CMINT	
+
+Change mode to interrupt.	
+
+________________________________________________________________________________
+
+	$cmint pri
+
+	pri.sv	Priority 0:7. Default is zero.
+
+________________________________________________________________________________
+
+This kernel-only call is used to change mode from a raw interrupt  to  a  system
+interrupt. 
+
+	<raw interrupt>
+	$cmint	4
+
+.MACRO	$CMINT PRI
+	jsr r5,@#in$int
+	.word	^c<pri*40>&340
+.ENDM	
+ ` $CMFRK		
+		
+Change mode to fork. 
+	
+________________________________________________________________________________
+	
+	$cmfrk	fbl
+	
+	fbl.sa	Fork-block address
+	
+________________________________________________________________________________
+
+Called from interrupt service routine to drop to fork state. Kernel only. 
+
+
+.MACRO	$CMFRK FBL
+	jsr r5,@#fk$ins
+	.word fbl-.
+.ENDM 
+ ` $CMSYS	
+
+Change mode to system (from monitor).
+________________________________________________________________________________
+		
+	$cmsys	con pri
+
+	con.da	Continue with non-system code at this address.
+	pri.sv	Priority to run at in system state.
+		Default is zero.
+
+________________________________________________________________________________
+
+Kernel only.
+
+<monitor code>
+
+$cmsys	20$ 0		;do some in system state
+<system state>		;
+return			;exit from system state
+
+20$:	<monitor code>	;continue in monitor state
+
+.MACRO	$CMSYS CON PRI=0 PIC
+	mov @#^o177776,-(sp)
+.if nb <pic>
+	psh	pc
+	add	#con-.,(sp)
+.iff
+	mov #con,-(sp)
+.endc
+	jsr r5,@#in$sys
+	.word ^c<pri>&^o340
+.ENDM
+;	$SCDIS
+ ` $CMSCH		
+
+Change mode to scheduler (from process).
+________________________________________________________________________________
+
+	$cmsch
+
+________________________________________________________________________________
+
+Kernel only. Process state only.
+
+	<process state>
+	$cmsch		;block the scheduler
+
+	<scheduler state code>
+
+	$cmpro		;unblock scheduler
+
+.MACRO	$CMSCH
+	call @#sc$dis
+.ENDM
+;
+;	$SCENB
+ ` $CMPRO		
+
+Change mode to process (back from scheduler).
+________________________________________________________________________________
+
+	$cmpro
+
+________________________________________________________________________________
+
+Kernel mode only.
+
+
+.MACRO	$CMPRO
+	call @#sc$enb
+.ENDM
+ ` $CMEVT		
+
+Change mode to event poll.
+________________________________________________________________________________
+
+	$cmevt
+
+________________________________________________________________________________
+
+Process is placed on priority-zero queue. Rescheduler is called.
+
+.MACRO	$CMEVT
+	call @#sc$evt
+.ENDM
+;	$CREPO
+ ` $CREPO		
+
+Create pool element.
+________________________________________________________________________________
+	$crepo	typ bln
+
+	typ.dv	pool element type
+	bln.dv	byte length of element
+________________________________________________________________________________
+
+Call only from system process. Kernel mode only (though user mode could work).
+
+.MACRO	$CREPO	TYPE, BYTES
+.iif nb <type>,mov type,-(sp)
+.iif nb <bytes>,mov bytes,-(sp)
+	call	@#po$cre
+.ENDM
+;	$CROVL
+ ` $CROVL	
+
+________________________________________________________________________________
+
+	$crovl	area vhi
+
+________________________________________________________________________________
+
+Internal call to create virtual overlays during image activation.
+
+
+.MACRO	$CROVL area vhi
+	$mov	area,r0
+	$mov	#30.*256.+8.,(r0)
+	$mov	vhi,2.(r0)
+	emt	375
+.ENDM
+;	$DCLTH
+
+ ' $DBxxx - see lxa.mac - driver boot 
+ ` $DCLTH		
+________________________________________________________________________________
+	$dclth	tsr jmp
+
+	tsr.sa	Trap service routine address.
+	jmp.sv	Jump flag. Default is branch.
+________________________________________________________________________________
+
+.MACRO	$DCLTH C D 
+	sp.xbs=4
+	sp.xpc=2
+	sp.xpr=0
+	call @#ve$dth
+.if b <d>
+	beq c
+.iff
+	bne .+4
+	jmp c
+.endc
+.ENDM
+;	$DELPO
+ ` $DELPO		
+
+Delete pool element.
+________________________________________________________________________________
+	$delpo	[elm]
+
+	elm.da	Element address.
+		Default is (sp).
+________________________________________________________________________________
+
+Call from system process only.	Kernel mode only (user mode should work too).
+
+	$delpo	#addr
+
+.MACRO	$DELPO	ADDR
+.iif nb <addr>,mov addr,-(sp)
+	call	@#po$del
+.ENDM
+;	$RELEAS
+ ` $DIVEST	
+
+Divest a resource.	
+
+________________________________________________________________________________
+
+	$divest	res
+
+	res.da	Address of the resource queue
+
+________________________________________________________________________________
+
+$divest is used by kernel routines to release a resource acquired with $obtain.
+No error messages are returned.
+
+
+.MACRO	$DIVEST RES
+.iif nb <res>,mov res,r3
+	call	@#qu$div
+.ENDM
+;	$ENQUE
+ ` $ENQUE		
+
+Enqueue on condition.
+________________________________________________________________________________
+	$enque	res cnd
+
+	res.da	Address to resume at.
+	cnd.sv	Scheduler condition.
+________________________________________________________________________________
+
+Kernel mode only.
+
+	$float
+	<system state code>
+	$enque	#10$, #prwti.
+	<never returns here>
+
+ 10$:	<returns here after reschedule>
+
+.MACRO	$ENQUE ADDR,COND
+	psh	@#177776
+	psh	addr
+	jsr	r5,@#in$enq
+	.word	cond
+.ENDM
+;	$SYSENT
+ ` $FLOAT		
+
+Float to system state.
+________________________________________________________________________________
+
+	$float
+________________________________________________________________________________
+
+Fast call to change to system state. Must be followed by one of following:
+
+	$land	Return to monitor state.
+	$stall	Stall process.
+	$enque	?
+
+.MACRO	$FLOAT
+	inc	@#i$nins
+.ENDM
+;	$HARD
+;
+ ` .HARD			
+
+Report a hard error.
+________________________________________________________________________________
+
+	.hard	cod
+
+	cod.sv	hard error code.
+
+________________________________________________________________________________
+
+Call from kernel only. Error codes defined by $ERDEF.
+
+	.hard	erusr.		;USR required
+	<control does not return>
+
+.MACRO	.HARD C
+	emt 376
+	.word c
+.ENDM
+;	$SYSEXI
+ ` $LAND			
+________________________________________________________________________________
+
+	$land
+
+________________________________________________________________________________
+
+Call after $float only.
+
+	$float		;go into system state
+	<system state code>
+	$land		;return to monitor state
+
+.MACRO	$LAND
+	call	@#in$lan
+.ENDM
+;	$MOVBUF
+ ` MOVBUF	
+
+Move static buffers.	
+________________________________________________________________________________
+
+	movbuf	src, dst, bct
+
+	src.sa	Source address.
+	dst.sa	Destination address.
+	bct.sv	Byte count.
+
+________________________________________________________________________________
+
+Kernel only. Moves static buffers.	
+
+.MACRO	MOVBUF	SRC DST BCT	
+	jsr	r3,@#ut$mbf
+	.word	src,dst,bct
+.ENDM
+;	$MMGNB
+ ` MOVFDB
+
+Move byte from previous data mode.
+________________________________________________________________________________
+
+	movfdb	[pnt] [upd]
+
+	pnt.da	previous mode address
+		Default is r1.
+	upd.da	address to store updated pointer
+		Default is r1.
+________________________________________________________________________________
+
+
+
+	r0	Byte returned in r0.
+	r1	Used as pointer.	
+	c=1	Invalid previous mode address.
+
+
+.MACRO	MOVFDB C D
+.iif nb <c>,mov c,r1		;address of buffer
+call	@#mm$gnb
+.iif nb <d>,mov r1,d
+.ENDM
+;	$MMPNB
+ ` MOVTDB
+
+Move byte to previous data mode.
+________________________________________________________________________________
+	movtdb	[pnt] [upd]
+
+	pnt.da	previous mode address pointer
+		Default is r1.
+	upd.da	address to store updated pointer
+		Default is r1.
+________________________________________________________________________________
+
+	r0	Byte to move.
+	r1	Used as pointer.	
+	c=1	Invalid previous mode address.
+
+	mov	adr,r0		;get the value
+	movtdb	pmadr,pmadr	;store it and update address
+
+.MACRO	MOVTDB C D
+.iif nb <c>,mov c,r1		;address of buffer
+call	@#mm$pnb
+.iif nb <d>,mov r1,d
+.ENDM
+ ` MOVXX			
+________________________________________________________________________________
+
+	movfd	c d e
+	movfi	c d e
+	movtd	c d e
+	movti	c d e
+________________________________________________________________________________
+
+The kernel bus and mmu handler will return with v=1 if  the  the  previous  mode
+address  was  invalid.  Note  it only returns if the MFPx or MTPx instruction is
+followed by a BVS instruction. 
+
+	v=1	invalid address
+
+.MACRO	MOVFD C D E
+	mfpd c
+.iif nb <e>,bvs e 
+	mov (sp)+,d
+.ENDM 
+
+.MACRO	MOVFI C D E
+	mfpi c
+.iif nb <e>,bvs e 
+	mov (sp)+,d
+.ENDM 
+ ` $MUTEX	
+
+Read, write & unlock a mutex.	
+________________________________________________________________________________
+
+	$mutex	tsk, mut
+
+	tsk.ms	Task: read, write, unlock
+	mut.da	Address of mutex
+
+________________________________________________________________________________
+
+Kernel only call to lock a mutex for read/write or unlock a mutex.	
+
+
+	$mutex	read #n$asys	;Lock system name table
+	$mutex	unlock #n$asys	;Unlock it
+
+
+.MACRO	$MUTEX	TSK, MUT
+	$mov	mut,r3
+	call	@#mu$'tsk
+.ENDM
+;	$LOCK
+;
+ ` $OBTAIN	
+
+Obtain exclusive use of a resource.	
+
+________________________________________________________________________________
+
+	$obtain	res
+
+	res.da	Address of the resource queue
+
+	r3	Used to pass the address of the resource
+
+	c=1	Set if process aborts while waiting for resource.
+		Resource has not been obtained.
+
+________________________________________________________________________________
+
+$obtain is used by kernel routines to obtain exclusive use of  a  resource.  The
+call  returns when the resource has been obtained, or, with an error if the pro~
+cess aborts. 
+
+
+	$obtain	#s$yque		;get control of the system queue
+	bcs	error		;forget it - we just aborted
+
+.MACRO	$OBTAIN	RES
+.iif nb <res>,mov res,r3 
+	call	@#qu$obt
+.ENDM 
+;	$CALL
+;	$JUMP
+;
+ ` OVCAL$
+ ` OVJMP$	
+
+________________________________________________________________________________
+	ovjmp$	adr ovr
+
+	adr	address in overlay
+	ovl	address of overlay dispatcher
+
+________________________________________________________________________________
+
+.MACRO	OVCAL$	ADR OVR
+	call	@#oc$'ovr
+	.word	adr
+.ENDM
+
+.MACRO	OVJMP$	ADR OVR
+	call	@#oj$'ovr
+	.word	adr
+.ENDM
+;	???
+ ` $REPORT	
+
+Report system message.	
+________________________________________________________________________________
+
+	$report	s$cod., ercod.
+
+________________________________________________________________________________
+
+Kernel call to report combined system service codes and  standard  RT-11  codes.
+The  low byte contains the system service code. The high byte contains the RT-11
+code or'ed with 100. 
+
+The error processor converts the high byte into an RT-11 j$berr code with:	
+
+o	If the system service code is fatal it is used.
+o	Otherwise the high order byte is used as a soft RT-11 code in the
+	range 0:10.
+
+	emt	376
+	.word	s$cod!<ercod.!100*256.>>
+
+.MACRO	$REPORT COD COM=0
+	emt	376
+	.word	cod!<com!100*256.>
+.ENDM	
+;	$RESTO
+;
+ ` RESTORE		
+
+Restore registers. Call only after SAVE.
+________________________________________________________________________________
+
+	restore
+
+________________________________________________________________________________
+
+.MACRO	RESTORE
+	jsr r5,@#ut$res
+.ENDM
+;	$SCHED
+;
+ ` $REVIVE		
+
+Restart the process on the queue specified.	
+________________________________________________________________________________
+
+	$revive	que
+
+	que.da	Scheduling queue address
+________________________________________________________________________________
+
+Must be in system state for call. Assumes r4 is pointing  to  PCR.  Uses  r3  to
+point to queue.  
+
+	$float
+	$revive #s$cp00
+	$land
+ 
+	r4 ->	pcr
+ 
+.MACRO	$REVIVE QUEUE
+.iif nb <queue>,mov queue,r3 
+	call	@#sc$pos
+.ENDM 
+;	$RIGHT
+;
+ ` $RIGHT		
+________________________________________________________________________________
+
+	$right	cod
+
+	cod.sv	Access right code to check
+
+________________________________________________________________________________
+
+	c=0	Access permitted.
+	c=1	Access not permitted.
+		Failed right set in missing rights record.
+
+.MACRO	$RIGHT	CODE
+	jsr r3,@#sr$chk
+	.word code
+.ENDM
+;	$SAVE
+ ` SAVE			
+
+Save registers r0:r5. Return as co-routine.
+________________________________________________________________________________
+
+	save
+________________________________________________________________________________
+
+
+	save		;save registers
+	...
+	return		;restore and return
+
+	save		;save registers
+	...
+	restore		;restore registers
+
+.MACRO	SAVE
+	jsr r5,@#ut$sav
+.ENDM
+ ` SPL			
+
+.MACRO	SPL C
+.iif eq c,	clrb @#177776
+.iif ne c,	movb #c*32.,@#177776
+.ENDM
+;	$STALL
+;
+ ` $STALL		
+
+.MACRO	$STALL ADDR,COND
+	psh	@#177776
+	psh	addr
+	jsr	r5,@#in$sta
+	.word	cond
+.ENDM
+;	$SOFT
+;
+ ` .SOFT			
+
+.MACRO	.SOFT C
+	emt 360!c
+.ENDM
+

@@ -1,0 +1,1054 @@
+;-----------------------;
+.MACRO	$ATDEF INT VMS	
+.if b <int>
+map	at.vsz	word,0
+map	at.vtp	word
+map	at.vad	long
+map	at.vbs
+map	at.xtp	byte,0
+map	at.xsz	byte
+map	at.xad	word
+map	at.xbs
+map	at.lbn	long,0
+map	at.fsz	long
+map	at.act	byte
+map	at.lct	byte
+map	at.sbs
+.macro	ma$map n s i t
+map	at'n'.,,t
+map	at'n'$,,<s&377*256.!t>	
+map	at.'n,,s
+.endm
+.endc
+ma$map	end	0	0	0
+ma$map	xui	5.	2	1
+ma$map	xpr	3	2	2
+ma$map	fch	4	4	3
+ma$map	rat	32.	32.	4
+ma$map	xnm	10.	6	5
+ma$map	xty	4	2	6
+ma$map	xvr	2	2	7
+ma$map	eda	7	7	8.
+ma$map	stb	10.	32.	9.
+ma$map	hdr	512.	512.	10.
+ma$map	bls	2.	2	11.
+ma$map	ulb	18.	18.	12.
+ma$map	ada	35.	35.	13.
+ma$map	alc	14.	14.	14.
+.if b <vms>
+ma$map	tim	43.	43.	15.
+map	atats.,,15.
+.iff
+ma$map	eba	4.	4.	15.
+ma$map	anm	20.	20.	16.
+ma$map	crd	8.	8.	17.
+ma$map	rvd	8.	8.	18.
+ma$map	exd	8.	8.	19.
+ma$map	bkd	8.	8.	20.
+ma$map	uic	4	4	21.
+ma$map	fpr	2	2	22.
+ma$map	rpr	2	2	23.
+ma$map	acl	1	1	24.
+ma$map	sem	8.	8.	25.
+ma$map	rou	4	4	26.
+ma$map	dsq	2	2	27.
+ma$map	bkl	6	6	28.
+ma$map	jnl	2	2	29.
+ma$map	h1a	1	1	30.
+map	atats.,,31.
+.endc
+.ENDM
+.MACRO	$ATRIB	TYP SIZ ADR
+	.byte	at'typ'.
+.if nb <siz>
+	.byte	siz
+.iff
+	.byte	at'typ'.
+.endc
+	.word	adr
+.ENDM
+.MACRO	$ATRIN	TYP SIZ ADR
+	.byte	-at'typ'.&377
+.if nb <siz>
+	.byte	siz&377
+.iff
+	.byte	at.'typ&377
+.endc
+	.word	adr
+.ENDM
+.MACRO	$FDDEF
+map	fd.num	word,0
+map	fd.seq
+map	fd.rvn	byte
+map	fd.nmx	byte
+map	fd.fbs
+map	fd.fil	word,0
+map	fd.nam
+map	fd.typ
+.ENDM
+;-----------------------;
+.MACRO	$FTDEF
+map	ft.fty	word,0
+map	ft.frt	null
+map	ft.fro	byte
+map	ft.fra	null
+map	ft.fvc	byte
+map	ft.frs
+map	ft.fmr
+map	ft.fbs
+map	ft.typ	1*0,0
+map	ft.org	1,0
+map	ft.atr	1,1
+map	ft.rsz	2,2
+map	ft.hbk	4*0,4
+map	ft.hbh	2,4
+map	ft.hbl	2,6
+map	ft.ebk	4*0,10
+map	ft.ebh	2,10
+map	ft.ebl	2,12
+map	ft.ffb	2,14
+map	ft.bks	1,16
+map	ft.vfc	1,17
+map	ft.mrs	2,20
+map	ft.deq	2,22
+map	ft.bbs
+map	ftudf.,,0
+map	ftfix.,,1
+map	ftvar.,,2
+map	ftvfc.,,3
+map	ftstm.,,4
+map	ftslf.,,5
+map	ftscr.,,6
+map	ftseq.,,0
+map	ftrel.,,1
+map	ftidx.,,2
+map	ftdir.,,3
+map	ftftn$,,1
+map	ftccr$,,2
+map	ftprn$,,4
+map	ftblk$,,10
+.ENDM
+.MACRO	$IFDEF
+.macro	ma$map	c d=0 e=0
+map	c,,<<e*256.>!d>
+.endm
+ma$map	ifgqx$	1	0
+ma$map	ifgqq$	2	0
+ma$map	ifgqs$	4	0
+ma$map	ifkil.	0	0
+ma$map	ifwlb.	0	1
+ma$map	ifrlb.	0	2
+ma$map	ifatt.	0	3
+ma$map	ifdet.	0	4
+ma$map	ifmnt.	0	5
+ma$map	ifdsm	0	6
+ma$map	ifcln.	0	7
+ma$map	iffn5.	0	5
+ma$map	iffn6.	0	6
+ma$map	iffn7.	0	7
+ma$map	iffn8.	0	10
+ma$map	iffn9.	0	11
+ma$map	iffna.	0	11
+ma$map	ifulk.	0	12
+ma$map	ifrna.	0	13
+ma$map	ifena.	0	14
+ma$map	ifacr.	0	15
+ma$map	ifacw.	0	16
+ma$map	iface.	0	17
+ma$map	ifdac.	0	20
+ma$map	ifrvb.	0	21
+ma$map	ifwvb.	0	22
+ma$map	ifext.	0	23
+ma$map	ifcre.	0	24
+ma$map	ifdel.	0	25
+ma$map	ifrat.	0	26
+ma$map	ifwat.	0	27
+ma$map	ifapc.	0	30
+ma$map	ifapv.	10	31
+map	iffns.,,32
+ma$map	ifkil$	12	ifkil.
+ma$map	ifrdn$	22	ifkil.
+ma$map	ifunl$	42	ifkil.
+ma$map	ifltk$	50	ifkil.
+ma$map	ifrtk$	60	ifkil.
+ma$map	ifsft$	30	ifkil.
+.macro	ma$map	c d=0 e=0
+map	c,,<e!d>
+.endm
+ma$map	ifcln$	0	iffn7.
+ma$map	ifstc$	100	iffn5.
+ma$map	ifsec$	120	iffn5.
+ma$map	iflov$	10	ifrlb.
+ma$map	ifgts$	0	iffn5.
+ma$map	ifgmc$	160	ifgts$
+ma$map	ifsmc$	40	ifgts$
+ma$map	ifhng$	0	iffn6.
+ma$map	ifrpr$	0	iffn9.
+ma$map	ifwal$	10	ifwlb.
+ma$map	ifwms$	20	ifwlb.
+ma$map	ifcco$	40	ifwlb.
+ma$map	ifwbt$	100	ifwlb.
+ma$map	ifrst$	1	ifrlb.
+ma$map	ifral$	10	ifrlb.
+ma$map	ifrne$	20	ifrlb.
+ma$map	ifrnc$	40	ifrlb.
+ma$map	ifrtm$	200	ifrlb.
+ma$map	ifata$	10	ifatt.
+.ENDM
+.MACRO	$IHDEF
+map	ih.csp	2,0
+map	ih.hbs	2,2
+map	ih.efm	2,4
+map	ih.efa	2,6
+map	ih.cui	2,10
+map	ih.dui	2,12
+map	ih.ips	2,14
+map	ih.ipc	2,16
+map	ih.isp	2,20
+map	ih.dba	2,22
+map	ih.dbl	2,24
+map	ih.tka	2,26
+map	ih.tkl	2,30
+map	ih.pra	2,32
+map	ih.fpa	2,34
+map	ih.rda	2,36
+map	ih.esa	2,40
+map	ih.fsa	2,42
+map	ih.wnd	2,44
+map	ih.dsw	2,46
+map	ih.fcs	2,50
+map	ih.for	2,52
+map	ih.ovr	2,54
+map	ih.vex	2,56
+map	ih.spr	1,60
+map	ih.nml	1,61
+map	ih.rva	2,62
+map	ih.x25	2,64
+map	ih.r01	2,66
+map	ih.r02	2,70
+map	ih.gua	2,72
+map	ih.nln	2,74
+map	ih.bbs	0,76
+map	ih.lun	word*2
+map	ih.gr5,,-14
+map	ih.gr4,,-12
+map	ih.gr3,,-10
+map	ih.gr2,,-6
+map	ih.gr1,,-4
+map	ih.gr0,,-2
+map	ih.wpa,,0
+map	ih.wlv
+map	ih.whv
+map	ih.waa
+map	ih.wpz
+map	ih.wpo
+map	ih.wfp	byte
+map	ih.wnp	byte
+map	ih.wlp
+map	ih.wbs
+.ENDM
+.MACRO	$ILDEF
+map	il.tsk	4,0
+map	il.par	4,4
+map	il.sad	2,10
+map	il.hgv	2,12
+map	il.mxv	2,14
+map	il.ldz	2,16
+map	il.mxz	2,20
+map	il.off	2,22
+map	il.wnd	1,24
+map	il.sys	1,25
+map	il.seg	2,26
+map	il.flg	2,30
+map	il.dat	6,32
+map	il.pbs
+map	ilpbs.,,<il.pbs-il.par>
+map	il.lib	ilpbs.*7,il.pbs
+map	il.lte	2
+map	il.lbs
+map	ilmof.,,0
+map	iipof.,,ilpbs.*8.
+map	ix.pri	2,346
+map	ix.xfr	2,350
+map	ix.ext	2,352
+map	ix.sgl	2,354
+map	ix.hrb	2,356
+map	ix.blk	2,360
+map	ix.lun	2,362
+map	ix.rob	2,364
+map	ix.rol	2,366
+map	il.fl2	2,772
+map	il.lrl	2,774
+map	il.ame	2,776
+map	il.asg	0,1000
+map	il.adn	2,0
+map	il.aun	1,2
+map	il.ars	1,3
+map	il.abs	0,4
+map	il.rnm	4,0
+map	il.rsa	2,4
+map	il.rhv	2,6
+map	il.rmv	2,10
+map	il.rlz	2,12
+map	il.rmz	2,14
+map	il.rof	2,16
+map	il.rwd	2,20
+map	il.rsg	2,22
+map	il.rfl	2,24
+map	il.rda	6,26
+map	il.rbs	0,34
+assume	il.rbs. eq ilpbs.
+map	ilnew$,,1
+map	ilnxh$,,2
+map	ilxhr$,,4
+map	ilsup$,,10
+map	iliop$,,20
+map	ilres$,,40
+map	ilchk$,,100
+map	ilcmp$,,200
+map	ilprv$,,400
+map	ilnsd$,,2000
+map	ilslv$,,4000
+map	ilpmd$,,10000
+map	ilacp$,,20000
+map	ilnhd$,,40000
+map	ilpic$,,100000
+map	ilfmp$,,2
+map	ilcli$,,1
+map	ilrcm$,,1
+map	ilrpc$,,4
+map	ilrsp$,,10
+map	ilrcl$,,20000
+map	ilrap$,,40000
+map	ilrrw$,,100000
+.if ne 0
+	.MACRO	LBLDF$	L,B
+	.ASECT
+.=0
+R$LNAM:'L'.BLKW	2
+R$LSA:'L' .BLKW	1
+R$LHGV:'L'.BLKW	1
+R$LMXV:'L'.BLKW	1
+R$LLDZ:'L'.BLKW	1
+R$LMXZ:'L'.BLKW	1
+R$LOFF:'L'.BLKW	1
+R$LWND:'L'.BLKW	1
+R$LSEG:'L'.BLKW	1
+R$LFLG:'L'.BLKW	1
+R$LDAT:'L'.BLKW	3
+R$LSIZ:'L'.BLKW	0
+LD$ACC='B'100000
+LD$RSV='B'040000
+LD$CLS='B'020000
+LD$SUP='B'000010
+LD$REL='B'000004
+.=0
+L$BTSK:'L'.BLKW	2
+L$BPAR:'L'.BLKW	2
+L$BSA:'L' .BLKW	1
+L$BHGV:'L'.BLKW	1
+L$BMXV:'L'.BLKW	1
+L$BLDZ:'L'.BLKW	1
+L$BMXZ:'L'.BLKW	1
+L$BOFF:'L'.BLKW	1
+L$BWND:'L'.BLKB	1
+L$BSYS:'L'.BLKB	1
+L$BSEG:'L'.BLKW	1
+L$BFLG:'L'.BLKW	1
+L$BDAT:'L'.BLKW	3
+L$BLIB:'L'.BLKW	<7.*<R$LSIZ/2>>+1
+L$BPRI:'L'.BLKW	1
+L$BXFR:'L'.BLKW	1
+L$BEXT:'L'.BLKW	1
+L$BSGL:'L'.BLKW	1
+L$BHRB:'L'.BLKW	1
+L$BBLK:'L'.BLKW	1
+L$BLUN:'L'.BLKW	1
+L$BROB:'L'.BLKW 1
+L$BROL:'L'.BLKW	1
+	.BLKW	<512.-.>/2
+L$BASG:'L'.BLKW	0
+$LBXL='B'<8.*<R$LSIZ>>
+.=772
+L$BFL2:'L'.BLKW	1
+L$BLRL:'L'.BLKW	1
+L$AME:'L'	.BLKW	1
+	.IIF NE	.-1000	.ERROR DEFINITIONS OVERLAP NEXT LABEL BLOCK
+LB$REV='B'000400
+TS$PIC='B'100000
+TS$NHD='B'040000
+TS$ACP='B'020000
+TS$PMD='B'010000
+TS$SLV='B'004000
+TS$NSD='B'002000
+TS$PRV='B'000400
+TS$CMP='B'000200
+TS$CHK='B'000100
+TS$RES='B'000040
+TS$IOP='B'000020
+TS$SUP='B'000010
+TS$XHR='B'000004
+TS$NXH='B'000002
+TS$NEW='B'000001
+T2$FMP='B'000002
+T2$CLI='B'000001
+	.PSECT
+	.MACRO	LBLDF$	X,Y
+	.ENDM
+	.ENDM
+.endc
+.ENDM
+;-----------------------;
+.MACRO	$ISDEF
+map	is.cod	byte,0
+map	is.qua	byte
+map	is.val
+map	is.bbs
+map	ispnd.,,0.
+map	issuc.,,1.
+map	isrdd.,,2.
+map	istmo.,,2.
+map	isbv..,,5.
+map	iscrn.,,6401
+map	isesc.,,15401
+map	iscc..,,1401
+map	isesq.,,115401
+map	ispes.,,100001
+map	iseot.,,2001
+map	istab.,,4401
+map	iebad.,,-1.
+map	ieifc.,,-2.
+map	iednr.,,-3.
+map	iever.,,-4.
+map	ieonp.,,-5.
+map	iespc.,,-6.
+map	iedna.,,-7.
+map	iedaa.,,-8.
+map	iedun.,,-9.
+map	ieeof.,,-10.
+map	ieeov.,,-11.
+map	iewlk.,,-12.
+map	iedao.,,-13.
+map	iesre.,,-14.
+map	ieabo.,,-15.
+map	iepri.,,-16.
+map	iersu.,,-17.
+map	ieovr.,,-18.
+map	iebyt.,,-19.
+map	ieblk.,,-20.
+map	iemod.,,-21.
+map	iecon.,,-22.
+map	ienod.,,-23.
+map	iedfu.,,-24.
+map	ieifu.,,-25.
+map	iensf.,,-26.
+map	ielck.,,-27.
+map	iehfu.,,-28.
+map	iewac.,,-29.
+map	iecks.,,-30.
+map	iewat.,,-31.
+map	ierer.,,-32.
+map	iewer.,,-33.
+map	iealn.,,-34.
+map	iesnc.,,-35.
+map	iesqc.,,-36.
+map	ienln.,,-37.
+map	ieclo.,,-38.
+map	ienbf.,,-39.
+map	ierbg.,,-40.
+map	ienbk.,,-41.
+map	ieill.,,-42.
+map	iebtp.,,-43.
+map	ierac.,,-44.
+map	ierat.,,-45.
+map	iercn.,,-46.
+map	iec47.,,-47.
+map	ie2dv.,,-48.
+map	iefex.,,-49.
+map	iebdr.,,-50.
+map	iernm.,,-51.
+map	iebdi.,,-52.
+map	iefop.,,-53.
+map	iebnm.,,-54.
+map	iebdv.,,-55.
+map	iebbe.,,-56.
+map	iedup.,,-57.
+map	iestk.,,-58.
+map	iefhe.,,-59.
+map	ienfi.,,-60.
+map	ieisq.,,-61.
+map	ieeot.,,-62.
+map	iebvr.,,-63.
+map	iebhd.,,-64.
+map	ieofl.,,-65.
+map	iebcc.,,-66.
+map	iec67.,,-67.
+map	iennn.,,-68.
+map	ienfw.,,-69.
+map	ieblb.,,-70.
+map	ietmm.,,-71.
+map	iendr.,,-72.
+map	iecnr.,,-73.
+map	ietmo.,,-74.
+map	ieexp.,,-75.
+map	iebtf.,,-76.
+map	iennc.,,-77.
+map	iennl.,,-78.
+map	ienlk.,,-79.
+map	ienst.,,-80.
+map	iefln.,,-81.
+map	ieies.,,-82.
+map	iepes.,,-83.
+map	iealc.,,-84.
+map	ieulk.,,-85.
+map	ieers.,,-86.
+map	isclr.,,0
+map	isset.,,2
+map	isspd.,,2
+map	ieupn.,,-1.
+map	ieins.,,-2.
+map	iepts.,,-3.
+map	ieuns.,,-4.
+map	ieunl.,,-5.
+map	iehwr.,,-6.
+map	ieact.,,-7.
+map	ieits.,,-8.
+map	iefix.,,-9.
+map	ieckp.,,-10.
+map	ietch.,,-11.
+map	ierbs.,,-15.
+map	iensw.,,-18.
+map	ieilv.,,-19.
+map	ieast.,,-80.
+map	iemap.,,-81.
+map	ieiop.,,-83.
+map	iealg.,,-84.
+map	iewov.,,-85.
+map	ienvr.,,-86.
+map	ienvw.,,-87.
+map	ieitp.,,-88.
+map	ieibs.,,-89.
+map	ielnl.,,-90.
+map	ieiui.,,-91.
+map	ieidu.,,-92.
+map	ieiti.,,-93.
+map	iepns.,,-94.
+map	ieipr.,,-95.
+map	ieilu.,,-96.
+map	ieief.,,-97.
+map	ieadp.,,-98.
+map	iesdp.,,-99.
+map	isclr.,,0
+map	isset.,,2
+map	isspd.,,2
+.ENDM
+;-----------------------;
+.MACRO	$LUDEF
+map	lu.dev	byte*2,0
+map	lu.uni	byte
+map	lu.sta	byte
+map	lu.bbs	null
+map	lu.sts	null
+map	lu.cla	byte
+map	lu.chn	byte
+map	lu.log
+map	lu.xbs
+map	luseq$,,1
+map	luent$,,2
+map	ludel$,,4
+map	lufil$,,10
+map	lunop$,,20
+map	lucre$,,40
+map	luprm$,,100
+map	luopn$,,200
+map	lucl$p,,17
+map	lucrm.,,0
+map	lucte.,,1
+map	lucdk.,,2
+map	lucmt.,,3
+map	luclp.,,4
+map	luccr.,,5
+map	lucnf.,,6
+map	lucnt.,,7
+map	lucun.,,8.
+map	ludir$,,20
+.ENDM
+;-----------------------;
+.MACRO	$NBDEF		
+map	nb.fid	6,0
+map	nb.fna	6*0,6
+map	nb.fil	2,6
+map	nb.nam	2,10
+map	nb.etc	2,12
+map	nb.typ	2,14
+map	nb.ver	2,16
+map	nb.sta	2,20
+map	nb.nxt	2,22
+map	nb.did	6,24
+map	nb.dev	2,32
+map	nb.uni	2,34
+map	nb.bbs	0,36
+map	nb.an1	4,2
+map	nb.an2	10,24
+map	nbver$,,1
+map	nbtyp$,,2
+map	nbnam$,,4
+map	nbsvr$,,10
+map	nbstp$,,20
+map	nbsnm$,,40
+map	nbdir$,,100
+map	nbdev$,,200
+map	nbsd1$,,400
+map	nbsd2$,,1000
+map	nbans$,,2000
+map	nbwch$,,4000
+.ENDM
+;-----------------------;
+.MACRO	$QIDEF	
+map	qi.dic	byte,0
+map	qi.len	byte
+map	qi.fun	null
+map	qi.mod	byte
+map	qi.cod	byte
+map	qi.lun	byte
+map	qi.res	byte
+map	qi.efn
+map	qi.pri
+map	qi.sba
+map	qi.ast
+map	qi.buf	null
+map	qi.p1
+map	qi.bct	null
+map	qi.p2
+map	qi.ccr	null
+map	qi.p3
+map	qi.lbn	null
+map	qi.p4
+map	qi.p5
+map	qi.p6
+map	qi.bbs
+.ENDM	
+;-----------------------;
+.MACRO	$UCDEF
+map	uc.dev,,0
+map	uc.uni,,1
+map	uc.flg,,1
+map	uc.dc0
+map	uc.dc1
+map	uc.dc2
+map	uc.dc3
+map	ucbbs.
+map	uc.cha,,uc.dc0
+map	uc.bhi
+map	uc.blk
+map	uc.buf
+map	ucrec$,,1
+map	ucccl$,,2
+map	uctty$,,4
+map	ucdir$,,10
+map	ucsdi$,,20
+map	ucsqd$,,40
+map	ucmsd$,,100
+map	ucspl$,,100
+map	ucumd$,,200
+map	ucext$,,400
+map	ucswl$,,1000
+map	ucmxd$,,1000
+map	ucisp$,,2000
+map	ucosp$,,4000
+map	ucpse$,,10000
+map	uccom$,,20000
+map	ucf11$,,40000
+map	ucmnt$,,100000
+map	ucgrm$,,ucrec$
+map	ucgte$,,ucrec$!ucccl$!uctty$!ucmnt$
+map	ucgdk$,,ucdir$!ucf11$!ucmsd$!ucmnt$
+map	ucgmt$,,ucrec$!ucsqd$!ucmnt$
+map	ucgct$,,ucrec$!ucsqd$!ucmnt$
+map	ucglp$,,ucrec$!ucccl$
+map	ucgcr$,,ucrec$
+map	ucgnf$,,0
+map	ucgnt$,,uccom$!ucmnt$
+map	ucbrm.,,512.
+map	ucbte.,,80.
+map	ucbdk.,,512.
+map	ucbmt.,,512.
+map	ucbct.,,128.
+map	ucblp.,,80.
+map	ucbcr.,,80.
+map	ucbnf.,,0
+map	ucbnt.,,0
+.ENDM
+.MACRO	$VCDEF
+	map	vc.ch0	word,0
+	map	vc.ch1
+	map	vc.ch2
+	map	vc.ch3
+	map	vc.cla
+	map	vc.typ
+	map	vcrec$,,1
+	map	vcccl$,,2
+	map	vctrm$,,4
+	map	vcdir$,,10
+	map	vcsdi$,,20
+	map	vcsqd$,,40
+	map	vcspl$,,100
+	map	vcopr$,,200
+	map	vcrct$,,400
+	map	vcf02$,,1000
+	map	vcf03$,,2000
+	map	vcnet$,,20000
+	map	vcfod$,,40000
+	map	vcdua$,,100000
+	map	vcshr$,,1
+	map	vcgen$,,2
+	map	vcavl$,,4
+	map	vcmnt$,,10
+	map	vcmbx$,,20
+	map	vcdmt$,,40
+	map	vcelg$,,100
+	map	vcall$,,200
+	map	vcfor$,,400
+	map	vcswl$,,1000
+	map	vcidv$,,2000
+	map	vcodv$,,4000
+	map	vcrnd$,,10000
+	map	vcrtm$,,20000
+	map	vcrck$,,40000
+	map	vcwck$,,100000
+	map	vcclu$,,1
+	map	vcdet$,,2
+	map	vcrtt$,,4
+	map	vccdp$,,10
+	map	vc2dp$,,20
+	map	vcmsc$,,40
+	map	vcssm$,,100
+	map	vcsrv$,,200
+	map	vcred$,,400
+	map	vcnnm$,,1000
+	map	vcdis.,,1
+	map	vctap.,,2
+	map	vccom.,,32.
+	map	vccar.,,65.
+	map	vcter.,,66.
+	map	vcpri.,,67.
+	map	vcwor.,,70.
+	map	vcrea.,,96.
+	map	vcbus.,,128.
+	map	vcmai.,,160.
+	map	vcjou.,,161
+	map	vcmis.,,200.
+.ENDM
+;-----------------------;
+.MACRO	$VFDEF	
+map	vf.act	byte*3,0
+map	vf.bct	byte
+map	vf.wsz	byte
+map	vf.fid	word*3
+map	vf.did	word*3
+map	vf.wcc	long
+map	vf.nmc	word
+map	vf.exc	null
+map	vf.ctf	word
+map	vf.exs	null
+map	vf.ctv	long
+map	vf.xvb	long
+map	vf.apc	byte
+map	vf.amd	byte
+map	vf.all	null*10.
+map	vf.anm	word
+map	vf.asq	word
+map	vf.arv	word
+map	vf.acb	word
+map	vf.vlm	word
+map	vf.rs0	word
+map	vf.bbs
+map	vfanw$,,1
+map	vfadl$,,2
+map	vfabl$,,4
+map	vfarw$,,10
+map	vfasp$,,20
+map	vfacp$,,20
+map	vfawc$,,40
+map	vfaso$,,100
+map	vfaup$,,100
+map	vfawr$,,400
+map	vfarc$,,1000
+map	vfanr$,,2000
+map	vfant$,,4000
+map	vfbex$,,1
+map	vfbpa$,,2
+map	vfbrl$,,4
+map	vfbwt$,,10
+map	vfbnl$,,20
+map	vfbne$,,40
+map	vfnav$,,10
+map	vfnat$,,20
+map	vfnan$,,40
+map	vfndr$,,100
+map	vfndv$	200
+map	vfnwc$,,400
+map	vfnnv$,,1000
+map	vfnss$,,1000
+map	vfnff$,,4000
+map	vfnlv$,,40000
+map	vfnhv$,,100000
+map	vfeac$,,1
+map	vfecb$,,2
+map	vfefc$,,4
+map	vfead$,,10
+map	vfeap$,,20
+map	vfeex$,,200
+map	vfetr$,,400
+map	vfenh$,,1000
+map	vfemb$,,2000
+map	vfenc$,,100000
+map	vfpex$,,1
+map	vfpoc$,,2
+map	vflno.,,0
+map	vflcy.,,1
+map	vfllb.,,2
+map	vflvb.,3
+map	vflfi.,,4
+map	vfcrv.,,1
+map	vfcpe.,,2
+map	vfcnv.,,3
+map	vfcsp.,,4
+map	vfcil.,,5
+map	vfcrf.,,6
+map	vfclv.,,7
+map	vfcuv.,,8.
+map	vfceq.,,9.
+map	vfcdq.,,10.
+map	vfcaq.,,11.
+map	vfceq.,,12.
+map	vfcmq.,,13.
+map	vfcrq.,,14.
+map	vfcue.,,15.
+map	vfcrm.,,16.
+map	vfqam$,,1
+map	vfqag$,,2
+map	vfqmu$,,4
+map	vfqmp$,,10
+map	vfqmo$,,20
+.ENDM
+;-----------------------;
+.MACRO	$XHDEF
+map	xh.gua	0,0
+map	xh.hea	0,62.
+map	xh.lun	word*32.*4.
+map	xh.tsk	word*2
+map	xh.top	null
+map	xh.tks
+map	xh.efn	word*4
+map	xh.nln	byte
+map	xh.ovl	byte
+map	xh.mcl
+map	xh.ter
+map	xh.sad
+map	xh.lim
+map	xh.end
+map	xh.tas
+map	xh.mcf
+map	xh.chm
+map	xh.frn	word*4
+map	xh.fnm	word*4
+map	xh.evh	word*11.
+map	xh.mem	word*3
+map	xh.grp	word*3
+map	xh.bbs
+assume	xh.bbs le 436.
+map	xhhrb.,,2
+map	xhtnl$,,200
+map	xhmcx$,,1
+.ENDM
+;-----------------------;
+.MACRO	$XIDEF	
+map	xi.cye	0,0
+map	xi.cmo	2,2
+map	xi.cda	2,4
+map	xi.cho	2,6
+map	xi.cmi	2,10
+map	xi.cse	2,12
+map	xi.cti	2,14
+map	xi.cfr	2,16
+map	xi.bbs	0,20
+map	xi.ldn	2,0
+map	xi.lun	1,2
+map	xi.lrs	1,3
+map	xi.lch	2,4
+map	xi.ld0	2,6
+map	xi.ld1	2,10
+map	xi.lbz	2,12
+map	xi.lbs	0,14
+map	xilrs$,,200
+map	xi.ppb	2,0
+map	xi.pps	2,2
+map	xi.pfw	2,4
+map	xi.pbs	0,6
+map	xipfs$,,0
+map	xipfu$,,1
+map	xi.ttn	4,0
+map	xi.tpn	4,4
+map	xi.ton	4,10
+map	xi.tpr	2,14
+map	xi.tui	2,16
+map	xi.tnl	2,20
+map	xi.tr2	2,22
+map	xi.tr3	2,24
+map	xi.tsa	2,26
+map	xi.tsl	2,30
+map	xi.tts	2,32
+map	xi.tsc	2,34
+map	xi.tpu	2,36
+map	xi.tbs	0,40
+map	xisrd.,,0
+map	xisrm.,,1
+map	xisrs.,,2
+map	xisia.,,3
+map	xists.,,4
+map	xisvm.,,5
+map	xismp.,,6
+map	xissj.,,7
+map	xisfb.,,8.
+.ENDM
+;-----------------------;
+.MACRO	$XPDEF
+map	xp.dsw,,rp.p0
+map	xp.ios,,rp.p1
+map	xp.ioq,,rp.p1+1
+map	xp.iov,,rp.p2
+map	xp.dic,,rp.p4
+map	xp.dis,,rp.p4+1
+map	xp.dpb,,rp.p5
+map	xp.dp0,,-<word*12.>
+map	xp.dp1
+map	xp.dp2
+map	xp.dp3
+map	xp.dp4
+map	xp.dp5
+map	xp.dp6
+map	xp.dp7
+map	xp.dp8
+map	xp.dp9
+map	xp.d10
+map	xp.d11
+map	xp.bbs,,word*12.
+map	xp.fun	0,xp.dp0
+map	xp.mod	byte
+map	xp.cod	byte
+map	xp.lun	byte
+map	xp.res	byte
+map	xp.efn	byte
+map	xp.pri	byte
+map	xp.sba
+map	xp.ast
+map	xp.qp1
+map	xp.qp2
+map	xp.qp3
+map	xp.qp4
+map	xp.qp5
+map	xp.qp6
+map	xp.buf,,xp.qp1
+map	xp.bct,,xp.qp2
+map	xp.ccl,,xp.qp3
+map	xp.blh,,xp.qp4
+map	xp.blk,,xp.qp5
+map	xp.sta,,xp.qp1
+map	xp.siz,,xp.qp2
+map	xp.tmo,,xp.qp3
+map	xp.pra,,xp.qp4
+map	xp.prs,,xp.qp5
+map	xp.vfc,,xp.qp6
+.ENDM	
+;-----------------------;
+.MACRO	$XRDEF
+$fedef
+set	$,ferst.*512.+fe.bbs
+map	.rsdtr	long
+map	.rsdts	long
+map	.rstnb	long
+map	.rstfd	long
+.macro	rsxerr c
+	jsr	r0,rs$die
+	.word	c
+.endm
+.macro	qioerr c
+	jsr	r0,rs$qie
+	.word	c
+.endm
+.ENDM
+;-----------------------;
+.MACRO	$XTDEF
+map	xt.cha	byte,0
+map	xt.cvl	byte
+map	xt.cbs
+ma$map	xtttp.,,8.
+ma$map	xtscp.,,10.
+ma$map	xtsmr.,,21.
+ma$map	xtesq.,,29.
+ma$map	xthld.,,36.
+ma$map	xtnec.,,39.
+ma$map	xtslv.,,40.
+ma$map	xtpri.,,41.
+ma$map	xttbf.,,57.
+map	xtuk0.,,0
+map	xta33.,,1
+map	xtk33.,,2
+map	xta35.,,3
+map	xtl3s.,,4
+map	xtl3p.,,5
+map	xtl36.,,6
+map	xtv05.,,7
+map	xtv50.,,8.
+map	xtv52.,,9.
+map	xtv55.,,10.
+map	xtv61.,,11.
+map	xtl18.,,12.
+map	xt100.,,13.
+map	xtl12.,,14.
+map	xtsc0.,,15.
+map	xtus0.,,16.
+map	xtus1.,,17.
+map	xtus2.,,18.
+map	xtus3.,,19.
+map	xtus4.,,20.
+map	xt.sg0	word,0
+map	xt.sg1
+map	xt.sg2
+map	xt.sg3
+map	xt.sbs
+map	xtacr$,,1
+map	xtbtw$,,2
+map	xtbuf$,,4
+map	xtuia$,,10
+map	xtcco$,,20
+map	xtesq$,,40
+map	xthld$,,100
+map	xtlwc$,,200
+map	xtrne$,,400
+map	xtrpr$,,1000
+map	xtrst$,,2000
+map	xtrub$,,4000
+map	xtsyn$,,10000
+map	xttrw$,,20000
+map	xtutb$,,40000
+map	xtvbf$,,100000
+map	xtsch$,,1
+map	xtgch$,,2
+map	xtsg0$,,037770
+map	xtsg1$,,<xtsch$!xtgch$>
+.ENDM
+;-----------------------;
+.MACRO	$XVDEF	
+map	xv.bus,,0
+map	xv.mmu,,2
+map	xv.bpt,,4
+map	xv.iot,,6
+map	xv.cpu,,10
+map	xv.emt,,12
+map	xv.trp,,14
+map	xv.fis,,16
+map	xv.bbs
+.ENDM
+                                                                                                                                                                                                                                                                                                                                                                             

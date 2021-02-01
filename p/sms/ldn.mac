@@ -1,0 +1,317 @@
+;.title	ldn
+;
+;	%build
+;	run sy:strip smb:ldn.mla=sms:ldn.mac
+;	%end
+;	%date
+;	<19-Mar-2003 23:19:49.10>
+;	%edit
+;	<47   >
+;
+;???	$ncdef		Ethernet CTI 
+;	$nadef		SHAREplus logical names
+; lrs	$nbdef		RSX name block
+;	$nfdef		NF protocol
+;	$njdef		SHAREnet/TPnet job definitions
+;	$npdef		EXPERT & SHAREplus name path
+;	$nqdef		NQ: structures
+; ???	$ntdef		SHAREnet parameters (unused?)
+;-----------------------;
+; NAMES			;
+;-----------------------;
+;
+; Logical names
+;
+;	$NEDEF	(change to na.elg, na.eeq, na.ebs)
+;	na.sta	change to na.nid for remote assignments
+; ???	Add hash table option for fast access
+; ???	Support variable length long names
+; ???	Add user defined logical names
+;
+.MACRO	$NADEF
+;
+; Name table entry
+;
+map	naect.,,8.	;entries per table
+map	napct.,,31.	;entries in process table
+map	nalct.,,32.	;assignment loop counter
+;
+map	ne.log	word,0	;logical name
+map	ne.equ		;equivalence name
+map	ne.bbs		;
+;
+map	na.suc	word,0	;successor table
+map	na.pre		;predecessor table
+map	na.sta	byte	;status
+map	na.gic	byte	;group
+map	na.tab	ne.bbs*naect.
+map	na.bbs		;
+;
+; Name table mask
+;
+map	naglo$,,0	;all tables
+map	nasys$,,1	;system table
+map	nagrp$,,2	;group table
+map	naprc$,,4	;process table
+map	naall$,,7	;all tables
+map	nant$m,,177770	;name table mask
+;
+; Name table numbers
+;
+map	nasys.,,0	;system table
+map	nagrp.,,1	;group table
+map	naprc.,,2	;process
+map	natbs.,,3	;number of tables
+;
+; Request subcodes
+;
+map	nacre.,,6	;create subcode
+map	nadel.,,7	;delete subcode
+map	natrn.,,8.	;translate subcode
+;
+; Error codes
+;
+map	nasup.,,0	;superseded existing name
+map	nanot.,,1	;logical name not found
+map	naivn.,,2	;invalid logical name
+map	naivt.,,3	;invalid name table
+map	nainr.,,4	;insufficient rights
+map	nainm.,,5	;insufficient memory
+;
+.ENDM
+;-----------------------; 
+; NF Protocol		;
+;-----------------------;	
+;
+; $NFDEF serves as a central location for NF protocol definitions.
+; All external protocols are stored here.
+;
+.MACRO	$NFDEF
+;
+map	nfONL.,,<^X6001>	; DEC MOP Online
+map	nfBOO.,,<^X6002>	; DEC MOP Boot
+map	nfSER.,,<^X6006>	; Client sends, server receives	
+map	nfCLI.,,<^X6008>	; Server responds, client receives
+;
+;$hex	<ab-00-04-00-df-89>	;TPnet server broadcast receipt
+;$hex	<ab-00-04-00-df-99>	;TPnet client broadcast receipt
+;
+; TPnet was wrong -- see NTS:NETMAC.MAC NTPRO$
+;$hex	<ab-00-04-ba-df-89>	;TPnet server broadcast receipt
+;$hex	<ab-00-04-ba-df-99>	;TPnet client broadcast receipt
+;
+.ENDM
+;
+;-----------------------; 
+; NETWORK JOB 		;
+;-----------------------;	
+;
+;	SHAREnet/TPnet job definitions
+;
+.MACRO	$NJDEF
+;
+;	Job pointers
+;
+map	nj.csp,,400	;CSR patch
+map	nj.vep,,402	;vector patch
+map	nj.shp,,404	;SHOW block pointer
+map	nj.pap,,406	;Parameter block pointer
+map	nj.sad,,410	;Source station address
+map	nj.dad,,420	;Destination station address
+map	nj.lum,,430	;logical unit map
+;map	nj.	432	;end of it
+;
+;		450	;stop here for the initial stack
+;
+;	Server SHOW parameters
+;
+map	nj.iva	word,0	;input vab pointer
+map	nj.cab		;cab block pointer
+map	nj.chc		;channel count pointer
+map	nj.chn		;channel area
+;
+;	Server parameter block
+;
+map	nj.pfn	word*4,0;network parameter filename
+map	nj.hfn	word*4	;connection handler name
+map	nj.nod	word*4	;node name
+map	nj.nid	word*2	;node id
+map	nj.csr		;device csr address
+map	nj.vec		;device vector address
+map	nj.rty		;retry count
+map	nj.tmo		;timeout in seconds
+map	nj.sta		;status flags
+;			;
+map	nj.dpk		;number of packets
+map	nj.dsd		;number of sends
+map	nj.drc		;number of receives
+map	nj.dby	word*2	;number of words moved
+map	nj.dck		;number of checksum errors
+map	nj.drp		;number of repeats
+map	nj.dtm		;number of timeouts
+map	nj.dfl		;number of failed packages
+map	nj.bbs		;
+;
+;	nj.sta
+;
+map	njabt$,,100000	;abort i/o in progess
+map	njkil$,,200	;kill i/o in progress
+;
+.ENDM
+;-----------------------; 
+; NAME PATH		;
+;-----------------------;	
+;
+; Logical name path
+;
+.MACRO	$NPDEF
+;
+map	npeor.,,0	;end of record
+map	npeot.,,-1	;end of table
+map	npqct.,,4	;equivalence names in path entry
+map	npect.,,4	;entries in path record
+;
+; Name path entry
+;
+map	np.log	word,0	;logical name
+map	np.equ	word*npqct. ;equivalence names
+map	np.eor		;eor = 0
+map	np.ebs		;entry byte size
+;
+; Name path table
+;
+map	np.ent	np.ebs*npect.,0 ;entries
+map	np.eot		;eot = -1
+map	np.tbs		;table byte size
+;
+.ENDM
+;-----------------------;
+; NQ: DEFINITIONS	;
+;-----------------------;
+;
+;	NQ: DEQNA etherner handler definitions
+;
+.MACRO	$NQDEF
+;
+;	NQ: special functions
+;
+map	nqpor$,,200	;allocate/deallocate portal/unit
+map	nqprm$,,201	;enable/disable promiscuous mode
+map	nqprt$,,202	;enable/disable protocol type
+map	nqmul$,,203	;enable/disable multicast address
+map	nqxmt$,,204	;transmit frame
+map	nqrcv$,,205	;receive frame
+;
+;	Special function modifiers (block number parameter)
+;
+map	nqalc$,,1	;allocate portal
+map	nqdlc$,,0	;deallocate portal
+;
+map	nqenb$,,1	;enable protocol/promiscuous/multicast
+map	nqdsb$,,0	;disable protocol/promiscuous/multicast
+;
+;	NQ: parameters
+;
+map	nqmin.,,64.	;minimum byte count
+map	nqmax.,,1518.	;maximum byte count
+;
+;	NQ: receive/transmit packet preface
+;
+map	nq.sta	byte,0	;status
+map	nq.rea	byte	;reason
+map	nq.val	null	;value for 200/202/203
+map	nq.rbc		;receive byte count for 205
+map	nq.pbs	null	;preface byte size
+map	nq.dst	null	;destination address
+map	nq.da0		;
+map	nq.da1		;
+map	nq.da2		;
+map	nq.src	null	;source address
+map	nq.sa0		;
+map	nq.sa1		;
+map	nq.sa2		;
+map	nq.prt		;protocol
+map	nq.hbs	null	;header byte size
+;
+map	nq.pws,,nq.pbs/2;preface word size
+map	nq.hws,,nq.hbs/2;header word size
+;
+;	Error codes
+;
+map	nqsuc.,,0	;success
+map	nqunk.,,1	;unknown unit - unit not owned by job
+map	nqchn.,,2	;controller error initializing interface
+map	nqres.,,3	;no resources - protocol/address table full
+map	nqtru.,,4	;receive was truncated
+map	nqnon.,,5
+map	nqexc.,,6	;excluded operation (promiscuous/protocol)
+map	nqimp.,,7
+map	nqpro.,,10	;protocol in use on another unit
+map	nqact.,,11	;protocol active in transmit list
+map	nqinc.,,12
+map	nqxmt.,,13	;transmit failed
+map	nqrln.,,14
+map	nqinv.,,15
+map	nqabo.,,16	;operation aborted
+;
+;	nqxmt. reasons
+;
+map	nqxfl.,,1	;invalid frame length (too small, too large)
+map	nqxec.,,2	;excessive collisions
+map	nqxcc.,,3	;carrier check failed
+map	nqxsc.,,4
+map	nqxoc.,,5
+map	nqxrf.,,6
+;
+;	nqabo. reasons
+;
+map	nqrfl.,,1
+map	nqrbc.,,2
+map	nqrfe.,,3
+;
+.ENDM
+;-----------------------;
+; SHAREnet PARAMETERS	;
+;-----------------------;
+;
+; Network configuration file
+; Network control data
+;
+.MACRO	$NTDEF
+;
+map	nt.pfn	word*4,0;network parameter filename
+map	nt.hfn	word*4	;connection handler name
+map	nt.nod	word*4	;node name
+map	nt.nid	word*2	;node id
+map	nt.csr		;device csr address
+map	nt.vec		;device vector address
+map	nt.rty		;retry count
+map	nt.tmo		;timeout in seconds
+map	nt.sta		;status flags
+;			;
+map	nt.dpk		;number of packets
+map	nt.dsd		;number of sends
+map	nt.drc		;number of receives
+map	nt.dby	word*2	;number of words moved
+map	nt.dck		;number of checksum errors
+map	nt.drp		;number of repeats
+map	nt.dtm		;number of timeouts
+map	nt.dfl		;number of failed packages
+map	nt.bbs		;
+;
+;	nt.sta
+;
+map	ntabt$,,100000	;abort i/o in progess
+map	ntkil$,,200	;kill i/o in progress
+;
+;	SHAREnet defaults
+;
+map	ntdbs.,,1024.	;default buffer byte size
+map	ntcas.,,128.	;number of cabs
+map	ntdto.,,5.	;default timeout = five seconds
+map	ntdrt.,,8.	;default retry count
+map	ntdcs.,,175610	;default WB/WD CSR
+map	ntdvc.,,300	;default WB/WD vector
+;
+.ENDM
+

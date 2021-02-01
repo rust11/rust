@@ -1,0 +1,161 @@
+;.title	lxs - Expert compatible macros
+;
+;	%build
+;	run sy:strip smb:lxs.mla=sms:lxs.mac
+;	%end
+;	%date
+;	<31-Jan-2006 17:43:48.40>
+;	%edit
+;	<27   >
+;	%end
+;	EXPERT compatible calls
+;
+.MACRO	$PEEK	AREA,ADDR
+.iif nb <area>,mov area,r0
+.iif nb <addr>,mov addr,2.(r0)
+	.globl	j$peek
+	call	j$peek
+.ENDM
+;
+.MACRO	$POKE	AREA,ADDR,VALUE
+.iif nb <area>,mov area,r0
+.iif nb <addr>,mov addr,2.(r0)
+.iif nb <value>,mov value,4.(r0)
+	.globl	j$poke
+	call	j$poke
+.ENDM
+;
+.MACRO	$PEEKB	AREA,ADDR
+.iif nb <area>,mov area,r0
+.iif nb <addr>,mov addr,2.(r0)
+	.globl	j$peeb
+	call	j$peeb
+.ENDM
+;
+.MACRO	$POKEB	AREA,ADDR,VALUE
+.iif nb <area>,mov area,r0
+.iif nb <addr>,mov addr,2.(r0)
+.iif nb <value>,movb value,4.(r0)
+	.globl	j$pokb
+	call	j$pokb
+.ENDM
+;
+.MACRO	$PROBE	AREA,ADDR
+.iif nb <area>,mov area,r0
+.iif nb <addr>,mov addr,2(r0)
+	.globl	j$probe
+	call	j$probe
+.ENDM
+;
+.MACRO	$WORLD	AREA,ADDR
+.iif nb <area>,mov area,r0
+.iif nb <addr>,mov addr,2.(r0)
+	.globl	j$world
+	call	j$world
+wo.mot	=	0.
+wo.san	=	2.
+wo.sas	=	4.
+wo.jon	=	6.
+wo.jos	=	8.
+wo.uic	=	10.
+wo.use	=	12.
+wo.bs	=	32.
+.ENDM
+.MACRO	$DCLEX	AREA,ADDR
+.iif nb <area>,mov area,r0
+.iif nb <addr>,mov addr,2.(r0)
+	.globl	j$dcle
+	call	j$dcle
+.ENDM
+.MACRO	$CANEX	AREA,ADDR
+.iif nb <area>,mov area,r0
+.iif nb <addr>,mov addr,2.(r0)
+	.globl	j$cane
+	call	j$cane
+.ENDM
+;-----------------------;
+; $USER			;
+;-----------------------;
+.MACRO	$USER	AREA, CHAN, BUFF, NAME, STRING	
+.iif nb <AREA>, mov area,r0
+.iif nb <chan>, mov chan,(r0)
+.iif nb <buff>, mov buff,2(r0)
+.iif nb <name>, mov name,4(r0)
+.iif nb <string>, mov string,6(r0)
+	.globl	$user
+	call	$user
+.ENDM
+;;-----------------------;
+; RECORD-eleven		;
+;-----------------------;
+;
+.MACRO	$RECORD
+.mcall	$init	$file	$list	$lock	$check	$free	$quit
+.macro	meta m n o p
+.macro	m
+n
+o
+p
+.endm
+.endm
+meta	<psh c><mov c,-(sp)>
+meta	<pop c><mov (sp)+,c>
+meta	<set c d e f g h i j k l><c=d><.iif nb <e>,set e f g h i j k l>
+set	re$func 0, re$chn 1, re$sblk 2., re$bcnt 4., re$name 6.
+set	re$user 14., re$node 15., re$job 16., re$csw 18.
+set	re$words 10., re$bytes 20.
+set	re$free 0, re$lock 1, re$item 200
+set	re$succ 0, re$soft 1, re$hard 2., re$chan 3., re$hand 4.
+.ENDM
+;
+.MACRO	$INIT	chan
+.iif nb <chan>,	mov	chan,r0
+	.globl	re.init
+	call	re.init
+.ENDM
+;
+.MACRO	$QUIT
+	.globl	re.quit
+	call	re.quit
+.ENDM
+;
+.MACRO	$FILE	FCB,CHAN,DBLK
+.iif nb <fcb>,	mov	fcb,r0
+.iif nb <chan>,	mov	chan,2.(r0)
+.iif nb <dblk>,	mov	dblk,4.(r0)
+	.globl	re.file
+	call	re.file
+.ENDM
+;
+.MACRO	$LIST	FCB,CHAN,DBLK
+.iif nb <fcb>,	mov	fcb,r0
+.iif nb <chan>,	mov	chan,2.(r0)
+.iif nb <dblk>,	mov	dblk,4.(r0)
+	.globl	re.list
+	call	re.list
+.ENDM
+;
+.MACRO	$LOCK	FCB,SBLK,BCNT
+.iif nb <fcb>,	mov	fcb,r0
+.iif nb <sblk>,	mov	sblk,2.(r0)
+.iif nb <bcnt>,	mov	bcnt,4.(r0)
+	.globl	re.lock
+	call	re.lock
+.ENDM
+;
+.MACRO	$CHECK	FCB,SBLK,BCNT
+.iif nb <fcb>,	mov	fcb,r0
+.iif nb <sblk>,	mov	sblk,2.(r0)
+.iif nb <bcnt>,	mov	bcnt,4.(r0)
+	.globl	re.check
+	call	re.check
+.ENDM
+;
+.MACRO	$FREE	FCB,SBLK,BCNT
+.iif nb <fcb>,	mov	fcb,r0
+.iif nb <sblk>,	mov	sblk,2.(r0)
+.iif nb <bcnt>,	mov	bcnt,4.(r0)
+	.globl	re.free
+	call	re.free
+.ENDM
+

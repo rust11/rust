@@ -1,0 +1,772 @@
+;	------------------------------------------------------------------------
+;	ADD	
+;	------------------------------------------------------------------------
+;
+;	ADDBI	Add byte to integer
+;
+;	ADDBI	SRC,DST
+;
+;		SRC	source
+;		DST	destination
+;
+;	Some routines assume that ADDBI leaves the sum in GI.BYT(R5)
+
+.MACRO	ADDBI	SRC,DST
+.if ne smpdp.
+	MOVB	SRC,-(sp)
+	CLRB	1(sp)
+	ADD	(sp)+,DST
+.iff
+	MOVZBL	SRC,-(sp)
+	ADD	(sp)+,DST
+.endc
+.ENDM
+
+.MACRO	ADDWI	SRC,DST
+.if ne smpdp.
+	ADD	SRC,DST
+.iff
+	MOVZWL	SRC,-(sp)
+	ADDL	(sp)+,DST
+.endc
+.ENDM
+
+;	ADDI3	Add integer, three address
+;
+;	ADDI3	SRC,DST,RES
+
+.MACRO	ADDI3	SRC,DST,RES
+.if ne smvax.
+	ADDL3	SRC,DST,RES
+.iff
+	MOV	DST,RES
+	ADD	SRC,RES
+.endc
+.ENDM
+
+.MACRO	ADDI	SRC,DST,RES
+.if ne smvax.				;vax
+	.if 	nb <RES>		;
+		ADDL3	SRC,DST,RES	;three address
+	.iff				;
+		ADDL	SRC,DST		;two address
+	.endc				;
+	.mexit				;
+.endc					;
+.if	nb <RES>			;three address
+	MOV	DST,RES			;move it first
+	ADD	SRC,RES			;
+	.mexit				;
+.endc					;	
+	ADD	SRC,DST			;
+.ENDM
+;	------------------------------------------------------------------------
+;	BIC, BIS	
+;	------------------------------------------------------------------------
+;
+;	BICI3	Bit clear integer, three address
+;
+;	BICI3	SRC,DST,RES
+
+.MACRO	BICI3	SRC,DST,RES
+.if ne smvax.
+	BICL3	SRC,DST,RES
+.iff
+	MOV	DST,RES
+	BIC	SRC,RES
+.endc
+.ENDM
+
+.MACRO	BISI3	SRC,DST,RES
+.if ne smvax.
+	BISL3	SRC,DST,RES
+.iff
+	MOV	DST,RES
+	BIS	SRC,RES
+.endc
+.ENDM
+
+.MACRO	BICI	SRC,DST,RES
+.if ne smvax.				;vax
+	.if 	nb <RES>		;
+		BICL3	SRC,DST,RES	;three address
+	.iff				;
+		BICL	SRC,DST		;two address
+	.endc				;
+	.mexit				;
+.endc					;
+.if	nb <RES>			;three address
+	MOV	DST,RES			;move it first
+	BIC	SRC,RES			;
+	.mexit				;
+.endc					;	
+	BIC	SRC,DST			;
+.ENDM
+
+.MACRO	BISI	SRC,DST,RES
+.if ne smvax.				;vax
+	.if 	nb <RES>		;
+		BISL3	SRC,DST,RES	;three address
+	.iff				;
+		BISL	SRC,DST		;two address
+	.endc				;
+	.mexit				;
+.endc					;
+.if	nb <RES>			;three address
+	MOV	DST,RES			;move it first
+	BIS	SRC,RES			;
+	.mexit				;
+.endc					;	
+	BIS	SRC,DST			;
+.ENDM
+
+.MACRO	BITI	SRC,DST,RES
+.if ne smvax.				;vax
+	BITL	SRC,DST			;two address
+.iff
+	BIT	SRC,DST			;
+.endc
+.ENDM
+;	------------------------------------------------------------------------
+;	BRI	Branch integer
+;	------------------------------------------------------------------------
+;
+;	BRI	DST
+;
+;	Some branch instructions are assumed to be an integer wide.
+
+.MACRO	BRI	DST
+.if ne smpdp.
+	BR	DST		;2
+.iff
+	BRW	DST		;1+2
+	NOP			;+1
+.endc
+.ENDM
+;	------------------------------------------------------------------------
+;	CVT	
+;	------------------------------------------------------------------------
+;
+;	CVTBI	Convert byte to integer
+;	CVTWI	Convert word to integer
+;
+;	MOVB	SRC,Rn is a convert-to-integer operation on the PDP-11.
+;
+;	Most MOVB to register operations do not care about the high byte.
+;	This instruction makes that caring explicit.
+;	It works only with register mode destinations on the PDP-11.
+
+.MACRO	CVTBI	SRC,DST
+.if ne smpdp.
+	MOVB	SRC,DST
+.iff
+	CVTBL	SRC,DST
+.endc
+.ENDM
+
+.MACRO	CVTWI	SRC,DST
+.if ne smpdp.
+	MOV	SRC,DST
+.iff
+	CVTWL	SRC,DST
+.endc
+.ENDM
+;	------------------------------------------------------------------------
+;	MOV
+;	------------------------------------------------------------------------
+;
+;	MOVA	Move address
+;
+;
+;	MOVA	ADR,DST
+;
+;		ADR	Must be general mode address
+;		DST	Anything
+
+.MACRO	MOVA	ADR,DST
+.if ne smpdp.
+	MOV	#ADR,DST
+.iff
+	MOVAL	ADR,DST
+.endc
+.ENDM
+
+;	MOVBI	Move zero extended byte to integer
+;	MOVWI	Move zero extended word to integer
+;
+;	Remove or change R7 test
+;	Keep duplicate register test for PDP-11 compatibility
+
+.MACRO	MOVBI	BYT,INT
+.if ne smvax.
+	MOVZBL	BYT,INT
+.iff
+	.ntype	m$abyt,BYT
+	.ntype	m$aint,INT
+	.if	ne <m$abyt&7>-<m$aint&^o77>
+		CLR	INT
+		BISB	BYT,INT
+	.iff
+		.if	dif BYT,INT
+			MOV	BYT,INT
+		.endc
+		BIC	#$77400,INT
+	.endc
+.endc
+.ENDM
+
+.MACRO	MOVWI	WRD,INT
+pdp$	MOV	WRD,INT
+vax$	MOVZWL	WRD,INT
+.ENDM
+;	------------------------------------------------------------------------
+;	MUL
+;	------------------------------------------------------------------------
+;
+;	MULI	Muliply integer
+;	MULI3	Multiply integer, 3 address
+;
+;	MULI	SRC,DST
+;	MULI	X1,X2,DST
+;
+;	Avoid problems with even registers
+;	Result condition codes not available
+;	DST must be register
+
+.MACRO	MULI3	SRC,DST,RES
+.if ne smvax.
+	MULL3	SRC,DST,RES
+.iff
+	MOV	DST,RES
+	MULI	SRC,RES
+.endc
+.ENDM
+
+.MACRO	MULI	SRC,DST,RES
+.if ne smvax.				;vax
+	.if 	nb <RES>		;
+		MULL3	SRC,DST,RES	;three address
+	.iff				;
+		MULL	SRC,DST		;two address
+	.endc				;
+.iff					;
+	.if	nb <RES>		;three address
+		MOV	DST,RES		;move it first
+		MULI	SRC,RES		;multiply those
+		.mexit			;
+	.endc				;	
+					;
+	.ntype	ma$dst,DST		;get PDP-11 mode
+	.if ne ma$dst&1			;odd register
+		MUL	SRC,DST		;is easy
+	.iff				;even register
+		PUSH	DST+1		;push the odd one
+		MUL	SRC,DST		;multiply it
+		MOV	DST+1,DST	;move the result
+		POP	DST+1		;restore odd register
+	.endc
+.endc
+.ENDM
+;	------------------------------------------------------------------------
+;	PUSH, POP
+;	------------------------------------------------------------------------
+;
+;	PUSHA	Move address
+;
+;
+;	PUSHA	ADR
+;
+;		ADR	Must be general mode address
+
+.MACRO	PUSHA	ADR
+.if ne smpdp.
+	PUSH	#ADR
+.iff
+	PUSHAL	ADR
+.endc
+.ENDM
+;	------------------------------------------------------------------------
+;	SUB
+;	------------------------------------------------------------------------
+;
+;	SUBBI	Subtract byte from integer
+;
+;	SUBBI	SRC,DST
+
+.MACRO	SUBBI	SRC,DST
+.if ne smpdp.
+	MOVBI	<SRC>,-(SP)		;get the first on the stack
+	SUB	(sp)+,DST		;subract it
+.iff
+	MOVZBL	SRC,-(sp)
+	SUBL	(sp)+,DST
+.endc
+.ENDM
+
+.MACRO	SUBWI	SRC,DST
+.if ne smpdp.
+	SUB	SRC,DST
+.iff
+	MOVZWL	SRC,-(sp)
+	SUBL	(sp)+,DST
+.endc
+.ENDM
+
+;	SUBI3	Subtract integer, three address
+;
+;	SUBI3	SRC,DST,RES
+
+.MACRO	SUBI3	SRC,DST,RES
+.if ne smvax.
+	SUBL3	SRC,DST,RES
+.iff
+	MOV	DST,RES
+	SUB	SRC,RES
+.endc
+.ENDM
+
+.MACRO	SUBI	SRC,DST,RES
+.if ne smvax.				;vax
+	.if 	nb <RES>		;
+		SUBL3	SRC,DST,RES	;three address
+	.iff				;
+		SUBL	SRC,DST		;two address
+	.endc				;
+	.mexit				;
+.endc					;
+.if	nb <RES>			;three address
+	MOV	DST,RES			;move it first
+	SUB	SRC,RES			;
+	.mexit				;
+.endc					;	
+	SUB	SRC,DST			;
+.ENDM
+;	------------------------------------------------------------------------
+;	MULI$	Static integer multiply
+;	------------------------------------------------------------------------
+;
+;	Some machines lack MUL/DIV hardware
+;	An emulator is expected - but, some common cases are optimised
+
+.MACRO	MULI$	CON,SRC,DST
+.if ne smvax.
+	.if nb <DST>
+	MULL3	#CON,SRC,DST
+	.iff
+	MULL	#CON,SRC
+	.endc
+	.mexit
+.endc
+.if nb <DST>
+	MOV	SRC,DST
+	MULI$	<CON>,<DST>
+	.mexit
+.endc
+.if eq CON-8
+	ASL	SRC
+	ASL	SRC
+	ASL	SRC
+	.mexit
+.endc
+.if eq CON-10
+	ASL	SRC
+	PUSH	SRC
+	ASL	SRC
+	ASL	SRC
+	ADD	(SP)+,SRC
+	.mexit
+.endc
+
+;	Else use hardware or emulator
+
+	MULI	#CON,SRC
+.ENDM
+;	------------------------------------------------------------------------
+;	Long PDP instructions
+;	------------------------------------------------------------------------
+;
+;	CLRL	DST
+;	MOVL	SRC,DST
+;
+;		SRC
+;		DST	(Rn)		Destination not popped
+;			(Rn)+		Destination popped
+;			-(Rn)		Destination pushed
+;			xxx(Rn)		Index mode - not popped
+
+.MACRO	CLRL	DST
+	.ntype ma$dst,DST
+	ma$dmd=ma$dst/8.		;get destination mode
+	ma$drg=ma$dst&7
+	.if eq ma$dmd-1			;(Rn)
+		CLR	DST		
+		CLR	word.(DST)
+		.mexit
+	.endc
+	.if eq ma$dmd-2			;(Rn)+
+		CLR	DST		;clr (dst)+
+		CLR	DST
+		.mexit
+	.endc
+	.if eq ma$dmd-4			;-(Rn)
+		CLR	DST		;clr -(dst)
+		CLR	DST
+		.mexit
+	.endc
+	.if eq ma$dmd-6			;xxx(Rn)
+		CLR	DST
+		CLR	word.+DST	;2+xxx(Rn)
+		.mexit
+	.endc
+	smerr$	<Invalid mode for CLRW "DST">
+.ENDM
+
+;	MOVL	Move long
+
+.MACRO	MOVL	SRC,DST
+	.ntype ma$src,SRC
+	ma$smd=ma$src/8.		;get source
+	ma$srg=ma$src&7
+	.ntype ma$dst,DST
+	ma$dmd=ma$dst/8.		;get source
+	ma$drg=ma$dst&7
+	ASSUME	ma$smd EQ ma$dmd	;must be same mode
+	.if eq ma$smd-1			;(Rn)
+		MOV	SRC,DST		;(src)+,(dst)+
+		MOV	word.'SRC,word.'DST 	;(src),(dst)
+		.mexit
+	.endc
+	.if eq ma$smd-2			;(Rn)+
+		MOV	SRC,DST		;(src)+,(dst)+
+		MOV	SRC,DST		;(src)+,(dst)+
+		.mexit
+	.endc
+	.if eq ma$smd-4			;-(Rn)
+		MOV	SRC,DST		;-(src),-(dst)
+		MOV	SRC,DST		;-(src),-(dst)
+		.mexit
+	.endc
+	.if eq ma$mod-6			;xxx(Rn)
+		MOV	SRC,DST
+		MOV	word.+SRC,word.+DST	;2+xxx(Rn)
+		.mexit
+	.endc
+	smerr$	<Invalid mode for MOVL "SRC DST"
+.ENDM
+;	------------------------------------------------------------------------
+;	Quad word instructions
+;	------------------------------------------------------------------------
+;
+;	CLRQ	DST
+;	MOVQ	SRC,DST
+;
+;		SRC
+;		DST	(Rn)		Destination not popped
+;			(Rn)+		Destination popped
+;			xxx(Rn)		Index mode - not popped
+
+.MACRO	CLRQ	DST
+.if ne smqua.				;quadword FPU available
+	CLRD	DST
+	.mexit
+.endc
+	.ntype ma$dst,DST
+	ma$dmd=ma$dst/8.		;get destination mode
+	ma$drg=ma$dst&7
+
+	.if eq ma$dmd-1			;(Rn)
+	  .rept 4
+		CLR	DST+		;clr (dst)+
+	  .endr
+	  .irp	ma$reg,<\ma$drg>
+		SUB	#8.,r'ma$reg
+	  .endr
+	  .mexit
+	.endc
+	.if eq ma$dmd-2			;(Rn)+
+	  .rept 4
+		CLR	DST		;clr (dst)+
+	  .endr
+	  .mexit
+	.endc
+	.if eq ma$dmd-4			;-(Rn)
+	  .rept 4
+		CLR	DST		;clr -(dst)
+	  .endr
+	  .mexit
+	.endc
+	.if eq ma$dmd-6			;xxx(Rn)
+		CLR	DST
+		CLR	word.+DST	;2+xxx(Rn)
+		CLR	word.*2+DST
+		CLR	word.*3+DST
+		.mexit
+	.endc
+	smerr$	<Invalid mode for CLRQ "DST">
+.ENDM
+
+;	MOVQ	Move value block
+
+.MACRO	MOVQ	SRC,DST
+.if ne smqua.				;quadword FPU available
+	LDD	SRC,R0			;load accumulator
+	STD	R0,DST			;store accumulator
+	.mexit
+.endc
+	.ntype ma$src,SRC
+	ma$smd=ma$src/8.		;get source
+	ma$srg=ma$src&7
+	.ntype ma$dst,DST
+	ma$dmd=ma$dst/8.		;get source
+	ma$drg=ma$dst&7
+	ASSUME	ma$smd EQ ma$dmd	;must be same mode
+	.if eq ma$smd-1			;(Rn)
+	  .rept smwdi.
+		MOV	SRC+,DST+	;(src)+,(dst)+
+	  .endr
+	  .irp	ma$reg,<\ma$srg>
+		SUB	#8.,r'ma$reg
+	  .endr
+	  .irp	ma$reg,<\ma$drg>
+		SUB	#8.,r'ma$reg
+	  .endr
+	  .mexit
+	.endc
+	.if eq ma$smd-2			;(Rn)+
+	  .rept smwdi.
+		MOV	SRC,DST		;(src)+,(dst)+
+	  .endr
+	  .mexit
+	.endc
+	.if eq ma$smd-4			;-(Rn)
+	  .rept smwdi.
+		MOV	SRC,DST		;(src)+,(dst)+
+	  .endr
+	  .mexit
+	.endc
+	.if eq ma$mod-6			;xxx(Rn)
+		MOV	SRC,DST
+		MOV	word.+SRC,word.+DST	;2+xxx(Rn)
+		MOV	word.*2+SRC,word.*2+DST
+		MOV	word.*3+SRC,word.*3+DST
+		.mexit
+	.endc
+	smerr$	<Invalid mode for MOVQ "SRC DST">
+.ENDM
+;	------------------------------------------------------------------------
+;	Bit manipulation
+;	------------------------------------------------------------------------
+;
+;	Bit manipulation instructions are very incompatible between machines.
+;	PDP and VAX have the same ASH instruction - but some PDP's miss it.
+;
+;	PDP and 68x have similiar shift and rotate instructions. But VAX
+;	has little in terms of rotate and 86x's are very wierd.
+;
+;	VAX, 68xxx and 86xxx have scaling modes. PDP's have none.
+;	VAX has bit fields, others have none.
+;
+;	All have BIT and BIS. 86x uses AND instead of BIC.
+;
+;	Bit instructions occur rarely but are performance critical.
+;	The solution is to use special purpose psuedos to handle common cases.
+;
+;	Most pseudos expect to use register or register indirect mode.
+;	Most do not expect to use auto-increment or auto-decrement.
+;	All of them expect to use integers.
+;
+;	The basic PDP-11 instructions affected are:
+;
+;	ASL & ASR	Multiply and divide by 2
+;	ASLs & ASRs	ASH instructions
+;	ROL & ROR	Converted by hand
+;	SWAB		Converted by hand
+;	ASH		PDP ASH, VAX ASHL - three address
+;	------------------------------------------------------------------------
+;	ASL$	CNT,DST
+;	ASLA$	DST
+;	------------------------------------------------------------------------
+;
+;	CNT	Shift count - must be constant
+;		1 for PDP ASLA$, 2 for VAX ASLA$
+;	DST	Destination
+;
+;	Arithmetic shift left N bits
+;	Autoincrement/decrement not permitted
+;	On VAX an ASHL is used.
+
+.MACRO	ASL$	CNT,DST
+.if ne smpdp.
+	.rept	CNT
+	asl	DST
+	.endr
+.endc
+vax$	<ashl	#CNT,DST,DST>
+.ENDM
+
+.MACRO	ASLA$	DST
+pdp$	asl	DST
+vax$	mull	#addr.,DST
+.ENDM
+
+;	ASR$	CNT,DST
+;
+;	CNT	Shift count - must be constant
+;	DST	Destination
+;
+;	Arithmetic shift right N bits
+;	Autoincrement/decrement not permitted
+;	On VAX an ASHL is used.
+
+.MACRO	ASR$	CNT,DST
+.if ne smpdp.
+	.rept	CNT
+	asr	DST
+	.endr
+.endc
+vax$	<ashl	#-<CNT>,DST,DST>
+.ENDM
+;	------------------------------------------------------------------------
+;	ASHI	Arithmetic shift integer, dynamic count
+;	ASHI$	Arithmetic shift integer, static count
+;	------------------------------------------------------------------------
+
+.MACRO	ASHI	CNT,SRC,DST
+.if ne smvax$
+  .if nb <DST>
+	ASHL	CNT,SRC,DST
+  .iff
+	ASHL	CNT,SRC,SRC
+  .endc
+.iff
+  .if nb <DST>
+	MOV	SRC,DST
+	ASH	CNT,DST
+  .iff
+	ASH	CNT,SRC
+  .endc
+.endc
+.ENDM
+
+;	Constant form
+
+.MACRO	ASHI$	CNT,SRC,DST
+	ASHI	#CNT,SRC,DST
+.ENDM
+;	------------------------------------------------------------------------
+;	PDP-11 vs VAX anomolies
+;	------------------------------------------------------------------------
+;
+;	PDP-11 MOVB rules:
+;
+;	movb	x,r0		=>	movb	x,r0
+;					sxtb	r0,r0+1
+;
+;	PDP-11 SP and PC inc/dec rules.
+;
+;	tstb	(sp)+		=>	tstb	(sp)+
+;					inc	sp
+;	------------------------------------------------------------------------
+;	PUSH, PUSHB, POP, POPB
+;	------------------------------------------------------------------------
+;
+;	PUSH	Push integer on stack
+;
+;	PUSH	SRC
+;
+;	Optimised to use CLR if SRC = #0
+
+.MACRO	PUSH	SRC
+.if ne smmod.
+ .if idn #0,SRC
+	clr	-(sp)
+ .iff
+  pdp$	mov	src,-(sp)
+  vax$	pushl	src
+ .endc
+.iff
+	mov	src,-(sp)
+.endc
+.ENDM
+
+;	POP	Pop integer from stack
+;
+;	POP	DST
+
+.MACRO	POP	DST
+	MOV	(sp)+,DST
+.ENDM
+
+;	PUSHB & POPB
+;
+;	PUSHB	SRC
+;	POPB	DST
+;
+;	On the PDP-11 all SP/PC autoinc/dec operations are always words.
+;	PUSHB and POPB emulate that behaviour on the VAX.
+;	POPB uses CVTLB which could create integer overflows - but these
+;	are not enabled.
+;
+;	Note these macros are not required for commutative PUSH/POP operations.
+;	The example below works as written - and will fail with PUSHB.
+;
+;		movb	r1,-(sp)
+;		...
+;		cmpb	(sp)+,r1
+;
+
+.MACRO	PUSHBI	SRC
+pdp$	MOVB	SRC,-(sp)
+vax$	MOVZBL	SRC,-(sp)
+.ENDM
+
+.MACRO	POPIB	DST
+pdp$	MOVB	(sp)+,DST
+vax$	CVTLB	(sp)+,DST
+.ENDM
+;	------------------------------------------------------------------------
+;	.BLKI, .INT, .HALF	
+;	------------------------------------------------------------------------
+
+.MACRO	.BLKI	CNT
+pdp$	.blkw	CNT
+vax$	.blkl	CNT
+.ENDM
+
+.MACRO	.INT	C,D,E,F,G,H,I,J K
+.if nb <C>
+	.irp ma$val,<C D E F G H I J K>
+	 .if nb <ma$val> 
+pdp$		.word	ma$val
+vax$		.long	ma$val
+	 .endc
+	.endr
+.iff
+pdp$	.word	0
+vax$	.long	0
+.endc
+.ENDM
+
+;	.HALF	C,D,E,F,H,I,J,K
+;
+;		C,D,..		Values
+;
+;	usage	In-line bytes are stored as words on PDP's, as bytes on VAX.
+;
+;	sample	.half	12,23,1
+;		.half	<1,2,3,4,5,6>
+
+.MACRO	.HALF	C D E F H I J K
+.if nb <C>
+.irp	ma$val,<C D E F H I J K>
+	.if nb <ma$val>
+pdp$	.word	ma$val
+vax$	.byte	ma$val
+	.endc
+.endr
+.iff
+pdp$	.word	0
+vax$	.byte	0
+.endc
+.ENDM
+

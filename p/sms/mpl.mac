@@ -1,0 +1,1128 @@
+;	MPL.MLB
+;
+;	Source recovered from MPL.MLB in 2004
+;	Used by stuff from around SHAREeleven time.
+;
+.MACRO	$DEFMA
+meta	<p$get c d><.iif b <d>,.mexit><.iif dif <c><d>,mov d,c>
+meta	<p$geti c d e><.iif b <d>,.mexit><p$get c d><.iif nb <e>,add e,c>
+meta	<p$map c d=1 e=2><c=$><$=$+<d*e>>
+.ENDM
+.MACRO	$DEFKE
+.mcall	$defma	$defbu	$defpr	$defvo
+$defma
+$defbu
+$defpr
+$defvo
+.ENDM
+.MACRO	$DEFBU
+.mcall	$crebu	$delbu	$clebu	$copbu
+$=0
+p$map	bu.lnk		
+p$map	bu.bbs		
+p$map	bu.job		
+p$map	bu.nam		
+p$map	bu.bs		
+.ENDM
+.MACRO	$CREBU	name, bytes
+	p$get	r0,bytes
+	p$get	r1,name
+	call	pr$crb
+.ENDM
+.MACRO	$DELBU	buff
+	p$geti	r0,buff
+	call	pr$deb
+.ENDM
+.MACRO	$CLEBU	buff, bytes
+	p$geti	r0,buff
+	p$geti	r1,bytes
+	call	pr$clb
+.ENDM
+.MACRO	$COPBU	from, to, bytes
+	p$geti	r0,from
+	p$geti	r1,to
+	p$get	r2,bytes
+	call	pr$cob
+.ENDM
+.MACRO	$DEFPR
+.mcall	$crepr	$delpr	$runpr	$suspr
+	px.pib = -1	
+$=0
+p$map	pr.next		
+p$map	pr.fbl		
+p$map	pr.fad		
+p$map	pr.fr5		
+p$map	pr.fr4		
+p$map	pr.act		
+p$map	pr.exc		
+p$map	pr.ksp		
+p$map	pr.psp		
+p$map	pr.osp		
+p$map	pr.stk	cr.pss	
+p$map	pr.bs		
+.ENDM
+.MACRO	$CREPR	pab,start
+	p$geti	r4,pab
+	p$geti	r0,start
+	call	pr$crp
+.ENDM
+.MACRO	$DELPR	pab
+	p$geti	r4,pab
+	call	pr$dep
+.ENDM
+.MACRO	$SUSPR	pab
+	call	pr$sus
+.ENDM
+.MACRO	$RUNPR	pab
+	call	pr$run
+.ENDM
+.MACRO	$STAPR
+	call	pr$sop
+.ENDM
+.MACRO	$DEFVO
+.mcall	$crevo	$open	$locvo	$frevo
+.mcall	$read	$write
+.mcall	$find	$lookup	$delete
+.mcall	$defch
+$defch
+	vx.ivd	= -1	
+	vv.wil	= 35	
+$=0
+p$map	f.dev
+p$map	f.fil
+p$map	f.nam
+p$map	f.typ
+$=0
+p$map	vo.link		
+p$map	vo.csa		
+p$map	vo.blkn		
+p$map	vo.func	1 1	
+p$map	vo.unit	1 1	
+p$map	vo.buff		
+p$map	vo.wcnt		
+p$map	vo.comp		
+p$map	vo.par		
+p$map	vo.pa2		
+p$map	vo.pa3		
+p$map	vo.csw		
+p$map	vo.sblk		
+p$map	vo.leng		
+p$map	vo.used		
+p$map	vo.devq	1 1	
+p$map	vo.dunit 1 1	
+p$map	vo.rbuf		
+p$map	vo.rwc		
+p$map	vo.rblk		
+p$map	vo.rsta		
+p$map	vo.pab		
+p$map	vo.vid		
+p$map	vo.fna		
+p$map	vo.seg		
+p$map	vo.cblk		
+p$map	vo.nblk		
+p$map	vo.ent		
+p$map	vo.vqu	4	
+p$map	vo.bs		
+.ENDM
+.MACRO	$CREVO	vab, name, buff
+	p$geti	r5,vab
+	call	pr$crv
+	p$geti	vo.fna(r5),name
+	p$geti	vo.rbuf(r5),buff
+.iif nb <name>,call pr$mav
+.ENDM
+.MACRO	$LOCVO	vab
+	p$geti	r5,vab
+	call	pr$lvo
+.ENDM
+.MACRO	$FREVO	vab
+	p$geti	r5,vab
+	call	pr$fvo
+.ENDM
+.MACRO	$OPEN	vab, name, buff, sblk, leng, nomap
+	p$geti	r5,vab
+	p$geti	vo.fna(r5),name
+	p$geti	vo.rbuf(r5),buff
+	p$get	vo.sblk(r5),sblk
+	p$get	vo.leng(r5),leng
+.iif b <nomap>,call pr$mav
+.ENDM
+.MACRO	$READ	vab, buff, words, block, error
+	p$geti	r5,vab
+	p$geti	vo.rbuf(r5),buff
+	p$get	vo.rwc(r5),words
+	p$get	vo.rblk(r5),block
+	call	pr$rev
+.iif nb <error>,bcs error
+.ENDM
+.MACRO	$WRITE	vab, buff, words, block, error
+	p$geti	r5,vab
+	p$geti	vo.rbuf(r5),buff
+	p$get	vo.rwc(r5),words
+	p$get	vo.rblk(r5),block
+	call	pr$wrv
+.iif nb <error>,bcs error
+.ENDM
+.MACRO	$LOOKUP	vab,name,miss=.+4,error=.+2
+	p$geti	r5,vab
+	p$geti	vo.fna(r5),name
+	call	pr$lof
+	br	miss
+	br	error
+.ENDM
+.MACRO	$DELETE	vab,name,miss=.+4,error=.+2
+	p$geti	r5,vab
+	p$geti	vo.fna(r5),name
+	call	pr$def
+	br	miss
+	br	error
+.ENDM
+.MACRO	$FIND	vab,name,miss=.+4,error=.+2
+	p$geti	r5,vab
+	p$geti	vo.fna(r5),name
+	call	pr$fif
+	br	miss
+	br	error
+.ENDM
+.MACRO	$DEFCH
+$=0
+p$map	c.csw		
+p$map	c.sblk		
+p$map	c.leng		
+p$map	c.used		
+p$map	c.devq	1 1	
+p$map	c.unit	1 1	
+p$map	c.bs		
+	hderr$	= 1	
+	indx$m	= 76	
+	renam$	= 100	
+	dwrit$	= 200	
+	dblk$m	= 17400	
+	eof$	= 20000	
+	activ$	= 100000
+.ENDM
+.MACRO	$DEFDI
+$=0
+p$map	d.tota
+p$map	d.next
+p$map	d.high
+p$map	d.extr
+p$map	d.strt
+p$map	d.bs
+$=0
+p$map	e.esw
+p$map	e.name	0
+p$map	e.fil
+p$map	e.nam
+p$map	e.typ
+p$map	e.leng
+p$map	e.used	0
+p$map	e.chan	1 1
+p$map	e.jnum	1 1
+p$map	e.date
+p$map	e.bs
+	tent	= 400	
+	empty	= 1000	
+	perm	= 2000	
+	endblk	= 4000	
+	prot	= 100000
+	clos..	= 1	
+	dele..	= 2	
+	look..	= 3	
+	entr..	= 4	
+	renm..	= 5	
+.ENDM
+.MACRO	$DEFFO
+$=0
+p$map	f.blnk
+p$map	f.badr
+p$map	f.br5
+p$map	f.br4
+p$map	f.bsiz
+.ENDM
+.MACRO	$DEFTI
+.mcall	$defma
+$defma
+$=0
+p$map	c.hot
+p$map	c.lot
+p$map	c.link
+p$map	c.jnum
+p$map	c.seq
+p$map	c.sys
+p$map	c.comp
+.ENDM
+.MACRO	$DEFSP
+$=-14			
+p$map	s.pdev		
+p$map	s.pfil
+p$map	s.pnam
+p$map	s.ptyp
+p$map	s.req		
+p$map	s.sta		
+	ss.sto	=	200
+	ss.sta	=	100
+	ss.new	=	100
+	ss.sus	=	40
+	ss.abo	=	20
+	ss.nex	=	10
+	ss.req	=	4		
+	ss.top	=	2
+	ss.bac	=	1
+	ss.ier = 400	
+	ss.oer = 1000	
+	ss.der = 2000	
+	ss.sus = 40000	
+	ss.act = 100000	
+$=0
+p$map	s.proc	pr.bs 1	
+p$map	s.con		
+p$map	s.vque		
+p$map	s.vlnk		
+p$map	s.fdev		
+p$map	s.ffil		
+p$map	s.fnam		
+p$map	s.ftyp		
+p$map	s.fil		
+p$map	s.seq		
+p$map	s.sblk		
+p$map	s.leng		
+p$map	s.fvab	vo.bs 1	
+p$map	s.pvab	vo.bs 1	
+p$map	s.buff	256.	
+p$map	s.bs		
+.ENDM
+.MACRO	$DEFDV
+.mcall	$defma
+$defma
+$=0			
+p$map	dv.pro 8 4	
+p$map	dv.fil 4	
+p$map	dv.
+p$map	dv.cas		
+p$map	dv.bs		
+$=0			
+p$map	dp.own	1 1	
+p$map	dp.gro	1 1	
+p$map	dp.pro		
+p$map	dp.bs		
+.ENDM
+.MACRO	$DEFUS
+.mcall	$defma
+$defma
+$=0
+p$map	u.ver		
+p$map	u.nam1		
+p$map	u.nam2		
+p$map	u.pas1		
+p$map	u.pas2		
+p$map	u.uic	0	
+p$map	u.mic	1 1	
+p$map	u.gic	1 1	
+p$map	u.sys		
+	u.sman = 1	
+	u.sopr = 2	
+	u.sphy = 4	
+	u.suse = 10	
+	u.sboo = 10	
+	u.slog = 20	
+	u.scli = 40	
+	u.scty = 100	
+	u.stel = 200	
+	u.spro = 400	
+p$map	u.com	16. 1	
+p$map	u.cli	16. 1	
+p$map	u.def	4 1	
+p$map	u.loc		
+p$map	u.bs		
+.ENDM
+.MACRO	$USER	AREA, CHAN, BUFF, NAME, STRING	
+.iif nb <AREA>, mov area,r0
+.iif nb <chan>, mov chan,(r0)
+.iif nb <buff>, mov buff,2(r0)
+.iif nb <name>, mov name,4(r0)
+.iif nb <string>, mov string,6(r0)
+.ENDM
+.MACRO	TABLE$
+.mcall	$defma
+$defma
+meta	<find c,d><mov c,r2><mov d,r3><call ta$fnd>
+meta	<finde c,d><mov c,r2><mov d,r3><call ta$fin>
+meta	<findc c,d><mov c,r2><mov d,r3><call ta$dis>
+meta	<search c><mov c,r3><call ta$sch>
+meta	<next><call ta$nex>
+meta	<insert c,d><mov c,r2><mov d,r3><call ta$ins>
+meta	<point c,d><mov c,r2><mov d,r3><call ta$pnt>
+meta <table c,d,e,f><c,d,e><.iif nb <f>,.blank <<e>*<f>*2>><.iif nb <f>,-1>
+meta	<entry	c,d><.rad50 /c/><d>
+$=0
+p$map	ta.nws	
+p$map	ta.hws
+p$map	ta.ews
+p$map	ta.ent
+.ENDM
+.MACRO	ROUTE$
+$=0
+p$map	ar.na1	4		
+p$map	ar.na2	4		
+p$map	ar.mod			
+p$map	ar.bs
+	ar.nws = 4
+	ar.hws = ar.bs/2
+	ar.ews = ar.hws
+	ar.log = 1		
+	ar.loo = 2		
+	ar.pur = 4		
+.ENDM
+.MACRO	CONSI$
+$=0
+p$map	ac.na1	4		
+p$map	ac.na2	4
+p$map	ac.req			
+p$map	ac.sta			
+p$map	ac.bs
+	ac.nws = 4
+	ac.hws = ac.bs/2
+	ac.ews = ac.hws
+.ENDM
+.MACRO	PRINT$
+$=0
+p$map	ap.nam	4		
+p$map	ap.req			
+p$map	ap.sta			
+p$map	ap.bs
+	ap.nws = 4
+	ap.hws = ap.bs/2
+.ENDM
+.MACRO	IMAGE$
+$=0
+p$map	ai.nam	4		
+p$map	ai.csw	5		
+p$map	ai.bs
+	ai.nws = 4
+	ai.hws = ai.bs/2
+	ai.ews = ai.hws
+.ENDM
+.MACRO	JOBS$
+$=0
+p$map	aj.nam	2		
+p$map	aj.uic			
+p$map	aj.sta			
+p$map	aj.que			
+p$map	aj.fil	4		
+p$map	aj.pro	4		
+p$map	aj.up0			
+p$map	aj.up1			
+p$map	aj.up2			
+p$map	aj.up3			
+p$map	aj.up4			
+p$map	aj.up5			
+p$map	aj.up6			
+p$map	aj.up7			
+p$map	aj.bs
+	aj.nws = 2
+	aj.hws = aj.bs/2
+	aj.ews = aj.hws
+	aj.kmn = 400		
+	aj.smn = 1000		
+	aj.rt  = 2000		
+	js.run	=	0	
+	js.wio	=	1	
+	js.wti	=	2	
+	js.wto	=	3	
+	js.wvo	=	4	
+	js.who	=	5	
+	js.wch	=	6	
+	js.wsi	=	7	
+.ENDM
+.MACRO	$LAYOUT
+.mcall	$defma
+$defma
+meta	<system c><.word iot,^rsys,c>
+meta	<$peek c><mov c,r0><system sy.pee>
+meta	<$poke c,d><mov c,r1><mov d,r0><system sy.pok>
+meta	<$table><system sy.tab>
+$=0
+p$map	mm.mjn	
+p$map	mm.tot	
+p$map	mm.fps	
+p$map	mm.ims	
+p$map	
+p$map	mm.kes	
+p$map	mm.pro	
+p$map	mm.spo	
+p$map	mm.ker	
+p$map	mm.han	
+p$map	mm.imp	
+p$map	mm.dmb	
+p$map	mm.dmt	
+p$map	mm.job	
+p$map	mm.jsm	
+p$map	mm.bs
+.ENDM
+.MACRO	$DEFKI
+.mcall	$defma
+$defma
+.if ndf ki$km
+meta	<k$map c d><c=$><$=$+2>
+.iff
+meta	<k$map c d><.word d>
+k$ilis::
+.endc
+$=0
+k$map	k.par1	kpar1	
+k$map	k.firs	j$first	
+k$map	k.jpar	j.par0	
+k$map	k.next	j.next	
+k$map	k.boot	0	
+k$map	k.creb	pr$crb	
+k$map	k.delb	pr$deb	
+k$map	k.fork	fk$enq	
+k$map	k.inte	in$ent	
+k$map	k.dtim	$timio	
+k$map	k.timi	to$tio	
+k$map	k.derl	$erlog	
+k$map	k.erlo	0	
+k$map	k.putw	$putwrd
+k$map	k.putb	$putbyt
+k$map	k.getb	$getbyt
+k$map	k.mphy	$mpphy
+k$map	k.relo	$reloc
+k$map	k.vbas	v$mbas	
+k$map	k.vsiz	v$msiz	
+.ENDM
+.MACRO	$DZDEF
+.mcall	$defma
+$defma
+$=0
+p$map	dz.csr		
+	dzc.mc = 20	
+	dzc.ms = 40	
+	dzc.re = 100	
+	dzc.rd = 200	
+			
+	dzc.t0 = 400	
+	dzc.t1 = 1000	
+	dzc.t2 = 2000	
+	dzc.se = 10000	
+	dzc.sa = 20000	
+	dzc.te = 40000	
+	dzc.td = 100000	
+			
+p$map	dz.rbu	0	
+	dzr.r0 = 400	
+	dzr.r1 = 1000	
+	dzr.r2 = 2000	
+	dzr.pa = 10000	
+	dzr.fr = 20000	
+	dzr.ov = 40000	
+	dzr.va = 100000	
+			
+p$map	dz.lpr		
+	dzl.l0 = 1	
+	dzl.l1 = 2	
+	dzl.l2 = 4	
+	dzl.la = 10	
+	dzl.lb = 20	
+	dzl.sc = 40	
+	dzl.pe = 100	
+	dzl.pp = 200	
+	dzl.s0 = 400	
+	dzl.s1 = 1000	
+	dzl.s2 = 2000	
+	dzl.s3 = 4000	
+	dzl.re = 10000	
+			
+p$map	dz.tcr		
+	dzt.t0 = 1	
+	dzt.t1 = 2	
+	dzt.t2 = 4	
+	dzt.t3 = 10	
+	dzt.t4 = 20	
+	dzt.t5 = 40	
+	dzt.t6 = 100	
+	dzt.t7 = 200	
+			
+	dzt.d0 = 400	
+	dzt.d1 = 1000	
+	dzt.d2 = 2000	
+	dzt.d3 = 4000	
+	dzt.d4 = 10000	
+	dzt.d5 = 20000	
+	dzt.d6 = 40000	
+	dzt.d7 = 100000	
+			
+p$map	dz.msr	0	
+			
+p$map	dz.tdr		
+			
+.ENDM
+.MACRO	$DZIDB	NAME
+$=.
+dz.rsr==.-$
+	.word	4537		
+	.word	in$ent		
+	.word	140		
+	.word	4437		
+	.word	dz$rsr		
+dz.rbp==.-$			
+	.word	0		
+dz.jnm==.-$			
+	.byte	0,0,0,0		
+	.byte	0,0,0,0		
+dz.tsr==.-$			
+	.word	4437		
+	.word	dz$tsr		
+dz.cst==.-$			
+	.word	0		
+dz.osm==.-$			
+	.word	0,0,0,0		
+	.word	0,0,0,0		
+dz.lpm==.-$			
+	.word	0,0,0,0		
+	.word	0,0,0,0		
+dz.csp==.-$
+	.word	0		
+dz.vec==.-$
+	.word	0		
+dz.nam==.-$
+	.word	^r'name		
+dz.bbs==.-$			
+.ENDM
+.MACRO	SAM$
+.mcall	$defsa
+$defsa
+.ENDM
+.MACRO	$DEFSA
+.macro meta m n o p
+.macro m
+n
+o
+p
+.endm
+.endm
+meta <psh c><mov c,-(sp)>
+meta <pop c><mov (sp)+,c>
+.ENDM
+.MACRO	CALLS$
+.mcall	$defsc
+$defsc
+.ENDM
+.MACRO	$DEFSC
+meta <system c><.word iot,^rsys,c>
+sy.pti	=	-2	
+sy.boo	=	-4	
+sy.tab	=	-6	
+sy.pee	=	-10	
+sy.pok	=	-12	
+sy.jba	=	-14	
+sy.spr	=	-16	
+sy.stj	=	-20	
+sy.lic	=	-22	
+sy.mat	=	-24	
+sy.uba	=	-26	
+sy.peb	=	-30	
+sy.pob	=	-32	
+sy.ser	=	-34	
+sy.xin	=	-36	
+sy.xpe	=	-40	
+sy.xpo	=	-42	
+sy.set	=	-44	
+sy.ins	=	-46	
+st.mpt	=	0	
+.ENDM
+.MACRO $NODE
+	.globl	j$node
+	call	j$node
+.ENDM
+.MACRO $CUT
+	.globl	j$cut	
+	call	j$cut
+.ENDM
+.MACRO	$LINK
+	.globl	j$link
+	call	j$link
+.ENDM
+.MACRO	$PEEK	AREA,ADDR
+.iif nb <area>,mov area,r0
+.iif nb <addr>,mov addr,2.(r0)
+	.globl	j$peek
+	call	j$peek
+.ENDM
+.MACRO	$POKE	AREA,ADDR,VALUE
+.iif nb <area>,mov area,r0
+.iif nb <addr>,mov addr,2.(r0)
+.iif nb <value>,mov value,4.(r0)
+	.globl	j$poke
+	call	j$poke
+.ENDM
+.MACRO	$PEEKB	AREA,ADDR
+.iif nb <area>,mov area,r0
+.iif nb <addr>,mov addr,2.(r0)
+	.globl	j$peeb
+	call	j$peeb
+.ENDM
+.MACRO	$POKEB	AREA,ADDR,VALUE
+.iif nb <area>,mov area,r0
+.iif nb <addr>,mov addr,2.(r0)
+.iif nb <value>,movb value,4.(r0)
+	.globl	j$pokb
+	call	j$pokb
+.ENDM
+.MACRO	$PROBE	AREA,ADDR
+.iif nb <area>,mov area,r0
+.iif nb <addr>,mov addr,2(r0)
+	.globl	j$probe
+	call	j$probe
+.ENDM
+.MACRO	$WORLD	AREA,ADDR
+.iif nb <area>,mov area,r0
+.iif nb <addr>,mov addr,2.(r0)
+	.globl	j$world
+	call	j$world
+wo.mot	=	0.
+wo.san	=	2.
+wo.sas	=	4.
+wo.jon	=	6.
+wo.jos	=	8.
+wo.uic	=	10.
+wo.use	=	12.
+wo.bs	=	32.
+.ENDM
+.MACRO	$DCLEX	AREA,ADDR
+.iif nb <area>,mov area,r0
+.iif nb <addr>,mov addr,2.(r0)
+	.globl	j$dcle
+	call	j$dcle
+.ENDM
+.MACRO	$CANEX	AREA,ADDR
+.iif nb <area>,mov area,r0
+.iif nb <addr>,mov addr,2.(r0)
+	.globl	j$cane
+	call	j$cane
+.ENDM
+.MACRO	$RECORD
+.mcall	$init	$file	$list	$lock	$check	$free	$quit
+.macro	meta m n o p
+.macro	m
+n
+o
+p
+.endm
+.endm
+meta	<psh c><mov c,-(sp)>
+meta	<pop c><mov (sp)+,c>
+meta	<set c d e f g h i j k l><c=d><.iif nb <e>,set e f g h i j k l>
+set	re$func 0, re$chn 1, re$sblk 2., re$bcnt 4., re$name 6.
+set	re$user 14., re$node 15., re$job 16., re$csw 18.
+set	re$words 10., re$bytes 20.
+set	re$free 0, re$lock 1, re$item 200
+set	re$succ 0, re$soft 1, re$hard 2., re$chan 3., re$hand 4.
+.ENDM
+.MACRO	$INIT	chan
+.iif nb <chan>,	mov	chan,r0
+	.globl	re.init
+	call	re.init
+.ENDM
+.MACRO	$QUIT
+	.globl	re.quit
+	call	re.quit
+.ENDM
+.MACRO	$FILE	FCB,CHAN,DBLK
+.iif nb <fcb>,	mov	fcb,r0
+.iif nb <chan>,	mov	chan,2.(r0)
+.iif nb <dblk>,	mov	dblk,4.(r0)
+	.globl	re.file
+	call	re.file
+.ENDM
+.MACRO	$LIST	FCB,CHAN,DBLK
+.iif nb <fcb>,	mov	fcb,r0
+.iif nb <chan>,	mov	chan,2.(r0)
+.iif nb <dblk>,	mov	dblk,4.(r0)
+	.globl	re.list
+	call	re.list
+.ENDM
+.MACRO	$LOCK	FCB,SBLK,BCNT
+.iif nb <fcb>,	mov	fcb,r0
+.iif nb <sblk>,	mov	sblk,2.(r0)
+.iif nb <bcnt>,	mov	bcnt,4.(r0)
+	.globl	re.lock
+	call	re.lock
+.ENDM
+.MACRO	$CHECK	FCB,SBLK,BCNT
+.iif nb <fcb>,	mov	fcb,r0
+.iif nb <sblk>,	mov	sblk,2.(r0)
+.iif nb <bcnt>,	mov	bcnt,4.(r0)
+	.globl	re.check
+	call	re.check
+.ENDM
+.MACRO	$FREE	FCB,SBLK,BCNT
+.iif nb <fcb>,	mov	fcb,r0
+.iif nb <sblk>,	mov	sblk,2.(r0)
+.iif nb <bcnt>,	mov	bcnt,4.(r0)
+	.globl	re.free
+	call	re.free
+.ENDM
+.MACRO	$DEFVE
+.mcall	sam$	$defma
+sam$	
+$defma
+$=0
+p$map	vd.sra		
+p$map	vd.idb		
+p$map	vd.vec		
+p$map	vd.pri		
+p$map	vd.isr		
+p$map	vd.csr		
+p$map	vd.ini		
+p$map	vd.qui		
+p$map	vd.typ		
+p$map	vd.tsr		
+p$map	vd.hot		
+p$map	vd.lot		
+p$map	vd.fsr		
+p$map	vd.fr5		
+p$map	vd.fr4		
+p$map	vd.bs		
+.ENDM
+.MACRO	$DEFRT
+.mcall	$defve
+$defve
+.mcall	$peek	$poke	$peekb	$pokeb	$probe
+.mcall	j$init	j$quit	j$prob	j$call	j$wait
+.mcall	s$begi	s$end	s$vect	s$list
+.mcall	j$set	j$clear	j$if
+.mcall	s$conn	s$disc
+.mcall	s$mfps	s$mtps	s$exps
+.mcall	s$mtpw	s$mfpw	s$expw
+.mcall	s$chki	s$spl
+.mcall	s$chrn	s$chin	s$chsf	s$chks
+.mcall	s$chin	s$inte	s$chsf	s$fork
+.mcall	s$mark	s$canc
+.mcall	s$sign	s$set	s$clear	s$if
+.mcall	s$save	s$rest
+.mcall	s$convm	s$conmp	s$movbl
+.mcall	s$getb	s$putb	s$getw	s$putw
+rt.suc	=	0	
+rt.nrt	=	1	
+rt.vna	=	2	
+rt.idm	=	3	
+rt.ism	=	4	
+rt.svm	=	5	
+rt.abo	=	6	
+rt.nrr	=	7	
+rt.ica	=	8.	
+rt.raw	=	1	
+pr0	=	0
+pr4	=	^o200
+pr5	=	^o240
+pr6	=	^o300
+pr7	=	^o340
+ps	=	^o177776
+ad.job	=	0
+ad.vir	=	2
+ad.pag	=	0
+ad.off	=	2
+ad.hop	=	0
+ad.lop	=	2
+sig0	=	^o1
+sig1	=	^o2
+sig2	=	^o4
+sig3	=	^o10
+sig4	=	^o20
+sig5	=	^o40
+sig6	=	^o100
+sig7	=	^o200
+sig8	=	^o400
+sig9	=	^o1000
+sig10	=	^o2000
+sig11	=	^o4000
+sig12	=	^o10000
+sig13	=	^o20000
+sig14	=	^o40000
+sig15	=	^o100000
+.ENDM
+.MACRO	J$INIT
+	.globl	jr$ini
+	call	jr$ini
+.ENDM
+.MACRO	J$QUIT
+	.globl	sv$abt
+	j$call	sv$abt
+.ENDM
+.MACRO	J$PROB	ADDR
+.iif nb <addr>,mov addr,r0
+	.globl	j$prov
+	call	j$prov
+.ENDM
+.MACRO	J$CALL	ADDR
+.iif nb <routine>,mov addr,r0
+	.globl	sv$cal
+	call	@sv$cal
+.ENDM
+.MACRO	J$WAIT
+	.globl	sv$wai
+	j$call	sv$wai
+.ENDM
+.MACRO	J$SET	SIGNAL
+	.globl	sv$fla
+	bis	signal,sv$fla
+.ENDM
+.MACRO	J$CLEA	SIGNAL
+	.globl	sv$fla
+	bic	signal,sv$fla
+.ENDM
+.MACRO	J$IF	SIGNAL,SET,CLEAR
+	.globl	sv$fla
+.iif nb <signal>,bit signal,sv$fla
+.iif nb <set>,bne set
+.iif nb <clear>,beq clear
+.ENDM
+.MACRO	S$BEGI	LIST=0,DONE=SV$SUC,PROBE=SV$SUC,INIT=SV$SUC,QUIT=SV$SUC
+.if df SV$KM
+$=^o20000
+sv$lst::
+meta	<sv$map c d e><.iif nb <e>,.word e><c==$><$=$+2>
+.iff
+.psect	server
+meta	<sv$map c d e><c::.word d>
+sv$beg::.globl	sv$end
+.endc
+sv$map	sv$gua	<^rrt0>	<^rrt0>	
+sv$map	sv$cal	sv$err	mo$cal	
+sv$map	sv$wai	sv$err	rt$wai	
+sv$map	sv$abt	sv$err	rt$abx	
+sv$map	sv$con	sv$err	rt$con	
+sv$map	sv$dis	sv$err	rt$dis	
+sv$map	sv$cks	sv$err	in$sys	
+sv$map	sv$crs	sv$err	rt$crs	
+sv$map	sv$cis	sv$err	in$ent	
+sv$map	sv$csf	sv$err	rt$csf	
+sv$map	sv$sig	sv$err	rt$sig	
+sv$map	sv$mar	sv$err	rt$mar	
+sv$map	sv$can	sv$err	rt$can	
+sv$map	sv$clk	sv$err	rt$clk	
+sv$map	sv$sav	sv$err	rt$sav	
+sv$map	sv$res	sv$err	rt$res	
+sv$map	sv$cvm	sv$err	rt$cvm	
+sv$map	sv$cmp	sv$err	rt$cmp	
+sv$map	sv$gpt	sv$err	rt$gpt	
+sv$map	sv$mbl	sv$err	rt$mbl	
+sv$map	sv$sp0	sv$err	rt$err	
+sv$map	sv$sp1	sv$err	rt$err	
+sv$map	sv$sp2	sv$err	rt$err	
+sv$map	sv$sp3	sv$err	rt$err	
+sv$map	sv$sp4	sv$err	rt$err	
+sv$map	sv$sp5	sv$err	rt$err	
+sv$map	sv$imp	0	0	
+sv$map	sv$par	0	0	
+sv$map	sv$top	sv$end		
+sv$map	sv$inf	0		
+sv$map	sv$fla	0		
+sv$map	sv$lis	list		
+sv$map	sv$don	done		
+sv$map	sv$pro	probe		
+sv$map	sv$ini	init		
+sv$map	sv$qui	quit		
+sv$map	sv$suc	<^o5727>	
+sv$map	sv$err	sec		
+sv$map	sv$nop	return		
+.ENDM
+.MACRO	S$VECT	VEC=0,PRI=0,ISR=0,CSR=0,INIT=0,QUIT=0,TYPE=0,TSR=0,HOT=0,LOT=0
+	.word	0,0,vec,^c<pri*^o40>&^o340,isr,csr,init,quit,type
+	.word	tsr,hot,lot
+	.word	0,0,0
+.ENDM
+.MACRO	S$LIST	V1,V2,V3,V4,V5,V6,V7,V8
+.irp $,<v1,v2,v3,v4,v5,v6,v7,v8>
+.iif nb <$>,.word $
+.endr
+	.word	0
+.ENDM
+.MACRO	S$CONN	LIST
+.iif nb <list>,mov list,r0
+	.globl	sv$con
+	call	@sv$con
+.ENDM
+.MACRO	S$DISC	LIST
+.iif nb <list>,mov list,r0
+	.globl	sv$dis
+	call	@sv$dis
+.ENDM
+.MACRO	S$MFPS	ADDR=-(SP)
+	mov	@#ps,addr
+.ENDM
+.MACRO	S$MTPS	ADDR=(SP)+
+	movb	addr,@#ps
+.ENDM
+.MACRO	S$EXPS	ADDR
+.if nb <addr>
+	mov	@#ps,-(sp)
+	movb	addr,@#ps
+.iff
+	mov	(sp),-(sp)
+	mov	@#ps,2(sp)
+	movb	(sp)+,@#ps
+.endc
+.ENDM
+.MACRO	S$MFPW	ADDR=-(SP)
+	mov	@#ps,addr
+.ENDM
+.MACRO	S$MTPW	ADDR=(SP)+
+	mov	addr,@#ps
+.ENDM
+.MACRO	S$EXPW	ADDR
+.if nb <addr>
+	mov	@#ps,-(sp)
+	movb	addr,@#ps
+.iff
+	mov	(sp),-(sp)
+	mov	@#ps,2(sp)
+	mov	(sp)+,@#ps
+.endc
+.ENDM
+.MACRO	S$SPL	PRI
+.if eq pri
+	clrb	@#ps
+.iff
+	movb	#pri*^o40,@#ps
+.endc
+.ENDM
+.MACRO	S$CHKI	ADDR,PRI,PS,PSW
+	psh	@#^o177776
+.iif nb <psw>,mov psw,@#^o177776
+.iif nb <ps>,movb ps,@#^o177776
+.iif nb <pri>,movb #pri*40,@#^o177776
+	call	addr
+.ENDM
+.MACRO	S$CHKS	ADDR=#SV$NOP,PRI=0
+	.globl	sv$nop
+	mov	@#ps,-(sp)
+	mov	addr,-(sp)
+	.globl	sv$cks
+	jsr	r5,@sv$cks
+	.word	^c<pri*^o40>&^o340
+.ENDM
+.MACRO	S$ENSY	ADDR=#SV$NOP,PRI=0
+	.globl	sv$nop
+	mov	@#ps,-(sp)
+	mov	addr,-(sp)
+	.globl	sv$cks
+	jsr	r5,@sv$cks
+	.word	^c<pri*^o40>&^o340
+.ENDM
+.MACRO	S$CHRN	PRI=7
+	.globl	sv$crs
+	jsr	r5,@sv$crs
+	.word	^c<pri*^o40>&^o340
+.ENDM
+.MACRO	S$CHIN	PRI=7
+	.globl	sv$cks
+	jsr	r5,@sv$cks
+	.word	^c<pri*^o40>&^o340
+.ENDM
+.MACRO	S$INTE	PRI=7
+	.globl	sv$cks
+	jsr	r5,@sv$cks
+	.word	^c<pri*^o40>&^o340
+.ENDM
+.MACRO	S$CHSF	VDB
+.iif nb <vdb>,mov vdb,-(sp)
+	.globl	sv$csf
+	call	@sv$csf
+.ENDM
+.MACRO	S$FORK	VDB
+.iif nb <vdb>,mov vdb,-(sp)
+	.globl	sv$csf
+	call	@sv$csf
+.ENDM
+.MACRO	S$MARK	VDB
+.iif nb <vdb>,mov vdb,-(sp)
+	.globl	sv$mar
+	call	@sv$mar
+.ENDM
+.MACRO	S$CANC	VDB
+.iif nb <vdb>,mov vdb,-(sp)
+	.globl	sv$can
+	call	@sv$can
+.ENDM
+.MACRO	S$CLOC	addr
+.iif nb <addr>,psh addr
+	.globl	sv$clk
+	call	@sv$clk
+.ENDM
+.MACRO	S$SIGN	SIGNAL
+.iif nb <signal>,bis signal,sv$fla
+	.globl	sv$sig
+	call	@sv$sig
+.ENDM
+.MACRO	S$SET	SIGNAL
+	.globl	sv$fla
+	bis	signal,sv$fla
+.ENDM
+.MACRO	S$CLEA	SIGNAL
+	.globl	sv$fla
+	bic	signal,sv$fla
+.ENDM
+.MACRO	S$IF	SIGNAL,SET,CLEAR
+	.globl	sv$fla
+.iif nb <signal>,bit signal,sv$fla
+.iif nb <set>,bne set
+.iif nb <clear>,beq clear
+.ENDM
+.MACRO	S$SAVE
+	.globl	sv$sav
+	jsr	r5,@sv$sav
+.ENDM
+.MACRO	S$REST
+	.globl	sv$res
+	jsr	r5,@sv$res
+.ENDM
+.MACRO	S$END
+sv$end::
+.ENDM
+.MACRO	S$CONV	FROM,TO
+.iif nb <from>,psh from	
+.iif nb <to>,psh to 
+	.globl	sv$cvm
+	call	@sv$cvm			
+.ENDM 
+.MACRO	S$CONM	FROM,TO
+.iif nb <from>,psh from	
+.iif nb <to>,psh to 
+	.globl	sv$cmp
+	call	@sv$cmp			
+.ENDM
+.MACRO	S$GETB	ADB,RES
+.iif nb <adb>,mov adb,-(sp)
+	clr	-(sp)			
+	.globl	sv$gpt
+	call	@sv$gpt
+.iif nb <res>,movb (sp)+,res
+.ENDM 
+.MACRO	S$GETW	ADB,RES
+.iif nb <adb>,mov adb,-(sp)
+	psh	#2			
+	.globl	sv$gpt
+	call	@sv$gpt
+.iif nb <res>,mov (sp)+,res
+.ENDM 
+.MACRO	S$PUTB	ADB,DAT
+.iif nb <dat>,movb dat,-(sp)
+.iif nb <adb>,mov adb,-(sp)
+	mov	#4,-(sp)		
+	.globl	sv$gpt
+	call	@sv$gpt
+.ENDM 
+.MACRO	S$PUTW	ADB,DAT
+.iif nb <dat>,mov dat,-(sp)
+.iif nb <adb>,mov adb,-(sp)
+	mov	#6,-(sp)		
+	.globl	sv$gpt
+	call	@sv$gpt
+.ENDM 
+.MACRO	S$MOVB	ADDR
+.iif nb <addr>,mov addr,-(sp)
+	.globl	sv$mbl
+	call	@sv$mbl
+.ENDM 

@@ -1,0 +1,80 @@
+;	------------------------------------------------------------------------
+;	IF	Classic IF statement
+;	IFB	
+;	IFW
+;	IFNOT
+;	IFNOTB
+;	IFNOTW
+;	------------------------------------------------------------------------
+;
+;	All IF variations pass control to SMIFG$ below
+;	SMIFG$ passes control to SMTST$ to generate test logic
+;
+;		IF	cond		false => goto end
+;			...
+;		END
+;	end:
+;
+;	IFW is the only classic statement for VAX word objects.
+
+.MACRO	IF	X1,X2,X3
+	smifg$	<>,X1,X2,X3,jf
+.ENDM
+
+.MACRO	IFB	X1,X2,X3
+	smifg$	B,X1,X2,X3,jf
+.ENDM
+
+.MACRO	IFW	X1,X2,X3
+	smifg$	W,X1,X2,X3,jf
+.ENDM
+
+.MACRO	IFNOT	X1,X2,X3
+	smifg$	<>,X1,X2,X3,jt
+.ENDM
+
+.MACRO	IFNOTB	X1,X2,X3
+	smifg$	B,X1,X2,X3,jt
+.ENDM
+
+.MACRO	IFNOTW	X1,X2,X3
+	smifg$	W,X1,X2,X3,jt
+.ENDM
+
+;	SMIFG$	Generic IF processing
+;
+;	s$mnst	Increment nest level
+;	s$mbgn	Increment begin count
+;
+;	s$mtyp	2 => IF
+;	s$mmod	0 => short
+
+.MACRO	smifg$	XT,X1,X2,X3,XGO
+.if eq s$mels
+	s$mbgn=s$mbgn+1
+	s$mend=s$mbgn+smend.
+	s$mnst=s$mnst+1
+	smplb$	\s$mnst,s$mbgn,smif.,smsho.	;TYPE=2,LONG=short
+.endc
+	s$mels=0
+	smtst$	XT,X1,X2,X3,\s$mend,XGO
+.ENDM
+;	------------------------------------------------------------------------
+;	IN	Comment
+;	OUT	Comment
+;	INOUT	Comment
+;	RESULT	Comment
+;	------------------------------------------------------------------------
+
+.MACRO	IN	X1 X2 X3 X4 X5 X6 X7 X8
+	X1 X2 X3 X4 X5 X6 X7 X8
+.ENDM
+.MACRO	OUT	X1 X2 X3 X4 X5 X6 X7 X8
+	X1 X2 X3 X4 X5 X6 X7 X8
+.ENDM
+.MACRO	INOUT	X1 X2 X3 X4 X5 X6 X7 X8
+	X1 X2 X3 X4 X5 X6 X7 X8
+.ENDM
+.MACRO	RESULT	X1 X2 X3 X4 X5 X6 X7 X8
+.ENDM
+

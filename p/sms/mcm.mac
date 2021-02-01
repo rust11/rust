@@ -1,0 +1,415 @@
+;	------------------------------------------------------------------------
+;	NEXT	Next REPEAT or WHILE loop
+;	------------------------------------------------------------------------
+;
+;	NEXT			Repeat loop
+;
+;	NEXTIF	cond		Repeat if condition satisfied
+;	NEXTIB	cond		Repeat if byte condition satisfied
+;
+;	begin:	REPEAT
+;			...
+;		NEXT			goto begin
+;			...
+;		END
+;	end:
+;
+;	begin:	WHILE	cond		false => end
+;		 OR	cond		
+;
+;		NEXT
+;		END
+
+.MACRO	NEXT
+	.IIF	LE s$mrns, .ERROR	;?STRMAC-E-NEXT not in repeat block
+	smgrb$	\s$mrns,s$mrbl
+	smglb$	\s$mrbl,s$mlbl,s$mtyp,s$mmod ;get block mode
+	smjlb$	\s$mbbl			;jump to begin label
+.ENDM
+
+.MACRO	NEXTIF	X1,X2,X3
+	.IIF	LE s$mrns, .ERROR	;?STRMAC-E-NEXTIF not in repeat block
+	.NARG	s$mnrg
+	smgrb$	\s$mrns,s$mrbl		;get repeat block
+	smglb$	\s$mrbl,s$mlbl,s$mtyp,s$mmod ;get block mode
+	smtst$	<>,s$mnrg,X1,X2,X3,\s$mbbl,smjtr$
+.ENDM
+
+.MACRO	NEXTIB	X1,X2,X3
+	.IIF	LE s$mrns, .ERROR	;?STRMAC-E-NEXTIB not in repeat block
+	.NARG	s$mnrg
+	smgrb$	\s$mrns,s$mrbl		;get repeat block
+	smglb$	\s$mrbl,s$mlbl,s$mtyp,s$mmod ;get block mode
+	smtst$	<B>,s$mnrg,X1,X2,X3,\s$mbbl,smjtr$
+.ENDM
+;	------------------------------------------------------------------------
+;	OR	Conditional OR clause
+;	------------------------------------------------------------------------
+;
+;	begin1:	IF	cond1		false => goto end1
+;		 OR	cond2
+;					goto begin2
+;	end1:	if 	cond2		false => goto end2
+;	begin2:				either true
+;
+;		END
+;	end2:
+;
+;	WHILE has problems with this construction since the begin label is
+;	incremented (not the nesting level).
+;	The block begin variable, S$MBBL & S$MB.., is used to locate the
+;	begin label of the loop.
+
+.MACRO	OR	X1,X2,X3
+	.NARG	s$mnrg
+	smorg$	X1,X2,X3,<>
+.ENDM
+
+.MACRO	ORB	X1,X2,X3
+	.NARG	s$mnrg
+	smorg$	X1,X2,X3,<B>
+.ENDM
+
+.MACRO	smorg$	X1,X2,X3,XB
+	s$mbgn=s$mbgn+1
+	smjlb$	\s$mbgn					;	GO B2
+	smlbl$	\s$mend					;E1:	previous end
+	s$mend=s$mbgn+smend.
+	smglb$	\s$mnst,s$mdum,s$mtyp,s$mmod
+	smplb$	\s$mnst,s$mbgn,s$mtyp,s$mmod
+	smtst$	XB,s$mnrg,X1,X2,X3,\s$mend,smjfl$	;Test, false -> E2
+	smlbl$	\s$mbgn					;B2:
+.ENDM
+;	------------------------------------------------------------------------
+;	PROC	Define procedure prologue
+;	------------------------------------------------------------------------
+;
+;	PROC	XN XT X1...X7
+;
+;		XN		Procedure name
+;		XT		Number of temps to allocate - literal required
+;		Xn		Registers to save
+;
+;	begin:	PROC	....
+;
+;		EXIT	...
+;
+;	end:	END
+;
+;
+;	Procedures may not be nested
+;	Argmuments may be modified by the call
+;	Some procedures locate the previous frame with SM.PPC.
+;
+;		s$msav		Counts saved items 
+;		s$mtmp		Counts temporary items
+
+.MACRO	PROC	XN XT=0 X1,X2,X3,X4,X5,X6,X7
+	.NARG	s$mnrg			;in case a PROC needs them
+	.IIF	GT s$mnst,	.ERROR	;?STRMAC-E-Nested PROC not permitted;
+XN:	.iif 	eq s$mloc, .GLOBL XN	;global name
+	s$mloc=0			;clear once only local flag
+;
+;	Setup temp count
+;
+	.NTYPE	s$mdum,XT
+.IIF EQ s$mdum&smadm$-smrgm$,	.ERROR	;?STRMAC-E-PROC temp count in register;
+.IIF LT XT,			.ERROR	;?STRMAC-E-Negative temp count;
+	s$mtmp=XT			;number of temps
+	s$msav=0			;none pushed so far
+;
+;	Handle debug mode
+;
+	.IF	GT smspm.
+		TST	-(SP)
+		MOV	SP,(SP)
+		s$msav=1			;count it
+	.ENDC
+;
+;	Push saved items
+;
+.IF NB <X1>
+	.IRP	XX,<X1 X2 X3 X4 X5 X6 X7>
+		.IF NB <XX>
+			s$msav=s$msav+1		;increment count
+			MOV	XX,-(SP)	;push the parameter
+		.ENDC
+	.ENDR
+;
+;	Create macro to restore saved items
+;
+	.macro	smres$			;restore macro
+	.irp	xx,<x7 x6 x5 x4 x3 x2 x1>
+		.iif nb <xx>,	 mov	(sp)+,xx
+	.endr
+	.endm
+.IFF
+	.macro	smres$
+	.endm
+.ENDC
+;
+;	Create temporary space
+;
+	.IIF	EQ s$mtmp-1,	TST	-(SP)
+	.IIF	EQ s$mtmp-2,	CMP	-(SP),-(SP)
+	.IIF	GE s$mtmp-3,	SUB	#s$mtmp*cell.,SP
+;
+;	Register PROC block
+;
+	s$mbgn=s$mbgn+1
+	s$mend=s$mbgn+smend.
+	s$mnst=s$mnst+1
+	s$mpns=s$mnst				;remember proc nesting level
+	smplb$	\s$mnst,s$mbgn,smpro.,smsho.
+;
+;	Calculate address of stack items
+;
+	sm.ppc=s$mtmp+s$msav*cell.
+	P1=sm.ppc+cell.
+	P2=P1+cell.
+	P3=P2+cell.
+	P4=P3+cell.
+	P5=P4+cell.
+	P6=P5+cell.
+	P7=P6+cell.
+.ENDM
+;	------------------------------------------------------------------------
+;	SKIP	Exit block
+;	------------------------------------------------------------------------
+;
+;	SKIP	
+;	SKIPIF	cond
+;	SKIPIB	cond
+;
+;	begin:	BEGIN
+;			...
+;		SKIP			goto end
+;			...
+;		END
+;	end:
+
+.MACRO	SKIP
+	.IIF	LE s$mrns, .ERROR	;?STRMAC-E-SKIP not in block
+	smgrb$	\s$mrns,s$mrbl
+	smgle$	\s$mrbl,s$mlbe,s$mtyp,s$mmod
+	smjrb$	\s$mlbe
+.ENDM
+
+; ???	LEAVIF (a) below is incorrect for very long blocks
+
+.MACRO	SKIPIF	X1,X2,X3
+	.IIF	LE s$mrns, .ERROR	;?STRMAC-E-SKIP not in block
+	.NARG	s$mnrg
+	smgrb$	\s$mrns,s$mrbl
+	smgle$	\s$mrbl,s$mlbe,s$mtyp,s$mmod
+	smtst$	<>,s$mnrg,X1,X2,X3,\s$mlbe,smjtr$ ;(a)
+.ENDM
+
+.MACRO	SKIPIB	X1,X2,X3
+	.IIF	LE s$mrns, .ERROR	;?STRMAC-E-SKIPIB not in block
+	.NARG	s$mnrg
+	smgrb$	\s$mrns,s$mrbl
+	smgle$	\s$mrbl,s$mlbe,s$mtyp,s$mmod
+	smtst$	<B>,s$mnrg,X1,X2,X3,\s$mlbe,smjtr$
+.ENDM
+;	------------------------------------------------------------------------
+;	SUBR	Setup subroutine prologue
+;	------------------------------------------------------------------------
+;
+;	SUBR	XN XT X1...X7
+;
+;		XN		Subroutine name
+;		XT		Number of temporary words
+;			0	Default
+;		X1...X7		Registers to save
+;
+;	begin:	SUBR	....
+;
+;		EXIT	....	goto end
+;
+;		END
+;	end:	rts	pc
+;
+;	Subroutines do not permit parameters. The offsets are set to an
+;	odd address. This will not cause a trap on an 11/23. Debugging
+;	should be done on a machine that supports odd addresses. The
+;	previous technique of using an I/O page address fails in 23kw process.
+;
+;	BLANK SUBROUTINES
+;	Blank subroutines are specified by omitting the subroutine name.
+;	They do not support temps or register saves. They do support 
+;	structured control statements. They are usually used for multiple
+;	entry point pieces of code.
+;
+;	begin:	SUBR
+;		  ENTRY XA
+;		  ...
+;		  ENTRY XNB
+;		  ...
+;		END
+;	end:	rsb
+;
+; ???	Registers are pushed in the order specified - VAX uses reverse order
+
+.MACRO	SUBR	XN XT=0 X1,X2,X3,X4,X5,X6,X7
+	.NARG	s$mnrg
+	.IIF	GT s$mnst, .ERROR	;?STRMAC-E-Nested SUBR not permitted
+.if nb XN				;not a blank subroutine
+XN:	.iif 	eq s$mloc, .GLOBL XN	;global name
+.endc
+	s$mloc=0			;clear once only local flag
+;
+;	Setup temp count
+;
+	.NTYPE	s$mdum,XT
+.IIF EQ s$mdum&smadm$-smrgm$, .ERROR	;?STRMAC-E-PROC temp count in register
+.IIF LT XT,		.ERROR		;?STRMAC-E-Negative temp count;
+	s$mtmp=XT			;number of temps
+	s$msav=0			;none pushed so far
+;
+;	Handle debug mode
+;
+	.IF	GT smspm.
+		TST	-(SP)
+		MOV	SP,(SP)
+		s$msav=1			;count it
+	.ENDC
+;
+;	Push saved items
+;
+.IF NB <X1>
+	.IRP	XX,<X1 X2 X3 X4 X5 X6 X7>
+		.IF NB <XX>
+			s$msav=s$msav+1		;increment count
+			MOV	XX,-(SP)	;push the parameter
+		.ENDC
+	.ENDR
+;
+;	Create macro to restore saved items
+;
+	.macro	smres$			;restore macro
+	.irp	xx,<x7 x6 x5 x4 x3 x2 x1>
+		.iif nb <xx>,	mov	(sp)+,xx
+	.endr
+	.endm
+.IFF
+	.macro	smres$
+	.endm
+.ENDC
+;
+;	Create temporary space
+;
+	.IIF	EQ s$mtmp-1,	TST	-(SP)
+	.IIF	EQ s$mtmp-2,	CMP	-(SP),-(SP)
+	.IIF	GE s$mtmp-3,	SUB	#s$mtmp*cell.,SP
+;
+;	Register SUBR block
+;
+	s$mbgn=s$mbgn+1
+	s$mend=s$mbgn+smend.
+	s$mnst=s$mnst+1
+	s$mpns=s$mnst
+	smplb$	\s$mnst,s$mbgn,smsub.,smsho.
+;
+;	Calculate address of stack items
+;	Set parameter addresses to invalid address
+;
+	sm.ppc=s$mtmp+s$msav*cell.
+	P1=1
+	P2=1
+	P3=1
+	P4=1
+	P5=1
+	P6=1
+	P7=1
+.ENDM
+;	------------------------------------------------------------------------
+;	REPEAT	Classic repeat statement
+;	------------------------------------------------------------------------
+;
+;	REPEAT		
+;
+;	begin:	REPEAT
+;
+;		LEAVE
+;
+;		NEXT ....
+;
+;		UNTIL ....	repeat if condition false
+;	end:			terminate loop
+;
+;		END
+;	end:
+	
+.MACRO	REPEAT
+	s$mbgn=s$mbgn+1
+	s$mend=s$mbgn+smend.
+	s$mnst=s$mnst+1
+	s$mrns=s$mrns+1
+	smplb$	\s$mnst,s$mbgn,smrep.,smsho.	;TYPE=4,LONG=0
+	smprb$	\s$mrns,\s$mnst
+	smlbl$	\s$mbgn
+.ENDM
+;	------------------------------------------------------------------------
+;	UNTIL	Classic statements
+;	------------------------------------------------------------------------
+;
+;		REPEAT
+;			...
+;		UNTIL cond
+
+.MACRO	UNTIL	X1,X2,X3
+	smglb$	\s$mnst,s$mlbl,s$mtyp,s$mmod
+	.NARG	s$mnrg
+	smtst$	<>,s$mnrg,X1,X2,X3,\s$mlbl,smjfl$
+	smgle$	\s$mnst,s$mlbe,s$mtyp,s$mmod
+	smlbl$	\s$mlbe
+	s$mnst=s$mnst-1
+	s$mrns=s$mrns-1
+.ENDM
+
+.MACRO	UNTILB	X1,X2,X3
+	smglb$	\s$mnst,s$mlbl,s$mtyp,s$mmod
+	.NARG	s$mnrg
+	smtst$	<B>,s$mnrg,X1,X2,X3,\s$mlbl,smjfl$
+	smgle$	\s$mnst,s$mlbe,s$mtyp,s$mmod
+	smlbl$	\s$mlbe
+	s$mnst=s$mnst-1
+	s$mrns=s$mrns-1
+.ENDM
+;	------------------------------------------------------------------------
+;	WHILE	Classics
+;	------------------------------------------------------------------------
+;
+;	WHILE cond
+;
+;	begin:	WHILE cond
+;
+;		LEAVE
+;
+;		NEXT
+;
+;		END
+;	end:
+
+.MACRO	WHILE	X1,X2,X3
+	.NARG	s$mnrg
+	smwhg$	X1,X2,X3,<>,smsho.
+.ENDM
+
+.MACRO	WHILEB	X1,X2,X3
+	.NARG	s$mnrg
+	smwhg$	X1,X2,X3,<B>,smsho.
+.ENDM
+
+.MACRO	SMWHG$	X1,X2,X3,XB,XL
+	s$mbgn=s$mbgn+1
+	s$mend=s$mbgn+smend.
+	s$mnst=s$mnst+1
+	s$mrns=s$mrns+1
+	smplb$	\s$mnst,s$mbgn,smwhi.,XL	;TYPE=0,LONG=XL
+	smprb$	\s$mrns,\s$mnst
+	smlbl$	\s$mbgn
+	smtst$	XB,s$mnrg,X1,X2,X3,\s$mend,smjfl$
+.ENDM
+                                                                                                                                                                                                                                                       

@@ -1,0 +1,349 @@
+;	------------------------------------------------------------------------
+;	ELSE	Classic ELSE statement
+;	------------------------------------------------------------------------
+;
+;	begin:	IF cond		false => goto end
+;			...
+;		ELSE		goto end+1
+;	end:		...
+;
+;	end+1:	END
+;
+;	ELSE	statement
+;	ELSIFx	IFx cond
+
+.MACRO	ELSE	XNAM X0 X1 X2 X3 X4 X5 X6 X7 X8 X9
+	SMELG$					;setup the ELSE statement
+.iif b <XNAM>,.mexit
+.if nb <X2>
+	XNAM	X0,X1,X2 X3 X4 X5 X6 X7 X8 X9
+	.mexit
+.endc
+.if nb X1
+	XNAM	X0,X1
+	.mexit
+.endc
+	XNAM	X0
+.ENDM
+
+.MACRO	ELSIF	C1 C2 C3
+	SMELG$	IF <C1> <C2> <C3>
+.ENDM
+
+.MACRO	ELSIFB	C1 C2 C3
+	SMELG$	IFB <C1> <C2> <C3>
+.ENDM
+
+.MACRO	ELSIFW	C1 C2 C3
+	SMELG$	IFW <C1> <C2> <C3>
+.ENDM
+
+.MACRO	SMELG$	CND C1 C2 C3
+	smglb$	\s$mnst,s$mdum,s$mtyp,s$mmod	;get previous label
+	.if	eq s$mtyp-smif.			;still an IF block
+		s$mtyp=smels.			;now its an ELSE block
+		smplb$	\s$mnst,s$mdum,s$mtyp,s$mmod	;put it back
+		s$mbgn=s$mbgn+1			;allocate a label
+		s$mend=s$mbgn+smend.		;new end label
+		smpee$	\s$mnst,s$mend		;setup the else end
+	.endc					;
+	smgee$	\s$mnst,s$mlbe			;get the end label
+	smjlb$	\s$mlbe				;terminate this part of it
+
+	s$mbgn=s$mbgn+1				;new label
+	s$mend=s$mbgn+smend.			;new end label
+	smgle$	\s$mnst,s$mlbe,s$mtyp,s$mmod	;get previous label
+	smlbl$	\s$mlbe				;label end of prior block
+	smplb$	\s$mnst,s$mbgn,s$mtyp,s$mmod	;store new label
+.if nb <CND>
+	s$mels=1				;processing if else
+	CND	<C1> <C2> <C3>			;do it
+.endc
+.ENDM
+;	------------------------------------------------------------------------
+;	END	End control block
+;	------------------------------------------------------------------------
+;
+;	END	NAM		Complete block
+;	ENDLESS	NAM		Cancel block
+;	ENDUP	NAM		Complete routine, no return 
+;
+;		NAM		Optional name - ignored
+;
+;			if
+;			block
+;			while
+;			repeat
+;			procedure
+;			subroutine
+;
+;		s$mles	1	Endless
+;		s$mdup	1	Endup
+
+.MACRO	ENDLESS	NAM
+	s$mles=1				;endless mode
+	END	NAM				;end it
+.ENDM
+
+.MACRO	ENDUP	NAM
+	s$mdup=1				;endup
+	END	NAM				;end it
+.ENDM
+
+.MACRO	END	NAM
+	smgle$	\s$mnst,s$mlbe,s$mtyp,s$mmod	;get end label & mode
+;
+;	Check for too many END statements
+;
+	.IF	LE s$mnst
+		smerr$	<Too many END's>;say so
+		s$mles=0		;once-only ENDLESS flag
+		s$mdup=0		;once-only ENDUP flag
+		.MEXIT
+	.ENDC
+;
+;	Dispatch to appropriate END macro
+;
+	.IRP	XX,<\s$mtyp>		;dispatch it
+		smen'XX'$		;call the end macro
+	.ENDR				;
+	s$mles=0			;once-only ENDLESS flag
+	s$mdup=0			;once-only ENDUP flag
+.ENDM
+
+;	END WHILE
+;
+;	begin:	WHILE cond	false => goto end
+;
+;		END		goto begin
+;	end:
+
+.MACRO	smen0$
+	smgrb$	\s$mrns,s$mrbl		;get repeat block beginning
+.if eq s$mles
+	smjlb$	\s$mbbl			;goto loop beginning
+.endc
+	smlbl$	\s$mlbe			;label loop end
+	s$mnst=s$mnst-1			;bump nest count
+	s$mrns=s$mrns-1			;bump repeat nest count
+.ENDM
+
+;	END IF
+;
+;	begin:	IF cond		false => goto end
+;
+;		END
+;	end:
+
+.MACRO	smen1$
+	smlbl$	\s$mlbe			;label block end
+	s$mnst=s$mnst-1			;bump nest count
+.ENDM
+
+;	END REPEAT
+;	END BLOCK
+;
+;	begin:	REPEAT
+;
+;		END		goto begin
+;	end:
+
+.MACRO	smen2$
+	smgrb$	\s$mrns,s$mrbl		;get repeat block beginning
+.if eq s$mles
+	smjlb$	\s$mbbl			;goto loop beginning
+.endc
+	smlbl$	\s$mlbe			;label the end 
+	s$mnst=s$mnst-1			;bump nest level
+	s$mrns=s$mrns-1			;bump repeat nest level
+.ENDM
+
+;	END SUBR
+
+.MACRO	smen3$
+.if eq s$mles
+	smlbl$	\s$mlbe			;label the end 
+	.IIF	EQ s$mtmp-1,	TST	(SP)+
+	.IIF	EQ s$mtmp-2,	CMP	(SP)+,(SP)+
+	.IIF	GE s$mtmp-3,	ADD	#s$mtmp*cell.,SP
+	smres$				;restore registers - see SUBR
+	.IF	GT smspm.		;if stack mark checking 
+;sic]		ASSERT	SP,EQ,(SP)	;check stack alignment
+		TST	(SP)+		;
+	.ENDC				;
+  .if eq s$mdup				;not ENDUP
+	smret$				;return
+  .endc					;
+.endc					;
+	auto.=0				;kill auto parameter count
+	s$mnst=s$mnst-1			;bump nest level
+.iif ne s$mnst, smerr$ <Not enough ENDs>,s$mnst
+.ENDM
+
+;	END PROC
+
+.MACRO	smen4$
+.if eq s$mles
+	smlbl$	\s$mlbe			;label the end 
+	.IIF	EQ s$mtmp-1,	TST	(SP)+
+	.IIF	EQ s$mtmp-2,	CMP	(SP)+,(SP)+
+	.IIF	GE s$mtmp-3,	ADD	#s$mtmp*cell.,SP
+	smres$				;restore registers
+	.IF	GT smspm.		;
+;sic]		ASSERT	SP,EQ,(SP)	;
+		TST	(SP)+		;
+	.ENDC				;
+  .if eq s$mdup				;not ENDUP
+   .if ne s$mmod&smnat.			;native mode
+vax$	RET				;
+   .iff					;
+	RTS	PC			;
+   .endc				;
+  .endc					;
+.endc					;
+	auto.=0				;kill auto parameter count
+	s$mnst=s$mnst-1			;
+.iif ne s$mnst, smerr$ <Not enough ENDs>,s$mnst
+.ENDM
+
+;	END BLOCK
+;
+;	begin:	BEGIN
+;
+;		END
+;	end:
+
+.MACRO	smen5$
+	smgrb$	\s$mrns,s$mrbl		;get repeat block beginning
+	smlbl$	\s$mlbe			;label the end 
+	s$mnst=s$mnst-1			;bump nest level
+	s$mrns=s$mrns-1			;bump repeat nest level
+.ENDM
+
+;	END IF ELSE
+;
+;	begin:	IF cond		false => goto end
+;
+;		ELSE
+;		END
+;	end:
+;	end-else:
+
+.MACRO	smen6$
+	smlbl$	\s$mlbe			;label block end
+	smgee$	\s$mnst,s$mlbe		;get else block end
+	smlbl$	\s$mlbe			;label that too
+	s$mnst=s$mnst-1			;bump nest count
+.ENDM
+
+;	SMRET$	Return
+;
+;	Used by END and EXIT
+;
+;	s$mmod must be setup on entry
+
+.MACRO	SMRET$
+.if	ne s$mmod&smnat.		;native mode
+vax$	RET				;VAX uses RET
+pdp$	RETURN				;PDP uses return
+.iff					;
+vax$	RSB				;
+pdp$	RTS	PC			;
+ .endc					;
+.ENDM
+;	------------------------------------------------------------------------
+;	ENTRY	Subroutine entry point
+;	------------------------------------------------------------------------
+;
+;	Generates label and optional global symbol
+;
+;	ENTRY	XN XV
+;		XN		Global entry point name
+;		XV		Unused
+;
+;	LOCAL ENTRY XN
+;
+;	LOCAL
+;	  ENTRY XN
+
+.MACRO	ENTRY	XN,XV
+XN:	.iif eq s$mloc,	.GLOBL	XN	;not local
+	s$mloc=0			;clear once only local flag
+.ENDM
+;	------------------------------------------------------------------------
+;	EXIT	Exit procedure or subroutine
+;	------------------------------------------------------------------------
+;
+;	EXIT
+;	EXIT	status ...
+;	EXIT	IFx cond
+;
+;	begin:	PROC name ...
+;			...
+;		EXIT 	WITHB (r5)	Goto end
+;			...
+;		END
+;	end:
+;
+;	If nothing has been pushed on the stack (saves or temps), then
+;	EXIT leaves immediately with an RSB. This is nominally faster
+;	and saves a byte on VAX (and sometimes five for a long branch).
+
+.MACRO	EXIT	CND C1 C2 C3
+	smgle$	\s$mpns,s$mlbe,s$mtyp,s$mmod	;get end label and mode
+.if b <CND>
+	smxgn$
+	.mexit
+.endc
+
+.if idn CND,TRUE
+	mov	sp,r0
+	smxgn$
+	.mexit
+.endc
+.if idn CND,FALSE
+	clr	r0
+	smxgn$
+	.mexit
+.endc
+.if idn CND,WITH
+	smxwt$	<>,C1
+	.mexit
+.endc
+.if idn CND,WITHB
+	smxwt$	B,C1
+	.mexit
+.endc
+.if idn CND,WITHW
+	smxwt$	W,C1
+	.mexit
+.endc
+;
+;	Anything else is EXIT IF
+;
+	smifx$	CND,C1,C2,C3,\s$mlbe,EXIT	;to end label
+.ENDM
+
+;	EXIT	WITHx C1
+
+.MACRO	SMXWT$	XT,X1
+.if dif X1,R0
+ .if idn X1,#0
+	CLR'XT	r0
+ .iff
+	MOV'XT	X1,R0
+ .endc
+.endc
+	smxgn$
+.ENDM
+
+;	General exit
+
+.MACRO	SMXGN$
+ .if eq s$msav!s$mtmp				;no context
+	smret$					;return
+ .iff						;
+	smjrb$	\s$mlbe				;jump to end label
+ .endc
+.ENDM
+

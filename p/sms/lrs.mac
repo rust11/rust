@@ -1,0 +1,1687 @@
+;.title	lrs
+;
+;	%build
+;	run sy:strip smb:lrs.mla=sms:lrs.mac
+;	%end
+;	%date
+;	<18-Jan-2005 21:10:23.46>
+;	%edit
+;	<70   >
+;
+;	$atdef		RSX/VMS file attributes
+;	$atrib		define positive attribute
+;	$atrin		define negative attribute
+;	$fddef		FID - file idenfifier
+;	$ftdef		FAT - file attribute block
+;	$ifdef		RSX i/o functions
+;	$ihdef		RSX image header
+;	$ildef		RSX image label
+;	$isdef		RSX I/O and system status codes
+;	$ludef		RSX LUN - logical unit (internal)
+;	$nbdef		RSX NMB - name block
+;	$qidef		RSX QIO - queue I/O operation
+;	$ucdef		RSX unit characteristics
+;	$vcdef		VMS device characteristics
+;	$vfdef		VMS FIB - file information block
+;	$xhdef		SHAREplus RSX header
+;	$xidef		RSX information areas (glu, gtim etc)
+;	$xpdef		SHAREplus RSX extended request packet
+;	$xrdef		SHAREplus RSX runtime 
+;	$xtdef		RSX terminal
+;	$xvdef		RSX vectors and asts
+;-----------------------;
+; ATTRIBUTES		;
+;-----------------------;
+;
+; RSX/VMS attributes
+;
+;	$ATRIB	typ, len, adr
+;	$ATRIN	typ, len, adr
+;
+;	atnam.	attribute type code
+;	at.nam	attribute length
+;	atnam$	typ*256.!len
+;
+;	.word	atnam$,address
+;
+;	int	nb to define own ma$map
+;	vms	nb to include vms attributes
+;
+.MACRO	$ATDEF INT VMS	
+.if b <int>
+;
+; VMS attributes record
+;
+map	at.vsz	word,0	;atr$w_size	attribute size
+map	at.vtp	word	;atr$w_type	attribute type
+map	at.vad	long	;atr$l_addr	attribute address
+map	at.vbs		;
+;
+; RSX attributes record
+;
+map	at.xtp	byte,0	;type - negative => read,  0 => end of list
+map	at.xsz	byte	;size - 0 => 512.
+map	at.xad	word	;address
+map	at.xbs		;
+;
+; statistics block
+;
+map	at.lbn	long,0	;start lbn
+map	at.fsz	long	;file size
+map	at.act	byte	;acnt - count of current accesses to file
+map	at.lct	byte	;lcnt - count of locks on file
+map	at.sbs		;
+;
+.macro	ma$map n s i t
+map	at'n'.,,t
+map	at'n'$,,<s&377*256.!t>	
+map	at.'n,,s
+.endm
+;
+.endc
+;
+;	nam	attribute name
+;	siz	default size
+;	itm	internal processing item length
+;	typ	type code
+;
+;	nam	siz	itm	typ	
+ma$map	end	0	0	0	;		end of list
+ma$map	xui	5.	2	1	;	 - bytes mic,gic & prot, uchar
+ma$map	xpr	3	2	2	;	 - word  prot & uchar
+ma$map	fch	4	4	3	;uchar	 - block file characteristics
+ma$map	rat	32.	32.	4	;recattr - block record attributes
+ma$map	xnm	10.	6	5	;filnam  - rad50 filnametc & type & version
+ma$map	xty	4	2	6	;filtyp  - rad50 typ & version number
+ma$map	xvr	2	2	7	;filver  - word	 version number
+ma$map	eda	7	7	8.	;expdat	 - ascii expiration date
+ma$map	stb	10.	32.	9.	;statblk - block statistics block
+ma$map	hdr	512.	512.	10.	;header  - block complete header
+ma$map	bls	2.	2	11.	;blocksize word  magtape block size
+ma$map	ulb	18.	18.	12.	;userlabel
+ma$map	ada	35.	35.	13.	;ascdates  ascii rev/cre/exp ddmmmhhmmss
+ma$map	alc	14.	14.	14.	;alcontrol
+.if b <vms>
+ma$map	tim	43.	43.	15.
+map	atats.,,15.			;15 RSX attributes
+.iff	;vms
+ma$map	eba	4.	4.	15.	;endlblast
+ma$map	anm	20.	20.	16.	;ascname - ascii name.typ;ver
+ma$map	crd	8.	8.	17.	;credate - quad  creation date & time
+ma$map	rvd	8.	8.	18.	;revdate - quad  revision date & time
+ma$map	exd	8.	8.	19.	;expdate - quad  expiration date & time
+ma$map	bkd	8.	8.	20.	;bakdate - quad  backup date & time
+ma$map	uic	4	4	21.	;uic	 - words mic,,gic
+ma$map	fpr	2	2	22.	;fpro	 - word  prot
+ma$map	rpr	2	2	23.	;rpro		
+ma$map	acl	1	1	24.	;aclevel - byte  access level
+ma$map	sem	8.	8.	25.	;semask
+ma$map	rou	4	4	26.	;uic_ro	 - word	 read-only uic
+ma$map	dsq	2	2	27.	;dirseq
+ma$map	bkl	6	6	28.	;backlink
+ma$map	jnl	2	2	29.	;journal
+ma$map	h1a	1	1	30.	;hdr1_acc
+map	atats.,,31.			;31 VMS attributes
+.endc
+;
+.ENDM
+;
+; positive attribute
+;
+.MACRO	$ATRIB	TYP SIZ ADR
+	.byte	at'typ'.
+.if nb <siz>
+	.byte	siz
+.iff
+	.byte	at'typ'.
+.endc
+	.word	adr
+.ENDM
+;
+; negative attribute
+;
+.MACRO	$ATRIN	TYP SIZ ADR
+	.byte	-at'typ'.&377
+.if nb <siz>
+	.byte	siz&377
+.iff
+	.byte	at.'typ&377
+.endc
+	.word	adr
+.ENDM
+;-----------------------; 
+; FILE IDENTIFIER	;
+;-----------------------;
+;
+; RSX/VMS FID	
+;
+.MACRO	$FDDEF
+;
+map	fd.num	word,0	;file number
+map	fd.seq		;file sequence number
+map	fd.rvn	byte	;relative volume number
+map	fd.nmx	byte	;device name index?
+map	fd.fbs		;fib size
+;
+; SHAREplus FID interpretation
+;
+map	fd.fil	word,0	;fil - rad50
+map	fd.nam		;nam - rad50
+map	fd.typ		;typ - rad50
+;
+.ENDM
+;-----------------------;
+; FILE ATTRIBUTES	;
+;-----------------------;
+;
+; RSX/VMS FAT file attributes
+; RSX/VMS RAT record attribute block
+;
+; ???	ft.typ	200 => rsx directory
+;
+.MACRO	$FTDEF
+;
+; VRS filetype - compressed fat
+;
+map	ft.fty	word,0	;rad50 file type
+map	ft.frt	null	;record type
+map	ft.fro	byte	;record organisation
+map	ft.fra	null	;record attributes
+map	ft.fvc	byte	;vfc
+map	ft.frs		;record size
+map	ft.fmr		;maximum record
+map	ft.fbs		;
+;
+; RSX/VMS file attribute area
+;
+;			;xab - fab - vms fat$
+;			;rat - record attribute area
+map	ft.typ	1*0,0	;rfo - rfm - 017 - record type
+map	ft.org	1,0	;rfo - 360 - record organisation
+map	ft.atr	1,1	;    - record attributes
+map	ft.rsz	2,2	;lrl - rsize	record size
+map	ft.hbk	4*0,4	;hbk - hiblk 	high block
+map	ft.hbh	2,4	;hbh - high order
+map	ft.hbl	2,6	;hbl - low order
+map	ft.ebk	4*0,10	;ebk - efblk - endfile block
+map	ft.ebh	2,10	;ebh - high order
+map	ft.ebl	2,12	;ebl - low order
+map	ft.ffb	2,14	;ffb - ffbyte - first free byte
+map	ft.bks	1,16	;bks - bktsize - bucket size
+map	ft.vfc	1,17	;hsz - fsz - vfcsize - vfc control size
+map	ft.mrs	2,20	;hsz - mrs - macrec - maximum record size
+map	ft.deq	2,22	;dxq - deq - defext - default extension quantity
+map	ft.bbs		;
+;
+;	.gbc	word	gbc - global buffer count ?
+;	.rs0	word*4	four reserved words
+;	.vrs	word	versions ?
+;	sbn		starting block number if contiguous
+;
+; ft.typ - record type nibble
+;
+map	ftudf.,,0	;undefined
+map	ftfix.,,1	;fixed
+map	ftvar.,,2	;variable
+map	ftvfc.,,3	;variable with fixed control
+map	ftstm.,,4	;stream
+map	ftslf.,,5	;streamlf
+map	ftscr.,,6	;streamcr
+;
+; ft.org - file organisation nibble
+;
+map	ftseq.,,0	;sequential
+map	ftrel.,,1	;relative
+map	ftidx.,,2	;indexed
+map	ftdir.,,3	;direct
+;
+; ft.atr - record attributes
+;
+map	ftftn$,,1	;fortran cc
+map	ftccr$,,2	;implied cc
+map	ftprn$,,4	;print cc
+map	ftblk$,,10	;nospan
+;
+.ENDM
+;-----------------------; 
+; I/O FUNCTIONS - RSX	;
+;-----------------------;
+; 
+; RSX I/O functions
+;
+;	low	i/o mode
+;	high	i/o function code
+;
+;	[ code ] [ mode ]
+;
+;	ifxxx.	generic function
+;	ifxxx$	private function+mode
+;
+.MACRO	$IFDEF
+;
+;	name = mode | (code*256.)
+;
+.macro	ma$map	c d=0 e=0
+map	c,,<<e*256.>!d>
+.endm
+;
+;		mode	code	;
+ma$map	ifgqx$	1	0	;no abort recovery
+ma$map	ifgqq$	2	0	;express queue
+ma$map	ifgqs$	4	0	;io.umd status required
+;
+; express queue
+;
+ma$map	ifkil.	0	0	;kill current i/o request
+;
+; general device codes
+;
+ma$map	ifwlb.	0	1	;write logical block
+ma$map	ifrlb.	0	2	;read logical block
+ma$map	ifatt.	0	3	;attach device
+ma$map	ifdet.	0	4	;detach device
+;
+; device specific codes
+;
+;				; F11 (RSX11M) (from FCP DISPAT.MAC)
+ma$map	ifmnt.	0	5	; Mount      (ILLCOD)
+ma$map	ifdsm	0	6	; Dismount   (NOP)
+ma$map	ifcln.	0	7	; Close unit (.DEACC)
+;a$map	iffn8.	0	10	; Unused     (ILLCOD)
+
+ma$map	iffn5.	0	5	;
+ma$map	iffn6.	0	6	;
+ma$map	iffn7.	0	7	;
+ma$map	iffn8.	0	10	;
+
+;a$map	iffn8.	0	10	; Diagnostics
+ma$map	iffn9.	0	11	;
+;
+; directory primitives
+;
+ma$map	iffna.	0	11	;find name in directory
+ma$map	ifulk.	0	12	;unlock block - file primitive
+ma$map	ifrna.	0	13	;remove file name from directory
+ma$map	ifena.	0	14	;enter file name in directory
+;
+; file primitives
+;
+ma$map	ifacr.	0	15	;access file for read
+ma$map	ifacw.	0	16	;access file for read/write
+ma$map	iface.	0	17	;access for read/write/extend
+ma$map	ifdac.	0	20	;deaccess
+ma$map	ifrvb.	0	21	;read virtual block
+ma$map	ifwvb.	0	22	;write virtual block
+ma$map	ifext.	0	23	;extend file
+ma$map	ifcre.	0	24	;create file
+ma$map	ifdel.	0	25	;delete file
+ma$map	ifrat.	0	26	;read attributes
+ma$map	ifwat.	0	27	;write attributes
+ma$map	ifapc.	0	30	;acp control (RSX11D)
+ma$map	ifapv.	10	31	;privileged acp control
+map	iffns.,,32		;32 (octal) function codes
+;
+; command functions	
+;
+ma$map	ifkil$	12	ifkil.	;kill i/o
+ma$map	ifrdn$	22	ifkil.	;i/o rundown
+ma$map	ifunl$	42	ifkil.	;unload i/o handler task
+ma$map	ifltk$	50	ifkil.	;load a task image file
+ma$map	ifrtk$	60	ifkil.	;record task image file
+ma$map	ifsft$	30	ifkil.	;set characteristics function
+;
+.macro	ma$map	c d=0 e=0
+map	c,,<e!d>
+.endm
+;
+; file primitive functions
+;
+;		mode	code	;function must be symbolic
+ma$map	ifcln$	0	iffn7.	;close out lun - file primitive
+;
+; general device functions
+;
+ma$map	ifstc$	100	iffn5.	;set characteristics
+ma$map	ifsec$	120	iffn5.	;sense characteristics
+;
+; disk functions
+;
+ma$map	iflov$	10	ifrlb.	;load overlay
+;
+; terminal functions
+;
+ma$map	ifgts$	0	iffn5.	;get/set terminal support
+ma$map	ifgmc$	160	ifgts$	;get multiple characteristics
+ma$map	ifsmc$	40	ifgts$	;set multiple characteristics
+ma$map	ifhng$	0	iffn6.	;hangup
+ma$map	ifrpr$	0	iffn9.	;read with prompt
+;
+ma$map	ifwal$	10	ifwlb.	;write pass all
+ma$map	ifwms$	20	ifwlb.	;write with supressible message
+ma$map	ifcco$	40	ifwlb.	;write with cancel ctrlo
+ma$map	ifwbt$	100	ifwlb.	;write with breakthru
+;
+ma$map	ifrst$	1	ifrlb.	;read with special terminator
+ma$map	ifral$	10	ifrlb.	;read pass all
+ma$map	ifrne$	20	ifrlb.	;read no echo
+ma$map	ifrnc$	40	ifrlb.	;read no lower case conversion
+ma$map	ifrtm$	200	ifrlb.	;read with timeout
+;ma$map	ifrtt$		ifrlb.	;read with terminator table
+;
+ma$map	ifata$	10	ifatt.	;attach with asts
+;
+.ENDM
+;-----------------------; 
+; IMAGE HEADER - RSX	;
+;-----------------------;
+;
+;	RSX image header
+;
+;	The image header is located in three places:
+;
+;	Image	At block=il.rhb - usually 2
+;	Pvas	Starts at xl.sad - usually zero - 40000 for [1,50]
+;	p$hrsx	Resident header overlays p$hpnm $pname etc. tables.
+;		Some entries take slightly different interpretations.
+;
+;	The syscom area is used differently to RT-11.
+;	Hook routines must save/restore j$berr since RSX fortran needs it
+;	Care must be taken with the jsw and j$berr/j$blev on exits
+;
+.MACRO	$IHDEF
+;
+map	ih.csp	2,0	;h.csp	- current stack pointer
+map	ih.hbs	2,2	;h.hdln	- header byte size
+map	ih.efm	2,4	;h.eflm	- event flag mask		 - 004	bus
+map	ih.efa	2,6	;h.eflm+2 event flag address
+map	ih.cui	2,10	;h.cuic	 - current uic			 - 010	cpu
+map	ih.dui	2,12	;h.duic	 - default uic
+map	ih.ips	2,14	;h.ips	 - initial ps			 - 014	bpt
+map	ih.ipc	2,16	;h.ipc	 - initial pc
+map	ih.isp	2,20	;h.isp	 - initial sp			 - 020	iot
+map	ih.dba	2,22	;h.odva	 - odt sst vector address
+map	ih.dbl	2,24	;h.odvl	 - odt sst vector byte length	 - 024	power
+map	ih.tka	2,26	;h.tkva	 - task sst vector address
+map	ih.tkl	2,30	;h.tkvl	 - task sst vector length	 - 030	emt
+map	ih.pra	2,32	;h.pfva	 - power recovery acb address
+			;	 - ast address in resident header
+map	ih.fpa	2,34	;h.fpva	 - fpu acb address		 - 034	trap
+			;	 - ast address in resident header
+map	ih.rda	2,36	;h.rcva	 - receive data acb address
+			;	 - ast address in resident header
+;			
+; syscom - referenced by tasks directly
+;
+map	ih.esa	2,40	;h.efsv	 - event flag save area address	- 040  j$bupc
+map	ih.fsa	2,42	;h.fpsa	 - fpu/eas save area address	- 042  j$busp
+map	ih.wnd	2,44	;h.wnd	 - pointer window control area 	- 044  j$bjsw
+map	ih.dsw	2,46	;h.dsw	 - directive status word	- 046  j$busr
+map	ih.fcs	2,50	;h.fcs	 - fcs impure area pointer	- 050  j$btop
+map	ih.for	2,52	;h.fort	 - fortran impure area pointer	- 052 j$berr/lev
+map	ih.ovr	2,54	;h.ovly	 - overlay impure area pointer	- 054  j$bsys
+map	ih.vex	2,56	;h.vext	 - work area extension vector pointer
+;
+; syscom end
+;
+map	ih.spr	1,60	;h.spri	 - swap priority difference
+map	ih.nml	1,61	;h.nml	 - network mailbox lun
+map	ih.rva	2,62	;h.rrva	 - receive by reference acb address
+map	ih.x25	2,64	;	 - new
+map	ih.r01	2,66	;	 - 
+map	ih.r02	2,70	;	 - 
+map	ih.gua	2,72	;h.gard	 - pointer to guard word (lbs bad)
+map	ih.nln	2,74	;h.nlun	 - number of luns
+map	ih.bbs	0,76	;	 - header size
+;
+map	ih.lun	word*2	;h.lun	 - first lun
+;	ih.ln1		;	 - ih.lun+<4*ih.nln> = ih.wnd
+;	ih.ln2		;
+;	...		;
+;	ih.wnc		;	 - number of windows
+;	ih.wn0	ih.wbs	;
+;	ih.wn1	ih.wbs
+;
+map	ih.gr5,,-14	;r5 = relative block number of header
+map	ih.gr4,,-12	;r4 = ident word (2)
+map	ih.gr3,,-10	;r3 = ident word (1)
+map	ih.gr2,,-6	;r1 = task name (2)
+map	ih.gr1,,-4	;r1 = task name (1)
+map	ih.gr0,,-2	;r0 = transfer address
+;	i$hgua		;ih.gua points here
+;
+; image header window control block
+;
+map	ih.wpa,,0	;w.bpcb	 - partition control block address
+map	ih.wlv		;w.blvr	 - low virtual address limit
+map	ih.whv		;w.bhvr	 - high virtual address limit
+map	ih.waa		;w.batt	 - address of attachment descriptor
+map	ih.wpz		;w.bsiz	 - size of window in mmu pages
+map	ih.wpo		;w.boff	 - physical memory page offset
+map	ih.wfp	byte	;w.bfpd	 - first pdr address
+map	ih.wnp	byte	;w.bnpd	 - number of pars
+map	ih.wlp		;w.blpd	 - contents of last par
+map	ih.wbs		;w.blgh	 - window byte size
+;
+.ENDM
+;-----------------------; 
+; IMAGE LABEL - RSX	;
+;-----------------------;
+;
+; RSX image label
+;
+; block	
+; 0	image label
+; 1	luns	
+; 2	image header (usual location see ix.hrb)
+; 3	image code   (usual location)
+;
+; Label layout
+;
+; 000	il.*	low label (fixed position)
+; 040	il.r*	seven library descriptors
+; 346	ix.*	high label for most
+; 346	il.r*	eight supervisor descriptors for 11m+; 
+; mmm	ix.*	high label for 11m+
+; 772	il.*	new label (fixed position)
+;1000	il.a*	luns
+;
+;
+; 	The label is used to autodetect RSX images since it
+;	loads initially into block zero of the image area.
+;
+;	See rss:mcr.mac and uts:progra.mac
+;
+.MACRO	$ILDEF
+;
+map	il.tsk	4,0	;l$btsk - 2-word rad50 task image name
+;			; root descriptor
+map	il.par	4,4	;l$bpar - 2-word rad50 partition name
+map	il.sad	2,10	;l$bsa  - start virtual address (ne bad)
+map	il.hgv	2,12	;l$bhgv - high virtual address
+map	il.mxv	2,14	;l$bmxv - maximum root virtual address
+map	il.ldz	2,16	;l$bldz - root load size in pages (eq bad)
+map	il.mxz	2,20	;l$bmxz - root size in pages (le bad)
+map	il.off	2,22	;l$boff - offset in par0 (ne bad)
+map	il.wnd	1,24	;l$bwnd - window count
+map	il.sys	1,25	;l$bsys - system code - see $xidef
+map	il.seg	2,26	;l$bseg - overlay segment descriptor size
+map	il.flg	2,30	;l$bflg	- label flags - see below
+map	il.dat	6,32	;l$bdat - date (year,month,day) - see $xidef
+map	il.pbs		;
+map	ilpbs.,,<il.pbs-il.par>	;partition descriptor size
+;
+map	il.lib	ilpbs.*7,il.pbs
+			;l$blib - seven library descriptors
+map	il.lte	2	;	- library terminator
+map	il.lbs		;
+;
+;
+;map	il.lib	306,40	;l$blib - seven library descriptors
+;			;	- first is read-only segment - if present
+;			;	- eight more for rsx11m/plus supervisor mode
+;			;	- all following require mplus adjust
+;			
+; Following offsets shifted by 11m+
+; Use separate base register to hit this area.
+;
+map	ilmof.,,0	;	- 11m offset 
+map	iipof.,,ilpbs.*8.;	- 11m+ offset
+map	ix.pri	2,346	;l$bpri - priority
+map	ix.xfr	2,350	;l$bxfr - transfer address (for nhd tasks)
+map	ix.ext	2,352	;l$bext - initial image extension in pages (mi bad)
+map	ix.sgl	2,354	;l$bsgl - segments rel block
+map	ix.hrb	2,356	;l$bhrb - header relative block - lbn ($ihdef)
+map	ix.blk	2,360	;l$bblk - block size of label group
+map	ix.lun	2,362	;l$blun - task luns
+map	ix.rob	2,364	;l$brob - read-only virtual block number (if ix.rol ne)
+map	ix.rol	2,366	;l$brol - read-only section length in pages
+;
+; New label area (fixed location)
+;
+map	il.fl2	2,772	;l$bfl2 - second flags word
+map	il.lrl	2,774	;l$blrl - ???
+map	il.ame	2,776	;l$ame	- AME (RT-11)
+;
+;			;
+; Default lun assignments - terminated by null device name.
+;
+map	il.asg	0,1000	;l$basg - default lun assignments
+;			;
+map	il.adn	2,0	;	- 2-character device name
+map	il.aun	1,2	;	- device unit number
+map	il.ars	1,3	;	- reserved
+map	il.abs	0,4	;	- assignment block size	
+;
+; il.lib - resident libary
+;
+; 11m:	seven
+; 11m+:	seven + eight supervisor
+;
+map	il.rnm	4,0	;r$lnam - 2-word rad50 region name
+map	il.rsa	2,4	;r$lsa  - start address
+map	il.rhv	2,6	;r$lhgv - high virtual limit
+map	il.rmv	2,10	;r$lmxv - maximum virtual address
+map	il.rlz	2,12	;r$lldz - load size in blocks
+map	il.rmz	2,14	;r$lmxz - maximum size in blocks
+map	il.rof	2,16	;r$loff - offset in window?
+map	il.rwd	2,20	;r$lwnd - address of window control area?
+map	il.rsg	2,22	;r$lseg - segment?
+map	il.rfl	2,24	;r$lflg - load flags
+map	il.rda	6,26	;r$ldat - 3-word date area
+map	il.rbs	0,34	;r$lsiz - resident libary descriptor size
+assume	il.rbs. eq ilpbs.
+;
+; il.flg - label flags
+;
+map	ilnew$,,1	;ts$new - new header present
+map	ilnxh$,,2	;ts$nxh - not external header
+map	ilxhr$,,4	;ts$xhr - has external header
+map	ilsup$,,10	;ts$sup - supervisor mode library	(ame invalid)
+map	iliop$,,20	;ts$iop - privileged task does not map iopage 
+map	ilres$,,40	;ts$res - has memory resident overlays	(ame invalid)
+map	ilchk$,,100	;ts$chk - not checkpointable
+map	ilcmp$,,200	;ts$cmp - compatibility mode
+map	ilprv$,,400	;ts$prv - privileged image
+;		1000	;
+map	ilnsd$,,2000	;ts$nsd - no send can be directed to task
+map	ilslv$,,4000	;ts$slv - task can be slaved
+map	ilpmd$,,10000	;ts$pmd - generates post mortem dump
+map	ilacp$,,20000	;ts$acp	- task is acp			(ame invalid)
+map	ilnhd$,,40000	;ts$nhd - task has no header 		(ame invalid)
+map	ilpic$,,100000	;ts$pic - position independent code
+;
+; il.fl2 - new label flags
+;
+map	ilfmp$,,2	;t2$fmp
+map	ilcli$,,1	;t2$cli	- CLI task
+;
+; ih.rfl - resident library flags
+;
+map	ilrcm$,,1	;ld$typ - 0=library, 1=common
+map	ilrpc$,,4	;ld$rel - 1=pic
+map	ilrsp$,,10	;ld$sup - 1=supervisor mode library
+map	ilrcl$,,20000	;ld$cls - part of cluster library	
+map	ilrap$,,40000	;ld$rsv - apr was reserved
+map	ilrrw$,,100000	;ld$acc - 0=read-only, 1=read/write
+;
+.if ne 0
+	.MACRO	LBLDF$	L,B
+	.ASECT
+.=0
+R$LNAM:'L'.BLKW	2
+R$LSA:'L' .BLKW	1
+R$LHGV:'L'.BLKW	1
+R$LMXV:'L'.BLKW	1
+R$LLDZ:'L'.BLKW	1
+R$LMXZ:'L'.BLKW	1
+R$LOFF:'L'.BLKW	1
+R$LWND:'L'.BLKW	1
+R$LSEG:'L'.BLKW	1
+R$LFLG:'L'.BLKW	1
+R$LDAT:'L'.BLKW	3
+R$LSIZ:'L'.BLKW	0
+LD$ACC='B'100000
+LD$RSV='B'040000
+LD$CLS='B'020000
+LD$SUP='B'000010
+LD$REL='B'000004
+.=0
+L$BTSK:'L'.BLKW	2
+L$BPAR:'L'.BLKW	2
+L$BSA:'L' .BLKW	1
+L$BHGV:'L'.BLKW	1
+L$BMXV:'L'.BLKW	1
+L$BLDZ:'L'.BLKW	1
+L$BMXZ:'L'.BLKW	1
+L$BOFF:'L'.BLKW	1
+L$BWND:'L'.BLKB	1
+L$BSYS:'L'.BLKB	1
+L$BSEG:'L'.BLKW	1
+L$BFLG:'L'.BLKW	1
+L$BDAT:'L'.BLKW	3
+L$BLIB:'L'.BLKW	<7.*<R$LSIZ/2>>+1
+L$BPRI:'L'.BLKW	1
+L$BXFR:'L'.BLKW	1
+L$BEXT:'L'.BLKW	1
+L$BSGL:'L'.BLKW	1
+L$BHRB:'L'.BLKW	1
+L$BBLK:'L'.BLKW	1
+L$BLUN:'L'.BLKW	1
+L$BROB:'L'.BLKW 1
+L$BROL:'L'.BLKW	1
+	.BLKW	<512.-.>/2
+L$BASG:'L'.BLKW	0
+$LBXL='B'<8.*<R$LSIZ>>
+.=772
+L$BFL2:'L'.BLKW	1
+L$BLRL:'L'.BLKW	1
+L$AME:'L'	.BLKW	1
+	.IIF NE	.-1000	.ERROR DEFINITIONS OVERLAP NEXT LABEL BLOCK
+LB$REV='B'000400
+TS$PIC='B'100000
+TS$NHD='B'040000
+TS$ACP='B'020000
+TS$PMD='B'010000
+TS$SLV='B'004000
+TS$NSD='B'002000
+TS$PRV='B'000400
+TS$CMP='B'000200
+TS$CHK='B'000100
+TS$RES='B'000040
+TS$IOP='B'000020
+TS$SUP='B'000010
+TS$XHR='B'000004
+TS$NXH='B'000002
+TS$NEW='B'000001
+T2$FMP='B'000002
+T2$CLI='B'000001
+	.PSECT
+	.MACRO	LBLDF$	X,Y
+	.ENDM
+	.ENDM
+.endc
+.ENDM
+;-----------------------;
+; I/O STATUS		;
+;-----------------------;
+;
+;	RSX I/O status & error codes
+;
+;	is.%%%	status
+;	IS%%%.	success
+;	IE%%%.	error
+;
+.MACRO	$ISDEF		;IE and IS
+;
+; i/o status area
+;
+map	is.cod	byte,0	;i/o status code
+map	is.qua	byte	;i/o status qualifier
+map	is.val		;i/o status related value
+map	is.bbs		;
+;
+; IOSB - success codes
+;
+map	ispnd.,,0.	;pending
+map	issuc.,,1.	;success
+map	isrdd.,,2.	;dy - read deleted datamark
+map	istmo.,,2.	;tt - request timed out
+;
+map	isbv..,,5.	;a/d - at least one bad value 
+;
+map	iscrn.,,6401	;tt - cr terminator
+map	isesc.,,15401	;tt - escape terminator
+map	iscc..,,1401	;tt - ctlr/c terminator
+map	isesq.,,115401	;tt - escape sequence terminator
+map	ispes.,,100001	;tt - partial escape sequence terminator
+map	iseot.,,2001	;tt - eot terminator - block mode
+map	istab.,,4401	;tt - tab terminator - block mode
+;
+; IOSB - I/O error codes	
+;			; system standard codes
+map	iebad.,,-1.	;bad parameter
+map	ieifc.,,-2.	;invalid function code
+map	iednr.,,-3.	;device not ready
+map	iever.,,-4.	;unrecoverable error
+map	ieonp.,,-5.	;hardware option not present
+map	iespc.,,-6.	;invalid address space
+map	iedna.,,-7.	;device not attached
+map	iedaa.,,-8.	;device already attached
+map	iedun.,,-9.	;device not attachable
+map	ieeof.,,-10.	;eof detected
+map	ieeov.,,-11.	;eov detected
+map	iewlk.,,-12.	;write-locked device
+map	iedao.,,-13.	;data overrun
+map	iesre.,,-14.	;send/receive error
+map	ieabo.,,-15.	;operation aborted
+map	iepri.,,-16.	;privilege violation
+map	iersu.,,-17.	;noshare resource in use
+map	ieovr.,,-18.	;invalid read overlay request
+map	iebyt.,,-19.	;odd-byte buffer address
+map	ieblk.,,-20.	;invalid block number
+map	iemod.,,-21.	;invalid udc/ics/icr module
+map	iecon.,,-22.	;UDC connect error
+;			; file primitive codes
+map	ienod.,,-23.	;no dynamic pool space
+map	iedfu.,,-24.	;device full
+map	ieifu.,,-25.	;index device full
+map	iensf.,,-26.	;no such file
+map	ielck.,,-27.	;locked from read/write access
+map	iehfu.,,-28.	;file header full
+map	iewac.,,-29.	;accessed for write
+map	iecks.,,-30.	;file header checksum failure
+map	iewat.,,-31.	;attribute control list format error
+map	ierer.,,-32.	;file processor device read error
+map	iewer.,,-33.	;file processor device write error
+map	iealn.,,-34.	;file already processed on lun
+map	iesnc.,,-35.	;file id, file number check
+map	iesqc.,,-36.	;file id, file sequence check
+map	ienln.,,-37.	;no file accessed on lun
+map	ieclo.,,-38.	;file not properly closed
+;			; file control services codes
+map	ienbf.,,-39.	;open - no buffer space for file
+map	ierbg.,,-40.	;invalid record size
+map	ienbk.,,-41.	;file exceeds space allocated - no blocks
+map	ieill.,,-42.	;invalid operation on fdb
+map	iebtp.,,-43.	;bad record type
+map	ierac.,,-44.	;invalid record access bits set
+map	ierat.,,-45.	;invalid record attributes bits set
+map	iercn.,,-46.	;invalid record number - too large
+;			; unused
+map	iec47.,,-47.	;error 47
+;			; file control services codes
+map	ie2dv.,,-48.	;rename - 2 different devices
+map	iefex.,,-49.	;rename - new file name already exists
+map	iebdr.,,-50.	;bad directory file
+map	iernm.,,-51.	;can't rename old file system
+map	iebdi.,,-52.	;bad directory syntax
+map	iefop.,,-53.	;file already open
+map	iebnm.,,-54.	;bad file name
+map	iebdv.,,-55.	;bad device name
+;			; system standard codes
+map	iebbe.,,-56.	;bad block error
+;			; file primitive codes
+map	iedup.,,-57.	;enter - duplicate entry in directory
+;			; system standard codes
+map	iestk.,,-58.	;not enough stack space (fcs/fcp)
+map	iefhe.,,-59.	;fatal hardware error
+;			; file control services codes
+map	ienfi.,,-60.	;file id not specified
+map	ieisq.,,-61.	;invalid sequential operation
+;			; system standard codes
+map	ieeot.,,-62.	;eot detected
+;			; file primitive codes
+map	iebvr.,,-63.	;bad version number
+map	iebhd.,,-64.	;bad file header
+;			; standard system codes
+map	ieofl.,,-65.	;device offline
+map	iebcc.,,-66.	;block check error
+;			; unused
+map	iec67.,,-67.	;error code 67
+;			; network acp codes
+map	iennn.,,-68.	;no such node
+map	ienfw.,,-69.	;path lost to partner
+map	ieblb.,,-70.	;bad logical buffer
+map	ietmm.,,-71.	;too many outstanding messages
+map	iendr.,,-72.	;no dynamic space available
+map	iecnr.,,-73.	;connection rejected
+map	ietmo.,,-74.	;timeout on request
+;			; file primitive codes
+map	ieexp.,,-75.	;file expiration date not reached
+map	iebtf.,,-76.	;bad tape format
+;			; file control codes
+map	iennc.,,-77.	;not ansii D format byte count
+;			; network acp codes
+map	iennl.,,-78.	;not a network lun
+;			; ics/icr error codes
+map	ienlk.,,-79.	;task not linked to specified ics/icr interrupts
+;;map	ienst.,,-80.	;task not installed - duplicate code
+;			; network acp codes
+;;map	ieast.,,-80.	;no ast specified in connect - same as DSW -80.
+;			; ics/icr error codes
+;			; compromise
+map	ienst.,,-80.	;no task or ast
+;			; ics/icr error codes
+map	iefln.,,-81.	;device offline when offline request issued
+;			; tty error codes
+map	ieies.,,-82.	;invalid escape sequence
+map	iepes.,,-83.	;partial escape sequence
+;			; file primitive codes
+map	iealc.,,-84.	;allocation failure
+map	ieulk.,,-85.	;unlock error
+;
+map	ieers.,,-86.	;errors
+;
+; DSW - directive success codes
+;
+map	isclr.,,0	;event flag was clear
+map	isset.,,2	;event flag was set
+map	isspd.,,2	;task was suspended
+;
+; DSW - directive error codes
+;
+map	ieupn.,,-1.	;insufficient dynamic storage
+map	ieins.,,-2.	;specified task not installed
+map	iepts.,,-3.	;partition to small for task
+map	ieuns.,,-4.	;insufficient dynamic storage for send
+map	ieunl.,,-5.	;unassigned lun
+map	iehwr.,,-6.	;device handler not installed
+map	ieact.,,-7.	;device not active
+map	ieits.,,-8.	;directive inconsistant with task state
+map	iefix.,,-9.	;task already fixed/unfixed
+map	ieckp.,,-10.	;task not checkpointable
+map	ietch.,,-11.	;task is checkpointable
+;
+map	ierbs.,,-15.	;receive buffer is too small
+;sic]	iepri.,,-16.	;privilege violation - same as I/O code
+;sic]	iersu.,,-17.	;noshare resource in use - same as I/O code
+map	iensw.,,-18.	;no swap space
+map	ieilv.,,-19.	;invalid vector
+;
+map	ieast.,,-80.	;directive issued/not issued from ast
+map	iemap.,,-81.	;illegal mapping specified
+;		-82.	;
+map	ieiop.,,-83.	;window has I/O in progress
+map	iealg.,,-84.	;alignment error
+map	iewov.,,-85.	;address window overflow
+map	ienvr.,,-86.	;invalid region id
+map	ienvw.,,-87.	;invalid address window id
+map	ieitp.,,-88.	;invalid ti parameter
+map	ieibs.,,-89.	;invalid send buffer size - gt 255.
+map	ielnl.,,-90.	;lun locked in use
+map	ieiui.,,-91.	;invalid uic
+map	ieidu.,,-92.	;invalid device or unit
+map	ieiti.,,-93.	;invalid time parameters
+map	iepns.,,-94.	;partition/region not in system
+map	ieipr.,,-95.	;invalid priority - gt 250.
+map	ieilu.,,-96.	;invalid lun
+map	ieief.,,-97.	;invalid event flag - gt 64.
+map	ieadp.,,-98.	;dpb outside user space
+map	iesdp.,,-99.	;dic or dpb size invalid
+;
+; DSW - directive success codes
+;
+map	isclr.,,0	;event flag was clear
+map	isset.,,2	;event flag was set
+map	isspd.,,2	;task was suspended
+;
+.ENDM
+;-----------------------;
+; LUN 			;
+;-----------------------;
+;
+; RSX LUN - AME internal
+;
+.MACRO	$LUDEF
+;
+; LUN entry - kept to minimum size
+; $XH_DEF assumes lu.xbs eq 8
+;
+map	lu.dev	byte*2,0;device name - two ascii characters
+map	lu.uni	byte	;unit number
+map	lu.sta	byte	;status
+map	lu.bbs	null	;public size
+;
+map	lu.sts	null	;secondary status
+map	lu.cla	byte	;class
+map	lu.chn	byte	;fib number - zero => none
+map	lu.log		;logical name in rad50
+;	lu.fid		;fid of current file
+map	lu.xbs		;extended internal size
+;
+; lu.sta - status
+;
+;map	lucto$,,1	;ctrlo cancel flag
+;map	luatt$,,2	;attached
+;map	luctc$,,4	;ctrlc enabled
+;map	luprm$,,10	;permanent
+;map	luast$,,20	;unsolicited asts
+;
+map	luseq$,,1	;sequential file (construct block numbers)
+map	luent$,,2	;filename was entered  - purge otherwise
+map	ludel$,,4	;delete in progress
+map	lufil$,,10	;filename present in open
+map	lunop$,,20	;no operations on lun (e.g. .JOU)
+map	lucre$,,40	;creating a new file
+map	luprm$,,100	;overlay lun or terminal
+map	luopn$,,200	;channel open
+;
+; lu.cla - class
+;
+map	lucl$p,,17	;class positive
+map	lucrm.,,0	;rms
+map	lucte.,,1	;terminal
+map	lucdk.,,2	;disk (filestructured)
+map	lucmt.,,3	;tape 
+map	luclp.,,4	;printer
+map	luccr.,,5	;cardreader
+map	lucnf.,,6	;nonfile
+map	lucnt.,,7	;network
+map	lucun.,,8.	;unknown
+;
+map	ludir$,,20	;device has directory
+.ENDM
+;-----------------------;
+; RSX NAME BLOCK	;
+;-----------------------;
+;
+; RSX QIO name block
+;
+.MACRO	$NBDEF		
+;
+map	nb.fid	6,0	;n.fid  - 3-word file id
+map	nb.fna	6*0,6	;n.fnam	- 9-char rad50 filename
+map	nb.fil	2,6	;	- fil
+map	nb.nam	2,10	;	- nam
+map	nb.etc	2,12	;	- etc
+map	nb.typ	2,14	;n.typ  - rad50 filetype
+map	nb.ver	2,16	;n.ver  - version number
+map	nb.sta	2,20	;n.stat - status
+map	nb.nxt	2,22	;n.next - wildcard position
+map	nb.did	6,24	;n.did  - 3-word directory id
+map	nb.dev	2,32	;n.dvnm - ascii device name
+map	nb.uni	2,34	;n.unit	- unit number
+map	nb.bbs	0,36	;
+;
+; ascii filename overlay
+;
+map	nb.an1	4,2	;n.anm1	- first 4 chars of ascii name
+map	nb.an2	10,24	;n.anm2	- last 8 characters of name
+;
+; nb.sta - translation status
+;
+map	nbver$,,1	;nb.ver - explicit version number
+map	nbtyp$,,2	;nb.typ - explicit type
+map	nbnam$,,4	;nb.nam - explicit name
+map	nbsvr$,,10	;nb.svr - search wildcard version
+map	nbstp$,,20	;nb.stp - search wildcard type
+map	nbsnm$,,40	;nb.snm - search wildcard name 
+map	nbdir$,,100	;nb.dir - explicit directory
+map	nbdev$,,200	;nb.dev - explicit device name
+map	nbsd1$,,400	;nb.sd1 - wildcard project/group
+map	nbsd2$,,1000	;nb.sd2 - wildcard programmer/member
+map	nbans$,,2000	;nb.ans - ansii type 'A' name
+map	nbwch$,,4000	;nb.wch - 
+;
+.ENDM
+;-----------------------;
+; QIO			;
+;-----------------------;
+;
+;	RSX QIO DPB
+;
+.MACRO	$QIDEF	
+;
+map	qi.dic	byte,0	;directive code
+map	qi.len	byte	;length of dpb
+map	qi.fun	null	;combined mode/function
+map	qi.mod	byte	;function modifiers
+map	qi.cod	byte	;function code
+map	qi.lun	byte	;lun number
+map	qi.res	byte	;reserved
+map	qi.efn		;event flag number
+map	qi.pri		;priority
+map	qi.sba		;i/o status block address
+map	qi.ast		;ast address
+map	qi.buf	null	;p1	buffer address
+map	qi.p1		;
+map	qi.bct	null	;p2	byte count
+map	qi.p2		;p2
+map	qi.ccr	null	;p3	carriage control
+map	qi.p3		;p3
+map	qi.lbn	null	;p4	logical block number
+map	qi.p4		;p4
+map	qi.p5		;p5
+map	qi.p6		;p6
+map	qi.bbs		;
+;
+.ENDM	
+;-----------------------;
+; UNIT CHARACTERISTICS	;
+;-----------------------;
+;
+; RSX unit characteristics word
+;
+.MACRO	$UCDEF
+;
+map	uc.dev,,0	;.ascii "DV"
+map	uc.uni,,1	;device unit
+map	uc.flg,,1	;flags (200 => resident driver)
+			;device characteristics
+map	uc.dc0		; flags (see below)
+map	uc.dc1		; device specific
+map	uc.dc2		; block count for disk-like devices
+map	uc.dc3		; default buffer size
+map	ucbbs.		;
+;
+; disk usage
+;
+map	uc.cha,,uc.dc0	; characteristics (see below)
+map	uc.bhi		; (high-order block count)
+map	uc.blk		; block count
+map	uc.buf		; default buffer size
+;
+; device characteristics
+;
+map	ucrec$,,1	;record oriented device
+map	ucccl$,,2	;carriage control device
+map	uctty$,,4	;terminal device
+map	ucdir$,,10	;directory device
+map	ucsdi$,,20	;single directory device
+map	ucsqd$,,40	;sequential device (tape)
+;
+map	ucmsd$,,100	;mass storage device (disk/tape)
+map	ucspl$,,100	;device is being spooled (fcs)
+;
+map	ucumd$,,200	;usermode diagnostics supported
+map	ucext$,,400	;supports extended 22-bit controller
+;
+map	ucswl$,,1000	;software write locked
+map	ucmxd$,,1000	;mixed massbus device (fcs)
+;
+map	ucisp$,,2000	;input spooling
+map	ucosp$,,4000	;output spooling
+;
+map	ucpse$,,10000	;psuedo device
+map	uccom$,,20000	;network line device
+map	ucf11$,,40000	;files11 device
+map	ucmnt$,,100000	;device mountable
+;
+; generic device characteristics
+;
+map	ucgrm$,,ucrec$				;rms
+map	ucgte$,,ucrec$!ucccl$!uctty$!ucmnt$	;terminal
+map	ucgdk$,,ucdir$!ucf11$!ucmsd$!ucmnt$	;disk
+map	ucgmt$,,ucrec$!ucsqd$!ucmnt$		;magtape
+map	ucgct$,,ucrec$!ucsqd$!ucmnt$		;cassette
+map	ucglp$,,ucrec$!ucccl$			;lineprinter
+map	ucgcr$,,ucrec$				;cardreader
+map	ucgnf$,,0				;non-file device
+map	ucgnt$,,uccom$!ucmnt$			;commucications
+;
+; generic device buffer sizes - printer is special
+;
+map	ucbrm.,,512.	;rms
+map	ucbte.,,80.	;terminal - line width
+map	ucbdk.,,512.	;disk
+map	ucbmt.,,512.	;magtape
+map	ucbct.,,128.	;cassette
+map	ucblp.,,80.	;printer - or 132.
+map	ucbcr.,,80.	;cardreader
+map	ucbnf.,,0	;non-file device
+map	ucbnt.,,0	;lowbyte - number of syncs to turnaround.
+;			;highbyte - current sync counter
+;
+.ENDM
+;-----------------------; 
+; VMS DEVICE		;
+;-----------------------;
+;
+; VMS device characteristics
+;
+.MACRO	$VCDEF
+;
+	map	vc.ch0	word,0	;characteristics 0
+	map	vc.ch1		;
+	map	vc.ch2		;
+	map	vc.ch3		;
+	map	vc.cla		;class
+	map	vc.typ		;type
+;
+;	vc.ch0
+;
+	map	vcrec$,,1	;record oriented - sequential - not random
+	map	vcccl$,,2	;carriage control device
+	map	vctrm$,,4	;terminal device
+	map	vcdir$,,10	;directory oriented device
+	map	vcsdi$,,20	;single directory device (mfd only)
+	map	vcsqd$,,40	;sequential block oriented device - magtape
+	map	vcspl$,,100	;device is being spooled
+				;
+	map	vcopr$,,200	;good question
+	map	vcrct$,,400	;good question
+	map	vcf02$,,1000	;
+	map	vcf03$,,2000	;
+				;
+	map	vcnet$,,20000	;network device
+	map	vcfod$,,40000	;file oriented device - disk or tape
+	map	vcdua$,,100000	;dual controller? - always set for RSX AME
+;
+;	vc.ch1
+;	
+	map	vcshr$,,1	;shareable device
+	map	vcgen$,,2	;generic device
+	map	vcavl$,,4	;device is available for use
+	map	vcmnt$,,10	;device is mounted
+	map	vcmbx$,,20	;mailbox device
+	map	vcdmt$,,40	;device is marked for dismount
+	map	vcelg$,,100	;error logging is enabled
+	map	vcall$,,200	;device is allocated
+	map	vcfor$,,400	;device is mounted foreign
+	map	vcswl$,,1000	;device is software writelocked
+	map	vcidv$,,2000	;input device
+	map	vcodv$,,4000	;output device
+	map	vcrnd$,,10000	;random access device
+	map	vcrtm$,,20000	;realtime device
+	map	vcrck$,,40000	;read check is enabled
+	map	vcwck$,,100000	;write check is enabled
+;
+;	vc.ch2	
+;
+	map	vcclu$,,1	;cluster wide
+	map	vcdet$,,2	;detached terminal
+	map	vcrtt$,,4	;remote terminal ucb extension
+	map	vccdp$,,10	;dual path with 2 ucbs
+	map	vc2dp$,,20	;two paths to device
+	map	vcmsc$,,40	;mscp accessed disk or tape
+	map	vcssm$,,100	;shadow set member
+	map	vcsrv$,,200	;mscp server
+	map	vcred$,,400	;redirected terminal
+	map	vcnnm$,,1000	;node name
+;
+;	device class
+;
+	map	vcdis.,,1	;disk
+	map	vctap.,,2	;tape
+	map	vccom.,,32.	;synchronous communications
+	map	vccar.,,65.	;card reader
+	map	vcter.,,66.	;terminal
+	map	vcpri.,,67.	;printer
+	map	vcwor.,,70.	;workstation
+	map	vcrea.,,96.	;realtime
+	map	vcbus.,,128.	;bus
+	map	vcmai.,,160.	;mailbox
+	map	vcjou.,,161	;journal
+	map	vcmis.,,200.	;miscellaneous
+;
+;	disks
+;
+;	map	vcrk6.,,1	;rk06
+;	map	vcrk7.,,2	;rk07
+;	map	vcrp4.,,3	;rp04
+;	map	vcrp5.,,4	;rp05
+;	map	vcrp6.,,5	;rp06
+;	map	vcrm3.,,6	;rm03
+;	map	vcrp7.,,7	;rp07
+;	map	vcrph.,,8.	;rp07h
+;	map	vcrl1.,,9.	;rl01
+;	map	vcrl2.,,10.	;rl02
+;	map	vcrx2.,,11.	;rx02
+;	map	vcrx4.,,12.	;rx04
+;	map	vcrm8.,,13.	;rm80
+;	map	vct58.,,14.	;tu58
+;	map	vcrm5.,,15.	;rm05
+;	map	vcrx1.,,16.	;rx01
+;	map	vcm11.,,17.	;m11
+;
+.ENDM
+;-----------------------;
+; VMS FIB		;
+;-----------------------;
+;
+; VMS file information block
+;
+.MACRO	$VFDEF	
+;
+map	vf.act	byte*3,0;fib$l_acctl	access control to file
+map	vf.bct	byte	;fib$l_acctl+2	access control byte
+map	vf.wsz	byte	;fib$b_wsize	window size
+;
+map	vf.fid	word*3	;fib$w_fid	file id
+map	vf.did	word*3	;fib$w_did	directory id
+map	vf.wcc	long	;fib$w_wcc	wildcard control
+map	vf.nmc	word	;fib$w_nmctl	name control
+map	vf.exc	null ;\	;fib$w_exctl	extend control
+map	vf.ctf	word ;/	;fib$w_ctrlfunc	tape & quota for acpcontrol
+map	vf.exs	null ;\	;fib$l_exsz	extend size - zero for truncate
+map	vf.ctv	long ;/	;fib$l_ctrlval	control value - tape & quotas
+map	vf.xvb	long	;fib$l_exvbn	extend - efblk+1, truncate - last vbn
+map	vf.apc	byte	;fib$b_alopts	allocation position control
+map	vf.amd	byte	;fib$b_alalign	allocation alignment mode
+map	vf.all	null*10.;fib$w_alloc	allocation position
+map	vf.anm	word	;fib$w_loc_num	allocation file number
+map	vf.asq	word	;fib$w_loc_seq	allocation file sequence number
+map	vf.arv	word	;fib$w_loc_rvn	allocation relative volume number
+map	vf.acb	word	;fib$w_loc_addr	placement lb, cylinder or vbn
+map	vf.vlm	word	;fib$w_verlim	version limit
+map	vf.rs0	word	;		unused for longword align
+map	vf.bbs		;
+;
+; vf.acc - access control	
+;
+map	vfanw$,,1	;fib$m_nowrite	1=no write access for others
+map	vfadl$,,2	;fib$m_dlock	1=lock on deaccess - disk only
+map	vfabl$,,4	;fib$m_blk_lock	1=enable block locking
+map	vfarw$,,10 	;fib$m_rewind	1=rewind tape before access
+map	vfasp$,,20 ;\ 	;fib$m_spool	1=spool - disk only
+map	vfacp$,,20 ;/	;fib$m_curpos	1=access tape at current position
+map	vfawc$,,40	;fib$m_writeck	1=write check
+map	vfaso$,,100 ;\ 	;fib$m_seqonly	1=sequential only access - disk only
+map	vfaup$,,100 ;/	;fib$m_update	1=access tape at start of file
+;		200	;
+map	vfawr$,,400	;fib$m_write	1=write access, 0=read-only
+map	vfarc$,,1000	;fib$m_readck	1=read check
+map	vfanr$,,2000	;fib$m_noread	1=no read access for others
+map	vfant$,,4000	;fib$m_notrunc	1=no trunctate?
+;
+; vf.ac2 - access control 2
+;
+map	vfbex$,,1	;fib$m_execute	1=access using execute mode
+map	vfbpa$,,2	;fib$m_prsrvatr	1=span attributes - tape only
+map	vfbrl$,,4	;fib$m_rmslock	1=declare RMS locking on file
+map	vfbwt$,,10	;fib$m_writethru 1=writethru
+map	vfbnl$,,20	;fib$m_nolock	
+map	vfbne$,,40	;fib$m_norecord	
+;
+; vf.nmc - name control - same as rsx nb.sta
+;
+map	vfnav$,,10	;fib$m_allver	wildcard versions - common
+map	vfnat$,,20	;fib$m_alltyp	wildcard types - common
+map	vfnan$,,40	;fib$m_allnam	wilcard names - common
+map	vfndr$,,100	;		explicit directory
+map	vfndv$	200	;		explicit device
+map	vfnwc$,,400	;fib$m_wild	wildcards present
+;		400	;		wildcard group
+map	vfnnv$,,1000	;fib$m_newver	create newversion
+;		1000	;		wildcard member
+map	vfnss$,,1000	;fib$m_supersede supersede version
+map	vfnff$,,4000	;fib$m_findfid	find file id
+;		10000	;		fcs
+;		20000	;		fcs
+map	vfnlv$,,40000	;fib$m_lowver	returned if lower versions exist
+map	vfnhv$,,100000	;fib$m_highver	returned if higher versions exist
+;
+; vf.exc - extend control
+;
+map	vfeac$,,1	;fib$m_alcon	allocate contiguous
+map	vfecb$,,2	;fib$m_alconb	allocate contiguous best try
+map	vfefc$,,4	;fib$m_filcon	mark file contiguous
+map	vfead$,,10	;fib$m_alldef	allocate vf.exs or system default
+map	vfeap$,,20	;fib$m_allocatr	allocation placement present - cm
+;		40	;
+;		100	;
+map	vfeex$,,200	;fib$m_extend	extend 
+map	vfetr$,,400	;fib$m_trunc	truncate
+map	vfenh$,,1000	;fib$m_nohdrext	do not generate extension headers
+map	vfemb$,,2000	;fib$m_markbad	deallocate blocks to badblock file
+;			;
+map	vfenc$,,100000	;fib$m_nocharge	no charge
+;
+; vf.apc - allocation position control
+;
+map	vfpex$,,1	;fib$m_exact	1=exact, 0=approximate
+map	vfpoc$,,2	;fib$m_oncyl	1=position within cylinder
+;
+; vf.amd - allocation alignment mode
+;
+map	vflno.,,0	;		no location specified
+map	vflcy.,,1	;fib$m_cyl	.word 0,0,rvn,cyl,cyl
+map	vfllb.,,2	;fib$m_cyl	.word 0,0,rvn,lbn,lbn
+map	vflvb.,3	;fib$m_vbn	.word 0,0,0,vbn,vbn
+map	vflfi.,,4	;fib$c_rfi	.word num,seq,rvn,vbn,vbn
+;
+; vf.ctf - acp control function
+;
+map	vfcrv.,,1	;fib$c_rewindvol rewind tape volume
+map	vfcpe.,,2	;fib$c_posend	position at end of tape volume set
+map	vfcnv.,,3	;fib$c_nextvol	force next volume
+map	vfcsp.,,4	;fib$c_space	
+map	vfcil.,,5	;fib$c_illegal	
+map	vfcrf.,,6	;fib$c_rewindfil 
+;			;
+map	vfclv.,,7	;fib$c_lock_vol	
+map	vfcuv.,,8.	;fib$c_unlk_vol	
+map	vfceq.,,9.	;fib$c_ena_quota 
+map	vfcdq.,,10.	;fib$c_dsa_quota	
+map	vfcaq.,,11.	;fib$c_add_quota	
+map	vfceq.,,12.	;fib$c_exa_quota	
+map	vfcmq.,,13.	;fib$c_mod_quota	
+map	vfcrq.,,14.	;fib$c_rem_quota	
+map	vfcue.,,15.	;fib$c_usereot	
+map	vfcrm.,,16.	;fib$c_remap	
+;
+; vf.ctv - quota control flags	
+;
+map	vfqam$,,1	;fib$m_all_mem	
+map	vfqag$,,2	;fib$m_all_grp	
+map	vfqmu$,,4	;fib$m_mod_use	
+map	vfqmp$,,10	;fib$m_mod_perm	
+map	vfqmo$,,20	;fib$m_mod_over	
+;
+.ENDM
+;-----------------------;
+; RSX HEADER		;
+;-----------------------;
+;
+;	RSX process impure
+;
+;	Starts with a copy of the image header
+;	Overlays p$hpnm - 200+ words
+;
+.MACRO	$XHDEF
+;
+map	xh.gua	0,0	;guard - ^rrsx - overlays ih.csp
+map	xh.hea	0,62.	;image header
+map	xh.lun	word*32.*4. ;maximum of 32 luns.
+map	xh.tsk	word*2	;task name
+map	xh.top	null	;current top address
+map	xh.tks		;task size in bytes
+map	xh.efn	word*4	;event flags
+map	xh.nln	byte	;number of luns
+map	xh.ovl	byte	;overlay lun number
+map	xh.mcl		;points to hook mcr line - zero if none
+map	xh.ter		;terminal control
+map	xh.sad		;image base start address
+map	xh.lim		;task limit - start of hook
+map	xh.end		;initial top address from task label
+map	xh.tas		;terminal ast (unsolicited input)
+map	xh.mcf		;MCR flags
+map	xh.chm		;channel map
+;			;
+map	xh.frn	word*4	;rename filename
+map	xh.fnm	word*4	;filename and eva area
+;
+;	$evbeg	5
+;	$evgro	4
+;	$evitm	2	mem
+;	mem	1
+;	$evitm	2	gro
+;	gro	1
+;	$evend	2
+;
+map	xh.evh	word*11.;eva header, group, item
+map	xh.mem	word*3	;member
+map	xh.grp	word*3	;group & end
+;			;
+map	xh.bbs		;
+;
+assume	xh.bbs le 436.	;maximum size of impure area
+;
+; Constants
+;
+map	xhhrb.,,2	;header relative block
+;
+; xh.ter - terminal control
+;
+map	xhtnl$,,200	;newline just output
+;
+; xm.mcf - MCR flags
+;
+map	xhmcx$,,1	;exit by chaining to MCR
+;
+.ENDM
+;-----------------------;
+; RSX INFORMATION	;
+;-----------------------;
+;
+; l	GLUN	Lun information
+; p	GPRT	Partition information
+; t	GTSK	Task information
+; c	GTIM	Clock information
+; s		System codes
+; r		Region
+; x		Plas
+; f		Features
+;
+.MACRO	$XIDEF	
+;
+; GTIM - clock information
+;
+map	xi.cye	0,0	;year	-1900
+map	xi.cmo	2,2	;month	1:12
+map	xi.cda	2,4	;day	1:31
+map	xi.cho	2,6	;hour	0:23
+map	xi.cmi	2,10	;minute	0:59
+map	xi.cse	2,12	;second 0:59
+map	xi.cti	2,14	;tick	0:49 or 0:59
+map	xi.cfr	2,16	;freq	50, 60, 100
+map	xi.bbs	0,20	;8 words
+;
+; GLUN information area
+;
+map	xi.ldn	2,0	;device name - two ascii characters
+map	xi.lun	1,2	;unit number
+map	xi.lrs	1,3	;0=not loaded, 200=resident
+map	xi.lch	2,4	;device characteristics ($dvdef)
+map	xi.ld0	2,6	;device dependent - disk size high-order
+map	xi.ld1	2,10	;device dependent - disk size low-order
+map	xi.lbz	2,12	;default buffer size
+map	xi.lbs	0,14	;6 words
+;
+; xi.lrs - resident status
+;
+map	xilrs$,,200	;driver resident
+;
+;
+; GPRT - partition information
+;
+map	xi.ppb	2,0	;partition page base - zero
+map	xi.pps	2,2	;partition page size
+map	xi.pfw	2,4	;partition flag word
+map	xi.pbs	0,6	;
+;	dsw		;partition page base - zero
+;
+; xi.pfw - partition flag word
+;
+map	xipfs$,,0	;system controlled partition
+map	xipfu$,,1	;user controlled partition
+;
+;
+; GTSK - task information
+;
+map	xi.ttn	4,0	;rad50 task name
+map	xi.tpn	4,4	;rad50 partition name
+map	xi.ton	4,10	;rad50 owner name - rsx-11d only
+map	xi.tpr	2,14	;priority
+map	xi.tui	2,16	;uic
+map	xi.tnl	2,20	;number of luns
+map	xi.tr2	2,22	;rsx-11d
+map	xi.tr3	2,24	;rsx-11d
+map	xi.tsa	2,26	;task sst vector address
+map	xi.tsl	2,30	;task sst vector length - zero => none
+map	xi.tts	2,32	;task size in bytes
+map	xi.tsc	2,34	;system code
+map	xi.tpu	2,36	;protection uic
+map	xi.tbs	0,40	;16. words
+; 
+; xi.tsc - system codes
+;
+map	xisrd.,,0	;rsx-11d
+map	xisrm.,,1	;rsx-11m
+map	xisrs.,,2	;rsx-11s
+map	xisia.,,3	;ias
+map	xists.,,4	;rsts
+map	xisvm.,,5	;vms rsx-11 ame
+map	xismp.,,6	;rsx-11m/plus
+map	xissj.,,7	;rt-11/sj
+map	xisfb.,,8.	;rt-11/fb & rt-11/xm
+;
+.ENDM
+;-----------------------;
+; RSX RP		;
+;-----------------------;
+;
+; RSX request packet extension
+;
+.MACRO	$XPDEF
+;
+; RP usage
+;
+map	xp.dsw,,rp.p0	;dsw
+map	xp.ios,,rp.p1	;i/o status
+map	xp.ioq,,rp.p1+1	;i/o qualifier
+map	xp.iov,,rp.p2	;i/o value
+;
+map	xp.dic,,rp.p4	;dic code
+map	xp.dis,,rp.p4+1	;dic size
+map	xp.dpb,,rp.p5	;dpb+2 address
+;
+; XP extension
+;
+map	xp.dp0,,-<word*12.>;dp0
+map	xp.dp1		;dp1
+map	xp.dp2		;dp2
+map	xp.dp3		;dp3
+map	xp.dp4		;dp4
+map	xp.dp5		;dp5
+map	xp.dp6		;dp6
+map	xp.dp7		;dp7
+map	xp.dp8		;dp8
+map	xp.dp9		;dp9
+map	xp.d10		;dp10
+map	xp.d11		;dp11 - unused
+map	xp.bbs,,word*12.;
+;
+; QIO parameters
+;
+map	xp.fun	0,xp.dp0;fun	function
+map	xp.mod	byte	;mod	modifiers
+map	xp.cod	byte	;cod	function code
+map	xp.lun	byte	;lun	lun number
+map	xp.res	byte	;res	reserved
+map	xp.efn	byte	;efn	event flag number
+map	xp.pri	byte	;pri	priority - ignored
+map	xp.sba		;sba	status block address
+map	xp.ast		;ast	ast address
+map	xp.qp1		;p1	p1
+map	xp.qp2		;p2	p2
+map	xp.qp3		;p3	p3
+map	xp.qp4		;p4	p4
+map	xp.qp5		;p5	p5
+map	xp.qp6		;p6	p6
+;
+; Disk QIO parameters
+;
+map	xp.buf,,xp.qp1	;buf	buffer address
+map	xp.bct,,xp.qp2	;bct	byte count
+map	xp.ccl,,xp.qp3	;ccl	carriage control
+map	xp.blh,,xp.qp4	;	high-order byte of block number
+map	xp.blk,,xp.qp5	;blk	low-order block number
+;
+; Terminal QIO parameters
+;
+map	xp.sta,,xp.qp1	;buffer start address
+map	xp.siz,,xp.qp2	;buffer size
+map	xp.tmo,,xp.qp3	;timeout - ignored
+map	xp.pra,,xp.qp4	;prompt address
+map	xp.prs,,xp.qp5	;prompt size
+map	xp.vfc,,xp.qp6	;vertical form control
+;
+.ENDM	
+;-----------------------;
+; RSX RUNTIME		;
+;-----------------------;
+;
+.MACRO	$XRDEF
+$fedef
+;
+set	$,ferst.*512.+fe.bbs
+map	.rsdtr	long	;directive trace
+map	.rsdts	long	;directive status trace
+map	.rstnb	long	;trace nameblock
+map	.rstfd	long	;trace fid
+;
+.macro	rsxerr c
+	jsr	r0,rs$die
+	.word	c
+.endm
+;
+.macro	qioerr c
+	jsr	r0,rs$qie
+	.word	c
+.endm
+;
+.ENDM
+;-----------------------;
+; RSX TERMINAL		;
+;-----------------------;
+;
+; RSX terminal
+;
+;	xt.ccc		offsets
+;	xtccc.		characteristics - no digit
+;	xtaaa.		terminal types - at least one digit
+;	xtccc$		sysgen flags
+;
+.MACRO	$XTDEF
+;
+; Get/Set multiple characteristics
+;
+map	xt.cha	byte,0	;characteristic code
+map	xt.cvl	byte	;characteristic value
+map	xt.cbs		;
+;
+; xt.cha - characteristic codes
+;
+ma$map	xtttp.,,8.	;tc.ttp - returns terminal type
+ma$map	xtscp.,,10.	;tc.scp - is scope
+ma$map	xtsmr.,,21.	;tc.smr - is in lower-case mode
+ma$map	xtesq.,,29.	;tc.esq - can generate escapes
+ma$map	xthld.,,36.	;tc.hld - vt52 in hold screen mode - not supported
+ma$map	xtnec.,,39.	;tc.nec - is in no-echo mode
+ma$map	xtslv.,,40.	;tc.slv - is slave
+ma$map	xtpri.,,41.	;tc.pri - is privileged
+ma$map	xttbf.,,57.	;tc.tbf - typeahead buffer count
+;
+; xt.ttp - terminal type codes
+;
+map	xtuk0.,,0	;t.unk0 - unknown
+map	xta33.,,1	;t.as33 - asr 33
+map	xtk33.,,2	;t.ks33 - ksr 33
+map	xta35.,,3	;t.as35 - asr 35
+map	xtl3s.,,4	;t.l30s - la30s
+map	xtl3p.,,5	;t.l30p - la30p
+map	xtl36.,,6	;t.la36	- la36
+map	xtv05.,,7	;t.vt05	- vt05
+map	xtv50.,,8.	;t.vt50	- vt50
+map	xtv52.,,9.	;t.vt52 - vt52
+map	xtv55.,,10.	;t.vt55 - vt55
+map	xtv61.,,11.	;t.vt61 - vt61
+map	xtl18.,,12.	;t.l180 - la180
+map	xt100.,,13.	;t.v100 - vt100
+map	xtl12.,,14.	;t.l120	- la120
+map	xtsc0.,,15.	;t.scr0 - good question
+map	xtus0.,,16.	;t.usr0 - user 0
+map	xtus1.,,17.	;t.usr1 - user 1
+map	xtus2.,,18.	;t.usr2 - user 2
+map	xtus3.,,19.	;t.usr3 - user 3
+map	xtus4.,,20.	;t.usr4 - user 4
+;
+; Terminal sysgen support flags
+;
+map	xt.sg0	word,0	;support flags
+map	xt.sg1		;
+map	xt.sg2		;unused
+map	xt.sg3		;unused
+map	xt.sbs		;
+;
+; xt.sg0 - sysgen flags
+;
+map	xtacr$,,1	;f1.acr - autowrap (auto cr/lf) 
+map	xtbtw$,,2	;f1.btw - breakthru write
+map	xtbuf$,,4	;f1.buf - checkpointing during input
+map	xtuia$,,10	;f1.uia - unsolicited input ast
+map	xtcco$,,20	;f1.cco - cancel ctrl/o before writing
+map	xtesq$,,40	;f1.esq - recognise solicited escape sequences
+map	xthld$,,100	;f1.hld - hold-screen mode
+map	xtlwc$,,200	;f1.lwc - lower-case conversion
+map	xtrne$,,400	;f1.rne - read-no-echo
+map	xtrpr$,,1000	;f1.rpr - read after prompt
+map	xtrst$,,2000	;f1.rst - read with special terminator
+map	xtrub$,,4000	;f1.rub - scope delete
+map	xtsyn$,,10000	;f1.syn - [ctrl/r] sync
+map	xttrw$,,20000	;f1.trw - read-all & write-all
+map	xtutb$,,40000	;f1.utb - user task buffers
+map	xtvbf$,,100000	;f1.vbf - variable length buffers
+;
+;	xt.sg1 - system flags
+;
+map	xtsch$,,1	;f2.sch - iosmc. - set characteristics
+map	xtgch$,,2	;f2.gch - iogmc. - get characteristics
+;
+;	SHAREplus sysgen defaults
+;
+map	xtsg0$,,037770	;uia,cco,esq,lwc,rne,rpr,rst,rub,syn,trw
+map	xtsg1$,,<xtsch$!xtgch$>
+;
+.ENDM
+;-----------------------;
+; RSX VECTORS		;
+;-----------------------;
+;
+; RSX vectors and asts
+;
+.MACRO	$XVDEF	
+;
+map	xv.bus,,0	;bus - odd address
+map	xv.mmu,,2	;mmu - memory protect
+map	xv.bpt,,4	;bpt - trace/breakpoint
+map	xv.iot,,6	;iot - iot instruction
+map	xv.cpu,,10	;cpu - reserved instruction
+map	xv.emt,,12	;emt - user emts
+map	xv.trp,,14	;trp - trap instruction
+map	xv.fis,,16	;fpu - fis traps
+map	xv.bbs		;
+;
+.ENDM
+

@@ -1,0 +1,228 @@
+;.title	ldx
+;
+;	%build
+;	run sy:strip smb:ldx.mla=sms:ldx.mac
+;	%end
+;	%date
+;	<19-Mar-2003 23:19:54.00>
+;	%edit
+;	<29   >
+;
+; V4	$xddef		VXD virtual device definitions (unused, delete)
+;
+;	$xhdef		RSX process impure header - see SMS:LRS.MAC
+;	$xidef		RSX information structures - see SMS:LRS.MAC
+;	$xmdef		SHAREplus XM PLAS structures
+;	 xg		System global record
+;	 xr		System region record
+;	 xw		System window record
+;	$xpdef		RSX request packet extension - see SMS:LRS.MAC
+;	$xrdef		RSX feature runtime  - see SMS:LRS.MAC
+;	$xtdef		RSX terminal - see SMS:LRS.MAC
+;	$xvdef		RSX vectors and asts - see SMS:LRS.MAC
+;-----------------------;
+; XD Virtual Devices	;
+;-----------------------;
+;
+; V4
+;
+.MACRO	$XDDEF	
+map	xd.dev	word,0	; virtual device
+map	xd.opr		; operation
+map	xd.sta		; status
+map	xd.ast		; ast address
+map	xd.kp6		; ast KP6
+map	xd.ioq		; I/O queue element
+map	xd.hwa		; hardware base address
+			;
+map	xd.dat	0	; data area
+map	xd.fun		; function
+map	xd.csr		; csr content
+map	xd.buf		; buffer address
+map	xd.cnt		; byte or word count
+map	xd.bhi		; block high
+map	xd.blk		; block low
+map	xd.p00		; others
+map	xd.p01		;
+map	xd.p02		;
+map	xd.p03		;
+map	xd.p04		;
+map	xd.p05		;
+map	xd.bbs
+.ENDM
+;-----------------------;
+; XM PLAS		;
+;-----------------------;
+;
+;	xm.aaa		Kernel XM record
+;	xm.r%%		User region definition block
+;	xm.w%%		User window definition block
+;	xg.aaa		System global record
+;	xr.aaa		System region record
+;	xw.aaa		System window record
+;
+.MACRO	$XMDEF	
+;
+; System global region control record
+;
+map	xg.siz	word,0	;region size
+map	xg.add	word	;region address
+map	xg.sta	byte	;status
+map	xg.shc	byte	;share count
+map	xg.nam	word*2	;
+map	xg.bbs		;
+;
+;	xg.sta
+;
+;;map	xgbyp$,,20	;gr.cac - cache bypass set
+map	xgnrf$,,40	;do not return to free list on elimination
+map	xgprm$,,100	;permanent - never eliminated
+map	xgage$,,200	;automatic global elimination
+;
+;	xg.shc
+;
+map	xgprv$,,200	;private global region after create
+;
+; System region control record
+;
+map	xr.add	word,0	;page number. 0 => not active
+map	xr.siz		;page size
+map	xr.sta	byte	;r.gsts - region status (see below)
+map	xr.nwd	byte	;number of windows mapped to region
+map	xr.ctl		;extended control flags (same as xms%%$)
+map	xr.fnm	word*4	;region file name
+map	xr.bbs		;
+;
+map	xrsto$,,1	;r.stop - created by settop
+map	xrshr$,,2	;r.shar - shared 
+map	xrexi$,,4	;r.exit - exit eliminates
+;;map	xrbyp$,,10	;r.cach - cache bypass set
+;
+; System window control record
+;
+map	xw.rbp	word,0	;w.brcb - rb pointer
+map	xw.lvr		;low virtual address
+map	xw.hvr		;high virtual address
+map	xw.siz		;page size
+map	xw.off		;offset into region
+map	xw.fpd	byte	;first pdr in window
+map	xw.npd	byte	;number of pdrs in window
+map	xw.lpd		;last pdr in window
+map	xw.bbs		;
+;
+; XM KERNEL RECORD
+;
+;	User region/window definition working copy
+;	Process region control records
+;	Process window control records
+;
+;	User window definition
+map	xmmrn.,,8.	;eight regions
+map	xmmwn.,,7.	;seven windows
+;
+map	xm.wid	byte,0	;window id
+map	xm.wap	byte	;window apr
+map	xm.wba		;window base virtual address
+map	xm.wsi		;window page size
+map	xm.wri		;window region id
+map	xm.wof		;window page offset
+map	xm.wle		;window page length
+map	xm.wst		;window status
+map	xm.wbs	null	;user window byte size
+;
+;	User region definition
+;	Overlays user window definition
+;
+map	xm.rid	word,0	;region id
+map	xm.rsz		;region size
+map	xm.rst		;region status
+map	xm.rbs	null	;standard region size
+map	xm.rnm	word*2	;v5.2 region name
+map	xm.gbs		;global region size
+;			;SHAREplus section
+map	xm.rct	,,xm.rbs;region control
+map	xm.rfn	word*4	;region filename
+map	xm.rui		;region uic - 0=> default
+map	xm.rpr		;region protection 0=> default
+map	xm.sbs	null	;section size
+;
+assume	xm.sbs gt xm.wbs ;make sure second is larger
+;
+map	xm.xrg	xr.bbs*xmmrn. ;eight regions
+map	xm.xwn	xw.bbs*xmmwn. ;seven windows
+map	xm.bbs		;
+;
+; Virtual settop control in system window zero
+;
+map	xm.vhi	word,xm.xwn+xw.lvr ;(xw.lvr) virtual high limit (from image)
+map	xm.vto		;(xw.hvr) virtual top (unused)
+map	xm.vsi		;(xw.siz) page size of region
+map	xm.vri		;(xw.off) region id
+map	xm.chn	byte	;(xm.fpd) plas channel for VM: operations
+map	xm.f00	byte	;(xm.npd) free
+map	xm.csa		;(xw.lpd) csw area address xm.chn
+;
+; xm.rst - region definition status - RT-11
+;
+;;map	xmnsm$,,20	;rs.nsm - assign base address above system memory
+;;map	xmbas$,,40	;rs.bas - explicit region base address
+;;map	xmbyp$,,100	;rs.cac - set cache bypass
+map	xmrex$,,200	;rsexi$ - eliminate global region on exit
+map	xmreg$,,400	;rsegr$ - eliminate global region
+map	xmrag$,,1000	;rsage$ - automatic global elimination
+map	xmrcg$,,2000	;rscgr$ - create global region if not found
+map	xmrgb$,,4000	;rsgbl$ - use global region
+map	xmrne$,,10000	;rsnew$ - new region was created
+map	xmrna$,,20000	;rsnal$ - region was not previously allocated
+			;
+map	xmrun$,,40000	;rsunm$ - windows were unmapped - xm.rst only
+map	xmrcr$,,100000	;rscrr$ - region created - success - xm.rst only
+;
+; xm.rct - extended region control and status - native + some rt-11
+;
+map	xmsxi$,,1	;rsexi$ - eliminate global region on exit - temporary
+map	xmseg$,,2	;rsegr$ - eliminate global region
+map	xmsag$,,4	;rsage$ - automatic global elimination
+map	xmscg$,,10	;rscgr$ - create global region if not found
+map	xmspm$,,20	;rsspm$ - permanent region - native
+map	xmsgb$,,20	;rsgbl$ - use global region - rt-11
+map	xmsne$,,40	;rsnew$ - new region was created
+map	xmsna$,,100	;rsnal$ - region was not previously allocated
+			;
+map	xmsde$,,400	;delete global section
+map	xmsnc$,,1000	;do not create new section
+map	xmsin$,,2000	;initialize new section
+;		4000	;nowrite
+;		10000	;
+;		20000	;
+map	xmsex$,,40000	;existing section opened
+map	xmscr$,,100000	;section created
+;
+; Window definition status
+;
+map	xmwmp$,,400	;map window after creating it
+map	xmwel$,,10000	;windows were eliminated
+map	xmwun$,,20000	;windows were unmapped
+map	xmwcr$,,100000	;window created - success
+;
+; XM request errors
+;
+map	xmwal.,,0	;wae - window alignment error
+map	xmtmw.,,1	;tmw - too many windows
+map	xmiri.,,2	;ilr - invalid region id
+map	xmiwi.,,3	;ilw - invalid window identifier
+map	xmwrm.,,4	;off - window/region missmatch
+map	xmwnm.,,5	;nmp - window was not mapped
+map	xmtmr.,,6	;tmr - too many regions
+map	xminm.,,7	;siz - insufficient available. r0 = largest
+map	xmimm.,,10	;isz - impossible memory request. 0 or more than total.
+map	xmdea.,,11	;dea - no slot to deallocate - rt-11 ignores this
+map	xmgnf.,,12	;ngr - global region not found
+map	xmtmg.,,13	;tmg - too many global regions
+map	xmgru.,,14	;riu - global region in use
+map	xmgrp.,,15	;prv - global region privately owned
+;
+map	xmstc.,,36*256.+9. ;XM settop emt code
+;
+.ENDM
+

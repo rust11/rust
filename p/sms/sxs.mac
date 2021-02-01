@@ -1,0 +1,194 @@
+;	------------------------------------------------------------------------
+;	SKIP	Exit block
+;	------------------------------------------------------------------------
+;
+;	SKIP	
+;	SKIP	IF cond
+;
+;	begin:	BEGIN
+;			...
+;		SKIP			goto end
+;			...
+;		END
+;	end:
+;
+;	Work down the repeat nest until a SMBLK. nest is found
+
+.MACRO	SKIP	CND X1,X2,X3
+	ma$rns = s$mrns
+.rept	100
+	.IIF	LE ma$rns, smerr$ <SKIP not in block>
+	smgrb$	\ma$rns,s$mrbl
+	smgle$	\s$mrbl,s$mlbe,s$mtyp,s$mmod
+	.iif	eq s$mtyp-smblk., .mexit	;got the block
+;	ma$rns=ma$rns-1				;next down
+.endr
+.if nb <CND>
+	smifx$	CND,X1,X2,X3,\s$mlbe,SKIP
+.iff
+	smjrb$	\s$mlbe
+.endc
+.ENDM
+;	------------------------------------------------------------------------
+;	STACK	Define stack layout
+;	------------------------------------------------------------------------
+;
+;	STACK	p1 p2 p3
+;
+;		P1=0
+;		P2=cell.
+;		P3=cell.*2
+
+.macro	smstc$
+.if eq smcrt.
+.MACRO	STACK	P1,P2,P3,P4,P5,P6,P7,P8,P9,P10
+	ma$off=0
+.irp	ma$itm,<P1 P2 P3 P4 P5 P6 P7 P8 P9 P10>
+  .if nb <ma$itm>
+	ma$itm=ma$off
+	ma$off=ma$off+cell.
+  .endc
+.endr
+.ENDM
+.endc
+.endm
+;	------------------------------------------------------------------------
+;	STOP	Stop program
+;	------------------------------------------------------------------------
+;
+;	In a number of places the code reachs an impossible point. The STOP
+;	code calls a crash routine to report that fact.
+;
+;	STOP is sometimes used in dispatch vectors where it must occupy
+;	exactly one cell.
+;
+;	Both STOP macros can pass a one-byte reason code. Unused at present.
+;
+;	pdp$	TRAP	reason
+;	vax$	BSBW	RX$STP
+;	vax$	.BYTE	reason
+;
+;	SMBPT. forces a BPT into the stop vector.
+
+.MACRO	STOP	REA=0
+.if ne smbpt.
+	bpt
+ .if ne gcvax.
+	nop
+	nop
+	nop
+ .endc
+.iff
+pdp$	TRAP	REA
+vax$	BSBW	RX$STP
+vax$	.BYTE	REA		;round up to cell
+.endc
+.ENDM
+;	------------------------------------------------------------------------
+;	SUBR	Setup subroutine prologue
+;	------------------------------------------------------------------------
+;
+;		AUTO	...
+;	SUBR	NAM <SAV>
+;
+;		NAM		Subroutine name
+;		<SAV>		Registers to save
+;
+;	begin:	SUBR	....
+;
+;		EXIT	....	goto end
+;
+;		END
+;	end:	rts	pc
+;
+;	Subroutines do not permit parameters. The offsets are set to an
+;	odd address. This will not cause a trap on an 11/23. Debugging
+;	should be done on a machine that supports odd addresses. The
+;	previous technique of using an I/O page address fails in 23kw process.
+;
+;	BLANK SUBROUTINES
+;	Blank subroutines are specified by omitting the subroutine name.
+;	They do not support temps or register saves. They do support 
+;	structured control statements. They are usually used for multiple
+;	entry point pieces of code.
+;
+;	begin:	SUBR
+;		  ENTRY XA
+;		  ...
+;		  ENTRY NAMB
+;		  ...
+;		END
+;	end:	rsb
+;
+; ???	Registers are pushed in the order specified - VAX uses reverse order
+
+.MACRO	SUBR	NAM SAV
+	.iif	ne smtra.,  TRACE NAM	;trace the routine
+	.NARG	s$mnrg
+.if gt s$mnst				;nesting is shot
+	smerr$ <"NAM" is nested>,s$mnst
+	s$mnst=0			;reset it
+.endc					;
+	smfac$	NAM			;define new error message facility
+.if nb NAM				;not a blank subroutine
+NAM:	.iif 	eq s$mloc, .GLOBL NAM	;global name
+.endc
+	s$mloc=0			;clear once only local flag
+;
+;	Handle NATIVE procedures
+;
+	ma$mod=smsho.			;assume not native
+.if ne s$mnat				;native
+	s$mnat=0			;once-only
+ .if ne smvax.				;
+	ma$mod=ma$mod!smnat.		;native
+	.word	0			;VAX native mode mask
+ .endc					;
+.endc
+;
+;	Setup temp count
+;
+	s$mtmp=AUTO.+<cell.-1>/cell.	;compute temp count
+	AUTO.=0				;zap that
+	s$msav=0			;none pushed so far
+;
+;	Handle debug mode
+;
+	.IF	GT smspm.
+		TST	-(SP)
+		MOV	SP,(SP)
+		s$msav=1			;count it
+	.ENDC
+;
+;	Push saved items
+;
+	smsav$	SAV
+;
+;	Create temporary space
+;
+	.IIF	EQ s$mtmp-1,	TST	-(SP)
+	.IIF	EQ s$mtmp-2,	CMP	-(SP),-(SP)
+	.IIF	GE s$mtmp-3,	SUB	#s$mtmp*cell.,SP
+;
+;	Register SUBR block
+;
+	s$mbgn=s$mbgn+1
+	s$mend=s$mbgn+smend.
+	s$mnst=s$mnst+1
+	s$mpns=s$mnst
+	smplb$	\s$mnst,s$mbgn,smsub.,ma$mod
+	s$mlon=0				;cancel long block
+;
+;	Calculate address of stack items
+;	Set parameter addresses to invalid address
+;
+	sm.ppc=s$mtmp+s$msav*cell.
+	P1=1
+	P2=1
+	P3=1
+	P4=1
+	P5=1
+	P6=1
+	P7=1
+.ENDM
+

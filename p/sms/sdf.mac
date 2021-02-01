@@ -1,0 +1,193 @@
+;	FIDEF$	File definitions
+;
+;	BUF	Buffer I/O
+;	LIN	Stream line
+;	CHA	Stream character
+;	RAW	Stream passall
+;	UFO	User file open
+
+.MACRO	FIDEF$
+vax$	$fabdef
+vax$	$rabdef
+	set	fibfs.	512		;buffer size
+vax$	set	fifns.	64		;filename size
+pdp$	set	fifns.	16		;
+	set	fircs.	134		;record size
+
+plex	FI.	file block
+	class	fi.err			;error code
+	flags	fi.flg	pos=fi.err	;file flags
+					;
+	pointer	fi.buf			;buffer base address
+	size	fi.siz			;buffer size
+	index	fi.blk			;next block
+pdp$	index	fi.blh			;long block number
+	pointer	fi.pnt			;next character pointer
+	counter	fi.cnt			;buffer bytes in use
+					;
+	pointer	fi.fnm			;filename address
+	size	fi.alc			;allocated size
+pdp$	size	fi.alh			;
+	size	fi.len			;actual file length
+pdp$	size	fi.leh			;
+	size	fi.ffb	typ=word.	;first free byte
+	class	fi.mod	typ=word.	;record format and access mode flags
+	size	fi.rsz	typ=word.	;record size (for fixed)
+	flags	fi.dev	typ=word.	;device flags
+					;
+	pointer	fi.get			;get input routine
+	value	fi.f00	7		;7 free integers
+					;
+pdp$	value	fi.chn	typ=word.	;channel number
+pdp$	state	fi.var	typ=byte.	;variable record state - see below
+pdp$	state	fi.odd	typ=byte.	;variable odd record size flag
+pdp$	size	fi.rbc	typ=word.	;variable record byte count
+vax$	area	fi.fab	fab$c_bln	;record access block
+vax$	area	fi.rab	rab$c_bln	;record access block
+	gamut	figam.			;
+
+serial	FI.ERR
+	..	finor.			;normal - no error
+	..	fieof.			;end of file
+	..	fierr.			;i/o error
+	..	fiovr.			;record buffer overflow
+	..	fifno.			;no file open
+	..	fifil.			;missing file block
+	..	fibuf.			;missing buffer
+	..	fifnf.			;file not found
+	..	fiful.			;device full
+	..	fidev.			;invalid device
+	..	fibsy.			;device is busy
+	..	fiprt.			;file protection
+	..	fiwef.			;write end of file
+	..	fifnm.			;directory name
+	..	fiopn.			;open file error
+	..	ficre.			;enter
+	..	fiexs.			;file already exists
+	..	filck.			;file is locked
+	..	ficon.			;connect file error
+	..	fidis.			;disconnect file error
+	..	firea.			;read error
+	..	fiwri.			;write error
+	..	ficlo.			;close error
+	..	fichn.			;channel assignment error
+	..	firen.			;rename error
+	..	fidel.			;delete error
+	..	fichn.			;channel assignment error
+	..	fiiec.			;invalid error code
+
+powers	FI.FLG				;low byte has error code
+	..	fidis$	pos=8		;this is the display
+	..	ficon$			;this is the console
+	..	ficre$			;file was created - create-if
+	..	fiipt$			;input file
+	..	fiopt$			;output file
+	..	fieof$			;first end of file
+	..	fiopn$	pos=15		;file is open
+
+;	fidel$		;delete on close
+;	fipar$		;parse only
+;	fiext$		;extended open
+;
+;	fiufo$		user-file open
+;	fichn$		channel setup
+;	fieva$		eva packet follows
+;	fiper$		create with permanent name
+;
+;	fi.fnm		file name
+;	fi.def		default name
+;	fi.rsl		result name
+;	fi.siz		output file size
+;	fi.uic		file uic
+;	fi.prt		file protection
+;	fi.dat		file date
+;	fi.tim		file time
+
+powers	FI.DEV
+	..	fidev$			;device, spooled, foreign
+	..	ficon$			;console - process terminal
+	..	fiter$			;terminal
+	..	fitap$			;magtape
+	..	firem$			;remote device
+	..	fimbx$			;mailbox
+	..	fidir$			;has directory
+	..	fifor$			;mounted foreign
+
+serial	FI.MOD				;low byte has record format
+	..	fiudf.			;undefined (default to stream)
+	..	fifix.			;fixed length records
+	..	fivar.			;variable length
+	..	fivfc.			;variable with fixed length control
+	..	fistm.			;stream (default)
+	..	fislf.			;stream with line feed
+	..	fiscr.			;stream with carriage return
+	..	firaw.	pos=15.		;raw byte stream (not vax/vms)
+	..	fiblk$	pos=16.		;blocked records
+					;32/64/128 free for VMS fab$b_rfm
+
+powers	FI.MOD				;high byte has flags
+	..	fibin$	pos=8		;binary file
+	..	firep$	pos=14		;report errors	
+	..	fiext$	pos=15		;extended file open (unused)
+
+
+serial	FI.VAR	Variable record control
+	..	ficnt.			;count required
+	..	fidat.			;in data
+	..	fiter.			;at terminator
+.ENDM
+;	if	(r0)+ seton (r2)		;if set
+;	...	bisw	(r0),fi.dev(r4)		;set the bit
+;	tstw	(r0)+
+;	untilw	(r0) eq
+;
+;
+;powers	FI.DEV
+;	..	fiavl$
+;	..	fidev$			;device, spooled, foreign
+;	tt:
+;	..	ficon$			;console - process terminal
+;	map	vctrm$,,4	;terminal device
+;	..	fiter$			;terminal
+;	MM: ...
+;	map	vcsqd$,,40	;sequential block oriented device - magtape
+;	..	fitap$			;magtape
+;	vx: ...
+;	map	vcnet$,,20000	;network device
+;	..	firem$			;remote device
+;	mb: ...
+;	map	vcmbx$,,20	;mailbox device
+;	..	fimbx$			;mailbox
+;	not wonly$
+;	map	vcidv$,,2000	;input device
+;	..	fiipt$			;input device
+;	not ronly$
+;	map	vcodv$,,4000	;output device
+;	..	fiopt$			;output device
+;	map	vcdir$,,10	;directory oriented device
+;	rt11a
+;	..	fidir$
+;	map	vcfod$,,40000	;file oriented device - disk or tape
+;	stranger
+;	..	fifil$			;file structured (implies mounted)
+;	map	vcrtm$,,20000	;realtime device
+;	..	firtm$			;realtime device
+;	map	vcspl$,,100	;device is being spooled
+;	..	fispl$			;spooled
+;	map	vcfor$,,400	;device is mounted foreign
+;	..	fifor$			;mounted foreign
+;
+;	map	vcrec$,,1	;record oriented - sequential - not random
+;	map	vcccl$,,2	;carriage control device
+;	
+;	map	vcshr$,,1	;shareable device
+;	map	vcgen$,,2	;generic device
+;	map	vcavl$,,4	;device is available for use
+;	map	vcmnt$,,10	;device is mounted
+;	map	vcdmt$,,40	;device is marked for dismount
+;	map	vcall$,,200	;device is allocated
+;	map	vcswl$,,1000	;device is software writelocked
+;	map	vcrnd$,,10000	;random access device
+;	map	vcrck$,,40000	;read check is enabled
+;	map	vcwck$,,100000	;write check is enabled
+

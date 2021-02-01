@@ -1,0 +1,570 @@
+;.title	lxr - realtime macros
+;
+;	%build
+;	run sy:strip smb:lxr.mla=sms:lxr.mac
+;	%end
+;	%date
+;	<31-Jan-2006 17:43:48.17>
+;	%edit
+;	<27   >
+;	%end
+;-----------------------;
+; VECTOR DISPATCH	;
+;-----------------------;
+;
+; Vector definition block
+;
+; SHARE-eleven compatible form
+;
+.MACRO	$DEFVE
+$vddef
+.ENDM
+;
+; SHAREplus vector definition
+;
+.MACRO	$VDDEF
+;
+map	vd.sra	word,0	;isr address
+map	vd.idb		;idb address
+map	vd.vec		;vector address	
+map	vd.pri		;priority
+map	vd.isr		;isr address
+map	vd.csr		;csr address
+map	vd.ini		;init routine
+map	vd.qui		;quit routine
+map	vd.typ		;type
+;
+map	vd.tsr		;timer service routine
+map	vd.hot		;timer high order
+map	vd.lot		;timer low order
+;
+map	vd.fsr		;fork service routine
+map	vd.fr5		;fork r5
+map	vd.fr4		;fork r4
+;
+map	vd.bbs	null	;SHAREplus form
+map	vd.bs		;block byte size
+;
+.ENDM
+;-----------------------;
+; REALTIME DATA		;
+;-----------------------;
+;
+.MACRO	$DEFRT
+$RDDEF
+.ENDM
+;
+.MACRO	$RDDEF
+$VDDEF
+;
+;.mcall	$peek	$poke	$peekb	$pokeb	$probe
+;.mcall	j$init	j$quit	j$prob	j$call	j$wait
+;.mcall	s$begi	s$end	s$vect	s$list
+;.mcall	j$set	j$clear	j$if
+;.mcall	s$conn	s$disc
+;.mcall	s$mfps	s$mtps	s$exps
+;.mcall	s$mtpw	s$mfpw	s$expw
+;.mcall	s$chki	s$spl
+;.mcall	s$chrn	s$chin	s$chsf	s$chks
+;.mcall	s$chin	s$inte	s$chsf	s$fork
+;.mcall	s$mark	s$canc
+;.mcall	s$sign	s$set	s$clear	s$if
+;.mcall	s$save	s$rest
+;.mcall	s$convm	s$conmp	s$movbl
+;.mcall	s$getb	s$putb	s$getw	s$putw
+;
+; Server messages
+;
+rt.suc	=	0	;success
+rt.nrt	=	1	;no real time
+rt.vna	=	2	;vector not available
+rt.idm	=	3	;insufficient dynamic memory
+rt.ism	=	4	;invalid server mapping
+rt.svm	=	5	;server version missmatch
+rt.abo	=	6	;server abort signal
+rt.nrr	=	7	;no real-time rights
+rt.ica	=	8.	;invalid CSR address	
+;
+rt.raw	=	1	;raw interrupt
+pr0	=	0
+pr4	=	^o200
+pr5	=	^o240
+pr6	=	^o300
+pr7	=	^o340
+ps	=	^o177776
+;
+; Address control records
+;
+ad.job	=	0
+ad.vir	=	2
+ad.pag	=	0
+ad.off	=	2
+ad.hop	=	0
+ad.lop	=	2
+;
+sig0	=	^o1
+sig1	=	^o2
+sig2	=	^o4
+sig3	=	^o10
+sig4	=	^o20
+sig5	=	^o40
+sig6	=	^o100
+sig7	=	^o200
+sig8	=	^o400
+sig9	=	^o1000
+sig10	=	^o2000
+sig11	=	^o4000
+sig12	=	^o10000
+sig13	=	^o20000
+sig14	=	^o40000
+sig15	=	^o100000
+;
+.ENDM
+;-----------------------;
+; REALTIME JOB CALLS	;
+;-----------------------;
+;
+; J$INIT - Init realtime environment
+;
+; jrinit in joblib
+;
+.MACRO	J$INIT
+	.globl	jr$ini
+	call	jr$ini
+.ENDM
+;
+; J$QUIT - Quit realtime
+;
+.MACRO	J$QUIT
+	.globl	sv$abt
+	j$call	sv$abt
+.ENDM
+;
+; J$PROB - Probe address
+; j$prov in joblib
+;
+.MACRO	J$PROB	ADDR
+.iif nb <addr>,mov addr,r0
+	.globl	j$prov
+	call	j$prov
+.ENDM
+;
+; J$CALL - Call kernel routine
+;
+.MACRO	J$CALL	ADDR
+.iif nb <routine>,mov addr,r0
+	.globl	sv$cal
+	call	@sv$cal
+.ENDM
+;
+; J$WAIT - Wait for realtime signal
+;
+.MACRO	J$WAIT	SIGNAL,?LABEL1,?LABEL2
+.if nb <signal>
+label1:	bit	signal,sv$fla
+	bne	label2
+.iftf
+	.globl	sv$wai
+	j$call	sv$wai
+.ift
+	br	label1
+label2:
+.endc
+.ENDM
+;
+; J$SET - Set signal
+;
+.MACRO	J$SET	SIGNAL
+	.globl	sv$fla
+	bis	signal,sv$fla
+.ENDM
+;
+; J$CLEA - Clear signal
+;
+.MACRO	J$CLEA	SIGNAL
+	.globl	sv$fla
+	bic	signal,sv$fla
+.ENDM
+;
+; J$IF - Test signal
+;
+.MACRO	J$IF	SIGNAL,SET,CLEAR
+	.globl	sv$fla
+.iif nb <signal>,bit signal,sv$fla
+.iif nb <set>,bne set
+.iif nb <clear>,beq clear
+.ENDM
+;-----------------------;
+; REALTIME SERVER HEADER;
+;-----------------------;
+;
+; S$BEGIN - Define server header
+;
+.MACRO	S$BEGI	LIST=0,DONE=SV$SUC,PROBE=SV$SUC,INIT=SV$SUC,QUIT=SV$SUC
+;
+; setup by system
+;
+.if df svdef$
+$=^o20000
+svp6o.=^o120000				;par6-par1
+sv$lst::
+meta	<sv$map c d e><.iif nb <e>,.word e><c=$><$=$+2>
+.iff
+.psect	server
+meta	<sv$map c d e><c::.word d>
+sv$beg::.globl	sv$end
+.endc
+;
+sv$map	sv$gua	<^rrt0>	<^rrt0>		;guard word
+sv$map	sv$cal	sv$err	sv$cax		;j$call
+sv$map	sv$wai	sv$err	rt$wai+svp6o.	;j$wait
+sv$map	sv$abt	sv$err	rt$abt+svp6o.	;j$quit
+sv$map	sv$con	sv$err	rt$con+svp6o.	;s$connect
+sv$map	sv$dis	sv$err	rt$dis+svp6o.	;s$disconnect
+sv$map	sv$cks	sv$err	in$sys		;s$chks	s$ensys
+sv$map	sv$crs	sv$err	rt$crs+svp6o.	;s$chrs
+sv$map	sv$cis	sv$err	in$int		;s$chis	s$inten
+sv$map	sv$csf	sv$err	rt$csf+svp6o.	;s$chsf	s$fork
+sv$map	sv$sig	sv$err	rt$sig+svp6o.	;s$signal
+sv$map	sv$mar	sv$err	rt$mar+svp6o.	;s$mark
+sv$map	sv$can	sv$err	rt$can+svp6o.	;s$cancel
+sv$map	sv$clk	sv$err	rt$clk+svp6o.	;s$clock
+sv$map	sv$sav	sv$err	rt$sav+svp6o.	;s$save
+sv$map	sv$res	sv$err	rt$res+svp6o.	;s$restore
+;
+sv$map	sv$cvm	sv$err	rt$cvm+svp6o.	;s$convm
+sv$map	sv$cmp	sv$err	rt$cmp+svp6o.	;s$conmp
+sv$map	sv$gpt	sv$err	rt$gpt+svp6o.	;s$getbyt, s$putbyt, s$getwrd, s$putwrd
+sv$map	sv$mbl	sv$err	rt$mbl+svp6o.	;s$movblk
+;
+sv$map	sv$cax	sv$err	<iot>		;system
+sv$map	sv$sp1	sv$err	<<^rsys>>	;system
+sv$map	sv$sp2	sv$err	<-^o34>		;server (r0 -> kernel routine)
+sv$map	sv$sp3	sv$err	<return>	;return from system call
+sv$map	sv$wak	sv$err	rt$wak+svp6o.	;wake up process
+sv$map	sv$sp5	sv$err	rt$err+svp6o.	;spare 5
+;
+sv$map	sv$imp	0	0		;job impure
+sv$map	sv$par	0	0		;server par1
+;
+; the following are setup by the job
+;
+sv$map	sv$top	sv$end			;end of the server
+sv$map	sv$inf	0			;error information
+sv$map	sv$fla	0			;flags
+sv$map	sv$lis	list			;vector list
+sv$map	sv$don	done			;done routine
+sv$map	sv$pro	probe			;probe routine
+sv$map	sv$ini	init			;init routine
+sv$map	sv$qui	quit			;abort/exit routine
+;
+sv$map	sv$suc	<^o5727>		;c=0 => success (tst (pc)+)
+sv$map	sv$err	sec			;c=1 => failure
+sv$map	sv$nop	return			;
+;
+.ENDM
+;-----------------------;
+; REALTIME SERVER CALLS	;
+;-----------------------;
+;
+; S$VECT - Define a vector
+;
+.MACRO	S$VECT	VEC=0,PRI=0,ISR=0,CSR=0,INIT=0,QUIT=0,TYPE=0,TSR=0,HOT=0,LOT=0
+	.word	0,0,vec,^c<pri*^o40>&^o340,isr,csr,init,quit,type
+	.word	tsr,hot,lot
+	.word	0,0,0
+.ENDM
+;
+; S$LIST - Define a vector list
+;
+.MACRO	S$LIST	V1,V2,V3,V4,V5,V6,V7,V8
+.irp $,<v1,v2,v3,v4,v5,v6,v7,v8>
+.iif nb <$>,.word $
+.endr
+	.word	0
+.ENDM
+;
+; S$CONN - Connect a vector list
+;
+.MACRO	S$CONN	LIST
+.iif nb <list>,mov list,r0
+	.globl	sv$con
+	call	@sv$con
+.ENDM
+;
+; S$DISC - Disconnect a vector list
+;
+.MACRO	S$DISC	LIST
+.iif nb <list>,mov list,r0
+	.globl	sv$dis
+	call	@sv$dis
+.ENDM
+;
+; S$MFPS - Move from processor status
+;
+.MACRO	S$MFPS	ADDR=-(SP)
+	mov	@#ps,addr
+.ENDM
+;
+; S$MTPS - Move to processor status
+;
+.MACRO	S$MTPS	ADDR=(SP)+
+	movb	addr,@#ps
+.ENDM
+;
+; S$EXPS - Exchange processor status
+;
+.MACRO	S$EXPS	ADDR
+.if nb <addr>
+	mov	@#ps,-(sp)
+	movb	addr,@#ps
+.iff
+	mov	(sp),-(sp)
+	mov	@#ps,2(sp)
+	movb	(sp)+,@#ps
+.endc
+.ENDM
+;
+; S$MFPW - Move from process status word
+;
+.MACRO	S$MFPW	ADDR=-(SP)
+	mov	@#ps,addr
+.ENDM
+;
+; S$MTPW - Move to processor status word
+;
+.MACRO	S$MTPW	ADDR=(SP)+
+	mov	addr,@#ps
+.ENDM
+;
+; S$EXPW - Exchange processor status word
+;
+.MACRO	S$EXPW	ADDR
+.if nb <addr>
+	mov	@#ps,-(sp)
+	movb	addr,@#ps
+.iff
+	mov	(sp),-(sp)
+	mov	@#ps,2(sp)
+	mov	(sp)+,@#ps
+.endc
+.ENDM
+;
+; S$SPL - Set processor priority
+;
+.MACRO	S$SPL	PRI
+.if eq pri
+	clrb	@#ps
+.iff
+	movb	#pri*^o40,@#ps
+.endc
+.ENDM
+;
+; S$CHKI - Change from kernel to interrupt mode
+;
+.MACRO	S$CHKI	ADDR,PRI,PS,PSW
+	psh	@#^o177776
+.iif nb <psw>,mov psw,@#^o177776
+.iif nb <ps>,movb ps,@#^o177776
+.iif nb <pri>,movb #pri*40,@#^o177776
+	call	addr
+.ENDM
+;
+; S$CHKS - Change from kernel to system state
+; S$ENSY - Enter system state
+;
+.MACRO	S$CHKS	ADDR=#SV$NOP,PRI=0
+	.globl	sv$nop
+	mov	@#ps,-(sp)
+	mov	addr,-(sp)
+	.globl	sv$cks
+	jsr	r5,@sv$cks
+	.word	^c<pri*^o40>&^o340
+.ENDM
+;
+.MACRO	S$ENSY	ADDR=#SV$NOP,PRI=0
+	.globl	sv$nop
+	mov	@#ps,-(sp)
+	mov	addr,-(sp)
+	.globl	sv$cks
+	jsr	r5,@sv$cks
+	.word	^c<pri*^o40>&^o340
+.ENDM
+;
+; Change from raw interrupt to interrupt state
+;
+.MACRO	S$CHRN	PRI=7
+	.globl	sv$crs
+	jsr	r5,@sv$crs
+	.word	^c<pri*^o40>&^o340
+.ENDM
+;
+; S$CHIN - Change to interrupt state
+; S$INTE - Change to interrupt state
+;
+.MACRO	S$CHIN	PRI=7
+	.globl	sv$cks
+	jsr	r5,@sv$cks
+	.word	^c<pri*^o40>&^o340
+.ENDM
+;
+.MACRO	S$INTE	PRI=7
+	.globl	sv$cks
+	jsr	r5,@sv$cks
+	.word	^c<pri*^o40>&^o340
+.ENDM
+;
+; S$CHSF - Change from interrupt to fork state
+; S$FORK - Change from interrupt to fork state
+;
+.MACRO	S$CHSF	VDB
+.iif nb <vdb>,mov vdb,-(sp)
+	.globl	sv$csf
+	call	@sv$csf
+.ENDM
+;
+.MACRO	S$FORK	VDB
+.iif nb <vdb>,mov vdb,-(sp)
+	.globl	sv$csf
+	call	@sv$csf
+.ENDM
+;
+; S$MARK - Mark time
+;
+.MACRO	S$MARK	VDB
+.iif nb <vdb>,mov vdb,-(sp)
+	.globl	sv$mar
+	call	@sv$mar
+.ENDM
+;
+; S$CANC - Cancel marktime
+;
+.MACRO	S$CANC	VDB
+.iif nb <vdb>,mov vdb,-(sp)
+	.globl	sv$can
+	call	@sv$can
+.ENDM
+;
+; S$CLOC - Get clock parameters
+;
+.MACRO	S$CLOC	addr
+.iif nb <addr>,psh addr
+	.globl	sv$clk
+	call	@sv$clk
+.ENDM
+;
+; S$WAKE - Wake process
+;
+.MACRO	S$WAKE	SIGNAL
+.iif nb <signal>,bis signal,sv$fla
+	.globl	sv$wak
+	call	@sv$wak
+.ENDM
+;
+; S$SIGN - Signal process
+;
+.MACRO	S$SIGN	SIGNAL
+.iif nb <signal>,bis signal,sv$fla
+	.globl	sv$sig
+	call	@sv$sig
+.ENDM
+;
+; S$SET - Set signal
+;
+.MACRO	S$SET	SIGNAL
+	.globl	sv$fla
+	bis	signal,sv$fla
+.ENDM
+;
+; S$CLEA - Clear signal
+;
+.MACRO	S$CLEA	SIGNAL
+	.globl	sv$fla
+	bic	signal,sv$fla
+.ENDM
+;
+; S$IF - IF signal
+;
+.MACRO	S$IF	SIGNAL,SET,CLEAR
+	.globl	sv$fla
+.iif nb <signal>,bit signal,sv$fla
+.iif nb <set>,bne set
+.iif nb <clear>,beq clear
+.ENDM
+;
+; S$SAVE - Save registers
+;
+.MACRO	S$SAVE
+	.globl	sv$sav
+	jsr	r5,@sv$sav
+.ENDM
+;
+; S$REST - Restore registers
+;
+.MACRO	S$REST
+	.globl	sv$res
+	jsr	r5,@sv$res
+.ENDM
+;
+; S$END - Define server end
+;
+.MACRO	S$END
+sv$end::
+.ENDM
+;
+;-----------------------;
+; REALTIME MAPPED CALLS	;
+;-----------------------;
+;
+.MACRO	S$CONV	FROM,TO
+.iif nb <from>,psh from	
+.iif nb <to>,psh to 
+	.globl	sv$cvm
+	call	@sv$cvm			;call for conversion
+.ENDM 
+;
+.MACRO	S$CONM	FROM,TO
+.iif nb <from>,psh from	
+.iif nb <to>,psh to 
+	.globl	sv$cmp
+	call	@sv$cmp			;call for conversion
+.ENDM
+;
+.MACRO	S$GETB	ADB,RES
+.iif nb <adb>,mov adb,-(sp)
+	clr	-(sp)			;0=getbyt
+	.globl	sv$gpt
+	call	@sv$gpt
+.iif nb <res>,movb (sp)+,res
+.ENDM 
+;
+.MACRO	S$GETW	ADB,RES
+.iif nb <adb>,mov adb,-(sp)
+	psh	#2			;2=getwrd
+	.globl	sv$gpt
+	call	@sv$gpt
+.iif nb <res>,mov (sp)+,res
+.ENDM 
+;
+.MACRO	S$PUTB	ADB,DAT
+.iif nb <dat>,movb dat,-(sp)
+.iif nb <adb>,mov adb,-(sp)
+	mov	#4,-(sp)		;4=putbyt
+	.globl	sv$gpt
+	call	@sv$gpt
+.ENDM 
+;
+.MACRO	S$PUTW	ADB,DAT
+.iif nb <dat>,mov dat,-(sp)
+.iif nb <adb>,mov adb,-(sp)
+	mov	#6,-(sp)		;6=putwrd
+	.globl	sv$gpt
+	call	@sv$gpt
+.ENDM 
+;
+.MACRO	S$MOVB	ADDR
+.iif nb <addr>,mov addr,-(sp)
+	.globl	sv$mbl
+	call	@sv$mbl
+.ENDM 
+
