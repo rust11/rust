@@ -1,0 +1,84 @@
+/* file -  riroo - rider compiler root */
+#include "c:\f\m\rid\rider.h"
+#include "c:\f\m\ris\rib\ridef.h"
+#include "c:\f\m\rid\chdef.h"
+#include "c:\f\m\rid\iodef.h"
+#include "c:\f\m\rid\imdef.h"
+#include "c:\f\m\rid\stdef.h"
+#if Win
+int quFpro = 1;
+int quFear = 0;
+#else 
+int quFpro = 0;
+int quFear = 1;
+#endif 
+/* code -  locals */
+static int ri_com (int ,char **);
+static void ri_qua (char *);
+static void ri_hlp (void );
+int quFhdr = 0;
+/* code -  main */
+int main(
+int cnt ,
+char *(*vec ))
+{ im_ini ("RIDER");
+  io_ini ();
+  if ( ri_com (cnt, vec)) {
+    ri_par ();
+    io_clo (ioCout); }
+  im_exi ();
+} 
+/* code -  ri_com - process command */
+int ri_com(
+int cnt ,
+char *(*vec ))
+{ char *ipt = riPsop;
+  char *opt = riPsop;
+  switch ( cnt) {
+  case 3:
+    ri_qua (vec[2]);
+    if ( *vec[2]) {opt = vec[2] ;}
+  case 2:
+    ri_qua (vec[1]);
+    if ( *vec[1]) {ipt = vec[1] ;}
+   break; default: 
+     ri_hlp ();return 0;
+     }
+  ipt = vec[1] ? vec[1]: "tt:";
+  if( !io_src(ipt, (quFhdr ? "noname.d": "noname.r")))return 0;
+  opt = vec[2] ? vec[2]: "tt:";
+  return ( io_opn (ioCout, opt, (quFhdr ? "noname.h": "noname.c"), "w"));
+} 
+/* code -  ri_qua - get qualifiers */
+void ri_qua(
+char *fld )
+{ int qua ;
+  if( !fld)return;
+  while ( *fld) {
+    if ( *fld != _slash) {
+       fld++;continue; }
+    *fld++ = 0;
+    if ( (qua = *fld++) == 0) {qua = _qmark ;}
+    qua = ch_upr (qua);
+    switch ( qua) {
+    case 'H':
+      ++quFhdr;
+     break; case 'L':
+      ++quFlin;
+     break; case 'V':
+      ++quFver;
+     break; default: 
+      im_rep ("E-Invalid qualifier /%s", (char *)&qua);
+       }
+  } 
+} 
+/* code -  ri_hlp - help */
+void ri_hlp()
+{ PUT("RIDER/C Language Translator V4.0\n");
+  PUT("\n");
+  PUT("      rider infile.r outfile.c\n");
+  PUT("\n");
+  PUT("/H    Translate .D header file to .H file\n");
+  PUT("/L    Display line numbers\n");
+  PUT("/V    Verify input\n");
+} 
