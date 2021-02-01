@@ -1,0 +1,74 @@
+/* file -  uskwd - delete/truncate/create/attr/touch */
+#include "c:\m\usb\usmod.h"
+/* code -  kw_del - delete file */
+kw_del(
+cuTctx *ctx )
+{ if( !cu_opr (ctx))return 0;
+  if ( !(fi_del (ctx->Pspc, ""))) {quFque = 1 ;}
+  return 1;
+} 
+/* code -  kw_tru - truncate file */
+kw_tru(
+cuTctx *ctx )
+{ FILE *fil ;
+  if( !cu_opr (ctx))return 0;
+  fil = fi_opn (ctx->Pspc, "wb", "");
+  if ( fil) {fi_clo (fil, "") ;}
+  return 1;
+} 
+/* code -  su_cre - create a file (preprocessor operation) */
+su_cre(
+cuTctx *ctx )
+{ FILE *fil ;
+  if( !fi_mis (ctx->P1, ""))return 0;
+  if( !cu_opr (ctx))return 0;
+  fil = fi_opn (ctx->P1, "wb", "");
+  if ( fil) {fi_clo (fil, "") ;}
+  return 0;
+} 
+/* code -  kw_atr - alter file attributes */
+kw_atr(
+cuTctx *ctx )
+{ if( !cu_opr (ctx))return 0;
+  fi_sat (ctx->Pspc, quVcat, quVsat, "");
+  return 1;
+} 
+/* code -  kw_tou - touch file */
+kw_tou(
+cuTctx *ctx )
+{ if( !cu_opr (ctx))return 0;
+  fi_stm (ctx->Pspc, &ctx->Itim, "");
+} 
+/* code -  kw_zap - zap directory */
+kw_zap(
+cuTctx *ctx )
+{ if( quFque && !cu_opr (ctx))return 0;
+  if ( !(fi_del (ctx->Pspc, ""))) {quFque = 1 ;}
+  return 1;
+} 
+/* code -  su_zap - setup for zap */
+#define _suZAP  "Delete all files and directory [%s]? "
+su_zap(
+cuTctx *ctx )
+{ char *pth = ctx->P1;
+  if( !cu_ask (ctx,_suZAP,pth))return 0;
+} 
+/* code -  pu_zap - post process zap */
+pu_zap(
+cuTctx *ctx )
+{ char cur [mxSPC];
+  char *pth = ctx->P1;
+  char *dir = pth;
+  st_upr (pth);
+  if ( *dir && dir[1] == ':') {
+    dir += 2; }
+  for(;;)  {
+    if( !cu_ask (ctx, "Remove directory [%s]? ", pth))return 0;
+    if( !dr_sho (cur, drPTH))break;
+    if ( st_sam (cur, dir)) {
+      dr_set ("..", 0); }
+    if( !dr_rem (pth))break;
+    return 1;
+  } 
+  cu_err ("E-Error removing directory [%s]", pth);
+} 

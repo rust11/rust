@@ -1,0 +1,84 @@
+/* file -  usdir - directory operations */
+#include "f:\m\usb\usmod.h"
+#include "f:\m\rid\dsdef.h"
+cu_dsp (cuTctx *,char *,char *);
+/* code -  kw_chg - change directory */
+kw_chg(
+cuTctx *ctx )
+{ char *dir = ctx->P1;
+  char buf [mxLIN];
+  int dep = 0;
+  int rep = 0;
+  int cnt ;
+  int aut = 0;
+  if( !*dir)return ( kw_sho (ctx) );
+  while ( dep < 4) {
+    cu_abt ();
+    buf[0] = 0;
+    for (cnt = (1); cnt<=(dep); ++cnt) {
+      ++rep;
+      st_app ("..\\", buf); }
+    st_app (dir, buf);
+    if ( dr_set (buf, 0)) {
+      if ( rep) {kw_sho (ctx) ;}
+      return 1; }
+    ++dep;
+  } 
+  return 0;
+} 
+/* code -  kw_sho - show default directory */
+kw_sho(
+cuTctx *ctx )
+{ char dir [mxSPC];
+  int drv ;
+  dr_sho (dir, drPTH);
+  st_upr (dir);
+  PUT("%s\n", dir);
+} 
+/* code -  kw_mak - make directory */
+kw_mak(
+cuTctx *ctx )
+{ char *dir = ctx->P1;
+  char buf [128];
+  cu_dsp (ctx, ctx->P1, buf);
+  fi_loc (buf, buf);
+  if( !cu_que (ctx, buf))return 1;
+  if( dr_mak (buf))return 1;
+  im_rep ("E-Error making directory [%s]", buf);
+  return 0;
+} 
+/* code -  kw_rem - remove directory */
+kw_rem(
+cuTctx *ctx )
+{ char buf [128];
+  char *dir = ctx->P1;
+  cu_dsp (ctx, ctx->P1, buf);
+  if ( !dr_avl (buf)) {
+     im_rep ("E-No such directory [%s]", buf);return 0; }
+  st_upr (buf);
+  if( !cu_ask (ctx, "Remove directory [%s]? ", buf))return 1;
+  if( dr_rem (buf))return 1;
+  im_rep ("E-Error removing directory [%s]", buf);
+  return 0;
+} 
+/* code -  kw_trd - show directory tree */
+kw_trd(
+cuTctx *ctx )
+{ 
+} 
+/* code -  cu_dsp - construct directory specification */
+cu_dsp(
+cuTctx *ctx ,
+char *dir ,
+char *buf )
+{ *buf = 0;
+  if ( !st_fnd (":", dir)) {
+    dr_sho (buf, drPTH);
+    if (( *dir != '\\')
+    &&(*st_lst(buf) != '\\')) {
+      st_app ("\\", buf); } }
+  st_app (dir, buf);
+  if ( *st_lst (buf) != '\\') {
+    st_app ("\\", buf); }
+  st_upr (buf);
+} 

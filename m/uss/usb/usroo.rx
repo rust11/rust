@@ -1,0 +1,538 @@
+/* file -  usroo - utilities root */
+#include "f:\m\usb\usmod.h"
+#include "f:\m\rid\codef.h"
+#if Dos
+#include "f:\m\rid\kidef.h"
+#endif 
+/* code -  qualifiers */
+int cuFque = 0;
+int quFall = 0;
+int quFany = 0;
+int quFbin = 0;
+int quFbar = 0;
+int quFbig = 0;
+int quFbyt = 0;
+int quFdat = 0;
+int quFdbg = 0;
+int quFdec = 0;
+int quFdtb = 0;
+int quFdir = 0;
+int quFdou = 0;
+int quFdwn = 0;
+int quFeps = 0;
+int quFfor = 0;
+int quFfre = 0;
+int quFfst = 0;
+int quFful = 0;
+int quFhex = 0;
+int quFimg = 0;
+int quFlog = 0;
+int quFlng = 0;
+int quFnew = 0;
+int quFoct = 0;
+int quFold = 0;
+int quFpau = 0;
+int quFpee = 0;
+int quFque = 0;
+int quFnqr = 0;
+int quFqui = 0;
+int quFrep = 0;
+int quFnrp = 0;
+int quFrev = 0;
+int quFsma = 0;
+int quFtim = 0;
+int quFtit = 0;
+int quFtrm = 0;
+int quFtot = 0;
+int quFuse = 0;
+int quFvrb = 0;
+int quFwid = 0;
+int quFwrd = 0;
+int quVfro = 0;
+int quVlft = 0;
+int quVtop = 0;
+int quFlst = 0;
+int quFvie = 0;
+int quFsiz = 0;
+int quFacc = 0;
+int quFcop = 0;
+int quFren = 0;
+int quFmov = 0;
+int quVlin = 0;
+int quVatr = 0;
+int quVcat = 0;
+int quVsat = 0;
+int quVcol = 0;
+int quVsrt = 0;
+cuTctx *cuPsrc = NULL;
+cuTctx *cuPdst = NULL;
+/* code -  kw_hlp - display help */
+char *cuAhp0 [] =  {
+  "US - file utilities",
+  "",
+  NULL,
+  };
+char *cuAhp1 [] =  {
+  "change    path...  /directory",
+  "compare   old new  /all/full/totals",
+  "                   /directory/binary",
+  "count     path     /all/full/totals",
+  "create    file     /directory",
+  "delete    path     /directory",
+  "detab     from to  /directory",
+  "dump      path     /first",
+  "differ    old new  /all/full/totals",
+  "directory path     /bare/free/full/wide",
+  "kopy      from to  (simple copy)",
+  "make      path     /directory",
+  "list      path     /date/size/time",
+  "                   /peek/title/usage",
+  "help",
+  "move      old new",
+  "protect   path",
+  "remove    path      /directory",
+  "rename    old new    ",
+  "review    path       ",
+  "search    path text /all/full/totals",
+  "see       path       ",
+  "show                /directory",
+  "sort      path      /from=n/down/trim",
+  "touch     path       ",
+  "truncate  path      (autoquery)",
+  "type      path       ",
+  "unprotect path",
+  "zap       d:\\dir",
+  "",
+  NULL,
+  };
+char *cuAhp2 [] =  {
+  "",
+  "query:    /any /query /force (Yes No All Quit)",
+  "attrs:    /archive /directories /hidden /readonly /system /volume",
+  "other:    /new /old /big /small /[no]replace",
+  "order:    /chronological /names /reverse /spatial /type",
+  NULL,
+  };
+/* code -  kw_hlp - display help */
+kw_hlp(
+cuTctx *ctx )
+{ char *(*hlp );
+  char *(*lft );
+  char *(*rgt );
+  int len = 0;
+  hlp = cuAhp0;
+  while ( *hlp) {puts (*hlp++) ;}
+  lft = hlp = cuAhp1;
+  while ( *hlp++) {++len ;}
+  rgt = lft + (len /= 2);
+  while ( len--) {
+    printf ("%-40s", *lft++);
+    if ( *rgt) {puts (*rgt++) ;}
+  } 
+  hlp = cuAhp2;
+  while ( *hlp) {puts (*hlp++) ;}
+} 
+/* code -  main */
+static void cu_exi (void );
+void main(
+int cnt ,
+char *(*vec ))
+{ cuPsrc = cu_ctx ();
+  cuPdst = cu_ctx ();
+  im_ini ("US");
+  co_ctc (coENB);
+  imPexi = &cu_exi;
+  cu_cmd (cuPsrc, cnt, vec);
+  im_exi ();
+} 
+/* code -  cu_exi - exit routine */
+void cu_exi()
+{ ki_exi ();
+} 
+/* code -  cu_abt - check abort */
+void cu_abt()
+{ if ( ki_ctc ()) {im_exi () ;}
+} 
+/* code -  cu_ctx - make a context */
+cuTctx *cu_ctx()
+{ cuTctx *ctx = me_acc ( sizeof(cuTctx));
+  ctx->Pcmd = me_acc (mxLIN);
+  ctx->P1 = me_acc (mxLIN);
+  ctx->P2 = me_acc (mxLIN);
+  ctx->P3 = me_acc (mxLIN);
+  ctx->Ppth = me_acc (mxLIN);
+  ctx->Pspc = me_acc (mxLIN);
+  ctx->Ptar = me_acc (mxLIN);
+  ctx->Pobf = me_acc (mxLIN*2);
+  ctx->Phdr = me_acc (mxLIN);
+  return ( ctx);
+} 
+/* code -  cu_cmd - get command */
+#define cuTkwd struct cuTkwd_t 
+struct cuTkwd_t
+{ int Vtag ;
+  char *Pnam ;
+  int Vmin ;
+  int Vmax ;
+  cuTrou *Pfun ;
+  cuTrou *Ppre ;
+  cuTrou *Ppos ;
+  char *Pjoi ;
+   };
+cuTkwd cuAkwd [] =  {
+#define kwCHG 0
+  kwCHG, "cha*nge", 0, 9, NULL, &kw_chg,NULL,NULL,
+#define kwCMP 8
+  kwCMP, "com*pare", 2, 2, &kw_cmp, &su_cmp,NULL, "with",
+#define kwCOP 16
+  kwCOP, "cop*y", 2, 2, &kw_tra, &su_tra,NULL, "to",
+#define kwCNT 24
+  kwCNT, "cou*nt", 1, 1, &kw_cnt, NULL, NULL,NULL,
+#define kwCRE 32
+  kwCRE, "cr*eate", 1, 1, NULL, &su_cre,NULL,NULL,
+#define kwDEL 40
+  kwDEL, "del*ete", 1, 1, &kw_del, NULL, NULL,NULL,
+#define kwDTB 48
+  kwDTB, "det*ab", 2, 2, &kw_edt, &su_edt,NULL,"to",
+#define kwDMP 56
+  kwDMP, "du*mp", 1, 1, &kw_dmp, NULL, NULL,NULL,
+#define kwDIF 64
+  kwDIF, "dif*fer", 2, 2, &kw_dif, &su_cmp,NULL, "with",
+#define kwDIR 72
+  kwDIR, "di*rectory", 0, 1, NULL, NULL, NULL,NULL,
+#define kwLST 80
+  kwLST, "li*st", 0, 1, NULL, NULL, NULL,NULL,
+#define kwMAK 88
+  kwMAK, "mak*e", 1, 1, NULL, &kw_mak,NULL,NULL,
+#define kwMOV 96
+  kwMOV, "mo*ve", 2, 2, &kw_tra, &su_tra,NULL,"to",
+#define kwHLP 104
+  kwHLP, "he*lp", 0, 0, NULL, &kw_hlp,NULL,NULL,
+#define kwREM 112
+  kwREM, "rem*ove", 1, 1, NULL, &kw_rem,NULL,NULL,
+#define kwREN 120
+  kwREN, "ren*ame", 2, 2, &kw_tra, &su_tra,NULL,"to",
+#define kwREV 128
+  kwREV, "rev*iew", 1, 1, &kw_typ, NULL, NULL,NULL,
+#define kwPRN 136
+  kwPRN, "pr*int", 1, 2, &kw_prn, NULL, NULL,NULL,
+#define kwPRO 144
+  kwPRO, "prot*ect", 1, 1, &kw_atr, NULL, NULL,NULL,
+#define kwSEA 152
+  kwSEA, "sea*rch", 2, 2, &kw_sea, &su_sea,NULL,"for",
+#define kwSEE 160
+  kwSEE, "see", 1, 1, &kw_see, NULL, NULL,NULL,
+#define kwSHO 168
+  kwSHO, "sh*ow", 0, 1, NULL, &kw_sho,NULL,NULL,
+#define kwSRT 176
+  kwSRT, "sor*t", 1, 1, &kw_srt, NULL, NULL,NULL,
+#define kwTOU 184
+  kwTOU, "tou*ch", 1, 1, &kw_tou, NULL, NULL,NULL,
+#define kwTRU 192
+  kwTRU, "tru*ncate", 1, 1, &kw_tru, NULL, NULL,NULL,
+#define kwTYP 200
+  kwTYP, "ty*pe", 1, 1, &kw_typ, NULL, NULL,NULL,
+#define kwUNP 208
+  kwUNP, "unpr*otect", 1, 1, &kw_atr, NULL, NULL,NULL,
+#define kwZAP 216
+  kwZAP, "zap", 1, 1, &kw_zap, &su_zap,&pu_zap, NULL,
+#define kwINV 224
+  kwINV, NULL, 0, 0, NULL, NULL, NULL,NULL,
+  };
+cuTkwd kwSvar  =  {
+  kwCMP, "compare/dir", 2, 2, NULL, &kw_var,NULL, "with",
+  };
+cu_cmd(
+cuTctx *ctx ,
+int cnt ,
+char *(*vec ))
+{ char *(*qua )= vec;
+  cuTkwd *kwd = cuAkwd;
+  char *cmd ;
+  ++vec;
+  cmd = ctx->Pcmd;
+  vec = cu_arg (ctx, vec, cmd);
+  vec = cu_arg (ctx, vec, ctx->P1);
+  vec = cu_arg (ctx, vec, ctx->P2);
+  vec = cu_arg (ctx, vec, ctx->P3);
+  if ( *cmd == 0) {cu_err (E_MisCmd, NULL) ;}
+  --ctx->Varg;
+  for(;;)  {
+    if ( kwd->Pnam == NULL) {
+      cu_err (E_InvCmd, ctx->Pcmd); }
+    if( cl_mat (cmd, kwd->Pnam))break;
+    ++kwd;
+  } 
+  if ( quFdir) {
+    switch ( kwd->Vtag) {
+    case kwCMP:
+      kwd = &kwSvar;
+      ++quFacc;
+     break; case kwCRE:
+      kwd = &cuAkwd[kwMAK];
+     break; case kwDEL:
+      kwd = &cuAkwd[kwREM];
+     break; case kwCHG:
+    case kwDIR:
+    case kwSHO:
+     break; default: 
+      ;
+       } }
+  ctx->Pfun = kwd->Pfun;
+  ctx->Pjoi = kwd->Pjoi;
+  st_cop (kwd->Pnam, ctx->Pcmd);
+  st_rep ("*", "", ctx->Pcmd);
+  *ctx->Pcmd = ch_upr (*ctx->Pcmd);
+  if (( ctx->Varg < kwd->Vmin)
+  ||(ctx->Varg > kwd->Vmax)) {
+    cu_err (E_InvCnt, ctx->Pcmd); }
+  switch ( kwd->Vtag) {
+  case kwCMP:
+    ++quFacc;
+   break; case kwCNT:
+    ++quFacc;
+   break; case kwCRE:
+    cu_wld (ctx, 0);
+   break; case kwDEL:
+  case kwTRU:
+    cu_wld (ctx, 1);
+   break; case kwDIR:
+    ++quFsiz;
+  case kwLST:
+    ++quFlst;
+    if ( !*ctx->P1) {
+      st_cop ("*.*", ctx->P1);
+      ++ctx->Varg; }
+   break; case kwPRO:
+    quVsat = drRON_;
+   break; case kwREV:
+    ++quFvie;
+   break; case kwSEA:
+    ++quFacc;
+   break; case kwUNP:
+    quVcat = drRON_|drSYS_|drHID_;
+   break; case kwCOP:
+    ++quFcop;
+   break; case kwMOV:
+    ++quFmov;
+   break; case kwREN:
+    ++quFren;
+   break; case kwDTB:
+    ++quFdtb;
+     }
+  if ( quFfor || quFany) {quFque = 0 ;}
+  if ( quFnqr) {quFque = 0 ;}
+  quFque |= cuFque;
+  if ( quFany) {quFqui = 1 ;}
+  if ( quFbar && !quFlog) {quFqui = 1 ;}
+  if ( quFlog) {quFqui = 0 ;}
+  if ( kwd->Ppre != NULL) {
+    if( !(*kwd->Ppre)(ctx))return 0;
+    if( kwd->Pfun == 0)return 0; }
+  cu_scn (ctx);
+  if ( kwd->Ppos != NULL) {
+    if( !(*kwd->Ppos)(ctx))return 0; }
+  return 1;
+} 
+/* code -  cu_arg - command argument */
+#define cuTqua struct cuTqua_t 
+struct cuTqua_t
+{ int Vtag ;
+  char *Pnam ;
+  int *Pflg ;
+  int Vopt ;
+  int Vsrt ;
+  int Vatr ;
+  int Vcol ;
+   };
+#define quREQ  BIT(0)
+#define quOPT  BIT(1)
+cuTqua cuAqua [] =  {
+#define quALL 0
+  quALL, "al*l", &quFall, 0, 0, drALL_, 0,
+#define quANY 7
+  quANY, "any", &quFany, 0, 0, 0, 0,
+#define quARC 14
+  quARC, "ar*chive", NULL, 0, 0, drARC_, 0,
+#define quCHR 21
+  quCHR, "ch*ronological",&quFtim, 0, drTIM, 0, 1,
+#define quBAR 28
+  quBAR, "ba*re", &quFbar, 0, 0, 0, 1,
+#define quBIG 35
+  quBIG, "bi*g", &quFbig, 0, 0, 0, 1,
+#define quBIN 42
+  quBIG, "bi*nary", &quFbin, 0, 0, 0, 1,
+#define quBYT 49
+  quBYT, "by*tes", &quFbyt, 0, 0, 0, 1,
+#define quDAT 56
+  quDAT, "da*te", &quFdat, 0, 0, 0, 0,
+#define quDBG 63
+  quDBG, "deb*ug", &quFdbg, 0, 0, 0, 0,
+#define quDEC 70
+  quDEC, "dec*imal", &quFdec, 0, 0, 0, 0,
+#define quDIR 77
+  quDIR, "di*rectory", &quFdir, 0, 0, drDIR_, 0,
+#define quDOU 84
+  quDOU, "do*uble", &quFdou, 0, 0, 0, 0,
+#define quDWN 91
+  quDWN, "dow*n", &quFdwn, 0, 0, 0, 0,
+#define quEPS 98
+  quEPS, "epson", &quFeps, 0, 0, 0, 0,
+#define quFST 105
+  quFST, "fi*rst", &quFfst, 0, 0, 0, 0,
+#define quFOR 112
+  quFOR, "for*ce", &quFfor, 0, 0, 0, 0,
+#define quFRE 119
+  quFRE, "fre*e", &quFfre, 0, 0, 0, 0,
+#define quFRO 126
+  quFRO, "fro*m", &quVfro, quREQ, 0, 0, 0,
+#define quFUL 133
+  quFUL, "fu*ll", &quFful, 0, 0, 0, 1,
+#define quHID 140
+  quHID, "hi*dden", NULL, 0, 0, drHID_, 0,
+#define quHEX 147
+  quHEX, "he*x", &quFhex, 0, 0, 0, 0,
+#define quIMG 154
+  quIMG, "im*age", &quFimg, 0, 0, 0, 0,
+#define quLFT 161
+  quLFT, "le*ft", &quVlft, quREQ, 0, 0, 0,
+#define quLOG 168
+  quLOG, "log", &quFlog, 0, 0, 0, 0,
+#define quLNG 175
+  quBYT, "lon*g", &quFlng, 0, 0, 0, 1,
+#define quNAM 182
+  quNAM, "na*mes", NULL, 0, drNAM, 0, 0,
+#define quNEW 189
+  quNEW, "n*ew", &quFnew, 0, 0, 0, 0,
+#define quOCT 196
+  quBYT, "oc*tal", &quFoct, 0, 0, 0, 1,
+#define quPAU 203
+  quPAU, "pa*use", &quFpau, 0, 0, 0, 0,
+#define quPEE 210
+  quPEE, "pe*ek", &quFpee, 0, drTYP, 0, 1,
+#define quOLD 217
+  quOLD, "old", &quFold, 0, 0, 0, 0,
+#define quRON 224
+  quRON, "rea*donly", NULL, 0, 0, drRON_, 0,
+#define quREV 231
+  quREV, "re*verse", &quFrev, 0, 0, 0, 0,
+#define quQUI 238
+  quQUI, "qui*et", &quFqui, 0, 0, 0, 0,
+#define quQUE 245
+  quQUE, "qu*ery", &cuFque, 0, 0, 0, 0,
+#define quNQR 252
+  quQUE, "noqu*ery", &quFnqr, 0, 0, 0, 0,
+#define quREP 259
+  quREP, "rep*lace", &quFrep, 0, 0, 0, 0,
+#define quNRP 266
+  quNRP, "norep*lace", &quFnrp, 0, 0, 0, 0,
+#define quSIZ 273
+  quSIZ, "si*ze", &quFsiz, quOPT, 0, 0, 4,
+#define quSMA 280
+  quSMA, "sm*all", &quFsma, 0, 0, 0, 0,
+#define quSPA 287
+  quSPA, "sp*atial", &quFsiz, 0, drSIZ, 0, 4,
+#define quSYS 294
+  quSYS, "sy*stem", NULL, 0, 0, drSYS_, 0,
+#define quTIM 301
+  quTIM, "tim*e", &quFtim, 0, 0, 0, 1,
+#define quTIT 308
+  quTIT, "tit*le", &quFtit, 0, drTYP, 0, 1,
+#define quTRM 315
+  quTRM, "tr*im", &quFtrm, 0, 0, 0, 0,
+#define quTOP 322
+  quTOP, "top", &quVtop, quREQ, 0, 0, 0,
+#define quTOT 329
+  quTOT, "tot*als", &quFtot, 0, 0, 0, 0,
+#define quTYP 336
+  quTYP, "ty*pe", NULL, 0, drTYP, 0, 0,
+#define quUSE 343
+  quUSE, "us*e", &quFuse, 0, drTYP, 0, 1,
+#define quVRB 350
+  quVRB, "v*erbose", &quFvrb, 0, 0, 0, 6,
+#define quVOL 357
+  quVOL, "vo*lume", NULL, 0, 0, drVOL_, 0,
+#define quWID 364
+  quWID, "wi*de", &quFwid, 0, 0, 0, 6,
+#define quWRD 371
+  quWRD, "wo*rd", &quFwrd, 0, 0, 0, 0,
+#define quINV 378
+  quINV, NULL, NULL, 0, 0, 0, 0,
+  };
+static void cu_qua (cuTctx *,char *);
+void cu_val (cuTqua *,char **);
+char **cu_arg(
+cuTctx *ctx ,
+char *(*vec ),
+char *arg )
+{ *arg = 0;
+  for(;;)  {
+    if( *vec == NULL)break;
+    cu_qua (ctx, *vec);
+    st_cop (*vec++, arg);
+    st_trm (arg);
+    if( *arg){ ++ctx->Varg ; break;}
+  } 
+  return ( vec);
+} 
+/* code -  cu_qua - get qualifiers */
+void cu_qua(
+cuTctx *ctx ,
+char *fld )
+{ char buf [mxLIN];
+  char *dst ;
+  cuTqua *qua ;
+  int atr = 0;
+  while ( fld != NULL && *fld != 0) {
+    if( *fld != '/'){ fld++ ; continue;}
+    *fld++ = 0;
+    dst = buf;
+    while ( ct_aln (*fld)) {
+      *dst++ = *fld++; }
+    *dst = 0;
+    st_low (buf);
+    qua = cuAqua;
+    for(;;)  {
+      if ( qua->Pnam == NULL) {
+        cu_err (E_InvQua, buf); }
+      if( cl_mat (buf, qua->Pnam))break;
+      ++qua;
+    } 
+    if ( qua->Vopt) {
+      cu_val (qua, &fld);
+      } else {
+      if ( qua->Pflg) {++*qua->Pflg ;} }
+    if ( qua->Vsrt && !quVsrt) {
+      quVsrt = qua->Vsrt; }
+    if ( qua->Vcol && !quVcol) {
+      quVcol = qua->Vcol; }
+    quVatr |= qua->Vatr;
+    switch ( qua->Vtag) {
+    case quCHR:
+      ++quFsiz;
+     break; case quLFT:
+      if ( quVlft > mxLIN) {
+        cu_err (E_RngVal, qua->Pnam); }
+     break; case quTOP:
+      if ( quVtop > 20) {
+        cu_err (E_RngVal, qua->Pnam); }
+       }
+  } 
+} 
+/* code -  cu_val - extract value */
+void cu_val(
+cuTqua *qua ,
+char *(*fld ))
+{ char *str = *fld;
+  int *val = qua->Pflg;
+  *val = 0;
+  if ( *str++ != '=') {
+    if( qua->Vopt & quOPT)return;
+    cu_err (E_MisVal, qua->Pnam); }
+  if ( !ct_dig (*str)) {
+    cu_err (E_InvVal, qua->Pnam); }
+  while ( ct_dig (*str)) {
+    *val = (*val * 10) + *str++ - '0';
+  } 
+  *fld = str;
+} 

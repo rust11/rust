@@ -1,0 +1,238 @@
+/* file -  uslst - list/directory */
+#include "f:\m\uss\usb\usmod.h"
+#include "f:\m\rid\iminf.h"
+/* code -  kw_lst - list directory */
+void cu_det (cuTctx *);
+void cu_use (cuTctx *);
+void cu_img (cuTctx *);
+kw_lst(
+cuTctx *ctx )
+{ drTent *ent = ctx->Pent;
+  char txt [mxLIN];
+  char *nam = ent->Pnam;
+  int atr = ent->Vatr;
+  cu_rew (ctx);
+  if ( atr & drDIR_) {
+    if( !(ctx->Vatr & drDIR_))return 0;
+    if ( quFbar) {
+      OPT("\\%s", nam);
+      } else {
+      OPT("\\%-12s", nam);
+      if ( !quFwid && quFsiz) {
+        OPT("     ", NULL); } }
+    } else {
+    if ( quFbar) {
+      OPT("%s", nam);
+      } else {
+      OPT("%-12s", nam);
+      if ( !quFwid && quFsiz) {
+        cu_siz (ctx->Vsiz, txt);
+        OPT(" %4s  ", txt); } } }
+  if ( quFbar) {
+    if (( quFful || quFdat || quFtim)
+    ||(quFpee || quFtit)) {
+      OPT (" ", NULL); } }
+  if ( quFdat || quFtim || quFful) {
+    cu_dts (&ent->Itim, txt);
+    OPT("%s  ", txt); }
+  if ( quFtim || quFful) {
+    cu_tms (&ent->Itim, txt);
+    OPT("%s  ", txt); }
+  if ( quFpee || quFtit) {
+    cu_det (ctx);
+  } else if ( quFuse) {
+    cu_use (ctx);
+  } else if ( quFimg) {
+    cu_img (ctx);
+  } else if ( quFful) {
+    if ( atr & drDIR_) {APP("Dir ") ;}
+    if ( atr & drHID_) {APP("Hid ") ;}
+    if ( atr & drSYS_) {APP("Sys ") ;}
+    if ( atr & drARC_) {APP("Arc ") ;}
+    if ( atr & drRON_) {APP("Ron ") ;}
+    if ( atr & drVOL_) {APP("Vol ") ;}
+    if ( atr & drPER_) {APP("Dev ") ;}
+    if ( atr & drSHR_) {APP("Shr ") ;} }
+  cu_flu (ctx);
+  return 1;
+} 
+/* code -  cu_det - details */
+static int cu_anl (char *,char *,int );
+void cu_det(
+cuTctx *ctx )
+{ drTent *ent = ctx->Pent;
+  FILE *fil ;
+  char ipt [mxLIN*3];
+  char opt [mxLIN*3];
+  char *src = ipt;
+  char *dst = ctx->Popt;
+  int len = st_len (ctx->Pobf)+2;
+  int cnt ;
+  *dst++ = ' ';
+  for(;;)  {
+    if( ent->Vatr & drDIR_){ APP("Directory") ; break;}
+    if( ent->Vatr & drVOL_){ APP("Volume label") ; break;}
+    if( ent->Vatr & drHID_){ APP("Hidden file") ; break;}
+    if( (fil = cu_src (ctx)) == 0){ APP("Inaccessible") ; break;}
+    if( (cnt = fi_ipt (fil, ipt, 128)) == 0){ APP("Empty") ; break;}
+    if( !cu_anl (ipt, opt, cnt) && !(quFful|quFhex)){ APP("Binary") ; break;}
+    st_cln (opt, dst, 80-len);
+   break;} 
+} 
+/* code -  cu_anl - analyse file */
+cu_anl(
+char *ipt ,
+char *opt ,
+int cnt )
+{ char dum [mxLIN*3];
+  char *src = ipt;
+  char *dst = opt;
+  int prn = 0;
+  int spc = 0;
+  int bin = 0;
+  int lst = -4;
+  int wid = cnt;
+  int cha ;
+  *opt = 0;
+  if ( quFhex) {
+    wid = (cnt < 16) ? cnt: 16;
+    while ( wid--) {
+      FMT(dst, "%-2X ", *src & 0xff);
+      dst += 3, ++src; }
+    src = ipt, dst = dum; }
+  while ( cnt--) {
+    cha = *src++ & 255;
+    if (( cha >= 32 && cha != 127)
+    &&(cha < 255)) {
+      ++prn;
+      if ( cha != ' ' || cha != lst) {
+        *dst++ = cha; }
+    } else if (( cha == '\r')
+    ||(cha == '\n')) {
+      ++spc, cha = -3;
+      if( lst == cha)continue;
+      if ( quFtit) {*dst++ = 0 ;} else {
+        *dst++ = '|' ; }
+    } else if (( cha >= 9)
+    &&(cha <= 13)) {
+      ++spc, cha = -2;
+      if ( lst != cha) {*dst++ = ' ' ;}
+      } else {
+      ++bin, cha = -1;
+      if ( lst != cha) {*dst++ = '~' ;} }
+    lst = cha;
+  } 
+  *dst = 0;
+  if( bin == 0)return 1;
+  return ( prn > ((bin*2) + spc));
+} 
+/* code -  cu_use - usage */
+void cu_use(
+cuTctx *ctx )
+{ drTent *ent = ctx->Pent;
+  imTinf *img = &ctx->Iimg;
+  char buf [mxLIN*2];
+  char loc [mxLIN*2];
+  char *dsc = loc;
+  int sta ;
+  int col = st_len (ctx->Pobf);
+  int rem = 79-col;
+  char *top ;
+  int cnt ;
+  if( ent->Vatr & drDIR_)return;
+  if( !im_dsc (img, ctx->Pspc, &sta))return;
+  FMT(dsc, "%s (%s)", img->Adsc, img->Aidt);
+  while ( st_len (dsc) > rem) {
+    top = dsc+rem-4;
+    while ( top > dsc) {
+      if( *top == ' ')break;
+      --top;
+    } 
+    if ( (cnt = top-dsc) != 0) {
+      st_cln (dsc, buf, cnt);
+      cu_opt ("%s", buf);
+      cu_flu (ctx);
+      NL;
+      dsc += cnt;
+      if ( *dsc == ' ') {++dsc ;}
+      } else {
+      break; }
+    cnt = col;
+    while ( cnt--) {cu_opt (" ", "") ;}
+  } 
+  cu_opt ("%s", dsc);
+} 
+/* code -  cu_img - image format */
+#include "f:\m\rid\rider.h"
+#include "f:\m\rid\fidef.h"
+#include "f:\m\rid\imdef.h"
+#include "f:\m\rid\nedef.h"
+img_rea (FILE *,void *,nat ,nat );
+void cu_img(
+cuTctx *ctx )
+{ drTent *ent = ctx->Pent;
+  FILE *fil ;
+  char buf [512];
+  char *ptr = buf;
+  mzThdr *dos = (void *)buf;
+  neThdr *cof = (void *)buf;
+  nat bas ;
+  nat off ;
+  int val ;
+  nat sig ;
+  WORD mag = 0;
+  char *def = "        ";
+  if( ent->Vatr & drDIR_){ cu_typ (def) ; return;}
+  if ( st_fnd (".com", ent->Pnam)) {def = "COM?    " ;}
+  if ( st_fnd (".sys", ent->Pnam)) {def = "SYS?    " ;}
+  for(;;)  {
+    if( (fil = cu_src (ctx)) == 0){ cu_typ ("Open?   ") ; break;}
+    if( fi_len (fil) <= mzDOS){ cu_typ (def) ; break;}
+    if( (img_rea (fil, dos, 0, mzDOS)) == 0){ cu_typ ("Read?   ") ; break;}
+    if ( (buf[0] != 'M') || (buf[1] != 'Z')) {
+      def = "        ";
+      if ( st_fnd (".sys", ent->Pnam)) {
+        sig = *(long *)ptr;
+        if ( (sig == 0xffffffff) || !(sig & 0xffff0000)) {
+          def = "ComSYS  "; }
+      } else if ( st_fnd (".com", ent->Pnam)) {
+        def = "COM     "; }
+       cu_typ (def);break; }
+    if ( st_fnd (".sys", ent->Pnam)) {def = "DosSYS  " ;} else {
+      def = "DOS     " ; }
+    if( (img_rea (fil, dos, 0, mzWIN)) == 0){ cu_typ (def) ; break;}
+    if( (img_rea (fil, buf, dos->Vhdr, 2)) == 0){ cu_typ (def) ; break;}
+    mag = *(WORD *)buf;
+    if ( (buf[0] == 'N') && (buf[1] == 'E')) {
+      if( (img_rea (fil, buf, dos->Vhdr,  sizeof(neThdr))) == 0){ cu_typ ("Win16?  ") ; break;}
+      if( cof->Vctl & nePRO_){ cu_typ ("Win16p  ") ; break;}
+      if( cof->Vflg & nePRT_){ cu_typ ("Win16p  ") ; break;}
+       cu_typ ("Win16   ");break;
+    } else if ( (buf[0] == 'L') && (buf[1] == 'E')) {
+      cu_typ ("VxD     ");
+    } else if ( (buf[0] == 'L') && (buf[1] == 'X')) {
+      cu_typ ("OS/2    ");
+    } else if ( (buf[0] == 'P') && (buf[1] == 'E')) {
+      cu_typ ("Win32   ");
+    } else if ( (buf[0] == 'W') && (buf[1] == '3')) {
+      cu_typ ("VxD/W3  ");
+    } else if ( (buf[0] == 'W') && (buf[1] == '4')) {
+      cu_typ ("VxD/W4  ");
+    } else if ( (buf[0] == 'S') && (buf[1] == 'Z')) {
+      cu_typ ("Compres ");
+      } else {
+      cu_typ (def); }
+   break;} 
+  if( !quFful)return;
+  FMT(buf, "(%04X) ", mag);
+  cu_typ (buf);
+} 
+/* code -  img_rea - read from file */
+img_rea(
+FILE *fil ,
+void *buf ,
+nat pos ,
+nat cnt )
+{ if ( pos != (~0)) {fi_see (fil, pos) ;}
+  return ( (fi_rea (fil, buf, cnt)));
+} 

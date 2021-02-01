@@ -1,0 +1,207 @@
+/* file -  uscop - copy/rename/move/sort */
+#include "c:\m\usb\usmod.h"
+/* code -  kw_tra - transfer one file */
+kw_tra(
+cuTctx *ctx )
+{ FILE *src ;
+  FILE *dst ;
+  drTent *ent = ctx->Pent;
+  ULONG len ;
+  if ( st_sam (ctx->Pspc, ctx->Ptar)) {
+    cu_err ("E-Can't copy file to self: %s", ctx->Pobj); }
+  if( (src = cu_src (ctx)) == 0)return 0;
+  if( !cu_rpl (ctx))return 0;
+  if( !cu_opr (ctx))return 0;
+  if( (dst = cu_tar (ctx)) == 0)return 0;
+  if ( quFren) {
+    if (( fi_ren (ctx->Pspc, ctx->Ptar, ""))
+    &&(fi_stm (ctx->Ptar, &ent->Itim, ""))) {
+      return 1; }
+    im_rep ("E-Error renaming file %s", ctx->Pobj);
+    return 0; }
+  if ( quFsiz) {
+    len = quFsiz;
+    if ( !quFbyt) {len *= 1024 ;}
+    if (( cu_kop (src, dst, len))
+    &&(cu_cln (ctx))
+    &&(fi_stm (ctx->Ptar, &ent->Itim, ""))) {
+      return 1; }
+    } else {
+    if (( fi_kop (src, dst, 0))
+    &&(cu_cln (ctx))
+    &&(fi_stm (ctx->Ptar, &ent->Itim, ""))) {
+      return 1; } }
+  im_rep ("E-Error transferring file %s", ctx->Pobj);
+  return 0;
+} 
+/* code -  su_tra - init transfer */
+su_tra(
+cuTctx *ctx )
+{ char *nam = ctx->P2;
+  if ( *nam == 0) {
+    cu_err ("E-No new file path", NULL); }
+  if ( st_fnd ("*.*", nam)) {
+  } else if (( st_fnd ("*", nam))
+  ||(st_fnd ("?", nam))
+  ||(st_fnd (".", nam))) {
+    cu_err ("E-Invalid kopy destination [%s]", nam); }
+  st_rep ("*.*", "", nam);
+  if ( *st_lst (nam) != '\\') {
+    st_app ("\\", nam); }
+  fi_buf (NULL, 60*1024);
+  ++ctx->Vtar;
+  return 1;
+} 
+/* code -  kw_srt - sort file(s) */
+static int cu_srt (const void *,const void *);
+kw_srt(
+cuTctx *ctx )
+{ char buf [mxLIN+2];
+  char *(*vec )= NULL;
+  char *(*opt );
+  FILE *src ;
+  FILE *dst ;
+  size_t wid =  sizeof(char *);
+  int idx = 0;
+  int rem = 0;
+  int tot = 0;
+  int cnt ;
+  if( (src = cu_src (ctx)) == 0)return 0;
+  if ( !quFqui && !ctx->Vcnt) {
+    cu_tit (ctx); }
+  if( quFque && !cu_opr (ctx))return 0;
+  for(;;)  {
+    if( (cnt = fi_get (src,buf,mxLIN)) == EOF)break;
+    if( cnt == 0)continue;
+    if ( quFtrm) {
+      st_trm (buf);
+      if( !buf[0])continue; }
+    if ( idx >= tot) {
+      tot += 128;
+      vec = realloc (vec, (tot*wid)); }
+    vec[idx++] = st_dup (buf);
+  } 
+  if( idx == 0)return 0;
+  qsort (vec, idx, wid, &cu_srt);
+  opt = vec;
+  while ( idx--) {
+    cu_abt ();
+    PUT("%s\n", *opt);
+    me_dlc (*opt++);
+  } 
+  me_dlc (vec);
+} 
+/* code -  cu_srt - sort two members */
+int cu_srt(
+const void *src ,
+const void *dst )
+{ int off = quVfro;
+  int cmp ;
+  char *lft = *(char **)src;
+  char *rgt = *(char **)dst;
+  if ( off) {
+    if ( st_len (lft) >= off) {lft += off ;} else {
+      lft = "" ; }
+    if ( st_len (rgt) >= off) {rgt += off ;} else {
+      rgt = "" ; } }
+  cmp = st_cmp (lft, rgt);
+  return ( (quFdwn) ? -cmp: cmp);
+} 
+/* code -  su_srt - init compare */
+su_srt(
+cuTctx *ctx )
+{ char *nam = ctx->P2;
+  return 1;
+  if ( *nam == 0) {
+    cu_err ("E-No new file path", NULL); }
+  if ( *st_lst (nam) != '\\') {
+    st_app ("\\", nam); }
+  return 1;
+} 
+/* code -  kw_edt - edit file */
+cu_dtb (char *,char *);
+#define mxPAR  1000
+kw_edt(
+cuTctx *ctx )
+{ char *ipt = me_acc (mxPAR);
+  char *opt = me_acc (mxPAR);
+  FILE *src ;
+  FILE *dst ;
+  if ( st_sam (ctx->Pspc, ctx->Ptar)) {
+    cu_err ("E-Can't copy file to self: %s", ctx->Pobj); }
+  if( (src = cu_src (ctx)) == 0)return 0;
+  if( !cu_rpl (ctx))return 0;
+  if( !cu_opr (ctx))return 0;
+  if( (dst = cu_tar (ctx)) == 0)return 0;
+  if ( !quFqui && !ctx->Vcnt) {
+    cu_tit (ctx); }
+  if( quFque && !cu_opr (ctx))return 0;
+  for(;;)  {
+    if( (fi_get (src,ipt,mxPAR)) == EOF)break;
+    if ( quFdtb) {cu_dtb (ipt, opt) ;}
+    fi_put (dst, opt);
+  } 
+  return 1;
+} 
+/* code -  cu_dtb -- detab function */
+cu_dtb(
+char *src ,
+char *dst )
+{ int pos = 0;
+  while ( *src) {
+    if( pos >= (mxPAR-7)){ *dst++ = '~' ; break;}
+    if ( *src != '\t') {
+       ++pos, *dst++ = *src++;continue; }
+    ++src;
+    ++pos, *dst++ = ' ';
+    while ( pos & 7) {++pos, *dst++ = ' ' ;}
+  } 
+  *dst = 0;
+} 
+/* code -  su_edt - init edit */
+su_edt(
+cuTctx *ctx )
+{ char *nam = ctx->P2;
+  if ( *nam == 0) {
+    cu_err ("E-No new file path", NULL); }
+  ++ctx->Vtar;
+  return 1;
+} 
+/* code -  cu_kop - kopy files (handle) */
+int cu_kop(
+FILE *src ,
+FILE *dst ,
+long alc )
+{ char tra [1024];
+  char *buf ;
+  int dlc = 0;
+  long len ;
+  long rem ;
+  long siz ;
+  long cnt ;
+  int res = 1;
+  buf = tra, siz = 1024;
+  len = fi_len(src)-fi_pos(src);
+  if ( alc) {
+    if ( alc < len) {len = alc ;}
+    rem = alc - len; }
+  for(;;)  {
+    cnt = (siz < len) ? siz: len;
+    if (( !fi_drd (src, buf, (size_t )cnt))
+    ||(!fi_dwr (dst, buf, (size_t )cnt))) {
+       res = 0;break; }
+    if( (len -= cnt) == 0)break;
+  } 
+  me_clr (buf, 1024);
+  for(;;)  {
+    if( !res)break;
+    cnt = (siz < rem) ? siz: len;
+    if( !cnt)break;
+    if ( !fi_dwr (dst, buf, (size_t )cnt)) {
+       res = 0;break; }
+    if( (rem -= cnt) == 0)break;
+  } 
+  if( fi_err (src, NULL))return 0;
+  if( fi_err (dst, NULL))return 0;
+  return ( res);
+} 

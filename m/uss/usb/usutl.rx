@@ -1,0 +1,250 @@
+/* file -  usutl - utilities */
+#include "f:\m\uss\usb\usmod.h"
+/* code -  cu_tit - write title */
+void cu_tit(
+cuTctx *ctx )
+{ PUT("%s [%s]", ctx->Pcmd, ctx->Ppth);
+  if ( ctx->Pjoi) {
+    PUT(" %s [%s]", ctx->Pjoi, ctx->P2); }
+  cu_new ();
+} 
+/* code -  cu_opr - report operation */
+cu_opr(
+cuTctx *ctx )
+{ char buf [128];
+  for(;;)  {
+    if( quFqui && !quFque)return 1;
+    PUT(ctx->Phdr);
+    if( !quFque){ cu_new () ; return 1;}
+    cl_cmd ("? ", buf);
+    cu_abt ();
+    st_trm (buf);
+    if( buf[0] == 0)continue;
+    st_upr (buf);
+    switch ( buf[0]) {
+    case 'A':
+       quFque = 0;return 1;
+     break; case 'J':
+    case 'Y':
+      return 1;
+     break; case 'N':
+      return 0;
+     break; case 'Q':
+       ctx->Vqui = 1;return 0;
+     break; default: 
+      PUT("Reply: Yes No All Quit"), NL;
+       }
+  } 
+} 
+/* code -  cu_que - query single operation */
+cu_que(
+cuTctx *ctx ,
+char *pth )
+{ char buf [128];
+  if( quFqui && !quFque)return 1;
+  if( quFnqr)return 1;
+  FMT(buf, "%s [%s]? ", ctx->Pcmd, pth);
+  return ( cu_ask (ctx, buf, NULL));
+} 
+/* code -  cu_ask - ask question */
+cu_ask(
+cuTctx *ctx ,
+char *msg ,
+char *obj )
+{ char prm [128];
+  char buf [128];
+  FMT(prm, msg, obj);
+  for(;;)  {
+    cu_abt ();
+    cl_cmd (prm, buf);
+    st_trm (buf);
+    st_upr (buf);
+    switch ( buf[0]) {
+    case 'Y':
+      return 1;
+     break; case 'N':
+      return 0;
+     break; case 'Q':
+       ctx->Vqui = 1;return 0;
+     break; default: 
+      PUT("Reply: Yes,No,Quit"), NL;
+       }
+  } 
+} 
+/* code -  cu_siz - return size_t as text */
+void cu_siz(
+long siz ,
+char *txt )
+{ FMT(txt, "%ld", siz);
+} 
+/* code -  cu_new - a newline */
+void cu_new()
+{ PUT("\n");
+  ++quVlin;
+  if ( quVlin >= 24) {
+    if ( quFpau) {cl_cmd ("More? ", NULL) ;}
+    quVlin = 0;
+  } 
+} 
+/* code -  cu_dts - make date string */
+char *cuAmon [] =  {
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug","Sep", "Oct", "Nov", "Dec", "Bad", "Bad", "Bad", "Bad",
+  };
+char *cu_dts(
+tiTval *tim ,
+char *str )
+{ tiTplx plx ;
+  ti_plx (tim, &plx);
+  return ( str + (FMT(str, "%02d-%03s-%04d",plx.Vday,cuAmon[plx.Vmon],plx.Vyea)));
+} 
+/* code -  cu_tms - make time string */
+char *cu_tms(
+tiTval *tim ,
+char *str )
+{ tiTplx plx ;
+  ti_plx (tim, &plx);
+  return ( str + (FMT(str, "%02d:%02d:%02d",plx.Vhou,plx.Vmin,plx.Vsec)));
+} 
+/* code -  cu_tot - display totals */
+void cu_tot(
+cuTctx *ctx )
+{ char txt [mxIDT];
+  ULONG tot = ctx->Vtot;
+  int cnt = ctx->Vcnt;
+  drTsiz siz ;
+  if ( !quFany && cnt == 0) {
+    PUT("No such file %s", ctx->Ppth), NL; }
+  if( quFbar)return;
+  if ( quFlst) {
+    if ( cnt) {
+      PUT("%d files, ", cnt);
+      cu_siz (tot, txt);
+      PUT("%sk", txt); }
+    if ( quFfre) {
+      if ( cnt) {PUT(", ") ;}
+      dr_fre (ctx->Ppth, &siz);
+      cu_siz (siz / 1024L, txt);
+      PUT("%sk free", txt); }
+    NL; }
+  if ( cnt && quFacc) {
+    PUT("%d files", cnt);
+    if ( ctx->Vmat) {PUT(", %d matched", ctx->Vmat) ;}
+    if ( ctx->Vsam) {PUT(", %d same", ctx->Vsam) ;}
+    if ( ctx->Vdif) {PUT(", %d different", ctx->Vdif) ;}
+    if ( ctx->Vmis) {PUT(", %d missing", ctx->Vmis) ;}
+    if ( ctx->Vcha) {PUT(", %ld chars", ctx->Vcha) ;}
+    if ( ctx->Vwrd) {PUT(", %ld words", ctx->Vwrd) ;}
+    if ( ctx->Vlin) {PUT(", %ld lines", ctx->Vlin) ;}
+    if ( ctx->Vpag) {PUT(", %ld pages", ctx->Vpag) ;}
+    NL;
+  } 
+} 
+/* code -  cu_rew - rewind output */
+void cu_rew(
+cuTctx *ctx )
+{ 
+  *(ctx->Popt = ctx->Pobf) = 0;
+} 
+/* code -  cu_flu - flush buffer */
+void cu_flu(
+cuTctx *ctx )
+{ PUT("%s", ctx->Pobf);
+  cu_rew (ctx);
+} 
+/* code -  cu_typ - unformatted string output */
+void cu_typ(
+char *str )
+{ cuTctx *ctx = cuPsrc;
+  ctx->Popt = st_cop (str, ctx->Popt);
+} 
+/* code -  cu_opt - string to output buffer */
+void cu_opt(
+char *ctl ,
+char *obj )
+{ cuTctx *ctx = cuPsrc;
+  ctx->Popt += (FMT(ctx->Popt, ctl, obj));
+} 
+/* code -  cu_src - open source file */
+FILE *cu_src(
+cuTctx *ctx )
+{ 
+  return ( ctx->Psrc = (cu_opn (ctx->Ppth, ctx->Pnam, "rb", ctx->Pspc)));
+} 
+/* code -  cu_dst - open destination file */
+FILE *cu_dst(
+cuTctx *ctx )
+{ if ( *st_lst (ctx->P2) != '\\') {
+    st_app ("\\", ctx->P2); }
+  return ( ctx->Pdst = (cu_opn (ctx->P2, ctx->Pnam, "rb", ctx->Ptar)));
+} 
+/* code -  cu_clo - close */
+cu_clo(
+cuTctx *ctx ,
+FILE *(*fil ),
+char *msg )
+{ int sts = 1;
+  if ( *fil) {sts = fi_clo (*fil, "") ;}
+  *fil = 0;
+  return ( sts);
+} 
+/* code -  cu_tar - open target for writing */
+FILE *cu_tar(
+cuTctx *ctx )
+{ if ( *st_lst (ctx->P2) != '\\') {
+    st_app ("\\", ctx->P2); }
+  return ( ctx->Pdst = (cu_opn (ctx->P2, ctx->Pnam, "wb", ctx->Ptar)));
+} 
+/* code -  cu_opn - open a file */
+FILE cuIfil = {0};
+FILE *cu_opn(
+char *pth ,
+char *nam ,
+char *mod ,
+char *spc )
+{ cu_spc (pth, nam, spc);
+  if( quFren)return ( &cuIfil );
+  return ( fi_opn (spc, mod, ((quFlst) ? NULL: "")));
+} 
+/* code -  cu_cln - cleanup files */
+cu_cln(
+cuTctx *ctx )
+{ FILE *fil ;
+  int sta = 1;
+  sta = cu_clo (ctx,&ctx->Psrc,"");
+  sta&= cu_clo (ctx,&ctx->Pdst,"");
+  return ( sta);
+} 
+/* code -  cu_wld - check wildcards */
+void cu_wld(
+cuTctx *ctx ,
+int per )
+{ if (( st_fnd ("*", ctx->P1))
+  ||(st_fnd ("?", ctx->P1))
+  ||(!st_fnd (".", ctx->P1))
+  ||(*ctx->P1 == '.')
+  ||(st_fnd (":.", ctx->P1))
+  ||(st_fnd ("\\.", ctx->P1))) {
+    if ( !per) {cu_err (E_InvWld, ctx->P1) ;}
+    quFque = 1; }
+} 
+/* code -  cu_rpl - check /replace & /noreplace */
+cu_rpl(
+cuTctx *ctx )
+{ char *tar = ctx->Ptar;
+  if ( quFrep) {
+    if( fi_exs (tar, NULL))return 1;
+    if( quFqui)return 0;
+     im_rep ("I-File missing [%s]", tar);return 0;
+  } else if ( quFnrp) {
+    if( fi_mis (tar, NULL))return 1;
+    if( quFqui)return 0;
+     im_rep ("I-File exists [%s]", tar);return 0; }
+  return 1;
+} 
+/* code -  cu_err - report error */
+void cu_err(
+char *msg ,
+char *str )
+{ im_rep (msg, str);
+  im_exi ();
+} 

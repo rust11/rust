@@ -1,0 +1,249 @@
+/* file -  ustyp - type/print/see/dump */
+#include "c:\m\usb\usmod.h"
+/* code -  kw_typ - type file */
+#define _eof  26
+kw_typ(
+cuTctx *ctx )
+{ FILE *fil ;
+  char *ter ;
+  int cnt = 0;
+  int cha ;
+  int mor = 0;
+  if( (fil = cu_src (ctx)) == 0)return 0;
+  if( !cu_opr (ctx))return 0;
+  for(;;)  {
+    cu_abt ();
+    cha = fgetc (fil);
+    if( cha == EOF)break;
+    if( cha == _eof)break;
+    if ( cha == '\n') {NL, ++cnt ;} else {
+      PUT ("%c", cha) ; }
+    if( cnt > 3 && quFvie)break;
+    if( cha == '\n'){ cl_mor (&mor) ; break;}
+  } 
+  if ( cha != '\n') {NL ;}
+} 
+/* code -  kw_prn - print file */
+char epApag []= { 27, 'C', 70, 0 };
+char epAnor []= { 27, '!', 1, 0 };
+char epAdou []= { 27, '!', 17, 0 };
+kw_prn(
+cuTctx *ctx )
+{ char buf [mxLIN*2];
+  char lin [mxLIN*2];
+  FILE *src ;
+  FILE *dst ;
+  char *str ;
+  char *ter ;
+  char *ipt ;
+  char *opt ;
+  int lft = quVlft;
+  int top = quVtop;
+  int cnt = 0;
+  int lim = (mxLIN*2)-lft-8-2;
+  int cha ;
+  int col ;
+  if( (src = cu_src (ctx)) == 0)return 0;
+  if( !cu_opr (ctx))return 0;
+  if ( *ctx->P2 == 0) {
+    st_cop ("LPT1", ctx->P2); }
+  if( (dst = fi_opn (ctx->P2, "w", "")) == NULL)return 0;
+  ctx->Pdst = dst;
+  if ( quFeps) {
+    quFeps = 0;
+    str = epApag;
+    while ( *str) {fputc (*str++,dst) ;}
+    str = (quFdou) ? epAdou: epAnor;
+    while ( *str) {fputc (*str++,dst) ;} }
+  cnt = 0;
+  while ( cnt < lft) {lin[cnt++] = ' ' ;}
+  top = quVtop;
+  for(;;)  {
+    cu_abt ();
+    while ( top--) {fi_put (dst,"\n") ;}
+    top = 0;
+    if( (fi_get (src, buf, mxLIN)) == EOF)break;
+    col=0, ipt=buf, opt=lin+lft;
+    while (( col < lim)
+    &&((cha = *ipt++) != 0)) {
+      if ( cha != '\t') {
+        *opt++ = cha, ++col;
+        } else {
+        for(;;)  {
+          *opt++ = ' ';
+        if( (++col & 7) == 0)break; } }
+    } 
+    *opt = 0;
+    fi_put (dst, lin);
+  } 
+} 
+/* code -  kw_see - see file */
+kw_see(
+cuTctx *ctx )
+{ char buf [mxLIN];
+  char *ptr = buf;
+  char *opt ;
+  int col = 0;
+  int asc = 0;
+  int aln = 0;
+  int prn = 0;
+  int lst = 0;
+  int cha ;
+  char *sep = "~";
+  int mor = 0;
+  ptr = buf;
+  if( !cu_src (ctx))return 0;
+  if( !cu_opr (ctx))return 0;
+  if ( quFful) {sep = "\n" ;}
+  for(;;)  {
+    cu_abt ();
+    cha = fgetc (ctx->Psrc);
+    if( cha == EOF)break;
+    cha &= 255;
+    if ( cha == 0xe4) {cha = 'Ñ' ;}
+    if ( cha == 0xf6) {cha = 'î' ;}
+    if ( cha == 0xfc) {cha = 'Å' ;}
+    opt = "";
+    if (( cha < 31 || cha >= 128)
+    &&(st_mem (cha, "ÑîÅéôö·") == 0)) {
+      if ( prn) {opt = sep ;}
+      asc = 0, aln = 0;
+      prn = 0, ptr = buf;
+      } else {
+      *ptr++ = cha, *ptr = 0;
+      if (( ct_aln (cha))
+      ||(st_mem (cha, "ÑîÅéôö·"))) {
+        ++aln; }
+      if (( ++asc >= 6)
+      ||(aln > 3)) {
+        opt = ptr = buf;
+        asc=aln=prn=6; } }
+    while ( *opt != 0) {
+      if ( (cha == '\n')) {
+        if ( col >= 2) {
+          if( !cl_mor (&mor))return 1;
+           col = 0;continue; }
+        cha = '\\'; }
+      cha = *opt++;
+      if ( cha == ' ' && cha == lst) {
+        continue; }
+      if (( col >= 79)
+      &&(quFful == 0)) {
+        if( !cl_mor (&mor))break;
+        NL, col = 0; }
+      printf ("%c", cha);
+      ++col, lst = cha;
+    } 
+  } 
+  if ( col) {cu_new () ;}
+} 
+/* code -  kw_dmp - dump file */
+#define usBYT  1
+#define usWRD  2
+#define usLNG  4
+#define usOCT  8
+#define usDEC  10
+#define usHEX  16
+#define DMP(fmt, obj)  str += sprintf (str, fmt, (obj))
+kw_dmp(
+cuTctx *ctx )
+{ char buf [512];
+  char lin [134];
+  FILE *fil ;
+  char *ptr ;
+  char *str ;
+  char *top ;
+  int blk = 0;
+  int bls ;
+  int byt ;
+  int idx ;
+  int rem ;
+  int cnt ;
+  int rad = usHEX;
+  int wid = usBYT;
+  int mor = 0;
+  if ( quFoct) {rad = usOCT ;}
+  if ( quFdec) {rad = usDEC ;}
+  if ( quFwrd) {wid = usWRD ;}
+  if ( quFlng) {wid = usLNG ;}
+  if( (fil = cu_src (ctx)) == 0)return 0;
+  if( !cu_opr (ctx))return 0;
+  bls = (ctx->Pent->Vsiz + 511L) / 512L;
+  for(;;)  {
+    if( (rem = fi_ipt (fil, buf, 512)) == 0)break;
+    PUT("%s: block %d (%x) of %d\n",ctx->Pspc, blk, blk, bls);
+    ptr = buf;
+    byt = 0;
+    while ( rem > 0) {
+      cu_abt ();
+      str = lin;
+      top = ptr + 16;
+      cnt = (rem >= 16) ? 16: rem;
+      idx = 16;
+      while ( idx > 0) {
+        idx -= wid, top -= wid;
+        if ( idx > cnt) {
+           DMP("   ", NULL);continue; }
+        switch ( wid) {
+        case usBYT:
+          switch ( rad) {
+          case usOCT:
+            DMP("%03o ", *top & 255);
+           break; case usDEC:
+            DMP("%4d ", *top & 255);
+           break; case usHEX:
+            DMP("%02X ", *top & 255);
+             }
+         break; case usWRD:
+          switch ( rad) {
+          case usOCT:
+            DMP("%06o ", *(word *)top & 0xffff);
+           break; case usDEC:
+            DMP("%6d ", *(word *)top & 0xffff);
+           break; case usHEX:
+            DMP("%04X ", *(word *)top & 0xffff);
+             }
+         break; case usLNG:
+          switch ( rad) {
+          case usOCT:
+            DMP("%011o ", *(long *)top);
+           break; case usDEC:
+            DMP("%11d ", *(long *)top);
+           break; case usHEX:
+            DMP("%08X ", *(long *)top);
+             }
+           }
+      } 
+      switch ( rad) {
+      case usOCT:
+        DMP("%03o ", byt);
+       break; case usDEC:
+        DMP("%3d ", byt);
+       break; case usHEX:
+        DMP("%03X ", byt);
+         }
+      str = st_end (str);
+      idx = 0;
+      switch ( rad) {
+      case usDEC:
+      case usOCT:
+        if( wid < usWRD)break;
+      case usHEX:
+        while ( idx < cnt) {
+          if ( ptr[idx] > 32 && ptr[idx] <= 127) {
+            *str++ = ptr[idx];
+            } else {
+            *str++ = '.'; }
+          ++idx;
+        } 
+         }
+      *str = 0;
+      PUT("%s", lin), NL;
+      if( !cl_mor (&mor))return 1;
+      byt += 16, ptr += 16, rem -= 16;
+    } 
+    ++blk;
+    if( quFfst)break;
+  } 
+  PUT("\n");
+} 

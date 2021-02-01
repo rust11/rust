@@ -1,0 +1,131 @@
+/* file -  usscn - scan files */
+#include "c:\m\usb\usmod.h"
+/* code -  cu_scn - scan directory */
+static void cu_txt (cuTctx *);
+void cu_scn(
+cuTctx *ctx )
+{ drTdir *dir ;
+  drTent *ent ;
+  char *pth ;
+  char *spc = ctx->Pspc;
+  int atr = quVatr;
+  int srt = quVsrt;
+  int col = 0;
+  int mor = 1;
+  if ( !quVcol) {
+    quVcol = 6;
+    if ( quFsiz) {quVcol = 4 ;}
+    if ( quFdat) {quVcol = 2 ;}
+    if ( quFimg) {--quVcol ;}
+    if ( quFtim) {quVcol = 1 ;} }
+  if ( quFlst) {
+    if ( !atr) {atr = drALL_ ;}
+    if ( !srt && quVcol >= 4) {srt = drTYP ;} }
+  ctx->Vatr = atr;
+  ctx->Vsrt = srt;
+  if( !us_scn (ctx))return;
+  dir = ctx->Pdir;
+  if ( quFlst) {PUT("%s\n", ctx->Ppth) ;}
+  while ( (ent = us_nxt (ctx)) != 0) {
+    if ( quFlst) {
+      if( !kw_lst (ctx))continue;
+      if ( ++col >= quVcol) {
+        cu_new (), col = 0;
+        if( !cl_mor (&mor))return; }
+      } else {
+      if( ent->Vatr & drDIR_)continue;
+      cu_txt (ctx);
+      (*ctx->Pfun)(ctx);
+      if( ctx->Vqui)return; }
+    cu_cln (ctx);
+    ctx->Vcnt += 1;
+    ctx->Vtot += ctx->Vsiz;
+  } 
+  if ( col != 0) {cu_new () ;}
+  cu_tot (ctx);
+  dr_dlc (dir);
+} 
+/* code -  cu_don - scan done -- deallocate directory */
+void cu_don(
+drTdir *dir )
+{ dr_dlc (dir);
+} 
+/* code -  cu_avl - check directory available */
+cu_avl(
+char *pth )
+{ return ( dr_avl (pth));
+} 
+/* code -  cu_spc - get full spec */
+char *cu_spc(
+char *pth ,
+char *nam ,
+char *spc )
+{ return ( dr_spc (pth, nam, spc));
+} 
+/* code -  cu_txt - setup text objects for operation */
+void cu_txt(
+cuTctx *ctx )
+{ char *spc = ctx->Pspc;
+  char *tar = ctx->Ptar;
+  char *dst = ctx->Phdr;
+  dst = st_cop (ctx->Pcmd, dst);
+  *ctx->Phdr = ch_upr (*ctx->Phdr);
+  *dst++ = ' ';
+  ctx->Pobj = dst;
+  st_trm (spc);
+  dst = st_cop (spc, dst);
+  if ( ctx->Vtar) {
+    dr_spc (ctx->P2, ctx->Pnam, tar); }
+  if ( ctx->Pjoi) {
+    dst += FMT(dst, " %s ", ctx->Pjoi);
+    st_cop (((tar && *tar) ? tar: ctx->P2), dst); }
+} 
+/* code -  us_scn - scan directory */
+us_scn(
+cuTctx *ctx )
+{ drTdir *dir ;
+  char *pth ;
+  int atr = ctx->Vatr;
+  int srt = ctx->Vsrt;
+  ti_clk (&ctx->Itim);
+  ti_msk (&ctx->Itim, &ctx->Idat, tiDAT_);
+  if ( !atr) {atr = drNOR_ ;}
+  if ( !srt) {srt = drNAM ;}
+  if ( quFrev) {srt |= drREV_ ;}
+  ctx->Vatr = atr;
+  ctx->Vsrt = srt;
+  if( (ctx->Pdir = dir = (dr_scn (ctx->P1, atr, srt))) == 0){ cu_err ("E-File not found [%s]", ctx->P1) ; return 0;}
+  st_upr ((st_cop (dir->Ppth, ctx->Ppth)));
+} 
+/* code -  us_nxt - get next directory entry */
+drTent *us_nxt(
+cuTctx *ctx )
+{ drTdir *dir = ctx->Pdir;
+  drTent *ent ;
+  int atr = ctx->Vatr;
+  for(;;)  {
+    cu_abt ();
+    if( (ent = dr_nxt (dir)) == NULL)return ( NULL );
+    if ( ti_cmp (&ent->Itim, &ctx->Idat) < 0) {
+      if( quFnew)continue;
+      } else {
+      if( quFold)continue; }
+    if ( ent->Vsiz < 65537L) {
+      if( quFbig)continue;
+      } else {
+      if( quFsma)continue; }
+    ctx->Pent = ent;
+    ctx->Pnam = ent->Pnam;
+    ctx->Vsiz = ((ent->Vsiz+1023L) / 1024L);
+    if (( atr != 0)
+    &&(atr != drALL_)
+    &&((atr & ent->Vatr) == 0)) {
+      continue; }
+    if (( !quFall && !quFdir)
+    &&(atr & drDIR_)) {
+      if( st_sam (ent->Pnam, ".."))continue;
+      if( st_sam (ent->Pnam, "."))continue; }
+    dr_spc (ctx->Ppth, ent->Pnam, ctx->Pspc);
+    return ( ent);
+  } 
+} 

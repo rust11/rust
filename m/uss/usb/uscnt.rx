@@ -1,0 +1,378 @@
+/* file -  uscnt - count/compare/search */
+#include "c:\m\usb\usmod.h"
+/* code -  kw_cnt - count files */
+static char *cu_fnd (char *,char *);
+kw_cnt(
+cuTctx *ctx )
+{ FILE *fil ;
+  char buf [mxLIN*2];
+  char *nxt ;
+  long byt = 0;
+  long wrd = 0;
+  long lin = 0;
+  long pag = 1;
+  int txt ;
+  int cha ;
+  if( (fil = cu_src (ctx)) == 0)return 0;
+  if( quFque && !cu_opr (ctx))return 0;
+  if ( !quFqui && !ctx->Vcnt) {
+    cu_tit (ctx); }
+  for(;;)  {
+    if( fi_get (fil, buf, mxLIN*2) == EOF)break;
+    ++lin;
+    nxt = buf, txt = 0;
+    while ( (cha = *nxt++ & 255) != 0) {
+      ++byt;
+      if ( cha <= 32) {
+        txt = 0;
+        if ( cha == '\f') {++pag ;}
+        } else {
+        if ( txt == 0) {++txt, ++wrd ;} }
+    } 
+  } 
+  ctx->Vcha += byt;
+  ctx->Vlin += lin;
+  ctx->Vwrd += wrd;
+  ctx->Vpag += pag;
+  if( quFtot)return;
+  PUT("%-14s %-5ld chars, %-4ld words, %-3ld lines, %-3ld sides, %-2ld pages",ctx->Pnam, byt, wrd, lin, lin/60, pag), NL;
+} 
+/* code -  kw_cmp - compare files */
+char *cuPcmp = NULL;
+int cu_bin (int ,int ,long );
+kw_cmp(
+cuTctx *ctx )
+{ char nam [mxSPC];
+  FILE *src ;
+  FILE *dst ;
+  int lft = 0;
+  int rgt = 0;
+  int dif = 0;
+  long loc = 0;
+  char *msg = NULL;
+  if( (src = cu_src (ctx)) == 0)return 0;
+  if( quFque && !cu_opr (ctx))return 0;
+  if ( !quFqui && !ctx->Vcnt) {
+    cu_tit (ctx); }
+  if ( (dst = cu_dst (ctx)) != 0) {
+    if (( !quFful)
+    &&(fi_len (src) != fi_len (dst))) {
+      ++dif;
+      } else {
+      for(;;)  {
+        lft = getc (src);
+        rgt = getc (dst);
+        if ( cu_bin (lft,rgt,loc)) {
+           ++dif, ++loc;continue; }
+        if( lft != rgt){ ++dif ; break;}
+        if( lft == EOF)break;
+        ++loc;
+      }  }
+    cu_clo (ctx, &ctx->Pdst, "");
+  } 
+  if ( dst == NULL) {
+    ++ctx->Vmis;
+    msg = ": missing";
+    if( !(quFall | quFful))return;
+  } else if ( !dif) {
+    ++ctx->Vsam;
+    msg = ": same";
+    if( !quFall)return;
+  } else if ( lft == EOF) {
+    ++ctx->Vdif;
+    if ( !quFbar) {msg = ": shorter" ;}
+  } else if ( rgt == EOF) {
+    ++ctx->Vdif;
+    if ( !quFbar) {msg = ": longer" ;}
+    } else {
+    ++ctx->Vdif;
+    if ( !quFbar) {msg = ": different" ;} }
+  if( quFtot)return;
+  if (( msg == NULL)
+  ||(!(quFful | quFall))) {
+    msg = ""; }
+  PUT("%-14s %s", ctx->Pnam, msg), NL;
+} 
+/* code -  cu_bin - display binary differences */
+cu_bin(
+int lft ,
+int rgt ,
+long loc )
+{ if( !quFbin)return 0;
+  if( lft == rgt)return 0;
+  if( lft == EOF)return 0;
+  cu_abt ();
+  PUT ("%-4ld %03x %02x %02x",loc/512, (int )loc&511, lft,rgt), NL;
+  return 1;
+} 
+/* code -  su_cmp - init compare */
+su_cmp(
+cuTctx *ctx )
+{ char *nam = ctx->P2;
+  if ( *nam == 0) {
+    cu_err ("E-No new file path", NULL); }
+  if ( *st_lst (nam) != '\\') {
+    st_app ("\\", nam); }
+  ++ctx->Vtar;
+  return 1;
+} 
+/* code -  kw_dif - list text file differences */
+kw_dif(
+cuTctx *ctx )
+{ char nam [mxSPC];
+  char old [mxLIN*2];
+  char new [mxLIN*2];
+  FILE *src ;
+  FILE *dst ;
+  int lft = 0;
+  int rgt = 0;
+  int dif = 0;
+  char *msg = NULL;
+  if( (src = cu_src (ctx)) == 0)return 0;
+  if( quFque && !cu_opr (ctx))return 0;
+  if ( !quFqui && !ctx->Vcnt) {
+    cu_tit (ctx); }
+  if ( (dst = cu_dst (ctx)) != 0) {
+    for(;;)  {
+      lft = fi_get (src, old, (mxLIN*2)-2);
+      rgt = fi_get (dst, new, (mxLIN*2)-2);
+      if ( st_cmp (old, new)) {
+        ++dif;
+        PUT("[%s]", old), NL;
+        PUT("[%s]", new), NL;
+        break; }
+      if( lft == EOF)break;
+    } 
+    cu_clo (ctx, &ctx->Pdst, ""); }
+  if ( dst == NULL) {
+    ++ctx->Vmis;
+    msg = ": missing";
+    if( !(quFall | quFful))return;
+  } else if ( !dif) {
+    ++ctx->Vsam;
+    msg = ": same";
+    if( !quFall)return;
+  } else if ( lft == EOF) {
+    ++ctx->Vdif;
+    if ( !quFbar) {msg = ": shorter" ;}
+  } else if ( rgt == EOF) {
+    ++ctx->Vdif;
+    if ( !quFbar) {msg = ": longer" ;}
+    } else {
+    ++ctx->Vdif;
+    if ( !quFbar) {msg = ": different" ;} }
+  if( quFtot)return;
+  if (( msg == NULL)
+  ||(!(quFful | quFall))) {
+    msg = ""; }
+  PUT("%-14s %s", ctx->Pnam, msg), NL;
+} 
+/* code -  kw_var - check directory variations */
+#define dfNON  0
+#define dfEXT  1
+#define dfMIS  2
+#define dfLON  3
+#define dfSHO  4
+#define dfOLD  5
+#define dfNEW  6
+#define dfDIF  7
+#define dfOLF  8
+#define dfORT  9
+#define dfSAM  10
+#define SKP(m,s) (dif = m, skp = s)
+#define LFT (-1)
+#define RGT  1
+static int df_cmp (char *,char *);
+kw_var(
+cuTctx *ctx )
+{ cuTctx *src = ctx;
+  cuTctx *dst = cuPdst;
+  drTent *lft ;
+  drTent *rgt ;
+  char *ltp ;
+  char *rtp ;
+  int skp ;
+  int dif ;
+  int srt ;
+  int cmp ;
+  int pos ;
+  int cri ;
+  int tim ;
+  long siz ;
+  char msg [128];
+  st_cop (src->Pcmd, dst->Pcmd);
+  st_cop (src->P2, dst->P1);
+  if (( quVsrt == drSIZ)
+  ||(quVsrt == drTIM)) {
+    quVsrt = drNAM; }
+  quFrev = 0;
+  if( !us_scn (src))return 0;
+  if( !us_scn (dst))return 0;
+  srt = src->Vsrt;
+  skp = 0;
+  for(;;)  {
+    if ( skp <= 0) {lft = us_nxt (src) ;}
+    if ( skp >= 0) {rgt = us_nxt (dst) ;}
+    skp = 0;
+    if( !lft && !rgt)break;
+    for(;;)  {
+      dif = dfNON;
+      tim = 0;
+      cmp = 0;
+      if( lft == 0){ SKP (dfEXT, RGT) ; break;}
+      if( rgt == 0){ SKP (dfMIS, LFT) ; break;}
+      if ( !(lft->Vatr & drDIR_)) {
+        if ( (rgt->Vatr & drDIR_)) {
+           SKP (dfEXT, RGT);break; }
+      } else if ( !(rgt->Vatr & drDIR_)) {
+         SKP (dfMIS, LFT);break; }
+      pos = 0;
+      if ( srt == drTYP) {
+        if ( (ltp = st_fnd (".", lft->Pnam)) == NULL) {ltp = "" ;}
+        if ( (rtp = st_fnd (".", rgt->Pnam)) == NULL) {rtp = "" ;}
+        pos = st_cmp (ltp, rtp); }
+      if ( pos == 0) {
+        pos = st_cmp (lft->Pnam,rgt->Pnam); }
+      if( pos > 0){ SKP (dfEXT, RGT) ; break;}
+      if( pos < 0){ SKP (dfMIS, LFT) ; break;}
+      if ( (siz = rgt->Vsiz - lft->Vsiz) != 0) {
+        if ( siz > 0) {dif = dfLON ;} else {
+          dif = dfSHO ; } }
+      if ( ti_cmp (&rgt->Itim, &lft->Itim)) {
+        if ( cmp < 0) {tim = dfOLD ;} else {
+          tim = dfNEW ; } }
+      if( siz != 0)break;
+      dif = df_cmp (src->Pspc, dst->Pspc);
+     break;} 
+    if( !(dif | tim) && !quFall)continue;
+    st_cop (":", msg);
+    switch ( tim) {
+    case dfOLD:
+      st_app (" older", msg);
+     break; case dfSAM:
+      st_app (" same ", msg);
+     break; case dfNEW:
+      st_app (" newer", msg);
+       }
+    switch ( dif) {
+    case dfMIS:
+      st_app (" missing", msg);
+      ++ctx->Vmis;
+     break; case dfEXT:
+      st_app (" new", msg);
+     break; case dfLON:
+      FMT (st_end (msg), " +%ld", siz);
+     break; case dfSHO:
+      FMT (st_end (msg), " %ld ", siz);
+     break; case dfOLF:
+      st_app (" left error", msg);
+     break; case dfORT:
+      st_app (" right error", msg);
+     break; case dfDIF:
+      st_app (" different", msg);
+     break; case dfNON:
+      st_app (" same", msg);
+       }
+    PUT("%-14s %s", ((skp != RGT) ? lft->Pnam: rgt->Pnam), msg), NL;
+  } 
+  cu_don (src->Pdir);
+  cu_don (dst->Pdir);
+  return 0;
+} 
+/* code -  df_cmp - compare two files */
+static int df_cmp(
+char *src ,
+char *dst )
+{ FILE *lft = NULL;
+  FILE *rgt = NULL;
+  int dif = 0;
+  int cha ;
+  if( (lft = fi_opn (src, "rb", NULL)) == NULL)return ( dfOLF );
+  if( (rgt = fi_opn (dst, "rb", NULL)) == NULL)return ( fi_clo (lft,NULL), dfORT );
+  cha = 0;
+  while ( cha != EOF) {
+    cha = getc (lft);
+    if( getc (rgt) == cha)continue;
+     dif = dfDIF;break;
+  } 
+  fi_clo (lft, "");
+  fi_clo (rgt, "");
+  return ( dif);
+} 
+/* code -  kw_sea - search file */
+static char *cu_fnd (char *,char *);
+kw_sea(
+cuTctx *ctx )
+{ FILE *fil ;
+  char lin [mxLIN*2];
+  char *str ;
+  int cnt = 0;
+  int fst = 0;
+  if( (fil = cu_src (ctx)) == 0)return 0;
+  if( quFque && !cu_opr (ctx))return 0;
+  str = ctx->P2;
+  if ( !quFqui && !ctx->Vcnt) {
+    cu_tit (ctx); }
+  if ( !st_fnd ("?", str)) {
+    for(;;)  {
+      if( fi_get (fil, lin, mxLIN*2) == EOF)break;
+      if( !st_fnd (str, lin))continue;
+      if ( quFful) {
+        if ( !cnt) {PUT("%-14s", ctx->Pnam), NL ;}
+        st_cop ("...", lin+68);
+        PUT("	%s", lin), NL; }
+      ++cnt;
+    } 
+    } else {
+    for(;;)  {
+      cu_abt ();
+      if( fi_get (fil, lin, mxLIN*2) == EOF)break;
+      if ( cu_fnd (str, lin) != 0) {
+        ++cnt; }
+    } 
+  } 
+  if ( cnt) {++ctx->Vmat ;}
+  ctx->Vlin += cnt;
+  if( !cnt && !quFall)return;
+  if( quFtot)return;
+  if ( !quFful) {PUT("%-14s %d", ctx->Pnam, cnt), NL ;}
+} 
+/* code -  cu_fnd - find wildcard substring */
+char *cu_fnd(
+char *mod ,
+char *str )
+{ char *src ;
+  char *dst ;
+  while ( *mod == '?') {
+    ++mod;
+    if( !*str++)return ( NULL );
+  } 
+  if( !*mod)return ( str );
+  for(;;)  {
+    while ( *mod != *str) {
+      if( *str++ == 0)return ( NULL ); }
+    src = mod, dst = str;
+    for(;;)  {
+      if( *src == 0)return ( str );
+      if ( *src == '?' && *dst) {
+         ++src, ++dst;continue; }
+    if( *src++ != *dst++)break; }
+    ++str;
+  } 
+} 
+/* code -  su_sea - init search */
+su_sea(
+cuTctx *ctx )
+{ char *mod = ctx->P2;
+  char *lst ;
+  if ( *mod == 0) {
+    cu_err ("E-No search string", NULL); }
+  st_trm (mod);
+  if ( *mod == '"') {
+    st_del (mod, 1);
+    if ( *(lst = st_lst (mod)) == '"') {
+      *lst = 0; } }
+  if ( *mod == 0) {
+    cu_err ("E-Empty search string", NULL); }
+  return 1;
+} 
