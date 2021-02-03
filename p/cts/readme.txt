@@ -1,14 +1,14 @@
 CRT - C/Rider RunTime library
 
-The Rider/C runtime library LIB:CRT.OBJ replaced the DECUS-C runtime
-for RUST applications. The primary goal for CRT was to minimize the
+The Rider/C runtime library LIB:CRT.OBJ replaces the DECUS-C runtime
+for RUST applications. The primary goal for CRT is to minimize the
 runtime library footprint for applications. 
 
-A second goal was to have parallel runtime libraries for RUST PDP-11
+A second goal is to have parallel runtime libraries for RUST PDP-11
 and Windows code where possible. CRT supports native C functions for
 I/O and *printf/*scanf, but not much more. 
 
-CTS: - RUST/RT-11 sources
+CTS: - RUST PDP-11 sources
 RLS: - RUST and Windows shared sources
 
 UPDATE.COM - compiles and assembles the library LIB:CRT.OBJ, calling:
