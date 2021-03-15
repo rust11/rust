@@ -1,0 +1,244 @@
+==Rider== 
+
+**Work In Progress -- this section is under construction --**
+
+Rider is a preprocessor language for C, used for application development under Windows and RUST systems. This document describes the RUST implementation. The description of the language is given largely in terms of its relationship to the C language.
+
+[[Rider#Sample Code|Sample Code]]
+[[Rider#Using Rider|Using Rider]]
+[[Rider#Runtime Libraries]]
+[[Rider#LinesComments|Lines/Comments]]
+[[Rider#Naming Conventions|Naming Conventions]]
+[[Rider#Header Structure|Header Structure]]
+[[Rider#Source Structure|Source Structure]]
+[[Rider#Declarations|Declarations]]
+[[Rider#Definitions|Definitions]]
+[[Rider#Preprocessor|Preprocessor]]
+[[Rider#Statements|Statements]]
+[[Rider#Expressions|Expressions]]
+[[Rider#Debugging|Debugging]]
+
+----
+**[[#Sample Code]]Sample Code**
+* The classic Hello World program:
+[[code]]
+  file    hello - hello world
+  include rid:rider
+
+    func  main
+          cnt : int
+          vec : ** char
+    is    PUT("Hello world\n")
+    end
+[[code]]
+A more typical Rider source would:
+* Include an embedded commmand procedure to build the utility
+* Use the alternate "Start" entry point
+[[code]]
+  file    hello - hello world
+  include rid:rider
+
+  ;       %begin
+  ;       rider uts:hello/object:utb:
+  ;       link utb:hello/exe:utb:,lib:crt/stack:2000
+  ;       %end
+
+  code    start - start program
+
+    func  start
+    is    PUT("Hello world\n")
+    end
+[[code]]
+* A wildcard string compare: [[Rider STWLD]]
+----
+**[[#Using Rider]]Using Rider**
+
+See the [[Rider_Command|Rider command]].
+
+????Compiler outputs
+
+----
+**[[#Runtime Libraries]]Runtime Libraries**
+
+This document describes the use of Rider with the DECUS C compiler and runtimes.
+????
+
+----
+**[[#LinesComments]]Lines/Comments**
+
+The principal difference between Rider and C is that Rider is line-oriented:
+* Line-end acts as a terminator.
+* The semicolon (;) is used as a comment operator, not as a statement terminator.
+* Expressions may be separated by the comma (,) operator
+* Source files are formatted using indents to clarify structure.
+???example
+
+----
+**[[#Naming Conventions]]Naming Conventions**
+The PDP-11 6-character identifier restriction is handled with:
+* A two character facility name, e.g. "st" for string
+* A three character component name, e.g. "cmp" for compare
+* A single character category name, e.g. "P" for pointer
+[[code]]
+  fa_com     Function
+  faFcom     Flag value
+  faIcom     Instantiation (of type)
+  faPcom     Pointer
+  faTcom     Type name
+  faVcom     Value
+  faCOM      Constant value
+  _faCOM     Constant string
+  faCOM_     Constant bit pattern
+[[code]]
+* The facility name is dropped in type members
+* The facility and category names are dropped for local variables
+* File names are usually of the form "facom"
+* Directory names are often a facility name followed by "s" or "b" for source/binary
+
+----
+**[[#Header Structure]]Header Structure**
+* Header files have the filetype ".d"
+* Header files begin with a "header" statement
+* Header files must complete with an "end header" statement
+* A header file is processed once only, no matter how often it is included
+[[code]]
+  header    myhead
+
+  ; definitions
+
+  end header
+[[code]]
+----
+**[[#Source Structure]]Source Structure**
+* Source files begin with the "file" statement
+* Most source files will include "rid:rider"
+* The "end file" statement is optional
+[[code]]
+  file    title - comment
+  include rid:rider
+  ; more includes
+
+  ; local definitions
+
+  ; code
+
+  end file
+[[code]]
+----
+**[[#Preprocessor]]Preprocessor**
+* Rider drops the opening "#" and capitalizes preprocessor keywords.
+* Include does not require quotes around the file specification.
+* Preprocessor conditional expressions require documentation!!!!
+[[code]]
+  Rider                    C                        Example
+  -----                    -                        -------
+  Include pth:spec         #INCLUDE "pth:spec.h"    Include rid:stdef       ; include string definitions
+  Include <spec.typ>       #INCLUDE <spec.typ>      Include <stddef>        ;
+
+  If                       #IF ...                  If PDP
+       ...
+  Else ...                 #ELSE ...                Else
+  End                      #ENDIF ...????           End
+[[code]]
+* Preprocessor definitions use the ":=" operator.
+[[code]]
+  I := S                   #DEFINE I S
+  I(As) := S               #DEFINE I(As) S
+[[code]]
+
+----
+**[[#Simple Declarations]]Simple Declarations**
+* Rider turns the C declaration syntax around, specifying the name before the type.
+* Rider syntax is (coincidentally) more like the Pascal style.
+* ???The Rider utility XXX may be used to translate between the C and Rider syntax.
+[[code]]
+  Rider                    C                        Rider Example
+  -----                    -                        -------------
+  I : T                    T I;                     myVint : int
+  I : [N] T                T [n] I;                 myAarr : [12] int
+  I : (...) T              I (...) T; ????          myAfun : (*char, int) in
+
+[[code]]
+
+----
+**[[#Type Declarations]]Type** **Declarations**
+[[code]]
+  Rider                    C                        Rider Example                        C Example
+  -----                    -                        -------------                        --------------
+  type I : T               typedef T I;             type elTfun : (void) void            typedef elTfun void (void);
+
+[[code]]
+Forward structure type declarations:
+[[code]]
+  Rider                    C                        Rider Example                        C Example
+  -----                    -                        -------------                        --------------
+  type T : forward         #define T struct T_t     type bgTmch : forward                #define bgTmch struct bgTmch_t
+[[code]]
+
+----
+**[[#Structure Declarations]]Structure Declarations**
+* All structures are specified as types:
+[[code]]
+  Rider                    C                        Example
+  -----                    -                        -------
+  type S                   struct {                 type   myTlst
+  is   I : T               T I;                     is     Psuc : * myTlst
+       I : T               T I;                            Pstr : * char
+  end                      };
+                           #define S struct S_t     end
+[[code]]
+* The type name may be used within the definition ("myTlst" above)
+* Unions are supported with the "unit" keyword (but rarely used).
+
+
+----
+**[[#Sample Code]]Array Initialization**
+* Arrays are initialize with the init/end keyword pair.
+* 
+[[code]]
+<span style="background-color: #eeeeee; font-size: 13px;">  Rider                    C                        Example
+  -----                    -                        -------
+  init A : T               struct {                 type   myTlst
+  is   v, v, v...          T I;                     is     Psuc : * myTlst
+       v, v, v...          T I;                            Pstr : * char
+  end                      };
+                           #define S struct S_t     end</span>
+[[code]]
+
+----
+**[[#Definitions]]Function Definitions**
+
+* The "func" keyword introduces a function returning a result.
+* The "proc" keyword introduces a function that does not return a result.
+[[code]]
+  Rider                    C                        Example
+  -----                    -                        -------
+  func F                   F (
+       A : T                   T A;
+       A : T                   T A; )
+  is   L : T                 { T L;
+       L : T                   T L;
+       <statements>            <statements>
+  end                         }
+
+[[code]]
+
+----
+**[[#Statements]]Statements**
+
+* See [[Rider Statements]]
+
+----
+**[[#Expressions]]Expressions**
+
+* Rider Expressions are generally identical to C. The exceptions are:
+[[code]]
+  Rider                    C
+  -----                    -
+  gt ge eq le lt           > >= == <= =
+  Cx ? Tx ?? Fx            Cx ? Tx : Fx
+[[code]]
+----
+**[[#Debugging]]Debugging**
+
+* Printf debugging is simplified with a preprocessor mechanism.

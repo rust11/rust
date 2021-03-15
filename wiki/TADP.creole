@@ -1,0 +1,215 @@
+===TADP Notes=== 
+
+**These are live notes**
+
+TADP is the PDP-11 cassette maintenance system.
+For an introduction to PDP-11 maintenance systems see [[XXDP]].
+
+TADP formed part of the PDP-11 CAPS-11 distribution kit.
+CAPS-11 was the very small Cassette oPerating System for PDP-11 computers.
+
+Sources and binaries are available for TADP.
+TADP documentation has not been located.
+
+See also [[TADP sources]], [[TALDRC]]
+
+
+**Context**
+----
+
+TADP was written around 1973/1974 and probably never seriously updated.
+It represents an early stage of the development of XXDP.
+
+CAPS-11 and TADP are designed for very small systems.
+CAPS-11 and TADP were delivered to run in 8kw environments.
+
+Cassettes are limited to about 150 512-byte blocks of data maximum.
+New files can only be added to the end of a cassette.
+A maximum of two cassette units are available to a system.
+
+**Distribution**
+----
+
+The distribution is contained on two cassettes.
+
+# The TADP system cassette
+# The diagnostic cassette
+
+//System cassette//
+The first tape holds the TADP monitor system and UPD1 and UPD2.
+
+TADP.BIN AND TALDRC.BIN are used in the construction of system and diagnostic cassettes.
+
+Some of these programs have been partly decoded.
+
+[[code]]
+MAINDEC-11-DZZDH-B-TB
+
+TADP.SYS      ! TADP monitor binary image
+UPD1.BIN      ! PATCH-like utility in LDA format
+UPD2.BIN      ! PIP-like utility in LDA format
+TADP.BIN      ! TADP monitor LDA format
+TALDRC.BIN    ! Cassette loader
+[[code]]
+
+//Diagnostic cassette//
+The second taps contains a loader and seven diagnostics.
+
+Two versions of the tape are available.
+[[code]]
+MAINDEC-11-DZZCQ-A1-TB
+MAINDEC-11-DZZCQ-C-TB
+
+TALDRC.SYS
+ZBMHA0.BIC
+ZTAAB0.BIC
+ZTABB0.BIC
+ZTACB0.BIN
+ZTADB0.BIC
+ZTAEA0.BIC
+ZTAHA0.BIN
+[[code]]
+
+**Initialization**
+----
+
+The following RT-11 command file builds a TADP tape:
+
+[[code]]
+! mount target TADP cassette in CT1:
+!
+. init ct1:
+. copy tadp.sys ct1:
+. copy upd1.bin ct1:
+. etc
+[[code]]
+
+A similar process constructs the diagnostic tape:
+
+[[code]]
+! mount target diagnostic cassette in CT1:
+!
+. init ct1:
+. copy taldrc.sys ct1:
+. copy zbmhas0.bic ct1:
+etc
+[[code]]
+
+**Bootstrap**
+----
+
+The following SimH script boots a TADP cassette:
+
+[[code]]
+set cpu 11/04
+set cpu 32k
+set ta enabled
+att ta0 caps11.tap
+att ta1 temp.tap
+d 001000 012700
+d 001002 177500
+d 001004 005010
+d 001006 010701
+d 001010 062701
+d 001012 000052
+d 001014 012702
+d 001016 000375
+d 001020 112103
+d 001022 112110
+d 001024 100413
+d 001026 130310
+d 001030 001776
+d 001032 105202
+d 001034 100772
+d 001036 116012
+d 001040 000002
+d 001042 120337
+d 001044 000000
+d 001046 001767
+d 001050 000000
+d 001052 000755
+d 001054 005710
+d 001056 100774
+d 001060 005007
+d 001062 017640
+d 001064 002415
+d 001066 112024
+d sr 0
+run 1000
+[[code]]
+
+**TADP startup**
+----
+
+TADP begins thus:
+
+[[code]]
+DZQUE-B TADP - TA11 MONITOR  16K RESTART: 074000
+FOR HELP TYPE /H AND <CR>
+
+.
+[[code]]
+
+**Help frame**
+----
+
+[[code]]
+TYPE ONE OF THE FOLLOWING FOLLOWED BY <CR>:
+
+/D TO TYPE DIRECTORY,
+/D/F FOR SHORT DIRECTORY,
+/D/L FOR DIRECTORY ON LINE PRINTER,
+/R TO RUN CASSETTE COPY PROGRAM,
+/C TO RUN CHAIN PROGRAM.REFER TO DOCUMENT FOR ADDITIONAL HELP.
+[[code]]
+
+**Command Interface**
+----
+
+TADP has a primitive command interface:
+
+* All input must be in uppercase
+* [rubout] is not supported by the monitor (but is by UPD1/UPD2)
+* Error messages consist of "?" and a digit
+
+The usual tradition of using "/" to introduce qualifiers is inverted:
+
+* TADP internal commands are preceded by "/"
+* TADP applications are run-by-name
+
+**TALDRC utility**
+----
+
+TADLRC is a primitive cassette tape loader.
+
+Loader tapes have the following layout:
+
+[[code]]
+[TADLRC.SYS |File #1 |File #2 |... |File #n |Sentinel File]
+[[code]]
+
+The basic procedure:
+
+# Place the number of the program to be loaded in the switch register
+# Bootstrap the cassette
+
+**UPD1 utility**
+----
+
+* Exit using BOOT CT: command
+
+
+**UPD2 utility**
+----
+
+* Exit with [ctrl-c]
+* File specs must include device, name and type.
+* The operator between source and destination files is the underline (_).
+
+[[code]]
+DIR DEV:...
+
+DIR (no file spec) fails
+
+PIP DEV:OUTFIL.TYP_DEV:INFILE.TYP
+[[code]]

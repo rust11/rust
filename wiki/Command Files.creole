@@ -1,0 +1,46 @@
+==Command Files==
+
+RUST supports two methods of activating a command file: "@" and "@@".
+
+----
+**@Command-file**
+
+The '@' operator is used to execute command files.
+[[code format="text"]]
+  .@mycom         ! executes dk:mycom.com
+[[code]]
+The '@' operator is recognised only at the start of a line (preceded optionally by a dollar sign and/or label). The command below is invalid: 
+[[code format="text"]]
+  .link @mylink
+[[code]]
+* See the sub-topics for parameter and conditional support.
+* Command file data is stored at the top of your process space (setting a limit on the size of command files). 
+* Use the SET KMON IND command to redirect command files to the IND control file processor. 
+
+----
+**@@Build-file**
+The "double-at" command extracts a command file from a source file for execution.
+
+Assuming that the file DK:TEST.MAC had the following opening content:
+[[code format="text"]]
+.title  test
+
+;       %build
+;       macro test/obj:mytest
+;       link mytest/map:mytest
+;       %end
+
+main:   mov     #1000,sp     ; 
+....
+[[code]]
+* The BUILD directives %build and %end and the command file data must be indented by one tab.
+
+The command below extracts and executes the commands between "%build and "%end".  
+[[code format="text"]]
+  . @@test
+[[code]]
+BUILD searches for files by file type and in this order:
+[[code format="text"]]
+.MAC .R .D .C .MAS .HLP .BUI .PAS .FOR .FTN .MAR
+[[code]]
+* For more information see [[BUILD_Utility|BUILD]]

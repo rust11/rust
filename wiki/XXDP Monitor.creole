@@ -1,0 +1,228 @@
+[[code]]
+______________________________________________________________________
+4. XXDP MONITOR
+
+                                NOTE
+     This article forms part of an attempt to document XXDP.  The
+     information is based on an examination of XXDP disks and the
+     scant documentation available on the web. Thus omissions and
+     errors are guaranteed. Ian Hammond/2008 alt.sys.pdp11
+
+This vastly incomplete section describes the internal operation of the
+XXDP monitor.  The  information here is based on a brief investigation
+of a live V1 XXDP system running under an emulator with trace output.
+
+______________________________________________________________________
+4.1 MONITOR LAYOUT
+The bootstrap routine relocates monitor to the top of memory:
+
+  +----------+
+  | i/o page | 160000   PDP-11 4kw I/O Page
+  +----------+ 
+  | monitor  | 15xxxx   XXDP Monitor          
+  +----------+
+  |  hooks   |          Relocated components
+  |          |
+  +----------+
+  | program  | 000200   Application Programs          
+  +----------+
+  | vectors  | 000000   Interrupt Vectors          
+  +----------+ 
+
+Note: The low vector address limit of 0200 reflects the initial design
+of the PDP-11.
+
+Conceptually,  we can think of the monitor have the internal structure
+shown below (the reality is a bit more higgledy-piggeldy):
+
+  +----------+
+  |   code   | Monitor code
+  +----------+
+  |  buffers | I/O and directory buffers
+  +----------+
+  |  impure  | Impure data
+  +----------+
+  | overlays | Code and data overlays
+  +----------+
+  |  stack   | Monitor stack
+  +----------+
+  |  hooks   | Monitor hooks (drivers etc)
+  +----------+
+  |   top    | Top of available application memory
+  +----------+
+
+CODE: The monitor code is standard  PDP-11 assembler (not particulary
+good assembler at that).
+
+BUFFERS: The  linked  file structure predicates substantial overheads.
+Each disk channel  requires a buffer to enblock/deblock data.  Another
+buffer is used to search the bitmap. Directory operations also require
+buffers. 
+
+IMPURE: The operation of many  service  routines is modified by values
+stored in the impure area.  Some system services  do nothing more than
+modify or reset these values.
+
+OVERLAYS: Some  code/data is read into an overlay buffer for execution
+or access. Not well understood.
+
+STACK: The system stack.
+
+HOOKS: Sub-systems (DRS etc) are  relocated  to  the top of memory and
+then act as a monitor extension.  V2 drivers are (probably)  relocated
+as well.
+
+TOP: It's not clear  that  (all) applications check the upper limit of
+memory is available for use (or how they would check for that matter).
+
+______________________________________________________________________
+4.2 MONITOR DYNAMICS
+
+XXDP provides a minimal execution environment in which diagnostics can
+be executed. In terms of dynamics XXDP is not much more than a program
+loader with some I/O routines. 
+
+INTERRUPTS: XXDP is not an interrupt driven system. It does not manage
+interrupts or provide fork routines or completion routines. All I/O is
+WAIT or POLLED. 
+
+VECTORS: With the exception of the EMT vector, XXDP doesn't manage the
+interrrupt or trap vectors. Some programs use the SYSCOM area 040-060.
+
+CLOCK: There is no concept of system time in XXDP. The system does not
+manage the clock vector. 
+
+TERMINAL:  Terminal I/O is polled.  Here is the terminal input calling
+sequence:
+
+  input:  clr     r0         ; init R0
+  10$:    emt     6          ; check for terminal input
+          tstb    r0         ; got a character in R0
+          beq     10$        ; nope - try again
+
+DISK: Disk I/O is buffered and synchronous.
+
+______________________________________________________________________
+4.3 PROGRAM ACTIVATION
+
+As well as directly  running  programs,  the monitor supports separate
+LOAD and START phases, permitting memory to modified before starting a
+program.
+
+The LOAD phase is as follows:
+
+1.  Locate the program to be activated.
+    The default filetype is wildcarded as ".BI?", permitting the first
+    matching ".BIC" or ".BIN" file to be selected.
+
+2.  Load the program into memory using the Binary Loader.
+
+The start phase is as follows:
+
+3.  START the application at a location specified  at  the keyboard or
+    at the application's start address.
+
+???Contiguous file start address
+______________________________________________________________________
+4.4 STANDALONE APPLICATIONS
+
+Papertape maintenance programs were stand-alone applications. Many of
+these programs were moved to XXDP with minimal change.  XXDP provides
+only two services for such applications: START and EXIT:
+
+START: Activate the image, as describe above.
+
+EXIT: Pass control back to the system on image exit. Programs use the
+technique below to accomplish this:
+
+   START:  MOV    SP,SAVESP           ; save the stack
+           MOV    #MYSTACK,SP         ; setup own stack
+           ...                        ; execute program
+
+   EXIT:   MOV    SAVESP,SP           ; restore monitor stack
+           RETURN                     ; return to monitor
+
+   SAVESP: .WORD 0                    ; store exit stack 
+
+
+______________________________________________________________________
+4.5 SYSTEM DATA
+
+o  Location 41: Stored the "media" byte. This location describes the
+   standard device for the application. Late versions of RT-11 added
+   this concept to bootstrap loaders.
+o  Location 52: 
+o  Location xx: Version information was stored for ".SYS" files. This
+   became necessary when the version information was dropped from the 
+   filename.
+
+______________________________________________________________________
+4.6 SYSTEM SERVICES
+
+Many programs and the monitor itself use System Services. Services are
+triggered with the EMT trap with the service number encoded in the low
+byte of the EMT instruction.
+
+The incomplete and inaccurate table below is the result of a few hours
+study of the V1 and SM system services in action.  Services marked '*'
+occur very frequently and were supressed in traces.
+
+00  sm  GetLin   Get Line from terminal
+01  sm  TraCmd   Translate command
+02*     TypStr   Type string
+03*     TypOct   Type octal number
+04  sm  PutTer*  Type character at terminal
+05  sm  GetTer*  Get Terminal character
+                 CLR R0; .GetTer; TST R0
+06  sm  GetDev*  Get character from device
+                 See 034/SetDev
+07  sm  TypRel   Type relocated monitor string ???
+10
+11  v1  ??????   r xteco
+12*              Seen at end of boot -- v1 run
+13
+14  sm  ReaOvr   Read disk overlay
+15  v1  ReaBlk   (seen during program load)
+16  sm  ??????*
+17  sm  ??????*
+
+20  sm  ReaBlk   Read block -- Read next seg
+21  sm  ReaBlk?  Lookup? -- read first seg
+22  sm  Set???   Store code address 152000 in 154366
+                 emts  2, 7, reset sp
+23*     ??????   Seen at end of boot, end of teco command
+24      NxtSeg*  GetFil record?
+25      ??????*  GetFil record?
+26  sm  ??????  
+27* v1  ??????   XTECO startup
+30  sm  ReaPhy   Read physical. R0 = block.
+31  sm  Set???   Setup two values in r0/r1 memory
+                 END OF V1 SERVICES
+32*     ??????   Dir command
+33
+34  sm  SetDev   Reset TTKB and TTPB to default addresses
+35
+36
+37
+40* sm  ??????   Seen at end of boot
+41
+42
+43
+44*     ??????   Dir command
+                 END OF SM SERVICES
+
+______________________________________________________________________
+4.7 V2 FEATURES
+
+Version two of the system was officially released in 1984. V2 reflects
+an attempt to substantially improve the user environment.
+
+o  XM Monitor
+o  Device drivers
+o  English-language commands with abbreviations
+o  Meaningful names for programs without version information
+o  Additional system services
+
+V2 added shared device drivers, permitting applications to work with a
+range of devices.
+[[code]]

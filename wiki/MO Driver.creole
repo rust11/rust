@@ -1,0 +1,45 @@
+==MO:==
+
+The RUST mouse driver MO:
+[[code format="text"]]
+  SET MO: CSR=octal       ! 176500
+  SET MO: VECTOR=octal    ! 300
+  SET MO: PORT=decimal    ! DZV port number (default=0)
+  SET MO: LEFT            ! Left-handed use
+  SET MO: RIGHT           ! Right-handed use (default)
+  SET MO: AUTO            ! Auto-detect mouse type (default)
+  SET MO: (M2,M3,M4,MM)   ! Select mouse type manually
+  SET MO: RAW             ! Returns raw data (Maintenance)
+[[code]]
+* This new mouse driver is not currently used by any application.
+* MO: supports DLV11 and DZV11 serial interfaces.
+* Configure DLV11 ports to operate at 1200 baud.
+* Many PC mice fail because PC serial devices operate at a lower voltage.
+* The mouse driver detects the mouse type on-the-fly.
+
+Recognised mouse types are:
+[[code format="text"]]
+    MS  Microsoft/Logitech 2- or 3-button mice
+    M3  Microsoft/Logitech 3-button
+    MZ  Microsoft/Logitech 3-button with wheel
+    MM  Mouse Systems Mouse
+[[code]]
+----
+**MO: Programming**
+
+* Open MO: and issue .READx request with wordcount=32 (decimal)
+* The buffer returns a 4-byte header and upto 15 4-byte mouse events:
+[[code format="text"]]
+    Header:
+       0  Event count (1 to 15)
+       1  Mouse type (0=Not detected, 3=MS, 4=M3, 5=MM)
+       2  Hardware error count
+       3  Protocol error count
+
+    Packet:
+       0  Buttons (Octal flags: 1=L, 2=M, 4=R, 200=Error)
+       1  X movement (signed)
+       2  Y movement (signed)
+       3  Wheel movement (signed)
+[[code]]
+

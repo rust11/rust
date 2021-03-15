@@ -1,0 +1,64 @@
+==Driver Suffixes==
+
+The driver suffix is the third character of a driver filename. For example, the suffix of DDV.SYS is "V". 
+
+Each suffix is associated with a specific native system:
+[[code format="text"]]
+  Suffix  Example   Native system
+  ------  -------   --------------
+  none    DD.SYS    RT-11/SJ and RT-11/FB
+  X       DDX.SYS   RT-11/XM
+
+  V       DDV.SYS   RUST/SJ
+  W       DDW.SYS   RUST/SJ on the V11 emulator
+  P       DDP.SYS   RUST/XM
+[[code]]
+----
+**RT-11 Driver Suffixes**
+
+RT-11 uses fixed runtime suffixes.
+
+RT-11 uses only the drivers as defined by the system suffix.
+
+Since the suffix is fixed it need not be specified. The one exception for RT-11 is the COPY/BOOT command which accepts an optional driver specification with suffix:
+[[code format="text"]]
+  .copy/boot:dlv boot dl1:        ! use driver DL1:DLV.SYS        
+[[code]]
+On RT-11 you can set the system suffix with a SYSGEN operation. For example, you could SYSGEN an RT-11/FB system with the suffix "F". All drivers for that sysgened system would then have suffix "F".
+
+----
+**RUST Driver Suffixes**
+
+RUST systems support multiple driver suffixes. RUST uses search paths to find the best available driver.
+[[code format="text"]]
+  System          Search Path
+  -------         -----------
+  RUST/SJ         ddW.sys ddV.SYS dd.SYS
+  RUST/XM         ddP.SYS ddX.SYS ddV.SYS dd.SYS
+[[code]]
+Thus, for DU:, RUST/SJ searchs first DUW.SYS if its running under V11, then DUV.SYS and then DU.SYS. You can use INSTALL/LOG or LOAD/LOG to see which driver RUST selects.
+
+In general, the search path operation is transparent. Regular RT-11 commands function in the expected manner. 
+
+----
+**RUST Suffix-related Commands**
+
+Commands that treat the suffix as implicit:
+[[code format="text"]]
+  .set [device] dd:       ! Device name with required colon (:).
+  .show device dd:                
+  .unload dd:
+  .remove dd:
+[[code]]
+Commands that require an explicit suffix:
+[[code format="text"]]
+  .analyse driver duv
+  .set driver duv ...
+  .show driver duv
+[[code]]
+Commands that accept an optional suffix:
+[[code format="text"]]
+  .install nfw
+  .load nfw
+  .copy/boot:nfw ...      
+[[code]]

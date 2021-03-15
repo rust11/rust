@@ -1,0 +1,120 @@
+ ==RUST/SJ Architecture==
+
+RUST/SJ is based on a late seventies monitor designed for a diskless workstation environment with optional support for local devices. The USR was loaded only when there were local devices to service. This scenario lead to an unusual division of labor between the resident monitor and USR: Here are a few examples:
+[[code format="text"]]
+                RT-11      RUST
+   CSI          USR        RMON
+   I/O QUEUE    RMON       USR
+   COMPLETE     RMON       USR
+   R, RUN       DCL        RMON     See Image Activation below
+[[code]]
+In Old RUST the USR didn't swap: it was either absent or permanently resident (with no code in the USR buffer). At present the USR is permanently resident. 
+
+Old Rust dual-processed many program requests to handle both local and remote devices. About 700 words have been trimmed even after additions were made for new features. There's another 300 words to go. 
+
+Here's a rough comparison between RUST/SJ and the RT-11/SJ V5.5. The RUST monitor includes sub-directory support which is equivalent to RT-11 LD: functionality:
+[[code format="text"]]
+   Address   Module    Words    
+   -------   ------    -----
+   160000    IOPAGE     4096.   RT-11/SJ with USR SWAP
+   157464    HD          102.
+   145614    RMON       2516.
+   144364    LD          332.   
+   131160    SL         2882.
+   001000    ..BG..    22584.   (Excludes the low 256. words) 
+
+   ......    .......   .....    RT-11/SJ with USR NOSWAP
+   121114    USR        2066.
+   001000    ..BG..    20518.
+
+
+   Address   Module    Words
+   -------   ------    -----
+   160000    IOPAGE     4096.   RUST/SJ 
+   143060    RMON       3326.
+   134362    USR        1749.
+   134046    HD          102.
+   131636    SL          571.
+   131534    Logicals     33.
+   131524    Commands      4.
+   000000    (free)    22781.   (Includes the low 256. words) 
+[[code]]
+Here's the current system layout:
+[[code format="text"]]
+   +------------------+
+   | IOPAGE     1-4kw |   Truncated LSI-11 I/O page supported. 
+   +------------------+
+   | RMON         3kw |
+   +------------------+  
+   | USR          2kw |   Standard RT-11 has it below "Other Drivers"
+   +------------------+  
+   | SY:              |   Standard RT-11 has it above RMON.
+   +------------------+  
+   | Other drivers    |
+   +------------------+  
+   | DCL Pool         |   UCF commands and sub-directory names.
+   +------------------+
+   | Command file     |   Command file space shrinks as it executes   
+   +..................+
+   |                  |
+   |                  |
+   | Application      |   DCL runs as a standard app on RUST.
+   +------------------+
+   | Vectors          |
+   +------------------+
+[[code]]
+Under RUST it's RMON, not DCL, which prompts for a command. Here's the process:
+
+# Image exit
+# Chain to image or command file
+# Pass control to IND if appropriate
+# Prompt for RUST command (see SET PROMPT)
+# .GTLIN for a command
+# Dispatch *resident* commands directly
+# Activate DCL for other commands
+
+RMON handles simple R or RUN commands without parameters, i.e. "R VIP" (but not "R VIP A=B") directly along with GET, STArt and REEenter.
+
+DCL.SAV (KMON) interprets complex commands, command files etc. A DCL command is handled internally (e.g. SET TT) or is dispatched back to RMON as a hidden command file usually consisting only of resident commands (i.e. R or RUN). 
+
+Since the monitor has built-in R/RUN, the minimal footprint is the monitor and system driver.
+
+Command files are executed by copying a "command file hook" to the top of available memory. The hook includes command file data and the code to deliver the data character-wise to the system. The hook moves the top-of-memory pointer up as the data is consumed. When the data is exhausted the hook unhooks itself from RMON and silently disappears.
+
+The DCL pool stores Directory Logical Names and UCF commands. More data is stored in a permanent area of RMON (a secondary RMON-like table).
+
+DCL slides the command file hook and DCL pool up and down in memory to make or reclaim driver space. DCL derives the location of drivers from the slot table.
+
+----
+**RUST Monitor**
+
+Functionally, the RUST monitor is roughly equivalent to RT-11/SJ along with:
+
+*  Initial command decode and dispatch
+*  Built-in simple R, RUN, GET STAart & REEnter commands
+*  Image activation
+*  Command file access to .TTYIN
+*  .MRKT, .CMKT & .TWAIT
+*  .DEVICE
+*  Basic midnight rollover
+*  Directory entry time
+*  Sub-directory capability in USR and CSI
+*  Sub-directory logical names
+*  Recursive logical name translation
+*  Wildcard logical name redirection to network
+*  Directory paths
+
+In its network days RUST/SJ used an image bitmap-driven scatter load to avoided transferring redundant blocks. RUST/XM and BOOT read in the image in one gulp (better disk performance for XM and less code for BOOT). RUST/SJ uses a modified version of the single gulp: it walks backwards through the RT-11 image bitmap to locate the highest required block, sometimes halving the image read (which DD: likes). RUST/XM will get this optimisation.
+
+Terminal: The original monitor was sysgened for hardcopy, VTxxx or VT11 support. At present it's hardwired for VTxxx. VT11 support is available with a driver. Terminal output was polled and still is at present but solves more problems than it creates. 
+
+----
+**RT-11 Compatibility**
+
+The Prime Directive for RUST in general, and the monitor in particular, is RT-11 compability. The basic RUST/SJ monitor has been tested with hundreds of RT-11 applications. 
+
+The kind of differences which occur between RUST and RT-11 are similar to those which occur between the standard RT-11 SJ, FB and XM monitors, or between versions of those systems. 
+
+In the days of Old RUST the compatibility goal was bi-directional, that is, where possible, Old RUST utilities and drivers were developed to run under both RUST and RT-11. That's no longer the goa -- New RUST utilities and drivers take full advantage of RUST features and generally won't function under RT-11.  
+
+Many of RUST's additions were based on VAX/VMS. This is particularly true of RUST/XM where the multi-process architecture and DCL commands were modelled directly on VMS.

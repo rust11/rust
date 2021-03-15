@@ -1,0 +1,78 @@
+==V11 Emulator==
+
+The PDP-11 emulator V11.EXE is used to configure and run RUST systems.
+
+----
+**Initiation**
+[[code format="text"]]
+. V11/options image [command]
+[[code]]
+**/Options**
+See below.
+**Image**
+The file specification of a PDP-11 system disk image. 
+Defaults are "PDP:.DSK"
+**[command]**
+An optional single-line command to pass to the emulated system.
+RUST/SJ recognises single-line commands.
+[[code format="text"]]
+/NOBPT     Disable BPT traps            /MAINT     Maintenance debug mode
+/NOCLOCK   Disable clock                /NOMMU     Disable Memory Management
+/DEBUG     Debug mode                   /PAUSE     Pause screen output
+/DOS       System is DOS/Batch          /NOSMARTS  Disable O/S date setup etc
+/DISK      Trace disk operations        /STOP      Stop before execution
+/NODLX     Disable DL: extended address /TWENTY    PDP-11/20 emulation
+/EIS       LSI emulation with EIS       /UNIBUS    Unibus model
+/EMT       Trace emt operations         /UPPER     Upper-case terminal
+/HELP      Display help                 /VRT       Run built-in RT-11 emulator (obselete)
+/NOIOT     Disable special V11 IOTs     /XXDP      System is XXDP
+/LOG       Log output to V11.TXT        /7BIT      Force 7 bit terminal output
+/LSI       30kw LSI-11 emulation        /60        60 hertz clock
+[[code]]
+----
+**Windows Logical Disks**
+V11 maintains a list of eight disk-like volumes, LD0 to LD7. It builds the list by translating the Windows logical names LD0 to LD7. Note, these are Windows logical names LDx:, not RT-11 or RUST logical disks. LD0: is reserved for use by the emulator to map the logical disk of bootstrap system.
+
+Windows logical names are specified with the SHE.EXE shell. See [[Windows Logical Names]].
+[[code format="text"]]
+.define ld1 c:\p\pdp\rt.dsk ! define a logical name
+.show logical ld*           ! display logical names
+.undefine  ld1              ! undefine a logical name
+[[code]]
+----
+**V11 Disk Devices**
+The V11 emulator emulates three PDP-11 disk devices:
+[[code format="text"]]
+HD:  HDV.SYS  HDP.SYS     Hypothetical Disk (modelled on E11 HD: support)
+RK:  RKV.SYS  RKP.SYS     RK05 Disk
+DL:  DLV.SYS  DLP.SYS     RL01/RLO2 Disk
+NF:  NFW.SYS  NF?.SYS     RUST Network disk
+[[code]]
+All emulated disk-like devices are mapped to the same eight Windows volumes. Thus, RK1:, DL1: and HD1: all refer to the same volume file associated with Windows LD1:. 
+
+----
+**Other V11 Devices**
+
+Other V11 devices include the standard PDP-11 line clock and console terminal.
+
+The overriding goal of the V11 emulator has been to develop and test the RUST operating systems. No attempt has been made to completely emulate PDP-11 peripheral hardware is the case with E11 and SIMH.
+
+----
+**Native File Access**
+RUST/SJ and RUST/XM support access to native Windows directories and files using the RUST network NF:. The drivers are implemented under V11 using an internal V11 API.
+
+----
+**V11 system support**
+The following systems are functional: 
+[[code format="text"]]
+RUST      All RUST systems.
+RT-11     All RT-11 supported (except V5.7 with I/D space).
+RSX       RSX-11M supported. Not much testing.
+XXDP      Unmapped and mapped XXDP systems.
+[[code]]
+The following systems still have problems:
+[[code format="text"]]
+RSTS      RSTS boots. Fails when FPU is used.
+UNIX      V5 fails. Not debugged yet. Later versions need I/D space.
+DOSbatch  Boots. Fails when keyboard listener invoked. Needs debug.
+[[code]]

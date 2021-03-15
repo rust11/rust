@@ -1,0 +1,79 @@
+==Bootstrap Overview==
+
+
+----
+**RUST/SJ Bootstrap**
+
+RUST usually boots via BOOT.SYS, a general-purpose bootstrap. The boostrap device is prepared as follows:
+# Run ddn:BOOT.SYS and issue the command SET IMAGE RUST.SAV
+# COPY/BOOT:dd ddn:BOOT ddn:
+
+COPY/BOOT copies the appropriate areas of BOOT.SYS to the four blocks reserved for a secondary bootstrap on an RT-11 disk. The bootstrap process is then:
+# Primary boot loaded by hardware or software.
+# Secondary boot (BOOT.SYS) loaded by hardware or software.
+# Secondary boot (BOOT.SYS) moves to high memory as a mini RT-11.
+# BOOT.SYS activates RUST.SAV as ordinary RT-11 program
+
+Once activated, BOOT.SYS functions as a miniature RT-11 monitor. BOOT has enough functionality to load a program, service read requests for the system device along with a dozen or so other RT-11 EMTs. The same technique is used to boot RUST/XM.
+
+RUST is linked as an RT-11 .REL file. It uses BOOT to read the system driver and generally prepare for startup. Finally, RUST relocates itself to high memory using the .REL file information stored in the image.
+# BOOT.SYS loads RUST.SAV
+# RUST reads SY:RUST.INI
+# Loads the system driver
+# Sizes memory
+# Checks the clock rate
+# Relocates the RUST monitor
+# Copys the RUST monitor to high memory
+# Passes control to the monitor
+
+The typical contents of RUST.INI are:
+[[code format="text"]]
+   [boot]
+   verify=off             ! "on" displays ini file contents
+   verbose=on             ! "on" displays boot progress 
+   warnings=off           ! "on" displays boot warnings 
+   terminal=177560,60     ! defines terminal csr & vector
+   startup=sy:rust.com    ! defines startup command file
+[[code]]
+RUST guesses whether the clock is running at 50 or 60 hertz by counting nulls sent to the terminal output port for ten ticks and then looking up a table for the closest match. The test fails benignly in situations where the terminal isn't really driven by a serial line (e.g. emulators).
+
+There's another way to boot RUST and that's simply to run it as a program under RUST/SJ or any standard RT-11 monitor (but not RUST/XM). In this case the services provided by BOOT.SYS are provided by the resident monitor. RUST.SAV can only be initiated from the system disk.
+
+The startup command file, SY:RUST.COM, completes the boot process. Here's the supplied version:
+[[code format="text"]]
+   !
+   ! RUST.COM - RUST/SJ V3.5 startup command file 
+   !
+   !set verify                     ! observe startup
+    set edit                       ! load SL line editor
+   !                               !
+    load/auto ei                   ! load EIS emulator if required
+    install nl,vm                  ! install these always
+    install/auto dl,du,dy,rk       ! auto-install disks
+    install/auto ld,lp,nf,vm       ! auto-install devices
+   !install dd,ls                  ! these can't be automated
+   !load ld                        ! must be loaded for operation 
+    load/auto nf                   ! auto-load network
+   !                               !
+    define/translated tmp sy       ! default tmp:
+    if/file=sy:tmp.dsk define tmp sy:\tmp\
+    define/translated lib sy       ! default lib:
+    if/file=sy:lib.dsk define lib sy:\lib\
+   !                               !
+    show volume/verify sy:         ! check SY: for errors
+[[code]]
+----
+**Summary**
+
+Preparation:
+# The bootstrap files are copied to the device.
+# The bootstrap files are configured.
+
+Operation:
+# The host system loads the device bootstrap.
+# The device bootstrap loads the BOOT.SYS secondary boot.
+# BOOT.SYS loads the system image, RUST.SAV or RUSTX.SAV.
+# RUSTx.SAV reads RUSTx.INI, the initialisation file.
+# RUSTx.SAV configures the system.
+# RUSTx.SAV starts the monitor.
+# The monitor executes RUSTx.COM.

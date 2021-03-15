@@ -1,0 +1,122 @@
+[[code]]
+______________________________________________________________________
+3. XXDP FILE STRUCTURES
+
+
+                                NOTE
+     This article forms part of an attempt to document XXDP.  The
+     information is based on an examination of XXDP disks and the
+     scant documentation available on the web. Thus omissions and
+     errors are guaranteed. Ian Hammond/2008 alt.sys.pdp11
+
+This section briefly outlines some XXDP file structures, many of which
+were  adopted  from  DOS/BATCH which were, in turn, based on papertape
+formats using ASCII for text files and Formatted Binary for most other
+structures.
+
+______________________________________________________________________
+3.1 TEXT FILES (.txt)
+
+Text files are stored in 8-bit Ascii.  Newline  is represented by <CR>
+<LF>.   The unused area of the final block is zero padded.  Some files
+are terminated with Ascii EOF <ctrl-z>.
+
+
+______________________________________________________________________
+3.2 FORMATTED BINARY
+
+The formatted binary structure is used to wrap binary data in a simple
+byte stream. Nulls may precede and separate records. It has a two word
+header and a concluding checksum byte:
+
+   .word  1          ; signature
+   .word  BC+6       ; data byte count + 6
+   .blkb  BC         ; data
+   .byte  CHK        ; checksum
+
+The checksum, CHK, is  the  negated  sum of the preceding bytes in the
+record, including the four bytes of the header.
+
+This structure is the fundamental vehicle of binary record structures.
+The loader and object formats are built on top of it as are other less
+well known or private structures (such as XXDP configuration files). 
+
+
+______________________________________________________________________
+3.3 OBJECT FILES (.obj)
+
+Similar to standard PDP-11 object files,  object record structures are
+layered on top of Formatted Binary records.
+
+TBS: Details of differences with the standard PDP-11 format.
+
+
+______________________________________________________________________
+3.4 LIBARY (.lib)
+
+DEC/X11 Object Libraries consisting of a number of headers followed by
+zero or more object files.  The headers include an ascii name index, a
+Rad50 name index and a set of mapping records. 
+
+TBS: Details of the library structure.
+
+
+______________________________________________________________________
+3.5 MAP (.map)
+
+TBS: Details of the map structure.
+
+
+______________________________________________________________________
+3.6 ABSOLUTE LOADER (.lda)
+
+Standard PDP-11 formatted binary loader format.  Nulls may precede and
+separate records. The record header has three words:
+
+   .word  1          ; signature
+   .word  bc+6       ; data byte count + 6
+   .word  address    ; load or transfer address
+   .blkb  bc         ; load data
+   .byte  cs         ;
+
+There are two record types. If the data count is greater than six, the
+record contains one or more bytes to be stored beginning with the load
+address.
+
+If the data count is exactly  six,  the address specifies the transfer
+address and the record concludes the file.
+
+If the transfer address is even, then control is passed immediately to
+that address. If the address is odd, the program is not executed. In a
+stand-alone environment, a [continue] from the halt causes the program
+to start execution at location 0200.
+
+______________________________________________________________________
+3.7 XXDP EXECUTABLE (.bin,.bic,.sys)
+An XXDP executable is  stored in either Absolute Loader format or as a
+a contiguous file.  Information in the system communication area (040-
+060) is used by the monitor (e.g. mapped/unmapped image).
+
+TBS: The content of the system communication area and other aspects of
+images stored as contiguous files (e.g. start address). 
+
+______________________________________________________________________
+3.8 XXDP DRIVERS 
+
+TBS: Details of the driver structure.
+
+______________________________________________________________________
+3.9 CONFIGURATION FILES (.cnf)
+
+TBS: Details of the configuration file structure.
+
+______________________________________________________________________
+3.10 P-TABLES (.bin,.bic)
+
+Some .bin/.bic  files  support  an  internal parameter table structure
+used by SETUP to prepare  programs  for DRS.  I haven't  decoded  this
+structure,  but  it would be quite useful for listing because it would
+supply the standard CSR addresses associated with the test programs.
+
+TBS: Details of the P-Table structure.
+[[code]]
