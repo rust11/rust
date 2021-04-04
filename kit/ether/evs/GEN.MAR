@@ -1,0 +1,576 @@
+.title	gen
+.library "lib:eve.mlb"
+$eve_def  boo
+$adr_def
+$i73_def
+$ipr_def
+$phd_def
+$pst_def
+$pte_def
+$rpb_def 
+$scb_def
+$ssd_def
+
+;	Generate initial system
+; 
+;	%build
+;	assemble evs:gen/object:evb:gen
+;	%end
+; 
+;	An EVE system is builtup in a number of system phazes. Each phaze
+;	produces a well-defined and completely viable environment.
+; 
+;	EVEboot		A limited bootstrap environment. Physical mapping.
+;	EVEsolo		A single-user system. Virtual environment.
+;	EVEplus		A multi-user, multi-process environment.
+; 
+;	The basic system environments do not include optional functionality.
+;	These are loaded at runtime as features.
+; 
+;	Handlers	Device handlers.
+;	Paging		Demand paging.
+; 
+;	This module builds the base-line EVEsolo environment. All the data
+;	required for this environment is supplied by VMB and EVEboot.
+;	The goal here is to switch to a virtual environment as soon as
+;	possible. This is achieved by creating a minimal system process.
+; 
+;	Generation is controlled by a set of GEN entries. These are
+;	scanned a number of times:
+; 
+;	Scan1	Determine S0 physical and virtual requirements.
+;	Scan2	Allocate physical and virtual memory.
+;		Copy some sections to target memory addresses.
+; 
+;	P0	Mapped to physical memory
+;	P1	Is not mapped at all.
+;	S0	Mapped to static monitor and elements below. 
+; 
+;	After memory management is turned on the virtual addresses
+;	in the GEN elements can be used to complete generation:
+;
+;	SCB	Final SCB is constructed.
+;	KSP	Kernel stack is setup.
+;	PFN	PFN map is moved into place.
+;	RPB	The RPB is mapped.
+;	BUS	The primary bus is mapped.
+;	BUF	The primary buffers are allocated.
+;
+;	Finally the GEN elements are used to update the PFN map.
+;
+;
+; 	GPT	Not used.
+;	ISP	
+;	PFN	
+;	PAG
+;	RES
+;	SPT	Maps system space.
+;	SHD	Maps process space.
+; S0	STA	Static monitor.
+; P1		Not mapped.
+; 
+;	sta	Redundant copy of STA
+;	EVS	This code.
+;	SCB	EVEboot SCB
+; P0	RPB	VMB RPB
+; 
+;	All the initial S0 elements are allocated from the top of memory.
+; 
+;	The resulting structures are:
+; 
+;	ipr_spt.	
+; 
+;	SPT is allocated from contiguous physical memory. Static table.
+;	PHD address space allocated in high memory.
+; 
+;	P0 is mapped to the first 64 pages of physical memory which
+;	is where this routine is located. Thus this routine has the
+;	same virtual and physical mapping.
+; 
+;	P1 is mapped to 
+;	This module sets up the initial P0, P1 and S1 page tables.
+;	P0 maps the physical memory currently in use.
+; 
+;	IPR	->	Loc	Ent	Typ	Describes
+;	SBR/LR	SPT	S0	PTE	PFN	Describes S0
+;	P0B/L	P0T	SO.phd	PTE	SVA	Describes P0
+; 
+;	SBR	PA of SPT
+;	SPT	PAS - contiguous
+; 
+;	P0B	SVA of P0T
+;	P0T	SVAS
+; 
+;	The P0 and P1 tables are located in PHD mapped into system space.
+; 
+;	vpn	byt	pte	pfn etc
+;	p0b	p0t	p0br.s	p0pt	p0t
+;	p1b	p1t	p1br.s	p1pt	p1t
+;	s0b	s1t	sbr.p	spt.p
+; 
+;	pcbb		physical address
+;	p0br
+;	p0lr
+;	p1br
+;	p1lr
+;	sbr
+;	slr
+.sbttl	data
+
+;	Imported local variables
+
+imp_rpb:.long	0		;address of rpb
+imp_pfn:.long	0		;address of VMB pfn map
+imp_ksp:.long	0		;address of VMB kernel stack
+imp_evs:.long	0		;address of EVS start
+
+;	System space control variables
+
+gen_tpc:.long	4096.		;total physical page count
+gen_tvc:.long	0		;total virtual page count
+gen_spc:.long	0		;system physical page count
+gen_svc:.long	0		;system virtual page count
+gen_fpn:.long	0		;first pfn
+gen_fva:.long	adr_s0b		;first va (constant)
+gen_npn:.long	0		;next pfn
+gen_nva:.long	0		;next system virtual address
+
+;	Messages
+
+gen_inm:.asciz	"%GEN-F-Insufficient memory"
+;gen_sol:.asciz	"%GEN-I-EVEsolo"
+.sbttl	generation components
+
+;	Generation components
+
+map$	gen.ppc	long.,0		;physical page count
+map$	gen.vpc	long.		;virtual page count
+map$	gen.vlo	long.		;virtual low address
+map$	gen.vhi	long.		;virtual high address
+map$	gen.pfn	long.		;physical page number
+map$	gen.ssd	long.		;system structure descriptor pointer
+map$	gen.typ	long.		;type flags
+map$	gen.bbs			;
+;
+;	gen.typ - type flags
+;
+map$	gen_pfn_,,0		;pfn section - physical pages selected
+
+gen_tbc.=0			;table entry count
+
+.MACRO	GENENT$	NAM PPC VPC TYP=0 PFN=0
+gen_tbc.=gen_tbc.+1		;count the entry
+gen_'nam::
+	.long	ppc		;ppc	physical page count
+	.long	vpc		;vpc	virtual page count
+	.long	0		;vlo	virtual low address
+	.long	0		;vhi	virtual high address - limit
+	.long	PFN		;pfn	physical page number
+	.long	ssd_'NAM	;ssd	system structure pointer
+	.long	TYP		;typ
+	assume$	.-gen_'nam eq gen.bbs
+.save_psect
+secnsd$				;nonpaged system data
+ssd_'nam::.long	0,0		;system structure descriptor
+	.asciz	/NAM/		;asciz name
+.restore_psect
+.ENDM
+
+gen_tab:;nam	ppc	vpc	typ pfn	;
+genent$	sta	<<sta_top-sta_bot>/page.> <<sta_top-sta_bot>/page.>
+genent$	pfn	4	4		;pfn map
+genent$	ksp	6	6		;kernel stack
+genent$	isp	4	4		;interrupt stack
+genent$	scb	3	3		;system control block
+genent$	shd	phd_pct. phd_pct.	;system header
+genent$	spt	8	8		;system page table
+genent$	nsp	8	8		;nonpaged system pool
+;
+genent$	rpb	1	1	1   0	;restart parameter block
+;genent$ buf	16	16	1   1	;transfer buffers
+genent$ buf	16	16	1   0	;transfer buffers
+genent$	bus	16	16	1   0  	;primary bus window - pfn filled in
+.sbttl	generate EVEsolo
+
+;	Generate EVEsolo
+;
+;	Generate system address space
+;	Generate process address space
+;	Turn on memory management
+;	Setup S0 SCB, ISP, KSP
+;
+;	r11->	rpb		1 page	restart parameter block
+;		vmb			primary boot
+;	sccb	vmb scb			primary boot scb
+;		pfn bitmap	4 pages	maps physical memory
+;		stack		3 pages	Bootstrap stack
+;	r10/sp	sysboot			Secondary boot
+;	scbb	sysboot scb	1 page	secondary boot scb
+;	rpb 
+;
+;	r10 ->	eveboot
+;	r11 ->	rpb
+
+gen$sta::				;generate EVEsolo
+	movl	#1,opt_raw		;configute OPT for raw output
+
+;	Setup bootstrap scb
+
+	mfpr	#ipr_scb.,r0		;r0 -> scb pa
+	movl	r0,r1			;r1 -> scb va
+	bsbw	exc$scb			;fill it in
+
+;	Build system address space
+
+	bsbw	gen$imp			;import system variables
+	bsbw	gen$sva			;system space
+	bsbw	gen$shd			;system header
+
+;	Move the static area into place
+
+	ashl	#adr_vpn_b,gen_sta+gen.pfn,r2	;r2 -> target address
+	movc3	#sta_top-sta_bot,sta_bot,(r2)	;move in static code
+
+;	Move the pagemap into place
+
+	ashl	#adr_vpn_b,gen_pfn+gen.pfn,r2	;r2 -> target
+	movc3	rpb.pms(r11),@rpb.pma(r11),(r2)	;move in the pagemap
+
+;	Turn on memory management
+
+	mtpr	#1,#ipr_men.		;enable memory management
+	addl3	#1,gen_isp+gen.vhi,sp	;setup the virtual ISP
+	jmp	@#gen$vir		;continue in virtual address space
+.sbttl	virtual operations
+
+;	Virtual operations
+;
+;	MME	Memory management has just been enabled
+;	ISP	Virtual ISP has been setup
+;	SCB	Setup the permanent SCB
+;	KSP	Setup the initial kernel stack
+;	P0	Temporary 1 meg space for P0
+;	P1	Map enough P1 space for system services
+;	exp	Export generation variables
+;	rei	Exit with REI to INI on kernel stack
+;		INI can use selected system services
+;
+;	Setup the system scb
+
+gen$vir:ashl	#adr_vpn_b,gen_scb+gen.pfn,r0 ;r0 = scb pa
+	movl	gen_scb+gen.vlo,r1	;r1 -> scb va
+	bsbw	exc$scb			;set it up
+
+	movl	gen_scb+gen.vlo,r1	;point to the scb
+	movab	ser$cmk,scb.cmk(r1)	;fill in chmk vector
+
+;	Setup the kernel stack
+
+	addl3	#1,gen_ksp+gen.vhi,r0	;r0 -> virtual ksp
+	mtpr	r0,#ipr_ksp.		;ipr_ksp. - kernel stack
+
+;	Remap P0 space
+;
+;	Map the first half a meg (1024. pages) of physical memory to P0
+;	Physical page 0 is always the restart block.
+;	Physical page 1 to ssd_buf+vh.vbn are reserved for transfer buffers.
+;
+; ???	Should use bitmap
+;
+;   p0t	pte	v ! uw !pfn
+
+	movl	gen_shd+gen.vlo,r3	;r3 -> system phd
+	movl	#pte_val$!pte_uw$,r4	;r4 = pte contents
+	addl	gen_buf+gen.pfn,r4	;add in base pfn
+	addl	gen_buf+gen.ppc,r4	;add in the physical page count
+	movab	phd.p0t(r3),r5		;r5 -> p0t base address
+	movl	#1024.,r6		;r6 = physical pages
+	movl	r6,phd.p0l(r3)		;p0lr
+20$:	movl	r4,(r5)+		;fill in the spt
+	incl	r4			;next pfn
+	sobgtr	r6,20$			;count them
+	bsbw	gen$mp0			;map the buggers
+
+;	Setup initial p1 space
+;
+;	Initial p1 space consists of the following:
+;
+	loc_p1s.=128			;128 debugger pages
+	loc_p1s.=loc_p1s.+1		;1 pointer page
+	loc_p1s.=loc_p1s.+16		;16 system service vectors
+
+;	p1lr	= adr_ppr.-loc_p1s	;space not available
+;	p1br	= first
+
+	subl3	#loc_p1s.,#adr_ppr.,r0	;r0 = pages not available
+	mtpr	r0,#ipr_p1l.		;setup the length
+
+	movl	gen_shd+gen.vlo,r2	;r2 -> system phd
+	movab	phd.p1t(r2),r3		;r3 -> top of p1 table
+	subl3	#adr_ppr.*long.,r3,r4	;r4 -> base of p1 table
+	mtpr	r4,#ipr_p1b.		;setup the base register
+
+	movab	-<loc_p1s.*long.>(r3),r4;r4 -> first p1 sys pte
+	movl	gen_spt+gen.vlo,r5	;r5 -> first system pte
+	movq	(r5)+,(r4)+		;copy four pte's
+	movq	(r5)+,(r4)+		;for the initial system services
+
+;	Export generation variables
+
+	bsbw	gen$exp			;export variables
+
+;	Sys_vec is used during bootstrap for the start branch.
+;	Patch it back to the QIOW CHMK.
+;
+;	movw	exe$qiow,adr_s0b	;transfer the word mask
+	movw	#^m<r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>,adr_s0b
+	movb	#^xbc,adr_s0b+word.	;and the change mode code
+
+;	REI onto the kernel stack.
+;	System services can then be issued.
+
+;	movab	gen_sol,r1		;we have booted
+;	bsbw	bug$prt			;display the message
+	clrl	-(sp)			;psl - return to kernel mode
+	pushab	ini$sta			;pc - goto ini$sta
+	rei				;get going
+.sbttl	import and export
+
+;	Import variables
+;
+;	Pickup VMB and EVEboot variables
+;
+;	r11->	rpb		1 page	restart parameter block
+;		vmb			primary boot
+;	sccb	vmb scb			primary boot scb
+;		pfn bitmap	4 pages	maps physical memory
+;		stack		3 pages	Bootstrap stack
+;	r10/sp	sysboot			Secondary boot
+;	scbb	sysboot scb	1 page	secondary boot scb
+;	rpb 
+;
+;	r10 ->	EVS thruout
+;	r11 ->	RPB thruout
+
+gen$imp:				;import variables
+	movl	r10,imp_evs		;save evs address
+	movl	r11,imp_rpb		;save rpb address
+	movl	rpb.ppc(r11),gen_tpc	;setup total page count
+	loc_pfn = i73_ios/page.		;730 i/o pageset base
+	movl	#loc_pfn,gen_bus+gen.pfn;fill in the bus address
+	rsb
+
+;	Export virtual variables
+;
+;	Copy GEN data to SDD - system structure descriptors
+;
+;   ssd.len	byte length of structure
+;	vlo	virtual low address
+;	nam	.asciz /nam/ (already setup)
+
+gen$exp:movl	#gen_tbc.,r1		;r1 = entry count
+	movab	gen_tab,r2		;r2 -> table
+10$:	movl	gen.ssd(r2),r3		;r3 -> sdd entry
+	subl3	gen.vlo(r2),gen.vhi(r2),ssd.len(r3) ;ssd.len - byte length
+	incl	ssd.len(r3)		;gen.vhi is one lower
+	movl	gen.vlo(r2),ssd.vlo(r3)	;ssd.vlo - start address
+	addl	#gen.bbs,r2		;next entry
+	sobgtr	r1,10$			;
+	rsb
+.sbttl	system virtual address space
+
+;	Map system address space
+;
+;	Copy STA into place
+;	Fill in SPT
+;
+;	r1 =	entry count
+;	r2 ->	table entry
+
+gen$sva::
+
+;	Compute total physical and virtual requirements
+;
+;   gen_tpc	physical page total
+;
+;   gen_spc	physical pages required
+;	svc	virtual pages required
+;	fpn	first pfn
+;	npn	next pfn
+;	fva	first va
+;	nva	next va
+
+	clrl	gen_spc			;init total pa count
+	clrl	gen_svc			;init total va count
+	movl	#gen_tbc.,r1		;count the entries
+	movab	gen_tab,r2		;circulate
+10$:	bbs	#gen_pfn_,gen.typ(r2),20$ ;handle physical sections
+	addw	gen.ppc(r2),gen_spc	;count physical pages required
+20$:	addl	gen.vpc(r2),gen_svc	;count virtual pages required
+	addl	#gen.bbs,r2		;next entry
+	sobgtr	r1,10$			;more
+
+;	Acquire physical pages from the top of memory
+;	Clear them - assumes no EVEboot/EVEsolo physical memory overlap
+
+	.enabl	lsb
+	subl3	gen_spc,gen_tpc,gen_fpn	;fpn -  first pfn
+	movl	gen_fpn,gen_npn		;npn -	next pfn
+	movl	#adr_s0b,gen_nva	;nva -	next virtual address
+
+	ashl	#adr_vpn_b,gen_spc,r0	;r0 = bytes to clear
+	ashl	#adr_vpn_b,gen_fpn,r1	;r1 = source address
+	movc5	#0,(r1),#0,r0,(r1)	;clear memory
+
+;	Allocate physical and virtual address space
+;
+;	Process each pageset setting:
+;
+;   gen.pfn	start physical page number
+;	vlo	virtual low address
+;	vhi	virtual high address
+;
+;   gen_npn	next free page number
+;	nva	next free virtual address
+
+	.enabl	lsb
+	movl	#gen_tbc.,r1		;count the entries
+	movab	gen_tab,r2		;setup all the addresses
+10$:	bbs	#gen_pfn_,gen.typ(r2),20$ ;	fixed pfn
+	movl	gen_npn,gen.pfn(r2)	;pfn -	physical page number
+	addl	gen.ppc(r2),gen_npn	;npn -	advance physical pointer
+20$:	movl	gen_nva,gen.vlo(r2)	;vlo -	virtual low address
+	ashl	#adr_vpn_b,gen.vpc(r2),r0 ;r0 -	generate virtual length
+	addl	r0,gen_nva		;nva -	next virtual address 
+	subl3	#1,gen_nva,gen.vhi(r2)	;vhi -	virtual high address
+	addl	#gen.bbs,r2		;next entry
+	sobgtr	r1,10$			;more
+
+;	Check space for static move
+;
+;	EVEboot assumes that the static area will occupy less than
+;	half the physical memory. Check that here. The actual move
+;	takes place just before memory management is turned on so
+;	that the databases used here will reflect the most recent states.
+;
+;   sta_bot ->	bottom of EVE static code
+;   	top ->	top of static code
+
+	.enable	lsb
+	ashl	#adr_vpn_b,gen_sta+gen.pfn,r2	;r2 -> target address
+	movab	sta_top,r3			;r3 -> end of section to move
+	cmpl	r2,r3				;got the space?
+	bgequ	10$				;yes
+	movab	gen_inm,r1			;no
+	bsbw	bug$prt				;Insufficient memory
+	bug$					;and stop
+10$:;	fall$					;
+
+;	Fill the system page table
+;
+;	Process each pageset setting up the spt
+;	Remove allocated pages from pagemap (unless I/O page)
+; ???	Make unmapped pages nac
+;
+;   gen.pfn	pfn
+;
+;   spt	spte	v ! kw ! pfn
+
+	.enabl	lsb
+	movl	#gen_tbc.,r1		;r1 = entry count
+	movab	gen_tab,r2		;r2 -> table
+	ashl	#adr_vpn_b,gen_spt+gen.pfn,r3	;r3 -> spt base pa
+10$:	movl	gen.ppc(r2),r4		;r4 = number of physical pages
+	beql	40$			;no pages
+	movl	gen.vlo(r2),r5		;r5 -> first virtual address
+	extzv	#adr_vpn_b,#adr_rpn_l,r5,r6 ;r6 = first spte number
+	movl	gen.pfn(r2),r7		;r7 = pfn
+	loc_msk$ = pte_val$!pte_kw$	;valid, kernel write pages
+	movl	#loc_msk$,r8		;r8 = spte mask
+	moval	(r3)[r6],r9		;r9 -> first spte
+20$:	bisl3	r7,r8,(r9)+		;spte - fill in the spt
+	cmpl	r7,gen_tpc		;is this an I/O page?
+	bgeq	30$			;yes - not in the map
+	bicv$	r7,@rpb.pma(r11)	;no - take it out of the pagemap
+30$:	incl	r7			;next pfn
+	sobgtr	r4,20$			;count them
+40$:	addl	#gen.bbs,r2		;next entry
+	sobgtr	r1,10$			;more
+
+;	Setup iprs
+;
+;	sbr	spla of spt
+;	slr	number of longword spt entries
+;		= gen_svc - system virtual page count
+
+	mtpr	gen_svc,#ipr_slr.	;system length register
+	ashl	#adr_vpn_b,gen_spt+gen.pfn,r0 ;r0 = pa of spt
+	mtpr	r0,#ipr_sbr.		;system base register
+	rsb				;sva done
+.sbttl	fill in SHD
+
+;	Fill in the system header
+;
+;	pcb	fill in hardware registers
+;	p0t	map low physical memory
+;	p1t	null
+;
+;	r2 ->	gen_shd - SHD pageset
+;	r3 ->	SHD base PA
+
+gen$shd:				;system header
+	movab	gen_shd,r2		;r2 -> shd pst
+	ashl	#adr_vpn_b,gen.pfn(r2),r3 ;r3 -> shd pfn
+
+;	Setup initial PHD contents
+;
+;   phd.p0t	SVLA of P0T <2:29>
+;	p0l	Number of pages mapped by P0T
+
+;	movab	long.(sp),phd.ksp(r3)	;kernel stack
+	addl3	#phd.p0t,gen.vlo(r2),phd.p0b(r3) ;p0br
+	movl	#1024,phd.p0l(r3)	;p0lr
+;	movl	#1@21-1,phd.p1l(r3)	;null p1l
+
+;	Setup physical P0 space for virtual mapping
+;
+;	Map the first 1024 pages of P0 to physical memory
+;
+;   p0t	pte	v ! uw !pfn
+
+	.enabl	lsb
+	movl	#pte_val$!pte_uw$,r4	;r4 = pte contents
+	movab	phd.p0t(r3),r5		;r5 -> p0t base address
+	movl	#1024,r6		;r6 = physical pages
+20$:	movl	r4,(r5)+		;fill in the spt
+	incl	r4			;next pfn
+	sobgtr	r6,20$			;count them
+
+;	Setup iprs
+					;ksp already setup
+					;other stacks unused
+;	movab	phd.pcb(r3),r0		;r0 -> pcb pa
+;	mtpr	r0,#ipr_pcb.		;pcb base register
+
+gen$mp0:mtpr	phd.p0l(r3),#ipr_p0l.	;p0lr - astlvl = 0
+	mtpr	phd.p0b(r3),#ipr_p0b.	;p0br
+;	mtpr	phd.p1b(r3),#ipr_p1b.	;p1br
+;	mtpr	phd.p1l(r3),#ipr_p1l.	;p1lr - pme = 0
+	rsb				;
+.end
+.sbttl	virtual operations
+
+;	Virtual operations
+;
+;	Memory mapping is enabled.
+;
+;	Move structures into place:
+;
+;	SCB	Setup the new SCB
+;	PFN	Physical page map
+;	RPB	Map the restart block
+;	BUS	Map the primary bus
+;	KSP	Map the kernel stack
+;
+;	BDV	Move the boot driver into place
+                                                                                                                                                                                                                                                               

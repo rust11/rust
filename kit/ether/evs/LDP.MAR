@@ -1,0 +1,675 @@
+;-------------------------------;
+; P1 ADDRESS SPACE		;
+;-------------------------------;
+;
+;	Define the P1 space
+;
+;	Totals:
+;
+;	p1_fva.		first va in p1 space
+;	p1_ppc.		ppc required for initial p1
+;	p1_vpc.		vpc of p1 space
+;	p1_plr.		initial contents of plr
+;
+;	Per entry:
+;
+;	p1_nam		address
+;	p1_nam_top	top address
+;	p1_nam_vpn.	virtual page number (spte)
+;	p1_nam_vpc.	virtual page count
+;	p1_nam_ppc.	physical page count
+;	p1_nam_prt.	protection
+;	p1_nam_own.	owner
+;	p1_nam_pag.	paged indicator
+;
+.MACRO	$P1_DEF INT=ADR
+;
+p1_top=^x80000000				;top of p1 space
+p1_loc=p1_top					;initial location
+;
+;	ADR - Default is to define start addresses only
+;
+.macro	p1adr$
+.macro	p1ent$	nam adr vpc ppc prt own pag
+map$	p1_loc,,<p1_loc-<vpc*page.>>		;generate the address
+map$	p1_'nam,,p1_loc				;define the address
+	assume$	p1_loc eq <adr>			;check for alignment
+.endm	p1ent$
+.endm	p1adr$
+;
+;	ALL - Defines all constants
+;
+.macro	p1all$
+.macro	p1ent$	nam adr vpc ppc prt own pag
+map$	p1_'nam'_top,,p1_loc			;p1_nam_top	top address
+map$	p1_loc,,<p1_loc-<vpc*page.>>		;define base address
+map$	p1_'nam,,p1_loc				;p1_nam		base address
+	assume$	p1_loc eq <adr>			;check for alignment
+map$	p1_'nam'_vpc,,vpc			;p1_nam_vpc	vpc
+map$	p1_'nam'_ppc,,ppc			;p1_nam_ppc	ppc
+map$	p1_ppc.=p1_ppc.+ppc			;p1_ppc. - total physical pages
+map$	p1_vpc.=p1_vpc.+vpc			;p1_vpc. - total virtual pages
+.endm	p1ent$
+.endm	p1all$
+;
+;	GEN - Defines GEN blocks for P1 space
+;
+.macro	p1gen$
+.macro	p1ent$	nam adr vpc ppc prt own pag
+genent$	p1_'nam vpc ppc ssd=no
+.endm
+.endm
+;
+p1'int'$				;invoke the appropriate macro
+;
+;	Define the entries
+;
+;      nam	adr	vpc ppc	prt	own pag
+p1ent$ dbs <^x7fff0000>	128 0	ursw	u   yes	;debugger symbol table
+p1ent$ pnt <^x7ffefe00>	1   1   urkw	k   no	;p1 pointer page
+p1ent$ sys <^x7ffede00>	16  4	urkw	k   yes	;system service vector
+p1ent$ ssp <^x7ffebe00>	16  0	ursw	s   yes	;supervisor stack
+p1ent$ esp <^x7ffeae00>	8   0	srew	e   yes	;executive stack
+p1ent$ ksp <^x7ffea800>	3   0	srkw	k   no	;kernel stack
+p1ent$ na1 <^x7ffea600>	1   0	na	k   yes	;noaccess guard
+p1ent$ iah <^x7ffea400>	1   0	uw	e   yes	;image header buffer
+p1ent$ uvc <^x7ffea000>	2   0	urew	k   yes	;user service/message vectors
+p1ent$ dbc <^x7ffe9800>	4   0	uw	u   yes	;debugger context
+p1ent$ ias <^x7ffe8800>	8   0	urew	u   yes	;image activator scratch
+p1ent$ cli <^x7ffe7c00>	6   0	ursw	s   yes	;cli callback pages
+p1ent$ par <^x7ffe2000>	46  0	urew	k   yes	;process allocation region
+p1ent$ iac <^x7ffe1e00>	1   0	urew	e   yes	;image activator context
+p1ent$ f00 <^x7ffe1a00>	2   0	na	k   yes	;not used
+p1ent$ uwv <^x7ffe1800>	1   0	uw	k   yes	;vms usermode data page
+p1ent$ cmd <^x7ffe1600>	1   0	uw	k   yes	;compatibility mode data page
+p1ent$ dcm <^x7ffe0e00>	4   0	uw	k   yes	;dec common
+p1ent$ ucm <^x7ffe0600>	4   0	uw	k   yes	;user common
+p1ent$ pio <^x7ffd8e00>	60  0	urew	e   yes	;process i/o segment
+;
+;	nam	adr	vpc ppc	prt	own pag
+p1ent$	ccb  p1_loc	4   0   urew	k   yes	;channel control blocks
+p1ent$	phd  p1_loc	4   0	srkw	k   yes	;phd window
+p1ent$	bas  p1_loc	0   0   na	k   yes	;p1 constant base
+;
+;	nam	adr	vpc ppc	prt	own pag	;process permanent
+p1ent$	cli  p1_loc	0   0	ur	s   yes	;cli image (not used)
+p1ent$	sym  p1_loc	0   0	sw	s   yes	;cli symbol table
+p1ent$	msg  p1_loc	0   0	ur	e   yes	;message section
+p1ent$	prm  p1_loc	0   0	na	u   yes	;start of process permanent
+;
+;	nam	adr	vpc ppc	prt	own pag	;image area
+p1ent$	ios  p1_loc	0   0   urew	e   yes	;process I/O segment
+p1ent$	usx  p1_loc	0   0   uw      u   yes ;extra user stack  
+p1ent$	usp  p1_loc	4   4   uw	u   yes ;user stack
+p1ent$	usb  p1_loc	30  0   uw	u   yes	;userstack base
+;
+p1_fva=p1_loc					;first p1 virtual address
+;;p1_ppc.=p1_ppc.				;p1 physical page count
+;;p1_vpc.=p1_vpc.				;p1 virtual page count
+;p1_plr.=<1@21>-p1_vpc.				;define p1plr value
+;p1_p1b.=<-p1_vpc>*4;long.			;offset to start of p1 sptes
+;
+.ENDM	$P1_DEF
+;-------------------------------;
+; PHYSICAL ADDRESS SPACE	;
+;-------------------------------;
+;
+;	These pieces must be in physical memory
+;	Transaction buffers must be in first 124 kwords
+;
+.MACRO	$PA_DEF
+;
+map$	pa_zer.,,0		;block zero is used for rpb
+map$	pa_rpb.,,1		;restart parameter block is constant
+map$	pa_buf.,,16		;transaction buffers
+;
+map$	pa_sta.,,16		;static system
+map$	pa_pfn.,,0		;pfn database
+map$	pa_res.,,16		;resident pool
+map$	pa_isp.,,2		;interrupt stack
+map$	pa_scb.,,3		;system control block is constant
+map$	pa_shd.,,0		;system header
+map$	pa_spt.,,4		;system page table
+;
+map$	pa_zer	null.,0		;page zero is unused
+map$	pa_rpb	pa_rpb.*page.	;restart parameter block
+map$	pa_buf	pa_buf.*page.	;transaction buffers
+map$	pa_sta	pa_sta.*page.	;static system 
+;
+map$	pa_pfn	pa_pfn.*page.	;pfn database
+map$	pa_res	pa_res.*page.	;resident pool
+map$	pa_isp	pa_isp.*page.	;interrupt stack
+map$	pa_scb	pa_scb.*page.	;system control block
+map$	pa_shd	pa_shd.*page.	;system header
+map$	pa_spt	pa_spt.*page.	;system page table
+;
+.ENDM	$PA_DEF
+;-------------------------------;
+; PROCESS CONTROL BLOCK		;
+;-------------------------------;
+;
+;	Software process control block
+;
+.MACRO	$PCB_DEF
+;
+map$	pcb.sqs	long.,0		;scheduler queue successor
+map$	pcb.sqp	long.		;scheduler queue predecessor
+map$	pcb.ebs	word.		;element size
+map$	pcb.etp	byte.		;element type
+map$	pcb.pri	byte.		;priority
+map$	pcb.aac	byte.		;astact
+map$	pcb.aen	byte.		;asten
+map$	pcb.aqs	long.		;ast queue successor
+map$	pcb.aqp	long.		;ast queue predecessor
+map$	pcb.pcr	long.		;physical pcb
+map$	pcb.own	long.		;owner
+map$	pcb.wss	long.		;wsswp
+map$	pcb.sts	long.		;status
+map$	pcb.wtm	long.		;wtime
+map$	pcb.sta	word.		;state
+map$	pcb.wef	byte.		;wefc 
+map$	pcb.prb	byte.		;prib - priority base
+map$	pcb.apc	word.		;aptcnt
+map$	pcb.tmb	word.		;tmbu
+map$	pcb.gpc	word.		;gpgcnt - global pagecount
+map$	pcb.ppc	word.		;ppgcnt - process pagecount
+map$	pcb.act	word.		;astcnt - ast count
+map$	pcb.bio	word.		;biocnt
+map$	pcb.bil	word.		;biolm
+map$	pcb.dio	word.		;diocnt
+map$	pcb.dil	word.		;diolm
+map$	pcb.prc	word.		;prccnt 
+map$	pcb.ter	quad.		;terminal
+map$	pcb.pqb	long.		;pqb
+map$	pcb.ecs	long.		;efcs
+map$	pcb.ecu	long.		;efcu
+map$	pcb.e2p	long.		;efc2p
+map$	pcb.e4p	long.		;efc3p
+map$	pcb.pid	long.		;pid address
+map$	pcb.phd	long.		;phd address
+map$	pcb.lnm	byte.*12	;lname
+map$	pcb.jib	long.		;jib
+map$	pcb.prv	quad.		;priv
+map$	pcb.arb	long.		;arb -> uic
+map$	pcb.uic	long.		;uic
+map$	pcb.lqs	long.		;lockqfl
+map$	pcb.lqp	long.		;lockqbl
+map$	pcb.dlp	long.		;dlockpri
+map$	pcb.ipa	long.		;ipast
+map$	pcb.bbs			;
+;
+.ENDM	$PCB_DEF		;
+;-------------------------------;
+; PROCESS CONTROL RECORD	;
+;-------------------------------;
+;
+;	VAX hardware process control block
+;	Part of the process header
+;
+.MACRO	$PCR_DEF
+;
+map$	pcr.ksp	long.,0	;00 00	kernel stack pointerksp
+map$	pcr.esp	long.	;04 04	executive stack pointer
+map$	pcr.ssp	long.	;08 08	supervisor stack pointer
+map$	pcr.usp	long.	;0c 12	user stack pointer
+map$	pcr.r0	long.	;10 16	r0
+map$	pcr.r1	long.	;14 20	r1
+map$	pcr.r2	long.	;18 24	r2
+map$	pcr.r3	long.	;1c 28	r3
+map$	pcr.r4	long.	;20 32	r4
+map$	pcr.r5	long.	;24 36	r5
+map$	pcr.r6	long.	;28 40	r6
+map$	pcr.r7	long.	;2c 44	r7
+map$	pcr.r8	long.	;30 48	r8
+map$	pcr.r9	long.	;44 52	r9
+map$	pcr.r10	long.	;48 56	r10
+map$	pcr.r11	long.	;4c 60	r11
+map$	pcr.ap	long.	;50 64	r12 - ap
+map$	pcr.fp	long.	;54 68	r13 - fp
+map$	pcr.pc	long.	;58 72	r15 - pc
+map$	pcr.psl	long.	;5c 76	psl
+map$	pcr.p0b	long.	;60 80	p0br
+map$	pcr.p0l	byte.*3	;64 84	p0lr
+map$	pcr.alv	byte.	;67 87	astlvl
+map$	pcr.p1b	long.	;68 88	p1br
+map$	pcr.p1l	byte.*3	;6c 92	p1lr
+map$	pcr.pme	byte.	;6f 95	pme
+;
+;	pcr.asl - ast level
+;
+map$	pcr_kap.,,0	;kernel ast pending
+map$	pcr_eap.,,1	;executive ast pending
+map$	pcr_sap.,,2	;supervisor ast pending
+map$	pcr_uap.,,3	;user ast pending
+map$	pcr_nas.,,4	;no ast pending
+;
+;	pcr.pme - performance monitor enable
+;
+map$	pcr_pme_,,7	;performance monitor enable
+map$	pcr_pme$,,1@7	;performance monitor enable
+;
+.ENDM	$PCR_DEF
+;-------------------------------;
+; PROCESS HEADER		;
+;-------------------------------;
+;
+;	Fixed part of PHD
+;
+.MACRO	$PHD_DEF
+;
+map$	phd.prv	quad.,0		;privmsk	privilege mask
+map$	phd.wls	word.		;wslist		working set list
+map$	phd.wsd	word.		;wsdyn
+map$	phd.wlk	word.		;wslock
+map$	phd.wla	word.		;wslast
+map$	phd.wnx	word.		;wsnext
+map$	phd.wax	word.		;wsauthext
+map$	phd.wex	word.		;wsextent
+map$	phd.wqu	word.		;wsquota
+map$	phd.dws	word.		;dfwscnt
+map$	phd.pfl	long.		;pagfil
+map$	phd.pbo	long.		;pstbasoff
+map$	phd.pla	word.		;pstlast
+map$	phd.pfr	word.		;pstfree
+map$	phd.fp0	long.		;frep0va
+map$	phd.fpc	long.		;freptecnt
+map$	phd.fp1	long.		;frep1va
+map$	phd.dpf	byte.		;dfpfc
+map$	phd.ptp	byte.		;pgtbpfc
+map$	phd.flg	word.		;flags
+map$	phd.cpu	long.		;cpu time
+map$	phd.qua	word.		;quant
+map$	phd.plm	word.		;prclm
+map$	phd.alm	word.		;astlm
+map$	phd.pvi	word.		;phvindex
+map$	phd.bak	word.		;bak
+map$	phd.wlx	word.		;wslx
+map$	phd.flt	long.		;pageflts
+map$	phd.wsz	word.		;wssize
+map$	phd.ssz	word.		;swapsize
+map$	phd.dio	long.		;diocnt
+map$	phd.bio	long.		;biocnt
+map$	phd.clm	long.		;cpulim
+map$	phd.cmd	byte.		;cpumode
+map$	phd.amd	byte.		;awsmode
+map$	phd.wtm	word.		;waitime
+map$	phd.pwl	long.		;ptwslelck
+map$	phd.pwv	long.		;ptwsleval
+map$	phd.pcl	word.		;ptcntlck
+map$	phd.pcv	word.		;ptcntval
+map$	phd.pca	word.		;ptcntact
+map$	phd.pcm	word.		;ptcntmax
+map$	phd.wfl	word.		;wsfluid
+map$	phd.edw	word.		;extdynws
+;
+map$	phd.pcb	null.		;pcb
+map$	phd.ksp	long.		;kernel stack pointerksp
+map$	phd.esp	long.		;executive stack pointer
+map$	phd.ssp	long.		;supervisor stack pointer
+map$	phd.usp	long.		;user stack pointer
+map$	phd.r0	long.		;r0
+map$	phd.r1	long.		;r1
+map$	phd.r2	long.		;r2
+map$	phd.r3	long.		;r3
+map$	phd.r4	long.		;r4
+map$	phd.r5	long.		;r5
+map$	phd.r6	long.		;r6
+map$	phd.r7	long.		;r7
+map$	phd.r8	long.		;r8
+map$	phd.r9	long.		;r9
+map$	phd.r10	long.		;r10
+map$	phd.r11	long.		;r11
+map$	phd.ap	long.		;r12 - ap
+map$	phd.fp	long.		;r13 - fp
+;				;r14 - sp above
+map$	phd.pc	long.		;r15 - pc
+map$	phd.psl	long.		;psl
+map$	phd.p0b	long.		;p0br
+map$	phd.p0l	byte.*3		;p0lr
+map$	phd.alv	byte.		;astlvl
+map$	phd.p1b	long.		;p1br
+map$	phd.p1l	byte.*3		;p1lr
+map$	phd.pme	byte.		;pme
+;
+map$	phd.epp	word.		;emptpg
+map$	phd.rpc	word.		;respgcnt
+map$	phd.rqc	word.		;reqpgcnt
+map$	phd.cwl	word.		;cwslx
+map$	phd.ap0	quad.		;authpriv
+map$	phd.ip0	quad.		;imagepriv
+map$	phd.rlt	long.		;reslsth
+map$	phd.img	long.		;imgcnt
+map$	phd.frt	long.		;pfltrate
+map$	phd.trf	long.		;timref
+map$	phd.mpi	long.		;mpinihibit
+map$	phd.pfi	long.		;pgfltio
+map$	phd.apr	byte.		;authpri
+map$	phd.f00	byte.		;free
+map$	phd.f01	word.		;
+map$	phd.xcp	long.		;extracpu
+map$	phd.x00	byte.*36	;
+map$	phd.spa	long.		;spare
+map$	phd.s00	byte.*36	;
+;
+map$	phd.p0s	quad.		;p0 pageset queue
+map$	phd.p1s	quad.		;p1 pageset queue
+;
+map$	phd.fbs	null.		;fixed byte size
+;
+;	Following are system defaults only
+;
+map$	phd.wsl	page.*0,page.	;working set list - unused
+map$	phd.pst	page.*4		;process section table - pageset table
+map$	phd.emt	page.*0		;empty pages - unused
+map$	phd.pha	page.*0		;process header page arrays - unused
+map$	phd.p0a	null.		;p0 table address
+map$	phd.p0t	page.*16	;p0 page table - 1 megabyte
+map$	phd.p01	page.*0		;expansion area
+map$	phd.p1t	page.*8		;p1 page table - 1/2 a megabyte
+map$	phd.p1a	null.		;p1b address
+;
+map$	phd.xbs	null.		;full size
+map$	phd_pct.,,<phd.xbs/page.> ;phd page count
+;
+.ENDM	$PHD_DEF
+;-------------------------------;
+; PIO - PROCESS I/O HEADER	;
+;-------------------------------;
+;
+.MACRO	$PIO_DEF
+;
+map$	pio.pfm	quad.,0		;process free memory listhead
+map$	pio.ifm	quad.		;image free memory listhead
+map$	pio.sta	word.		;rms generic status
+map$	pio.est	byte.*16	;end of data string
+map$	pio.dpr	word.		;default protection
+map$	pio.mbl	byte.		;default multiblock count
+map$	pio.dmb	byte.		;default disk multibuffer
+map$	pio.tmb	byte.		;default tape multibuffer
+map$	pio.umb	byte.		;default unit
+map$	pio.rmb	byte.		;relative
+map$	pio.imb	byte.		;indexed
+map$	pio.hmb	byte.		;hashed
+map$	pio.com	byte.		;rms image versions
+map$	pio.pro	byte.		;structure level for rms files
+map$	pio.ext	word.		;default extend quantity
+map$	pio.f00	byte.		;
+map$	pio.dir	byte.*84	;default directory string
+map$	pio.dca	long.*2		;directory cache listhead
+map$	pio.dcf	long.		;directory cache node free list
+map$	pio.pim	long.*35	;process i/o context
+map$	pio.iim	long.*41	;image i/o context
+map$	pio.reh	long.*4		;rms termination handler control block
+map$	pio.f01	long.*13	;fill output block
+map$	pio.bbs	null.		;
+assume$	pio.bbs eq page.	;
+;
+.ENDM	$PIO_DEF
+;-------------------------------;
+; PAGEMAP			;
+;-------------------------------;
+;
+;	Page bit map
+;
+;	ptr_pmp	-> mmg_pmp
+;
+.MACRO	$PMP_DEF
+;
+map$	pmp.vlo	long.,0		;virtual low address
+map$	pmp.vto	long.		;top address
+map$	pmp.cur	long.		;current longword in map
+;
+.ENDM	$PMP_DEF
+;-------------------------------;
+; PPG - PROCESS POINTER PAGE	;
+;-------------------------------;
+;
+.MACRO	$PPG_DEF
+;
+map$	ppg.chs	word.,0		;number of i/o channels
+map$	ppg.chi	word.		;maximum channel index
+map$	ppg.rmp	long.		;-> rms process i/o segment
+map$	ppg.rmi	long.		;-> rms image i/o segment
+map$	ppg.ksl	long.		;ksp low limit
+map$	ppg.stk	null.		;
+map$	ppg.ksp	long.		;initial ksp
+map$	ppg.esp	long.		;initial esp
+map$	ppg.ssp	long.		;initial ssp
+map$	ppg.usp	long.		;initial usp
+map$	ppg.log	long.		;-> process logical name table
+map$	ppg.f00	long.		;
+map$	ppg.cms	long.		;-> chms handler
+map$	ppg.cmu	long.		;-> chmu handler
+map$	ppg.cmc	long.		;-> compatability mode handler
+map$	ppg.exc	long.*8		;-> primary/secondary kesu exception handlers
+map$	ppg.ter	long.*3		;-> termination listheads for esu
+map$	ppg.com	long.*2		;#= per-process common area
+map$	ppg.gms	long.		;-> pre-process page dispatcher (getmsg)
+map$	ppg.sps	long.*4		;== stack limit sizes for kesu
+map$	ppg.cba	long.		;-> low va of permanent p1 space
+map$	ppg.ihd	long.		;-> image header buffer
+map$	ppg.rdn	long.		;== image rundown flag 
+map$	ppg.phd	long.		;-> p1 phd window
+map$	ppg.alr	long.*2		;== listhead for process allocation region
+map$	ppg.mnl	long.*2		;== listhead for process private mounted vols
+map$	ppg.usn	byte.*12	; == blank filled user name
+map$	ppg.acn	byte.*8		;== account name
+map$	ppg.lit	quad.		;== login time
+map$	ppg.fst	long.		;== final status of last image exit
+map$	ppg.wsp	long.		;== ws peak
+map$	ppg.vpk	long.		;== peak virtual size
+map$	ppg.vls	long.		;== mounted volume count
+map$	ppg.iat	quad.		;== image activation time
+map$	ppg.icp	long.		;== initial image cpu time
+map$	ppg.ifl	long.		;== initial image fault count
+map$	ppg.ifi	long.		;== initial image fault i/o count
+map$	ppg.iwp	long.		;== image ws peak
+map$	ppg.ipf	long.		;== image page file peak usage
+map$	ppg.idc	long.		;== initial image dio
+map$	ppg.ibc	long.		;== initial image bio count
+map$	ppg.ivc	long.		;== initial image volume mount count
+map$	ppg.nad	byte.*7		;== remote node address
+map$	ppg.nnm	byte.*7		;== ascic remote node name
+map$	ppg.nid	byte.*17	;== remote node id
+map$	ppg.f02	byte.		;
+map$	ppg.ppr	quad.		;== permanent process privileges
+map$	ppg.uck	long.		;-> per-process chmk dispatcher
+map$	ppg.uce	long.		;-> per-process chme dispatcher
+map$	ppg.pra	long.		;-> process power recovery ast
+map$	ppg.prm	byte.		;== pra ast access mode
+map$	ppg.ssd	byte.		;== system service filter mask
+map$	ppg.lcx	long.		;-> kesu last chance exception handlers
+map$	ppg.cba	long.		;-> ccb base address
+map$	ppg.dbg	long.*2		;#= debug symbol table
+map$	ppg.rmb	long.		;-> base of rms image
+map$	ppg.ppm	long.*2		;-> process permanent message section
+map$	ppg.dmm	byte.		;== default message mask
+map$	ppg.dml	byte.		;== default message language
+map$	ppg.urd	long.		;-> per-process vector to user rundown
+map$	ppg.pcb	long.		;-> process pcb (which?)
+map$	ppg.ruf	long.		;-> recovery unit blocks
+map$	ppg.sit	long.		;== site specific cell
+map$	ppg.kfi	long.		;-> process known files list
+map$	ppg.ipa	long.*8		;== vector for ipast addresses
+map$	ppg.cmc	long.		;-> ame context page
+map$	ppg.iaf	long.		;-> iaf list for debugger
+;
+.ENDM	$PPG_DEF		;
+;-------------------------------;
+; PAGE PROTECTION		;
+;-------------------------------;
+;
+; 	VAX page protection codes
+;
+.MACRO	$PRT_DEF
+;
+map$	prt_na.,,0		;no access
+map$	prt_res.,,1		;reserved
+map$	prt_kw.,,2		;kw
+map$	prt_kr.,,3		;kr
+map$	prt_uw.,,4		;all
+map$	prt_ew.,,5		;ew
+map$	prt_erkw.,,6		;erkw
+map$	prt_er.,,7		;er
+map$	prt_sw.,,8		;sw
+map$	prt_srew.,,9		;srew
+map$	prt_srkw.,,10		;srkw
+map$	prt_sr.,,11		;sr
+map$	prt_ursw.,,12		;ursw
+map$	prt_urew.,,13		;urew
+map$	prt_urkw.,,14		;urkw
+map$	prt_ur.,,15		;ur
+;
+.ENDM	$PRT_DEF
+;-------------------------------;
+; PROCESSOR STATUS LONGWORD	;
+;-------------------------------;
+;
+;
+.MACRO	$PSL_DEF
+;
+map$	psl_c_,,0		;cbit
+map$	psl_v_,,1		;vbit
+map$	psl_z_,,2		;zbit
+map$	psl_n_,,3		;nbit
+map$	psl_t_,,4		;tbit
+map$	psl_iv_,,5		;integer overflow
+map$	psl_fu_,,6		;floating underflow
+map$	psl_dv_,,7		;decimal overflow
+map$	psl_ipl_b,,16		;
+map$	psl_ipl_l,,4		;
+map$	psl_b17_,,21		;mbz
+map$	psl_prv_b,,22		;previous mode
+map$	psl_prv_l,,2		;
+map$	psl_cur_b,,24		;current mode
+map$	psl_cur_l,,2		;
+map$	psl_is_,,26		;interrupt stack
+map$	psl_fpd_,,27		;first part done
+map$	psl_mbz_b,,28		;mbz
+map$	psl_mbz_l,,2		;
+map$	psl_tp_,,30		;trace pending
+map$	psl_cm_,,31		;compatibility mode
+;
+;	current and previous mode
+;
+map$	psl_ker.,,0		;kernel mode
+map$	psl_exe.,,1		;executive mode
+map$	psl_sup.,,2		;supervisor mode
+map$	psl_use.,,3		;user mode
+;
+;	priority levels
+;
+map$	psl_ip0..,,0		;ipl 0
+map$	psl_br4.,,<^x10>	;ipl 10 = br4
+				;00	applications
+				;01:0f	software interrupts
+				;02	ast delivery
+				;10 17	device completion
+				;14	console terminal
+				;18	interval timer
+				;18:1d	memory/bus/cpu errors
+				;1b	780 memory errors
+				;1e	power fail
+				;1f	machine block
+.ENDM	$PSL_DEF
+;-------------------------------;
+; PAGESET			;
+;-------------------------------;
+;
+.MACRO	$PST_DEF
+;
+map$	pst.suc	long.,0		;successor or ppc
+map$	pst.pre	long.		;predecessor or vpc
+map$	pst.typ	byte.		;entry type
+map$	pst.cla	byte.		;mapping class
+map$	pst.f00	byte.		;unused
+map$	pst.prt	byte.		;page protection
+map$	pst.vlo	long.		;virtual low address
+map$	pst.vhi	long.		;virtual high address
+;
+;	Physical pageset
+;
+map$	pst.ppc	long.		;physical page count
+map$	pst.pfn	long.		;base pfn address
+;
+;	Virtual pageset
+;
+map$	pst.ccb	long.,pst.ppc	;image I/O ccb address
+map$	pst.lbn	long.,pst.pfn	;image base LBN
+;
+map$	pst.bbs	null.		;
+;
+map$	pst_per.,,0		;permanent
+map$	pst_gbl.,,0		;global page
+map$	pst_zer.,,1		;demand zero
+map$	pst_iro.,,2		;image r/o
+map$	pst_irw.,,3		;image r/w
+map$	pst_izr.,,4		;image zero r/o
+map$	pst_izw.,,5		;image zero r/w
+;map$	pst_per.,,		;permanent page
+;
+.ENDM	$PST_DEF
+;-------------------------------;
+; PAGE TABLE ENTRY		;
+;-------------------------------;
+;
+.MACRO	$PTE_DEF
+;
+map$	pte_pfn_b,,0		;page frame number
+map$	pte_pfn_l,,20		;
+map$	pte_win_,,21		;page mapped by pfn - software
+map$	pte_tp0_,,22		;typ0 - software
+map$	pte_acm_b,,23		;access mode
+map$	pte_acm_l,,2		;
+map$	pte_zer_,,25		;
+map$	pte_mod_,,26		;modified page
+map$	pte_tp1_,,26		;typ1 - software
+map$	pte_prt_b,,27		;protection code
+map$	pte_prt_l,,4		;
+map$	pte_val_,,31		;valid
+;
+map$	pte_pfn$p,,<^x001fffff>	;page frame number
+map$	pte_acm$p,,<^x01800000>	;software access mode
+map$	pte_pro$p,,<^x78000000>	;protection code
+map$	pte_val$,, <^x80000000>	;valid page
+;
+;	pte.prt - protection
+;
+map$	pte_na$,,0@pte_prt_b	;no access
+map$	pte_res$,,1@pte_prt_b	;reserved
+map$	pte_kw$,,2@pte_prt_b	;kw
+map$	pte_kr$,,3@pte_prt_b	;kr
+map$	pte_uw$,,4@pte_prt_b	;all
+map$	pte_ew$,,5@pte_prt_b	;ew
+map$	pte_erkw$,,6@pte_prt_b	;erkw
+map$	pte_er$,,7@pte_prt_b	;er
+map$	pte_sw$,,8@pte_prt_b	;sw
+map$	pte_srew$,,9@pte_prt_b	;srew
+map$	pte_srkw$,,10@pte_prt_b	;srkw
+map$	pte_sr$,,11@pte_prt_b	;sr
+map$	pte_ursw$,,12@pte_prt_b	;ursw
+map$	pte_urew$,,13@pte_prt_b	;urew
+map$	pte_urkw$,,14@pte_prt_b	;urkw
+map$	pte_ur$,,15@pte_prt_b	;ur
+;
+.ENDM	$PTE_DEF
+;-------------------------------;
+; PAGE CONTEXT			;
+;-------------------------------;
+;
+;	phd.p0x	
+;	phd.p1x
+;	shd.s0x
+;
+.MACRO	$PXB_DEF
+;
+map$	pxb.pss	long.		;pageset successor
+map$	pxb.psp	long.		;pageset predecessor
+map$	pxb.ptb	long.		;pt base address
+map$	pxb.ptt	long.		;pt top address
+map$	pxb.vlo	long.		;page table virtual low address
+map$	pxb.vhi	long.		;page table virtual high address
+map$	pxb.bbs			;
+;
+.ENDM	$PXB_DEF
+                                                                                                                                                                                                                                                                                                                                                                                                                                                              

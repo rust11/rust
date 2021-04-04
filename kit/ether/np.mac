@@ -1,0 +1,581 @@
+boo$c=1	; bootstrap
+nxm$c=1 ; count nxm
+hoo$c=1	; hook clock vector
+pro$c=0	; set prot=n
+.title	np - SHAREnode preface
+.include "nfs:nc.mac"		;setup & conditionals
+.psect	xxdvr			;NT psect from RT-11
+.psect	ntacp			;NA section
+.psect	nthrd			;NH section
+.psect	nhdvr			;NH psect from RT-11
+.psect	xxboot			;NP bootstrap
+.psect	ntloa			;NP load psect
+.psect	ntsho			;NP show overlay
+.psect	ntinf			;NT information
+$brdef				;boot
+$dcdef				;device codes
+$dedef				;device
+$drdef				;driver
+$ehdef				;expert header
+$eqdef				;ethernet
+$emdef				;emts
+$hadef				;handlers
+$jbdef				;job
+$ntdef				;net
+$rmdef				;rmon
+$sgdef				;sysgen
+$txdef				;text
+$vadef				;vamp
+$vedef				;vectors
+.library "lib:drvmac.mlb"
+$drini
+
+;	SHAREnode NT handler public interface
+;
+;	%build
+;		goto 'p1'
+;	np:	macro/object:nhb:np	nhs:np!			wg
+;		if "'p1'" goto end
+;	npx:	macro/object:nhb:npx	nhs:(ncxm+np)!		xm wg
+;		if "'p1'" goto end
+;	npe:	macro/object:nhb:npe	nhs:(nceg+np)!		eg
+;		if "'p1'" goto end
+;	npex:	macro/object:nhb:npex	nhs:(nceg+ncxm+np)!	xm eg
+;		if "'p1'" goto end
+;	npr:	macro/object:nhb:npr	nhs:(ncrt+np)!		wg rt
+;		if "'p1'" goto end
+;	npxr:	macro/object:nhb:npxr	nhs:(ncrt+ncxm+np)!	xm wg rt
+;		if "'p1'" goto end
+;	nper:	macro/object:nhb:nper	nhs:(ncrt+nceg+np)!	eg rt
+;		if "'p1'" goto end
+;	npexr:	macro/object:nhb:npexr	nhs:(ncrt+nceg+ncxm+np)!xm eg rt
+;	end:
+;	%end:
+;
+;	%date
+;	<09-Feb-1990 13:31:35.24>
+;	%edit
+;	<144  >
+;
+;	Address definition	;
+				;
+.iif ndf ntcod., ntcod.=dentc.	;device code
+.iif ndf ntcsr., ntcsr.=ntdcs.	;CSR=175610
+.iif ndf ntvec., ntvec.=ntdvc.	;vector=300
+.iif ndf nttmo., nttmo.=ntdto.	;timeout=5 seconds.
+.iif ndf ntrty., ntrty.=ntdrt.	;retry=8
+meta	<roof c><.iif gt .-c,.error ;;roof>
+				;
+.if ne tim$it
+	.globl	$timit		;make pointer available
+.endc
+     fs <lotyp$ = despc$!defun$!dehab$!degab$>
+     fs	.drdef	xx,ntcod.,lotyp$,0,ntcsr.,ntvec.
+     rt	.drdef	xx,ntcod.,derta$!devar$,0,ntcsr.,ntvec.
+.if ne hoo$c
+	.drptr	fetch=nt$fet,load=nt$loa,release=nt$rel,unload=nt$unl
+.endc
+	.globl	ntcsr.	ntvec.	;
+	.globl	nttmo.	ntrty.	;
+     wg	<ntrvc. == ntvec.>	;receive vector
+     wg	<ntxvc. == ntvec.+4>	;transmit vector
+
+;	A handler is built from five modules:
+;
+;	NC.MAC		Conditional file
+;	NP.MAC		Public interface
+;	NA.OBJ		ACP class handler
+;	NU.OBJ		TPnet unit operations
+;	NT.OBJ		Timeout module
+;	dd.OBJ		Hardware port handler - e.g. WB.OBJ.
+.sbttl	install
+
+	.drins	xx
+	nop				;
+	cmp	r4,#^rshp		; this SHAREplus?
+	bne	10$			; no
+	mov	r4,r0			; say we understand
+     um	bis	#desin$,de.con(r2) 	   ; /single
+     xm	bis	#desin$!de22b$,de.con(r2)  ; /single/22bit
+	bis	#deabo$!nttim$,de.typ(r2)  ; /abort /time?
+10$:	clc				   ; fine
+	return
+
+nt$shx:	call	dr$fnd		; r2 -> driver
+	bcs	10$		; not in memory
+	$drcal	ov$sho		; call overlay routine
+	clc			;
+10$:	return			;
+	
+	$drovl			; driver overlay support
+	$drlim	400		; SET routine area
+.sbttl	set 
+
+.drset	SHOW	1	nt$sho		;SET SHOW counts
+.drset	CLEAR	1	nt$clr		;SET CLEAR error counts
+.drset	NAME	1	nt$snm	OCT	;SET NAME=DD
+.drset	CSR	160003	nt$scs	OCT	;SET CSR=address
+.drset	VECTOR	177003	nt$svc	OCT	;SET VEC=address
+.drset	RETRY	1	nt$srt	NUM	;SET RETRY=count
+.drset	TIMER	5	nt$stm	NUM	;SET TIMER=seconds
+.if ne pro$c
+drset$	PROT	1	nt$pro	HEX	;SET PROT=HEX
+nt$pro:	mov	r3,n$tpro
+	br	nt$goo
+.endc
+
+nt$sho:	jmp	nt$shx		;transfer control
+
+;	SET CSR=address
+;
+;	r3 =	160003 for low bit test
+
+nt$scs:	bitb	r3,r0		;is this valid?
+	bne	nt$bad		;nope
+	cmp	r0,r3		;is this in the i/o page?
+	blo	nt$bad		;invalid command
+	mov	r0,inscsr	;reset the CSR address
+	mov	r0,discsr	;reset the CSR address
+	$drmov	r0,b$ocsr	;update boot copy
+	mov	r0,n$tcsr	;store it internally
+	return
+
+;	SET VECTOR=address
+;
+;	r3 =	177003 for rough check
+
+nt$svc:	bit	r3,r0		;r3=177003, is this mostly valid?
+	bne	nt$bad		;nope
+	mov	r0,n$tvec	;setup the input vector
+     wg	mov	r0,n$trvc	;receive vector
+     wg	cmp	(r0)+,(r0)+	;point to the output vector
+     wg	mov	r0,n$txvc	;send vector
+nt$goo:	tst	(pc)+		;c=0
+nt$bad:	sec			;c=1
+	return
+
+;	SET NAME=DD
+;
+;	DRIVER utility required for this option
+
+nt$snm:	mov	r0,(pc)+	;set device name
+n$tdev:;.word	nhnam$		;rad50 device name
+	.rad50	/nf /		;
+	return
+
+;	SET RETRY=count
+
+nt$srt:	mov	r0,n$trty	;reset the permanent count
+	call	dr$fnd		;get the driver
+	bcs	nt$goo		;not in memory
+	mov	r0,n$trty(r2)	;set the retry count
+	return
+
+;	SET TIMER=seconds
+
+nt$stm:	mov	r0,n$ttim	;timeout in seconds
+	asl	r0		;*2
+	asl	r0		;*4
+	asl	r0		;*8
+	psh	r0		;save *8
+	asl	r0		;*16
+	asl	r0		;*32
+	asl	r0		;*64
+	sub	(sp)+,r0	;*56 => approximate second
+	mov	r0,n$ttmo	;setup time out seconds
+	call	dr$fnd		;get driver address
+	bcs	nt$goo		;not in memory
+	mov	n$ttim,n$ttim(r2) ;timer in seconds
+	mov	r0,n$ttmo(r2)	;timeout in ticks
+	return
+
+;	SET NT CLEAR
+;
+;	Clear all statistics
+
+nt$clr:	call	dr$fnd		;get driver
+	bcs	nt$bad		;not in memory
+	add	#n$tdst,r2	 ;get start of statistics area
+	mov	#n$tden-n$tdst/2,r3 ;r3 = count
+10$:	clr	(r2)+		;clear it out
+	dec	r3		;
+	bne	10$		;
+	return			;
+
+	$drfnd	n$tdev		;get driver address
+	$drlim	1000		;
+.sbttl	driver skeleton
+
+;	Handler skeleton
+;
+;	Standard RT-11 requires this logic.
+;	Major entry and exit points defined here.
+;
+;	NA.MAC contains actual start and abort I/O routines.
+;	NH.MAC contains interrupt service routines.
+
+	.drbeg	xx		; handler body
+n$tbas=.-6			; n$tbas = lqe
+	jmp	nt$sio		; start i/o
+
+;	WB/WD vector table
+
+.if ne ntwg$
+n$trvc::.drvtb	xx,ntrvc.,nh$rir; receive vector
+n$txvc==.-2			; read the .drvtb macro for this arithmetic
+	.drvtb	,ntxvc.,nh$xir	; send vector
+
+;	Standard RT-11 logic dispatchs aborts here
+
+10$:	jmp	nt$abt		; abort i/o 
+	br	10$		; dispatch abort
+ntint::	rti			; dummy interrupt routine
+.endc
+
+nf$rst:	vehoo$	n$frst		; reset hook
+	mov	#vaINP$,n$tinn	; reset process
+	jmp	@n$frst		; chain
+
+;	I/O done dispatched here to the monitor
+
+nt$fin::.drfin	xx		;finish i/o
+
+;	Define a different psect for the end of the handler
+
+.if ne ntrt$
+.if ne ntwg$
+	.include "nhs:bwg.mac"	; boot WB
+.endc
+.endc
+
+	.psect	nhdvr		; setup new psect
+	.blkw	8.		; patch space
+.if eq mmg$t			;
+$timit::.word	0		; dummy timeout vector
+.endc				;
+sht$c=1
+.if ne boo$c
+.sbttl	network boot
+
+;	SETUP is not required since either:
+;
+;	1. We were startup by the QNA boot which does SETUP.
+;	2. Or we were started by VUP which reads NF: which does SETUP.
+
+$draln	16
+	.drbot	xx,bo$jmp,bo$rea psect=nhdvr
+	$ = xxboot			; base throughout boot
+$drloc	0 bas=xxboot			; setup psect base
+					; RT-11 entry points
+$drloc	4				; our MOP entry point
+	mov	r1,b$ocsr		; use MOP boot CSR address
+	br	bo$jmp			; join common
+
+$drloc	40				; standard RT-11 boot 
+bo$jmp:	jmp	@#bo$boo-$		; secondary boot 
+
+$drloc	44				; fill in BDL constants
+bo$bdl:	mov	(r2)+,r3		; r3 -> BDL
+	mov	(r2)+,r4		; r4 = ec.tbl or ec.rbl
+	add	r5,r4			; r4 -> same
+	mov	r3,(r4)+		; store low order BDL address
+					; r4 -> high order for enable
+	call	(pc)			; two entries per
+	mov	#100000,(r3)+		; flag
+	add	#6,r3			; skip descriptor etc
+	mov	#100000,(r3)		; status 0
+.if ne sht$c
+	mov	(r3)+,(r3)		; status 1 (unequal for receive)
+	mov	(r3)+,(r3)		; write first of next entry
+.iff
+	mov	(r3)+,(r3)+		; status 1 (unequal for receive)
+.endc
+	return				; (fills in final invalid empty)
+	$drlim	xxboot+100		;
+
+;	bo$rea	Called here from software boot.
+;	bo$loa	Called here once from hardware boot.
+;
+;	r0=blk, r1=wct, r2=buf
+;	r5 -> csr
+;	r3/r4 free
+
+	ec.tbl = eg.tbl-eg.csr		; get csr relative offsets
+	ec.tbh = eg.tbh-eg.csr		;
+	ec.rbl = eg.rbl-eg.csr		;
+	ec.rbh = eg.rbh-eg.csr		;
+
+$drloc	110
+bo$rea:					; boot read routine
+bo$loa:	mov	(pc)+,(pc)+		; setup retry count
+b$orty:	.word	ntrty.			; modified by SET
+b$ortc:	.word	0			; local retry counter
+	sub	#60.,sp			; buffer space
+					;
+bo$nxt:	inc	(pc)+			; up packet sequence #
+b$ovid:	.word	100000			;
+bo$rty:	mov	(pc)+,r5		; get the hardware
+b$ocsr:	.word	ntcsr.			; standard address
+					;
+	mov	#r$cadr-$,r4		; copy h/w station address
+10$:	mov	(r5)+,-(sp)		; read a word
+	movb	(sp)+,(r4)+		; store a byte
+	blow	r4,#r$cadr+6-$,10$	;
+	tst	(r5)+			; skip vector
+					; r5 -> csr
+	bic	#egres$,(r5)		; clear any reset
+					; (ROM enters with reset asserted)
+5$:	mov	sp,t$xhdb		; xmt header buffer
+	mov	sp,r$cstb		; receive station and header 
+
+	mov	sp,r3			; clear VAMP packet
+	mov	#60./2,r4		; (could be done at server)
+20$:	clr	(r3)+			;
+	sobw	r4,20$			;
+
+	assume	va.fun eq 0		;
+	mov	#varea.!vadsk$,(sp)	; boot disk read
+	mov	#vaBOO.,va.cid(sp)	; boot channel
+	mov	b$ovid,va.vid(sp)	; sequence 
+	mov	r0,va.blk(sp)		; block
+	mov	r1,r4			; word count
+	blow	r4,#512.,30$		; all we need
+	mov	#512.,r4		;
+30$:	mov	r4,va.twc(sp)		; transfer word count
+	neg	r4			;
+	mov	r4,r$cdtc		; receive data count
+	mov	r2,r$cdtb		; receive data buffer
+					;
+	jsr	r2,bo$opr		; setup transmit
+	.word	t$xbdl-$		;
+	.word	ec.tbl			;
+	jsr	r2,bo$opr		; setup receive
+	.word	r$cbdl-$		;
+	.word	ec.rbl			;
+					;
+	mov	#egind$!egren$,(r5)	; turn on receiver
+	mov	(pc),r3			;\sic] r3 = 14 for timeout
+	clr	(r4)			;/enable receive
+	clr	ec.tbh(r5)		; enable send
+	assume	egrin$ eq 100000	;
+40$:	dec	r4			; start value: don't care
+	bne	45$			; more
+	dec	r3			; start value: 12.
+	beq	50$			; timed out
+45$:	bplw	(r5),40$		; wait for receive done
+	bis	#egtin$,(r5)		; enable next send
+	bpsw	#egerr$,r$cdts,50$	; some ethernet or i/f error
+	cmp	eg.pro(sp),(pc)+	; check the protocol
+	 $hex	<60-08>			; local protocol id
+	bne	50$			; quite wrong
+	cmp	eg.fbs+va.vid(sp),b$ovid; right packet sequence #?
+	bne	50$			; nope - try again
+	bneb	eg.fbs+va.sta(sp),60$	; server I/O error - not recoverable
+					;
+	add	#2,r0			; up block number
+	add	#1024.,r2		; up buffer address
+	sub	#512.,r1		; down word count
+	bgt	bo$nxt			; more to go
+	add	#60.,sp			; dump packet buffer
+	return				;
+					; error recovery
+50$:	bis	#egres$,(r5)		; reset it (cleared above)
+	dec	b$ortc			; got more lives left?
+	bne	bo$rty			; yep
+60$:	jmp	bioerr			; boot i/o error
+					;
+bo$opr:	call	bo$bdl			; fill in BDLs
+.if eq sht$c
+	clr	(r3)+			; clear terminator
+	clr	(r3)+			;
+.endc
+	rts	r2			;
+
+;	Descriptor address pointers
+
+.MACRO	NHDSC$	FAC,BUF=0,BCT=0,DSC=egdok$
+FAC'P:	.word	egbok$,DSC		; flags & descriptor
+FAC'B:	.word	BUF			; buffer address
+FAC'C:	.word	-<<BCT>/word>		; negated word count & status
+FAC'S:	.word	egunu$,egunu$		; status words
+.ENDM
+
+;	$hex	<AA-00-00-01-00-00>	; transmit destination
+
+t$xadr:	$hex	<ab-00-04-00-df-89>	; transmit broadcast destination
+r$cadr:	.word	0,0,0			; local address
+	$hex	<60-06>			; remote protocol type
+					; receive buffer list
+					; transmit buffer list
+t$xbdl:	nhdsc$	t$xst, t$xadr-$,eg.fbs	; transmit station
+	nhdsc$	t$xhd, 0,va.ebs,dsc=egdok$!egend$ ; vamp packet
+.if ne sht$c
+	.word	100000,0,0,0		; dummy (short) final element
+.iff
+	.blkb	eg.dbs			; end of bdl element
+	.blkw	2			; padding for the deqna
+.endc
+
+r$cbdl:	nhdsc$	r$cst,0,eg.fbs+va.ebs	; receive station & vamp packet
+	nhdsc$	r$cdt,0,0		; receive data
+.if ne sht$c
+	.word	100000,0,0,0		; dummy (short) final element
+.iff
+	.blkb	eg.dbs			; end of bdl element
+	.blkw	2			; padding for the deqna
+.endc
+
+bo$boo:	mov	#b$rksp,sp		; setup the stack
+	mov	#brSBN.,r0		; r0 = block
+	mov	#brSWC.,r1		; r1 = word count
+	mov	#br$sec,r2		; r2 = buffer address
+	call	bo$loa			; load secondary boot
+	mov	#bo$rea-xxboot,@#b$rrea	; fill in address of read routine
+	b$onam==.+2 			; for set
+;	mov	#nhnam$,@#b$rdvn	; fill in device name
+;	mov	b$ouni,@#b$rdvu		; setup unit number
+	mov	#^rnf,@#b$rdvn		;
+	mov	#1,@#b$rdvu		; setup unit number
+	br	br$sec+xxboot		; Now, where were we?
+	$drlim	xxboot+b$rtop		; check space for bioerr
+.endc
+	.drend	xx psect=nhdvr		; finish up driver
+.sbttl	show/clear
+;.psect	ntsho
+$drloc	1000
+
+;	SET NT SHOW
+;
+;	Display handler statistics
+
+meta	<output c><.iif nb <c>,mov c,r0><call (r5)>
+
+;	r2 -> driver base
+
+ov$sho::mov	r2,r4		;
+	add	#n$tbas,r4	;
+	jsr	r5,10$		;start up
+	.ttyout			;display it
+	return			;
+
+10$:;	call	sh$adr		; csr, vector, station
+
+	mova	list,r2		;get the lists
+nt$itm:	movb	(r2)+,r1	;r1 = offset from start of table
+	add	r4,r1		;add in the base
+	call	nt$pee		;get the value
+	mova	n$tdec,r3
+	cmpb	(r2),#'o	;octal?
+	bne	30$		;
+	inc	r2		;
+	mova	n$toct,r3	;
+30$:	movb	(r2)+,r0	;get the next
+	beq	nt$num		;no more
+	output			;display it
+	br	30$		;104
+
+nt$num:	mov	(r3)+,-(sp)	;force output flags
+nt$dig:	output	#ht		;tab
+10$:	mov	#'0,r0		;start the digit
+20$:	cmp	r1,(r3)+	;
+	blo	30$		;
+	sub	-(r3),r1	;
+	inc	r0		;
+	mov	#-1,(sp)	;get the rest
+	br	20$		;
+30$:	asr	(sp)		;display it?
+	bcc	40$		;no
+	output			;yes
+40$:	tst	(r3)		;any more?
+	bne	10$		;yes
+	output	#cr+<lf*256.>	;do a new line
+	swab	r0		;get high order
+	output			;do it again
+	tst	(sp)+		;forget flags
+	tstb	(r2)		;got another?
+	bne	nt$itm		;yes
+	pop	r5		;restore this guy
+	return			;
+
+nt$pee:	psh	r1		;push the address
+	psh	#empee$		;push the emt code
+	mov	sp,r0		;point to the area
+	emt	375		;get the value
+	mov	r0,r1		;
+	cmp	(sp)+,(sp)+	;cleanup
+	return			;
+n$tdec:	.word	20,10000.,1000.,100.,10.,1,0
+n$toct:	.word	40,100000,10000,1000,100,10,1,0
+
+meta	<entry c d><.byte d-n$tbas&377><.asciz _c_>
+list:	entry	Queued	n$tdpk
+	entry	Sent	n$tdsd
+	entry	< Done> n$ttrx
+	entry	< Errors> n$ttrx+2
+	entry	<o Flags> n$ttrx+4
+	entry	Recv	n$tdrc
+	entry	< Done> n$trcx
+	entry	< Errors> n$trcx+2
+	entry	<o Flags> n$trcx+4
+	entry	Kbytes	n$tdkb
+	entry	Soft	n$tdrp	
+	entry	Data	n$tdck
+	entry	Late	n$tdto
+	entry	Hard	n$tdfl
+.if ne nxm$c
+	entry	Init	n$tdin
+.endc
+	entry	Retry	n$trty
+	entry	Timer	n$ttim
+	.byte	0
+	.even
+.if ne hoo$c
+.sbttl	load/unload
+$drloc	2000
+;.psect	ntloa
+
+nt$fet:
+nt$loa::mov	r5,r0			; -> our slot
+10$:	tst	-(r2)			;
+	tst	(r0)+			; skip a slot
+	bnew	(r0),#-1,10$		; not at end
+	mov	(r5),r5			; get the driver
+	sub	#dr.lqe,r5		;
+	mov	r2,n$tslt(r5)		; save driver slot #
+
+	vecap$	#v$eclk,#nt$clk,r5	; capture clock
+
+	mov	@#j$bsys,r4		; make us the catch-all device
+	bnew	rm.cal(r4),20$		;
+	mov	#^rnf,rm.cal(r4)	;
+					;
+20$:	mov	rm.syn(r4),r3		; .synch
+	mov	-(r3),r0		; r3 -> net
+	add	#eh.rst,r0		;
+	vecap$	r0,#nf$rst,r5		;
+	clc				;
+	return
+
+nt$rel:
+nt$unl:	mov	(r5),r5			;
+	sub	#dr.lqe,r5		;
+	verel$	#v$eclk,#nt$clk,r5	; release clock
+
+	mov	@#j$bsys,r4		; make us the catch-all device
+	mov	rm.syn(r4),r3		; .synch
+	mov	-(r3),r0		; r3 -> net
+	add	#eh.rst,r0		; reset vector
+	verel$	r0, #nf$rst,r5		; release reset hook
+					; 
+	add	#rm.cal,r4		;
+	beqw	(r4),<#^rNF>,10$	;
+	bnew	(r4),<#^rNF0>,20$	;
+10$:	clr	(r4)			; undefine us
+20$:	clc
+	return
+
+$vepkg
+$hkpkg
+.endc
+.end
+

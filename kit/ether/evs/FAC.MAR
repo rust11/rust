@@ -1,0 +1,325 @@
+.title	fac
+.library "lib:eve.mlb"
+$eve_def psc
+$ap_def
+$ccb_def
+$dyn_def
+$fap_def
+$rap_def
+$fcb_def
+
+;	EVE FAC operations
+;
+;	%build
+;	assemble evs:fac/object:evb:fac
+;	%end
+;
+;	FAC does little itself. It serves mostly to connect various
+;	components - just as a FAP just records other components.
+;
+;	FAC used as an 'easy I/O' system - since it does not require
+;	the cost of FABs, RABs, etc.
+;
+;	FAC is used to implement RMS. FAP's and RAP's serve as
+;	the system internal records of FAB's and RAB's.
+;
+;	fac$acc		Open a face
+;	fac$cre		Create a file
+;	fac$pur		Purge file
+;	fac$clo		Close a file
+;	fac$mod		Modify a file
+;	fac$del		Delete a file
+;	fac$alc		Allocate FAP
+;	fac$dac		Deaccess channel, deallocate FAP
+;	fac$dlc		Deallocate FAP
+;	fac$exi		Image exit cleanup
+;
+;	File access plexs are maintained by the process.
+;	An FCB is required for any FAP operation.
+;	An FCB is linked to its UCB.
+;
+;	fap.suc	long.,0		;successor
+;	fap.pre	long.		;predecessor
+;	fap.fcb	long.		;fcb pointer
+;	fap.chn	word.		;channel number
+;	fap.efn	byte.		;event flag number
+;	fap.f00			;
+;	fap.stc			;status code
+;	fap.stv			;status value
+;	fap.bbs			;
+;
+;	Registers
+;
+;	r10 ->		fap
+;	r11 ->		fcb
+
+secsav$					;
+secnsd$					;non paged data
+fac_fcb:.blkb	fcb.bbs			;fcb
+secres$
+.sbttl	fcb structure
+
+;	FCB structure
+;
+;	fcb.suc	long.,0		;successor - ucb queue
+;	fcb.pre	long.		;predecessor
+;	fcb.ctl	word.		;control
+;	fcb.act	word.		;access count
+;	fcb.did	word.*3.	;device/directory (device/penultimate)
+;	fcb.fid	word.*3		;file id (rad50 name)
+;	fcb.slb	long.		;start logical block number or cid
+;	fcb.len	long.		;file length
+;
+;	File header area
+;
+;	fcb.rfo	byte.,0		;rtype	 rfo rfm/org - record type ($rfm/$org)
+;	fcb.rat	byte.		;rattrib atr rat - record attributes ($org)
+;	fcb.lrl	word.		;rsize	 lrl     - largest record written
+;	fcb.hbk	long.		;hiblk   hbk	 - high block
+;	fcb.ebk	long.		;efblk	 ebk	 - endfile block
+;	fcb.ffb	word.		;ffbyte	 ffb	 - first free byte
+;	fcb.fsz	byte.		;vfcsize hsz fsz - vfc header size	
+;	fcb.bks	byte.		;bktsize bkz bks - bucket size
+;	fcb.mrs	word.		;maxrec  mrz mrs - maximum record size or none
+;	fcb.deq	word.		;defext  dxq deq - default extension quantity
+;	fcb.gbc	word.		;gbc
+;	fcb.f00	word.*4		;
+;	fcb.vrs	word.		;versions 
+;				;	 sbn	 - start block number
+;	Filename - this area goes last
+;
+;	fcb.fnm	word.*3		;filename
+;	fcb.ftp	word.		;filetype
+;	fcb.fvr	word.		;file versions
+;
+;	fcb.bbs			;
+.sbttl	preface routines
+
+;	fac$%%%	fap fnm fcb
+;
+; p1	fap	-> optional fap
+; p2	fnm	-> optional filename descriptor
+; p3	dnm	-> optional default filename descriptor
+; p4	fcb	-> optional access fcb
+;
+;	r0 =	status
+;	r1  ->	fap
+;
+;	r9 ->	fcb prototype
+;	r10 ->	fap
+;	r11 ->	fcb
+
+	.entry	fac$acc ^m<r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>
+	movzwl	#io$_access,r1		;setup operation code
+	brb	fac$nam			;
+
+	.entry	fac$cre ^m<r2,r3,r4,r5,r6,r7,r8,r8,r10,r11>
+	movzwl	#io$_create,r1		;operation code
+	brb	fac$nam
+
+	.entry	fac$del ^m<r2,r3,r4,r5,r6,r7,r8,r8,r10,r11>
+	movzwl	#io$_delete,r1		;operation code
+	brb	fac$nam
+
+;	fap	must be supplied
+
+	.entry	fac$clo ^m<r2,r3,r4,r5,r6,r7,r8,r8,r10,r11>
+	brw	fac$dac+word.		;deaccess the file
+
+	.entry	fac$pur ^m<r2,r3,r4,r5,r6,r7,r8,r8,r10,r11>
+	movl	ap.p1(ap),r10		;get the fap
+	beql	10$			;
+	bisv$	#fap_pur_,fap.ctl(r10)	;force purge
+	movl	fap.fcb(r10),r11	;get the fcb
+	beql	10$			;
+	clrl	fcb.ebk(r11)		;zero blocks written
+	clrw	fcb.ffb(r11)		;
+	clrw	fcb.hbk(r11)		;
+10$:	brw	fac$dac+word.		;deaccess the file
+.sbttl	name operations
+
+;	Name operations
+;
+;	fac$%%%	fap fnm dnm fcb
+;
+; p1	fap	-> optional fap
+; p2	fnm	-> optional filename descriptor
+; p3	dnm	-> optional default filename descriptor
+; p4	fcb	-> optional access fcb
+;
+;	r1 =	operation code
+;
+;	r0 =	status
+;	r1  ->	fap
+;
+;	r9 ->	fcb prototype
+;	r10 ->	fap
+;	r11 ->	fcb
+
+fac$nam::				;name operation
+	pushl	r1			;save i/o code
+	stack$	cod			;
+	clrl	r10			;assume no fap
+	clrl	r11			;assume no fcb
+
+;	Setup FAP
+
+10$:	movl	ap.p1(ap),r10		;got a fap?
+	bneq	20$			;yes
+	dynapp$	#fap.bbs,#dyn_fap.	;allocate a fap
+	blbc	r0,60$			;no space - forget it
+	movl	r1,r10			;r10 -> fap
+
+;	Setup FCB
+
+20$:	dynapp$	#fcb.bbs,#dyn_fcb.	;allocate permanent fcb
+	blbc	r0,60$			;failed
+	movl	r1,r11			;get it
+	movl	r11,fap.fcb(r10)	;setup the pointer
+
+	cmpb	(ap),#4			;supplied an FCB?
+	blss	30$			;no
+	movl	ap.p4(ap),r2		;r2 = 0 or -> access FCB
+	beql	30$			;got one - use it
+	sermov$	#fcb.bbs,(r2),(r11)	;copy in the fcb
+
+;	Setup name
+;
+;	r2/r3	default filename
+;	r4/r5	filename
+
+30$:	clrq	r2			;assume no default
+	cmpb	ap.cnt(ap),#3		;got a default name?
+	blss	40$			;no
+	movl	ap.p3(ap),r2		;check non-null
+	beql	40$			;null
+	movq	(r2),r2			;supply it
+
+40$:	clrq	r4			;assume no name
+	cmpb	ap.cnt(ap),#2		;got a name?
+	blss	50$			;no
+	movl	ap.p2(ap),r4		;check non-null
+	beql	50$			;null
+	movq	(r4),r4			;supply it
+
+50$:	bsbw	nam$fap			;setup the fcb name
+
+;	Assign channel
+
+	pushab	fcb.dev+byte.(r11)	;string address
+	movzbl	fcb.dev(r11),-(sp)	;string length
+	movl	sp,r0			;remember where it is
+	$assign_s (r0),fap.chn(r10)	;assign the channel
+	clrq	(sp)+			;forget the descriptor
+60$:	blbc	r0,90$			;it failed
+	movzwl	fap.chn(r10),r1		;get the channel
+	bsbw	chn$map			;map the channel
+	movl	r11,ccb.fcb(r1)		;setup ccb fcb pointer
+
+;	Perform operation
+
+70$:	movl	(sp),r0			;r0 = operation code
+	$qiow_s	chan=fap.chn(r10),func=r0,iosb=fap.stc(r10),p5=r11
+	blbc	r0,80$			;qio failed
+	movl	fap.stc(r10),r0		;check i/o status
+	blbs	r0,100$			;fine
+80$:	pushl	r0			;save the error code
+	bsbw	fac$das			;purge the channel
+	popl	r0			;restore it
+
+90$:	pushl	r0			;save the status
+	dyndlc$	(r10)			;deallocate fap
+	dyndlc$	(r11)			;deallocate fcb
+	popl	r0			;
+
+100$:	bsbw	tra$chk			;check for errors
+	movl	r10,r1			;return FAP in r1
+	ret				;get out
+.sbttl	deaccess
+
+;	Deaccess file
+;
+;	fac$dac	fap
+;
+; p1	fap	-> file access plex
+;
+;	r0:r2	used by scan routine
+;	r3	exit status
+;	r10 ->	fap
+;	r11 ->	fcb
+;
+;	Close errors are ignored.
+
+	.entry	fac$dac ^m<r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>
+	movl	#fine.,r3		;assume ok
+	movl	ap.p1(ap),r10		;r10 -> fap
+	beql	30$			;no fap
+	movl	fap.fcb(r10),r11	;r11 -> fcb
+
+;	Deallocate any connected raps
+;
+;	r1 ->	rap
+
+	movl	ptr_ppp,r1		;point to paged process
+	bsbw	dyn$scn			;scan them
+10$:	jsb	@(sp)+			;get the next
+	blbc	r0,20$			;no more
+	cmpb	r2,#dyn_rap.		;this a rap?
+	bneq	10$			;no - get the next
+	cmpl	rap.fap(r1),r10		;this one of ours?
+	bneq	10$			;no
+
+;	Close or purge RAP	
+
+	bbs	#fap_pur_,fap.ctl(r1),15$ ;force purge
+	pushl	r1			;save the address
+	pushl	r1			;pass the RAP address
+	calls	#1,rap$pad		;pad and write it out
+	popl	r1			;restore the address
+	blbs	r0,15$			;no errors
+	movl	r0,r3			;setup exit status
+15$:	clrl	r0			;get rid of the entry
+	brb	10$			;delete it
+
+;	Deaccess the file
+
+20$:	tstw	fap.chn(r10)		;got a channel?
+	beql	30$			;no
+	$qiow_s	chan=fap.chn(r10),func=#io$_deaccess,iosb=fap.stc(r10),p5=r11
+;sic]	blbc	r0,30$			;ignore errors
+	bsbw	fac$das			;purge the channel
+	dyndlc$	(r10)			;deallocate fap
+	dyndlc$	(r11)			;deallocate fcb
+30$:	movl	r3,r0			;setup return status
+	ret
+
+;	Purge channel
+
+fac$das:tstw	fap.chn(r10)		;got a channel?
+	beql	10$			;no - nothing to deassign
+	$dassgn_s fap.chn(r10)		;yes - deassign it 
+;sic]	blbc	r0,10$			;ignore errors
+	clrw	fap.chn(r10)		;get rid of it
+10$:	rsb
+.sbttl	fac exit
+
+;	FAC exit
+;
+;	Purge process pool of image FAP's
+
+fac$exi::
+5$:	movl	ptr_ppp,r1		;supply pool address
+	movl	sp,r3			;to start over
+	bsbw	dyn$scn			;scan them
+10$:	jsb	@(sp)+			;get the next
+	blbc	r0,20$			;are no more
+	cmpw	r2,#dyn_fap.		;this a fap?
+	bneq	10$			;no
+	bisv$	#fap_pur_,fap.ctl(r1)	;force purge
+	pushl	r1			;yes - deaccess it
+	calls	#1,fac$dac		;deallocate it
+	movl	r3,sp			;reset the stack
+	brb	5$			;start over
+20$:	rsb				;
+.end
+                                                                                                                           

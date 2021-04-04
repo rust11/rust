@@ -1,0 +1,233 @@
+
+ ` EVE	
+
+EVE because:	
+
+o	VMS is to big for some. They need a system that leaves most of
+	the memory for applications. They a need a system that will boot
+	from small media. They need a system for dedicated CPU's.
+o	VMS is too slow for some. They need a system that utilizes all the
+	CPU power of a VAX - in particular for real-time.
+o	VMS is too complex for some. They need a system that does not need
+	a manager. They need a system that can be easily learnt and utilized.
+o	VMS adds too much personality for some. They need a system that
+	lets them keep close to the hardware without going around the system.
+o	UNIX has much the same problems as VMS. ELN solves some but does
+	not supply a general purpose program development environment.
+	ELN forces PASCAL which is not the language of choice for most.
+o	VMS needs a simple runtime environment for satellite processors.
+	Satellites need to run the same software as the host VAX/VMS system.
+
+EVE is:	
+
+o	Multi-user, multi-process operating system.
+o	Small. It can be run from simple media or across a network.
+o	Fast. It has very low system overheads.
+o	Very fast. Particular attention is paid to high performance realtime.
+o	Easy to use. Uses the same techniques as SHAREplus.
+o	Multi-processor with VAMP option to connect to VAX/VMS systems.
+o	Multi-processor with SHAREnode connection to SHAREplus.
+
+EVE supplies:	
+
+o	A user command environment.
+o	A program development environment.
+o	A program runtime environment.
+o	File-structure and access environment.
+o	Device handler environment.
+o	Realtime environment.
+o	Realtime environment. Kernel-mode images.
+o	VAMP and SHAREnet communications.
+
+ ` Goals
+
+ADA source		EVE is written in ADA.
+System rebuild		After a crash the system can be rebuilt from memory.
+			Saves rebooting the system. Appropriate for ROM designs.
+RT11A file system	Basic system supports an RT11A/RT11X file system.
+			RT11A/RT11X includes supports for file headers.
+			Other file structures are optional.
+VMS services		Basic system supports VMS system services.
+			Services are at least ignored gracefully.
+RMS services		Basic system supports subset of VAX/VMS RMS.
+			No support for relative or indexed structures.
+			Stream, Variable and fixed length records.
+			Basic VMS does not require much more.
+VMS handlers		Basic system does not support VMS device drivers.
+			This is unfortunate but unavoidable - VMS drivers are
+			are far too complex for the goals of the system.
+			However, EVE I/O interface permits support to be added.
+EVE handlers		EVE handlers are implemented as realtime tasks.
+Process states		Resources management requires better state control.
+			Resources are only available in kernel mode and may
+			only be interrupted by kernel AST's.
+			Priority is bumped during resource ownership.
+CPU independance	EVE should boot on any VAX without recompiling.
+			EVE should run under VMS with special system link.
+
+ ` EVE and VMS	
+
+Writing an operating system is not very difficult. Writing all the compilers and
+utilities is a lot more work. One goal of EVE is to minimise the effort required
+for utilities by using existing programs. Only VMS and UNIX supply a channel for
+such utilities. EVE supplies support for some VMS utilities. 
+
+Thus, EVE appears from one angle to be a fast subset of VAX/VMS. 
+
+Supporting VMS up-front makes sense: wishlist items will tend in that  direction
+anyway. A VMS-compatible system will be attractive to existing VAX users. 
+
+But, EVE is not VMS and does not want to be. It just wants to  use  VMS  images.
+The  basic  internal  design  of  EVE is very different to VMS and has different
+goals. If you want full VMS compatibility, then use VMS. 
+
+What does EVE add to VAX/VMS:	
+
+o	RT-11 file-structure.
+o	RT-11 style system calls.
+o	Fast realtime facility.
+o	System images.
+o	Kernel-mode images with direct vectoring.
+
+What does EVE subtract from VMS:	
+
+o	Most of the access mode stuff
+o	RMS indexed structure support
+o	FILES-11
+o	Error logging
+o	A lot of security
+o	A lot of overhead and checking
+o	A lot of the shared file stuff
+o	A lot of the process context
+o	Big-VAX support
+o	Multi-processor support
+
+What are the major internal differences: 
+
+o	Basic CLI (VCL) is mapped into system space.
+o	Minimal CLI callback support.
+o	Most of the P1 structures do not exist.
+o	VMS drivers are not supported.
+o	Only kernel and user mode are used by the system.
+o	Software page table structures are different.
+
+Space has been left in EVE to support most of these features if  warranted.  For
+example,  EVE's  I/O system is setup to support multiple I/O systems which could
+be extended to support VMS drivers. 
+
+ ` EVE BUILDUP
+
+The 'buildup' consists of a number of implementations of EVE. The main  goal  is
+to  optimise  the debug cycle time (by not having to reboot VMS). Note that some
+of these implementations will be interesting in their own right after EVE itself
+is constructed. 
+
+Where possible procedures will be tested under VMS. 
+
+EVEboot		Single-user synchronous system.
+		Boots with EVEBOOT (replaces SYSBOOT)
+		VX: synchronous connection to QUARK.
+		TT:==CO: synchronous connection to terminal.
+		Supports MACRO32 and LINK32 only.
+		Editing done on PDP-11.
+		Almost everything is a NOP.
+EVEsolo		Single-user asynchronous system.
+		DM: connection to RT11X DMA0:
+		SHAREnode connection to QUARK.
+		TT: driver.
+		VRT.
+		DCL via VRT.
+EVEplus		Multi-process.
+		DCL native support.
+		EVB replaces VMB
+
+The major tasks to be performed are:	
+
+o	System boot - this is horrid
+o	Paging system - this is optional
+o	System services and RMS
+o	Device handlers - initially VAMP driver
+o	Terminal driver - not the VMS driver
+o	File system - RT-11 with F11 interface
+o	Maree runtime - to move MAREE utilities
+
+EVE supports four paging options:	
+
+o	None - Memory is allocated as needed. No paging.
+o	Pagein	- Demand paging discards unmodified pages only.
+o	Pageout	- Modified pages are written to image files.
+o	Pagefile - Modified pages are written to a pagefile
+
+The usual option for small systems will be pageout.
+
+The Pagefile option is not planned for implementation at present.	
+
+ ` RT-11 system calls	
+
+The RT-11 system call environment accesses the RT-11 AME.
+
+RT-11 AME	Supports an RT-11-like environment on VAX.
+Migration	Makes it easier to transport existing RT-11 software.
+SYSLIB		Supports RT-11 SYSLIB routines for FORTRAN etc.
+EVE		System library with user-space vector table.
+VMS		RT-11 AME supported under VMS.
+VMS		User library.
+
+Most calls use the VMS procedure CALL interface. Some frequently called services
+use JSB to get speed. 
+
+The following are supported: 
+
+.chain		Pass control to another image
+.lookup		Open a file
+.delete		Delete a file
+.enter		Create a file
+.read		Read from a file
+.ttyin		Get a character
+.ttyout		Put a character
+.write		Write to a file
+...		
+
+ ` Logical names	
+
+Logical names are uppercase ASCII strings. Multiple tables  are  supported.  VMS
+rules  for dropping colons are not usually supported. Special cases are supplied
+for some VMS names. Recursive translation is usual. 
+
+Device and filenames are specified in ascii. Multiple controllers and more  than
+eight units are supported. Long file names are supported. 
+
+Directory names, UIC's and versions are parsed-off and ignored. 
+
+Wildcard searchs are supported on disks with secondary directories. 
+
+Process names, user names etc. are limited to twelve characters. 
+
+ ` Command strings	
+
+DCL parsing is the usual mode. CSI could be supported outside the  system.  Cer~
+tainly, modules can call a CSI module. 
+
+IP and OP are the input and output streams. 
+
+  ` Booting	
+
+Booting and building the system is initially the  most  complex  task  -  mostly
+since this will require frequent rebooting of VMS which takes awhile. 
+
+DM0: will be used as the RT-11 file-structured device. 
+
+One possible enhancement would be to replace the VEMUS TU58's with a faster dev~
+ice emulated by QUARK. 
+
+The initial system will use VAX/VMS to boot the system.  The  boot  module  will
+build  up  a  system image in virtual memory, turn off VMS and memory management
+and then build EVE. These will eventually be replaced with a VMB. 
+
+The skeleton boot will setup a single-process system with a hard  console.  This
+will test the basic memory management stuff. 
+
+The next step will be to support process creation. 
+
+The next step will be paging and VMS system services. 
+                                                                                              

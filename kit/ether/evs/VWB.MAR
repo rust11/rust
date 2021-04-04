@@ -1,0 +1,407 @@
+.title	vwb
+.library "lib:eve.mlb"
+$eve_def nsc
+$i73_def
+$ioq_def
+$opt_def
+$ssd_def
+$vap_def
+$wg_def wb
+
+;	EVE synchronous WB-11 support
+;
+;	%build
+;	assemble evs:vwb/object:evb:vwb
+;	%end
+;
+;	This module is used for bootstrap and maintenance operations.
+;	Does not use interrupts or clock. Assumes all transfers fit
+;	into a single block.
+;
+;	csr	776000	3fc00
+;	vector	400	100
+;
+;	r2 ->	wb11 base address
+;	r3 ->	ioq
+;	r4 ->	pcb
+;	r5 ->	ucb
+;	r6 ->	ccb
+;	r11 ->	vap
+
+map$	wb_csr,,<^x3fc00>		;^o777600
+
+vwb_adr:.long	wb_csr			;i/o address
+vwb_vec:.long	0			;vector address
+vwb_csr:.long	0			;csr address
+vwb_rsr:.long	0			;rsr address
+vwb_rbu:.long	0			;rbu address
+vwb_xsr:.long	0			;xsr address
+vwb_xbu:.long	0			;xbu address
+
+vwb_rwc:.word	0			;read word count
+vwb_rst:.word	0			;read state
+vwb_wwc:.word	0			;write word count
+vwb_wst:.word	0			;write state
+vwb_abo:.word	0			;aborted flag
+vwb_rty:.word	0			;retry count
+vwb_tmo:.long	100000			;timeout count
+vwb_ini:.word	-1			;force init
+vwb_ist:.word	0			;init state
+vwb_igt:.word	0			;get word
+vwb_ipt:.word	0			;put word
+vwb_onc:.word	0			;once only
+vwb_ovp:.long	0			;points to output vap
+vwb_bfp:.long	0			;points to buffer
+vwb_vap:.blkb	vap.bbs			;input vap
+
+	ie =	^o100		;interrupt enable
+	ib =	1		;i boot
+	tb =	2		;thee boot
+
+meta$	<read c d><movab c,r2><movzwl d,r3><bsbw vwb$rea>
+meta$	<write c d><movab c,r2><movzwl d,r3><bsbw vwb$wri>
+
+.macro	guard	c,d,e
+	movab	c,r1
+	movzwl	d,r2
+	movab	e,r3
+	bsbw	vwb$gua
+.endm
+.sbttl	main loop
+
+;	Send a single package
+;
+;	Remove control bits
+;
+; ???	r10 ->	reply vap
+;	r11 ->	send vap
+
+vwb$que::pushr	#^m<r2,r3,r4,r5,r6,r7>	;
+	movl	r11,vwb_ovp		;store output vap address
+	movl	ioq.sba(r3),vwb_bfp	;store the buffer pointer
+	bsbw	vwb$pac			;handle the packet
+	popr	#^m<r2,r3,r4,r5,r6,r7>	;
+	rsb
+
+vwb$pac:movw	#8.,vwb_rty		;count retries
+;	bsbw	vwb$rep			;report the vap
+vwb$rty:bsbw	vwb$set			;setup
+	movl	vwb_ovp,r11		;point output vap
+	clrw	vap.sta(r11)		;start clean
+	bsbw	vwb$ini			;check for init
+	bsbw	vwb$snd			;send packet
+	movl	#^a"snd",r1
+	blbc	r0,20$			;failed
+
+	movab	vwb_vap,r11		;point to input vap
+	bsbw	vwb$rcv			;get reply
+	movl	#^a"rcv",r1
+	blbc	r0,20$			;failed
+	movl	#^a"abo",r1
+	cmpb	vap.fun(r11),#vap_abo.	;manual abort ?
+	beql	20$			;yes - forget this
+	cmpb	vap.fun(r11),#vap_rea.	;read ?
+	beql	10$			;yes - data is expected
+	movl	#^a"dbc",r1	
+	tstw	vap.dbc(r11)		;is data present ?
+	bneq	20$			;yes - error
+10$:	sermov$	#vap.bbs,(r11),@vwb_ovp	;copy the result back
+	movl	vwb_ovp,r11		;point to the original
+;	bsbw	vwb$rep			;report reply
+	movl	#fine.,r0		;fine
+	rsb				;no - its fine
+
+20$:	pushl	r1			;report the reason
+	bsbw	tra$bug			;tell them why
+	bsbw	vwb$rep			;report it
+	bsbw	vwb$inf			;force init
+	decw	vwb_rty			;retry it?
+	bneq	vwb$rty			;yes
+	movw	#vap_iox.,vap.sta(r11)	;report the error
+	clrl	r0			;terminate buffered operation
+	rsb
+.sbttl	send and receive packet
+
+;	Send packet
+;
+;	r11 ->	packet
+
+vwb$snd:guard	(r11),#vap.hck,vap.hck(r11) ;guard it
+	guard	@vwb_bfp,vap.dbc(r11),vap.dck(r11)
+	write	(r11),#vap.bbs		;write the header
+	blbc	r0,10$			;there is an error
+	movzwl	vap.dbc(r11),r3		;check if data present
+	beql	10$			;no
+	write	@vwb_bfp,r3		;write the data
+10$:	rsb
+
+;	Receive packet
+;
+;	r11 ->	packet
+
+vwb$rcv:clrw	vap.dbc(r11)		;assume no data
+	read	(r11),#vap.bbs		;read a header
+	blbc	r0,10$			;there was an error
+	guard	(r11),#vap.hck,vap.hck(r11)	;check this
+	blbc	r0,10$			;oops
+	movzwl	vap.dbc(r11),r3		;data coming?
+	beql	10$			;nope - we're done
+	read	@vwb_bfp,r3		;get some data
+	blbc	r0,10$			;oops
+	guard	@vwb_bfp,vap.dbc(r11),vap.dck(r11)
+10$:	rsb				;
+.sbttl	guard the data
+
+;	r1 ->	buffer
+;	r2 =	byte count
+;	r3 ->	result
+;
+;	r0	o.k.
+
+vwb$gua:pushr	#^m<r4,r5>		;save these
+	movl	#1,r0			;assume o.k.
+	divl	#2,r2			;make words
+	movl	r2,r4			;r4 = jump
+	bneq	5$			;we have something to do
+	brw	40$			;quit
+5$:	divl	#32,r2			; r2 = loop count
+	bicl	#^c<32-1>,r4		;get the jump
+	mull	#-3,r4			;3 bytes per instruction
+	clrl	r5			;accumulate in r5
+	jmp	20$[r4]			;do the first
+10$:	.rept 32
+	addw	(r1)+,r5
+	.endr
+20$:	decl	r2			;any more?
+	bgeq	10$			;yes
+	cmpw	r5,(r3)			;were they the same?
+	beql	30$			;yes - r0=1
+	clrl	r0			;nope - failure
+30$:	movw	r5,(r3)			;replace with result
+40$:	popr	#^m<r4,r5>
+	rsb
+.sbttl	read & write
+
+;	Read data
+;
+;	r2 ->	buffer
+;	r3	byte-count
+;
+;	r4	rsr
+;	r5	rbu
+;	r6	xsr
+;	r7	xbu
+
+vwb$rea:bsbw	vwb$set			;get some registers
+	divw	#2,r3			;get a word-count
+	movw	r3,vwb_rwc		;remember the count
+	brb	30$			;enter the loop
+
+20$:	movw	(r5),r0			;into r0 in case we page
+	movw	r0,(r2)+		;
+	decw	r3			;count it
+	bleq	40$			;we are done
+30$:	.rept	20
+	tstb	(r4)			;are they ready?
+	blss	20$			;yes - go again
+	.endr
+	movl	#1024,r1		;count the rest
+	assume$	wb_rdn$ eq 1@7		;
+35$:	bitb	#wb_rdn$!wb_rtb$,(r4)	;done or dead?
+	blss	20$			;done
+	bneq	40$			;dead
+	decl	r1			;count
+	bneq	35$			;keep waiting
+	bsbw	vwb$rwt			;wait for it
+	tstw	vwb_abo			;did we abort?
+	bneq	40$			;yes
+	brw	30$			;and look again
+40$:	brw	vwb$gtb			;we are done
+
+;	Write data
+
+vwb$wri:bsbw	vwb$set			;get some registers
+	divw	#2,r3			;get a word-count
+	movw	r3,vwb_wwc		;remember the count
+	brb	30$			;enter the loop
+20$:	movw	(r2)+,(r7)		;move it in
+	decw	r3			;count it
+	bleq	40$			;we are done
+30$:	.rept	20
+	tstb	(r6)			;are they ready?
+	blss	20$			;yes - go again
+	.endr
+	movl	#1024,r1		;count the rest
+35$:	bitw	#wg_rtb$,(r4)		;is tb set?
+	bneq	40$			;yes - quit
+	tstb	(r6)			;is it ready?
+	blss	20$			;yes
+	decl	r1			;count
+	bneq	35$			;keep waiting
+	bsbb	vwb$wwt			;wait for it
+	tstw	vwb_abo			;did we abort?
+	beql	30$			;no
+40$:
+
+vwb$gtb:clrl	r0			;assume failure
+	tstw	vwb_abo			;did we abort?
+	bneq	10$			;yes
+	bitw	#wg_rtb$,(r4)		;tb set?
+	bneq	10$			;yes - bombs
+	movl	#fine.,r0		;set an error
+10$:	rsb
+.sbttl	wait routines
+
+;	Read wait
+;
+;	Wait for read signal - also set by abort
+
+vwb$rwt:
+10$:	bsbb	vwb$gtb			;check for abort
+	blbc	r0,20$			;we aborted
+	bitw	#wg_rdn$,(r4)		;wait for input done
+	beql	10$			;more to go
+20$:	rsb
+
+;	Write wait
+
+vwb$wwt:
+10$:	bsbb	vwb$gtb			;check abort
+	blbc	r0,20$			;aborted
+	bitw	#wg_xdn$,(r6)		;check ready
+	beql	10$			;not ready
+20$:	rsb				;
+
+vwb$set:bbss	#0,vwb_onc,10$		;once only done
+	movl	vwb_adr,r0		;r0 -> unibus address
+	subl	#i73_iob,r0		;r0 -> address in i/o page
+	addl	ssd_bus+ssd.vlo,r0	;r0 -> csr address
+	movl	r0,vwb_csr		;store csr address
+	movab	vwb_csr,r1		;store results
+	movl	r0,(r1)+		;csr
+	moval	wg.rsr(r0),(r1)+	;rsr
+	moval	wg.rbu(r0),(r1)+	;rbu
+	moval	wg.xsr(r0),(r1)+	;xsr
+	moval	wg.xbu(r0),(r1)+	;xbu
+
+;	Setup for operation
+
+10$:	clrw	vwb_abo			;aborted
+	clrw	vwb_rst			;read state
+	clrw	vwb_wst			;write state
+	clrw	vwb_rwc			;read word count
+	clrw	vwb_wwc			;write word count
+	movl	vwb_rsr,r4		;point at these
+	movl	vwb_rbu,r5
+	movl	vwb_xsr,r6
+	movl	vwb_xbu,r7
+	rsb
+.sbttl	init connection
+
+;	WB-11/WD-11 initialization
+;
+;	Get/put to initialize with other end
+
+	.enable	lsb
+vwb$ini:tstw	vwb_ini			;init pending?
+	bgeq	30$			;no
+vwb$inf:movw	#1,vwb_ini		;yes - reset the flag
+	clrw	vwb_ist			;state 0
+	movw	#2,vwb_ipt		;the value to put
+	bisw	#ib,(r4)		;set the flag
+10$:	tstw	vwb_ini			;init still pending?
+	blss	vwb$ini			;aborted - try again
+	beql	30$			;all done
+	bitw	#wg_rdn$,(r4)		;got input?
+	beql	20$			;no
+	bsbw	vwb$igt			;yes - process it
+	brb	10$			;look again
+20$:	bitw	#wg_xdn$,(r6)		;got output?
+	beql	10$			;no
+	bsbw	vwb$ipt			;yes
+	brb	10$			;
+30$:	rsb
+	.disable lsb
+
+;	Get has two states:
+;
+;	get1	empty the other end out
+;	get2	accept a word and check IB is low
+
+vwb$igt:movw	(r5),vwb_igt		;empty the vax
+	casew$	vwb_ist,#0,#2		;dispatch it
+	cases$	vwb$ig1			;get1
+	cases$	vwb$ig2			;get2
+	cases$	vwb$ig3			;get3
+
+vwb$ig3:bicw	#wg_rib$,(r4)		;clear ours out
+	clrw	vwb_ini			;assume its done
+	bitw	#wg_rtb$,(r4)		;are they done?
+	beql	10$			;yes - done
+	decw	vwb_ini			;aborted - try again
+10$:					;
+vwb$ig2:
+vwb$ig1:rsb
+
+;	put1	sends #2 until TB seen
+;	put2	sends 2,1,0
+;	put3	does not occur
+
+vwb$ipt:bbs	#15,vwb_ipt,10$		;all done
+	movw	vwb_ipt,(r7)		;send the value
+	casew$	vwb_ist,#0,#2		;dispatch the state
+	cases$	vwb$is1
+	cases$	vwb$is2
+	cases$	vwb$is3			;should not occur
+10$:	rsb
+
+vwb$is1:bitw	#wg_rtb$,(r4)		;are they ready yet?
+	beql	10$			;nope
+	incw	vwb_ist			;yes - next time we start down
+10$:	rsb
+
+vwb$is2:decw	vwb_ipt			;count it down
+	bgeq	vwb$is3			;more to do
+	incw	vwb_ist			;get the final
+vwb$is3:rsb				;ignore
+.sbttl	report vap
+
+;	Report VAP in r11
+
+vwb$rep:pushr	#^m<r0,r1,r2,r3,r4>	;
+	movab	100$,r3			;point to them
+	optcom$	clr			;
+	clrl	r4			;next line
+10$:	cmpl	r4,#80			;time for a newline?
+	blss	20$			;no
+	optcom$	prt			;yes
+	clrl	r4			;
+20$:	optcom$	asc par=(r3)+		;display the title
+	optcom$	asc par=<#<^a"=">>	;
+	movl	(r3)+,r2		;get the offset
+	addl	r11,r2			;add in base
+	movzwl	(r2),r1			;get the value
+	optcom$	hex par=r1		;display it
+	addl	#10,r4			;next column
+	optcom$	col par=r4		;no
+	tstl	(r3)			;any more?
+	bneq	10$			;yes
+	optcom$	prt			;final newline
+	popr	#^m<r0,r1,r2,r3,r4>	;no
+	rsb
+
+.macro	vwbrep$	c d e f g h
+.irp	$,<c d e f g h>
+	.asciz	"$"
+	.align	long
+	.long	vap.'$
+.endr
+.endm
+
+	.align	long
+100$:	vwbrep$	fun cid sta len dbc
+	vwbrep$	fna blk rwc twc fmt
+	vwbrep$	vid prn hck dck
+	.long	0
+.end
+                                                                                                     

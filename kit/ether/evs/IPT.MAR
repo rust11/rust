@@ -1,0 +1,422 @@
+.title	bin
+.library "lib:eve.mar"
+$eve_def
+
+;	EVEboot input routines
+;
+;	This module replaces the standard input routines.
+;
+;	ipt$cha
+;	ipt$lin
+;
+;	Called by CONGCH$ or CONGLI$
+;
+;	r0/r1	output status
+;
+;	r2 ->	callers record
+;	ap ->	callers record
+
+map$	ap.buf,,ap.p1	;buffer address
+map$	ap.len,,ap.p2	;buffer length
+map$	ap.ctl,,ap.p3	;control flags
+map$	ap.prb,,ap.p4	;prompt buffer address
+map$	ap.prl,,ap.p5	;prompt length
+
+;	_now$	dont wait for input
+;	_con$	continue with previous operation
+;
+;	r11 ->	channel record
+
+map$	ipt.act	long.,0		;input routine address
+map$	ipt.pos	long.,		;position in buffer
+map$	ipt.buf	long.		;buffer address
+
+;	_lin	Input line
+;	_cha	Pointer to next input character
+;
+;	r1 =	next character
+
+ipt_ctl::.long	0			;control flags
+ipt_pos::.long	0			;buffer position
+ipt_buf::.long	0			;input buffer address
+ipt_prl::.long	0			;prompt length
+ipt_prb::.long	0			;prompt buffer address
+
+;	Input character
+;
+;	ap ->	callers buffer
+;	r11 ->	internal buffer
+
+.enabl	lsb
+.entry	ipt$cha	0
+	addl4	ipt.pos(r11),ipt.buf(r11),r0 ;r0 -> next
+	movb	(r0)+,r1		;get the character
+	beql	ipt$cha			;oops - all done
+	incl	ipt.pos(r11)		;move past the character
+	tstb	(r0)			;is the next the last?
+	bneq	20$			;no
+ipt$abt::
+10$:	clrl	ipt_cnt			;yes
+	clrb	ipt_lin			;clean up
+20$:	movl	#fine.,r0		;fine
+	ret				;
+.dsabl	lsb
+
+;	Input a line
+;
+; Check for single character input
+
+ipt$cha:
+	fall$	ipt$lin			;
+20$:	return
+.endc
+.sbttl	get a line
+
+;	Edit in next input line
+;
+;	r2 =	maximum buffer length
+;	r3 ->	buffer
+;	r4 =	control flags
+;	r5 =	prompt length
+;	r6 ->	terminal prompt
+
+ipt$lin::			;get a line
+	psh	r3		;save this
+10$:	movab	ipt_cnt,r2	;input count
+	clrb	(r2)		;clear it
+	clrb	inp_lin		;clear first character
+
+;	Check for terminal signals.
+;	We must handle [ctrl/t] during AST input.
+
+25$:	bsbw	ter$get		;get another
+	blbc	r0,20$		;wait for it
+	tstb	r1		;was this anything real?
+	beql	20$		;no
+	cmpb	r1,#ctrlc.	;this a ctrl/c?
+	bneq	27$		;no
+;	bit	#prast$,p$hsta	;are we in cli ast?
+;	beql	27$		;no
+;	bis	#tectc$,p$hsig	;yes - process it as a signal
+;	br	70$		;and quit
+27$:	cmpb	r0,#rubout.	;this a rubout?
+	bneq	30$		;nope
+	bsbw	ipt$dch		;yes - delete it
+	br	20$		;and look again
+30$:	cmpb	r1,#ctrlu.	;this a ctrl/u?
+	bneq	40$		;nope
+	bsbw	ipt$dli		;yes - delete line
+	br	20$		;
+40$:	bsbw	ed$pch		;store the character
+	bsbw	ed$ech		;echo it
+	cmpb	r1,#cr.		;this a return?
+	bneq	50$		;nope
+	movb	#lf.,r1		;yes - put in a line-feed
+	br	40$		;
+50$:	bsbw	ed$eol		;at end of line?
+	blbc	20$		;no
+	cmpb	r1,#ctrlc	;a ctrl/c?
+	bneq	60$		;nope - look again
+	movb	#cr.,r1		;put a new line
+	bsbw	ter$put		;
+	movb	#lf.,r1		;
+	bsbw	ter$put		;
+60$:	clr	(r2)		;back up
+	pop	r3		;
+	jmp	ipt$tti		;and start over
+70$:	pop	r3		;signal detected
+	brw	ed$abt		;abort terminal input
+
+ipt$pch:movb	(r2),r3		;get the pointer
+	cmpw	r3,#80.		;too long?
+	blssu	30$		;nope
+	movb	#bell,r1	;yes - ring the bell
+	brb	40$		;and skip it
+30$:	movb	r1,ipt_lin(r3)	;store the character
+	clrb	ipt_lin+1(r3)	;terminate the line
+	incb	(r2)		;and count it
+40$:	return
+
+ed$ech:	psh	r1		;save the character
+	cmpb	r1,#esc		;this an escape?
+	bneq	10$		;nope
+	movb	#'$,r1		;yes
+10$:	cmpb	r1,#ht		;this a tab?
+	bneq	40$		;nope
+	movb	#space,r1	;replace it with a space
+40$:	cmpb	r1,#space	;is this a control character?
+	bhis	60$		;no
+	cmpb	r1,#bell	;this a bs = 10?
+	blo	50$		;no - control character
+	cmpb	r1,#cr		;a return?
+	blos	60$		;yes - dont convert
+50$:	mov	#'^,r1		;display a hat
+	bsbw	te$put		;
+	mov	(sp),r1		;get it back
+	add	#'@,r1		;make it ascii
+60$:	bsbw	te$put		;send it out into the world
+70$:	pop	r1		;restore it
+	return
+
+ed$dli:				;delete line
+10$:	bsbw	ed$dch		;delete the line
+	bcc	10$		;
+	return
+
+ed$dch:	movb	(r2),r3		;are we at start of line?
+	beql	10$		;yes - ignore this
+	decb	(r2)		;count it out
+	add	#p$hedl,r3	;delete one
+	clrb	-(r3)		;remove it
+	jsr	r3,ed$typ	;send a string out
+	.byte	bs,space,bs,0	;
+	tst	(pc)+		;
+10$:	sec
+	return
+
+ed$typ:				;type some
+10$:	movb	(r3)+,r1	;get the character
+	beql	20$		;we are done
+	bsbw	te$put		;dump it
+	br	10$		;try again
+20$:	inc	r3		;even up
+	bic	#1,r3		;
+	rts	r3		;
+
+ed$rpt:				;repaint the screen
+	bsbw	ed$prm		;prompt first
+	mov	#p$hedl,r3	;get the line
+10$:	movb	(r3)+,r1	;get the next
+	beql	20$		;done
+	bsbw	te$put
+	br	10$
+20$:	return
+
+ed$prm:
+	mov	rp.p2(r5),r3	;get the prompt string
+	beql	10$		;forget it
+	bsbw	te$prt		;print it
+10$:	return
+
+ed$eol:				;check for end of line
+	tstb	r1		;this line feed?
+	beql	20$		;yes - c=0, z=1
+	cmpw	r1,#lf		;line feed?
+	beql	10$		;yes
+	cmpb	r1,#ctrlc	;ctrl/c?
+	beql	10$		;yes
+	cmpb	r1,#ctrlz	;ctrl/z?
+	bneq	30$		;no
+10$:	clz			;c=0, z=0 end-of-line - not zero
+20$:	return			;c=0, z=?
+30$:	sec			;c=1 - not end of line
+	return
+.end
+.sbttl	get an input line
+
+;	Get input line
+
+db$lin:	movl	db.lin(r5),r4		;point to the line
+
+	movl	r4,r2			;count input characters
+	addl	#80.,r2			;count the input
+	movl	r4,r3			;
+10$:	bsbw	db$inp			;get a character
+	cmpb	r0,#rubout		;got a rubout?
+	bneq	20$			;nope
+	cmpl	r3,r4			;any more to rub?
+	beql	10$			;no
+	decl	r3			;backup
+	jsr	r1,db$typ
+	.byte	bs,space,bs,200		;rub it out
+	brw	10$
+20$:	cmpl	r3,r2			;too far?
+	bgequ	10$			;yes - ignore it
+	movb	r0,(r3)+		;store it
+	beql	30$			;done
+	bsbw	db$out			;display it
+	brw	10$			;
+30$:;	brw	db$new			;a new line
+	brw	db$new			;a new line
+
+;	Get a single character
+
+db$inp:					;get a character
+10$:	bsbw	db$igt			;get another
+	bcs	10$			;
+	cmpb	r1,#lf			;line-feed
+	beql	20$			;yes
+	cmpb	r1,#cr			;return?
+	bneq	40$			;no
+20$:	clrl	r1			;yes
+40$:	cmpb	r1,#^a"a"		;lower case?
+	blssu	50$			;nope
+	cmpb	r1,#^a"z"		;really
+	bgtru	50$			;no
+	subl	#^a"a"-^a"z",r1		;upper it
+50$:	rsb
+
+.end
+.title	con
+.library "lib:eve.mlb"
+.psect	sec_050. long
+$eve_def
+$ipr_def
+$txt_def
+
+;	EVE hard console
+;
+;	%build
+;	assemble evs:con/object:evb:con
+;	%end
+;
+;	bsbw	con$igt
+;	r1 =	character
+;
+;	movb	#char,r1
+;	bsbw	con$opt
+;
+;	This module should support all known VAX consoles.
+;
+;	vms	running under VMS
+;	730	VAX-11/730
+;
+;	con$igt	- console input
+;	con$opt	- console output
+;
+;	con$get	- get a character
+;	con$put	- put a character
+;
+;	con$typ	- type string
+;	con$prt	- print line
+;	con$new	- print newline
+;	con$lin - get input line
+.sbttl	get input line
+
+;	Get input line
+;
+;	r1 ->	line buffer
+;	r2 ->	prompt
+
+con$lin::pushr	r2			;get line
+	movl	r1,r2			;save the pointer
+10$:	bsbw	con$gch			;get the next one
+	blbc	10$			;wait for it
+	movb	r1,(r2)+		;return the character
+	bneq	10$			;more to go
+	popl	r2			;
+	movl	#fine.,r0		;
+	rsb
+
+;	Input a character with delete, prompt etc.
+
+con$inp:
+
+
+
+.sbttl	string routines
+
+;	Print a line
+;
+;	conprt$	lin
+;
+;	lin.da	r1 ->	Asciz string
+
+con$prt::bsbw	con$typ		;type the line
+
+;	Display newline
+;
+;	connew$	
+
+con$new::movb	#cr.,r1		;newline
+	bsbb	con$opt		;
+	movb	#lf.,r1		;
+	brb	con$opt		;
+
+;	Type a line
+;
+;	contyp$	lin
+;
+;	lin.da	r1 ->	Asciz string
+
+con$typ::			;display message
+	pushl	r2		;save this
+	movl	r1,r2		;r2 -> string
+10$:	movb	(r2)+,r1	;get the next
+	beql	20$		;are no more
+	bsbb	con$opt		;display the byte
+	brb	10$		;
+20$:	popl	r2		;
+	rsb
+.sbttl	character routines
+
+;	Get input character
+;
+;	conigt$	
+;
+;	r1 =	input character
+
+con$igt::			;input get
+10$:	bsbb	con$chk		;try to get one
+	blbc	r0,10$		;keep waiting
+	rsb			;c=0 - r0 = character
+
+;	Put output character
+;
+;	r1 =	output character
+;
+;	conopt$
+
+con$opt::			;output put
+10$:	pushl	r1		;save the output character
+	bsbb	con$chk		;handle ctrl/q & ctrl/s
+	popl	r1		;restore output character
+	bsbw	con$pch		;put character
+	blbc	r0,10$		;wait for it
+	rsb			;
+
+;	Check console for input & xon/xoff
+;
+;	fail	no character
+;	r1	character - 7 bit
+
+con$chk:
+10$:	bsbw	con$gch			;get a character
+	blbc	r0,30$			;nothing doing
+	cmpb	r1,#ctrlq.		;this an unwanted ctrl/q?
+	beql	10$			;yes - throw it away
+	cmpb	r1,#ctrls.		;this ctrl/s
+	bneq	30$			;it aint
+20$:	bsbw	con$gch			;get another
+	blbc	r0,20$			;keep waiting
+	cmpb	r0,#ctrlq.		;this what we need
+	bneq	20$			;not ctrlq
+	clrl	r0			;none found
+30$:	rsb				;
+.sbttl	get character
+
+;	Get a single character
+;
+;	fail	no character available
+;	r1	7-bit character if success
+
+con$gch:
+10$:	clrl	r0			;assume none
+	mfpr	#ipr_rcs.,r1		;get the next character
+	bbc	#7,r1,20$		;nothing doing
+	mfpr	#ipr_rdb.,r1		;get the character
+	bicl	#^c127,r1		;clean it up
+	incl	r0			;return success
+20$:	rsb				;
+.sbttl	put character
+
+con$pch:
+10$:	mfpr	#ipr_tcs.,r0	;get the status
+	bbc	#7,r0,10$	;wait for it
+	movzbl	r1,r0		;isolate the character
+	mtpr	r0,#ipr_tdb.	;display the character
+	movl	#fine.,r0	;always success
+	rsb			;
+
+.end
+                                                                                                                                                                                                                                                    

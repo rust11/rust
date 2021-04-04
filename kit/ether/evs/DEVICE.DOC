@@ -1,0 +1,265 @@
+
+ ` The I/O system	
+
+RT-11, VMS and UNIX have quite different I/O subsystems. EVE  introduces  a  new
+concept by being largely I/O system independant.t supports multiple I/O systems.
+Each device unit specifies the I/O system (IOS) that it wants to use. 
+
+There are a number of motivations for IOS independance:	
+
+o	EVE native I/O uses the IOQ system.
+o	VMS uses IOC - this could be added later.
+o	Users can control their own I/O completely.
+
+The VMS IOC system is quite complex and requires massive  overhead  to  support.
+This  is not in tune with the streamlined goals of EVE. Therefore EVE introduces
+the IOQ system which better suits its goals. However with IOS independance, room
+is  left  to add VMS IOC support later (there are no current plans for this sup~
+port). 
+
+One major spinoff of IOS independance is that users can bypass almost the entire
+system  overhead.  The QIO service dispatchs the first parse request after about
+ten instructions. The parse routine need never return to the  QIO  service.  All
+the  functionality  described below is therefore optional - if you don't want it
+you don't have to go around it - you just ignore it. 
+
+The way I/O system independance is achieved is with a thorough definition of the
+data  structures  and  operations  to be performed at the system level by an I/O
+operation. A IOS must simply satisfy these goals. This  permits  many  optimisa~
+tions.  For example, the system routines build an IOQ request packet on the fly.
+A program could optimise here be preallocating and prebuild IOQ  elements,  thus
+saving the overhead involved in building them. 
+
+The IOS independance is contained in the native unit control  block  (UCB)  with
+two dispatch pointers: 
+
+ucb.par		Parse I/O request - in process state
+ucb.que		Queue I/O request - in system state
+
+The parse and queue routines are used as follows. Note,  parse  routines  always
+execute in process state; queue routines usually execute in system state. 
+
+user		Issues QIO
+QIO		Calls IOS parse routine.
+parse		Sets up first, or only, I/O queue operation,
+		Creates IOS dependant I/O request packet,
+		Dispatchs to IOS queue routine.
+queue		Executes I/O queue operation
+parse		Loops to queue for buffered operations,
+		or sets completion status
+QIO		Returns to user
+
+The QIO interface maintains the essential compatibility required for VMS images.
+
+A device handler can specify a standard system parse/queue routine or can imple~
+ment  its  own.  For  example,  the  EVE terminal driver bypasses almost all I/O
+overhead by taking direct control of an I/O request at the parse level. 
+
+ ` IOQ system	
+
+IOQ is the native EVE I/O system.	
+
+o	Very flexible - buffered and virtual I/O operations
+o	Very fast - processes can acquire system IOQ elements
+o	Easy to use - IOQ elements are clearly structured
+o	Interactive - IOQ processing connects a process to a device
+
+Both Unibus and Q-bus based VAX's have there own peculiar problems with I/O. 
+
+o	Unibus is limited to 18-bit addresses.
+	Unibus-map is limited to 31 windows.
+o	uVAX/1 does not handle gather/scatter mapping.
+o	DL controllers do not support odd-byte transfers.
+o	Odd-byte start addresses cause problems.
+o	Locking data pages in memory
+
+The work involved in setting up gather/scatter  page  maps,  unibus  maps,  etc.
+tends to be similiar to performing buffered I/O. However, it loses the advantage
+that buffered systems have in easily setting up data caches.  Therefore  IOQ  is
+designed to handle buffered I/O efficiently. 
+
+If you take a look at four or five disk drivers you will notice that 80% of  the
+functionality  is  common.  IOQ supplies that 80% in generic 'class' processors.
+For example, the DSK class processor performs all the computation  necessary  to
+break  down  an  I/O  request into a set of intermediate operations based on the
+addressing capability of the disk, the buffer space available, etc. 
+
+ ` Device names	
+
+Physical device names are largely redundant to most users. More, the  two  char~
+acter symbolics tend to confuse. 
+
+Whether a device is an RL02 or UDA50 is of  little  importance  to  most  users.
+Further, real device names make the logical name tables more difficult to build.
+
+A device is known by its 'device name' and by 'synonyms'. These are  not  placed
+in the system name table. 
+
+For example, the system disk is always referred to as SYS:.  Some  disk  in  the
+system has this synonym in its device header. 
+
+ ` EVE handlers	
+
+EVE device handlers begin with a system interface section. This is used to  con~
+nect  the system to the handler, and the handler to the system. Beyond this for~
+mality no other structure is imposed. However, most handlers will take advantage
+of the standard system routines and facilities provided. 
+
+A device handler connects to the system at two levels: raw and washed. 
+
+Interrupts are directly vectored to the raw level of the  handler.  The  handler
+can  deal  with the interrupt completely at the raw level and exit. The alterna~
+tive is to convert the raw interrupt into a washed interrupt  in  order  to  use
+system facilities. 
+
+A washed handler is simply one that gets EVE to respond to the raw interrupts. A
+raw handler does this work itself. 
+
+ ` Washed handlers	
+A washed handler does not need to worry about the mechanics  of  interrupts.  It
+executes  one  (or sometimes more) stream of code. It can use a limited context,
+including stack, across interrupts. In fact a 'washed handler' is an  EVE  real~
+time server. 
+
+ ` Loading handlers	
+
+A handler can be loaded with a terminal command or by an image. 
+
+A handler can be optionally split into two parts:  the  parse  section  and  the
+queue  section.  The parse section is loaded into paged system memory, the queue
+section is not paged. 
+
+Most handlers do not need to be linked to the system STB. The handler  interface
+header  and  system  pointer  and  transfer vectors supply a version independant
+interface. 
+
+The flow of an I/O operation is as follows:	
+
+caller:	call	sys$qio		QIO request is issued.
+sysser:	chmk	#qio		System service vector issues CHMK.
+chm$ker:call	exe$qio		Change mode calls exe$qio
+qio$dis:call	han$par		QIO checks some things and calls handler
+han$par:			Handler parses I/O request
+qio$fin:			
+
+ ` Components	
+
+FAP		File access plex
+	CHN	Defines channel
+	FDB	Points to FDB
+CHN		Defines CCB
+	CCB	
+FCB		File control block
+		One for each file open on the system
+		Functions as file cache
+	UCB	FCB linked to UCBs
+CCB		Channel control block
+		Per process, describes single channel
+	UCB	Points to UCB
+DCB		
+UCB		Unit control block
+IOQ		
+VAP		
+
+ ` File access	
+
+File access is complicated because four different access systems are supported: 
+
+RMS		RMS with FAB, RAB, NAM & XAB plexs.
+FAC		FAC with FCB, FAP, RAP and BAP plexs.
+QIO
+IOQ		IOQ with FCB plexs.
+FIB		FIB with FIB's
+
+RMS		Supports the VMS file access system.
+FAC		Supports the EVE file access system.
+		Used to implement RMS operations.
+IOQ		Used to support EVE devices.
+FIB		Used to support VMS devices.
+
+The FCB is at the center of all these systems. A file is open on the system when
+it is described by an FCB. 
+
+Two kinds of FCB exist. A 'prototype FCB' is created by the user;  it  describes
+the characteristics of new files. A 'system FCB' is created for each open fie. 
+
+The essential file operations are performed by IOQ using a prototype  or  system
+FCB. FAC is used to construct the prototypes. 
+
+All file operations hit the handler. This permits the  handler  to  do  its  own
+internal management - even if the file is available in the FCB cache. 
+
+The following list describes the worst case path for an RMS open. 
+
+RMS FAB		RMS FAB operation
+FAB FAB RMW	FAB preprocessing
+NAM FAB RMW	NAM parsing
+FAB RMW FCB	FCB initialization
+FAC FAP		FAC preprocessing
+FCB PAR		FCB parse operation
+FCB OPN		FCB cache operation
+QIO QIO FCB	QIO operation
+IOQ IOQ FCB	IOQ file operation
+FCB FCB		FCB access (cache, control)
+ACP IOQ FCB	ACP file operation
+HAN IOQ	FCB	HAN file operation
+FCB REC		FCB record result
+FAP STC STV	IOQ result in FAP
+FAB FAP		RMS result in FAP
+FAB FAB		RMS result in FAB
+
+ ` QIO dispatch
+
+One major goal is to minimise system processing overhead for I/O requests.  This
+is  achieved  by minimising the QIO dispatch routine. This routine performs very
+little work other than deliver the request to the handler parsing routine. 
+
+The handler is called with the following: 
+
+	r1 =	function code
+	r2	
+	r3 	reserved for i/o request packet
+	r4 ->	pcb
+	r5 ->	ucb
+	r6 ->	ccb
+
+Interrupts are passed directly to the interrupt service routine. The routine can
+choose  to  handle  the request entirely and return from the interrupt, or setup
+system device state. 
+
+Terminal handling illustrates how this functionality is of advantage. The termi~
+nal  output  routines  copy the data directly from userspace to the output ring~
+buffer without creating an IRP. Terminal interrupts process a character  immedi~
+ately without entering device state. 
+
+ ` Transfer operations	
+
+All transfer operations use buffered I/O. This avoids a number of problems: 
+
+Alignment	Byte alignment of Q-bus buffers.
+Unibus maps	Using Unibus maps.
+Page locking	Locking down I/O pages.
+Gather/Scatter	Q-Bus hardware does not support gather/scatter logic.
+
+Asynchronous devices use transfer buffers  (TB's)  located  in  18-bit  physical
+address space. 
+
+Transfer buffers are used for a number of other purposes and additionally act as
+a general disk cache system. 
+
+
+ ` Interrupts	
+
+Interrupts are vectored directly to the service routine  with  no  preprocessing
+(unless an adaptor requires explicit preprocessing). 
+
+An ISR can choose to handle the interrupt directly and exit with  REI  or  enter
+system device state (chmd$) and exit with RSB. 
+
+
+ ` Realtime system	
+
+EVE uses the same techniques as SHAREreal to make realtime easy to code. A real~
+time  program can specify that the server be copied to kernel memory and be made
+permanent. 
+                                                 

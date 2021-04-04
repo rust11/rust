@@ -1,0 +1,459 @@
+.title	opt
+.library "lib:eve.mlb"
+;.library "trb:mac.mlb"
+$eve_def nsc
+;$iodef
+$opt_def
+$txt_def
+
+$ap_def
+$psl_def
+
+;	Output format routines
+;
+;	%build
+;	assemble evs:opt/object:evb:opt/nolist
+;	%end
+;
+;	r0 =	length sometimes
+;	r1 =	value or address
+;
+;	For external control:
+;
+;	r8 ->	output stream control block
+;
+;	An OPT block is used to control operations:
+;
+;	pushl	#fun
+;	bsbw	opt$com		;unformatted
+;	bsbw	opt$cof		;formatted
+;
+;	opt.cnt	byte.		field length
+;	opt.ctl	byte.		control flags
+;	opt.fun	byte.		function code
+;	opt.flg	byte.		permanent controls
+;	opt.par	long.		parameter (address or value)
+;	opt.bsz	long.		buffer size
+;	opt.pos	long.		position in buffer - column
+;	opt.buf	long.		buffer start address
+;	opt.wri	long.		address of write routine
+;
+;	The usual interface consists is:
+;
+;	optcom$	fun par cnt ctl
+;
+;	pushl	^s#fun		push the function
+;	movl	cnt!ctl,r0	control and count
+;	movl	par,r1		setup the value
+;	bsbw	opt$com		formatted output
+;
+;	cha	- ascii character	r1=^a"c"
+;	asc	- ascii value		r1=^a"cccc"
+;	asz	- asciz string		r1->string
+;	asd	- ascii descriptor	r0=word length, r1->address
+;	hex	- put hex		r0=length, r1=value
+;	dec	- put decimal		r1=value
+;
+;	ini	- init OPT buffer	r0=length,r1->buffer,r8->OPT
+;	clr	- clear buffer
+;	col	- position at column	r1=column
+;	wrp	- wrap at column	r1=column, r0=indent
+;	new	- put newline
+;
+;	typ	- write line without newline
+;	prt	- write line with newline
+;	wrd	- write descriptor	r0=word length,r1->address
+;					r1=result length
+.sbttl	data
+
+;	System OPT
+
+opt_raw::.long	0			;raw output flag
+opt_opc::.long	0			;opt output channel
+opt_opt::.blkb	opt.bbs			;reserve the plex
+opt_buf::.blkb	88			;reserve the buffer
+	.blkb	132.			;some more space
+
+opt_hex:.ascii	"0123456789abcdef"	;hex translation table
+.sbttl	common dispatch
+
+;	r0	ctl!cnt
+;	r1 =	par (par=val or par->adr)
+;	sp.fun	function code
+;
+;	r0	control values
+;	r1 =	value
+;	r2 ->	output routine
+
+opt$com::clrl	r0			;no format
+opt$cof::pushr	#^m<r2,r3,r4,r5,r8>	;save some registers
+	movab	opt_opt,r8		;point to the control block
+	pushl	opt.pos(r8)		;remember the start position
+	pushab	opt$fmt			;format it afterwards
+	stack$	fmt pos r2 r3 r4 r5 r8 rsb fun ;
+	movab	opt_opt,r8		;point to the control block
+	movl	r0,(r8)			;setup the count & ctl
+	movl	r1,opt.par(r8)		;copy the parameter
+	movab	opt$pr0,r2		;point to the output routine
+	caseb$	sp.fun(sp),#0,#opt_fns.-1 ;dispatch function
+	cases$	opt$cha opt$asc opt$asz opt$hex opt$dec
+	cases$	opt$ini opt$clr opt$col opt$wrp opt$new
+	cases$	opt$typ opt$prt opt$asd opt$wrd
+	clrl	r0			;
+	rsb
+
+	stack$	pos r2 r3 r4 r5 r8 rsb fun ;
+opt$fmt:popl	r3			;r3 -> previous position
+	blbc	r0,110$			;no formatting required
+	pushl	r1			;save updated r1
+	addb3	opt.cnt(r8),r3,r1	;r1 = required position
+	bsbw	opt$col			;position it
+	popl	r1			;restore r1
+110$:	popr	#^m<r2,r3,r4,r5,r8>
+	popl	(sp)			;push out the routine code
+	rsb
+.sbttl	init
+
+;	Init the OPT control block
+;
+;	r0 =	buffer length
+;	r1 =	buffer address
+;	r8 ->	OPT control block
+
+opt$ini:
+opt$clr:
+	clrb	opt.cnt(r8)		;clear the count
+opt$res:
+	movl	#80,opt.len(r8)		;setup the length
+	clrl	opt.pos(r8)		;clear the position
+	movab	opt_buf,opt.buf(r8)	;setup the buffer address
+	movab	opt$pr0,opt.put(r8)	;the put routine
+	movab	opt$wri,opt.wri(r8)	;the write routine
+	clrl	r0			;dont do anything more
+	rsb				;
+.sbttl	put hex
+
+;	opt$hex	
+;
+;	r0 =	length
+;	r1 =	value
+;	r2 ->	output routine
+;
+;	r4	digit printer flag
+
+opt$hex:pushr	#^m<r3,r4,r5>		;save these
+	movl	#32,r3			;do eight digits
+	clrl	r4			;assume no leading zeroes
+					;
+	bbc	#opt_sgn_,(r8),10$	;unsigned
+	tstl	r1			;is it negative?
+	bgeq	10$			;no
+	movb	#^a"-",r0		;yes
+	bsbw	opt$pr0			;put r0
+	mnegl	r1,r1			;negate it
+					;
+10$:	bbc	#opt_abr_,(r8),40$	;no abbreviations
+	extzv	#20,#12,r1,r5		;get high three digits
+	movb	#^a"_",r0		;assume system space
+	cmpl	r5,#^x800		;this in system space?
+	beql	20$			;yes
+	movl	#^a".",r0		;assume in P1
+	cmpl	r5,#^x7ff		;in p1 space?
+	bneq	40$			;no
+20$:	bicl	#^xfff00000,r1		;clean it up
+	jsb	(r2)			;send out space character
+	subl	#12,r3			;three digits less
+	incl	r4			;and print leading zeros
+					;
+40$:	subl	#4,r3			;next nibble
+	extzv	r3,#4,r1,r0		;r0 = digit
+	bneq	50$			;we have one
+	tstl	r4			;already done one?
+	bneq	50$			;yes
+	tstl	r3			;this the last digit?
+	bneq	60$			;no - skip it
+50$:	incl	r4			;start displaying
+	movb	w^opt_hex[r0],r0	;display the digit
+	jsb	(r2)			;output the character
+60$:	tstl	r3			;anymore?
+	bneq	40$			;yes
+	movl	#fine.,r0		;format it
+	popr	#^m<r3,r4,r5>		;
+	rsb				;
+.sbttl	put decimal
+
+;	Put signed decimal
+;
+;	r0 =	ctl
+;	r1 =	value
+;	r2 ->	put routine
+
+opt$dec:
+	movl	#1000000000,r2		;initial divisor
+	clrl	r3			;no leading zeroes
+	tstl	r1			;a negative number?
+	bgeq	10$			;nope
+	mnegl	r1,r1			;yep, make it positive
+	movb	#^a"-",r0		;display minus sign
+	bsbw	opt$pr0			;dump r0
+10$:	clrl	r0			;clear high order
+	ediv	r2,r0,r0,r1		;r0=quotient, r1=remainder
+;	bgeq	15$			;positive reply
+;	mnegl	r1,r1			;adjust special case 1ooooo/100000
+15$:	bneq	20$			;digits from now on
+	blbs	r3,30$			;already getting digits
+	blbc	r2,40$			;not last digit
+20$:	movl	#1,r3			;get all remaining digits
+30$:	addl	#^a"0",r0		;make a digit
+	bsbw	opt$pr0			;put it out
+40$:	divl	#10,r2			;anymore to do?
+	bneq	10$			;yes
+	movb	#^a".",r0		;the decimal dot
+	bsbw	opt$pr0			;put it out
+	rsb
+.sbttl	put ascii value
+
+;	Put longword ascii
+;
+;	r1 =	ascii string
+;	r2 ->	output routine
+;
+;	.aa.	
+
+opt$asc:pushl	r1			;(sp) = string
+	movl	#4,r1			;four bytes
+10$:	tstb	(sp)			;this a blank?
+	beql	40$			;yes
+	cmpb	(sp),#space.		;too low?
+	blssu	20$			;yes
+	cmpb	(sp),#rubout.		;really not?
+	blssu	30$			;yes
+20$:	movb	#^a".",(sp)		;replace it
+30$:	movb	(sp),r0			;store it
+	jsb	(r2)			;put the character out
+40$:	incl	sp			;step it up
+	sobgtr	r1,10$			;count them
+	movl	#fine.,r0		;format it
+	rsb				;
+
+;	Put asciz string
+;
+;	r1 ->	string
+;	r2 ->	output routine
+;
+;	r1 ->	past zero byte
+
+opt$asz:				;put asciz
+10$:	movb	(r1)+,r0		;move them out
+	beql	40$			;no more
+	cmpb	r0,#space.		;too low?
+	blssu	20$			;yes
+	cmpb	r0,#rubout.		;really not?
+	blssu	30$			;yes
+20$:	movb	#^a".",r0		;replace it
+30$:	jsb	(r2)			;display it
+	brb	10$			;
+40$:	movl	#fine.,r0		;format it
+	rsb
+
+;	Put ascii descriptor
+;
+;	r0 =	length
+;	r1 ->	string
+;	r2 ->	output routine
+
+opt$asd:pushl	r3			;count them
+	movzbl	r0,r3			;r3 = count (maximum 255)
+	beql	40$			;nothing doing - null string
+10$:	movb	(r1)+,r0		;get the next
+	bbc	#opt_vis_,(r8),30$	;display anything
+	cmpb	r0,#space.		;too low?
+	blssu	20$			;yes
+	cmpb	r0,#rubout.		;really not?
+	blssu	30$			;yes
+20$:	movb	#^a".",r0		;replace it
+30$:	jsb	(r2)			;display it
+	sobgtr	r3,10$			;count them
+40$:	movl	#fine.,r0		;fine
+	popl	r3			;
+	rsb
+.sbttl	output routines
+
+;	Wrap if at column
+
+opt$wrp:cmpl	opt.pos(r8),r1		;still got space?
+	blssu	10$			;yes
+	bsbw	opt$prt			;no - print it first
+	movzbl	opt.cnt(r8),r1		;get the indent
+	bsbw	opt$col			;indent
+10$:	clrl	r0			;dont format
+	rsb
+
+;	Position at column
+;
+;	r1 =	column number
+
+opt$col:
+10$:	cmpb	opt.pos(r8),r1		;move up to it
+	bgeq	20$			;already there
+	movb	#space.,r0		;pad out to it
+	bsbw	opt$pr0			;dump it
+	blbs	r0,10$			;more
+	clrl	r0			;dont format after this
+20$:	rsb
+
+;	Print line
+;	Type line
+
+opt$prt:bsbw	opt$new			;insert newline
+opt$typ:movl	opt.pos(r8),r0		;r0 = length
+	beql	10$			;ignore null lines
+	movl	opt.buf(r8),r1		;r1 -> buffer
+	jsb	@opt.wri(r8)		;get it out
+10$:	bsbw	opt$res			;reset it
+	clrl	r0			;dont format
+	rsb
+
+;	Write descriptor
+;
+;	r0 =	count
+;	r1 ->	buffer
+;
+;	r1 =	bytes written
+;	fail	warn buffer overflow
+
+opt$wrd:cmpb	opt.pos(r8),r0		;is this longer?
+	bgeq	10$			;yes - truncate it
+	movb	opt.pos(r8),r0		;no - use actual
+10$:	movzbl	r0,r0			;get the longword count
+	movl	opt.buf(r8),r2		;point to the buffer
+	movc3	r0,(r2),(r1)		;move it back to them
+	bsbw	opt$res			;reset it
+	clrl	r0			;done
+	rsb
+
+;	Newline
+
+opt$new:blbc	opt_raw,10$		;ignore in record mode
+	movb	#cr.,r0			;cr
+	bsbb	opt$pr0			;dump it
+	movb	#lf.,r0			;lf
+	bsbb	opt$pr0			;
+10$:	clrl	r0			;dont format this
+	rsb
+
+;	Put character
+;
+;	r0/r1 = character
+
+opt$cha:movl	r1,r0			;internal uses r0
+opt$pr0:bsbb	opt$upr			;convert to upper case
+	cmpl	opt.pos(r8),opt.len(r8) ;got the space?
+	bgequ	10$			;no
+	addl3	opt.pos(r8),opt.buf(r8),-(sp) ;(sp) -> char
+	movb	r0,@(sp)+		;store it
+	incl	opt.pos(r8)		;count it
+	movl	#fine.,r0		;fine
+	rsb
+10$:	clrl	r0			;not fine
+	rsb
+
+opt$upr:cmpb	r0,#^a"a"		;this lower case?
+	blssu	10$			;no
+	cmpb	r0,#^a"z"		;really?
+	bgtru	10$			;no
+	bbc	#opt_upr_,(r8),10$	;no conversion
+	subb	#^a"a"-^a"A",r0		;convert it
+10$:	rsb				;
+.sbttl	write line & character
+
+;	Write the line
+;
+;	We cannot use RMS services in kernel mode.
+;	Use QIO to permanent channel if kernel mode required.
+;	This screws up on file oriented output.
+;
+;	Use PUTMSG for all other modes. This puts the blame on
+;	VMS for the incredible overhead required.
+;
+;	r0 =	length
+;	r1 ->	buffer
+
+opt$wri:
+	blbsw$	opt_raw,opt$wrr		;use raw write routine
+					;
+	pushl	r2			;display message
+	movpsl	r2			;get current psl
+	extzv	#psl_ipl_b,#psl_ipl_l,r2,r2
+	bneq	20$			;cant handle raised ipl
+					;
+	movpsl	r2			;get current psl
+	cmpzv	#psl_cur_b,#psl_cur_l,r2,#psl_exe. ;which mode?
+	bgtru	10$			;supervisor or user
+					;
+;	Kernel or executive		;
+					;
+	$qiow_s	efn=#23, chan=opt_opc,-	;write terminal directly
+		func=#io$_writevblk,-	;
+		p1=(r1),p2=r0,p4=#32.	;
+	brw	20$			;
+					;
+;	Use PUTMSG for others		;
+					;
+10$:	movq	r0,-(sp)		;save the descriptor
+					;
+	clrl	-(sp)			;no more
+	pushl	#ss$_normal		;dummy success message
+	movw	#8,-(sp)		;facility only
+	movw	#1,-(sp)		;argument count
+					;
+	movl	sp,r0			;address it
+	stack$	vec cod end len	adr rsb ;	
+					;
+	$putmsg_s msgvec=sp.vec(r0),-	;write message
+		actrtn=30$,-		;clean it up
+		facnam=sp.len(r0),-	;
+		actprm=sp.len(r0)	;and the parameter
+	movab	sp.rsb(sp),sp		;clean up
+20$:	popl	r2			;restore this
+	rsb				;ignore errors
+					;
+;	Put message action routine	;
+;
+;	ap.cnt	2
+;	ap.p1	descriptor address
+;	ap.p2	string length
+;
+;	Skip the % sign at the start and trim the message
+					;
+30$:	.word	^m<r2,r3,r4,r5,r6>	;save some for movc3
+	movw	ap.p2(ap),@ap.p1(ap)	;fill in our length
+	movq	@ap.p1(ap),r0		;descriptor to r0/r1
+	movzwl	r0,r0			;isolate the byte count
+	movc3	r0,1(r1),(r1)		;move up the message
+	movl	#fine.,r0		;signal to write it out
+	ret
+
+;	Raw write
+;
+;	Supports debuggers and EVE
+;
+;	r0 =	length
+;	r1 ->	buffer
+
+opt$wrr:				;raw output
+	pushl	r3			;save this
+	pushl	r0			;count it
+	beql	20$			;ignore null lines
+	movl	r1,r3			;r3 -> string
+10$:	movb	(r3)+,r1		;get the next
+	beql	20$			;are no more
+	bsbb	opt$wch			;write character
+	sobgtr	(sp),10$		;count it
+20$:	tstl	(sp)+			;forget this
+	popl	r3			;
+	rsb
+
+opt$wch:brw	con$put			;output a character
+.end
+          

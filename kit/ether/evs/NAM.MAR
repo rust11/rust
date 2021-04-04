@@ -1,0 +1,521 @@
+.title	nam
+.library "lib:eve.mlb"
+$eve_def prc
+$fab_def
+$fcb_def
+$nam_def
+$rab_def
+$rmw_def
+
+;	EVE nam support
+;
+;	%build
+;	assemble evs:nam/object:evb:nam
+;	%end
+;
+;	Parse RMS FAB filename specs.
+;	Return FAB and NAM result strings.
+;	Return full name and components in RMW.
+;
+;	NAM	Parse, search, enter, remove, rename
+;
+;	FAB - file access block
+;
+;	fna	filename address
+;	fns	filename buffer size
+;	dna	default filename address
+;	dns	default filename size
+;
+;	NAM - name block
+;
+;	esa	expanded string address
+;	ess	expanded string size
+;	rlf	related file NAM block address
+;	rsa	result string address
+;	rss	result string size
+;
+;	Returned:
+;
+;	esl	expanded string length
+;	rsl	result string length
+;
+;	Not returned:
+;
+;	did	directory identification
+;	dvi	device identification
+;	fid	file identification
+;	fnb	filename status bits
+;	wcc	wildcard context
+.sbttl	translation data
+
+;	Terminator encoding
+;
+;	nam_COM_,,0	;bit number
+;	COM,,1@nam_COM_	;mask
+
+.macro	nammap$	pre com dum val
+map$	NAM_'COM'_,,VAL
+map$	COM,,1@VAL
+.endm	nammap$
+
+nam_tms:.ascii	"A:[]<>.;"		;terminator map
+	nam_tms. = .-nam_tms		;map size
+nammap$	nam_ alp,,0	;A
+nammap$	nam_ col,,1	;:
+nammap$	nam_ osb,,2	;[
+nammap$	nam_ csb,,3	;]
+nammap$	nam_ oab,,4	;<
+nammap$	nam_ cab,,5	;>
+nammap$	nam_ dot,,6	;.
+nammap$	nam_ sem,,7	;;
+
+;	Text component encoding
+;
+;	All text components may include A:Z, 0:9, $, _
+
+nam_txs:.ascii	"A0*%."			;text map
+	nam_txs. = .-nam_txs		;map size
+nammap$	nam_ alp,,0	;alpha
+nammap$	nam_ dig,,1	;digit
+nammap$	nam_ wil,,2	;*
+nammap$	nam_ car,,3	;%
+nammap$	nam_ per,,4	;. (in directory text)
+
+;	Translation control table
+
+meta$	<namget$ sym pre txt pos><.byte sym,pre,txt,pos>
+
+nam_get:;	prefix	text		postfix		
+namget$	rmw.dev	alp	alp!dig		col
+namget$	rmw.dir	osb	alp!dig!per	csb
+namget$	rmw.fil	alp	alp!dig!wil!car	0
+namget$	rmw.typ	dot	alp!dig!wil!car	0
+namget$	rmw.ver	sem	dig		0
+.sbttl	process fab names
+
+;	Process FAB names
+;
+;	r7 ->	nam
+;	r8 ->	fab
+;	r9 ->	rmw
+;
+; ???	Translate logical name
+;	Returns FAB and NAM result names.
+;	Returns RMW full name and component names.
+
+nam$fab::pushr	#^m<r2,r3,r4,r5,r6,r7,r8,r9>
+;	bbss	#rmw_nam_,rmw.ctl(r9),10$ ;not first time
+;	rmsclr$	#rmw.nbs,rmw.nwa(r9)	;clear the NAM area
+;trace$ nam
+
+;	FAB DNA default filename
+
+10$:	movzbl	fab.dns(r8),r2		;get the size
+	movl	fab.dna(r8),r3		;point to the name
+;trace$ dna
+	bsbw	nam$get			;extract the name from it
+
+;	NAM RLF RSA related filename
+
+	tstl	r7			;got a nam block?
+	beql	20$			;no
+	movl	nam.rlf(r7),r1		;got a related name block?
+	beql	20$			;no
+	movzbl	nam.rsl(r1),r2		;related name size
+	movl	nam.rsa(r1),r3		;related name address
+;trace$ rsa
+	bsbw	nam$get			;extract the name
+
+;	FAB FNA filename
+
+20$:	movzbl	fab.fns(r8),r2		;filename size
+	movl	fab.fna(r8),r3		;filename address
+;trace$ fna
+	bsbw	nam$get			;extract the name
+
+;	NAM ESA - expanded string
+
+	tstl	r7			;got a nam block?
+	beql	30$			;no
+	movzbl	nam.ess(r7),r2		;get the size
+	movl	nam.esa(r7),r3		;want the expanded name?
+	movab	nam.esl(r7),r4		;return length there
+;trace$ esa
+	bsbw	nam$pup			;put the name back
+
+;	Apply default device and directory
+
+30$:
+.if ne 0
+	movl	ptr_ppg,r0		;get the p1 pointer page
+	movab	ppg.dir(r0),r3		;-> default directory string
+	movzbl	(r3)+,r2		;r2/r3 #= default string
+	bisv$	#rmw_def_,rmw.ctl(r9)	;setup the default flag
+	bsbw	nam$get			;get default components
+	bicv$	#rmw_def_,rmw.ctl(r9)	;clear default flag
+.endc
+
+;	NAM RNA result filename
+
+50$:	tstl	r7			;got a nam
+	beql	60$			;no
+	movzbl	nam.rss(r7),r2		;length
+	movl	nam.rsa(r7),r3		;yes
+	movab	nam.rsl(r7),r4		;return the length there
+;trace$ rna
+	bsbw	nam$pup			;put the name back again
+
+;	RMW DSC - final name
+
+60$:	bsbw	nam$dsc			;build internal descriptor
+;trace$ dsc
+	popr	#^m<r2,r3,r4,r5,r6,r7,r8,r9>
+	rsb
+.sbttl	get name
+
+;	Get name
+;
+;	r2/r3	input filespec
+;
+;	rmw	result filename
+;
+;	nod dev dir fil typ ver
+;
+;	r2/r3	current text component
+;	r4/r5	text remainder - tracks text/terminators
+;	r6 ->	nam component
+;	r7 ->	nam control list
+;	r8 ->	rmw component
+;	r9 ->	rmw
+;
+;	fail.	invalid name components
+
+nam$get:
+	bsbw	log$eqv			;check for logical name
+	bsbw	nam$trn			;translate it
+	blbc	r0,10$			;failed
+	movab	rmw.dev(r9),r3		;get the device spec
+	movzbl	(r3)+,r2		;get the length
+	beql	10$			;nothing doing
+	bsbw	log$eqv			;translate the device name
+	blbc	r0,20$			;nothing special
+	bsbw	nam$trn			;translate the device name
+10$:	rsb				;maybe
+20$:	rsb$	#fine.			;fine
+
+nam$trn:pushr	#^m<r4,r5,r6,r7,r8>	;
+	clrl	-(sp)			;r0 - assume it fails
+	clrq	-(sp)			;len/adr - save area
+	stack$	len adr r0 r4 r5 r6 r7 r8 ;
+	rmsrea$	r2,(r3)			;probe it
+	movab	nam_get,r7		;r6 -> control string
+	movq	r2,r4			;r4/r5 = filename string
+10$:	movq	r4,sp.len(sp)		;save current for backups
+	tstl	r4			;anything left?
+	beql	80$			;no - get out
+	moval	(r7)+,r6		;r6 -> current nam component
+					;r7 -> next nam component
+	movzbl	(r6)+,r8		;r8 = string offset into rmw
+	beql	80$			;no more to do
+	addl	r9,r8			;r8 -> current rmw component
+
+;	r4/r5	remaining filename string
+;	r6 ->	current nam 
+;	r7 ->	next nam
+;	r8 ->	current rmw
+
+	bsbw	200$			;get prefix terminator
+	blbc	r0,70$			;not seen - ignore component
+
+;	Get text component in r2/r3
+
+	incl	r6			;skip to text control
+	bsbw	100$			;get text descriptor
+
+;	Get postfix
+
+20$:	incl	r6			;skip to postfix control
+	bsbw	200$			;get postfix terminator
+	blbs	r0,30$			;got it or none required
+	bbs	#nam_csb_,(r6),90$	;missing closing bracket
+	brb	70$			;not this field
+
+;	Copy out text component
+;
+;	r2/r3	text component
+
+30$:	tstb	(r8)			;already got one?
+	beql	40$			;no
+	bbs	#rmw_def_,rmw.ctl(r9),60$ ;yes - skip default
+
+40$:	cmpl	r2,#15			;this too big?
+	bleq	50$			;no
+	movl	#15,r2			;yes - truncate it
+50$:	movb	r2,(r8)+		;move in count
+	rmscop$	r2,(r3),(r8)		;move in the string
+	movl	r2,r0			;r0 = length
+	movl	r8,r1			;r1 = address
+	bsbw	cvt$asu			;get uppercase string
+60$:	brb	10$			;accept updated addresses
+70$:	movq	sp.len(sp),r4		;backup to previous
+	brb	10$			;try for more
+
+80$:	tstl	r4			;processed all the string?
+	bneq	90$			;no
+	incl	sp.r0(sp)		;yes - it wins
+	stack$	len adr r0 r4 r5 r6 r7 r8 ;
+90$:	clrq	(sp)+			;get rid of backup descriptor
+	popr	#^m<r0,r4,r5,r6,r7,r8>	;status and restore
+	rsb				;
+
+;	Locate text component
+;
+;	r6 ->	permitted character mask
+;
+;	r2/r3	result text component
+;	r4/r5	advanced past
+
+100$:	clrl	r2			;assume null size
+	movl	r5,r3			;r3 -> first
+110$:	tstl	r4			;any more?
+	beql	130$			;no - end of string
+	bsbw	300$			;check alphabetic
+	blbs	r0,120$			;accept it
+	locc	(r5),#nam_txs.,nam_txs	;special character?
+	beql	130$			;no - string done
+	subl3	r0,#nam_txs.,r0		;r0 = index
+	bbc	r0,(r6),130$		;not one of ours
+120$:	incl	r2			;count it out
+	decl	r4			;count it
+	incl	r5			;
+	brb	110$			;
+130$:	rsb
+
+;	Locate terminator
+;
+;	r6 ->	permitted terminator mask
+;
+;	r2/r3	may not be changed (text component)
+;	r4/r5	updated past terminator
+
+200$:	tstb	(r6)			;anything required?
+	beql	210$			;no - treat as found
+	tstb	r4			;anything remaining?
+	beql	220$			;no - treat as not found
+	bbs	#nam_alp_,(r6),300$	;check alphabetic - dont skip
+	locc	(r5),#nam_tms.,nam_tms	;yes - look for one
+	beql	220$			;not found
+	subl3	r0,#nam_tms.,r0		;r0 = terminator number
+	bbc	r0,(r6),220$		;not terminator for this field
+	decl	r4			;skip the terminator
+	incl	r5			;
+210$:	rsb$	#fine.			;great
+220$:	rsb$	#fail.			;not found
+
+;	Classify text character
+;
+;	r1 =	normalized character
+;	fine.	alphanumeric character
+
+300$:	movzbl	(r5),r1			;get the character
+	bsbw	cvt$acs			;convert to normalized character
+	rsb				;done
+.sbttl	put name
+
+;	Put name
+;
+;	Catenate result string.
+;	Fill in optional NAM pointers and sizes
+;
+;	r2/r3	#= result descriptor
+;	r4 ->	byte to return length in
+;	r5 ->	current component	
+;	r6 ->	control string
+;	r7 ->	nam - used for pointers only
+;	r8 ..>	fab
+;	r9 ->	rmw with name components
+;
+;	rmw.skr	three scratch words used for:
+;	rmw.pfl	pointer flag - 0=> no pointers, n=> pointers
+;	rmw.psz	pointer to next NAM size field (nam.nds etc.)
+;	rms.pba pointer next NAM pointer field (nam.dev etc.)
+
+nam$dsc:movl	#63,r2			;r2 == maximum size
+	movab	rmw.str(r9),r3		;r3 -> buffer - 1
+	movab	(r3)+,r4		;r4 -> result length byte
+	movl	r3,rmw.dsa(r9)		;setup descriptor
+	bsbb	nam$put			;build the name
+	movzbl	rmw.str(r9),rmw.dsc(r9)	;finish descriptor
+	rsb
+
+nam$pup:				;put with pointers - perhaps
+	cmpb	#nam.v3s,nam.bln(r7)	;want pointers?
+	bgtru	10$			;no
+	movl	#1,rmw.pfl(r9)		;yes
+	movab	nam.nds(r7),r0		;point to sizes
+	movl	r0,rmw.psz(r9)		;save it
+	clrq	(r0)+			;clear and point at buffers
+	movl	r0,rmw.pba(r9)		;save it
+10$:	brb	nam$puc			;join common
+
+nam$put:clrl	rmw.pfl(r9)		;no pointers
+nam$puc:tstl	r2			;want anything at all?
+	beql	120$			;no
+	rmswri$	r2,(r3)			;probe the result string
+	movab	nam_put,r6		;r6 -> control string
+	tstl	r4			;want the result length
+	beql	10$			;no
+	clrb	(r4)			;yes - clear it first
+10$:	movzbl	(r6)+,r5		;get the next element
+	beql	120$			;all done
+	addl	r9,r5			;r5 -> next element
+	movzbl	(r6)+,r0		;r0 = prefix
+	movzbl	(r5)+,r1		;r1 = component length
+					;
+;	Fill in NAM pointers		;
+					;
+	tstl	rmw.pfl(r9)		;want pointers?
+	beql	15$			;no
+	movb	r1,@rmw.psz(r9)		;yes - store the size
+	movl	r3,@rmw.pba(r9)		;store the address
+	incl	rmw.psz(r9)		;increment pointers
+	addl	#long.,rmw.pba(r9) 	;
+					;
+15$:	tstl	r1			;what kind of item?
+	beql	40$			;null item
+	bsbb	100$			;put the prefix
+	blbc	r0,130$			;oops
+20$:	movzbl	(r5)+,r0		;r0 = next character in string
+	bsbb	100$			;dump it
+	blbc	r0,130$			;no more space
+	sobgtr	r1,20$			;put them all
+30$:	movb	(r6),r0			;get the terminator
+	bsbb	100$			;dump it
+40$:	incl	r6			;skip the terminator
+	brb	10$			;do the next element
+
+;	Return single byte
+
+100$:	tstb	r0			;this a null?
+	beql	120$			;yes - skip it
+	decl	r2			;got space for it?
+	blss	130$			;no
+	movb	r0,(r3)+		;return the character
+	tstl	r4			;want the length?
+	beql	120$			;no
+	incb	(r4)			;yes
+120$:	rsb$	#fine.			;
+130$:	rsb$	#ss$_bufferovf		;buffer overflow
+
+nam_put:.byte	rmw.nod,0,0		;node - ignored
+	.byte	rmw.dev,0,^a":"		;device
+	.byte	rmw.dir,^a"[",^a"]"	;directory
+	.byte	rmw.fil,0,0		;filename
+	.byte	rmw.typ,^a".",0		;type
+	.byte	rmw.ver,^a";",0		;version
+	.byte	0			;end of it
+.sbttl	fap & fcb names
+
+;	nam$fap - parse name and fill in fcb
+;	nam$fcb - fill in fcb
+;
+;   fcb.nod	6 character node name
+;	dev	6 character device name
+;	dir	6 character directory name
+;	fil	9 character file name
+;	typ	3 character file type
+;	ver	3 character file version
+;
+;	fail.	Name overflowed component.
+;		Operation is still completed.
+;
+;	Parse name and fill in FCB
+;
+;	r2/r3	default filename descriptor
+;	r4/r5	filename descriptor
+;	r9 ->	rmw - created temporary
+;	r10 ->	fap
+;	r11 ->	fcb
+
+nam$fap::movab	-rmw.bbs(sp),sp		;setup rmw
+	movl	sp,r9			;r9 -> rmw
+	rmsclr$	#rmw.bbs,(r9)		;clear it
+	movq	r4,-(sp)		;save filename
+	bsbw	nam$get			;get default filename
+	movq	(sp)+,r2		;setup filename
+	blbc	r0,10$			;some error
+	bsbw	nam$get			;get filename
+	blbc	r0,10$			;
+	bsbw	nam$dsc			;setup the descriptor
+	bsbw	nam$fcb			;setup the fcb
+10$:	movab	rmw.bbs(sp),sp		;get rid of the work area
+	rsb				;
+
+;	Fill in FCB name
+;
+;	r9 ->	rmw
+;	r10 ->	fap 
+;	r11 ->	fcb
+;
+;	fail.	rmw component longer than fcb component
+
+nam$fcb::movq	rmw.dsc(r9),r0		;trace the name
+	bsbw	tra$nam			;display it
+	pushl	#fine.			;assume o.k.
+	movab	nam_fcb,r6		;r7 -> control table
+10$:	movzbl	(r6)+,r5		;r5 = length
+	movzbl	(r6)+,r4		;r4 = rmw component offset
+	movzbl	(r6)+,r3		;r3 = fcb component offset
+	movab	(r9)[r4],r4		;r4 -> rmw component
+	movab	(r11)[r3],r3		;r3 -> fcb component
+	tstb	(r4)			;rmw component null?
+	beql	30$			;yes - leave it alone
+	rmsclr$	r5,byte.(r3)		;clear it first
+	movzbl	(r4)+,r2		;r2 = rmw component length
+	cmpl	r2,r5			;is this smaller?
+	blequ	20$			;smaller or same
+	clrl	(sp)			;bigger - remember it
+	movl	r5,r2			;replace it with limit
+20$:	movb	r2,(r3)+		;store fcb component length
+	rmsmov$	r2,(r4),(r3)		;move it in
+30$:	tstb	(r6)			;any more?
+	bneq	10$			;yes
+	bsbw	nam$rta			;fill in rt stuff
+	popl	r0			;setup status
+	rsb
+
+nam_fcb:;.byte	6,rmw.nod,fcb.nod	;node
+	.byte	6,rmw.dev,fcb.dev	;device
+	.byte	6,rmw.dir,fcb.dir	;directory
+	.byte	9,rmw.fil,fcb.fil	;filename
+	.byte	3,rmw.typ,fcb.typ	;type
+;	.byte	3,rmw.ver,fcb.ver	;version
+	.byte	0			;end of it
+.sbttl	get rt11 name
+
+;	Get RT11A filename
+;
+;	Sneaky routine to setup rt11a did/fid
+;
+;	r11 ->	fcb
+
+nam$rta:pushr	#^m<r2,r3>		;
+	movab	nam_rta,r3		;point to the control list
+10$:	movzwl	(r3)+,r1		;rms 
+	beql	20$
+	movzwl	(r3)+,r2		;rt
+	movab	(r11)[r1],r1		;r1 -> ascii
+	movab	(r11)[r2],r2		;r2 -> rad50
+	bsbw	cvt$arf			;convert ascii to rad50
+	brb	10$			;
+20$:	popr	#^m<r2,r3>		;
+	rsb
+
+nam_rta:.word	fcb.dev+byte.,fcb.ddv	;device name
+	.word	fcb.dir+byte.,fcb.ddr	;directory name
+	.word	fcb.fil+byte.,fcb.ffl	;fil
+	.word	fcb.fil+<byte.*4>,fcb.fnm ;nam
+	.word	fcb.typ+byte.,fcb.ftp	;typ
+	.word	0
+.end
+                                                                                                                                                                                                                                                                                                                                                                                                         

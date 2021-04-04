@@ -1,0 +1,622 @@
+;-------------------------------;
+; SYSTEM ADDRESS SPACE		;
+;-------------------------------;
+;
+;	vec	io	npd	npc	pgc
+;	dbg	iop	rms	msg	fre...
+;	rpb	pfn	pdy	ndy	isp	scb
+;	bal...	shd	spt	gpt
+;
+.MACRO	$S0_DEF
+;
+;	Lengths of system pieces
+;
+map$	s0_vec.,,4		;service vectors
+map$	s0_dev.,,0		;driver code and data
+map$	s0_dat.,,4		;nonpaged system data
+map$	s0_cod.,,32	;v	;nonpaged system code
+map$	s0_mon.,,0	;?	;paged system code
+map$	s0_bug.,,0		;xdelta
+;				;
+map$	s0_bus.,,16		;bus window pages
+map$	s0.rms.,,0		;rms
+map$	s0_msg.,,0		;system messages
+map$	s0_win.,,0		;free system pages
+map$	s0_rpb.,,0	;1	;restart parameter block
+map$	s0_pfn.,,0	;phy	;pfn data
+map$	s0_pag.,,0	;?	;paged pool
+map$	s0_res.,,16	;phy	;nonpaged resident pool
+map$	s0_isp.,,2	;phy	;interrupt stack
+map$	s0_scb.,,1	;phy	;system control block
+map$	s0_bal.,,4	;v	;balance slots
+map$	s0_shd.,,0	;phy	;system header
+map$	s0_spt.,,4	;phy	;system page table
+map$	s0_gpt.,,0	;?	;global page table
+;
+;	Absolute address of system piece base addresses
+;
+map$	s0_bas	null.,adr_s0b	;start of system address space
+map$	s0_vec	s0_vec.*page.	;service vectors
+map$	s0_dev	s0_dev.*page.	;driver code and data
+map$	s0_dat	s0_dat.*page.	;nonpaged system data
+map$	s0_cod	s0_cod.*page.	;nonpaged system code
+map$	s0_mon	s0_mon.*page.	;paged system code
+map$	s0_bug	s0_del.*page.	;bug
+;				;
+map$	s0_bus	s0_bus.*page.	;bus window pages
+map$	s0.rms	s0.rms.*page.	;rms
+map$	s0_msg	s0_msg.*page.	;system messages
+map$	s0_win	s0_win.*page.	;free system pages
+map$	s0_rpb	s0_rpb.*page.	;restart parameter block
+map$	s0_pfn	s0_pfn.*page.	;pfn data
+map$	s0_pag	s0_pag.*page.	;paged pool
+map$	s0_res	s0_res.*page.	;nonpaged resident pool
+map$	s0_isp	s0_isp.*page.	;interrupt stack
+map$	s0_scb	s0_scb.*page.	;system control block
+map$	s0_bal	s0_bal.*page.	;balance slots
+map$	s0_shd	s0_shd.*page.	;system header
+map$	s0_spt	s0_spt.*page.	;system page table
+map$	s0_gpt	s0_gpt.*page.	;global page table
+;
+.ENDM
+;-------------------------------;
+; SYSTEM CONTROL BLOCK		;
+;-------------------------------;
+;
+;	Exception frames are described by:
+;
+;	xar	arithmetic exception frame
+;	xcm	compatibility mode exception frame
+;	xch	change mode exception frame
+;	xpf	page fault exception frame
+;
+.MACRO	$SCB_DEF
+;
+;				cod typ p stk pr   reason
+map$	scb.unu	long.,0		;00 f/a * isp 1f - unused
+map$	scb.mck	long.		;02 f/a * isp 1f - machine check
+map$	scb.ksp	long.		;08 abt 0 isp 1f - kernel stack not valid
+map$	scb.pwf	long.		;0c int 0 isp 1e - power fail
+map$	scb.ins	long.		;10 flt 0	 - reserved instruction
+map$	scb.xfc	long.		;14 flt 0	 - customer instruction
+map$	scb.opr	long.		;18 flt	0	 - reserved operand (abort)
+map$	scb.mod	long.		;1c flt	0	 - reserved address mode
+map$	scb.acc	long.		;20 flt 2	 - access control violation
+map$	scb.pag	long.		;24 flt 2	 - translation not valid
+map$	scb.tpd	long.		;28 flt	0	 - trace pending
+map$	scb.bpt	long.		;2c flt 0	 - breakpoint
+map$	scb.cmd	long.		;30 f/a 1	 - compatibility mode
+map$	scb.art	long.		;34 t/f 1	 - arithmetic trap
+map$	scb.038	long.		;38
+map$	scb.03c	long.		;3c
+map$	scb.cmk	long.,<^x40>	;40 trp 1	 - change mode to kernel
+map$	scb.cme	long.		;44 trp 1	 - change mode to executive
+map$	scb.cms	long.		;48 trp 1	 - change mode to supervisor
+map$	scb.cmu	long.		;4c trp	1	 - change mode to user
+map$	scb.sbs	long.		;50 int 0 isp 19 - 780 sbi silo compare
+map$	scb.mrc	long.		;54 int * isp 1a - memory read correct
+map$	scb.sba	long.		;58 int 0 isp 1b - 780 sbi alert
+map$	scb.sbf long.		;5c int 0 isp 1c - 780 sbi fault
+map$	scb.mwt	long.		;60 int * isp 1d - memory write timeout
+;				;64:80
+map$	scb.sp1	long.,<^x84>	;84 int isp 0 01 - software level 01
+map$	scb.sp2	long.		;88 int isp 0 02 - ast delivery
+map$	scb.sp3	long.		;8c int isp 0 03 - scheduler
+;				;90:b8
+map$	scb.spf	long.,<^xbc>	;bc int isp 0 0f - software level 0f
+;
+map$	scb.int	long.		;c0 int isp 0 18 - interval timer
+;				;c4
+map$	scb.emu	long.,<^xc8>	;c8 		 - emulate instruction
+map$	scb.fpd	long.		;cc		 - emulate first part done
+				;d0:ec
+map$	scb.csr	long.,<^xf0>	;f0 int isp 0 17 - console storage receive
+map$	scb.cst	long.		;f4 int isp 0 17 - console storage transmit
+map$	scb.ctr	long.		;f8 int isp 0 14 - console terminal receive
+map$	scb.ctt	long.		;fc int isp 0 14 - console terminal transmit
+;
+map$	scb.i14	long.*16,<^x100>;100 int 0 isp 14 - ipl 14
+map$	scb.i15	long.*16	;140
+map$	scb.i16	long.*16	;180
+map$	scb.i17	long.*16	;1c0
+;
+map$	scb.vec	long.*127.,512	;interrupt vectors
+map$	scb.bbs			;
+;
+;	scb dispatch
+;
+map$	scb_dis$p,,3		;scb dispatch
+map$	scb_ker.,,0		;use ksp unless already on isp
+map$	scb_isp.,,1		;force isp
+map$	scb_wcs.,,2		;send to wcs
+map$	scb_udf.,,3		;undefined
+;
+.ENDM	$SCB_DEF
+;-------------------------------;
+; SYSTEM SERVICE CALLS		;
+;-------------------------------;
+;
+;	System services
+;
+.MACRO	$SER_DEF
+;
+;	System service vector
+;	Must be a quad word
+;
+map$	ser.vms	word.,0		;register mask
+map$	ser.vin	byte.*2		;change mode instruction code and address mode
+map$	ser.vcd	word.		;change mode code
+map$	ser.vof	word.		;offset from adr_s0 to routine
+map$	ser.vbs	null.		;
+assume	ser.vbs eq quad.	;
+;
+;	System service frame
+;
+;	This structure is guaranteed during system service preprocessing.
+;	Internal calls to system services cannot assume this structure.
+;
+map$	ser.scn	long.,0		;fp.con	- exception routine address
+map$	ser.sps	word.		;fp.psw	- dummy psw
+map$	ser.sms	word.		;fp.msk - dummy register mask
+map$	ser.sap	long.		;fp.ap  - vector ap -> callers ap
+map$	ser.sfp	long.		;fp.fp  - vector fp -> ser.ccn
+map$	ser.spc	long.		;fp.pc  - service ret pc
+;
+;	Change mode exception frame
+;
+;	Follows service frame - code has been removed
+;
+map$	ser.xpc	long.		;exc.pc	- exception rei pc
+map$	ser.xps	long.		;exc.ps	- exception rei psl
+;
+;	Callers frame on callers stack
+;
+map$	ser.ccn	long.		;fp.con - vector condition handler
+map$	ser.cps	word.		;fp.psw - callers psw
+map$	ser.cms	word.		;fp.msk - callers register mask
+map$	ser.cap	long.		;fp.ap	- callers ap
+map$	ser.cfp	long.		;fp.fp	- callers fp
+map$	ser.cpc	long.		;fp.pc	- callers pc
+map$	ser.crg	null.		;fp.r2  - variable number of registers
+map$	ser.cbs	null.		;
+;
+;	Procedure preface
+;
+;	Text area:
+;
+;	.asciz	"sernam"	;service name
+;	.asciz	"Tp1nam"	;p1 name - T is type
+;	.asciz	"Tp2nam"	;p2 name
+;	...
+;	.byte	0		;end of it
+;
+map$	ser.pto	word.,-long.	;text offset
+map$	ser.pcl	byte.		;service class
+map$	ser.pct	byte.		;minimum parameter count
+map$	ser.pms	word.		;procedure register mask
+map$	ser.pst	null.		;procedure start
+;
+.ENDM	$SER_DEF
+;-------------------------------;
+; SYSTEM ID			;
+;-------------------------------;
+;
+.MACRO	$SID_DEF
+;
+map$	sid_780.,,1		;780 - star
+map$	sid_750.,,2		;750 - comet
+map$	sid_730.,,3		;730 - nebula
+map$	sid_790.,,4		;790 - 8600 - venus
+map$	sid_8ss.,,5		;8%% - scorpio
+map$	sid_9ss.,,6		;9%% - nautilus
+map$	sid_uv1.,,7		;uv1
+map$	sid_uv2.,,8		;uv2
+;
+.ENDM	$SID_DEF
+;-------------------------------;
+; SYSTEM STRUCTURE DESCRIPTOR	;
+;-------------------------------;
+;
+;	Describe gross pieces of system memory
+;
+.MACRO	$SSD_DEF
+;
+map$	ssd.len	long.,0		;length
+map$	ssd.vlo	long.		;virtual low address
+map$	ssd.nam	byte.*4		;three character name
+map$	ssd.bbs			;
+;
+.ENDM
+;-------------------------------;
+; SYSTEM SERVICE ENTRY POINTS	;
+;-------------------------------;
+;
+; 	System service P1 entry points
+;
+;	sysent	c d e f
+;	c	prefix
+;	d	service name
+;	e	size
+;	f	offset
+;
+;	e	blank	standard
+;	e	n	non-standard but a vector
+;	e	0	not a vector
+;
+;.MACRO	$SYS_DEF INT
+;
+.if blank <INT>
+.macro	sysent$ c d e f
+map$	c'd,e,<f>
+.endm
+.endc
+;
+map$	sys_p1b	       ,,<^x7ffede00>	;p1 vector base address
+map$	sys_s0b	       ,,<^x80000000>	;system base address
+					;
+sysent$	sys$ qiow       ,,<^x7ffede00>	;yes
+sysent$	sys$ cli        ,0,<^x7ffede18>	;cli
+sysent$	sys$ adjstk     ,,<^x7ffede20>	;yes
+sysent$	sys$ adjwsl     ,,<^x7ffede28>	;ignore
+sysent$	sys$ alcdnp     ,0,<^x7ffede30>	;ignore
+sysent$	sys$ alloc      ,,<^x7ffede38>	;ignore
+sysent$	sys$ ascefc     ,,<^x7ffede40>	;ignore
+sysent$	sys$ asctim     ,,<^x7ffede48>	;fudge
+sysent$	sys$ assign     ,,<^x7ffede50>	;yes
+sysent$	sys$ bintim     ,,<^x7ffede58>	;fudge
+sysent$	sys$ cancel     ,,<^x7ffede60>	;fudge
+sysent$	sys$ cantim     ,,<^x7ffede68>	;ignore
+sysent$	sys$ canwak     ,,<^x7ffede70>	;ignore
+sysent$	sys$ crmpsc     ,,<^x7ffede78>	;yes
+sysent$	sys$ clrpar     ,,<^x7ffede80>	;?
+sysent$	sys$ cmexec     ,,<^x7ffede88>	;ignore
+sysent$	sys$ cmkrnl     ,,<^x7ffede90>	;yes
+sysent$	sys$ clref      ,,<^x7ffede98>	;yes
+sysent$	sys$ cntreg     ,,<^x7ffedea0>	;yes
+sysent$	sys$ getpti     ,,<^x7ffedea8>	;?
+sysent$	sys$ crelog     ,,<^x7ffedeb0>	;fudge
+sysent$	sys$ crembx     ,,<^x7ffedeb8>	;ignore
+sysent$	sys$ creprc     ,,<^x7ffedec0>	;ignore
+sysent$	sys$ cretva     ,,<^x7ffedec8>	;yes
+sysent$	sys$ dacefc     ,,<^x7ffeded0>	;ignore
+sysent$	sys$ dalloc     ,,<^x7ffeded8>	;ignore
+sysent$	sys$ dassgn     ,,<^x7ffedee0>	;fudge
+sysent$	sys$ dclast     ,,<^x7ffedee8>	;ignore
+sysent$	sys$ dclexh     ,,<^x7ffedef0>	;ignore
+sysent$	sys$ dellog     ,,<^x7ffedef8>	;ignore
+sysent$	sys$ delmbx     ,,<^x7ffedf00>	;ignore
+sysent$	sys$ delprc     ,,<^x7ffedf08>	;ignore
+sysent$	sys$ deltva     ,,<^x7ffedf10>	;yes
+sysent$	sys$ dgblsc     ,,<^x7ffedf18>	;ignore
+sysent$	sys$ dlcdnp     ,0,<^x7ffedf20>	;ignore
+sysent$	sys$ dlcefc     ,,<^x7ffedf28>	;ignore
+sysent$	sys$ updsec     ,,<^x7ffedf30>	;fudge
+sysent$	sys$ snderr     ,,<^x7ffedf38>	;ignore
+sysent$	sys$ exit       ,,<^x7ffedf40>	;yes
+sysent$	sys$ expreg     ,,<^x7ffedf48>	;yes
+sysent$	sys$ fao        ,,<^x7ffedf50>	;ugh
+sysent$	sys$ faol       ,,<^x7ffedf58>	;ugh
+sysent$	sys$ forcex     ,,<^x7ffedf60>	;fudge
+sysent$	sys$ imgsta     ,,<^x7ffedf68>	;maybe
+sysent$	sys$ getjpp     ,,<^x7ffedf70>	;fudge
+sysent$	sys$ gettim     ,,<^x7ffedf78>	;fudge
+sysent$	sys$ gtchan     ,,<^x7ffedf80>	;?
+sysent$	sys$ hiber      ,,<^x7ffedf88>	;fudge
+sysent$	sys$ imgact     ,,<^x7ffedf90>	;yes
+sysent$	sys$ lckpag     ,,<^x7ffedf98>	;ignore
+sysent$	sys$ lkwset     ,,<^x7ffedfa0>	;ignore
+sysent$	sys$ mgblsc     ,,<^x7ffedfa8>	;yes - as private
+sysent$	sys$ purgws     ,,<^x7ffedfb0>	;ignore
+sysent$	sys$ numtim     ,,<^x7ffedfb8>	;fudge
+sysent$	sys$ sndopr     ,,<^x7ffedfc0>	;ignore
+sysent$	sys$ qio        ,,<^x7ffedfc8>	;yes
+sysent$	sys$ readef     ,,<^x7ffedfd0>	;yes
+sysent$	sys$ resume     ,,<^x7ffedfd8>	;fudge
+sysent$	sys$ rundwn     ,,<^x7ffedfe0>	;fudge
+sysent$	sys$ sndsmb     ,,<^x7ffedfe8>	;ignore
+sysent$	sys$ schdwk     ,,<^x7ffedff0>	;ignore
+sysent$	sys$ setast     ,,<^x7ffedff8>	;ignore, maybe fudge
+sysent$	sys$ setef      ,,<^x7ffee000>	;fudge
+sysent$	sys$ setexv     ,,<^x7ffee008>	;ignore, maybe fudge
+sysent$	sys$ setprn     ,,<^x7ffee010>	;ignore
+sysent$	sys$ setpra     ,,<^x7ffee018>	;ignore
+sysent$	sys$ setimr     ,,<^x7ffee020>	;ignore
+sysent$	sys$ setpri     ,,<^x7ffee028>	;ignore
+sysent$	sys$ setprt     ,,<^x7ffee030>	;ignore
+sysent$	sys$ setrwm     ,,<^x7ffee038>	;fudge
+sysent$	sys$ setsfm     ,,<^x7ffee040>	;fudge
+sysent$	sys$ setswm     ,,<^x7ffee048>	;ignore
+sysent$	sys$ suspnd     ,,<^x7ffee050>	;ignore
+sysent$	sys$ trnlog     ,,<^x7ffee058>	;fudge
+sysent$	sys$ ulkpag     ,,<^x7ffee060>	;ignore
+sysent$	sys$ ulwset     ,,<^x7ffee068>	;ignore
+sysent$	sys$ unwind     ,,<^x7ffee070>	;ignore
+sysent$	sys$ waitfr     ,,<^x7ffee078>	;fudge
+sysent$	sys$ wake       ,,<^x7ffee080>	;ignore
+sysent$	sys$ wfland     ,,<^x7ffee088>	;fudge
+sysent$	sys$ wflor      ,,<^x7ffee090>	;fudge
+sysent$	sys$ brdcst     ,,<^x7ffee098>	;ignore
+sysent$	sys$ dclcmh     ,,<^x7ffee0a0>	;ignore, fudge
+sysent$	sys$ setpfm     ,,<^x7ffee0a8>	;ignore
+sysent$	sys$ getmsg     ,,<^x7ffee0b0>	;fudge
+sysent$	sys$ derlmb     ,,<^x7ffee0b8>	;?
+sysent$	sys$ canexh     ,,<^x7ffee0c0>	;ignore
+sysent$	sys$ getchn     ,,<^x7ffee0c8>	;fudge
+sysent$	sys$ getdev     ,,<^x7ffee0d0>	;fudge
+sysent$	sys$ getjpi     ,,<^x7ffee0d8>	;fudge
+sysent$	sys$ putmsg     ,,<^x7ffee0e0>	;fudge
+sysent$	sys$ excmsg     ,,<^x7ffee0e8>	;?
+sysent$	sys$ sndacc     ,,<^x7ffee0f0>	;ignore
+sysent$	sys$ setime     ,,<^x7ffee0f8>	;ignore
+sysent$	sys$ setprv     ,,<^x7ffee100>	;ignore
+sysent$	sys$ clrast     ,8,<^x7ffee108>	;non-standard
+;sysent$ sys$ gl_astret  ,,<^x7ffee110>	;not a service
+;sysent$ sys$ gl_common  ,,<^x7ffee114>	;not a service
+sysent$ sys$ srchandler ,0,<^x7ffee118>	;non-standard
+sysent$	sys$ delete     ,,<^x7ffee168>	;fudge
+sysent$	sys$ find       ,,<^x7ffee170>	;
+sysent$	sys$ free       ,,<^x7ffee178>	;
+sysent$	sys$ get        ,,<^x7ffee180>	;
+sysent$	sys$ put        ,,<^x7ffee188>	;
+sysent$	sys$ read       ,,<^x7ffee190>	;
+sysent$	sys$ release    ,,<^x7ffee198>	;
+sysent$	sys$ update     ,,<^x7ffee1a0>	;
+sysent$	sys$ wait       ,,<^x7ffee1a8>	;
+sysent$	sys$ write      ,,<^x7ffee1b0>	;
+sysent$	sys$ close      ,,<^x7ffee1b8>	;
+sysent$	sys$ connect    ,,<^x7ffee1c0>	;
+sysent$	sys$ create     ,,<^x7ffee1c8>	;
+sysent$	sys$ disconnect ,,<^x7ffee1d0>	;
+sysent$	sys$ display    ,,<^x7ffee1d8>	;
+sysent$	sys$ erase      ,,<^x7ffee1e0>	;
+sysent$	sys$ extend     ,,<^x7ffee1e8>	;
+sysent$	sys$ flush      ,,<^x7ffee1f0>	;
+sysent$	sys$ modify     ,,<^x7ffee1f8>	;
+sysent$	sys$ nxtvol     ,,<^x7ffee200>	;
+sysent$	sys$ open       ,,<^x7ffee208>	;
+sysent$	sys$ rewind     ,,<^x7ffee210>	;
+sysent$	sys$ space      ,,<^x7ffee218>	;
+sysent$	sys$ truncate   ,,<^x7ffee220>	;
+sysent$	sys$ enter      ,,<^x7ffee228>	;
+sysent$	sys$ parse      ,,<^x7ffee230>	;
+sysent$	sys$ remove     ,,<^x7ffee238>	;
+sysent$	sys$ rename     ,,<^x7ffee240>	;
+sysent$	sys$ search     ,,<^x7ffee248>	;
+sysent$	sys$ setddir    ,,<^x7ffee250>	;
+sysent$	sys$ setdfprot  ,,<^x7ffee258>	;
+sysent$	sys$ ssvexc     ,,<^x7ffee260>	;
+sysent$	sys$ rmsrundwn  ,,<^x7ffee268>	;
+sysent$	sys$ enq        ,,<^x7ffee3c0>	;ignore
+sysent$	sys$ deq        ,,<^x7ffee3c8>	;ignore
+sysent$	sys$ enqw       ,,<^x7ffee3d0>	;ignore
+sysent$	sys$ setssf     ,,<^x7ffee3e8>	;ignore
+sysent$	sys$ setstk     ,,<^x7ffee3f0>	;?
+sysent$	sys$ getsyi     ,,<^x7ffee3f8>	;fudge
+sysent$	sys$ imgfix     ,,<^x7ffee400>	;yes
+sysent$	sys$ imgfix_2   ,0,<^x7ffee408>	;non-standard
+sysent$	sys$ getdvi     ,0,<^x7ffee410>	;7 bytes only
+;			,,<^x7ffee417>	;cli transfer
+;
+;.ENDM	$SYS_DEF
+.MACRO	$SYS_DEF INT
+;
+.if blank <INT>
+.macro	sysent$ c d e f
+map$	c'd,e,<f>
+.endm
+.endc
+;
+map$	sys_p1b	       ,,<^x7ffede00>	;p1 vector base address
+map$	sys_s0b	       ,,<^x80000000>	;system base address
+sys$ qiow		, ,<^x7ffede00>
+sys$ cli		,0,<^x7ffede18>
+sys$ adjstk		, ,<^x7ffede20>
+sys$ adjwsl		, ,<^x7ffede28>
+sys$ alcdnp		,0,<^x7ffede30>
+sys$ alloc		, ,<^x7ffede38>
+sys$ ascefc		, ,<^x7ffede40>
+sys$ asctim		, ,<^x7ffede48>
+sys$ assign		, ,<^x7ffede50>
+sys$ bintim		, ,<^x7ffede58>
+sys$ cancel		, ,<^x7ffede60>
+sys$ cantim		, ,<^x7ffede68>
+sys$ canwak		, ,<^x7ffede70>
+sys$ crmpsc		, ,<^x7ffede78>
+sys$ clrpar		, ,<^x7ffede80>
+sys$ cmexec		, ,<^x7ffede88>
+sys$ cmkrnl		, ,<^x7ffede90>
+sys$ clref		, ,<^x7ffede98>
+sys$ cntreg		, ,<^x7ffedea0>
+sys$ getpti		, ,<^x7ffedea8>
+sys$ crelog		, ,<^x7ffedeb0>
+sys$ crembx		, ,<^x7ffedeb8>
+sys$ creprc		, ,<^x7ffedec0>
+sys$ cretva		, ,<^x7ffedec8>
+sys$ dacefc		, ,<^x7ffeded0>
+sys$ dalloc		, ,<^x7ffeded8>
+sys$ dassgn		, ,<^x7ffedee0>
+sys$ dclast		, ,<^x7ffedee8>
+sys$ dclexh		, ,<^x7ffedef0>
+sys$ dellog		, ,<^x7ffedef8>
+sys$ delmbx		, ,<^x7ffedf00>
+sys$ delprc		, ,<^x7ffedf08>
+sys$ deltva		, ,<^x7ffedf10>
+sys$ dgblsc		, ,<^x7ffedf18>
+sys$ dlcdnp		,0,<^x7ffedf20>
+sys$ dlcefc		, ,<^x7ffedf28>
+sys$ updsec		, ,<^x7ffedf30>
+sys$ snderr		, ,<^x7ffedf38>
+sys$ exit		, ,<^x7ffedf40>
+sys$ expreg		, ,<^x7ffedf48>
+sys$ fao		, ,<^x7ffedf50>
+sys$ faol		, ,<^x7ffedf58>
+sys$ forcex		, ,<^x7ffedf60>
+sys$ imgsta		, ,<^x7ffedf68>
+sys$ sndjbc		, ,<^x7ffedf70>
+sys$ gettim		, ,<^x7ffedf78>
+sys$ updsecw		, ,<^x7ffedf80>
+sys$ hiber		, ,<^x7ffedf88>
+sys$ imgact		, ,<^x7ffedf90>
+sys$ lckpag		, ,<^x7ffedf98>
+sys$ lkwset		, ,<^x7ffedfa0>
+sys$ mgblsc		, ,<^x7ffedfa8>
+sys$ purgws		, ,<^x7ffedfb0>
+sys$ numtim		, ,<^x7ffedfb8>
+sys$ sndopr		, ,<^x7ffedfc0>
+sys$ qio		, ,<^x7ffedfc8>
+sys$ readef		, ,<^x7ffedfd0>
+sys$ resume		, ,<^x7ffedfd8>
+sys$ rundwn		, ,<^x7ffedfe0>
+sys$ sndsmb		, ,<^x7ffedfe8>
+sys$ schdwk		, ,<^x7ffedff0>
+sys$ setast		, ,<^x7ffedff8>
+sys$ setef		, ,<^x7ffee000>
+sys$ setexv		, ,<^x7ffee008>
+sys$ setprn		, ,<^x7ffee010>
+sys$ setpra		, ,<^x7ffee018>
+sys$ setimr		, ,<^x7ffee020>
+sys$ setpri		, ,<^x7ffee028>
+sys$ setprt		, ,<^x7ffee030>
+sys$ setrwm		, ,<^x7ffee038>
+sys$ setsfm		, ,<^x7ffee040>
+sys$ setswm		, ,<^x7ffee048>
+sys$ suspnd		, ,<^x7ffee050>
+sys$ trnlog		, ,<^x7ffee058>
+sys$ ulkpag		, ,<^x7ffee060>
+sys$ ulwset		, ,<^x7ffee068>
+sys$ unwind		, ,<^x7ffee070>
+sys$ waitfr		, ,<^x7ffee078>
+sys$ wake		, ,<^x7ffee080>
+sys$ wfland		, ,<^x7ffee088>
+sys$ wflor		, ,<^x7ffee090>
+sys$ brdcst		, ,<^x7ffee098>
+sys$ dclcmh		, ,<^x7ffee0a0>
+sys$ setpfm		, ,<^x7ffee0a8>
+sys$ getmsg		, ,<^x7ffee0b0>
+sys$ derlmb		, ,<^x7ffee0b8>
+sys$ canexh		, ,<^x7ffee0c0>
+sys$ getchn		, ,<^x7ffee0c8>
+sys$ getdev		, ,<^x7ffee0d0>
+sys$ getjpi		, ,<^x7ffee0d8>
+sys$ putmsg		, ,<^x7ffee0e0>
+sys$ excmsg		, ,<^x7ffee0e8>
+sys$ sndacc		, ,<^x7ffee0f0>
+sys$ setime		, ,<^x7ffee0f8>
+sys$ setprv		, ,<^x7ffee100>
+sys$ clrast		,8,<^x7ffee108>
+;sys$ gl_astret		, ,<^x7ffee110>	;n/a
+;sys$ gl_common		, ,<^x7ffee114> ;n/a
+sys$ srchandler		,8,<^x7ffee118>
+sys$ delete		, ,<^x7ffee168>
+sys$ find		, ,<^x7ffee170>
+sys$ free		, ,<^x7ffee178>
+sys$ get		, ,<^x7ffee180>
+sys$ put		, ,<^x7ffee188>
+sys$ read		, ,<^x7ffee190>
+sys$ release		, ,<^x7ffee198>
+sys$ update		, ,<^x7ffee1a0>
+sys$ wait		, ,<^x7ffee1a8>
+sys$ write		, ,<^x7ffee1b0>
+sys$ close		, ,<^x7ffee1b8>
+sys$ connect		, ,<^x7ffee1c0>
+sys$ create		, ,<^x7ffee1c8>
+sys$ disconnect		, ,<^x7ffee1d0>
+sys$ display		, ,<^x7ffee1d8>
+sys$ erase		, ,<^x7ffee1e0>
+sys$ extend		, ,<^x7ffee1e8>
+sys$ flush		, ,<^x7ffee1f0>
+sys$ modify		, ,<^x7ffee1f8>
+sys$ nxtvol		, ,<^x7ffee200>
+sys$ open		, ,<^x7ffee208>
+sys$ rewind		, ,<^x7ffee210>
+sys$ space		, ,<^x7ffee218>
+sys$ truncate		, ,<^x7ffee220>
+sys$ enter		, ,<^x7ffee228>
+sys$ parse		, ,<^x7ffee230>
+sys$ remove		, ,<^x7ffee238>
+sys$ rename		, ,<^x7ffee240>
+sys$ search		, ,<^x7ffee248>
+sys$ setddir		, ,<^x7ffee250>
+sys$ setdfprot		, ,<^x7ffee258>
+sys$ ssvexc		, ,<^x7ffee260>
+sys$ rmsrundwn		, ,<^x7ffee268>
+;sys$ rmsunused1	, ,<^x7ffee270>
+sys$ filescan		, ,<^x7ffee278>
+sys$ enq		, ,<^x7ffee3c0>
+sys$ deq		, ,<^x7ffee3c8>
+sys$ enqw		, ,<^x7ffee3d0>
+sys$ setssf		, ,<^x7ffee3e8>
+sys$ setstk		, ,<^x7ffee3f0>
+sys$ getsyi		, ,<^x7ffee3f8>
+sys$ imgfix		, ,<^x7ffee400>
+sys$ imgfix_2		,0,<^x7ffee408>	;n/s
+sys$ getdvi		, ,<^x7ffee410> ;7 bytes only in v3
+sys$ getdviw		, ,<^x7ffee418>
+sys$ getjpiw		, ,<^x7ffee420>
+sys$ getsyiw		, ,<^x7ffee430>
+sys$ sndjbcw		, ,<^x7ffee438>
+sys$ synch		, ,<^x7ffee440>
+sys$ erapat		, ,<^x7ffee470>
+sys$ crelnt		, ,<^x7ffee478>
+sys$ crelnm		, ,<^x7ffee480>
+sys$ dellnm		, ,<^x7ffee488>
+sys$ trnlnm		, ,<^x7ffee490>
+sys$ getlki		, ,<^x7ffee498>
+sys$ getlkiw		, ,<^x7ffee4a0>
+sys$ asctoid		, ,<^x7ffee4b0>
+sys$ finish_rdb		, ,<^x7ffee4b8>
+sys$ idtoasc		, ,<^x7ffee4c0>
+sys$ brkthru		, ,<^x7ffee4c8>
+sys$ grantid		, ,<^x7ffee4d0>
+sys$ revokid		, ,<^x7ffee4d8>
+sys$ chkpro		, ,<^x7ffee4e0>
+sys$ brkthruw		, ,<^x7ffee4e8>
+sys$ getqui		, ,<^x7ffee4f8>
+sys$ getquiw		, ,<^x7ffee500>
+cjf$ alljdr		, ,<^x7ffee510>
+cjf$ assjnl		, ,<^x7ffee518>
+cjf$ conuic		, ,<^x7ffee520>
+cjf$ crejnl		, ,<^x7ffee528>
+cjf$ dealjdr		, ,<^x7ffee530>
+cjf$ deasjnl		, ,<^x7ffee538>
+cjf$ deasjnl_int	, ,<^x7ffee540>
+cjf$ deljnl		, ,<^x7ffee548>
+cjf$ dmtjmd		, ,<^x7ffee550>
+cjf$ dspjnl		, ,<^x7ffee558>
+cjf$ getjnl		, ,<^x7ffee560>
+cjf$ getruix		, ,<^x7ffee568>
+cjf$ modflt		, ,<^x7ffee570>
+cjf$ posjnl		, ,<^x7ffee578>
+cjf$ readjnl		, ,<^x7ffee580>
+cjf$ recover		, ,<^x7ffee588>
+cjf$ mntjmd		, ,<^x7ffee590>
+cjf$ crenwv		, ,<^x7ffee598>
+cjf$ conjnlf		, ,<^x7ffee5a0>
+cjf$ dcnjnlf		, ,<^x7ffee5a8>
+cjf$ forcejnl		, ,<^x7ffee5b0>
+cjf$ forcejnlw		, ,<^x7ffee5b8>
+cjf$ writejnl		, ,<^x7ffee5c0>
+cjf$ writejnlw		, ,<^x7ffee5c8>
+cjf$ getcji		, ,<^x7ffee5d0>
+cjf$ dmtjmdw		, ,<^x7ffee5d8>
+cjf$ modfltw		, ,<^x7ffee5e8>
+cjf$ posjnlw		, ,<^x7ffee5f8>
+cjf$ readjnlw		, ,<^x7ffee608>
+cjf$ recoverw		, ,<^x7ffee618>
+sys$ start_ru		, ,<^x7ffee628>
+sys$ prepare_ru		, ,<^x7ffee630>
+sys$ commit_ru		, ,<^x7ffee638>
+sys$ abort_ru		, ,<^x7ffee640>
+sys$ dclruh		, ,<^x7ffee648>
+sys$ canruh		, ,<^x7ffee650>
+sys$ join_ru		, ,<^x7ffee658>
+sys$ getrui		, ,<^x7ffee660>
+sys$ setrui		, ,<^x7ffee668>
+sys$ get_ruid		, ,<^x7ffee670>
+sys$ end_ru		, ,<^x7ffee678>
+sys$ mtaccess		, ,<^x7ffee688>
+sys$ grant_license	, ,<^x7ffee698>
+sys$ release_license	, ,<^x7ffee6a0>
+;sys$ call_handl		, ,<^x80000010>
+.ENDM	$SYS_DEF
+                                                                                                                                                                                                                                                                                                                       

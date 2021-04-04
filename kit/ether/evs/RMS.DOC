@@ -1,0 +1,394 @@
+.title	rms
+.include "lib:eve.mar"
+
+;	EVE RMS
+;
+;	Record formats:
+;
+;	stream		RT-11 stream ASCII
+;	variable	Variable length records
+;	fixed		Fixed length records
+;
+;	Stream files are compatible with RT-11.
+;	Variable and fixed length have an optional file header
+;	in block zero of the file.
+;
+;	Relative and indexed not currently supported.
+;	VFC not currently supported.
+;
+;	logical names	parse logical names
+;	filename	parse filenames
+;	directory	open/close files
+;	transfer	block/record operations
+;	control		control functions
+;
+;	All operations specify an FAB. The FAB is used directly
+;	for the operation.
+;
+;	All records acquired by RMS are linked via ctl_rmq
+.sbttl	rms components
+
+;	RMS	RMS work area
+;
+;	RMS	Rundown,setddir, setdfprot 
+;
+;	FAB	Create, open, extend, close, display, eraze
+;		Truncate
+;	RAB	Connect/disconnect
+;		find/rewind, get/put/update, wait
+;		flush, nxtvol
+;	SHR	release/free
+;
+;	BIO	read/write, space
+;
+;	NAM	Parse, search, enter, remove, rename
+;
+;	XAB	Attribute operations
+;
+;	FIB	QIO operations from above
+.sbttl	structures
+
+;	FID	Rad50 RT-11 filename (3 words)
+;	DID	Device name, penultimate directory
+;	FIB	Standard VMS
+;	FAB	Standard VMS
+;	RAB	Standard VMS
+;	XAB	Standard VMS
+;	NAM	Standard VMS
+;
+;	FID	File identifier
+;
+;	fil	word.
+;	nam	word.
+;	typ	word.
+;
+;	DID	Directory descriptor
+;
+;	dev	word.
+;	pen	word.
+;	f00	word.
+;
+;	FIL	Filename descriptor
+;
+;	dev:[dir]filename.typ;ver
+;
+;	dev	byte.*3	;device & unit
+;	dir	null.	;directory name
+;	fil	byte.*6	;filename
+;	typ	byte.*3	;filetype
+;	ver	null.	;
+.sbttl	structure linkages
+
+;	Central structures
+;	
+;	ptr_dcb		-> dcb queue
+;	sys_dcb		dcb queue header
+;	dcb.ucb		-> ucb queue
+;	ucb.fcb		-> fcb queue
+;	fcb.bcb		-> bcb queue
+;	
+;	ptr_ccb		-> ctl_ccb
+;	ctl_ccb		ccb queue header
+;	ccb.fcb		-> fcb
+;	
+;	fap.chn		=> ccb
+;	fap.fcb		-> fcb
+;	fab.ifi		=> fap
+;	
+;	rab.fab		=> fab
+;	rap.fap		-> fap
+;	rab.rap		=> rap
+;
+;	ptr_snt		-> snt
+;	ptr_gnt		-> gnt
+;	ptr_unt		-> unt
+.sbttl	rms operations
+
+;	File operations
+;
+;+	create		enter
+;+	open		lookup
+;?	extend		extend a file
+;+	close		close file
+;+	display		get file information
+;+	eraze		delete a file
+;
+;	Record operations
+;
+;+	connect/discon	associate rab and fab
+;+	find/rewind	locate a record
+;+	get/put/update	read/write records
+;+	delete		delete a record
+;+	truncate	truncate file
+;+	wait		wait for i/o
+;
+;?	release/free	unlock records
+;?	flush		update cached data
+;?	nxtvol		next tape volume
+;	
+;	Block I/O operations
+;
+;+	read/write	read/write file
+;+	space		position file
+;
+;	Filename operations
+;
+;+	parse		process filespec
+;+	search		find name in directory
+;+	enter		enter name in directory
+;+	remove		remove name from directory
+;+	rename		replace name in directory
+;
+;	Control routines
+;
+;	rundown		cancel i/o and close files
+;	setddir		set default directory
+;	setdfprot	set default directory
+.sbttl	acp operations
+
+;	ACP operations
+;	
+;	QIO operations
+;
+;	create		create entry or file
+;	access		search directory, access file
+;	deaccess	deaccess file, update header
+;	modify		modify file attributes and/or allocation
+;	delete		delete entry and/or file
+;	mount		set volume mounted
+;	control		dismount, quota etc.
+;
+;	QIO parameters
+;
+; p1	fib		address of fib descriptor
+; p2	fna		address of filename descriptor (without dev:[dir])
+; p3	fnl		address of word to receive result fna length
+; p4	rna		address of result filename descriptor
+; p5	atr		address of attribute control block
+;
+;	ATR blocks
+;
+;	atr.siz	word.	length of attribute area
+;	atr.typ	word.	attribute type code
+;	atr.adr		address of attribute area
+;	atr.len=0	=> no more attributes
+;
+;	ATR interaction
+;
+;	unused		delete, mount, acp control
+;	read		access
+;	write		create, deaccess, modify
+;
+;	RMS ACP operations
+;
+;	create		enter
+;	open		lookup
+;	extend		extend a file
+;	close		close file
+;	display		get file information
+;	eraze		delete a file
+;	truncate	truncate file
+;	search		find name in directory
+;	enter		enter name in directory
+;	remove		remove name from directory
+;	rename		replace name in directory
+.sbttl	ACP operations - detailed
+
+;	Access
+;
+;	io$_access	access file
+;
+;	io$m_access	open file on channel
+;	io$m_create	convert to io$_create if file does not exist
+;			use io$_create interpretations in that case
+;
+;	fib.did<>0	search fib.did for file, return fib.fid and rna/rnl
+;	fib$w_nmctl	fib$m_allnam, fib$m_alltyp, fib$m_allver
+;	fib$m_wild	fib$l_wcc contains wildcard context
+;	fib$l_acctl	
+;	fib.atr		attributes are read
+;
+;	Create
+;
+; 	io$_create	create entry and/or file
+;
+; 	fib.did<>0	create directory entry, return result name
+;	fib$m_extend	extend file, return blocks in iosb+long.
+;	io$m_create	create header, return fib.fid, write attributes
+;
+;	io$m_access	open file on channel
+;	io$m_delete	mark for delete - require m_create or m_access
+;
+;	fib$w_nmctl	obey fib$m_newver & fib$m_supersede
+;	fib$l_acctl	
+;	fib$l_exctl
+;
+;	Deaccess
+;
+;	io$_deaccess	deaccess file, write attributes
+;
+;	fib.atr		write attributes
+;	fib$w_exctl	extend control
+;	fib$l_exvbn	
+;
+;	Modify
+;
+;	io$_modify	Modify file allocation and/or attributes
+;
+;	fib.did
+;	qio.fna		Search for file if DID and P1
+;
+;
+;	Delete
+;
+;	io$_delete	Delete entry and/or header
+.sbttl	RTF11A
+
+;	RTF11	- RT11A/RT11X for EVE
+;
+;	RTF11A use an RTA workarea for file operations. A second RTA
+;	is linked to the first for rename.
+;
+;	Three types of file are identified:
+;
+;	RT11A	Standard RT-11 directories supply no additional information.
+;	RT11X	RT11X may have additional information in the directory entry.
+;	RTF11	First block may be file header.
+;
+;	RT11F headers are compatible with F11B headers.
+;	An RT11F header is identified by checking certain fields and the
+;	block checksum.
+;	All files are contiguous. The allocation regions are ignored.
+;	The RTF11 ACP reads the first block of a newfile to determine the
+;	if a header is present. If so the RTF flag is set.
+;	RT11F files are shortened by a block, the start block is incremented.
+;	Access to block -1 will read/write the file header.
+;	The header may only be written in kernel mode.
+;
+;	Most files created by EVE contain headers. There are two exceptions:
+;
+;	STM	Stream files are RT-11 compatible.
+;		The last block is zero filled.
+;	BLOCK	Some fixed length 512-byte record files are left without
+;		headers. Such files are identified with a filetype list.
+;	NOHDR	If the QIO operation does not specify a header.
+;
+;	Note, the decision to add a header must be made when the file is
+;	created, not when it is closed.
+;
+;	Files could be created by using the allocation region in the header
+;	to specify the name of extension files. Delete could automatically
+;	handle deletion of the extension files.
+;
+;	If a header is not present EVE must examine the first two blocks to
+;	derive the format (aided by the filetype) and the last two blocks
+;	to determine end-of-file.
+;
+;	Each open file is recorded with a FIL block. This records the basic
+;	file header information to save repeated accesses, and to handle
+;	DID/FID opens.
+.sbttl	file access block
+
+;	FAB - file access block
+;
+;	alq	allocation quantity
+;	bks	bucket size
+;	bls	block size
+;	ctx	context
+;	deq	extension quantity
+;	dna	default filename
+;	dns	default filename size
+;	fac	file access (get,put,del,upd,trn,bio,bro)
+;	fna	filename address
+;	fns	filename size
+;	fop	file options   (cbt,cif,ctg,dfw,dlt,mxv,nam,nef,
+;				nfs,ofp,pos,rck,rwc,rwo,scf,spl,
+;				sqo,sup,tef,tmd,tmp,um.ufo,wck)
+;	fsz	fixed control size
+;	mrn	maximum record number
+;	mrs	maximum record size
+;	nam	nam block address
+;	org	file organisation (rel,seq,idx)
+;	rat	record attributes (cr,ftn,prn)
+;	rfm	record format (fix,var,vfc,stm,udf)
+;	rtv	retrieval window size
+;	shr	file sharing (put,get,del,upd,nil,mse,upi)
+;
+;	dev	device characteristics
+;	ifi	internal file identifier
+;	sdc	secondary device characteristics
+;	sts	completion status code
+;	stv	completion status value
+.sbttl	record access block
+
+;	RAB - record access block
+;
+;	bkt	bucket number
+;	ctx	context value
+;	fab	fab address
+;	kbf	key buffer address
+;	krf	key reference number
+;	ksz	key size
+;	mbc	multiblock count
+;	mbf	multibuffer count
+;	pbf	prompt buffer address
+;	psz	prompt size
+;	rac	record access mode (seq,key,rfa)
+;	rbf	record buffer address
+;	rhb	record header buffer address
+;	rop	record options (asy,bio,cco,cvt,eof,kge,kgt,lim,
+;				loa,loc,nlk,nxr,pmt,pta,rah,rlk,
+;				rne,rnf,tmo,tpt,uif,ulk,wbh)
+;	rsz	record size
+;	tmo	timeout in seconds
+;	ubf	user buffer address
+;	usz	user buffer size
+;
+;	Returned
+;
+;	isi	internal stream identifier
+;	rfa	record file address
+;	sts	completion status
+;	stv	completion status value
+.sbttl	name block
+
+;	NAM - name block
+;
+;	esa	expanded string address
+;	ess	expanded string size
+;	rlf	related file NAM block address
+;	rsa	result string address
+;	rss	result string size
+;
+;	Returned:
+;
+;	esl	expanded string length
+;	rsl	result string length
+;
+;	did	directory identification
+;	dvi	device identification
+;	fid	file identification
+;	fnb	filename status bits
+;	wcc	wildcard context
+.sbttl	attribute block
+
+;	XAB - extended attribute blocks
+;
+;	all	allocation
+;	dat	date and time
+;	fhc	file header characteristics
+;	pro	file protection
+;	key	key definition
+;	rdt	revision date and time
+;	sum	summary
+;
+;	FAB/XAB relationships
+;
+;
+;		all	dat	fhc	pro	key	rdt	sum
+;	display	out	out	out	out	out	out	out
+;	open	out	out	out	out	out	out	out
+;	create	in/out	in/out	in/out	in/out	in/out	in/out	in/out	
+;	extend	in/out
+;	close				in		in
+                                                                                                                                                                                                                                                                                                                                                                                                                               

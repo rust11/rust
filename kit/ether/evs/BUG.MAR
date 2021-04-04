@@ -1,0 +1,1270 @@
+.title	bug
+.nlist
+.library "lib:eve.mlb"
+$eve_def bug
+$adr_def
+$ap_def	
+$bug_def	;lub
+$con_def
+$fp_def	
+$opc_def
+$psl_def
+$txt_def	
+
+;	BUG - EVE primitive debugger
+;
+;	%build
+;	assemble evs:bug/object:evb:
+;	%end
+;
+;	Variables:
+;
+;	r0 psl	registers	
+;	mode	i h d o r 
+;	length	b w l q o
+;	signal	exception reason
+;	
+; va
+; va	va=nnnnnnnn, pta=nnnnnnnn pte=nnnnnnnn pa=nnnnnnnn
+; sva
+;
+;	Breakpoint plex
+;
+map$	bpt.typ	byte.,0		;entry type
+map$	bpt.mod	byte.		;entry mode
+map$	bpt.opc	byte.		;opcode
+map$	bpt.f00	byte.		;
+map$	bpt.loc	long.		;location of bpt
+map$	bpt.vpc	long.		;location past instruction
+map$	bpt.bbs	null.		;
+				;
+map$	bpt_fre.,,0		;free slot
+map$	bpt_one.,,1		;one-shot
+map$	bpt_tri.,,2		;trigger
+				;
+map$	bpt_stp_,,8		;step flag
+map$	bpt_skp_,,9		;skip flag
+				;
+map$	bpt_bps.,,16		;number of entries
+.sbttl	data
+
+;	Impure data
+
+bug_lin:.blkb	96			;input line
+bug_buf:.blkb	96			;output buffer
+bug_las:.blkb	96			;last line
+bug_bpt:.blkb	bpt.bbs*bpt_bps.	;breakpoint table
+	.long	-1			;end of it
+
+bug_loc:.long	-1			;checks for memory errors
+bug_pas::.long	0			;pass next exception
+
+;	Pure data
+
+bug_prm:.asciz	"  | "			;prompt
+bug_fac:.asciz	"%BUG-W-"		;
+bug_adr:.asciz	"Invalid address: "	;
+bug_mod:.asciz	"Invalid mode"		;
+bug_inp:.asciz	"Invalid input: "	;
+bug_del:.byte	bs.,space.,bs.,0	;delete character
+bug_hex:.ascii	"0123456789abcdef"	;hex digits
+bug_exc:$exc_def int=txt		;exception code text
+
+	.align	long
+bug_rst:.word	long.,long.		;symbol table header
+bug_reg:				;longword register names
+.irp	$,<r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 ap fp sp pc psl>
+	.asciz	"$"
+	.align	long
+.endr
+	.long	0
+bug_r10:.word	long.,long.		;r10/r12 case
+	.asciz	"r10"
+	.asciz	"r11"
+	.asciz	"r12"
+	.long	0
+
+bug_ext:.word	long.,long.		;
+	.asciz	"rsb"			;rsb
+	.asciz	"ret"			;ret
+	.ascii	"exit"			;exit program
+	.ascii	"pass"			;transfer next bug
+	.long	0			;
+.sbttl	entry point
+
+;	Debugger entry point
+;
+; p1	con.csa	address of signal array
+;
+;	con.sct	parameter count
+;	con.scn	condition name
+;	con.sp1	signal parameter 1
+;	...
+;	con.spc	signal pc
+;	con.sps	signal ps
+;
+;	r4 ->	input line
+;	r5 ->	bug record
+;	r7 =	vpc
+;	r8 ->	output buffer
+;
+;	Build the working frame
+
+.entry	bug$sta	^m<>
+	clrq	-(sp)			;psl and pc go on later
+	clrl	-(sp)			;sp goes in later
+	pushl	fp.fp(fp)		;the previous fp
+	pushl	fp.ap(fp)		;the ap
+	pushr	#^m<r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>
+	pushab	bug_buf			;output buffer
+	pushab	bug_lin			;command line
+	movl	#bug.lin/long.,r0	;clear the remainder
+10$:	clrl	-(sp)			;clear one
+	sobgtr	r0,10$			;clear them all
+	movl	sp,r5			;r5 -> bug database
+					;
+	movl	con.csa(ap),r0		;point at signal array
+	movzbl	con.sct(r0),r1		;r1 = number of parameters
+	moval	con.sct+long.(r0)[r1],r1;r1 -> sp before exception
+	movl	r1,bug.sp(r5)		;bug.sp - stack on entry
+	assume$	con.spc eq -quad.	;
+	assume$	con.sps eq -long.	;
+	movq	-(r1),bug.pc(r5)	;bug.pc & bug.psl
+					;
+	movl	#bug_def.,bug.sta(r5)	;setup the default
+	bsbw	bug$bus			;check for bus errors
+	blbs	r0,bug$pro		;it was a BUG access error
+	bsbw	bug$bpc			;clear breakpoints, check skip
+;	bicv$	#psl_t_,bug.psl(r5)	;clear exit tbit
+	blbc	r0,bug$pro		;it was a skip
+	movl	bug.buf(r5),r8		;output buffer pointer
+	clrb	(r8)			;terminate it
+	bsbw	bug$tit			;display the title
+					;
+	movl	bug.pc(r5),r7		;get the address
+	bsbw	bug$fet			;probe and fetch it
+	movl	bug.pc(r5),r7		;get it again
+	cmpb	(r7)+,#opc_bpt.		;this a BPT?
+	bneq	20$			;no
+	movl	r7,bug.pc(r5)		;yes - skip it
+	bsbw	bug$fet			;fetch the next
+20$:	movl	bug.pc(r5),bug.loc(r5)	;copy good address to loc
+	movl	bug.pc(r5),bug.pre(r5)	;and previous
+	brw	bug$res			;and do the first
+					;
+bug$pas:movl	#1,bug_pas		;transfer next bug
+	brb	bug$pro			;and reissue it
+bug$rsb:movab	bug$rsx,bug.pc(r5)	;force REI to RSB
+	brb	bug$pro			;
+bug$ret:movab	bug$rex,bug.pc(r5)	;force REI to RET
+	brb	bug$pro			;
+bug$exi:movab	bug$exx,bug.pc(r5)	;force REI to $exit
+	brb	bug$pro			;and quit
+bug$ste:bisv$	#psl_t_,bug.psl(r5)	;set the tbit for the next
+bug$pro:movab	bug.r0(r5),sp		;restore parameters
+	movl	r5,sp			;clean up
+	bsbw	bug$bps			;set breakpoints
+	movl	con.csa(ap),r0		;r0 -> signal array
+	movzbl	con.sct(r0),r1		;r1 = number of parameters
+	moval	con.sct+long.(r0)[r1],r1;r1 -> sp before exception
+;;;	movl	r0,bug.sp(r5)		;bug.sp - stack on entry
+	movq	bug.pc(r5),-(r1)	;bug.pc & bug.psl
+10$:	movab	bug.r0(r5),sp		;setup for restore
+	popr	#^m<r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>
+	popl	fp.ap(fp)		;restore ap
+	popl	fp.fp(fp)		;restore fp
+	ret				;exit
+.sbttl	bug errors
+
+;	Bug errors
+;
+;	Check for errors that occur during bug commands.
+;	All such commands occupy three bytes.
+;
+;	bug$fe%:mov*	(r7),r1		;
+;	bug$de%:mov*	r1,(r7)		;
+;
+;	(r1) =	vpc
+;
+;	fine.	Bus error detected. Return Vbit set.
+
+bug$bus:movab	200$,r3			;check for read
+10$:	movw	(r3)+,r0		;get the next offset
+	beql	20$			;not an exception - r0=0
+	movab	(r3)[r0],r2		;r2 -> routine
+	bsbb	100$			;
+	blbc	r0,10$			;try another
+20$:	rsb				;report it
+
+;	Check for known location that fails
+
+100$:	clrl	r0			;assume not ours
+	cmpl	(r1),r2			;was this the address?
+	blssu	110$			;no
+	addl	#byte.*3,r2		;check half way done
+	cmpl	(r1),r2			;was it in the middle?
+	bgtru	110$			;no
+	movl	r2,bug.pc(r5)		;skip the three byte instruction
+	bisv$	#psl_v_,bug.psl(r5)	;set the return V bit
+	movl	#fine.,r0		;report error found
+110$:	rsb				;
+
+;	Relative word offsets to routines
+
+200$:	.word	bug$feb-.-2,bug$few-.-2,bug$fel-.-2 ;fetch byte/word/long
+	.word	bug$deb-.-2,bug$dew-.-2,bug$del-.-2 ;deposits
+	.word	0
+.sbttl	title
+
+;	Display title
+;
+;	Display PC, reason code and reason text
+;	This routine is called before any addresses are accessed
+;	so that in worst-case at least the title shows.
+;
+;	Ignore title on trace entry
+
+bug$tit:
+	movl	con.csa(ap),r3		;r3 -> signal array
+	movl	con.scn(r3),r3		;get the exception code
+	cmpw	r3,#exc_tpd.		;this a trace trap?
+	beql	30$			;yes - ignore it
+	movl	bug.pc(r5),r1		;get the address
+	bsbw	bug$plx			;print it
+	movl	#10,r1			;position
+	bsbw	bug$col			;at column 10
+	cmpl	r3,#128			;this too high for us?
+	bgeq	10$			;yes - skip the name
+	moval	bug_exc[r3],r1		;r1 -> text
+	bsbw	bug$paz			;display the string
+	brb	20$			;
+10$:	movl	r3,r1			;r1 = code
+	bsbw	bug$plx			;display the code
+	movw	#^a"  ",(r8)+		;put out two spaces
+20$:	bsbw	bug$obn			;dump the text
+30$:	rsb				;
+.sbttl	command loop
+
+;	Get the next command and dispatch it
+;
+;	r4 ->	input command string
+;	r5 -> 	parameters
+;	r7 =	vpc
+;	r8 ->	output buffer
+
+bug$err:movl	r5,sp			;cleanup the stack
+	bsbw	bug$obn			;output buffer & newline
+bug$res:movl	bug.lin(r5),r4		;point to the line
+	clrb	(r4)			;terminate the command
+;	fall$	bug$cmd			;
+
+bug$cmd:pushab	bug$cmd			;command loop
+	movl	bug.loc(r5),r7		;setup the address
+	tstb	(r4)			;got anything left?
+	bneq	10$			;yep - dont print
+	bsbw	bug$cur			;go display current
+	movl	#20,r1			;force column 20
+	bsbw	bug$col			;position at column
+	movab	bug_prm,r1		;the prompt string
+	bsbw	bug$paz			;display asciz string
+	bsbw	bug$obf			;output buffer
+	movl	bug.lin(r5),r4		;point to the line
+	bsbw	bug$gln			;go get a line from somewhere
+	bsbw	bug$las			;handle last-line stuff
+					;we accept null commands here
+10$:	tstb	(r4)			;get the next character
+	bneq	30$			;not a default command
+	movl	bug.vpc(r5),r7		;next location
+	brw	bug$fet			;fetch it
+
+;	r0...r11 ap fp sp pc psl
+
+30$:	pushl	#10			;assume base r10
+	movab	bug_r10,r1		;check r10:r12 first
+	bsbw	bug$mat			;since r1 is ambiguous
+	blbs	r0,35$			;fine
+	clrl	(sp)			;assume no base
+	movab	bug_rst,r1		;register symbol table
+	bsbw	bug$mat			;find the symbol
+35$:	addl	(sp)+,r2		;add in register base
+	blbc	r0,40$			;not found
+	moval	bug.r0(r5)[r2],r7	;r7 = address
+	brw	bug$jmp			;backup and fetch
+
+40$:	movl	bug.loc(r5),r7		;setup the address
+	movab	bug_ext,r1		;extended commands
+	bsbw	bug$mat			;try to find it
+	blbc	r0,45$			;not one of ours
+	caseb$	r2,#0,#4-1		;dispatch it
+	cases$	bug$rsb	bug$ret bug$exi	;call the routine
+	cases$	bug$pas			;
+					;
+45$:	movab	50$,r1			;symbol table
+	bsbw	bug$mat			;match the symbol
+	blbc	r0,80$			;not found
+	caseb$	r2,#0,#<70$-60$>-2	;dispatch it
+	cases$	bug$dep	bug$fpc	bug$ind	bug$pls	;=*@+
+	cases$	bug$min bug$rel bug$bra bug$rep	;-_%/
+	cases$	bug$bck bug$rad	bug$spc	bug$sem	;[^ ;
+	cases$	bug$pro bug$ste	bug$bra		;gsj
+	cases$	bug$ins bug$num			;in
+	cases$	bug$lng	bug$wrd bug$yte		;lwy
+	cases$	bug$tri	bug$one	bug$rem	bug$zap	;torz
+	cases$	bug$pro 			;p
+
+50$:	.word	byte.,byte.		;header
+60$:	.asciz	"=*@+-_%/[^ ;gsjinlwytorzp";symbol table
+70$:
+80$:	brw	bug$exm			;assume examine
+.sbttl	examine, registers
+
+;	Examine is a catch-all command
+;
+;	r0	address
+
+bug$exm:cmpw	(r4),#^a"ra"		;all registers?
+	beql	30$			;yes
+	bsbw	bug$val			;get the octal number
+	movl	r1,r7			;r7 -> address
+	brw	bug$fet			;check new address
+
+;	All registers command
+
+30$:	tstw	(r4)+			;skip the command
+	pushl	bug.loc(r5)		;save this guy
+	pushl	bug.val(r5)		;save the value
+	movab	bug.r0(r5),r7		;point to r0
+	bsbw	bug$prb			;check it
+	pushl	#17			;count them
+40$:	bsbw	bug$cur			;display current
+	bsbw	bug$obn			;put it out
+	addl	#long.,r7		;next location
+	bsbw	bug$prb			;probe it
+	sobgtr	(sp),40$		;do them all
+	tstl	(sp)+			;discard counter
+	popl	bug.val(r5)		;restore the value
+	popl	bug.loc(r5)		;restore the old address
+bug$rep:rsb				;nop command
+.sbttl	position commands
+
+;	[return] command
+
+bug$nxt:bsbw	bug$mod			;register?
+	movzbl	(r5),r1			;assume not register
+	blbs	r0,bug$off		;not register
+	movl	#long.,r1		;register is longword always
+	brb	bug$off			;go add it on
+
+; *	Current address
+
+bug$fpc:movl	bug.loc(r5),r7		;start of this instruction
+	brw	bug$fet			;
+
+
+; @	Indirect command
+
+bug$ind:movl	bug.val(r5),r7		;get the current guy
+	brw	bug$jmp			;and try it on
+
+; %	Branch command
+
+bug$bra:movl	bug.dst(r5),r7		;get destination from reverse compiler
+	brw	bug$jmp			;go probe it
+
+; _	Relative command
+
+bug$rel:movl	bug.loc(r5),bug.pre(r5)	;save the address
+	movl	bug.val(r5),r1		;and compute the offset
+bug$idx:incl	r1			;add pc in
+	brw	bug$off			;and add it on
+
+; -	Autodecrement command
+
+bug$pre:movzbl	(r5),r1			;get default increment
+	mnegl	r1,r1			;negative form
+	brw	bug$off			;add it in and check it out
+
+; -n	Negative offset
+
+bug$min:tstb	(r4)			;anything there?
+	beql	bug$pre			;nope
+	bsbw	bug$val			;get the offset
+	mnegl	r1,r1			;make it negative
+	brb	bug$off			;add it on and probe
+
+; +n	Positive offset
+
+bug$pls:movzbl	(r5),r1			;assume default
+	tstb	(r4)			;anything there?
+	beql	bug$off			;no - use the default
+	bsbw	bug$val			;get an addend
+bug$off:addl3	r1,bug.loc(r5),r7	;add it on
+	brw	bug$fet			;and check it out
+
+; [	Backup command
+
+bug$bck:movl	bug.pre(r5),r7		;get the last guy
+	brw	bug$fet
+
+; X	Exit command
+; RET	Return from procedure
+; RSB	Return from subroutine
+
+bug$exx:$exit_s	#fail.			;exit program
+bug$rex:ret				;exit procedure
+bug$rsx:rsb				;exit subroutine
+.sbttl	fetch & probe
+
+;	Fetch a location
+;
+;	val = @loc	- fetch current value
+;	vpc = loc+inc	- compute vpc
+
+bug$jmp:movl	bug.loc(r5),bug.pre(r5)	;backup
+bug$fet:bsbw	bug$prb			;probe and check errors
+	bsbw	bug$mod			;get the mode
+	blbs	r0,10$			;an address
+	addl	#long.,r7		;register increment
+	brb	40$			;dst not changed
+10$:	bbc	#bug_ins_,(r5),20$	;not instruction mode
+	pushl	r8			;store output position
+	bsbw	bug$rev			;setup vpc & dst
+	popl	r8			;ignore the output
+	brb	50$			;
+20$:	movzbl	(r5),r0			;get the increment
+	bneq	30$			;not the default
+	movl	#long.,r0		;default is long
+30$:	addl	r0,r7			;point past it
+40$:	movl	r7,bug.vpc(r5)		;store next address
+50$:	rsb				;
+
+;	Probe an address
+; 
+;	r7 ->	location to probe
+; 
+;	r1 =	value
+;	bug.loc	location
+;	bug.val	value
+;
+;	Following locations are tracked for bus exceptions.
+
+bug$prb: 
+bug$rea:.enable	lsb
+	bbs	#bug_ins_,bug.sta(r5),bug$fel ;always long for instruction
+	bsbw	bug$mod			;check for register
+	blbc	r0,bug$fel		;internal always long
+	tstb	bug.len(r5)		;default?
+	beql	bug$fel			;default is long
+	cmpb	bug.len(r5),#word.	;byte/long or word?
+	beql	bug$few			;word
+	bgtru	bug$fel			;long
+bug$feb:movzbl	(r7),r1			;byte
+	bvs	bug$bad			;oops
+	brb	10$			;fine
+bug$few:movzwl	(r7),r1			;word access
+	bvs	bug$bad			;oops
+	brb	10$			;fine
+bug$fel:movl	(r7),r1			;long
+	bvs	bug$bad			;access error
+10$:	movl	r7,bug.loc(r5)		;save the new address
+	movl	r1,bug.val(r5)		;the value
+	rsb
+	.disable lsb
+
+bug$bad:bsbb	bug$iad			;invalid address
+	movl	r7,r1			;get the address
+	bsbw	bug$plx			;print the number
+	brw	bug$err			;oops
+
+bug$iad:bsbw	bug$hea			;type the header
+	movab	bug_adr,r1		;invalid address
+	bsbw	bug$paz			;
+	rsb
+.sbttl	deposit
+
+;	Deposit value
+;
+;	@bug.loc = bug.val
+
+.enable	lsb
+bug$dep:tstb	(r4)			;nothing coming?
+	beql	20$			;no - ignore it
+	bsbw	bug$val			;get a number
+	movl	bug.loc(r5),r7		;point to the address
+bug$wri:bsbw	bug$mod			;check for internal variable
+	blbc	r0,bug$del		;registers always long
+	bbs	#bug_ins_,bug.sta(r5),bug$deb ;always byte for instruction
+	tstb	bug.len(r5)		;default is long
+	beql	bug$del			;long
+	cmpb	bug.len(r5),#word.	;byte/long or word?
+	beql	bug$dew			;word
+	bgtru	bug$del			;long
+bug$deb:movb	r1,(r7)			;byte
+	bvs	bug$bad			;oops
+	brb	10$			;fine
+bug$dew:movw	r1,(r7)			;word access
+	bvs	bug$bad			;oops
+	brb	10$			;fine
+bug$del:movl	r1,(r7)			;long
+	bvs	bug$bad			;access error
+10$:	movl	r1,bug.val(r5)		;the value
+20$:	cmpb	(r4),#^a"/"		;no move?
+	bneq	30$			;yes
+	incl	r4			;yep - skip it
+	rsb				;no
+30$:	movl	bug.vpc(r5),r7		;next address
+	brw	bug$fet			;fetch it
+.disable lsb
+
+;	Invalid access mode
+
+bug$acc:bsbw	bug$hea			;the header
+	movab	bug_mod,r1		;invalid access mode
+	bsbw	bug$paz			;
+	brw	bug$err			;
+.sbttl	breakpoint management
+
+;	Breakpoint management
+; 
+;	Breakpoints are cleared during entry, set during exit.
+;	A one-time breakpoint is cleared after it traps.
+;	A skip breakpoint is restored after a trap.
+; 
+;	SKP is used to skip a BPT on a GO or STEP instruction.
+;	The SKP flag is simply set in the BPT mode.
+; 
+;	bpt.typ	byte.	BPT code
+;	bpt.mod	byte.	BPT mode
+;	bpt.opc	byte.	original opcode
+;	bpt.f00	byte.	
+;	bpt.loc	long.	location
+;	bpt.vpc	long.	location after instruction
+; 
+;	Called during entry to clear all breakpoints
+; 
+;	SKP reports FAIL.
+
+bug$bpc:pushl	#fine.			;assume not a skip
+
+;	Check for a skip in progress
+
+	bbcc	#psl_t_,bug.psl(r5),20$	;not a potential skip
+	bsbw	bug$bpl			;loop
+10$:	jsb	@(sp)+			;get the next
+	blbc	r0,20$			;are no more
+	cmpl	bpt.vpc(r2),bug.pc(r5)	;same location?
+	bneq	10$			;no
+	bbcc	#bpt_skp_,bpt.typ(r2),10$ ;not in skip mode
+	tstl	(sp)+			;yes - skip co-routine
+	bbsc	#bpt_stp_,bpt.typ(r2),20$ ;step&skip
+;	cmpb	bpt.opc(r2),#opc_bpt.	;was it a BPT instruction?
+;	beql	20$			;yes - don't skip
+	clrl	(sp)			;just skip
+
+;	Clear all breakpoints
+
+20$:	bsbw	bug$bpl			;restore breakpoint stuff
+30$:	jsb	@(sp)+			;get the next
+	blbc	r0,40$			;no more
+	tstb	bpt.typ(r2)		;this in use?
+	beql	30$			;no
+	movb	bpt.opc(r2),@bpt.loc(r2);yes - restore it
+	cmpl	bpt.loc(r2),bug.pc(r5)	;this the same location?
+	bneq	30$			;no
+	cmpb	bpt.typ(r2),#bpt_one.	;once only bpt?
+	bneq	30$			;no
+	clrw	bpt.typ(r2)		;yes - clear it
+	brb	30$			;do another
+40$:	popl	r0			;report skip or not skip
+	rsb
+
+;	Set breakpoints
+; 
+;	Called during exit to set all breakpoints
+; 
+;	Setup SKIP if pointing to a BPT.
+
+bug$bps::bsbw	bug$bpl			;loop thru breakpoints
+10$:	jsb	@(sp)+			;get the next
+	blbc	r0,30$			;no more
+	tstb	bpt.typ(r2)		;this one in use?
+	beql	10$			;no
+	movb	@bpt.loc(r2),bpt.opc(r2);yes - get the opcode
+	cmpl	bpt.loc(r2),bug.pc(r5)	;this the next instruction?
+	bneq	20$			;no - just restore bpt
+	bisv$	#bpt_skp_,bpt.typ(r2)	;yes - remember it
+	bbcs	#psl_t_,bug.psl(r5),10$	;not already in step mode
+	bisv$	#bpt_stp_,bpt.typ(r2)	;remember step mode
+	brb	10$			;
+20$:	movb	#opc_bpt.,@bpt.loc(r2)	;put back bpt
+	brb	10$			;look for more
+30$:	rsb				;done
+.sbttl	breakpoint commands
+
+;	One-shot	Set a one-shot breakpoint trap
+;	Trigger		Set a repeated breakpoint trigger
+;	Remove		Remove single breakpoint
+;	Zap		Clear all breakpoints
+;
+;	Set one-time or test-point
+;	Existing breakpoint is converted
+
+	.enabl	lsb
+bug$one:pushl	#bpt_one.		;one-time
+	brb	10$			;
+bug$tri:pushl	#bpt_tri.		;test-point
+	bsbw	bug$bpf			;find matching breakpoint
+	blbs	r0,30$			;found - change it
+10$:	bsbw	bug$bpl			;loop thru them
+20$:	jsb	@(sp)+			;get the next
+	blbc	r0,40$			;no slots available
+	tstb	bpt.typ(r2)		;this in use already?
+	bneq	20$			;yes - look again
+	tstl	(sp)+			;drop coroutine
+30$:	movw	(sp),bpt.typ(r2)	;setup the type
+;sic]	movb	@bug.loc(r5),bpt.opc(r2);get the opcode (redundant)
+	movl	bug.loc(r5),bpt.loc(r2)	;setup the address
+	movl	bug.vpc(r5),bpt.vpc(r2)	;setup following address
+40$:	tstl	(sp)+			;drop type
+	rsb				;
+	.disable lsb			;
+
+;	Clear all breakpoints
+
+	.enable	lsb			;
+bug$zap:bsbb	bug$bpl			;loop thru them
+10$:	jsb	@(sp)+			;get the next
+	blbc	r0,40$			;no more
+	bsbb	30$			;clear it
+	brb	10$			;
+
+;	Remove single breakpoint
+
+	assume$	bpt.bbs eq long.*3	;
+bug$rem:bsbb	bug$bpf			;find breakpoint
+	blbc	r0,40$			;not found
+30$:	clrl	bpt.typ(r2)		;clear it
+	clrq	bpt.loc(r2)		;loc & vpc
+40$:	rsb				;
+	.disable lsb			;
+
+;	Test address for breakpoint
+;
+;	fine.	address has breakpoint
+;		r1 = t, o or s
+
+bug$bpa:pushr	#^m<r2,r3>		;save these
+	bsbb	bug$bpf			;find it
+	blbc	r0,10$			;not a breakpoint
+	movzbl	#^a'T',r1		;assume trigger
+	cmpb	bpt.typ(r2),#bpt_tri.	;this a trigger?
+	beql	10$			;yes
+	movzbl	#^a'O',r1		;no - assume one-shot
+	cmpb	bpt.typ(r2),#bpt_one.	;this a one-shot?
+	beql	10$			;yes
+	movzbl	#^a'S',r1		;no - its a skip
+10$:	popr	#^m<r2,r3>		;restore them
+	rsb
+
+;	Find breakpoint
+;
+;	fail.	not found
+;	r2 ->	bpt.typ if found
+
+bug$bpf:bsbb	bug$bpl			;loop thru them
+10$:	jsb	@(sp)+			;get the next
+	blbc	r0,20$			;not found
+	tstb	bpt.typ(r2)		;this in use?
+	beql	10$			;no
+	cmpl	bpt.loc(r2),bug.loc(r5)	;this the appropriate location?
+	bneq	10$			;no
+	tstl	(sp)+			;yes - r0=fine.
+20$:	rsb				;
+
+;	Loop thru all breakpoint entries
+
+bug$bpl:movab	bug_bpt-bpt.bbs,r2	;r2 -> current entry
+	movl	#bpt_bps.,r3		;count them
+10$:	movl	#fine.,r0		;got one
+	jsb	@(sp)+			;call them back
+	addl	#bpt.bbs,r2		;next one
+	sobgeq	r3,10$			;more
+	clrl	r0			;no more
+	rsb
+.sbttl	mode
+
+;	Set up the mode longword.
+;
+;	byte 0	length		null,byte,word,long,quad
+;	byte 1	display flags	ascii, decimal, hex, instruction
+;	byte 2	reserved
+;	byte 3	reserved
+;
+;	^	clear all
+;	^n	numeric - hex/long
+;	^i	instruction - reverse/byte
+;	^%	set mode %
+
+map$	loc.sym	word.,0			;symbol string
+map$	loc.sbs	null.			;symbol byte size
+map$	loc.len	byte.			;length value
+map$	loc.dis	byte.			;display value
+map$	loc.ebs				;entry byte size
+
+	.enable lsb
+bug$ins:movw	#<1@bug_ins_>!byte.,(r5);instruction mode
+	brb	10$			;
+	movl	bug.loc(r5),r7		;reprobe it
+	brw	bug$fet			;fetch & probe instruction
+bug$yte:movw	#<1@bug_hex_>!<1@bug_asc_>!byte.,(r5)
+	brb	10$			;
+bug$wrd:movw	#<1@bug_hex_>!<1@bug_asc_>!word.,(r5)
+	brb	10$			;
+bug$lng:
+bug$num:movw	#<1@bug_hex_>!<1@bug_asc_>!long.,(r5)
+10$:	movl	bug.loc(r5),r7		;reprobe it
+	brw	bug$fet			;
+	.disable lsb
+
+bug$rad:tstb	(r4)			;this a clear?
+	beql	40$			;yes
+	movab	100$,r1			;look for it
+	bsbw	bug$mat			;match the symbol
+	blbc	r0,60$			;not found
+	movw	word.(r1),r1		;r1 = symbol value
+	tstb	r1			;this got a length?
+	beql	20$			;no
+	movb	r1,(r5)			;yes - reset the length
+	bicw	#255,r1			;remove length
+	beql	50$			;not combined
+	clrb	byte.(r5)		;replace display mode
+20$:	bisw	r1,(r5)			;setup the display mode
+	brb	50$			;
+40$:	movw	#long.,(r5)		;clean off to long
+50$:	movl	bug.loc(r5),r7		;get current location
+	brw	bug$fet			;recompute vpc, val & dst
+60$:	brw	bug$syn			;invalid syntax
+
+meta$	<bugmod$ c d><.word ^a"c",d>
+100$:	.word	loc.sbs,loc.ebs		;symbol table
+	bugmod$	a	1@bug_asc_	;ascii
+	bugmod$	d	1@bug_dec_	;decimal
+	bugmod$	i	<<1@bug_ins_>!byte.> ;instruction - instruction & byte
+	bugmod$	h	1@bug_hex_	;hex
+	bugmod$	x	1@bug_hex_	;hex
+	bugmod$	n	<<1@bug_hex_>!<1@bug_asc_>!long.> ;numeric - hex & long
+	bugmod$	b	byte.		;byte
+	bugmod$	w	word.		;word
+	bugmod$	l	long.		;long
+	bugmod$	q	quad.		;quad
+	.byte	0
+.sbttl	determine address mode
+
+;	Determine if address or frame variable
+;
+;	blbs	address
+;	blbc	frame variable
+
+bug$mod:clrl	r0			;assume address
+	pushl	r7			;get the address
+	subl	r5,(sp)			;is it in range?
+	cmpl	(sp),#bug.r0		;below bug.r0(r5)?
+	blssu	10$			;yes - not a register
+	cmpl	(sp),#bug.psl		;a register?
+	blequ	20$			;yes
+10$:	incl	r0			;r0=1 => address
+20$:	tstl	(sp)+			;r0=0 => variable
+	rsb				;
+.sbttl	display current
+
+;	Display current location
+;
+;	addr	use current modes
+;	reg	hex ascii
+
+map$	loc.flg	byte.,0			;bit flag
+map$	loc.len	byte.			;field length
+map$	loc.rou	byte.*3			;brw routine
+map$	loc.bbs				;
+
+bug$cur:movl	bug.loc(r5),r7		;get the address
+	pushl	(r5)			;assume address
+	stack$	sta			;control & status
+	bsbw	bug$mod			;address or variable?
+	blbs	r0,10$			;an address
+
+;	register
+
+	movl	#<1@bug_hex_>!<1@bug_asc_>,sp.sta(sp) ;ascii & hex
+	movab	bug.r0(r5),r0		;r0 -> base of registers
+	subl3	r0,r7,r0		;r0 = long word offset to register
+	movab	bug_reg[r0],r1		;r1 -> register name string
+	bsbw	bug$paz			;display the name
+	brb	20$			;and the value
+
+;	address
+
+10$:	movl	#long.,r0		;long address
+	movl	r7,r1			;the address
+	bsbw	bug$plx			;put hex address
+	bsbw	bug$bpa			;check for bpt address
+	blbc	r0,20$			;not a breakpoint address
+	movb	r1,(r8)+		;report T, O or S
+
+;	common
+
+20$:	movl	#10,r1			;column 10
+	bsbw	bug$col			;position
+	movab	100$,r9			;get the processing list
+	tstl	sp.sta(sp)		;got anything at all?
+	beql	40$			;no - hex is default
+30$:	movzbl	loc.flg(r9),r0		;get the bit number
+	bbc	r0,sp.sta(sp),50$	;ignore this one
+40$:	movzbl	loc.len(r9),-(sp)	;field length
+	stack$	len sta			;
+	addl	r8,(sp)			;(sp) -> end of field
+	movl	bug.val(r5),r1		;supply the value
+	jsb	loc.rou(r9)		;call the routine
+	subl3	bug.buf(r5),(sp)+,r1	;r1 = position
+	stack$	sta			;
+	bsbw	bug$col			;position us
+50$:	addl	#loc.bbs,r9		;skip this one
+	tstb	(r9)			;anymore to test?
+	bneq	30$			;yes
+	stack$	sta			;
+	tstl	(sp)+			;clean up
+	rsb
+
+meta$	<bugdis$ flg len rou><.byte flg,len><brw rou>
+100$:	bugdis$	bug_hex_ 10 bug$plx	;put long hex
+	bugdis$	bug_dec_ 10 bug$psd	;signed decimal
+	bugdis$	bug_asc_ 06 bug$pla	;put long ascii
+	bugdis$	bug_ins_ 32 bug$rev	;reverse compile
+	.byte	0
+.sbttl	put hex
+
+;	bug$psx - put signed hex
+;	bug$pux	- put unsigned hex
+;
+;	r0 =	length
+;	r1 =	value
+;	r5 =	last value output
+
+bug$psx:pushl	r1		;get the value
+	tstb	(sp)[r0]	;is it signed?
+	bgeq	10$		;no
+	movb	#^a"-",(r8)+	;yes
+	mnegl	(sp),(sp)	;negate it
+10$:	popl	r1		;get it back
+	brb	bug$pux		;output unsigned
+
+bug$plx:movl	#4,r0		;put long hex
+bug$pux:pushr	#^m<r2,r3,r4>	;
+	movl	r0,r2		;r2 = length
+	mull3	#8,r2,r3	;r3 = last bit
+	clrl	r4		;check for digit output
+10$:	subl	#4,r3		;next nibble
+	extzv	r3,#4,r1,r0	;r0 = digit
+	bneq	20$		;we have one
+	tstl	r4		;already done one?
+	bneq	20$		;yes
+	tstl	r3		;this the last digit?
+	bneq	30$		;no - skip it
+20$:	incl	r4		;start displaying
+	movb	bug_hex[r0],(r8)+ ;display the digit
+30$:	tstl	r3		;anymore?
+	bneq	10$		;yes
+	popr	#^m<r2,r3,r4>	;no
+	rsb			;
+.sbttl	put decimal
+
+;	Put signed decimal
+;
+;	r1 =	value
+
+bug$psd:pushr	#^m<r2,r3>		;save them
+	movl	#1000000000,r2		;initial divisor
+	clrl	r3			;no leading zeroes
+	tstl	r1			;a negative number?
+	bgeq	10$			;nope
+	mnegl	r1,r1			;yep, make it positive
+	movb	#^a"-",(r8)+		;display minus sign
+10$:	clrl	r0			;clear high order
+	ediv	r2,r0,r0,r1		;r0=quotient, r1=remainder
+;	bgeq	15$			;positive reply
+;	mnegl	r1,r1			;adjust special case 1ooooo/100000
+15$:	bneq	20$			;digits from now on
+	blbs	r3,30$			;already getting digits
+	blbc	r2,40$			;not last digit
+20$:	movl	#1,r3			;get all remaining digits
+30$:	addl	#^a"0",r0		;make a digit
+	movb	r0,(r8)+		;insert it
+40$:	divl	#10,r2			;anymore to do?
+	bneq	10$			;yes
+	movb	#^a".",(r8)+		;the decimal dot
+	popr	#^m<r2,r3,r4>		;save them
+	rsb
+.sbttl	put ascii
+
+;	Put longword ascii
+;
+;	r1 =	ascii string
+;
+;	.aa.	
+
+bug$pla:movl	#long.,r0		;count longword of bytes
+	pushl	r1			;(sp) = string
+10$:	cmpb	(sp),#space.		;too low?
+	blssu	20$			;yes
+	cmpb	(sp),#rubout.		;really not?
+	blssu	30$			;yes
+20$:	movb	#^a".",(sp)		;replace it
+30$:	movb	(sp)+,(r8)+		;store it
+	sobgtr	r0,10$			;count them
+	rsb				;
+
+;	Put asciz string
+;
+;	r1 ->	string
+
+bug$paz::				;put asciz
+10$:	movb	(r1)+,(r8)+		;move them out
+	bneq	10$			;till zero
+	decl	r8			;backup
+	rsb
+
+;	Position at column
+;
+;	r1 =	column number
+
+bug$col:clrb	(r8)			;terminate the line
+	locc	#0,r1,@bug.buf(r5)	;count current characters
+	beql	20$			;past requested column
+10$:	movb	#space.,(r1)+		;fill in with spaces
+	sobgtr	r0,10$			;count them
+	movl	r1,r8			;point to end of string
+20$:	rsb				;
+.sbttl	put instruction
+
+;	Put instruction
+
+bug$rev:				;reverse compile current
+	clrb	(r8)			;terminate current section
+	pushab	(r8)			;buffer address
+	pushab	(r5)			;bug record
+	calls	#2,rev$sta		;reverse compile it
+10$:	tstb	(r8)+			;find the zero
+	bneq	10$			;more
+	decl	r8			;back up
+	movl	bug.vpc(r5),r7		;setup vpc
+	rsb				;and quit
+.sbttl	get value
+
+;	Get value
+;
+;	r4 ->	input stream
+;
+;	r1 =	result value
+;
+;	-val	negate value
+;	'val	80000000+val
+;	%%%%	hex
+;	"%%%%"	quoted ascii
+
+bug$val:pushr	#^m<r3,r2>		;save these
+	clrl	r2
+	clrl	r3			;assume no sign
+	clrl	r0
+	cmpb	(r4),#^a"'"		;system space address?
+	beql	5$			;yes
+	cmpb	(r4),#^a"-"		;got a minus sign?
+	bneq	10$			;no
+5$:	movb	(r4)+,r3		;remember and skip it
+10$:	cmpb	(r4),#^a"."		;current location?
+	bneq	15$			;no
+	incl	r4			;yes
+	movl	bug.pc(r5),r1		;return the value
+	brb	30$			;got it
+15$:	bsbw	bug$str			;this a string?
+	blbs	r0,30$			;yes
+	bsbw	bug$dig			;anything there?
+	blbc	r0,bug$syn		;nope
+20$:	mull	#16.,r2			;
+	addl	r1,r2			;add in the digit
+	bsbw	bug$ndg			;try for another
+	blbs	r0,20$			;got another
+	movl	r2,r1			;yes
+30$:	cmpb	r3,#^a"'"		;system space?
+	bneq	35$			;no
+	addl	#adr_s0b,r1		;yes
+	brb	40$			;
+35$:	tstl	r3			;was it negative?
+	beql	40$			;no
+	mnegl	r1,r1			;yes
+40$:	popr	#^m<r2,r3>		;
+	rsb				;now return
+.sbttl	get digit
+
+;	Return digit or next digit from input stream
+;
+;	(r4) 	input stream
+;
+;	r1 =	hex digit
+;	fail	not a digit
+
+bug$ndg:incl	r4			;point to next character
+bug$dig:movzbl	(r4),r1			;get the next
+	bsbw	bug$low			;get lowercase
+	locc	r1,#16.,bug_hex		;get a hex character
+	beql	10$			;not a hex digit - r0=0
+	subl3	r0,#16.,r1		;r1 = hex digit
+	movl	#fine.,r0		;fine
+10$:	rsb				;
+
+;	Syntax error - invalid input character
+
+bug$syn:				;syntax error
+	bsbw	bug$hea			;the header
+	movab	bug_inp,r1		;invalid input:
+	bsbw	bug$paz			;put asciz string
+	movb	#^a"'",(r8)+		;quoted
+	movb	(r4),r1			;get the character
+	cmpb	r1,#space.		;this printable?
+	bgequ	10$			;yes
+	movb	#^a"^",(r8)+		;control character
+	addl	#^a"@",r1		;make it printable
+10$:	movb	r1,(r8)+		;
+	movb	#^a"'",(r8)+		;quoted
+	brw	bug$err			;oops
+
+bug$hea:movab	bug_fac,r1		;facility name
+	brw	bug$paz			;display it
+.sbttl	get string
+
+;	Get quoted string
+;
+;	"%%%%"	Upto four characters
+;
+;	'%	literal
+;	^%	control character
+;
+;	used	r0,r2
+;	fail	not a string
+;	fine	r1 contains string
+
+bug$str:clrl	r0			;assume not a string
+	cmpb	(r4),#^a'"'		;this a string?
+	bneq	200$			;no
+	incl	r4			;skip <">
+	clrl	-(sp)			;accumulate the string
+	movl	sp,r1			;r1 -> output
+	movl	#4,r0			;maximum size
+110$:	movb	(r4)+,r2		;all done?
+	beql	180$			;yes
+	cmpb	r2,#^a'"'		;end of it?
+	beql	190$			;yes
+	cmpb	r2,#^a"'"		;this a quoted literal?
+	bneq	120$			;no
+	movb	(r4)+,(r1)+		;copy it in
+	beql	180$			;all done
+	brb	150$			;
+120$:	cmpb	r2,#^a"^"		;this a control character?
+	bneq	130$			;no
+	movb	(r4)+,(r1)		;
+	beql	180$			;all over
+	subb	#^a"@",(r1)+		;convert to [ctrl/%]
+	brb	150$			;
+130$:	movb	r2,(r1)+		;ordinary character
+	beql	180$			;
+150$:	sobgtr	r0,110$			;get the next
+	cmpb	(r4)+,#^a'"'		;got terminator?
+	beql	190$			;yes
+180$:	decl	r4			;backup over null
+190$:	popl	r1			;r1 = value
+	movl	#fine.,r0		;
+200$:	rsb
+.sbttl	get line
+
+;	Get input line
+;
+;	[rubout]	
+;	[ctrl/u]
+
+bug$gln:movl	bug.lin(r5),r4		;r4 -> start of line
+vcl$gln::movab	80(r4),r2		;r2 -> end of line
+	movl	r4,r3			;r3 -> current position
+10$:	bsbw	bug$inp			;get a character
+	cmpb	r1,#ctrlu.		;ctrl/u?
+	beql	15$			;yes
+	cmpb	r1,#rubout.		;got a rubout?
+	bneq	20$			;nope
+15$:	cmpl	r3,r4			;any more to rub?
+	beql	10$			;no
+	decl	r3			;backup
+	movb	r1,-(sp)		;save the command
+	movab	bug_del,r1		;bs space bs
+	bsbw	bug$typ			;delete the character
+	cmpb	(sp)+,#ctrlu.		;entire line?
+	beql	15$			;yes
+	brw	10$
+20$:	cmpl	r3,r2			;too far?
+	bgequ	10$			;yes - ignore it
+	movb	r1,(r3)+		;store it
+	beql	30$			;done
+	bsbw	bug$opt			;display it
+	brw	10$			;
+30$:	brw	bug$new			;a new line
+
+;	Get character
+
+bug$inp:				;get a character
+10$:	bsbw	con$get			;get another
+	blbc	r0,10$			;wait for it
+	cmpb	r1,#lf.			;line-feed
+	beql	20$			;yes
+	cmpb	r1,#cr.			;return?
+	bneq	30$			;no
+20$:	clrl	r1			;yes
+30$:;	fall$	bug$low			;
+
+bug$low:cmpb	r1,#^a"A"		;lower case?
+	blssu	10$			;nope
+	cmpb	r1,#^a"Z"		;really
+	bgtru	10$			;no
+	addl	#^a"a"-^a"A",r1		;lower it
+10$:	rsb
+.sbttl	last line control
+
+;	Last line control
+;
+;	[;]	repeat last line
+;	space	dont store
+;		dont store null command lines
+;	%	dont store single character command
+;
+;	bug.lin	input line
+;	bug.las	last line
+
+bug$las:tstb	(r4)			;blank line?
+	beql	20$			;yes - ignore it
+	tstb	byte.(r4)		;single character command?
+	beql	20$			;yes
+	cmpb	(r4),#space.		;ignore this guy?
+	beql	20$			;yes
+	cmpb	(r4),#^a";"		;a last line command?
+	bneq	10$			;yes
+	movab	bug_las,r4		;yes - use last line
+	brb	20$			;
+10$:	pushr	#^m<r2,r3,r4,r5>	;save this lot
+	movc3	#81,(r4),bug_las	;move them in
+	popr	#^m<r2,r3,r4,r5>	;
+20$:	rsb				;
+
+bug$sem:				;[;] is a nop
+bug$spc:rsb				;[space] is a nop
+.sbttl	terminal output
+
+;	Output buffer & newline
+;	Output buffer
+
+.enable	lsb
+bug$obn:tstb	@bug.buf(r5)		;got anything to display?
+	beql	10$			;no - ignore this
+	bsb	bug$obf			;output the buffer
+	brb	bug$new			;output newline
+bug$obf:clrb	(r8)			;terminate the buffer
+	movl	bug.buf(r5),r8		;point to it
+	movl	r8,r1			;
+	bsbb	bug$typ			;type the buffer
+	clrb	(r8)			;clean it up
+10$:	rsb				;
+.disable lsb
+
+;	Print a line
+;
+;	lin.da	r1 ->	Asciz string
+
+bug$prt::bsbw	bug$typ		;type the line
+
+;	Display newline
+;
+;	connew$	
+
+bug$new::movb	#cr.,r1		;newline
+	bsbb	bug$opt		;
+	movb	#lf.,r1		;
+	brb	bug$opt		;
+
+;	Type a line
+;
+;	contyp$	lin
+;
+;	lin.da	r1 ->	Asciz string
+
+bug$typ::			;display message
+	pushl	r2		;save this
+	movl	r1,r2		;r2 -> string
+10$:	movb	(r2)+,r1	;get the next
+	beql	20$		;are no more
+	bsbb	bug$opt		;display the byte
+	brb	10$		;
+20$:	popl	r2		;
+	rsb
+
+bug$opt:brw	con$put		;output a character
+.sbttl	match string
+
+;	bugmat$	objadr symadr
+;
+;	r1 ->	symbol table
+;	r4 ->	input string
+;
+;	r1 ->	entry
+;	r2 =	index
+;
+;	.word	symlen		;maximum symbol length
+;	.word	entlen		;entry length
+;	.ascii	"symlen"
+;	.blkb	entlen
+
+bug$mat::
+	movzwl	(r1)+,-(sp)		;(sp)=maxsym
+	movzwl	(r1)+,-(sp)		;r0 = entry size
+	stack$	ent sym			;entry size, symbol size
+	clrl	r2			;count the entries
+10$:	movl	sp.sym(sp),r0		;r0 = symbol length
+	pushr	#^m<r1,r4>		;save them
+20$:	cmpb	(r1)+,(r4)+		;this the symbol?
+	bneq	40$			;no
+	tstb	(r1)			;anymore?
+	beql	30$			;no - we have a match
+	sobgtr	r0,20$			;get some more
+30$:	popl	r1			;r1 -> entry
+	tstl	(sp)+			;r4 -> past symbol
+	movl	#fine.,r0		;
+	brb	50$			;and quit
+40$:	popr	#^m<r1,r4>		;restore them
+	incl	r2			;next symbol
+	addl	sp.ent(sp),r1		;r1 -> next entry
+	tstb	(r1)			;is this the last?
+	bneq	10$			;no
+	clrl	r0			;yes - failed
+50$:	clrq	(sp)+			;cleanup ent & sym
+	rsb
+
+.end
+.sbttl	symbols
+
+;	def	define a symbol
+;	rep	replace a symbol
+;
+;	bug.ssu	long.,0		;successor
+;	bug.spr	long.		;predecessor
+;	bug.stp	byte.		;symbol type
+;	bug.sln	byte.		;symbol length
+;	bug.stx	null.		;symbol text
+;	
+;	bug_srg.,,1		;register
+;	bug.sad.,,2		;
+;
+                                                                                                                                                                                                                                                                                             

@@ -1,0 +1,579 @@
+ree$c=1	; don't reenter once-only code
+nxm$c=1 ; count nxm
+V4=1
+check=0
+.title	EG - Ethernet driver
+.psect	nthrd			;
+$chdef
+$fkdef				;fork block
+$iqdef
+$ntdef				;net
+$psdef				;psw
+$vadef				;vamp package
+$eqdef				;nq: deqna definitions
+				;
+.save				;
+.psect	ntinf			;information area
+	$imgdef EQ 2 0		;
+; 	$imgham	yrs=<1987> oth=<>
+ um eq <<$imginf fun=han cre=hammo aut=ijh use=<EQ unmapped Ethernet handler>>>
+ xm eq <<$imginf fun=han cre=hammo aut=ijh use=<EQX mapped Ethernet handler>>>
+	egdat$			;$imgdat defined in WB.MAC/WD.MAC
+	nhnam$==^rtp		;define the handler name
+	.asect			;
+	.=0			;
+     xm	.rad50	/22b/		;22-bit handler
+.restore			;
+
+;	SHAREnet NT: EG - Ethernet driver
+; 
+;	$eqdef	Ethernet Q-bus structures
+;	$eudef	Ethernet unibus structures
+;	$egdef	Combined structures
+; 
+;	The WB/WD modules are linked with the NP (public) and NA (acp)
+;	modules to produce a mapped/unmapped pma/dma SHAREnode handler.
+; 
+;	NP	RT-11 public handler
+;	NA	RT-11 interface
+;	EG	Ethernet support
+; 
+;	ntwb$	WB handler
+;	ntwd$	WD handler
+;	nteq$	Ethernet Q-bus handler
+;	ntum$	Unmapped
+;	ntxm$	Mapped
+; 
+;	Produces the following modules:
+; 
+;	WB.OBJ	WB-11 unmapped pma
+;	WBX.OBJ	WB-11 mapped pma
+;	WD.OBJ	WD-11 unmapped dma
+;	WDX.OBJ	WD-11 mapped dma
+;	EQ.OBJ	Ethernet Q-bus unmapped dma
+;	EQX.OBJ	Ethernet Q-bus mapped dma
+.sbttl	SHAREnode interface
+
+;	SHAREnode interface
+; 
+;	This handler uses the standard SHAREnode driver interface.
+;	The hardware handler supplies the following routines:
+; 
+;	nh$onc	Once-only code to setup data
+;	nh$pre	Preprocess - setup impure
+;	nh$ini	Init connection
+; 
+;	nh$snd	Send
+;	nh$rcv	Receive
+;	nh$sto	Stop I/O - just stop interrupts
+;	nh$kil	Kill I/O - abort current transfer
+;	nh$map	Map DMA buffer
+;	nh$hof	Hook - fork
+; 
+;	NT supplies the following data and routines:
+; 
+;	n$tcsr	CSR address
+;	n$tvec	Vector address
+;	n$trvc	Receive vector
+;	n$txvc	Transmit vector
+;	nt$cgo	Clock go
+;	nt$cst	Clock stop
+; 
+;	nt$tlk	Talk routine - transfer here after init
+;	nt$rty	Retry - transfer here after fail
+;	nt$abt	RT-11 .abtio routine
+;	n$hcon	Co-routine return on success
+.sbttl	Ethernet strategy
+
+;	Ethernet strategy
+;
+;	TPnet ethernet licensing is based on the ethernet station address.
+;???	A maree program is used to verify the licensing information.
+;	The handler is prebuilt with the local station address wired in.
+;	The host station address is specified by a utility program.
+;
+;	This driver is designed for minimal memory overhead.
+;	A full blown ethernet handler requires about 6k words.
+;	This handler aims at about 1.5k words.
+;
+;	A single host target is supported.
+;	All transactions are internal.
+;	One output and one input buffer maximum are used.
+;	The input buffer is prepared before the output operation.
+;	Timeout is used to abort and retry operations.
+;	Broadcast messages are ignored.
+;
+;	The SET EG GO command runs the handler as a utility to setup the
+;	interface. The utility prompts for the target host ethernet address.
+;
+;	Host address: ......
+;
+;	The transmit operation is started by the receive operation.
+;	The transmit header and data, if any, are concatenated together.
+;	The receive header and data are returned separately.
+;
+;	Transmit and receive use the same data area.
+;	Receive is enabled immediately after the transmit completes.
+.sbttl	DEQNA/DELQA
+
+;174440	[	|sad.0	]
+;174442	[	|sad.1	]
+;174444	[	|sad.2	]	[rcv bdl adr lo	]
+;174446	[	|sad.3	]	[       |adr hi ] write initiates rcv
+;174450	[	|sad.4	]	[xmt bdl adr lo	]
+;174452	[	|sad.5	]	[       |adr hi ] write initiates xmt
+;174454	[    vector	]	[    vector	]
+;174456	[     csr	]	[     csr	]
+;
+;	read			write
+;
+;174444/174446 bdl addresses
+;	List must be invalidated before alteration
+;	Write low-order before high-order
+;	Writing high-order initiates operation (rcv or xmt)
+;	
+;				prep.		i/f
+; +0	[      flag	]	100000		set
+; +2	[  dsc	| ho ad	]	(100000)	r/o
+; +4 	[  address lo	]	static		r/o
+; +6	[  -word count	]	static		r/o
+; +10	[    status 0	]	100000		set
+; +12	[    status 1	]  xmt:	dont care	set
+;			   rcv: unequal	bytes	equal when done
+;				100000
+;
+;	Each buffer list is terminated by an invalid entry
+;	and two spare words.
+.sbttl	Once only
+ 
+;	The receive packet is used to perform once only code.
+;	All registers are available
+
+n$trpk::.enabl	lsb			;receive packet
+nh$onc::
+.if ne ree$c
+	asr	#1			;don't repeat initial code after
+	bcc	10$			; abort in once-only code
+.endc
+	mov	pc,r4			;get the relocation base
+e$gbas:	.irpc	$,<01234567>		;relocation base and list
+	add	r4,e$gr'$		;relocate it
+	.endr
+
+10$:	call	nh$res			;reset the interface
+.if ne nxm$c
+	mov	#40.,r0			;wait 100usec
+15$:	sobw	r0,15$			;
+.endc
+	mov	n$tcsr,r5		;get the csr bank address
+	mov	n$tvec,eg.vec(r5)	;setup the vector address
+
+;	Copy the station address
+
+	mov	r5,r0			;r0 -> csr bank
+	mova	e$gnod,r3		;r3 -> node station address
+	mova	n$usa0,r4		;r4 -> local station address
+	mov	#egsas.,r2		;get the station address size
+30$:	mov	(r0)+,r1		;get the next
+	movb	r1,(r3)+		;store it
+	movb	r1,(r4)+		;store it again
+	dec	r2			;count them
+	bne	30$			;do the next
+
+;	Build the setup message
+
+	mova	e$gsub,r4		;setup message base
+	mov	#eg.t00,r3		;first digit of first target
+100$:	movb	r3,r2			;get the next
+	add	r4,r2			;add in the base
+	mova	e$gnod,r1		;get the station address
+	mov	#egsas.,r0		;station address size
+110$:	movb	(r1),(r2)		;move in a byte
+	movb	(r1)+,eg.t80-eg.t00(r2)	;fill in second group
+	add	#egtad.,r2		;point to the next byte
+	dec	r0			;count them
+	bne	110$			;more
+	inc	r3			;next in group
+	bit	#7,r3			;done them all?
+	bne	100$			;no
+
+;	Send the setup message
+; 
+;	Send without interrupts or receive
+;	Setup is done when DEQNA processes the next descriptor.
+;	Clear reply from FIFO with reset.
+
+	mova	e$grdd,r0		;
+	mov	r0,eg.rbl(r5)		;
+	clr	eg.rbh(r5)		;setup for receive
+	mova	e$gtdd,r0		;sic] get the address
+	mov	r0,eg.tbl(r5)		;sic] send the message
+	clr	eg.tbh(r5)		;trigger it
+					;c=0
+120$:	mov	eg.csr(r5),r0		;get status
+	bit	#egnxm$,r0		;
+	bne	130$			;oops
+	tst	r0			;
+	bpl	120$			;
+	mov	#egrin$!egtin$,eg.csr(r5) ;clear the flags
+	return
+
+130$:	tst	(sp)+			;don't return
+	inc	n$tdin			;count init error
+	mov	xxcqe,r4		;get the queue element
+	bis	#csher$,@iq.csw(r4) 	;and set hard-error
+	jmp	nt$fin			;
+	.dsabl	lsb
+
+;	Setup data
+; 
+;	Must follow the kernel setup routine for SHAREplus
+
+e$gsub:	.blkb	eg.sbs			;setup buffer
+
+.if gt va.ebs-<.-n$trpk>		;got space left over
+	.blkb	va.ebs-<.-n$trpk> 	;fill it out
+.endc					;
+.sbttl	Ethernet descriptors
+
+;	Descriptor address pointers
+
+e$gr0:					;relocation location 0
+e$grba:	.word	e$grbl-e$gbas		;receive buffer list address
+e$gr1:
+e$gtba:	.word	e$gtbl-e$gbas		;transmit buffer list address
+
+;	Station address buffers
+
+e$grsb:	.blkb	eg.fbs			;receive station buffer
+e$gtsb:					;transmit station address
+e$ghst:;$hex	<08-00-2b-04-8C-04>	;Quark
+;	$hex	<AA-00-04-00-01-04>	;bessi vax
+	$hex	<08-00-2b-04-d1-8d>	;werni vax
+e$gnod:;$hex	<08-00-2b-05-85-ee>	;Vopo
+;	$hex	<08-00-2b-04-d1-8d>	;bessi pdp
+	$hex	<08-00-2b-05-85-ee>	;werni pdp
+e$gpro:	$hex	<60-06>			;remote protocol type
+
+;	Receive descriptors
+;
+;	Ethernet header
+;	SHAREnet header
+;	Optional data or overflow
+;	Optional overflow for short data packets
+
+.MACRO	NHDSC$	BUF=0,BCT=0,REL,DSC=egdok$
+	.word	egbok$,DSC		;flags & descriptor
+.if nb <REL>
+REL:	.word	BUF-e$gbas		;buffer address
+.iff
+	.word	0
+.endc
+	.word	-<BCT/word>		;negated word count & status
+	.word	egunu$,egunu$		;status words
+.ENDM
+
+.if ne check
+e$grea:	.word	0			;expected end address
+.endc
+e$grbl:					;receive buffer list
+e$grsd:	nhdsc$	e$grsb,eg.fbs,e$gr2	;receive station
+e$grhd:	nhdsc$	n$trpk,va.ebs,e$gr3	;receive header
+e$grdd:	nhdsc$	e$gsub,eg.sbs,e$gr4	;receive data - setup first time
+e$gred:	.blkb	eg.dbs			;end of bdl element
+	.blkw	2			;padding for the deqna
+
+;	Transmit descriptors
+
+.if ne check
+e$gtea:	.word	0			;expected end address
+.endc
+e$gtbl:					;transmit buffer list
+e$gtsd:	nhdsc$	e$gtsb,eg.fbs,e$gr5	;transmit station
+e$gthd:	nhdsc$	n$tspk,va.ebs,e$gr6	;transmit header
+					;transmit data - initially setup message
+e$gtdd:	nhdsc$	e$gsub,eg.sbs,e$gr7,dsc=egdok$!egsup$!egend$
+e$gted:	.blkb	eg.dbs			;end of bdl element
+	.blkw	2			;padding for the deqna
+.sbttl	NH$SND	Send header and data
+
+;	NH$SND	Send header and data
+;	
+;	r4 ->	descriptor
+;
+;	call	nh$snd/nh$rcv
+;
+;	Send sets up both a send and a receive.
+;	Receive waits for the receive to complete.
+
+	.enabl	lsb			;
+nh$snd::mov	e$gtba,r0		;r0 -> transmit bdl
+;	mov	r0,r1
+	cmp	r4,n$tsda		;is this the send header?
+	bne	eg$dat			;no - must be the data area
+
+	bic	#egres$,@n$tcsr		;clear any reset
+
+;	Setup descriptors
+
+	mov	#^b<11011>,r2		;3*transmit + 3*receive
+10$:
+.if ne check
+	mov	r0,r1			;setup expected end address
+	mov	r0,-(r1)		;base
+	add	#eg.dbs,(r1)		;end at header
+.endc
+					;
+20$:	mov	#egbok$,(r0)+	;eg.flg	;setup buffer o.k. flag
+	mov	#egdok$,(r0)+	;eg.dsc	;descriptor & address high
+	cmp	(r0)+,(r0)+		;address low & word count
+	mov	#egunu$,(r0)		;status 0
+	mov	(r0)+,(r0)+		;status 1
+	asr	r2			;got another
+	bcs	20$			;yes
+	clr	-eg.dbs+eg.flg(r0)	;invalidate data descriptor
+	clr	-eg.dbs+eg.dsc(r0)	;
+	clr	(r0)+			;clear terminator buffer flags
+	clr	(r0)+			;clear the terminator descriptor
+	mov	e$grba,r0		;point to receive area
+	tst	r2			;done the receive list?
+	bne	10$			;no
+					;
+	bis	#egend$,e$gthd+eg.dsc	;terminate the transmit header
+	mov	e$gtsd+eg.adl,r1	;r1 -> ethernet header
+	mov	n$tspa,r2		;r2 -> vab
+	call	nu$pre			;unit preprocessing
+.if ne V4
+	br	30$			;
+.iff
+	bcc	30$			;unit is known
+	tst	(sp)+			;don't return to caller
+	jmp	nt$fai			;I/O operation fails
+.endc
+
+eg$dat:
+.if ne check
+	add	#eg.dbs,-word(r0)	;adjust expected end address
+.endc
+	add	#eg.dbs*2,r0		;point to data packet
+     um	mov	nt.dba(r4),eg.adl(r0)	;setup buffer address
+     xm	mov	nt.dla(r4),eg.adl(r0)	;low address
+     xm	movb	nt.dha(r4),eg.adh(r0)	;high address
+	mov	nt.dwc(r4),eg.wct(r0)	;word count
+	neg	eg.wct(r0)		;negate it
+	bic	#egend$,-eg.dbs+eg.dsc(r0) ;remove terminator from previous
+	assume	eg.flg eq 0		;
+	mov	#egbok$,(r0)+	;eg.flg	;make buffer o.k.
+	assume	eg.dsc eq eg.flg+word	;
+	bis	#egdok$!egend$,(r0)	;make descriptor valid
+30$:	return				;
+	.dsabl	lsb			;
+.sbttl	NH$RCV	Receive header and data
+
+;	NH$RCV	Receive header and data
+;	
+;	r4 ->	descriptor
+;
+;	call	nh$rcv
+;
+;	Send sets up both a send and a receive.
+;	Receive waits for the receive to complete.
+
+	.enabl	lsb			;
+nh$rcv::cmp	r4,n$trda		;is this the first?
+	bne	30$			;no - assume we have the data
+
+;	Receive header - trigger ethernet transaction
+;
+;	Save context for later
+
+	pop	(pc)+			;where we return to
+n$hcon:	.word	0			;continue address
+	mov	r5,(pc)+		;save this
+n$hsr5:	.word	0			;r5
+	mov	r4,(pc)+		;and this
+n$hsr4:	.word	0			;r4
+
+;	Perform fixups for ethernet logic
+;
+;	Mark end descriptors
+;	Handle packets shorter than 60. bytes
+
+	bitb	#vadat$,n$tctl		;got data?
+	beq	20$			;no
+	bitb	#vasda$,n$tctl		;this a receive
+	bne	20$			;no - a send
+	tst	n$tdwc			;expecting data?
+	beq	20$			;no
+	mov	e$grba,r0		;r0 -> receive buffer list
+	mov	n$tdda,r4		;yes - point to the data area
+	call	eg$dat			;setup the receive data descriptor
+
+;	Setup CSR logic to send packet
+
+20$:	call	nt$cgo			;start the clock
+	mov	n$tcsr,r5		;r5 -> csr area
+	mov	#egien$!egind$!egren$,eg.csr(r5) ;start the interface
+	mov	e$grba,eg.rbl(r5)	;setup receive bdl pointer
+	clr	eg.rbh(r5)		;enable it
+	mov	e$gtba,eg.tbl(r5)	;setup transmit buffer list
+	clr	eg.tbh(r5)		;that enables and sends it
+30$:	return				;
+.sbttl	NH$ISR	Ethernet interrupt
+
+;	NH$ISR	Ethernet interrupt
+;
+;	Fork for synchronisation
+;	Check interface errors - NXM and fuse
+;	Receive or transmit interrupt dispatch
+;
+;	Fuse test is nopped out - some boards function o.k. without them
+
+	.enabl	lsb
+nh$abt:	jmp	nt$abt			;abort the request
+	br	nh$abt			;abort dispatch
+xxint::
+ntint::					;interrupt service routine
+nh$isr::inten$				;come down
+;V4	addw3	#eg.csr,n$tcsr,r5	;point to csr
+	mov	n$tcsr,r5
+	add	#eg.csr,r5
+	bit	#egnxm$,(r5)		;got bad memory?
+	bne	nh$hof			;yes 
+;sic]	bit	#egfus$,(r5)		;got a fuse?
+;sic]	beq	nh$hof			;no
+	bit	#egrin$,(r5)		;was this a receive?
+	bne	nh$rin			;yes - all over
+	bit	#egtin$,(r5)		;transmit done?
+	beq	nh$ret			;no - just return
+	fall	nh$tin			;yes - process transmit interrupt
+
+;	Transmit done
+;
+;	Check transmission for errors - abort for such
+;	Enable input of reply package - DENQA requirement
+
+nh$tin:	mov	e$gtba,r4		;get the transmit list
+	psh	r0			;
+	mova	n$ttrx,r0		;for errors
+	call	nh$chk			;check the transmission
+	pop	r0			;
+	bis	#egtin$,(r5)		;let next transmit through
+	return
+
+;	Recieve done
+;
+;???	Check that transmit completed
+;???	Check for expected station addresses and protocol
+;	Check for expected data length
+
+nh$rin:	mov	e$grba,r4		;receive list address
+	psh	r0			;
+	mova	n$trcx,r0		;for errors
+	call	nh$chk			;check the result
+	pop	r0			;
+	call	nh$ovc			;fork etc
+;	mov	e$grsd+eg.adl,r1	;r1 -> ethernet packet
+	mova	e$grsb,r1		;r1 -> receive ethernet header
+	mov	n$trpa,r2		;r2 -> vab
+	call	nu$pos			;post process it
+	br	nh$con			;over
+
+;	Check transaction for errors
+;
+;	Search for the last descriptor in the list
+;	Check the last descriptor for errors
+;
+;	r4 ->	descriptor list
+
+nh$chk:	inc	(r0)+			;done
+.if ne check
+	psh	-word(r4)		;save the expected end
+.endc
+10$:	tst	(r4)			;is this the last
+	beq	20$			;yes - nothing was processed - error
+	tst	eg.st0(r4)		;get the final status
+	bpl	30$			;this is the last
+	add	#eg.dbs,r4		;point to the next
+	br	10$			;
+20$:	clr	r4			;force error
+30$:
+.if ne check
+	cmp	(sp)+,r4		;this what we wanted?
+	bne	40$			;no
+.endc
+	bit	#egerr$,eg.st0(r4)	;got any errors?
+	beq	nh$ret			;no - return
+40$:	inc	(r0)+			;count the error
+	bis	eg.st0(r4),(r0)+	;save the error mask
+	tst	(sp)+			;error - do not return to caller
+	pop	r0			;restore r0
+	fall	nh$hof			;abort and retry
+	.dsabl	lsb			;
+.sbttl	utilities
+
+;	Hook	Stop and issue retry
+
+nh$hof::mova	nt$rty,n$hcon		;force retry
+	fall	nh$ovf			;over - fork
+
+;	Over	Stop and continue processing package
+
+nh$ovf:	call	nh$ovc			;go down
+nh$con:	mov	n$hsr5,r5		;restore these
+	mov	n$hsr4,r4		;and this
+	jmp	@n$hcon			;and continue
+
+nh$ovc:	pop	n$hovc			;continue there
+	call	nh$sto			;stop it
+	.fork	n$tfrk			;fork
+	call	nt$ccn			;cancel timeout request
+	jmp	@(pc)+			;continue thread
+n$hovc:	.word	0			;over continue
+
+;	Kill	Abort current I/O request
+;	Stop	disable clock and interrupts
+;
+;	Stop any further input or output by closing gates.
+;	Timeout or service routine handles actual abort.
+
+nh$kil::				;kill I/O
+nh$sto::call	nt$cst			;stop the clock
+nh$res:	psh	r0			;save this
+	mov	n$tcsr,r0		;point to the csr area
+	mov	#egres$,eg.csr(r0)	;set reset
+	bic	#egres$,eg.csr(r0)	;clear reset
+					;DELQA may 100usec to complete
+	pop	r0			;get it back
+nh$ret:	return				;
+.sbttl	map buffer
+
+;	Map hardware buffer address
+;
+;	r4 ->	descriptor - looks like I/O queue element
+;	r5 ->	packet
+;
+;	i.qbuf	nt.dba	adr/off	
+;	i.qwct	nt.dwc
+;	i.qcom	nt.dco
+;	i.qpar	nt.dpa	0/par
+;		nt.dtl
+;		nt.dth
+
+nh$map::			;map descriptor buffer
+     um	mov	(r4),nt.dla(r4)	;unmapped address
+     xm	psh	r5		;save r5
+     xm	mov	r4,r5		;r5 -> buffer offset
+     xm	call	@$mpptr		;get the physical address
+     xm	stack	low hgh	r5 ret	;
+     xm	pop	nt.dla(r4)	;setup low order buffer address
+     xm	asr	(sp)		;move down 4 bits
+     xm	asr	(sp)		;
+     xm	asr	(sp)		;
+     xm	asr	(sp)		;
+     xm	pop	nt.dha(r4)	;setup high order address
+     xm	pop	r5		;put this guy back
+	return			;
+
+.end
+

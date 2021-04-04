@@ -1,0 +1,338 @@
+;-------------------------------;
+; CCB - CHANNEL CONTROL BLOCK	;
+;-------------------------------;
+;
+;	VMS stores the channel number as an octaword offset.
+;	<0:4> are dont care. <5:15> is the channel number.
+;
+.MACRO	$CCB_DEF
+;
+map$	ccb.ucb	long.,0		;ucb address
+map$	ccb.win	long.		;window or start block
+map$	ccb.sts	byte.		;status
+map$	ccb.mod	byte.		;access mode
+map$	ccb.ioc	word.		;i/o count
+map$	ccb.fcb	null.		;fcb address
+map$	ccb.irp	long.		;deaccess irp
+map$	ccb.bbs			;
+;
+map$	ccb.sbl,,ccb.win	;start block
+;map$	ccb.len,,ccb.irp	;file length - deleted
+;
+map$	ccb_ter$,,1@7		;terminal
+;
+.ENDM	$CCB_DEF
+;-------------------------------;
+; CLI - CLI request block	;
+;-------------------------------;
+;
+.MACRO	$CLI_DEF
+;
+;	Constant sizes
+;
+map$	cli.mbs,,long.*12	;maximum byte size of all callback areas
+map$	cli.wbs,,long.*32	;workspace byte size
+;
+;	CLI call parameters
+;
+map$	ap.cli	long.,long.	;ap.p1 -> cli request block
+map$	ap.wrk	long.		;ap.p2 -> work area
+map$	ap.arr	long.		;ap.p3 -> bit array for i/o parameter defs.
+;
+;	Request block
+;
+map$	cli.req	byte.,0		;rqtype	- request type (see below)
+map$	cli.idx	byte.,1		;rqindx	- offset for value keyword index
+map$	cli.bit	byte.,1		;bitnum - bit number to set on success
+map$	cli.cod	word.,1		;servcod - cli service code
+map$	cli.flg	byte.,2		;reqflgs - request flags
+map$	cli.sta	byte.,3		;rqstat - request status
+map$	cli.var	null.		;start of variable area (used by CLS)
+;
+map$	cli.err	long.		;address of error action routine
+;
+map$	cli.dsc	quad.		;request result descriptor
+map$	cli.siz	word.,cli.dsc	;rqsize - result descriptor size
+map$	cli.rf0	word.		;
+map$	cli.adr	long.		;rqaddr - address of result parameter
+map$	cli.val	long.,cli.adr	;rqvalu - actual conversion parameter
+;
+map$	cli.pac	long.		;prsact - address present action 
+map$	cli.aac	long.		;absact - address of absent action
+;
+map$	cli.qua	long.		;quallist - address of qualifier list
+map$	cli.rbs			;request byte size
+;
+;	cli.flg - parsing flags
+;
+set$	cli_prq_,,0	;param	;parmreq - parameter required
+set$	cli_abs_,,1		;absadr - absolute addresses supplied
+set$	cli_exp_,,2		;expnam - explicit names only required
+set$	cli_lst_,,0	;value	;lastval - last value allowed
+set$	cli_dum_,,1		;dummy - reserved for abs
+;
+;	cli.sta - result status
+;
+set$	cli_prs_,,0	;param	;parameter is present
+set$	cli_cat_,,1		;input concatenation seen
+set$	cli_min_,,2		;more input
+set$	cli_def_,,3		;parameter was defaulted present
+set$	cli_mva_,,0	;value	;more values available
+set$	cli_key_,,1		;next token is a value for key
+;
+;	cli.req - request type
+;
+set$	cli_sub_b,,0		;subtyp - sub type
+set$	cli_sub_l,,4		;
+set$	cli_pri_b,,4		;prityp	- primary type
+set$	cli_pri_l,,4		;
+;
+;	cli.req - primary & subtype fields	
+;
+map$	cli_utl.,,0		;utilopr - utilities
+map$	cli_ips.,,1		;inpspec - input specs
+map$	cli_ops.,,2		;outspec - output specs
+map$	cli_eps.,,3		;pardone - parameter set done
+map$	cli_cvt.,,4		;valconv - value conversion
+map$	cli_int.,,5		;clint - clint operations
+map$	cli_pri.c,,6		;primary count
+;
+;	cli.req - primary codes
+;
+map$	cli_utl$,,0@4		;utilopr - utilities
+map$	cli_ips$,,1@4		;inpspec - input specs
+map$	cli_ops$,,2@4		;outspec - output specs
+map$	cli_eps$,,3@4		;pardone - parameter set done
+map$	cli_cvt$,,4@4		;valconv - value conversion
+map$	cli_int$,,5@4		;clint - clint operations
+;
+;	UTL - Utility functions
+;
+map$	cli_ini$,,cli_utl$+0	;initprs - init for parse
+map$	cli_gcm$,,cli_utl$+1	;getcmd - get command buffer limits
+map$	cli_gqu$,,cli_utl$+2	;getqual - get qualifier state
+map$	cli_gop$,,cli_utl$+3	;getopt - decode command option
+map$	cli_gln$,,cli_utl$+4	;getline - get command line
+map$	cli_srv$,,cli_utl$+5	;cliserv - request cli service - see $cls
+map$	cli_utl.c,,6		;
+;
+;	IPS - Input specification functions
+;
+map$	cli_ip1$,,cli_ips$+0	;input1
+map$	cli_ip2$,,cli_ips$+1	;input2
+map$	cli_ip3$,,cli_ips$+2	;input3
+map$	cli_ip4$,,cli_ips$+3	;input4
+;
+;	OPS - Output specification functions
+;
+map$	cli_op1$,,cli_ops$+0	;output1
+map$	cli_op2$,,cli_ops$+1	;output2
+map$	cli_op3$,,cli_ops$+2	;output3
+map$	cli_op4$,,cli_ops$+3	;output4
+;
+;	EPS - End parameter set functions
+;
+map$	cli_ep1$,,cli_eps$+0	;endprm1
+map$	cli_ep2$,,cli_eps$+1	;endprm2
+map$	cli_ep3$,,cli_eps$+2	;endprm3
+map$	cli_ep4$,,cli_eps$+3	;endprm4
+;
+;	CVT - Conversion requests
+;
+map$	cli_cnu$,,cli_cvt$+0	;numerval - numeric value
+map$	cli_cas$,,cli_cvt$+1	;asciival - ascii value
+map$	cli_ckw$,,cli_cvt$+2	;keyword - keyword
+map$	cli_ckv$,,cli_cvt$+3	;keyval - keyword with value
+map$	cli_cfs$,,cli_cvt$+4	;filspec - file specification
+map$	cli_cvt.c,,5		;
+;
+;	INT - Clint requests
+;
+map$	cli_pre$,,cli_int$+0	;present - report if object present 
+map$	cli_gvl$,,cli_int$+1	;getvalue - get object value
+map$	cli_epr$,,cli_int$+2	;endparse - end parse and check
+map$	cli_dcl$,,cli_int$+3	;dclparse - parse user line
+map$	cli_dsp$,,cli_int$+4	;dispatch - call action routine
+map$	cli_int.c,,5		;
+;
+.ENDM	$CLI_DEF
+;-------------------------------;
+; CLQ - CLQ qualifier	 	;
+;-------------------------------;
+;
+.MACRO	$CLQ_DEF
+;
+map$	clq.siz	byte.,0		;size of this block
+map$	clq.cod	byte.		;qualifier id code
+map$	clq.flg	byte.		;qualifier flags
+set$	clq_all_,,0		;alloccur - act on all occurences
+set$	cli_usv_,,1		;qdusrv - user context value present
+set$	cli_exp_,,2		;qdexpa - act on explicit occurences
+map$	clq.sta	byte.		;qualifier status
+set$	clq_tru_,,0		;qualtru - qualifier is true
+set$	clq_exp_,,1		;qualexp - qualifier is explicit
+map$	clq.vld	quad.		;qualifier value descriptor
+map$	clq.vsz	word.,clq.vld	;vad size
+map$	clq.f00	word.		;
+map$	clq.vla	long.		;value address (-> descriptor)
+map$	clq.tra	long.		;truact -> true action routine
+map$	clq.faa	long.		;falact -> false action routine
+map$	clq.bit	null.		;qdbits - start of bitmap
+map$	clq.bbs	null.		;
+map$	clq.usv	null.		;uservalue
+;
+.ENDM	$CLQ_DEF
+;
+;-------------------------------;
+; CLM - CLI messages		;
+;-------------------------------;
+;
+.MACRO	$CLM_DEF
+set$	cli_rpa.,,<^x38812>	;reqprmabs
+.ENDM
+;-------------------------------;
+; CLS - CLI service calls	;
+;-------------------------------;
+;
+.MACRO	$CLS_DEF
+;
+map$	cls.req	long.,0		;cli. stuff
+map$	cls.var	null.		;variable part
+;
+;	Symbol and logical name overlay
+;
+map$	cls.nam	quad.,cli.var	;logical/symbol name descriptor
+map$	cls.val	quad.		;equivalance/value descriptor
+;
+;	Old/New out-of-band mask descriptors
+;
+map$	cls.new	long.,cli.var	;new enable/disable mask
+map$	cls.old	long.		;old enabled mask
+;
+;	Attach callback
+;
+map$	cls.pid	long.,cli.var	;pid of destination process
+;
+;	Spawn callback
+;
+map$	cls.flg	byte.,cli.var	;flags 
+set$	cls_nwt_,,0		;nowait
+set$	cls_ncs_,,1		;no cli symbols
+set$	cls_nln_,,2		;no logical names
+map$	cls.f01	byte.*3		;
+map$	cls.rpd	long.		;result pid value
+map$	cls.lst	long.		;address to store subprocess termination status
+map$	cls.cms	long.		;address of command string descriptor
+map$	cls.ins	long.		;-> input descriptor
+map$	cls.ous	long.		;-> output descriptor
+map$	cls.pnm	long.		;-> process name descriptor
+map$	cls.ast	long.		;-> termination ast address
+map$	cls.prm	long.		;=  termination ast value
+map$	cls.efn	byte.		;=  efn to set on termination
+map$	cls.f02	byte.*3		;
+;
+map$	cls.mbs	null.		;maximum byte size of all callback areas
+;
+;	cli.scd - server codes
+;
+map$	cls_pau.,,1		;pause
+map$	cls_dfl.,,2		;deflocal - define local symbol
+map$	cls_dgs.,,3		;defglobal - define global symbol
+map$	cls_chn.,,4		;chain - define next image
+map$	cls_cmd.,,5		;command - define next command
+map$	cls_cln.,,6		;crealog - create process logical name
+map$	cls_dln.,,7		;delelog - delete process logical name
+map$	cls_dcy.,,8		;disactrly - disable ctrl/y processing
+map$	cls_ecy.,,9		;enabctrly - enable ctrl/y processing
+map$	cls_gsm.,,10		;getsym - get value of symbol
+map$	cls_dll.,,11		;delelcl - delete local symbol
+map$	cls_dlg.,,12		;delegbl - delete global symbol
+map$	cls_dob.,,13		;disaoob - disable out-of-band characters
+map$	cls_eob.,,14		;enaboob - enable out-of-band characters
+map$	cls_spn.,,15		;spawn - spawn subprocess
+map$	cls_att.,,16		;attach - attach a process
+;
+.ENDM	$CLS_DEF
+;-------------------------------;
+; CLW - CLI WORK		;
+;-------------------------------;
+;
+.MACRO	$CLW_DEF
+;
+map$	clw.ctl	long.,0			;control
+map$	clw.ent	long.			;current entity type and mode
+map$	clw.dsc	quad.			;result descriptor
+map$	clw.lin	quad.			;line buffer
+map$	clw.raw	quad.			;raw input line
+map$	clw.prm	quad.			;prompt
+;
+map$	clw.cmd	quad.			;full command
+map$	clw.cps	quad.			;command parameter spec
+map$	clw.vrb	quad.			;verb
+map$	clw.opt	quad.			;option
+map$	clw.gbl	quad.			;global options
+map$	clw.ips	quad.			;input specs
+map$	clw.ops	quad.			;output specs
+;
+map$	clw.par	quad.			;remaining current parameter
+map$	clw.qua	quad.			;remaining current qualifier
+map$	clw.buf	byte.*256		;command line buffer
+map$	clw.bbs				;
+;
+;	Terminators
+;
+set$	clw_eol_,,0		;eol	\
+set$	clw_spc_,,1		;space  _
+set$	clw_com_,,2		;comma	,
+set$	clw_plu_,,3		;plus	+
+set$	clw_sla_,,4		;slash	/
+set$	clw_col_,,5		;colon	:
+set$	clw_equ_,,6		;equals	=
+;map$	clw_opr_,,8		;open parenthesis
+;map$	clw_cpr_,,9		;closing parenthesis
+meta$	<clwtrm$><.ascii "\ ,+/:=">	
+set$	clw_trm.,,7		;seven of them
+;
+set$	clw_eol$,,1@clw_eol_	;
+set$	clw_spc$,,1@clw_spc_	;
+set$	clw_com$,,1@clw_com_	;
+set$	clw_plu$,,1@clw_plu_	;
+set$	clw_sla$,,1@clw_sla_	;
+set$	clw_col$,,1@clw_col_	;
+set$	clw_equ$,,1@clw_equ_	;
+;
+.ENDM
+;-------------------------------;
+; CON - CONDITION HANDLERS	;
+;-------------------------------;
+;
+.MACRO	$CON_DEF
+;
+map$	con.cct	long.,0		;call count
+map$	con.csa	long.		;signal array address
+map$	con.cma	long.		;mechanism array address
+map$	con.cbs			;
+;
+map$	con.mct	long.,0		;mechanism count
+map$	con.mfa	long.		;estabisher frame address
+map$	con.mfd	long.		;frame depth
+map$	con.mr0	long.		;saved r0
+map$	con.mr1	long.		;saved r1
+map$	con.mbs			;
+;
+map$	con_dlv.,,-3		;last chance vector
+map$	con_dpv.,,-2		;primary exception vector
+map$	con_dsv.,,-1		;secondary exception vector
+map$	con_df0.,,0		;active frame
+map$	con_df1.,,1		;callers frame
+;
+map$	con.sct	long.,0		;signal parameter count
+map$	con.scn	long.		;condition name - parameter 0
+map$	con.sp1	long.		;signal parameter 1
+;
+map$	con.spc	long.,-quad.	;signal pc - off the top
+map$	con.sps	long.		;
+;
+.ENDM	$CON_DEF
+
+                                                                                                                             

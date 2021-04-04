@@ -1,0 +1,576 @@
+;a% is always long type
+.title	rev
+.library "lib:eve.mlb"
+$eve_def bug
+$ap_def
+$bug_def
+$txt_def
+
+;	Reverse compile instruction
+;
+;	%build
+;	assemble evs:rev/object:evb:
+;	%end
+;
+; p1	bug	address of debug frame
+; p2	buf 	-> 80 byte string buffer
+;
+; bug	loc	points to instruction
+;
+;	call	#2,rev$sta
+;
+; bug	vpc	points past instruction
+;	dst	last value of instruction
+; p2	buf	contains instruction string
+; 	r1 =	last address decoded
+;
+;	revopc$	cod nam typ,typ,, act=adr
+;
+;	cod	1 or 2 byte opcode
+;	nam	6 character name
+;	typ	instruction type
+;	act	address of post processing action routine
+;
+;	.byte	cod
+;	.asciz	name
+;	.byte	opr,opr, ...,0
+;
+;	rwm	bwlq	register
+;	b	bw	branch offset
+;	m	w	mask
+;	v	b	bit number
+;
+;	Access types
+;
+map$	rev_ar.,,0	;register
+map$	rev_aw.,,0	;
+map$	rev_am.,,0	;
+map$	rev_av.,,0	;field
+map$	rev_aa.,,0	;address
+map$	rev_ab.,,128	;branch
+map$	rev_pos.,,-1	;post-processing routine
+;
+;	Data types
+;
+map$	rev_dx.,,0	;end of list
+map$	rev_db.,,1	;byte
+map$	rev_dw.,,2	;word
+map$	rev_dl.,,4	;long
+map$	rev_dq.,,8	;quad
+map$	rev_do.,,16	;octal
+;
+;	Define operation and operands
+;
+.macro	revopc$ cod nam c d e f g h i j act
+	.byte	^x'COD
+	.asciz	"NAM"
+.if not_blank <ACT>
+	.byte	-1
+	brw	act
+.endc
+.if not_blank <C>
+.irp	$,<C D E F G H I J>
+	revopr$	$
+.endr
+.endc
+	.byte	0
+.endm	revopc$
+;
+;	Define operand
+;
+.macro	revopr$	OPR
+	.byte	rev_a%extract(0,1,OPR).!rev_d%extract(1,1,OPR).
+.endm	revopr$
+;
+;	Operation and operand table
+;
+rev_tab::
+revopc$	9d	acbb	rb mb bw
+revopc$	f1	acbl	rl rl ml bw
+revopc$	3d	acbw	rw rw mw bw
+revopc$	80	addb2	rb mb
+revopc$	81	addb3	rb rb wb
+revopc$	c0	addl	rl ml
+revopc$	c1	addl3	rl rl wl
+revopc$	a0	addw	rw mw
+revopc$	a1	addw3	rw rw ww
+revopc$	d8	adwc	rl ml
+revopc$	f3	aobleq	rl ml bb
+revopc$	f2	aoblss	rl ml bb
+revopc$	78	ashl	rb rl wl
+revopc$	79	ashq	rb rq wq
+revopc$	e1	bbc	rl vb bb
+revopc$	e5	bbcc	rl vb bb
+revopc$	e7	bbcci	rl vb bb
+revopc$	e3	bbcs	rl vb bb
+revopc$	e0	bbs	rl vb bb
+revopc$	e4	bbsc	rl vb bb
+revopc$	e2	bbss	rl vb bb
+revopc$	e6	bbssi	rl vb bb
+revopc$	1e	bcc	bb
+revopc$	1f	bcs	bb
+revopc$	13	beql	bb
+revopc$	18	bgeq	bb
+revopc$	1e	bgequ	bb
+revopc$	14	bgtr	bb
+revopc$	1a	bgtru	bb
+revopc$	8a	bicb	rb mb
+revopc$	8b	bicb3	rb rb wb
+revopc$	ca	bicl	rl ml
+revopc$	cb	bicl3	rl rl wl
+revopc$	b9	bicpsw	rw
+revopc$	aa	bicw	rw mw
+revopc$	ab	bicw3	rw rw ww
+revopc$	88	bisb	rb mb
+revopc$	89	bisb3	rb rb wb
+revopc$	c8	bisl	rl ml
+revopc$	c9	bisl3	rl rl ml
+revopc$	b8	bispsw	rw
+revopc$	a8	bisw	rw mw
+revopc$	a9	bisw3	rw rw ww
+revopc$	93	bitb	rb rb
+revopc$	d3	bitl	rl rl
+revopc$	b3	bitw	rw rw
+revopc$	e9	blbc	rl bb
+revopc$	e8	blbs	rl bb
+revopc$	15	bleq	bb
+revopc$	1b	blequ	bb
+revopc$	19	blss	bb
+revopc$	1f	blssu	bb
+revopc$	12	bneq	bb
+revopc$	03	bpt
+revopc$	11	brb	bb
+revopc$	31	brw	bw
+revopc$	10	bsbb	bb
+revopc$	30	bsbw	bw
+revopc$	ff	bug	
+revopc$	1c	bvc	bb
+revopc$	1d	bvs	bb
+revopc$	fa	callg	ab ab	
+revopc$	fb	calls	rl ab
+revopc$	8f	caseb	rb rb rb act=rev$cas
+revopc$	cf	casel	rl rl rl act=rev$cas
+revopc$	af	casew	rw rw rw act=rev$cas
+revopc$	bd	chme	rw
+revopc$	bc	chmk	rw
+revopc$	be	chms	rw
+revopc$	bf	chmu	rw
+revopc$	94	clrb	wb
+revopc$	d4	clrl	wl
+;revopc$	7cfd	clro	wo
+revopc$	7c	clrq	wq
+revopc$	b4	clrw	ww
+revopc$	91	cmpb	rb rb
+revopc$	29	cmpc3	rw ab ab
+revopc$	2d	cmpc5	rw ab rb rw ab
+revopc$	d1	cmpl	rl rl
+revopc$	ec	cmpv	rl rb vb rl
+revopc$	b1	cmpw	rw rw
+revopc$	ed	cmpzv	rl rb vb rl
+revopc$	98	cvtbl	rb wl
+revopc$	99	cvtbw	rb ww
+revopc$	f6	cvtlb	rl wb
+revopc$	f7	cvtlw	rl ww
+revopc$	33	cvtwb	rw wb
+revopc$	32	cvtwl	rw wl
+revopc$	97	decb	mb
+revopc$	d7	decl	ml
+revopc$	b7	decw	mw
+revopc$	86	divb	rb mb
+revopc$	87	divb3	rb rb wb
+revopc$	c6	divl	rl mb
+revopc$	c7	divl3	rl rl ml
+revopc$	a6	divw	rw mw
+revopc$	a7	divw	rw rw ww
+revopc$	7b	ediv	rl rq wl wl
+revopc$	7a	emul	rl rl rl wq
+revopc$	fd	escd
+revopc$	fe	esce
+revopc$	ff	escf	
+revopc$	ee	extv	rl rb vb wl
+revopc$	ef	extzv	rl rb vb wl
+revopc$	eb	ffc	rl rb vb wl
+revopc$	ea	ffs	rl rb vb wl
+revopc$	00	halt	
+revopc$	96	incb	mb
+revopc$	d6	incl	ml
+revopc$	b6	incw	mw
+revopc$	0a	index	rl rl rl rl rl wl
+revopc$	5c	insqhi	ab aq
+revopc$	5d	insqti	ab aq
+revopc$	0e	insque	ab wl
+revopc$	f0	insv	rl rl rb vb 
+revopc$	17	jmp	ab
+revopc$	16	jsb	ab
+revopc$	06	ldpctx	
+revopc$	3a	locc	rb rw ab
+revopc$	39	matchc	rw ab rw ab
+revopc$	92	mcomb	rb wb
+revopc$	d2	mcoml	rl wl
+revopc$	b2	mcomq	rw ww
+revopc$	db	mfpr	rl wl
+revopc$	83	mnegb	rb wb
+revopc$	ce	mnegl	rl wl
+revopc$	ae	mnegw	rw ww
+revopc$	9e	movab	ab wl
+revopc$	de	moval	al wl
+revopc$	7e	movaq	aq wl
+revopc$	3e	movaw	aw wl
+revopc$	90	movb	rb wb
+revopc$	28	movc3	rw ab rb
+revopc$	2c	movc5	rw ab rb rw ab
+revopc$	d0	movl	rl wl
+revopc$	dc	movpsl	wl
+revopc$	7d	movq	rq wq
+revopc$	2e	movtc	rw ab rb ab rw ab
+revopc$	2f	movtuc	rw ab rb ab rw ab
+revopc$	b0	movw	rw ww
+revopc$	9a	movzbl	rb wl
+revopc$	9b	movzbw	rb ww
+revopc$	3c	movzwl	rw wl
+revopc$	da	mtpr	rl wl
+revopc$	84	mulb	rb mb
+revopc$	85	mulb3	rb rb wb
+revopc$	c4	mull	rl ml
+revopc$	c5	mull3	rl rl wl
+revopc$	a4	mulw	rw ww
+revopc$	a5	mulw3	rw rw ww
+revopc$	01	nop
+revopc$	ba	popr	rw
+revopc$	0c	prober	rb rw ab
+revopc$	0d	probew	rb rw ab
+revopc$	9f	pushab	ab
+revopc$	df	pushal	al
+revopc$	7f	pushaq	aq
+revopc$	3f	pushaw	aw
+revopc$	dd	pushl	rl
+revopc$	bb	pushr	rw
+revopc$	02	rei
+revopc$	5e	remqhi	aq wl
+revopc$	5f	remqti	aq wl
+revopc$	0f	remque	ab wl
+revopc$	04	ret
+revopc$	9c	rotl	rb rl wl
+revopc$	05	rsb
+revopc$	57	57
+revopc$	5a	5a
+revopc$	5b	5b
+revopc$	77	77
+revopc$	fe	fe
+revopc$	ff	ff
+revopc$	d9	sbwc	rl ml
+revopc$	2a	scanc	rw ab ab rb
+revopc$	3b	skpc	rb rw ab
+revopc$	f4	sobgeq	ml bb
+revopc$	f5	sobgtr	ml bb
+revopc$	2b	spanc	rw ab ab rb
+revopc$	82	subb	rb mb
+revopc$	83	subb3	rb rb wb
+revopc$	c2	subl	rl ml
+revopc$	c3	subl3	rl rl wl
+revopc$	a2	subw	rw mw
+revopc$	a3	sub3	rw rw ww
+revopc$	07	scpctx
+revopc$	95	tstb	rb
+revopc$	d5	tstl	rl
+revopc$	b5	tstw	rw
+revopc$	fc	xfc
+revopc$	8c	xorb	rb mb
+revopc$	8d	xorb3	rb rb wb
+revopc$	cc	xorl	rl ml
+revopc$	cd	xorl3	rl rl wl
+revopc$	ac	xorw	rw mw
+revopc$	ad	xorw3	rw rw ww
+.long	-1
+.sbttl	data
+
+;	Hex digit table
+
+rev_hex:.ascii	"0123456789abcdef"
+
+;	Longword register names
+
+	.align	long
+rev_reg:
+.irp	$,<r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 ap fp sp pc>
+	.asciz	"$"
+	.align	long
+.endr
+.sbttl	reverse compile next instruction
+
+;	Reverse compile instruction
+;
+;	ap.p1	-> vpc
+;	ap.p2	-> buffer
+;
+;	r7 ->	past instruction
+;
+;	r2 =	operand byte
+;	r3 =	control byte
+;	r4 =	operand access length
+;	r5 =	last value output
+;	r6 ->	control stream
+;	r7 ->	next instruction byte
+;	r8 ->	output stream
+;	r10 ->	bug record
+;
+;	Return asciz instruction string
+
+.entry	rev$sta ^m<r2,r3,r4,r5,r6,r7,r8,r9,r10>
+	clrl	-(sp)			;assume no post processing
+	stack$	pos			;post-processing routine address
+	movl	ap.p1(ap),r10		;r10 -> debug record
+	movl	bug.loc(r10),r7		;r7 -> instruction
+	movl	ap.p2(ap),r8		;r8 -> buffer
+
+	movab	rev_tab,r6		;r6 -> table
+	movzbl	(r7)+,r1		;get the opcode
+	movw	r1,bug.opc(r10)		;remember the opcode
+10$:	cmpb	r1,(r6)+		;this the instruction?
+	beql	40$			;yes
+20$:	tstb	(r6)+			;no - skip this one
+	bneq	20$			;
+	cmpb	(r6),#-1		;got an action routine?
+	bneq	30$			;no
+	tstl	(r6)+			;yes - skip -1 and brw loc
+30$:	tstb	(r6)+			;and the opcode list
+	bneq	30$			;
+	cmpl	(r6),#-1		;end of it all?
+	bneq	10$			;no
+	movl	#byte.,r0		;byte code
+	bsbw	rev$ouv			;display the opcode
+	brw	60$			;and quit
+
+;	Process operand list
+
+40$:	movl	r8,r0			;remember position
+	movl	#^a"    ",(r8)		;fill eight spaces
+	movl	(r8)+,(r8)+		;
+45$:	movb	(r6)+,(r0)+		;move in opcode name
+	bneq	45$			;
+	movb	(r0),-(r0)		;
+
+	cmpb	(r6),#rev_pos.		;got a postprocessing routine?
+	bneq	50$			;no
+	pushab	1(r6)			;yes - brw follows token
+	tstl	(r6)+			;skip token and brw
+50$:	movzbl	(r6)+,r3		;get the next operand
+	beql	60$			;all done
+	bsbb	rev$opc			;display this one
+	tstb	(r6)			;any more?
+	beql	60$			;no
+	movb	#^a",",(r8)+		;yes
+	brb	50$			;
+60$:	tstl	(sp)			;got a post processing routine?
+	beql	70$			;no
+	jsb	@(sp)+			;yes - call the routine
+70$:	clrb	(r8)			;
+	movl	r7,bug.vpc(r10)		;update the pc
+	movl	r5,bug.dst(r10)		;last value output
+	movl	#fine.,r0		;
+	ret				;quit
+.sbttl	process operand
+
+;	Process operand
+;
+;	r2 =	operand byte
+;	r3 =	control byte
+;	r4 =	operand access length
+;	r5 =	last value output (used for case)
+;	r6 ->	control stream
+;	r7 ->	next instruction byte
+;	r8 ->	output stream
+;
+;	Only general register and branchs are recognised
+
+rev$opc:extzv	#0,#6,r3,r4		;r4 = operand access length
+	tstb	r3			;is this a branch displacement?
+	bgeq	rev$reg			;reverse the register
+
+;	Branch displacement
+
+	cmpb	r4,#byte.		;this a byte displacement?
+	bneq	110$			;no - must be a word
+	cvtbl	(r7)+,r1		;r1 = displacement
+	brb	120$			;join common
+110$:	cvtwl	(r7)+,r1		;r1 = displacement
+120$:	addl	r7,r1			;r1 -> target
+	movl	#long.,r0		;r0 = length
+	bsbw	rev$ouv			;output unsigned
+	rsb				;
+.sbttl	register operand
+
+;	Register operand
+;
+;	r2 =	operand byte
+;	r3 =	control byte
+;	r4 =	operand access length
+;	r5 =	last value output
+;	r6 ->	control stream
+;	r7 ->	next instruction byte
+;	r8 ->	output stream
+
+rev$reg:	
+	movzbl	(r7)+,r2		;get the operand
+	extzv	#4,#4,r2,r0		;r0 = mode
+	cmpb	r0,#8			;this a pc mode?
+	blssu	10$			;no
+	cmpzv	#0,#4,r2,#15		;this the pc?
+	beql	20$			;yes
+10$:	caseb$ 	r0,#0,#15		;dispatch the case
+	cases$	1000$,1010$,1020$,1030$,1040$,1050$,1060$,1070$
+	cases$	1080$,1090$,1100$,1110$,1120$,1130$,1140$,1150$
+
+20$:	caseb$	r0,#8,#7		;pc addressing
+	cases$	2080$,2090$,2100$,2110$,2120$,2130$,2140$,2150$
+
+1000$:
+1010$:
+1020$:
+1030$:	movw	#^a"s^",(r8)+		;short literal
+	movb	#^a"#",(r8)+		;immediate
+	extzv	#0,#6,r2,r1		;r1 = unsigned value
+	movl	#byte.,r0		;byte
+	brw	rev$ouv			;output unsigned byte
+
+1040$:	pushl	r2			;[rn] - save base
+	bsbw	rev$reg			;display displacement
+	popl	r2			;restore r2
+	movb	#^a"[",(r8)+		;[rn]
+	bsbb	1050$			;register number
+	movb	#^a"]",(r8)+		;
+	rsb				;
+
+1050$:	extzv	#0,#4,r2,r0		;
+	moval	rev_reg[r0],r0		;r0 -> register name
+1051$:	movb	(r0)+,(r8)+		;move in the name
+	bneq	1051$			;
+	decl	r8			;backup
+	rsb				;
+1070$:	movb	#^a"-",(r8)+		;-(rn)
+1060$:	movb	#^a"(",(r8)+		;()
+	bsbw	1050$			;register number
+	movb	#^a")",(r8)+		;
+	rsb
+1090$:	movb	#^a"@",(r8)+		;@(rn)+
+1080$:	bsbb	1060$			;(rn)+
+	movb	#^a"+",(r8)+		;
+	rsb
+1110$:	movb	#^a"@",(r8)+		;@b^xxx(rn)
+1100$:	movw	#^a"b^",(r8)+		;b^xxx(rn)
+	movl	#byte.,r0		;
+	cvtbl	(r7)+,r1		;
+	bsbw	rev$osv			;
+	brb	1060$			;
+1130$:	movb	#^a"@",(r8)+		;@w^xxx(rn)
+1120$:	movw	#^a"w^",(r8)+		;w^xxx(rn)
+	cvtwl	(r7)+,r1		;
+	movl	#word.,r0		;
+	bsbw	rev$osv			;
+	brb	1060$			;
+1150$:	movb	#^a"@",(r8)+		;@l^xxx(rn)
+1140$:	movw	#^a"l^",(r8)+		;l^xxx(rn)
+	movl	(r7)+,r1		;
+	movl	#long.,r0		;long
+	bsbw	rev$osv			;
+	brb	1060$			;
+.sbttl	pc operand
+
+;	PC operand
+;
+;	r2 =	operand byte
+;	r3 =	control byte
+;	r4 =	operand access length
+;	r5 =	last value output
+;	r6 ->	control stream
+;	r7 ->	next instruction byte
+;	r8 ->	output stream
+
+2080$:	movb	#^a"#",(r8)+		;#n
+	movl	r4,r0			;r0 = length
+	movl	(r7),r1			;r1 = value
+	addl	r4,r7			;update pc
+	brw	rev$ouv			;
+2090$:	movw	#^a"@#",(r8)+		;@#n
+	movl	#long.,r0		;r0 = length
+	movl	(r7)+,r1		;r1 = value
+	brw	rev$ouv			;
+2110$:	movb	#^a"@",(r8)+		;@b^xxx
+2100$:	movw	#^a"b^",(r8)+		;b^xxx
+	movl	#long.,r0		;r0 = length
+	cvtbl	(r7)+,r1		;
+	addl	r7,r1			;r1 = address
+	brw	rev$ouv			;
+2130$:	movb	#^a"@",(r8)+		;@w^xxx
+2120$:	movw	#^a"w^",(r8)+		;w^xxx
+	movl	#long.,r0		;r0 = length
+	cvtwl	(r7)+,r1		;
+	addl	r7,r1			;r1 = address
+	brw	rev$ouv			;
+2150$:	movb	#^a"@",(r8)+		;@l^xxx
+2140$:	movw	#^a"l^",(r8)+		;l^xxx
+	movl	#long.,r0		;
+	movl	(r7)+,r1		;
+	addl	r7,r1			;r1 = address
+	brw	rev$ouv			;
+.sbttl	post processing
+
+;	Post processing
+;
+;	r2 =	operand byte
+;	r3 =	control byte
+;	r4 =	operand access length
+;	r5 =	last value output (used for case)
+;	r6 ->	control stream
+;	r7 ->	next instruction byte
+;	r8 ->	output stream
+;
+;	Post process case instructions
+;
+;	Use last value (r5) to update pc
+
+rev$cas:movzbl	r5,r0		;r0 = number of words
+	incl	r0		;limit + 1
+	movaw	(r7)[r0],r7	;point past case table
+	rsb			;
+.sbttl	output subroutines
+
+;	rev$osv - output signed value
+;	rev$ouv	- output unsigned value
+;
+;	r0 =	length
+;	r1 =	value
+;	r5 =	last value output
+
+rev$osv:pushl	r1		;get the value
+	tstb	(sp)[r0]	;is it signed?
+	bgeq	10$		;no
+	movb	#^a"-",(r8)+	;yes
+	mnegl	(sp),(sp)	;negate it
+10$:	popl	r1		;get it back
+;	fall$	rev$ouv		;
+
+rev$ouv:pushr	#^m<r2,r3,r4>	;
+	movl	r1,r5		;save last value
+	movl	r0,r2		;r2 = length
+	mull3	#8,r2,r3	;r3 = last bit
+	clrl	r4		;check for digit output
+	cmpl	r3,#32		;this number too big?
+	blequ	10$		;no
+	movl	#32,r3		;yes - truncate to long
+	movb	#^a"*",(r8)+	;signal it
+10$:	subl	#4,r3		;next nibble
+	extzv	r3,#4,r1,r0	;r0 = digit
+	bneq	20$		;we have one
+	tstl	r4		;already done one?
+	bneq	20$		;yes
+	tstl	r3		;this the last digit?
+	bneq	30$		;no - skip it
+20$:	incl	r4		;start displaying
+	movb	rev_hex[r0],(r8)+ ;display the digit
+30$:	tstl	r3		;anymore?
+	bneq	10$		;yes
+	popr	#^m<r2,r3,r4>	;no
+	rsb			;
+.end
+                                                                                                                                                                                                                                                                                                                                                                                                               
