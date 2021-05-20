@@ -1,0 +1,578 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+               MICROPOWER/PASCAL UPDATE KIT VERSION 2.3
+            Differences between the V2.2 and V2.3 Releases
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+       Copyright (c)1984, 1985, 1986 by Digital Equipment Corp.
+
+                         All Rights Reserved.
+
+
+
+                                   CONTENTS
+
+        1       INTRODUCTION . . . . . . . . . . . . . . . . . . . . 1
+        2       NEW FEATURES FOR VERSION 2.3 . . . . . . . . . . . . 1
+        2.1       MicroPDP-11/53 . . . . . . . . . . . . . . . . . . 1
+        2.2       KXJ11-CA Capabilities  . . . . . . . . . . . . . . 1
+        2.3       QD Driver  . . . . . . . . . . . . . . . . . . . . 1
+        2.4       Incompatibility - QD Driver and Interface Routines 1
+        3       SOFTWARE FIXES . . . . . . . . . . . . . . . . . . . 2
+        3.1       Compiler -- VMS Only, Command Line Error . . . . . 2
+        3.2       Compiler -- LONGINTEGERs with /FPP . . . . . . . . 2
+        3.3       Compiler -- Records of Two 8-bit Values  . . . . . 2
+        3.4       Compiler -- UNSAFE RECORD of Two 0 To 255s . . . . 2
+        3.5       Compiler -- Arrays Larger Than 8192 Bytes  . . . . 2
+        3.6       Compiler -- Illegal Set Element Aborts Compiler  . 3
+        3.7       Compiler -- Out-of-Bound Set Value Aborts  . . . . 3
+        3.8       Compiler -- Missing Parameter with /FILTER Switch  3
+        3.9       Compiler -- Empty REPEAT in a WITH . . . . . . . . 3
+        3.10      Compiler -- Missing Unspecified Procedure 
+                  Parameter  . . . . . . . . . . . . . . . . . . . . 3
+        3.11      Compiler -- Terminate Procedure with /FILTER . . . 3
+        3.12      Compiler -- Undiagnosed IN Operand Out-of-Bounds . 3
+        3.13      Compiler -- Undiagnosed LONGINTEGER in a FOR Loop  4
+        3.14      Compiler -- Undefined Procedure with Missing 
+                  Parameter  . . . . . . . . . . . . . . . . . . . . 4
+        3.15      Compiler -- Size Function with Illegal Parameter . 4
+        3.16      Compiler -- WRITE of Mixed-Mode Expressions  . . . 4
+        3.17      Compiler -- .odat. Sizes Don't Match with DEBUG  . 4
+        3.18      Compiler -- Undefined FOR Variable Causes Abort  . 5
+        3.19      Compiler -- Abort Caused by Large Routine  . . . . 5
+        3.20      Compiler -- OPEN with UPDATE or DIRECT Not 
+                  Diagnosed  . . . . . . . . . . . . . . . . . . . . 5
+        3.21      OTS -- Problem Writing Long Integers . . . . . . . 5
+        3.22      OTS -- Problem with CONNECTINTERRUPT . . . . . . . 5
+        3.23      Writing REAL Numbers . . . . . . . . . . . . . . . 6
+        3.24      PASDBG -- INTERRUPT Command Damaged  . . . . . . . 6
+        3.25      PASDBG -- EXAMINE SETS Broken  . . . . . . . . . . 6
+        3.26      PASDBG -- Optional ':' in DEPOSIT Causes Error . . 6
+        3.27      RSX/VMS RELOC Corrupts .PIM When Requesting a Wide 
+                  Map  . . . . . . . . . . . . . . . . . . . . . . . 6
+        3.28      Two Arguments Reversed in MACRO MAPW$ Primitive  . 6
+        3.29      FPU=FPP Was Not Permitted in PROCESSOR Macro   . . 6
+        3.30      Problems with Names -- Logical and Shared Region . 7
+        3.31      Simplification of User Interface to QD Driver  . . 7
+        3.32      Complex Primitives and Sleep Not Timing Out  . . . 7
+        3.33      IEEE C-I-C Not Talker  . . . . . . . . . . . . . . 8
+        3.34      TON Auxiliary Command Now Works  . . . . . . . . . 8
+        3.35      MP/P-VMS MPSETUP.COM . . . . . . . . . . . . . . . 8
+        3.36      RSX MPBUILD Problems with .MAC Extensions  . . . . 8
+        3.37      MP/P-RSX Kits -- Errors in HELP Text . . . . . . . 8
+        3.38      RSX Kit -- INCLUDE Files and the Use of a Logical  8
+        3.39      XE Driver (DRVU) Contained EIS Instruction . . . . 9
+
+
+
+
+
+
+
+
+                                                                Page 1
+
+
+   INTRODUCTION1  INTRODUCTION
+
+This  document   describes   the   significant   differences   between
+MicroPower/Pascal  Version  2.2  and the MicroPower/Pascal Version 2.3
+update release.  Section 2  describes  new  features,  and  Section  3
+describes   software  fixes.   Unless  otherwise  indicated,  the  new
+features and the bug fixes made between Version 2.2  and  Version  2.3
+are common to all host implementations of the product.
+
+
+
+   NEW FEATURES FOR VERSION 2.32  NEW FEATURES FOR VERSION 2.3
+
+     MicroPDP-11/532.1  MicroPDP-11/53
+
+The MicroPDP-11/53 is a J11-based processor with 512  KB  of  on-board
+RAM.   It  is  supported  as a host development system and as a target
+system.  As a target, however, it is supported as a RAM-only system.
+
+
+
+     KXJ11-CA Capabilities2.2  KXJ11-CA Capabilities
+
+The KXJ11-CA
+
+      o  Supports both mapped and unmapped applications
+
+      o  Is a J11-based processor
+
+      o  Has  a  floating-point  instruction  set  included   in   the
+         microcode
+
+      o  Contains 512 KB of on-board RAM
+
+      o  Has RAM that can be configured as shared memory, which can be
+         accessed  by  devices on the Q-Bus as well as by the on-board
+         processor
+
+
+
+     QD Driver2.3  QD Driver
+
+The request packet format and the  Pascal  driver  interface  routines
+have  changed  so  that  they  can  work  in  both mapped and unmapped
+environments.  See chapter 9 of the I/O Services Manual as well as the
+QDINC.PAS and DMA.PAS files.
+
+
+
+     Incompatibility - QD Driver and Interface Routines2.4  Incompatibility - QD Driver and Interface Routines
+
+A new field, ADRTYP, has been added to the record type DMA$ADDRESS  to
+support  the  mapped  version  of  the  driver  running on a KXJ11-CA.
+Pascal programs that use the  Pascal  interface  routines  to  the  QD
+driver  may  have  to  be modified to include this field.  See Section
+9.3.1 of the I/O Services Manual for an explanation of the use of this
+field.
+                                                                Page 2
+
+
+In addition, the  request  packet  interface  to  the  QD  driver  has
+changed.  Programs that send request packets directly to the QD driver
+may have to be modified.  See Section 9.4 of the I/O  Services  Manual
+for an explanation of the new request packet interface.
+
+
+
+   SOFTWARE FIXES3  SOFTWARE FIXES
+
+     Compiler -- VMS Only, Command Line Error3.1  Compiler -- VMS Only, Command Line Error
+
+The MP/P-VMS compiler generated  a  diagnostic  message  for  a  valid
+command  line  that contained multiple values on the /CHECK qualifier.
+For example,
+
+     MPPASCAL/CHECK=(MATH,POINTER,STACK) A
+
+
+
+     Compiler -- LONGINTEGERs with /FPP3.2  Compiler -- LONGINTEGERs with /FPP
+
+Incorrect  code  was  generated  to  write  an  expression   involving
+LONGINTEGERs.   The  incorrect code was generated only if /INS=FPP was
+used and the expression existed only once in the procedure.
+
+
+
+     Compiler -- Records of Two 8-bit Values3.3  Compiler -- Records of Two 8-bit Values
+
+Incorrect code was generated when a 16-bit record variable, made up of
+two  8-bit values, was moved from the stack to memory and subsequently
+used in an IF statement.  Incorrect code was generated only if  /DEBUG
+was not used.
+
+
+
+     Compiler -- UNSAFE RECORD of Two 0 To 255s3.4  Compiler -- UNSAFE RECORD of Two 0 To 255s
+
+Incorrect code was generated when an INTEGER was assigned to a RECORD,
+made  up  of  two  values  in  the  range 0 to 255, and had the UNSAFE
+attribute.
+
+
+
+     Compiler -- Arrays Larger Than 8192 Bytes3.5  Compiler -- Arrays Larger Than 8192 Bytes
+
+If the parameter of the address function was an array whose  size  was
+greater   than   8192  bytes,  the  compiler  reported  error  189  --
+"Declarations may not exceed 65536 bytes/bits ...." This  error  would
+also  be generated if certain file operations were used on a file that
+had a basetype of a size greater than 8192 bytes.
+                                                                Page 3
+
+
+     Compiler -- Illegal Set Element Aborts Compiler3.6  Compiler -- Illegal Set Element Aborts Compiler
+
+If an illegal element was  used  in  a  set  constructor,  compilation
+aborted with an "Array Index Out of Range" error message.
+
+
+
+     Compiler -- Out-of-Bound Set Value Aborts3.7  Compiler -- Out-of-Bound Set Value Aborts
+
+When a set constructor was used with an  out-of-bound  integer  value,
+the  compiler aborted with an "Odd Address or Other Trap" error rather
+than issue a "Value Out of Range" diagnostic.
+
+
+
+     Compiler -- Missing Parameter with /FILTER Switch3.8  Compiler -- Missing Parameter with /FILTER Switch
+
+If default parameters were invoked in  a  procedure/function  call  by
+their  not  being  specified,  and  the  /FILTER  switch was used, the
+compiler issues an erroneous "Bad Operand" diagnostic  in  the  scnopt
+phase.
+
+
+
+     Compiler -- Empty REPEAT in a WITH3.9  Compiler -- Empty REPEAT in a WITH
+
+If a REPEAT statement had an empty statement block, and it was in  the
+scope of a WITH, and the UNTIL expression involved a record field that
+made use of the  WITH,  compilation  aborted  with  a  "System  Access
+Violation" error.
+
+
+
+      Compiler -- Missing Unspecified Procedure Parameter3.10  Compiler -- Missing Unspecified Procedure Parameter
+
+If a procedure/function parameter was not  specified,  or  its  formal
+parameter  name  was  misspelled,  compilation  aborted with a "System
+Access Violation" error.
+
+
+
+      Compiler -- Terminate Procedure with /FILTER3.11  Compiler -- Terminate Procedure with /FILTER
+
+If a program contained procedures having the terminate attribute,  and
+they  were  never  referenced, the compilation of the program with the
+/FILTER switch caused all such  procedures  to  be  removed  from  the
+program and thus never executed.
+
+
+
+      Compiler -- Undiagnosed IN Operand Out-of-Bounds3.12  Compiler -- Undiagnosed IN Operand Out-of-Bounds
+
+In the expression (elt IN set), if set was an integer subrange and elt
+was  out-of-bounds  (less  than 0 or greater than 255), this error was
+not diagnosed.
+                                                                Page 4
+
+
+      Compiler -- Undiagnosed LONGINTEGER in a FOR Loop3.13  Compiler -- Undiagnosed LONGINTEGER in a FOR Loop
+
+The illegal use of a LONGINTEGER control variable in a  FOR  loop  was
+not diagnosed.
+
+
+
+      Compiler -- Undefined Procedure with Missing Parameter3.14  Compiler -- Undefined Procedure with Missing Parameter
+
+If an  undefined  procedure/function  was  called  with  one  or  more
+parameters  unspecified,  compilation  aborted  with  a "System Access
+Violation" error.
+
+
+
+      Compiler -- Size Function with Illegal Parameter3.15  Compiler -- Size Function with Illegal Parameter
+
+If an illegal but defined identifier was  used  in  any  of  the  size
+functions;  that  is,  size,  next,  bitsize, and bitnext, compilation
+aborts with a "System Access Violation" error.
+
+
+
+      Compiler -- WRITE of Mixed-Mode Expressions3.16  Compiler -- WRITE of Mixed-Mode Expressions
+
+                                                            RIf a procedure contains an expression of the form  Integer  Real  from
+within  a  WRITE  statement, and if the Integer is a parameter and the
+Real a local variable, incorrect results occur.
+
+Incorrect code was generated for the program below.
+
+
+PROGRAM QAR211 (INPUT, OUTPUT);
+
+  PROCEDURE Nogood (I : INTEGER);
+    VAR R : REAL;
+    BEGIN
+      R := 1.0;
+               R      WRITE ((IR):6:3);
+                I{      WRITE ((RI):6:3);}
+    END;
+
+BEGIN
+  WRITELN ('Done.');
+END.
+
+
+
+      Compiler -- .odat.  Sizes Don't Match with DEBUG3.17  Compiler -- .odat.  Sizes Don't Match with DEBUG
+
+When compiling an [OVERLAID] module with and without the DEBUG switch,
+the odat p-sect sizes did not match.
+                                                                Page 5
+
+
+      Compiler -- Undefined FOR Variable Causes Abort3.18  Compiler -- Undefined FOR Variable Causes Abort
+
+If a FOR statement using an undefined control variable  was  a  simple
+statement  THEN part of an IF statement with a non-constant condition,
+or if that FOR statement immediately followed a statement missing  its
+ending  semicolon,  compilation would abort with a memory access error
+in VMS or RSX.
+
+
+
+      Compiler -- Abort Caused by Large Routine3.19  Compiler -- Abort Caused by Large Routine
+
+When compiling a large program, the compiler (VMS  only)  would  abort
+with the error message:
+
+%PAS-F-ARRINDVAL, array index value is out of range
+
+The correct error message is:
+
+?PASCAL-F-CACHE overflow in ...
+
+The incorrect error message occurred because two internal arrays  were
+not declared properly.
+
+
+
+      Compiler -- OPEN with UPDATE or DIRECT Not Diagnosed3.20  Compiler -- OPEN with UPDATE or DIRECT Not Diagnosed
+
+The illegal OPENing of a TEXT file with DIRECT  or  UPDATE  accessmode
+would  not  be  diagnosed.   The  following program did not generate a
+compilation error.
+VAR
+  textfile: TEXT;
+
+BEGIN
+  open(textfile, 'file.fil', accessmode := direct);
+  open(textfile, 'file.fil', accessmode := update);
+END.
+
+
+
+      OTS -- Problem Writing Long Integers3.21  OTS -- Problem Writing Long Integers
+
+Long  integers  in  the  range   32768000..32768099   were   displayed
+incorrectly.
+
+
+
+      OTS -- Problem with CONNECTINTERRUPT3.22  OTS -- Problem with CONNECTINTERRUPT
+
+In some cases, a  call  to  CONNECTINTERRUPT  would  not  function  as
+desired  --  the PIC indicator would erroneously be changed from FALSE
+to TRUE.
+                                                                Page 6
+
+
+      Writing REAL Numbers3.23  Writing REAL Numbers
+
+V5.1 would  display  a  REAL  number  according  to  the  field  width
+specified,  unless  the  nondecimal portion of the number exceeded the
+field width.  In V2.0,  the  displaying  of  the  REAL  number  always
+included  an additional space to the left of the number.  That problem
+was fixed in V2.1 but not included in the V2.1 Release Notes.
+
+
+
+      PASDBG -- INTERRUPT Command Damaged3.24  PASDBG -- INTERRUPT Command Damaged
+
+The PASDBG command 'interrupt' as in "interrupt from %o300" only works
+in the form 'inter' without the 'rupt' as in "inter from %o300".
+
+
+
+      PASDBG -- EXAMINE SETS Broken3.25  PASDBG -- EXAMINE SETS Broken
+
+When examining sets, PASDBG reports erroneous contents  and  sometimes
+crashes.
+
+
+
+      PASDBG -- Optional ':' in DEPOSIT Causes Error3.26  PASDBG -- Optional ':' in DEPOSIT Causes Error
+
+Doing a deposit with PASDBG  using  the  optional  ':='  form  of  the
+command as in "DEPOSIT turkey := true" produced an error.
+
+
+
+      RSX/VMS RELOC Corrupts .PIM When Requesting a Wide Map3.27  RSX/VMS RELOC Corrupts .PIM When Requesting a Wide Map
+
+Requesting a wide map from RELOC caused both an  invalid  map  and  an
+invalid .PIM file to be generated.
+
+
+
+      Two Arguments Reversed in MACRO MAPW$ Primitive3.28  Two Arguments Reversed in MACRO MAPW$ Primitive
+
+Two of the arguments passed to the kernel for the MACRO-11 versions of
+the  MAPW$  primitive  were  reversed  in  the argument block that was
+passed to the kernel.  The opt and len arguments were reversed,  which
+caused  unpredictable  results  and  possible  mmu  faults  within the
+primitive.  This was a problem for all three versions ($, $C, and  $P)
+of  the  MAPW$  primitive.   (The  Pascal  MAPWINDOW procedure was not
+affected.)
+
+
+
+      FPU=FPP Was Not Permitted in PROCESSOR Macro3.29  FPU=FPP Was Not Permitted in PROCESSOR Macro
+
+The valid arguments for the FPP argument in the PROCESSOR  macro  were
+FP11,  FIS, and FPA.  However, in the discussion about the TRAPS macro
+on p 4-24 of the Runtime Services Manual, FPU=FPP was used by  mistake
+instead of FPU=FP11.  The user got no error in specifying FPU=FPP, but
+did not get the FPP trap processor.
+                                                                Page 7
+
+
+Since FPP is used  in  several  other  places  in  MicroPower,  a  new
+argument, FPU=FPP, that is equivalent to FPU=FP11 is available.
+
+
+
+      Problems with Names -- Logical and Shared Region3.30  Problems with Names -- Logical and Shared Region
+
+There were three problems with names for logicals and  shared  regions
+if they were defined in the kernel configuration file.  They were:
+
+     1.  Specified names having fewer than  six  characters  and  that
+         were  not  padded  with  blanks  by the user were incorrectly
+         padded with nulls (octal 0's) instead of blanks.
+
+     2.  Characters in shared region names sometimes were converted to
+         uppercase when they were specified in lowercase by the user.
+
+     3.  Names that were more than six characters long were truncated.
+         There was no indication of this to the user.
+
+You will now get a MACRO-11  Assembler  error  if  any  logical  name,
+shared  region  name,  or static process name (specified in the DFSPC$
+macro) contains more than six characters.
+
+
+
+      Simplification of User Interface to QD Driver3.31  Simplification of User Interface to QD Driver
+
+The  QD  driver  interface  routines  $DMATRANSFER,  $DMASEARCH,   and
+$DMASEARCHTRANSFER  have  been changed to simplify the user interface.
+If the DMA$VIRTUAL option (new for V2.3) is specified,  the  interface
+routine  or  the  driver  converts  the  virtual address to a physical
+address, if necessary.
+
+
+
+      Complex Primitives and Sleep Not Timing Out3.32  Complex Primitives and Sleep Not Timing Out
+
+Complex primitives and sleeping processes would sometimes not time out
+as  expected.   This  was  caused  by  a  bug  in  CLKISR.MAC.  If the
+expiration counter timed out while the condition  that  satisfied  the
+WAITANY  was  in  the  fork  queue, the WAITANY processing would occur
+while the CLKISR was in the fork queue behind  it.   When  the  CLKISR
+woke up, if that was the only process that timed out, the CLKISR would
+notice that there was no one to wake up.  It then would check  to  see
+if there were any processes still in the queue.  If at that time there
+were other processes waiting in the queue, the CLKISR wouldn't  notice
+and  would  set the expiration counter for the next process timeout to
+77777 incorrectly.  This problem would occur because the  pointer  for
+the  check of whether there were other processes in the queue would be
+incorrect.
+                                                                Page 8
+
+
+      IEEE C-I-C Not Talker3.33  IEEE C-I-C Not Talker
+
+The controller in charge (C-I-C) could not also be  a  talker  on  the
+IEEE bus.
+
+
+
+      TON Auxiliary Command Now Works3.34  TON Auxiliary Command Now Works
+
+The IEEE (XE) driver did not work correctly when  the  user  issued  a
+'TON' auxiliary command.
+
+
+
+      MP/P-VMS MPSETUP.COM3.35  MP/P-VMS MPSETUP.COM
+
+The MP/P-VMS file MPSETUP.COM  did  not  have  a  symbol  for  running
+MKBOOT.EXE.  MPSETUP.COM now has the symbol MPMKBOOT.
+
+
+
+      RSX MPBUILD Problems with .MAC Extensions3.36  RSX MPBUILD Problems with .MAC Extensions
+
+With only  the  RSX  version  of  MPBUILD,  there  were  two  problems
+involving default extensions on files:
+
+     1.  If, in response  to  the  User  process  name  question,  you
+         specified  /MAC  without  a  file extension, MPBUILD gave the
+         file the extension .PAS instead of  .MAC.   This  caused  the
+         assembler  line  in  the  command  file  to  fail because the
+         assembler could not find the file xxxxxx.PAS.
+
+     2.  If, in response to  the  Driver  prefix  file  question,  you
+         specified  a  file name having no extension and you then said
+         you wanted to edit the file, MPBUILD attempted  to  open  the
+         file  with  no extension, which caused EDT to open a new file
+         and report "input file not found".
+
+
+
+      MP/P-RSX Kits -- Errors in HELP Text3.37  MP/P-RSX Kits -- Errors in HELP Text
+
+The MP/P-RSX help text had the following two errors:
+
+      o  Conflicting subtopics REL and RELOC
+
+      o  Incorrect text line @SY:[1,2]MPSTART
+
+
+
+      RSX Kit -- INCLUDE Files and the Use of a Logical3.38  RSX Kit -- INCLUDE Files and the Use of a Logical
+
+The  Pascal  source  files  on  the  MicroPower/Pascal-RSX  kit   that
+contained  INCLUDE  statements  did not use a logical (as those on the
+MicroPower/Pascal-VMS do).  To facilitate  the  referencing  of  these
+INCLUDE files, a logical (MICROPOWER$LIB) has been added.
+                                                                Page 9
+
+
+      XE Driver (DRVU) Contained EIS Instruction3.39  XE Driver (DRVU) Contained EIS Instruction
+
+The XE driver  contained  EIS  code  in  DRVU,  which  caused  illegal
+operation exceptions on NHD-only processors.
+                                                                                                                                                                                                                                                                                            

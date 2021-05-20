@@ -1,0 +1,699 @@
+.NLIST
+.ENABL LC
+.LIST
+.MCALL	.MODULE
+.MODULE	TD,RELEASE=V01,VERSION=05,COMMENT=<TD Serial Line Driver>,AUDIT=YES
+;
+;
+;                      COPYRIGHT (c) 1984, 1986 BY
+;             DIGITAL EQUIPMENT CORPORATION, MAYNARD
+;              MASSACHUSETTS.  ALL RIGHTS RESERVED.
+;
+;
+; THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED
+; ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE
+; INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER
+; COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+; OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY
+; TRANSFERRED.
+;
+;
+; THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE
+; AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT
+; CORPORATION.
+;
+;
+; DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS
+; SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY DIGITAL.
+;
+.SBTTL	RT-11 SERIAL LINE COMM DRIVER
+;
+; Edit History:
+; 11-Nov-83/ERS		Added conditional THRIFT support & PC3xx support
+; 10-Jun-85/ERS		Added function to disable interrupts
+;
+
+.SBTTL	MACROS AND DEFINITIONS
+
+.iif ndf MMG$T, MMG$T	== 1		; build for XM IF =1
+.iif ndf TD$PC	TD$PC	= 0		; Default to no PRO-3xx support
+.iif ndf THR$M  THR$M = 0		; default to no thrift support
+
+.nlist	cnd
+
+.if ne TD$PC
+TD$CSR	= 173300		;Force these for a PRO
+TD$VEC	= 210
+.iff
+TD$CSR	= 176500		;default csr address
+TD$VEC	= 300			;default vector
+.ENDC ;NE TD$PC
+
+.MCALL	.DRDEF
+
+.iif eq THR$M .DRDEF TD,377,HNDLR$!SPFUN$,0,TD$CSR,TD$VEC
+.iif ne THR$M .DRDEF TD,376,HNDLR$!SPFUN$,0,TD$CSR,TD$VEC
+
+; SYSCOM locations
+ 
+	SYSPTR	= 54			; Pointer to base of RMON
+ 
+; RMON Fixed offsets
+ 
+	CONFG2	= 370			; Configuration word 2
+		PRO$	= 020000 	; Processor is a PRO-3xx
+
+;SPECIAL FUNCTION REQUEST CODES
+
+F.INI	= -1
+F.SND	= -2			;SEND A CHARACTER
+F.RCV	= -3			;RECEIVE A CHAR (NULL IF NONE)
+F.CHK	= -4			;RETURN # CHARS IN RCV BUFFER
+F.BRK	= -5			;ASSERT BREAK ON TRANSMIT LINE
+F.RCB	= -6			;Receive and write in block mode to user
+.if ne THR$M
+F.ON	= -7			;Turn on XON/XOFF processing
+F.OFF	= -8.			;Turn off XON/XOFF processing
+RSTSIZ	= 35.
+STPSIZ	= BUFSIZ-10.
+CTRLS	= 23
+CTRLQ	= 21
+
+.endc ; ne THR$M
+F.DSA	= -9.			;Disable interrupts
+TD$VEO	= TD$VEC+4		;VECTOR OFFSET FOR OUTPUT SIDE
+
+.IF EQ TD$PC
+.sbttl Serial line register definitions
+
+TD$CSO	= TD$CSR+4		; Csr offset for output side
+
+;SERIAL LINE STATUS REGISTER BITS
+
+IE	= 100		;INTERRUPT ENABLE
+RDY	= 200		;PRINTER READY
+ERR	= 100000	;PRINTER ERROR
+
+
+.IFF
+.sbttl PRO-3xx Interrupt controller registers
+ 
+	IC0DR	= 173200		;Interrupt controller 0 data register
+	IC0CR	= IC0DR+2		;Interrupt controller 0 csr register
+ 
+; PRO-3xx Communications port registers
+ 
+	TD$BUF	= TD$CSR		;Recv/Xmit buffer register
+	TD$CSA	= TD$CSR+2		;CSR register A
+	TD$CSB	= TD$CSR+6		;CSR register B
+	TD$MC0	= TD$CSR+10		;Modem control register 0
+	TD$MC1	= TD$CSR+12		;Modem control register 1
+	TD$BAU	= TD$CSR+14		;Baud rate control register
+ 
+; CSRA Write/Read register bit definitions
+ 
+	RPT.R0	= 000		;Write/Read register 0
+		CRC.TR	= 300	; Reset transmit underrun/end of message latch
+		CMD.RE	= 020	; Reset external/status interrupts
+		CMD.CR	= 030	; Channel reset
+		CMD.RT	= 050	; Reset transmitter interrupt pending
+		CMD.ER	= 060	; Reset error latches
+		CMD.EI	= 070	; End of interrupt
+	RPT.R1	= 001		;Write/Read register 1
+		W1.RIE	= 030	; Receiver interrupt enable
+				;  (Int. on rec. char or special (no parity))
+		W1.TIE	= 002	; Transmitter interrupt enable
+	RPT.R2	= 002		;Write/Read register 2
+	RPT.R3	= 003		;Write register 3
+		RCL.8	= 300	; Receiver character length (8 bits)
+		W3.RXE	= 001	; Receiver enable
+	RPT.R4	= 004		;Write register 4
+		CLK.16	= 100	; 16x rate multiplier
+		STP.1	= 004	; 1 stop bit
+		W4.EVN	= 002	; Even parity
+		W4.PEN	= 001	; Parity enable
+	RPT.R5	= 005		;Write register 5
+		TCL.8	= 140	; Transmit character length (8 bits)
+		W5.SB	= 020	; Send break
+		W5.TXE	= 010	; Transmitter enable
+ 
+; CSRB Write/Read register bit definitions
+ 
+	RPT.R1	= 001		;Write/Read register 1
+		W1.REQ	= 004	; MUST be loaded with 004
+	RPT.R2	= 002		;Write/Read register 2
+		W2.REQ	= 000	; MUST be loaded with 000
+		R2.IMK	= 034	; Interrupt vector mask
+		IMK.BE	= 020	; Transmit buffer empty
+		IMK.ES	= 024	; External/Status change
+		IMK.CA	= 030	; Received character available
+		IMK.SR	= 034	; Special receiver condition
+ 
+; Modem control Register bit definitions
+ 
+	CLK.BG	= 000		; Rx = RBRG,	Tx = TBRG	->TD = none
+	M0.DTR	= 020		; Data terminal ready
+	M0.RTS	= 010		; Request to send
+	M1.CTS	= 040		; Clear to send
+ 
+; Baud rate mask definitions (PRO-3xx and DLV-11E)
+ 
+	B.50	= 000			;    50 baud
+	B.75	= 001			;    75 baud
+	B.110	= 002			;   110 baud
+	B.134	= 003			; 134.5 baud
+	B.150	= 004			;   150 baud
+	B.300	= 005			;   300 baud
+	B.600	= 006			;   600 baud
+	B.1200	= 007			;  1200 baud
+	B.1800	= 010			;  1800 baud
+	B.2000	= 011			;  2000 baud
+	B.2400	= 012			;  2400 baud
+	B.3600	= 013			;  3600 baud
+	B.4800	= 014			;  4800 baud
+	B.7200	= 015			;  7200 baud
+	B.9600	= 016			;  9600 baud
+	B.192K	= 017			; 19.2k baud
+.ENDC ;EQ TD$PC
+.SBTTL	INSTALLATION CODE
+ 
+	.ASECT
+	. = 200
+ 
+	NOP
+	MOV	@#SYSPTR,R0		;R0->$RMON
+	BIT	#PRO$,CONFG2(R0)	;Installing on a PRO-3xx?
+
+.IF EQ TD$PC
+	BNE	10$			;Yes, then reject the installation
+.IFF
+	BEQ	10$			;Nope, then reject the installation
+ 
+
+.ENDC ;EQ TD$PC
+ 
+	TST	(PC)+			;Accept the installation (carry=0)
+10$:	SEC				;Reject the installation (carry=1)
+	RTS	PC
+ 
+
+.SBTTL	SET OPTION PARAMETER TABLE
+
+.IF EQ TD$PC
+	.DRSET	CSR,2,O.CSR,OCT		;HANDY CONSTANT
+	.DRSET	VECTOR,477,O.VEC,OCT	;MAXIMUM VALUE FOR VECTOR
+.IFF
+	.DRSET	SPEED,NOP,O.SPEE,NUM	; SET TD SPEED=decimal_speed
+.ENDC ;EQ TD$PC
+
+
+
+
+.ENABL	LSB
+.IF EQ TD$PC
+
+; SET TD CSR=octal_address
+
+O.CSR:	MOV	R0,176		;SET INPUT CSR FOR CHECKING
+	MOV	R0,TDIS		;SET NEW INPUT CSR
+	ADD	R3,R0		;POINT TO INPUT BUFFER REGISTER
+	MOV	R0,TDIB		;SET POINTER TO THAT
+	ADD	R3,R0		;POINT TO OUTPUT STATUS REGISTER
+	MOV	R0,TDOS		;SET POINTER
+	ADD	R3,R0		;POINT TO OUTPUT BUFFER REGISTER
+	MOV	R0,TDOB		;SET POINTER
+	CMP	R0,#160000	;IS IT TOO SMALL? SET C IF SO
+	RTS	PC
+
+; SET TD VECTOR=octal_address
+
+O.VEC:	MOV	R0,TD$VTB	;SET NEW INPUT VECTOR
+	CMP	(R0)+,(R0)+	;skip to second vector
+	MOV	R0,TD$VTB+6	;set new output vector
+	CMP	R3,R0		;SET CARRY (ERROR RET) IF ABOVE 500
+	RTS	PC
+
+.IFF
+ 
+; SET TD SPEED=decimal_speed
+ 
+O.SPEE:	MOV	PC,R1			;R1->Baud rate table
+	ADD	#SPEEDT-.,R1
+10$:	TST	(R1)			;End of table?
+	BEQ	20$			;Yes, speed requested is invalid
+	CMP	R0,(R1)+		;Nope, request match this entry?
+	BNE	10$			;Nope, try another speed entry
+	SUB	PC,R1			;Yes, determine speed mask
+	SUB	#<SPEEDT+2-.>,R1
+	ASR	R1			;Convert from byte to word offset
+	MOV	R1,-(SP)		;Save the receive speed mask
+	ASL	R1			;And make transmit speed match
+	ASL	R1			; by shifting
+	ASL	R1			;  it to the
+	ASL	R1			;   high nibble
+	BIS	(SP)+,R1		;OR in the receive speed mask
+	MOVB	R1,@#TD$BAU		; and change the speed now
+	MOV	R1,ISPEED		;Save new speed for installation
+	TST	(PC)+			;Success (carry=0)
+20$:	SEC				;Failure (carry=1)
+	RTS	PC
+
+ 
+; SPEED table. Mask for given speed is same as word offset into table.
+;	To select 134.5 bps, specify 134 in the SET command.
+ 
+SPEEDT:
+	.WORD	50.,	75.,	110.,	134.,	150.,	300.
+	.WORD	600.,	1200.,	1800.,	2000.,	2400.,	3600.
+	.WORD	4800.,	7200.,	9600.,	19200.
+	.WORD	0			;Table fence
+
+.ENDC ;EQ TD$PC 
+.DSABL	LSB
+.SBTTL	DRIVER ENTRY
+
+.ENABL	LSB
+
+	.DRBEG	TD
+
+	MOV	TDCQE,R4		;POINT TO QUEUE ELEMENT
+	MOVB	Q$FUNC(R4),R3		;GET FUNCTION CODE
+	NEG	R3			;MAKE CODE POSITIVE
+	BLE	TDERR			;IF LE, ILLEGAL CODE
+.if ne THR$M
+	CMP	R3,#<-F.DSA>		;LEGAL CODE?
+.IFF
+	CMP	R3,#<-F.DSA>		;LEGAL CODE?
+.endc ; ne THR$M
+	BGT	TDERR			;IF GT NO
+	ASL	R3			;R3 = TABLE OFFSET
+	ADD	PC,R3			;PIC FORM TABLE JUMP
+	ADD	@R3,PC			;AWAY WE GO....
+TDTBL:					;PIC TABLE FOR ACTION ROUTINE
+	.WORD	INIT-TDTBL
+	.WORD	SEND-TDTBL
+	.WORD	RCV-TDTBL
+	.WORD	CHECK-TDTBL
+	.WORD	BREAK-TDTBL
+	.WORD	RCB-TDTBL
+.if ne THR$M
+	.WORD	XENABL-TDTBL
+	.WORD	XDSABL-TDTBL
+.iff
+	.WORD	TDERR-TDTBL
+	.WORD	TDERR-TDTBL
+.endc ; ne THR$M
+	.WORD	DSAINT-TDTBL
+TDERR:	JMP	TDER
+.sbttl	HANDLER COMMAND INITIALIZATION ROUTINES
+
+.sbttl	INIT
+.if ne TD$PC
+ISPEED:	.WORD	<B.9600*20>+B.9600	;Default to 9600 baud RECV and XMIT
+.endc ; ne TD$PC
+INIT::	MOV	PC,R3			;CALC AND SAVE BUFFER ADDRESS
+	ADD	#BUFFER-.,R3		;R3 HAS ADDRESS OF BUFFER
+	MOV	R3,(PC)+		;SAVE IT
+BUFLOW:	.WORD	0
+	MOV	R3,(PC)+		;INIT INPUT BUFFER
+PUTPTR:	.WORD	0			;BUFFER PUT POINTER
+	MOV	R3,(PC)+
+TAKPTR: .WORD	0			;BUFFER TAKE POINTER
+	ADD	#BUFSIZ-1,R3		;CALC ADDR OF LAST BYTE IN BUFFER
+	MOV	R3,(PC)+		;SAVE IT
+BUFHI:	.WORD	0
+	CLR	(PC)+
+COUNT:	.WORD	0			;# CHARS IN BUFFER
+	CLR	SCNT			; no output count
+	MOVB	Q$JNUM(R4),JOBWRD	; save job number for aborts
+.IF EQ TD$PC
+	BIS	#IE,@(PC)+		;ENABLE INPUT INTERRUPTS
+TDIS:	.WORD	TD$CSR			;ADDRESS OF INPUT CSR
+.IFF
+	MOVB	ISPEED,@#TD$BAU		;Set the XMIT/RECV baud rate
+ 
+; Things to do through csr A
+ 
+	MOV	#TD$CSA,R0		;R0->csr A
+	MOVB	#CMD.CR,(R0)		;Reset channel A
+	MOVB	#CRC.TR,(R0)		;Reset transmitter underrun latch
+ 
+	MOVB	#RPT.R4,(R0)		;Select csr A, write register 4
+	MOVB	#<CLK.16!STP.1>,(R0)	; set clock rate x16, 1 stop bit
+ 
+	MOVB	#RPT.R3,(R0)		;Select csr A, write register 3
+	MOVB	#<W3.RXE!RCL.8>,(R0)	; set receiver enable, 8-bit chars
+ 
+	MOVB	#RPT.R5,(R0)		;Select csr A, write register 5
+	MOVB	#<W5.TXE!TCL.8>,(R0)	; set transmitter enable, 8-bit chars
+ 
+	MOVB	#RPT.R2,(R0)		;Select csr A, write register 2
+	MOVB	#0,(R0)			; *** must be loaded with 0 ***
+	MOVB	#CMD.RE,(R0)		;Reset external/status interrupts
+ 
+; Things to do through csr B
+ 
+	MOV	#TD$CSB,R0		;R0->csr B
+	MOVB	#CMD.CR,(R0)		;Reset channel B
+ 
+	MOVB	#RPT.R2,(R0)		;Select csr B, write register 2
+	MOVB	#W2.REQ,(R0)		; *** ensure base vector of 0 ***
+ 
+	MOVB	#RPT.R1,(R0)		;Select csr B, write register 1
+	MOVB	#W1.REQ,(R0)		; *** ensure correct vector info ***
+ 
+; Now we play with the interrupt controller
+ 
+	MOVB	#30!3,@#IC0CR		;Enable comm port interrupts
+ 
+; And finally, the modem
+ 
+	MOVB	#CLK.BG,@#TD$MC0	;Set modem clock
+
+	MOV	#RPT.R1,@CSRA		;Select csr A, write register 1
+	BIS	#W1.RIE,SSRAW1		; turn on receiver interrupts
+	MOV	SSRAW1,@CSRA
+	BIS	#<M0.DTR!M0.RTS>,@MCR0	;Force DTR and RTS
+	MOV	#RPT.R1,@CSRA		;Select csr A, write register 1
+	BIS	#W1.TIE,SSRAW1		; turn on transmitter interrupts
+	MOV	SSRAW1,@CSRA
+.ENDC ;eq TD$PC
+
+.if ne THR$M
+XDSABL:	CLR	MODEM			;TURN OFF XON/XOFF
+	CLR	SNDS			;NO SEND CTRLS
+.endc ; ne THR$M
+	BR	TDDONE			;DONE WITH REQUEST
+.if ne THR$M
+XENABL:	INC	(PC)+			;TURN ON XON/XOFF
+MODEM:	.WORD	0			;FLAG
+	CLR	SNDS			;
+	BR	TDDONE
+.endc ; ne THR$M
+.IF NE TD$PC
+.SBTTL	REGISTER TABLES
+ 
+DBUF:	.WORD	TD$BUF			; : Input/Output buffer register
+CSRA:	.WORD	TD$CSA			; : Control/Status register A
+CSRB:	.WORD	TD$CSB			; : Control/Status register B
+MCR0:	.WORD	TD$MC0			; : Modem control/status register 0
+MCR1:	.WORD	TD$MC1			; : Modem control/status register 1
+BAUD:	.WORD	TD$BAU			; : Baud rate control register
+
+; Now for some software registers
+
+SSRAW1:	.WORD	0			;Software status A, write register 1
+SSRAW5:	.WORD	<W5.TXE!TCL.8>		;Software status A, write register 5
+.ENDC ;NE TD$PC
+.sbttl SEND
+
+SEND:
+	MOV	Q$WCNT(R4),(PC)+	;save count requested
+SCNT:	.word	0			;send count
+	BEQ	TDDONE			;if eq no count
+	JMP	SCHRI			;start up transfer
+.sbttl RECEIVE AND RECEIVE BLOCK
+
+.MCALL	.MTPS
+
+RCV:	MOV	#1,Q$WCNT(R4)		;Move one character
+RCB:	MOV	Q$WCNT(R4),(PC)+	;Get character count
+RCNT:	.word	0			;character count
+	BEQ	20$			; br if none
+	CLR	(PC)+			; flag if we restarted output
+					; on this request
+FOO:	.WORD	0			;
+RECV::	TST	COUNT			;ANY CHARS IN BUFFER?
+	BEQ	20$			;NO, RETURN NULL
+
+.if ne THR$M
+	TST	MODEM			;XON/XOFF PROCESSING?
+	BEQ	5$			;NOPE
+	TST	SNDS			;ARE WE STOPPED?
+	BEQ	5$			;NOPE
+	TST	FOO			; have we restarted on this request?
+	BNE	5$			; br if so
+	CMP	COUNT,#RSTSIZ		;TIME TO RESTART?
+	BGT	5$			;NOPE
+	INC	FOO			; flag that we have restarted
+.IF EQ TD$PC
+	MOV	#-2,SNDS		;YES..SEND CTRLQ
+	MOV	#IE,@TDOS		;RESTART TRANSMITTER INTERRUPTS
+.IFF
+	.MTPS	#340			; disable interrupts
+	TST	SCNT			;is output idle?
+	BNE	54$			;no...flag send ctrlq
+	MOV	#CTRLQ,@DBUF		; output ctrlq
+	CLR	SNDS			; flag that we are not stopped
+	BR	55$			; continue
+54$:	MOV	#-2,SNDS		;YES..SEND CTRLQ
+55$:	.MTPS	#0			; enable interrupts
+.ENDC ;eq TD$PC
+.endc ; ne THR$M
+5$:
+	MOVB	@TAKPTR,R5		;GET CHAR FROM BUFFER
+	INC	TAKPTR			;ADV BUFFER POINTER
+	CMP	TAKPTR,BUFHI		;FALL OFF END?
+	BLOS	10$			;NO
+	MOV	BUFLOW,TAKPTR		;WRAP AROUND
+10$:	DEC	COUNT			;DEC # CHARS IN BUFFER
+
+.IF EQ MMG$T				;RETURN BYTE
+	MOVB	R5,@Q$BUFF(R4)		;Give user character
+	INCB	Q$BUFF(R4)		;Bump buffer pointer
+.IFF
+	MOVB	R5,-(SP)		;Transfer set up
+	JSR	PC,@$PTBYT		;Give user character
+.ENDC
+
+	DEC	RCNT			;Done with transfer?
+	BNE	RECV			;If NE NO
+20$:	SUB	RCNT,Q$WCNT(R4)		;Return amount transfered
+	BR	TDDONE			;dismiss request
+.sbttl	CHECK
+
+CHECK::	MOV	COUNT,R5		;GET # CHARS PENDING
+
+.IF EQ MMG$T				;GIVE WORD TO USER
+	MOV	R5,@Q$BUFF(R4)
+.IFF
+	MOV	R5,-(SP)
+	JSR	PC,@$PTWRD
+.ENDC
+	BR	TDDONE			;RETURN TO USER
+
+; disable interrupts
+
+DSAINT:
+.IF EQ TD$PC
+	CLR	@TDIS			;TURN OFF INPUT INTERRUPT
+	CLR	@TDOS			;turn off output interrupts
+.IFF
+	MOV	#RPT.R1,@CSRA		;Select csr A, write register 1
+;	BIC	#W1.RIE,SSRAW1		; Turn off input interrupts
+	CLR	SSRAW1			; Turn off all interrupts
+	MOV	SSRAW1,@CSRA
+.ENDC ;EQ TD$PC
+	BR	TDDONE
+.sbttl	ABORT ENTRY AND DRFIN
+
+TDER:	BIS	#HDERR$,@-(R4)		;SET HARD ERROR BIT
+TDDONE:	.DRFIN	TD
+TDABRT:	
+	CMPB	R4,(PC)+		; is our job aborting?
+JOBWRD:	.WORD	0			; job number
+	BNE	47$			; br if not
+.IF EQ TD$PC
+	CLR	@TDIS			;TURN OFF INPUT INTERRUPT
+	CLR	@TDOS			;turn off output interrupts
+.IFF
+	MOV	#RPT.R1,@CSRA		;Select csr A, write register 1
+;	BIC	#W1.RIE,SSRAW1		; Turn off input interrupts
+	CLR	SSRAW1			; Turn off all interrupts
+	MOV	SSRAW1,@CSRA
+.ENDC ;EQ TD$PC
+	TST	TDCQE			; do we have a request?
+	BEQ	47$			; br if not
+	BR	TDDONE			; else give it back
+47$:	RTS	PC			; return
+.sbttl	BREAK
+
+BREAK::
+.IF EQ TD$PC
+	BIS	#1,@TDOS		;SET BREAK BIT IN TRANSMITTER STATUS
+.IFF
+	MOV	#RPT.R5,@CSRA		;Select csr A, write register 5
+	BIS	#W5.SB,SSRAW5		; turn on break
+	MOV	SSRAW5,@CSRA
+.ENDC ;eq TD$PC
+	CLR	-(SP)			;WE DO A 2**16 LOOP TO GET TIME
+30$:	DEC	@SP			;FOR THE BREAK TO BE RECOGIZED.
+	BNE	30$
+	TST	(SP)+
+.IF EQ TD$PC
+	BIC	#1,@TDOS		;CLEAR BREAK BIT
+.IFF
+	MOV	#RPT.R5,@CSRA		;Select csr A, write register 5
+	BIC	#W5.SB,SSRAW5		;Turn off break
+	MOV	SSRAW5,@CSRA
+.ENDC ;eq TD$PC
+	BR	TDDONE			;DONE WITH REQUEST
+.sbttl	VECTOR TABLE
+.IF EQ TD$PC
+.DRVTB	TD,TD$VEC,TDINT			;input interrupt c=0
+.DRVTB	,TD$VEO,TDINT,1			;output interrupt c=1
+.IFF
+.DRVTB	TD,TD$VEC,TDINT			;input interrupt 
+.DRVTB	,TD$VEO,TDINT			;output interrupt 
+.ENDC ;EQ TD$PC
+.DSABL LSB
+.SBTTL	INPUT INTERRUPT SERVICE
+
+.ENABLE LSB
+
+	.DRAST	TD,4,TDABRT
+
+.IF EQ TD$PC
+	BCS	SCHR			;if CS send interrupt
+	MOVB	@(PC)+,R4		;GET INPUT CHARACTER
+TDIB:	 .WORD	TD$CSR+2		;POINTER TO INPUT BUFFER
+.IFF
+	MOV	#RPT.R2,@CSRB		;Select csr B, read register 2
+	MOV	@CSRB,-(SP)		;Get the interrupt type
+	BIC	#^C<R2.IMK>,(SP)	;Strip the uninteresting stuff
+	ASR	(SP)			;Shift for word table offset
+	ADD	PC,(SP)			;Add in address of start of table
+	ADD	#INTTAB-.,(SP)		; (picly)
+	MOV	@(SP),(SP)		;Get the table entry
+	ADD	PC,(SP)			;Convert to address
+INTDSP:	JMP	@(SP)+			;Dispatch the interrupt
+ 
+ESINT:	MOV	#CMD.RE,@CSRA		;Reset external/status interrupts
+IECOM:	MOV	#CMD.EI,@CSRA		;Declare end of interrupt
+	RTS	PC
+ 
+SRINT:	MOV	#CMD.ER,@CSRA		;Reset error latches
+	BR	TIINT			; then handle as received character
+ 
+INTTAB:	.WORD	IECOM-INTDSP		;unknown interrupt
+	.WORD	IECOM-INTDSP		;unknown interrupt
+	.WORD	IECOM-INTDSP		;unknown interrupt
+	.WORD	IECOM-INTDSP		;unknown interrupt
+	.WORD	SCHR-INTDSP		;Transmitter buffer empty
+	.WORD	ESINT-INTDSP		;External/Status change
+	.WORD	TIINT-INTDSP		;Received character available
+	.WORD	SRINT-INTDSP		;Special receiver interrupt
+TIINT:
+	MOVB	@DBUF,R4		;Get a character from input
+.ENDC ; EQ TD$PC
+
+.if ne THR$M
+	TST	MODEM			;XON/XOFF PROCESSING?
+	BEQ	5$			;BR IF NOT
+	CMP	COUNT,#STPSIZ		;TIME TO STOP?
+	BLT	5$			;BR IF NOT
+	TST	SNDS			;ALREADY STOPED?
+	BNE	5$			;BR IF SO
+.IF EQ TD$PC
+	MOV	#-1,SNDS		;SEND CTRLS
+	BIS	#IE,@TDOS		;ENABLE OUTPUT INTERRUPTS
+.IFF
+	TST	SCNT			; is output idle?
+	BNE	59$			; br if not
+	MOVB	#CTRLS,@DBUF		; output ctrls
+	MOV	#1,SNDS			; flag that we are stopped
+	BR	5$			; continue
+59$:	MOV	#-1,SNDS		; flag to send ctrls
+.ENDC ; EQ TD$PC
+.endc ; ne THR$M
+5$:
+	CMP	#BUFSIZ,COUNT		;ROOM IN BUFFER?
+	BLOS	20$			;NO CHARACTER SIMPLY LOST
+	MOVB	R4,@PUTPTR		;PUT CHAR IN BUFFER
+	INC	PUTPTR			;ADV BUFFER POINTER
+	CMP	PUTPTR,BUFHI		;FALL OFF END?
+	BLOS	10$
+	MOV	BUFLOW,PUTPTR		;WRAP AROUND
+10$:	INC	COUNT			;INC # CHARS IN BUFFER
+20$:
+.IF ne TD$PC
+	MOV	#CMD.EI,@CSRA		;Declare end of interrupt
+.ENDC ;NE TD$PC
+	RTS	PC			;DONE WITH INTERRUPT
+
+.SBTTL	Transmitter ISR
+
+SCHR::
+.If ne TD$PC
+	MOV	#CMD.RT,@CSRA		;Reset transmitter interrupt pending
+	MOV	#CMD.EI,@CSRA		;Declare end of interrupt
+.Endc ;ne TD$PC
+.if ne THR$M
+	TST	MODEM			;XON/XOFF PROCESSING?
+	BEQ	30$			;BR IF NOT
+	TST	(PC)+			;SEND STOP OR START
+SNDS:	.WORD	0			;FLAG
+	BPL	30$			;NOPE..
+	MOV	#CTRLQ,R5		;ASSUME CTRLQ
+	ADD	#2,SNDS			;FIND OUT WHICH
+	BEQ	25$			;BR IF SEND CTRLQ
+	MOV	#CTRLS,R5		;SEND CTRLS
+25$:
+.IF EQ TD$PC
+	MOVB	R5,@TDOB		;OUTPUT COMMAND
+.IFF
+	MOVB	R5,@DBUF		;output command
+.ENDC ; EQ TD$PC
+	RTS	PC			;RETURN
+.endc ; ne THR$M
+
+30$:	TST	SCNT			; Do we have any more work?
+	BNE	31$			; br if so
+.IF EQ TD$PC
+	BIC	#IE,@(PC)+		;TUrn off interrupts
+TDOS:	.WORD	TD$CSO			;TRANSMITTER STATUS REG ADDRESS
+.IFF
+.ENDC ; EQ TD$PC
+	RTS	PC			; and return
+
+31$:	MOV	TDCQE,R4		;POINT TO QUEUE ELEMENT
+	DEC	SCNT			;Done with transfer?
+	BEQ	TDFIN			;If EQ yes
+
+SCHRI::					;Initial entry
+					;GET USERS CHAR INTO R5
+.IF EQ MMG$T
+	MOVB	@Q$BUFF(R4),R5		;IF NOT XM
+	INCB	Q$BUFF(R4)		;increment user buffer pointer
+.IFF
+	JSR	PC,@$GTBYT		;IF XM
+	MOVB	(SP)+,R5
+.ENDC
+
+.IF EQ TD$PC
+	MOVB	R5,@(PC)+		;SEND CHARACTER
+TDOB:	.WORD	TD$CSO+2		;TRANSMITTER BUFFER REG ADDRESS
+	BIS	#IE,@TDOS		;Interrupts on
+.IFF
+	MOVB	R5,@DBUF		;output the character
+.ENDC ; EQ TD$PC
+	RTS	PC			;return
+
+TDFIN:
+.IF EQ TD$PC
+	BIC	#IE,@TDOS		;TUrn off interrupts
+.ENDC ; EQ TD$PC
+	JMP	TDDONE			;Beq cross psects
+
+.DSABL LSB
+.if ne THR$M
+BUFSIZ = 150.				;SIZE OF INPUT BUFFER
+.IFF
+BUFSIZ = 50.				;SIZE OF INPUT BUFFER (TD)
+.endc ; ne THR$M
+
+BUFFER: .BLKB	BUFSIZ			;INPUT CHARACTER BUFFER
+	.DREND	TD
+
+.END
+                                                                                                                                                                                                                                                                                                                                                                     

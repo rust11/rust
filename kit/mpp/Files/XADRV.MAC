@@ -1,0 +1,1120 @@
+	.nlist		;Edit Level 0
+	.enabl	LC
+	.list
+	.title	XADRV	- DRV-11J Device driver
+
+	.ident	/V01.00/
+;
+;               COPYRIGHT (c) 1982, 1986 BY
+;             DIGITAL EQUIPMENT CORPORATION, MAYNARD
+;              MASSACHUSETTS.  ALL RIGHTS RESERVED.
+;
+;
+; THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED
+; ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE
+; INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER
+; COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+; OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY
+; TRANSFERRED.
+;
+;
+; THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE
+; AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT
+; CORPORATION.
+;
+;
+; DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS
+; SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY DIGITAL.
+;
+;+
+;
+; Module name:	XADRV
+;
+; System: MicroPower/Pascal RTS
+;
+; Author: HLP		Creation date: 22 Jul 81
+;
+; Modified: DFM 13 May 85 Fixed stack cleanup problem in MAIN Controller process
+;
+;
+; Functional Description:
+;
+; This process creates a variable number of copies of the actual device
+; driver process. it creates a request semaphore and a driver for each
+; controller specified by the table created by the driver prefix module:
+; XAPFX.MAC.
+;
+; The following DRV-11J configuration is supported:
+;
+;	Four parallel ports for either input or output that are addressed as
+;	units 0-3.  These ports are referred to as A-D in the DRV11-J User's
+;	Guide.  Port A is a special case as any of the lower 12 bits may be
+;	used as sense lines under program control (only those lines which are
+;	enabled under software control will cause interrupts and the remainder
+;	may be treated as parallel input).
+;
+;	Twelve sense lines are supported in the following fashion.  A sense
+;	line may be enabled or disabled.  No other I/O functions are supported
+;	except get characteristics.  When the sense line is enabled (specify
+;	unit 4-15), the reply semaphore is specified.  The reply semaphore
+;	must be either a binary or counting semaphore.  A queue semaphore is
+;	not supported.  Each time a sense line interrupt occurs on the speci-
+;	fied unit, that semaphore will be signaled until the line is disabled.
+;
+;-
+.sbttl	* DECLARATIONS
+.sbttl	*
+.sbttl	*   MACROS
+.sbttl	*
+.sbttl	*	System Macro Requirements
+
+;+
+;
+; System macro requirements
+;
+;-
+	.enabl	GBL
+
+	.mcall	ALPK$S,	CHGP$S,	CINT$,	CINT$S,	CRPC$,	CRPC$P,	CRPC$S,	CRST$
+	.mcall	CRST$S,	DAPK$S,	DFSPC$,	DINT$S,	DLPC$,	DLST$S,	FORK$,	SGNL$S
+	.mcall	SGLQ$S,	WAIQ$S,	WAIT$S,	WAQC$S
+
+	.mcall	CCDF$,	DRVDF$,	MACDF$,	QUEDF$
+	.mcall	DRMAP$,	DRPAR$,	IWADR$,	MVVAD$,	MVWRD$
+
+	macdf$
+	quedf$
+	drvdf$
+	ccdf$
+
+	.mcall	XAISZ$
+
+	xaisz$	GLOBAL			; Define impure area size for test
+
+
+.sbttl	*	Local Macro Definitions
+
+;+
+;
+; Local macro definitions
+;
+;-
+
+
+.sbttl	*	  OFFSET  - Generate and update stack offset symbols
+
+;+
+; OFFSET  symbol,value,mode
+;
+;	Local macro to generate and update symbols which are used to
+;	reference variables stored on the stack.
+;
+; Where:
+;
+;	symbol		The name of the symbol to be defined or updated
+;	value		Either the value to be assigned to 'symbol' or the
+;			amount that is to be added to the value of 'symbol'.
+;	mode		The default value of 'mode' is INCR, which indicates
+;			that 'value' is to be added to the value of 'symbol'.
+;-
+
+.macro	OFFSET	symbol,value,mode=INCR
+	.dsabl	CRF
+...tmp	=	value
+.irp	x,<symbol>
+.if IDN <mode>,<INCR>
+	x	=	x + ...tmp
+.iff
+	x	=	...tmp
+.endc
+.endr
+	.enabl	CRF
+.endm	OFFSET
+
+
+.sbttl	*	  FUNTB.  - General table entries for I/O functions
+
+;+
+; FUNTB.  fun,test,val
+;
+;	Local macro used to generate table for I/O functions.  'fun' must be
+;	identical with 'test' or an error will be indicated.  'val' will be
+;	stored in the table.
+;-
+
+.macro	FUNTB.	fun,test,val
+		assum$	fun EQ test
+		.byte	val
+.endm	FUNTB.
+
+
+.sbttl	*
+.sbttl	*   DEFAULT SYMBOL VALUES
+.sbttl	*
+.sbttl	*	Process symbols
+
+.sbttl	*	Default mode settings
+
+; The following symbols are defined as global symbols in the driver prefix
+; module.
+;
+;	J$RPRI		Set for rotating priorities
+;	J$HIGH		Clear for low level interrupt polarity
+;
+; The following symbols are supported only as they are defined below:
+;
+
+J$CVEC	==	0		; Clear for individual vectoring
+J$POLL	==	0		; Clear for interrupt mode
+
+
+;+
+;
+; Data and symbols owned by this module are defined here and storage is
+; allocated in the appropriate data section.
+;
+;-
+
+.sbttl	*
+.sbttl	*   LOCAL SYMBOL DEFINITIONS
+.sbttl	*
+.sbttl	*	Sense line ISR impure area offsets
+
+;+
+;
+; Define offsets within and size of the impure area required by each sense
+; line interrupt service routine.
+;
+;-
+
+	orig$	.TEMP.,<RO,D,LCL,ABS,OVR>
+
+.temp.:					; Beginning of .TEMP. psect
+SI.SID:	.blkb	SD.NAM			; Structure ID for ISR
+	.even
+SI.ISZ	=	. - .temp.		; Size of ISR impure area
+
+
+.sbttl	*	Parallel port ISR impure area offsets
+
+;+
+;
+; Define offsets within and size of the impure area required by each port
+; interrupt service routine.
+;
+;-
+
+.	=	.temp.			; Beginning of .TEMP. psect
+PI.SDB:	.blkb	SD.NAM+2		; SDB for port process ISR
+	.even
+PI.BUF:	.blkw				; -> Data buffer
+PI.PAR:	.blkw				; PAR value for buffer pointer
+PI.LEN:	.blkw				; Number of words in buffer
+PI.ACT:	.blkw				; -> Current packet being processed
+					; contains zero if none
+PI.CMD:	.blkw				; Command to execute
+PI.CSC:	.blkw				; -> CSRC
+PI.CSR:	.blkw				; -> Port CSR
+	.even
+PI.ISZ	=	. - .temp.		; Size of ISR impure area
+
+
+.sbttl	*	Controller process impure area offsets
+
+;+
+;
+; Define offsets within and size of the impure area required by the XA
+; driver for each controller process
+;
+;-
+
+.	=	.temp.			; Reuse same psect
+
+CP.RQS:	.blkb	SD.SIZ			; SID for request queue semaphore
+CP.UMP:	.blkb	2.			; Unit allocation bit map, 16 used
+	.even
+CP.G1M:	.blkb				; Current operation mode for Group 1
+CP.G2M:	.blkb				; Current operation mode for Group 2
+CP.SLI:	.blkw	12.			; Table of pointers to the sense line
+					; interrupt service routine impure
+					; areas
+CP.PPI:					; Table of pointers to each port's
+					; impure area
+CP.SPQ:	.blkw	4.			; Table of pointers to each port's
+					; queue semaphore.
+CP.CSR:	.blkw				; -> CSRA
+CP.VEC:	.blkw				; -> First of 16 contiguous interrupt
+					; vectors
+CP.SIM:	.blkb	12.*SI.ISZ		; Sense line ISR impure area allocation
+	.even
+CP.PIM:	.blkb	4.*PI.ISZ		; Parallel port ISR impure area
+	.even				; allocation
+CP.STK:	.blkw				; -> Stack origin or thereabouts for
+					; the stop process procedure
+
+CP.ISZ	=	. - .temp.		; Size of controller process impure
+					; area.  The value of this symbol must
+					; agree with XA$ISZ defined in the macro
+					; XAISZ$ or it may be less than XA$ISZ.
+.stksz	=	$MINST+110
+
+	assum$	.stksz LE XA$SSZ
+	assum$	CP.ISZ LE XA$ISZ
+
+
+.sbttl	*
+.sbttl	*   HARDWARE SYMBOL DEFINITIONS
+.sbttl	*
+.sbttl	*	Device register offsets
+
+;+
+;
+; Device register offset definitions
+;
+;-
+
+.	=	.TEMP.			; Reuse the abs psect
+
+CSRA:	.blkw				; Control/Status Register A
+	.blkw				; Data/Buffer Register A
+CSRB:	.blkw				; Control/Status Register B
+	.blkw				; Data/Buffer Register B
+CSRC:	.blkw				; Control/Status Register C
+	.blkw				; Data/Buffer Register C
+CSRD:	.blkw				; Control/Status Register D
+	.blkw				; Data/Buffer Register D
+
+.	=	.TEMP.			; Reuse the abs psect
+
+
+.sbttl	*	Mode Register Bit Assignments
+
+;+
+;
+; Mode Register bit assignments
+;
+;-
+
+	borg$	.BTMP.
+.btmp.:
+	bit$	MR.PRI			; Priority mode: set for rotating
+					; priority, clear for fixed.
+	bit$	MR.VSE			; Vector selection: clear for individual
+					; Set for common vector
+	bit$	MR.INT			; Interrupt mode: clear to interrupt,
+					; set for polled.
+	bit$				; Unused
+	bit$	MR.PLR			; Interrupt request polarity: clear
+					; for active low, set for active high
+	bit$	MR.RPS			; Register preselection (2 bit field):
+					;  00	Interupt service register
+					;  01	Interrupt mask register
+					;  10	Interrupt request register
+					;  11	Auto clear register
+	bit$
+	bit$	MR.MSK			; Master mask bit: clear to disarm,
+					; set to arm
+	bend$
+
+
+.sbttl	*	Command/Status Register Bit Assignments
+
+;+
+;
+; The following symbols are for bit positions within CSRA, CSRB, CSRC & CSRD.
+; Only CSRA has the interrupt enable bit, CS.IEN.
+;
+;-
+
+..temp	=	1			; reset for more bit definitions
+.	=	.btmp.			;	"
+
+	bit$				; 3 internally used bits
+	bit$
+	bit$
+	bit$	CS.MSK			; Master mask bit: clear to disarmed,
+					; set to arm
+	bit$	CS.INT			; Interrupt mode: clear for interrupt,
+					; set for polling
+	bit$	CS.PRI			; Priority mode: clear for fixed, set
+					; for rotating priority
+	bit$	CS.ENA			; Enable input: clear for disabled,
+					; set for enabled (Group 2 only)
+	bit$	CS.GIN			; Group interrupt: clear if at least
+					; one unmasked IRR bit set, set if no
+					; unmasked IRR bit set
+	bit$	CS.RDW			; Direction (or Read/Write) bit: clear
+					; for read, set for write
+	bit$	CS.IEN			; Interrupt enable bit (In CSRA only)
+	bend$
+
+
+..temp	=	1			; reset for more bit definitions
+.	=	.btmp.			;	"
+
+
+.sbttl	*	DRV-11J Command Definitions
+
+;+
+;
+; The following symbols are commands to the device.  Some must be combined
+; with addition information such as line number to produce the desired
+; results.
+;
+;-
+
+F.RSET	=	000			; Reset
+F.CIAI	=	020			; Clear IRR and IMR
+F.CSII	=	030			; Clear single IMR and IRR bit
+F.CIMR	=	040			; Clear IMR
+F.CSIM	=	050			; Clear single IMR bit
+F.SIMR	=	060			; Set IMR
+F.SSIM	=	070			; Set single IMR bit
+F.CIRR	=	100			; Clear IRR
+F.CSIR	=	110			; Clear single IRR bit
+F.SIRR	=	120			; Set IRR
+F.SSIR	=	130			; Set single IRR bit
+F.CHPI	=	140			; Clear highest priority ISR bit
+F.CISR	=	160			; Clear ISR
+F.CSIS	=	170			; Clear single ISR bit
+F.LM04	=	200			; Load mode bits M0 thru M4
+F.CM57	=	240			; The mode register bits M5 and M6 are
+					; loaded from bits 2 and 3.  Bits 0
+					; and 1 determine what happens to M7:
+					;  00	No change to M7
+					;  01	Set M7
+					;  10	Clear M7
+					;  11	Illegal
+F.PSIM	=	260			; Preselect IMR for writing
+F.PSAC	=	300			; Preselect ACR for writing
+F.PSVA	=	340			; Preselect vector address memory for
+					; writing: bits 0-2 specify which of
+					; eight request levels is being
+					; selected
+
+
+.sbttl	*
+.sbttl	* DATA AREA
+.sbttl	*
+.sbttl	*   TABLES
+
+;+
+;
+; Tables and Constant data area
+;
+;-
+
+	pdat$
+
+
+.sbttl	*	Port process function validation table
+
+;+
+;
+; The following table is indexed by I/O request function code.  The table
+; indicates whether the function is read, write or invalid.  Physical and
+; logical operations are equivalent on this device.  Only read and write
+; operations are defined in this table.
+;
+;-
+
+; The following symbols are only used in the creation of the table below
+
+RE$AD	=	0			; Function is a read
+WR$ITE	=	1			; Function is a write
+IN$VAL	=	200			; Function is invalid
+
+PRTFTB:
+	funtb.	IF$RDP	0	RE$AD
+	funtb.	IF$RDL	1	RE$AD
+	funtb.	2	2	IN$VAL
+	funtb.	IF$WTP	3	WR$ITE
+	funtb.	IF$WTL	4	WR$ITE
+	funtb.	5	5	IN$VAL
+	funtb.	IF$SET	6	IN$VAL
+
+
+.sbttl	*	Table of codes to clear individual IMR bits
+
+;+
+;
+; The following table of command codes to clear individual IMR bits on the
+; parallel ports.  It is indexed by the unit number.
+;
+;-
+
+..temp	=	4.			; Starting line for port A
+
+CIMR:
+	.rept	4			; Four parallel ports
+	.byte	F.CSIM ! ..temp
+..temp	=	..temp + 1
+	.endr
+
+.sbttl	*	Default Hardware Startup Mode
+
+;+
+;
+; Define default mode for startup.  The following constant is used to specify
+; device operating modes:
+;
+;   1	Fixed or rotating priorities
+;   2	Single or individual vectoring
+;   3	Interrupt or polling mode
+;   4	Low or high level interrupt polarity
+;
+; The constant is used to set mode register bits 0-4.
+;
+;-
+
+$JDFLT::
+.byte	<J$RPRI*MR.PRI>!<J$CVEC*MR.VSE>!<J$POLL*MR.INT>!<J$HIGH*MR.PLR>!F.LM04
+.even
+
+
+.sbttl	*	Create Process Parameter Block for Creating Clones
+
+$XAPCD::				; Required for configuration
+
+CRPC$P	pdb=PDB,pri=XA$PPR,cxo=0,grp=1,ter=STOP,cxl=PIMPUR,sti=0,stl=0,sth=0,start=START,ini=0
+
+
+.sbttl	*
+.sbttl	*   CONTROLLER PROCESS STATIC DATA AREA
+
+;+
+;
+; The following impure data area is shared by all clones of the controller
+; process.
+;
+;-
+	impur$
+
+$XASIM::				; Static impure area
+PDB:	.blkw	6			; Used by $DDINI to create clones
+PIMPUR:	.blkw				; Process impure area pointer which
+					; is context switched by the kernel
+					; It is used by the stop process
+					; procedure
+
+
+.sbttl	*
+.sbttl	* CODE
+.sbttl	*
+.SBTTL	*	INIT	- Initialization procedure
+
+dfspc$ pid=$XAADR,pri=XA$IPR,typ=PT.DRV,cxo=CX$MCX,grp=1,ter=STOP,cxl=PIMPUR,sti=$XAAG2,stl=$XAAG1,sth=$XAAG2,start=INIT
+
+	pure$
+
+;+
+;
+; This initialization procedure creates an instance of the device
+; driver process for each controller present on the particular
+; configuration. It creates a request semaphore (named successively
+; $XAA, $XAB, ...) for each controller specified by the $XAPUR table
+; created by XAPFX in the configuration procedure.
+;
+; Control passes to this process on power up. It runs at priority
+; XA$IPR until $DDINI returns at the standard device priority.
+;
+;-
+
+INIT:
+$XAINI::
+	CLR	PIMPUR			; Just in case process gets terminated
+					; before we get initialized.
+	MOV	#$XAPUR,R5		; -> Configuration data for DRV-11J
+	CALL	$DDINI			; Common device driver initialization
+					; routine.  Creates the clones and the
+					; necessary queue semaphores.
+
+
+.sbttl	*	  Starting point for each controller process
+
+;+
+;
+; START
+;
+; Starting point for each clonned process.
+;
+;	sp->	.word	impure_area
+;		.word 	initialization_data
+;		.word	controller_id
+;
+;-
+	.dsabl	LSB
+START:
+	MOV	(SP)+,R5		; -> Impure area
+	MOV	(SP)+,R4		; -> Initialization data
+	MOV	CC.PCS(R4),R1		; -> CSR/VECTOR list
+	MOV	(R1)+,R3		; -> CSRA
+	MOV	R3,CP.CSR(R5)		; Copy in case of process deletion
+	TST	(SP)+			; Throw away controller_id
+	MOV	SP,CP.STK(R5)		; Save current stack position for
+					; the stop process procedure
+	MOV	R5,PIMPUR		; -> Controller process impure area
+					; that is context switched
+
+
+.sbttl	*	  Initialize the unit bit map
+
+	push$	<#XA$MXU>		; Maximum number of words
+	push$	<R4>			; Compute address of unit list
+	ADD	#CC.USP,(SP)		;	"
+	push$	<R5>			; Compute address of unit bitmap
+	ADD	#CP.UMP,(SP)		;	"
+	CALL	$UNTMP			; Set bitmap for supported units
+	TST	(SP)+			; Any errors?
+	BNE	5$			; Br if no error
+	CALL	$DDEXC			; Report error (Does not return)
+
+
+.sbttl	*	  Set the hardware defaults
+
+	assum$	CSRA EQ 0
+5$:	CLR	(R3)			; Reset the controller.
+	CLR	CSRC(R3)		; Ditto
+
+; Set current mode register bits 0-4 to the default mode register conditions
+
+	MOVB	$JDFLT,CP.G1M(R5)	; Group 1 default mode settings
+	MOVB	$JDFLT,CP.G2M(R5)	; Group 2 default mode settings
+
+	assum$	CSRA EQ 0
+	MOVB	CP.G1M(R5),(R3)		; Initialize group 1 hardware to the
+					; defaults
+	MOVB	CP.G2M(R5),CSRC(R3)	; Initialize group 2 hardware similarly
+
+
+.sbttl	*	  Specify the selected interrupt vectors
+
+; Specify the interrupt vectors selected by the user.  The user specifies only
+; the first vector for a contiguous set of 16 vectors.
+
+	MOV	#F.PSVA,R0		; set up write vector command.
+	MOV	(R1),R2			; First of 16 contiguous vectors
+	MOV	R2,CP.VEC(R5)		; Copy in case of process deletion
+	ASR	R2			; Divide vector by four.
+	ASR	R2			; (Device uses vect/4)
+	push$	R2			; Compute index to the 9th vector
+	ADD	#8.,(SP)		;	"
+
+; Initialize 8 vectors each for Group 1 and Group 2
+
+	assum$	CSRA EQ 0
+10$:	MOV	R0,(R3)			; Write vector mem Group 1
+	MOV	R2,CSRB(R3)		; Specify interrupt vector Group 1
+	MOV	R0,CSRC(R3)		; Write vector mem Group 2
+	MOV	(SP),CSRD(R3)		; Specify interrupt vector Group 2
+	INC	R2			; Next group 1 vector.
+	INC	(SP)			; Next group 2 vector.
+	INC	R0			; Next addr in vect memory.
+	BIT	#7,R0			; Have we done 8 vectors?
+	BNE	10$			; Br if not
+	BIT	R0,(SP)+		; Clean up stack
+
+
+.sbttl	*	  Set up the auto clear register
+
+; By default, all bits are set for auto clear.
+
+	assum$	CSRA EQ 0
+	MOV	#F.PSAC,(R3)		; Preselect ACR for Group 1
+	MOV	#377,CSRB(R3)		; Set bits for auto clear
+	MOV	#F.PSAC,CSRC(R3)	; Preselect ACR for Group 2
+	MOV	#377,CSRD(R3)	 	; Same as for Group 1
+
+
+.sbttl	*	  Enable group interrupts
+
+; The mask register is set to mask all interrupts so we can enable the group
+; interrupts.
+
+	assum$	CSRA EQ 0
+	MOV	#CS.IEN!F.CM57!1,(R3)	; Set interrupt enable and enable M7,
+					; the master mask bit for Group 1
+	MOV	#F.CM57!1,CSRC(R3)	; Enable M7 for Group 2
+
+
+.sbttl	*	  Connect sense line interrupt vectors
+
+	push$	<R1,R3>			; Save some registers
+	push$	<R3>			; -> port CSR
+	offset	<..pcsr>,0,CREATE	; Offset to the port CSR
+	push$	<R3>			; Compute -> CSRC
+	ADD	#CSRC,(SP)		;	"
+	offset	<..csrc>,0,CREATE	; Offset to -> CSRC
+	offset	<..pcsr>,2
+	MOV	(R1),R2			; -> First sense line interrupt vector
+	MOV	#12.,R3			; Number of sense line vectors
+	MOV	R5,R0			; Compute -> table of pointers to the
+	ADD	#CP.SLI,R0		; sense line interrupt service routine
+					; impure areas
+	MOV	R5,R4			; Compute -> First Sense Line ISR
+					; impure area
+	ADD	#CP.SIM,R4
+20$:	MOV	R0,-(SP)		; Save -> ISR impure area pointer
+
+	cint$s vec=R2,ps=#XA$HPR*40,val=#0,isr=#SLINT,imp=R4,pic=#0
+
+	BCC	25$			; Br if no error
+	CALL	$DDEXC			; Report error (Does not return)
+
+25$:	MOV	(SP)+,R0		; Restore -> ISR impure area pointer
+	MOV	R4,(R0)+		; Copy -> ISR impure area
+	CLR	(R4)			; Reset SID in ISR impure area to the
+					; uninitialized state
+	ADD	#SI.ISZ,R4		; -> Next sense line ISR impure area
+	ADD	#4,R2			; -> Next interrupt vector, they must
+					; be contiguous
+	SOB	R3,20$			; Loop for all sense lines
+
+
+.sbttl	*	  Parallel port initialization.
+
+	MOV	R5,R4			; Compute -> table of pointers to the
+	ADD	#CP.PPI,R4		; parallel port interrupt service
+					; routine impure areas
+	MOV	R5,R1			; Compute -> First parallel port ISR
+	ADD	#CP.PIM,R1		; impure area
+	push$	<R5>			; Save register
+	offset	<..pcsr,..csrc>,2
+	MOV	#4,R5			; Number of parallel ports
+
+
+.sbttl	*	  Connect parallel port interrupt vectors
+
+	push$	<#F.SSIM+4.>		; Command to set individual IMR bit
+	offset	<..cmd>,0,CREATE
+	offset	<..pcsr,..csrc>,2
+30$:	MOV	..pcsr(SP),R3		; -> port CSR
+	cint$s vec=R2,ps=#XA$HPR*40,val=R3,isr=#PPINT,imp=R1,pic=#0
+	BCC	40$			; Br if no error
+	CALL	$DDEXC			; Report error (Does not return)
+
+40$:	MOV	R1,(R4)+		; -> Port ISR impure area
+	CLR	PI.ACT(R1)
+
+
+.sbttl	*	  Create parallel port queue semaphore
+
+	assum$	PI.SDB EQ 0
+	CLR	(R1)			; Clear pointer in SDB
+	CLR	PI.SDB+SD.NAM(R1)	; Use unnamed structure
+
+	crst$s	sdb=R1,styp=#ST.QSM,satr=#SA$IPR!SA$OPR,value=#0
+
+	BCC	50$			; Br if no error
+	CALL	$DDEXC			; Report error (Does not return)
+
+50$:	MOV	..csrc(SP),PI.CSC(R1)	; -> CSRC
+	MOV	..pcsr(SP),PI.CSR(R1)	; -> Port CSR
+	assum$	..cmd EQ 0
+	MOVB	(SP),PI.CMD(R1)		; Command to Set Single IMR bit
+	assum$	..cmd EQ 0
+	INCB	(SP)			; Update command for next port
+	ADD	#PI.ISZ,R1		; -> next port ISR impure area
+	ADD	#4,..pcsr(SP)		; -> next port CSR
+	ADD	#4,R2			; -> Next interrupt vector, they must
+					; be contiguous
+	SOB	R5,30$			; Loop until done
+	pop$	<R0>			; Throw away command to clean stack
+	pop$	<R5>			; Restore register
+	offset	<..pcsr,..csrc,..cmd>,-4
+	assum$	..pcsr EQ 2		; Else the following instruction would
+					; be ADD #..pcsr+2,SP
+	CMP	(SP)+,(SP)+		; Clean up the stack
+	pop$	<R3,R1>			; Restore registers
+
+.sbttl	*
+.sbttl	*	MAIN	- Controller process
+
+;+
+;
+; MAIN
+;
+; This process receives the request from the user.  If the request refers to
+; units 0-3 (the data ports) it places the request on the ports queue.  If the
+; port is inactive, it is activated.
+;
+; If the request is a disable on the signal lines (units 4-15) it disables
+; interrupts on that line, and returns a reply to the user if requested.
+;
+; If the request is a enable on lines 4-15, the process stores the sdb of the
+; semaphore to be signalled (DP.SGL) in the units ISR.  The reply semaphore
+; may be either a binary semaphore or a counting semaphore.
+;
+;	R3		->	CSRA
+;	R4		->	Initialization data
+;	R5		->	Controller process impure area
+;
+;-
+
+MAIN:
+	assum$	CP.RQS EQ 0
+	WAIQ$S	R5,R4			; Wait for request.
+	BCC	10$			; Br if no error
+	CALL	$DDEXC			; Report error (Does not return)
+
+; Validate unit number
+
+10$:	push$	<R5>			; Compute -> unit bit map
+	ADD	#CP.UMP,(SP)		;	"
+	CLR	R1			; Clear to convert byte to word
+	BISB	DP.UNI(R4),R1		; Specified unit number
+	push$	<R1>			;	"
+	push$	<#XA$MXU>		; Maximum number of units
+	CALL	$UNTVA			; Validate unit number
+	TST	(SP)+			; Unit number valid?
+	BNE	20$			; Br if so
+	MOV	#ES$NXU,R0		; Non-existant unit
+	BR	130$			; Indicate error to use
+
+20$:	MOV	DP.FUN(R4),R0		; Get the function code.
+	BIC	#^C77,R0		; Mask out modifier bits.
+	CMPB	R0,#IF$GET		; Get characteristics request?
+	BNE	30$			; Br if not
+
+; Process Get characteristics request
+
+	MOVB	#RT$DRJ*400+DC$RLT,DP.CLS(R4) ; Copy device class & type
+	assum$	RS$PRT EQ 0
+	CLRB	DP.STP(R4)		; Assume a parallel port for sub-type
+	CMPB	R1,#3.			; Is unit a parallel port?
+	BLOS	90$			; Br if so
+	assum$	RS$SLN EQ 1
+	INCB	DP.STP(R4)		; Sub-type is a sense line
+	BR	90$			; Send get characteristics reply
+
+; Determine type of request
+
+30$:	ASL	R1			; Make unit number an offset.
+	CMPB	R1,#4.*2.		; Parallel port or sense line?
+	BHIS	50$			; Br if sense line request
+
+; Parallel port request
+
+	ADD	R5,R1			; Compute -> port ISR impure area
+	MOV	CP.PPI(R1),R3		; -> ISR impure area
+	assum$	PI.SDB EQ 0
+	SGLQ$S	R3,R4			; Pass element to port process
+	BCC	40$			; Br if no error
+	CALL	$DDEXC			; Report error (Does not return)
+
+40$:	TST	PI.ACT(R3)		; ISR currently active?
+	BNE	MAIN			; Br if so, wait for another request
+	CALL	PPACT			; Start the ISR
+	BR	MAIN
+
+; Sense line request.  Map unit numbers 12-15 to sense lines 0-3 in Group 2
+; and unit numbers 4-11 to sense lines 0-7 in group 1.
+
+50$:	push$	<R1>			; Save unit number offset
+	ASR	(SP)			; Convert back to unit number
+	assum$	CSRA EQ 0
+	MOV	CP.CSR(R5),R2		; -> CSRA, assume group 1
+	SUB	#12.,(SP)		; Unit numbers 12-15 become sense
+					; lines 0-3 in group 2.
+	BGE	60$			; Br if group 2?
+	ADD	#8.,(SP)		; Unit numbers 4-11 become sense
+					; lines 0-7 in Group 1.
+	BR	70$
+
+60$:	ADD	#CSRC,R2		; Use CSRC for group 2.
+70$:	ADD	#CP.SLI-<4.*2>,R1	; Compute -> sense line ISR impure area
+	ADD	R5,R1			;	"
+	CMP	R0,#IF$ENA		; Enable sense line?
+	BEQ	80$
+	CMP	R0,#IF$DSA		; Disable sense line?
+	BNE	110$			; Br if not, that is all we support
+	CLR	@(R1)+			; Zap the semaphore ID
+	BISB	#F.SSIM,(SP)		; Set up mask command.
+	MOVB	(SP)+,(R2)		; Disable further interrupts from
+					; specified sense line
+	BR	90$			; Send normal status to user
+
+80$:	MOV	(R1),R1			; -> impure area.
+	TST	(R1)			; See if unit is busy.
+	BNE	100$			; Br if so, error
+	MOV	R4,R0			; Compute -> SID of signal semaphore
+	ADD	#DP.SGL,R0		;	"
+	MOV	(R0)+,(R1)+		; Copy SD.PTR
+	MOV	(R0)+,(R1)+		; Copy SD.SNM (2 words)
+	MOV	(R0)+,(R1)+		;	"
+	BISB	#F.CSIM,(SP)		; Preparing to enable interrupts on
+					; specified sense line
+	MOVB	(SP)+,(R2)		; And enable this line.
+	assum$	ES$NOR EQ 0
+90$:	CLR	R0			; Send status='normal
+	BR	130$			;	"
+
+; Error handling
+
+100$:	MOV	#ES$DAL,R0		; Device allocated
+	BR	120$
+
+110$:	MOV	#ES$IFN,R0		; Invalid function
+120$:	TST	(SP)+			;; Clean up the stack - DFM 5/13/1985
+
+; Return status of request
+
+130$:	CALL	REPLY			; Back to requesting process.
+	BR	MAIN
+.sbttl	*	SLINT	- Sense line interrupt service routine
+
+	.dsabl	LSB
+SLINT:
+	fork$				; Required to issue primitives
+	BCS	10$			; Ignore errors, not much else we
+					; can do
+	assum$	SI.SID EQ 0
+	sgnl$s	R3			; Notify user of sense line interrupt
+10$:	RTS	PC
+
+
+.sbttl *	REPLY	- Return I/O status to user
+
+;+
+;
+; REPLY
+;
+; This routine dispatches the reply to the user if he requested one.  If a
+; status reply was not possible, then the packet is returned to the pool.
+;
+; Input:
+;
+;	R0	=	Status code to return to user
+;	R4	->	Packet used to reply to user
+;
+; Output:
+;
+;	R0,R1		Modified
+;
+;-
+
+REPLY:
+	MOV	R4,R1			; Compute -> reply semaphore
+	ADD	#DP.SEM,R1		;	"
+	TST	DP.SEM(R4)		; Did he specify a reply semaphore ?
+	BEQ	20$			; Br if not, free packet
+	BIT	#FM$BSM,DP.FUN(R4)	; Binary semaphore specified?
+	BEQ	10$			; Br if not
+	sgnl$s	R1			; Yes, signal it and quit
+	BR	20$			; Return packet to pool and exit
+
+; full reply
+
+10$:	MOV	R0,DP.STS(R4)		; Put status ,error code ,and actual
+					; Byte count in the reply que elmnt.
+	MOV	DP.LEN(R4),DP.ALN(R4)	; Actual length = requested length
+	sglq$s	R1,R4			; Signal user
+	BCC	30$			; Br if no error
+20$:	dapk$s	R4			; Return packet to the pool
+30$:	RTS	PC
+.sbttl	*	STOP	- Driver termination procedure
+
+;+
+; STOP		- Device driver termination procedure
+;
+; This routine provides the following services:
+;
+; 1.	Disables further device interrupts
+; 2.	Frees any queue elements remaining on internal queues
+; 3.	Deletes all structures owned by the driver
+; 4.	Disconnects from all connected interrupts
+; 5.	Deletes the process
+;
+;-
+
+STOP:
+	MOV	PIMPUR,R5		; -> Process impure area
+	BEQ	50$			; Br if not yet initialized
+	CLR	@CP.CSR(R5)		; Clear interrupt enable bit
+	MOV	CP.STK(R5),SP		; Reset stack to minimize stack size
+					; requirements
+	CHGP$S	#XA$IPR			; Change to initialization priority
+
+; Free all request packets
+
+	MOV	R5,R3			; Compute -> table of pointers to
+	ADD	#CP.SPQ,R3		; internal ISR queue semaphores
+
+; Free packet currently being process by the ISR
+
+	MOV	PI.ACT(R3),R4		; An active queue element?
+	BEQ	20$			; Br if not
+	CALL	90$			; Notify user that request was aborted
+20$:	MOV	#4,R2			; Number of port ISRs
+30$:	MOV	(R3)+,R1		; -> Next ISR
+	CALL	60$			; Return all packets on this queue
+					; with abort status
+	SOB	R2,30$			; Loop for all ISRs
+
+; Free packets waiting for the driver to process them and delete driver
+; queue semaphore
+
+	MOV	R5,R1			; -> Controller process impure area
+	assum$	CP.RQS EQ 0
+	CALL	60$			; Free packets on driver queue semaphore
+					; and delete the structure
+
+; Disconnect from all interrupts
+
+	MOV	CP.VEC(R1),R4		; -> First of 16 contiguous interrupt
+					; vectors
+	MOV	#16.,R3			; Number of interrupt vectors
+40$:	dint$s	R4			; Disconnect from interrupt
+	CMP	(R4)+,(R4)+		; -> to next interrupt vector
+	SOB	R3,40$			; Loop for all vectors
+
+50$:	dlpc$
+
+;+
+;
+; Local subroutine to return I/O request packets currently pending on the
+; specified queue semaphore with abort status.
+;
+; Input:
+;
+;	R1	->	Queue semaphore SID
+;
+; Output:
+;
+;	R0,R4		Modified
+;	(R1)		Queue semaphore deleted
+;-
+
+	assum$	PI.SDB EQ 0
+60$:	WAQC$S	R1,R4			; Get next request
+	TST	R0			; Any pending?
+	BEQ	80$			; Br if not
+70$:	CALL	90$			; Notify user that request was aborted
+	BR	60$			; Loop for all pending requests
+
+80$:	dlst$s	R1			; Delete queue semaphore
+	RETURN
+
+;+
+;
+; Local subroutine to notify user of aborted requests.
+;
+; Input:
+;
+;	R4	->	Packet to be returned
+;-
+
+90$:	push$	R1			; Save register
+	MOV	#ES$ABT,R0		; Abort status
+	CALL	REPLY			; Notify user
+	pop$	R1			; Restore register
+	RETURN
+.sbttl	*	PPINT	- Parallel port I/O interrupt service routine
+
+;+
+;
+; Input:
+;
+;	R3	->	ISR impure area
+;	R4	->	Port CSR
+;
+;-
+	.enabl	LSB
+PPINT:
+	BIT	#CS.RDW,(R4)+		; Read or write?
+	BEQ	20$			; Br if READ
+
+10$:	TST	PI.LEN(R3)		; Last write interrupt?
+	BEQ	25$			; Br if done with write request
+	mvwrd$	@PI.BUF(R3),(R4),PI.PAR(R3) ; Send word to device
+	iwadr$	PI.BUF(R3),PI.PAR(R3)	; Update buffer pointer
+	DEC	PI.LEN(R3)		; Number words remaining
+	BR	90$			; Br if more to do
+
+20$:	mvwrd$	(R4),@PI.BUF(R3),PI.PAR(R3) ; Store input in buffer
+	iwadr$	PI.BUF(R3),PI.PAR(R3)	; Update buffer pointer
+	DEC	PI.LEN(R3)		; Number words remaining
+	BGT	90$			; Br if more to do
+
+; Signal completion of request
+
+25$:	MOVB	PI.CMD(R3),@PI.CSC(R3)	; Disable interrupts on this line
+	fork$	
+	BCS	90$			; Just get out on a fork error
+	MOV	PI.ACT(R3),R4		; -> Current queue element
+	assum$	ES$NOR EQ 0
+	CLR	R0			; Normal return status
+	CALL	REPLY			; Notify user that we're done
+	assum$	PI.SDB EQ 0
+30$:	CLR	PI.ACT(R3)		; Indicate that we're inactive
+	BR	40$			; Fall into Get next packet or dismiss
+.sbttl	*	PPACT	- Parallel port activation entry point
+
+;+
+; PPACT
+;
+;	This entry point is called as a subroutine from the main program to
+;	initiate an I/O transfer.  It is also part of the parallel port
+;	interrupt service routine which gets executed after an I/O packet
+;	has been processed and another packet has been removed from the port's
+;	queue semaphore.  Thus the following code executes at both fork and
+;	process level.
+;
+; Input:
+;
+;	R3	->	ISR impure area
+;-
+
+PPACT:
+40$:	waqc$s	R3,R4			; Get next packet
+	BCC	45$			; Br if no error
+	CALL	$DDEXC			; Report error (Does not return)
+
+45$:	TST	R0			; Was there another packet?
+	BEQ	90$			; No, dismiss interrupt
+	MOV	PI.CSR(R3),R2		; -> Port CSR
+	INC	R2			; -> High byte of port CSR
+	drmap$	DP.BUF(R4),DP.PAR(R4),PI.BUF(R3),PI.PAR(R3) ; Convert user
+					; virtual address to mapped address
+	MOV	DP.LEN(R4),R0		; Byte count
+	CLC				; Make sure we don't set any wrong bits
+	ROR	R0			; Change bytes to words.
+	assum$	ES$NOR EQ 0
+	BEQ	80$			; Br if done, i.e. zero word count
+	MOV	R4,PI.ACT(R3)		; Indicate state of ISR, zero
+					; says that we're inactive, non-zero
+					; value is a -> current packet
+	MOV	R0,PI.LEN(R3)		; Word count to ISR impure area
+	MOVB	DP.UNI(R4),R0		; Specified unit number
+	MOV	DP.FUN(R4),R1		; Function code
+	BIC	#^C77,R1		; Remove all but the function code
+	CMPB	R1,#IF$SET		; Check for valid function codes
+	BHIS	70$			; Br if invalid for device
+	MOVB	PRTFTB(R1),R1		; Indicates whether function is valid,
+					; and if so whether read or write
+	BMI	70$			; Br if invalid function code
+	BGT	60$			; Br if a write
+
+;	Port is for input
+
+	assum$	CS.RDW EQ 400
+50$:	BICB	#CS.RDW/400,(R2)	; Set port to read.
+	MOVB	CIMR(R0),@PI.CSC(R3)	; Clear specified IMR bit to enable
+					; interrupts
+	BR	90$			; Wait for interrupt
+
+60$:	BISB	#CS.RDW/400,(R2)	; Set port to write.
+	MOVB	CIMR(R0),@PI.CSC(R3)	; Enable interrupts on this line.
+	ADD	#F.SSIR+4.,R0		; Command to Set Single IRR bit
+	MOVB	R0,@PI.CSC(R3)		; Cause interrupt to start things.
+	BR	90$			; Wait...
+
+70$:	MOV	#ES$IFN,R0		; Invalid or unsupported function code
+					; for device/unit
+80$:	CALL	REPLY			; Notify user
+	BR	30$			; Try for another packet
+
+90$:	RTS	PC
+
+	.END
+                                                                        

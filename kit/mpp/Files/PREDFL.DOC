@@ -1,0 +1,598 @@
+{MODULE PREDFL;}
+
+(*
+
+                  COPYRIGHT (c) 1982, 1986 BY
+             DIGITAL EQUIPMENT CORPORATION, MAYNARD
+              MASSACHUSETTS.  ALL RIGHTS RESERVED.
+
+
+ THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED
+ ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE
+ INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER
+ COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+ OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY
+ TRANSFERRED.
+
+
+ THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE
+ AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT
+ CORPORATION.
+
+
+ DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS
+ SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY DIGITAL.
+
+*)
+
+(*
+  3-DEC-81
+  The examples have been removed from this file to make it smaller.  See MN
+  for the examples.
+
+  Author  MN
+*)
+
+(*
+  Edit history:
+
+  MN001   4-May-82   Fix QAR 115 in UPAX5
+                     Correct the type of the VALUE parameter on
+                     CREATE_BINARY_SEMAPHORE
+
+  MN002  19-May-82   Change BYTE to BYTE_RANGE and add PRIORITY_RANGE
+
+  MN003  20-MAY-82   Place STRUCTURE_ID inside STRUCTURE_DESC
+
+  MN004  30-MAY-82   Fix definition of EXC_GROUP
+
+  SH005  18-NOV-83   Add definition of STRUCTURE_DESC_PTR
+
+  MN006  17-APR-84   Add definition of EXC_STATUS and STATUS parameter.
+
+  MN007  19-APR-84   New default values.
+
+  BP008  10-SEP-84   Add DESC and NAME arguments to CHANGE_PRIORITY.
+
+  BP001  17-SEP-84   Removed status from cinti,dinti,alpki,alpci,dapki
+
+  RR001	 18-SEP-84   Add types exceptions & exc_set from exc.pas;
+		     modify types exc_status & status_type.
+
+  BP002	 04-DEC-84   Add child/sibling type
+
+  BP003	 11-DEC-84   Change child/sibling to dependent/independent
+
+  BP004	 09-JAN-85   Changed formal status to state_code_modifier in
+		     state_block record definition
+
+  ERS	 01-Mar-85   Removed longint type.  Changed any references to
+		     long_integer
+
+  ERS	 07-Mar-85   Made names var parameters...
+
+  BP	 14-Mar-85   Remove v_min, v_max, vector_range
+
+  BP	 20-Mar-85   Remove error code comments
+
+  BP	 26-Mar-85   Make SCDII,INSDI,INPDI -> name
+
+  BP	 03-Apr-85   Remove BLANK
+
+  BP	 29-Apr-85   Add default for RET_INFO for COND_RECEIVE
+
+  MN     25-OCT-85   Replace BLANK
+*)
+
+CONST
+  QE_LEN = 34;  (* Size, in bytes, of value section in a packet. *)
+
+  BLANK = ''(0,0,0,0,0,0);
+
+TYPE
+
+  RELATIONTYPE = (DEPENDENT, INDEPENDENT);
+
+  UNIVERSAL = [UNSAFE] INTEGER;
+
+  BYTE_RANGE = 0..255; (* MN002 *)
+
+  PRIORITY_RANGE = 0..255; (* MN002 *)
+
+  VAL_DATA_LEN = 0..QE_LEN;
+
+  REF_DATA_LEN = 0..8128; (* 8192 - 64 bytes *)
+
+  RING_BUFFER_DATA = 0..8128;
+
+  RING_BUFFER_SIZE = 8..8128;
+
+  NAME_STR = PACKED ARRAY [1..6] OF CHAR;
+
+  BIN_SEM_VAL = 0..1;   (* MN001 *)
+
+  QUAD_WORD = RECORD
+                ONE   : UNSIGNED;
+                TWO   : UNSIGNED;
+                THREE : UNSIGNED;
+                FOUR  : INTEGER;
+              END;
+
+  PHYSICAL_ADDRESS = PACKED RECORD
+                       ADDRESS   : UNSIGNED;
+                       PAR_VALUE : UNSIGNED; (* 22-bit addressing *)
+                     END;
+
+  STRUCTURE_ID = RECORD
+                   INDEX         : UNSIGNED;
+                   SERIAL_NUMBER : LONG_INTEGER;
+                 END;
+
+  STRUCTURE_DESC = RECORD
+                     ID   : STRUCTURE_ID; (* MN003 *)
+                     NAME : NAME_STR;
+                   END;
+
+  STRUCTURE_DESC_PTR = ^STRUCTURE_DESC; (* SH005 *)
+
+  PROCESS_DESC = STRUCTURE_DESC;
+
+  SEMAPHORE_DESC = STRUCTURE_DESC;
+
+  QUEUE_SEMAPHORE_DESC = STRUCTURE_DESC;
+
+  RING_BUFFER_DESC = STRUCTURE_DESC;
+
+  PROCESS_STATE = ( RUN, READY_ACTIVE, READY_SUSPENDED,
+                    WAIT_ACTIVE, WAIT_SUSPENDED,
+                    EXCEPTION_WAIT_ACTIVE, EXCEPTION_WAIT_SUSPENDED );
+
+  PROCESS_TYPE = ( GENERAL, PRIVILEGED, DEV_ACCESS, DRIVER );
+
+  EXC_GROUP = 0..255; (* MN004 *)
+
+  EXCEPTIONS = ( MEMORY_FAULT, ILLEGAL_OPERATION, EMULATOR_TRAP, (*RR001*)
+                 TRAP, BREAKPOINT_TRAP, HARD_IO, SOFT_IO, NUMERIC,
+                 RESOURCE, RANGE, EXECUTION, SYSTEM_SERVICE,
+                 RESERVED_1, RESERVED_2, USER_1, USER_2 );
+
+  EXC_SET = PACKED SET OF EXCEPTIONS; (*RR001*)
+
+  EXC_STATUS = RECORD (*RR001*)
+                 EXC_TYPE : EXC_SET;
+                 EXC_CODE : UNSIGNED;
+               END;
+
+  STATE_CODE_MODIFIER_TYPE = PACKED RECORD (*RR001*)
+		                  RES1,RES2,RES3,RES4, (* reserved *)
+		                  UNBLOCK_IN_PROGRESS,
+		                  ABORT_PENDING, 
+		                  ABORTED : BOOLEAN;
+		                END;
+
+  STATE_BLOCK = PACKED RECORD
+                  PRIORITY	       : [BYTE] PRIORITY_RANGE; (* MN002 *)
+                  STATE                : [BYTE] PROCESS_STATE;
+                  TYP                  : [BYTE] PROCESS_TYPE;
+                  STATE_CODE_MODIFIER  : [BYTE] STATE_CODE_MODIFIER_TYPE;
+                  GROUP                : [BYTE] EXC_GROUP;
+                  RESERVED             : [BYTE] BYTE_RANGE; (* MN002 *)
+                  BLOCKING_SEMAPHORE   : UNIVERSAL;
+                  SUSPEND_COUNT        : INTEGER;
+                END;
+
+  QUEUE_MESSAGE = PACKED ARRAY [1..QE_LEN] OF BYTE_RANGE; (* MN002 *)
+
+  PACKET = PACKED RECORD
+             LINK      : UNSIGNED;
+             AUXILIARY : UNSIGNED;
+             PRIORITY  : [BYTE] PRIORITY_RANGE; (* MN002 *)
+             CONTROL   : [BYTE] BYTE_RANGE; (* MN002 *)
+             MESSAGE   : QUEUE_MESSAGE;
+           END;
+
+  QUEUE_PTR = ^PACKET;
+
+  INFO_BLOCK = PACKED RECORD
+                 PRIORITY     : [BYTE] PRIORITY_RANGE; (* MN002 *)
+                 VAL_XMIT_LEN : [BYTE] VAL_DATA_LEN;
+                 ADDRESS      : PHYSICAL_ADDRESS;
+                 REF_XMIT_LEN : [WORD] REF_DATA_LEN;
+               END;
+
+  ORDERING = ( FIFO, PRIO );
+
+  MODE = ( STREAM_MODE, RECORD_MODE );
+(* The following seven routines are used to manage processes. *)
+
+
+(* This routine is used to initialize a process descriptor. *)
+
+[EXTERNAL($INPDI)] PROCEDURE INIT_PROCESS_DESC
+                           ( VAR DESC   : PROCESS_DESC;
+                             VAR NAME   : [READONLY]NAME_STR := 0;
+                             VAR STATUS : EXC_STATUS := 0 ); EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to get the status of a process. *)
+
+[EXTERNAL($GTSTI)] PROCEDURE GET_STATE
+                           ( VAR STATE  : STATE_BLOCK;
+                             VAR DESC   : PROCESS_DESC := 0; (*MN007*)
+                             VAR NAME   : [READONLY]NAME_STR :=0;
+                             VAR STATUS : EXC_STATUS := 0 ); EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to stop a process. *)
+
+[EXTERNAL($STPCI)] PROCEDURE STOP
+                           ( VAR DESC   : PROCESS_DESC := 0; (*MN007*)
+                             VAR NAME   : [READONLY]NAME_STR :=0;
+                             VAR STATUS : EXC_STATUS := 0 ); EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to schedule a process. *)
+
+[EXTERNAL($SCHDI)] PROCEDURE SCHEDULE; EXTERNAL;
+
+(* This routine is used to change a process' priority. *)
+
+[EXTERNAL($CHGPI)] PROCEDURE CHANGE_PRIORITY
+                           ( PRIORITY   : PRIORITY_RANGE; (* MN002 *)
+                             VAR DESC   : PROCESS_DESC := 0; (*BP008*)
+                             VAR NAME   : [READONLY]NAME_STR :=0;
+                             VAR STATUS : EXC_STATUS := 0 ); EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to suspend a process. *)
+
+[EXTERNAL($SPNDI)] FUNCTION SUSPEND
+                          ( VAR DESC   : PROCESS_DESC := 0; (*MN007*)
+                            VAR NAME   : [READONLY]NAME_STR :=0;
+                            VAR STATUS : EXC_STATUS := 0 ) : BOOLEAN; EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to resume a process. *)
+
+[EXTERNAL($RSUMI)] FUNCTION RESUME
+                          ( VAR DESC   : PROCESS_DESC := 0; (*MN007*)
+                            VAR NAME   : [READONLY]NAME_STR :=0;
+                            VAR STATUS : EXC_STATUS := 0 ) : BOOLEAN; EXTERNAL; (* MN006,MN007 *)
+
+(* The following seven routines are used to manage binary and counting semaphores. *)
+
+
+(* This routine is used to create a binary semaphore. *)
+
+[EXTERNAL($CRBSI)] FUNCTION CREATE_BINARY_SEMAPHORE
+                          ( WAIT_ORDER : ORDERING := FIFO;
+                            VALUE      : BIN_SEM_VAL := 0; (* CLOSED *)  (* MN001 *)
+                            VAR DESC   : SEMAPHORE_DESC := 0; (*MN007*)
+                            VAR NAME   : [READONLY]NAME_STR := 0;
+                            VAR STATUS : EXC_STATUS := 0 ) : BOOLEAN; EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to create a counting semaphore. *)
+
+[EXTERNAL($CRCSI)] FUNCTION CREATE_COUNTING_SEMAPHORE
+                          ( WAIT_ORDER : ORDERING := FIFO;
+                            VALUE      : UNSIGNED := 0; (* CLOSED *)
+                            VAR DESC   : SEMAPHORE_DESC := 0; (*MN007*)
+                            VAR NAME   : [READONLY]NAME_STR := 0;
+                            VAR STATUS : EXC_STATUS := 0 ) : BOOLEAN; EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to signal a binary or counting semaphore. *)
+
+[EXTERNAL($SGNLI)] PROCEDURE SIGNAL
+                           ( VAR DESC   : SEMAPHORE_DESC := 0; (*MN007*)
+                             VAR NAME   : [READONLY]NAME_STR :=0;
+                             VAR STATUS : EXC_STATUS := 0 ); EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to wait on a binary or counting semaphore. *)
+
+[EXTERNAL($WAITI)] PROCEDURE WAIT
+                           ( VAR DESC   : SEMAPHORE_DESC := 0; (*MN007*)
+                             VAR NAME   : [READONLY]NAME_STR := 0;
+                             VAR STATUS : EXC_STATUS := 0 ); EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to conditionally signal a binary or counting semaphore. *)
+
+[EXTERNAL($SGLCI)] FUNCTION COND_SIGNAL
+                          ( VAR DESC   : SEMAPHORE_DESC := 0; (*MN007*)
+                            VAR NAME   : [READONLY]NAME_STR :=0;
+                            VAR STATUS : EXC_STATUS := 0 ) : BOOLEAN; EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to conditionally wait on a binary or counting semaphore. *)
+
+[EXTERNAL($WAICI)] FUNCTION COND_WAIT
+                          ( VAR DESC   : SEMAPHORE_DESC := 0; (*MN007*)
+                            VAR NAME   : [READONLY]NAME_STR :=0;
+                            VAR STATUS : EXC_STATUS := 0 ) : BOOLEAN; EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to signal all processes that are waiting on a binary
+   or counting semaphore. *)
+
+[EXTERNAL($SALLI)] PROCEDURE SIGNAL_ALL
+                           ( VAR DESC   : SEMAPHORE_DESC := 0; (*MN007*)
+                             VAR NAME   : [READONLY]NAME_STR :=0;
+                             VAR STATUS : EXC_STATUS := 0 ); EXTERNAL; (* MN006,MN007 *)
+
+(* The following two routines are used to manage interrupts. *)
+
+
+(* This routine is used to connect to an interrupt. *)
+
+[EXTERNAL($CINTI)] PROCEDURE CONNECT_INTERRUPT
+                           ( PIC : BOOLEAN;
+                             PROCEDURE ISR;
+                             VAR IMPURE : UNIVERSAL;
+                             VALUE      : UNSIGNED := 0;
+                             PS         : PRIORITY_RANGE; (* MN002 *)
+                             VECTOR     : UNSIGNED); EXTERNAL; (* BP001 *)
+
+(* This routine is used to disconnect from an interrupt. *)
+
+[EXTERNAL($DINTI)] PROCEDURE DISCONNECT_INTERRUPT
+                           ( VECTOR     : UNSIGNED); EXTERNAL; (* BP001 *)
+
+(* The following two routines are used to manage interrupts. *)
+
+
+(* This routine is used to associate an interrupt vector with a semaphore. *)
+
+[EXTERNAL($CNTSI)] PROCEDURE CONNECT_SEMAPHORE
+                           ( VECTOR     : UNSIGNED;
+                             PS         : PRIORITY_RANGE; (* MN002 *)
+			     $_BP_$	: INTEGER := 0;
+                             VAR DESC   : SEMAPHORE_DESC;
+                             VAR NAME   : [READONLY]NAME_STR := 0;
+                             VAR STATUS : EXC_STATUS := 0 ); EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to dis-associate an interrupt vector from a semaphore. *)
+
+[EXTERNAL($DNTSI)] PROCEDURE DISCONNECT_SEMAPHORE
+                           ( VECTOR     : UNSIGNED;
+                             VAR STATUS : EXC_STATUS := 0 ); EXTERNAL; (* MN006,MN007 *)
+
+(* The following routine is used to create queue semaphores. *)
+
+
+(* This routine is used to create a queue semaphore. *)
+
+[EXTERNAL($CRQSI)] FUNCTION CREATE_QUEUE_SEMAPHORE
+                          ( PROCESS_ORDER : ORDERING := FIFO;
+                            PACKET_ORDER  : ORDERING := FIFO;
+                            VAR DESC      : QUEUE_SEMAPHORE_DESC := 0; (*MN007*)
+                            VAR NAME      : [READONLY]NAME_STR := 0;
+                            VAR STATUS    : EXC_STATUS := 0 ) : BOOLEAN; EXTERNAL; (* MN006,MN007 *)
+
+(* The following twelve routines are used by non-privileged processes to
+   manage queue semaphores. *)
+
+
+(* This routine is used to send data via a queue semaphore with acknowledgement. *)
+
+[EXTERNAL($SNDAI)] PROCEDURE SEND_ACK
+                           ( VAR REF_DATA   : [READONLY] UNIVERSAL;
+                             REF_LENGTH     : REF_DATA_LEN := 0;
+                             VAR REPLY_DESC : SEMAPHORE_DESC := 0; (*MN007*)
+                             $_MN_$         : INTEGER := 12;
+                             PRIORITY       : PRIORITY_RANGE := 1; (* MN002 *)
+                             VAR DESC       : QUEUE_SEMAPHORE_DESC := 0; (*MN007*)
+                             VAR NAME       : [READONLY]NAME_STR :=0;
+                             VAR STATUS     : EXC_STATUS := 0 ); EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to receive data via a queue semaphore with acknowledgement.  *)
+
+[EXTERNAL($RCVAI)] PROCEDURE RECEIVE_ACK
+                           ( VAR REF_DATA   : UNIVERSAL;
+                             REF_LENGTH     : REF_DATA_LEN := 0;
+                             VAR REPLY_DESC : SEMAPHORE_DESC := 0; (*MN007*)
+                             $_MN_$         : INTEGER := 12;
+                             VAR REC_LENGTH : REF_DATA_LEN;
+                             VAR DESC       : QUEUE_SEMAPHORE_DESC := 0; (*MN007*)
+                             VAR NAME       : [READONLY]NAME_STR :=0;
+                             VAR STATUS     : EXC_STATUS := 0 ); EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to conditionally send data via a queue semaphore with
+   acknowledgement. *)
+
+[EXTERNAL($SNACI)] FUNCTION COND_SEND_ACK
+                          ( VAR REF_DATA   : [READONLY] UNIVERSAL := 0;
+                            REF_LENGTH     : REF_DATA_LEN := 0;
+                            VAR REPLY_DESC : SEMAPHORE_DESC := 0; (*MN007*)
+                            $_MN_$         : INTEGER := 12;
+                            PRIORITY       : PRIORITY_RANGE  := 1; (* MN002 *)
+                            VAR DESC       : QUEUE_SEMAPHORE_DESC := 0; (*MN007*)
+                            VAR NAME       : [READONLY]NAME_STR :=0;
+                            VAR STATUS     : EXC_STATUS := 0 ) : BOOLEAN; EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to conditionally receive data via a queue semaphore
+   with acknowledgement. *)
+
+[EXTERNAL($RVACI)] FUNCTION COND_RECEIVE_ACK
+                          ( VAR REF_DATA   : UNIVERSAL := 0;
+                            REF_LENGTH     : REF_DATA_LEN := 0;
+                            VAR REPLY_DESC : SEMAPHORE_DESC := 0; (*MN007*)
+                            $_MN_$         : INTEGER := 12;
+                            VAR REC_LENGTH : REF_DATA_LEN;
+                            VAR DESC       : QUEUE_SEMAPHORE_DESC := 0; (*MN007*)
+                            VAR NAME       : [READONLY]NAME_STR :=0;
+                            VAR STATUS     : EXC_STATUS := 0 ) : BOOLEAN; EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to send data via a queue semaphore. *)
+
+[EXTERNAL($SENDI)] PROCEDURE SEND
+                           ( VAR REF_DATA : [READONLY] UNIVERSAL := 0; (*MN007*)
+                             REF_LENGTH   : REF_DATA_LEN := 0;
+                             VAR VAL_DATA : [READONLY] UNIVERSAL := 0; (*MN007*)
+                             VAL_LENGTH   : VAL_DATA_LEN := 0;
+                             PRIORITY     : PRIORITY_RANGE  := 1; (* MN002 *)
+                             VAR DESC     : QUEUE_SEMAPHORE_DESC := 0; (*MN007*)
+                             VAR NAME     : [READONLY]NAME_STR :=0;
+                             VAR STATUS   : EXC_STATUS := 0 ); EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to receive data via a queue semaphore. *)
+
+[EXTERNAL($RCVDI)] PROCEDURE RECEIVE
+                           ( VAR REF_DATA : UNIVERSAL := 0; (*MN007*)
+                             REF_LENGTH   : REF_DATA_LEN := 0;
+                             VAR VAL_DATA : UNIVERSAL := 0; (*MN007*)
+                             VAL_LENGTH   : VAL_DATA_LEN := 0;
+                             VAR RET_INFO : INFO_BLOCK := 0; (*BP*)
+                             VAR DESC     : QUEUE_SEMAPHORE_DESC := 0; (*MN007*)
+                             VAR NAME     : [READONLY]NAME_STR :=0;
+                             VAR STATUS   : EXC_STATUS := 0 ); EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to conditionally send data via a queue semaphore. *)
+
+[EXTERNAL($SNDCI)] FUNCTION COND_SEND
+                          ( VAR REF_DATA : [READONLY] UNIVERSAL := 0; (*MN007*)
+                            REF_LENGTH   : REF_DATA_LEN := 0;
+                            VAR VAL_DATA : [READONLY] UNIVERSAL := 0; (*MN007*)
+                            VAL_LENGTH   : VAL_DATA_LEN := 0;
+                            PRIORITY     : PRIORITY_RANGE  := 1; (* MN002 *)
+                            VAR DESC     : QUEUE_SEMAPHORE_DESC := 0; (*MN007*)
+                            VAR NAME     : [READONLY]NAME_STR :=0;
+                            VAR STATUS   : EXC_STATUS := 0 ) : BOOLEAN; EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to conditionally receive data via a queue semaphore. *)
+
+[EXTERNAL($RCVCI)] FUNCTION COND_RECEIVE
+                          ( VAR REF_DATA : UNIVERSAL := 0; (*MN007*)
+                            REF_LENGTH   : REF_DATA_LEN := 0;
+                            VAR VAL_DATA : UNIVERSAL := 0; (*MN007*)
+                            VAL_LENGTH   : VAL_DATA_LEN := 0;
+                            VAR RET_INFO : INFO_BLOCK := 0; (*BP*)
+                            VAR DESC     : QUEUE_SEMAPHORE_DESC := 0; (*MN007*)
+                            VAR NAME     : [READONLY]NAME_STR :=0;
+                            VAR STATUS   : EXC_STATUS := 0 ) : BOOLEAN; EXTERNAL; (* MN006,MN007 *)
+
+(* The following seven routines are used by privileged processes to
+   manage packets. *)
+
+(* This routine is used to allocate a packet. *)
+
+[EXTERNAL($ALPKI)] PROCEDURE ALLOCATE_PACKET
+                        ( VAR PACKET_PTR : QUEUE_PTR); EXTERNAL; (* BP001 *)
+
+(* This routine is used to conditionally allocate a packet. *)
+
+[EXTERNAL($ALPCI)] FUNCTION COND_ALLOCATE_PACKET
+                       ( VAR PACKET_PTR : QUEUE_PTR) : BOOLEAN; EXTERNAL; (* BP001 *)
+
+(* This routine is used to deallocate a packet. *)
+
+[EXTERNAL($DAPKI)] PROCEDURE DEALLOCATE_PACKET
+                           ( PACKET_PTR : QUEUE_PTR); EXTERNAL; (* BP001 *)
+
+(* This routine is used to send data via a queue semaphore. *)
+
+[EXTERNAL($SGLQI)] PROCEDURE PUT_PACKET
+                           ( PACKET_PTR : QUEUE_PTR;
+                             VAR DESC   : QUEUE_SEMAPHORE_DESC := 0; (*MN007*)
+                             VAR NAME   : [READONLY]NAME_STR :=0;
+                             VAR STATUS : EXC_STATUS := 0 ); EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to receive data via a queue semaphore. *)
+
+[EXTERNAL($WAIQI)] PROCEDURE GET_PACKET
+                           ( VAR PACKET_PTR : QUEUE_PTR;
+                             VAR DESC       : QUEUE_SEMAPHORE_DESC := 0; (*MN007*)
+                             VAR NAME       : [READONLY]NAME_STR :=0;
+                             VAR STATUS     : EXC_STATUS := 0 ); EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to conditionally send data via a queue semaphore. *)
+
+[EXTERNAL($SGQCI)] FUNCTION COND_PUT_PACKET
+                          ( PACKET_PTR : QUEUE_PTR;
+                            VAR DESC   : QUEUE_SEMAPHORE_DESC := 0; (*MN007*)
+                            VAR NAME   : [READONLY]NAME_STR :=0;
+                            VAR STATUS : EXC_STATUS := 0 ) : BOOLEAN; EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to conditionally receive data via a queue semaphore. *)
+
+[EXTERNAL($WAQCI)] FUNCTION COND_GET_PACKET
+                          ( VAR PACKET_PTR : QUEUE_PTR;
+                            VAR DESC       : QUEUE_SEMAPHORE_DESC := 0; (*MN007*)
+                            VAR NAME       : [READONLY]NAME_STR := 0;
+                            VAR STATUS     : EXC_STATUS := 0 ) : BOOLEAN; EXTERNAL; (* MN006,MN007 *)
+
+(* The following six routines are used to manage ring buffers. *)
+
+
+(* This routine is used to create a ring buffer. *)
+
+[EXTERNAL($CRRBI)] FUNCTION CREATE_RING_BUFFER
+                          ( INPUT_MODE   : MODE := STREAM_MODE;
+                            OUTPUT_MODE  : MODE := STREAM_MODE;
+                            INPUT_ORDER  : ORDERING := FIFO;
+                            OUTPUT_ORDER : ORDERING := FIFO;
+                            SIZE         : RING_BUFFER_SIZE;
+                            VAR DESC     : RING_BUFFER_DESC := 0; (*MN007*)
+                            VAR NAME     : [READONLY]NAME_STR := 0;
+                            VAR STATUS   : EXC_STATUS := 0 ) : BOOLEAN; EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to reset ring buffer pointers. *)
+
+[EXTERNAL($RBUFI)] PROCEDURE RESET_RING_BUFFER
+                           ( VAR DESC   : RING_BUFFER_DESC := 0; (*MN007*)
+                             VAR NAME   : [READONLY]NAME_STR :=0;
+                             VAR STATUS : EXC_STATUS := 0 ); EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to put an element into a ring buffer. *)
+
+[EXTERNAL($PELMI)] PROCEDURE PUT_ELEMENT
+                           ( LENGTH     : RING_BUFFER_DATA;
+                             VAR DATA   : [READONLY] UNIVERSAL;
+                             VAR DESC   : RING_BUFFER_DESC := 0; (*MN007*)
+                             VAR NAME   : [READONLY]NAME_STR :=0;
+                             VAR STATUS : EXC_STATUS := 0 ); EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to get an element from a ring buffer. *)
+
+[EXTERNAL($GELMI)] PROCEDURE GET_ELEMENT
+                           ( LENGTH     : RING_BUFFER_DATA;
+                             VAR DATA   : UNIVERSAL;
+                             VAR DESC   : RING_BUFFER_DESC := 0; (*MN007*)
+                             VAR NAME   : [READONLY]NAME_STR :=0;
+                             VAR STATUS : EXC_STATUS := 0 ); EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to conditionally put an element into a ring buffer. *)
+
+[EXTERNAL($PELCI)] FUNCTION COND_PUT_ELEMENT
+                           ( LENGTH   : RING_BUFFER_DATA;
+                             VAR DATA : [READONLY] UNIVERSAL;
+                             VAR DESC : RING_BUFFER_DESC := 0; (*MN007*)
+                             VAR NAME : [READONLY]NAME_STR :=0;
+                             VAR STATUS : EXC_STATUS := 0 ) : INTEGER; EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to conditionally get an element from a ring buffer. *)
+
+[EXTERNAL($GELCI)] FUNCTION COND_GET_ELEMENT
+                           ( LENGTH   : RING_BUFFER_DATA;
+                             VAR DATA : UNIVERSAL;
+                             VAR DESC : RING_BUFFER_DESC := 0; (*MN007*)
+                             VAR NAME : [READONLY]NAME_STR :=0;
+                             VAR STATUS : EXC_STATUS := 0 ) : INTEGER; EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to initialize a structure descriptor. *)
+
+[EXTERNAL($INSDI)] PROCEDURE INIT_STRUCTURE_DESC
+                           ( VAR DESC   : STRUCTURE_DESC;
+                             VAR NAME   : [READONLY]NAME_STR;
+                             VAR STATUS : EXC_STATUS := 0 ); EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to get the value of a structure. *)
+
+[EXTERNAL($GVALI)] PROCEDURE GET_VALUE
+                           ( VAR VALUE  : INTEGER;
+                             VAR TYP    : INTEGER;
+                             VAR DESC   : STRUCTURE_DESC := 0; (*MN007*)
+                             VAR NAME   : [READONLY]NAME_STR :=0;
+                             VAR STATUS : EXC_STATUS := 0 ); EXTERNAL; (* MN006,MN007 *)
+
+(* This routine is used to destroy a structure *)
+
+[EXTERNAL($DLSTI)] PROCEDURE DESTROY
+                           ( VAR DESC   : STRUCTURE_DESC := 0; (*MN007*)
+                             VAR NAME   : [READONLY]NAME_STR :=0;
+                             VAR STATUS : EXC_STATUS := 0 ); EXTERNAL; (* MN006,MN007 *)
+
+
+{END.}
+                                                                                                                                                                                                                                                                                                                            

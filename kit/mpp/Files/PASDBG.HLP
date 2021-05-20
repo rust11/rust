@@ -1,0 +1,526 @@
+! HELP file for uPAX/Pascal Symbolic Debugger
+!
+! File Format:
+!
+!	{message for HELP}
+!	.topic 1
+!	{message for topic 1}
+!	..topic 1.1
+!	{message for topic 1.1}
+!	..topic 1.2
+!	{message for topic 1.2}
+!	.topic 2
+!	{message for topic 2}
+!
+!		...etc.
+!
+!
+.HELP
+"HELP [command [subcommand...]]"
+
+Displays HELP information about commands, keywords, and options.
+..ADDRESS_EXPRESSIONS
+
+Address expressions are used by many PASDBG commands, including dep, ex
+set br,wa,tr, etc. An address expresion is one of the following:
+
+ any mode:
+
+ Pascal variable
+ Macro Global symbol
+ Procedure Name
+ Procedure name followed by "END"
+ "STATEMENT"  nnnn
+ "Label" nnn
+ "." a dot, means address of last address expresion used. ie: ex fred:.+10 
+
+ Pascal mode:
+
+ nnnn : statement number nnnn
+ @[%] nnnn : address nnnnnn
+
+Macro mode :
+
+ nnnnn : address nnnnn
+ 	   and expresions see below.
+ +nnnnn : When relative mode enabled, uses nnnnn as an offset into the
+    	a PSECT. The psect is that which contained the lastlocation examined.
+...EXPRESIONS
+
+Legal expresions include user symbols and the folowing operators:
+
+ "*","/","+","-","(",")" and "@" which indicates indirection.
+
+The following symbols are predefined:
+
+ "."  means the last address accessed on the target. ie. exa 100:.+20 .
+
+ "+" as the first symbol of an address expresion means that the address is
+     an offset into a PSECT. The psect used is that which contained the
+     last memory loaction the user examined.
+
+..MAPPING
+The 
+address references require that address mapping be set to some running process,
+i.e. a SET PROCESS or SET PROGRAM was done. Numeric addresses are interpreted
+according to the current mapping. If mapping is set, the address is a virtual
+address in the process address space (including the KERNEL - "SET PROGRAM
+KERNEL"). If no mapping is set, the address is interprted as a 22-bit physical
+address. 
+...PASCAL
+"address" may be one of: a PASCAL data reference (e.g. "I.J[3]"),
+a PASCAL line number (integer), a PASCAL label ("LABEL integer"), a PASCAL
+function, procedure or process, or a numeric address ("@integer"). 
+Also, a procedure name may be followed by the keyword END to designate
+the last statement in a procedure.
+...MACRO
+"address" may be an integer, a macro symbol, a pascal symbol (which will be
+treated as a macro symbol), or an exprssion. Expressions are composed of symbols
+and the following operators: +,-,*,/,(),@. Only integers and symbols can be used
+PSECT names can be used. The symbol "." (a dot) can be used to signify the 
+LAST address expression the debugger used. ie.  ex 1000: .+10
+..COMMAND FILES
+"@start.com"
+"@start"
+
+The "@" invokes an indirect command file. The text in this file is treated
+exactly as if the user had typed it in reponse to the "PASDBG>" prompt.
+See "LOG" for one way to make a command file.
+..CANCEL
+The CANCEL command resets anything set by a set command.
+...WINDOW
+"CANCEL WINDOW [n]"
+
+Cancels (deletes) window n. If n is not specified, turns off windowing.
+...BREAK
+"CANCEL BREAK ADDRESS"
+"CANCEL BREAK/ALL"
+
+Cancels one or all breakpoints.
+...SCOPE
+"CANCEL SCOPE"
+
+Clears the scope. No scoped data or code references are allowed
+until a new scope is set.
+...SOURCE
+"CANCEL SOURCE"
+
+Cancels the previous SET SOURCE comamnd
+...STEP
+"CANCEL STEP"
+
+Resets stepping to: INTO, STATEMENT.
+...TRACE
+"CANCEL TRACE ADDRESS"
+"CANCEL TRACE/ALL"
+
+Cancels one tracepoint or all tracepoints.
+...WATCH
+"CANCEL WATCH address"
+"CANCEL WATCH/ALL"
+
+Cancels one or all watchpoints.
+..LOG
+"LOG RT2100"
+"LOG START.COM"
+
+Opens a log file. If the file is a .com file, the resulting file will
+contain only the commands typed by the user. If the extention is anything
+else, all the dialogue on the screen will be recorded in the file.
+..CLOSE
+"CLOSE"
+
+Closes a log file opened with the LOG command.
+..CREATE 
+"Create window n i:j"
+
+Creates a window numbered n, from lines i to j. Windows cannot overlap.
+..DESCRIPTOR
+
+A descriptor of a KERNEL structure is one of the following:
+1). The name of a named structure in quotes : SH SEM "$KPSEM"
+2). The KERNEL address of the structure : SH PACKET QUEUE @%20020
+3). The pascal variable of type descriptor : SHOW RING BUFFER ringdesc
+..DEFINE
+"DEFINE [SYMBOL] 'xxxxxx' = 'yyyyyy'
+"DEFINE [SYMBOL] 'xxxxxx' = ''
+
+Causes PASDBG to replace any string xxxxxx in a command line with yyyyyy.
+Does not cause substitutions for characters inside of quoted strings.
+The second case deletes the symbol xxxxxx. See also init/symbol.
+...PF keys
+
+The following symbols are defined in PASDBG to be identical to the the
+Function keys on the keyboard:
+
+PF1,PF2,PF3,PF4 and F1 through F20 . Pressing any of these keys on the
+terminal is the same as typing the characters that comprise the keys name
+and then pressing carriage return.
+
+( The keys KP0 through KP9 are also defined but can be generated only by
+using the set term/altkeypad command to the operating system prior to runnning
+PASDBG. By default they are treated as the digits 0 through 9.)
+
+..DEPOSIT
+"DEPOSIT [/BYTE] address[:address] = data"
+
+The  deposit command loads a location with a value.
+Type HELP ADDRESS for a discussion on address formats.
+
+"data" may any value representation, but must be of appropriate
+type if "address" is a PASCAL data reference.
+
+The [:address] is allowed only in macro mode, where it causes all the words
+the the range to receive the data.
+
+In macro mode, the data can be a string of any length.
+
+/BYTE is not allowed on in deposits to PASCAL data.
+.../INSTRUCTION
+"DEPOSIT/INSTR address = instruction 
+
+Deposit a PDP-11 instruction into an address.
+..EXAMINE
+"EXAMINE[/keyword...] address[:] address
+
+"EXAMINE 
+
+Displays the contents of memory in the target system.
+
+"keyword" is one of BINARY, OCTAL, DECIMAL, HEXADECIMAL,(to indicate
+the radix in which numbers are displayed, and/or one of ASCII,SOURCE,
+INSTRUCTION, OCTAL, RAD50, REAL, WORD, or BYTE, to indicate the
+display format. The format keywords are not allowed when examining
+via PASCAL data reference, since the format is determined by the
+data type. Radix keywords are always allowed.
+The second case examines the NEXT variable, in macro mode.
+
+.../W
+"EXAMINE/W:[n:m] address
+ The examine command takes one other switch, the /w window switch.
+n determines which window the results of the command should be displayed in.
+m if supplied determines which line in the window the display starts on
+(0 is top.) If not given, the display starts at the bottom but scrolls.
+
+..EXIT
+"EXIT"
+
+Terminates debugging session.
+..GO
+"GO[/EXIT]"
+
+Starts or continues program execution.
+.../EXIT
+"GO/EXIT"
+
+Causes the appication program to start or continue running, and exits to
+the monitor leaving the target runnning.
+..HALT
+"HALT"
+
+Stops target program execution.
+..INIT
+"INIT [/RESTART]
+The INIT command initializes the debuggers internal database. It cancels
+all breakpoints, watchpoints, step modes, and scope.
+
+The /RESTART option restarts the user program, returning it to "just loaded"
+condition.
+.../SYMBOLS
+
+"INIT/SYMBOL"
+
+Deletes all the symbols defined with the DEFINE SYMBOL command.
+..LOAD
+"LOAD [/option] [dev:]name[.ext]"
+	or
+"LOAD/option 'file-spec'"
+
+The LOAD command causes a downline load of the target memory
+image, and/or loads a symbol table file for symbolic accesses. 
+ If no option is given, action depends on the file extension. If the 
+extension is .DBG, the file is loaded as a symbol file. If the extension 
+is .MIM, the file is downline loaded to the target as a memory image file. 
+If the extension is ommitted (no dot either), the two files "name.DBG" 
+and "name.MIM" will be loaded as symbols and downline loaded to the 
+target respectively. 
+.../TARGET
+"LOAD/TARGET file-spec
+
+This command loads the application into the target. It does not load the 
+symbol table.
+.../SYMBOL
+"LOAD/SYMBOL file-spec
+
+This command loads the symbol table from the DBG file into the debugger. It
+does not effect the target.
+.../EXIT
+"LOAD/EXIT file-spec
+
+This command performs a LOAD/TARGET and then returns to the monitor. It
+should be used for progams built without debug support.
+..SET
+The set command sets various debugger options.
+...PASCAL
+"SET [MODE] PASCAL"
+
+Sets the v1.5 debugger defaults.
+...MACRO
+"SET [MODE] MACRO
+
+Sets certain MACRO defaults. Sets the address mode to macro ( NO @ needed,
+expressions allowed, PASCAL variables treated as macro symbols).
+Also does SET TERSE, SET RADIX OCTAL, SET STEP INS.
+...GLOBAL
+"SET [MODE] GLOBAL
+ 
+ Allows macro symbol searches to cross modules within a program. Mostly
+useful for kernel symbols.
+...TERSE
+"SET [MODE] TERSE"
+
+Shortens many PASDBG messages.
+...RADIX
+"SET RADIX OCTAL | DECIMAL | HEX | BINARY "
+
+Changes default radix. 
+...WINDOW
+"SET n 
+
+Sets the defualt window ( The one with the prompt) to window n.
+...BREAK
+"SET BREAK [/option] address"
+
+Sets a breakpoint at specified address. Type HELP ADDRESS
+for a discussion on address formats. PASCAL data references may
+not be given as breakpoint addresses.
+
+Options are /AFTER and /PROCESS.
+..../AFTER
+"SET BREAK [/AFTER:count] address"
+
+"count" specifies that the breakpoint is to
+be reported the "nth" time it is encountered. Default count
+is 1.
+..../PROCESS
+"SET BREAK [/PROCESS:process] address"
+
+"Process" specifies that the Breakpoint is to be reported only if
+It occurs in the specified process.
+..../DO
+"SET BREAK/DO='command;command'
+
+Sets up list of commands to be executed when breakpoint is reported.
+...ODT
+"SET ODT"
+
+Halts the target, dropping the target into micro-ODT if the
+processor is strapped to enter ODT on halt.  PASDBG then
+sends all characters typed to the target (ODT mode), and 
+prints all target responses on the terminal.  Video is
+reversed to signify that the ODT sequence is from the target,
+not the host system. Type <cntrl C >to return to the "PASDBG>"
+prompt, but remember that the target is still in ODT.
+...PHYSICAL
+"SET PHYSICAL"
+
+Sets the current mapping to physical addressing.  Subsequent
+commands must use physical addresses.
+...PROCESS
+"SET PROCESS process"
+
+Sets the mapping and current process to the process specified.  The process
+can be a quoted name, the serial number of the process, the
+PCB address of the process preceeded by an @, or a process
+descriptor in the current scope.  Subsequent commands will
+refer to the local variables for the new process.
+...PROGRAM
+"SET PROGRAM prog [\module]"
+
+Sets the lexical scope to the given program/module and sets
+mapping to the static process with "prog" as its name. Scope
+is also set to the module specified, and if ommitted, to the
+module with the same name as the program (the MAIN module).
+...MODULE
+"SET MODULE module
+
+Sets the scope to the given module, within the current program.
+...SCOPE
+"SET SCOPE scope"
+
+Sets the lexical scope to that specified. "scope" is
+given as "name\name\..." where each name is a PROCEDURE name,
+a FUNCTION name, or a PROCESS name, and determines the
+the up-level search path for a symbol name encountered by the
+debugger. Note that no implicit "SET PROCESS" is done, hence
+mapping is unaffected.
+...SOURCE
+"SET SOURCE file-name"
+
+Sets up a source file to be used by the TYPE commands. There can be only
+one SOURCE file active at a time.
+...STEP
+"SET STEP keyword[,keyword...]" 
+
+Sets the step mode. The keyword INSTRUCTION stops after pdp11 instructions and
+STATEMENT stops on Pascal statements. The keyword OVER steps over procedures 
+and functions, INTO stops when the INSTRUCTION or STATEMENT is exceuted,
+ignoring Procedure boudaries.
+...TRACE
+"SET TRACE address"
+
+TRACE is treated exactly as a BREAKPOINT followed by a GO .
+...WATCH
+"SET WATCH address"
+
+Sets a watchpoint at specified address. Type HELP ADDRESS for
+s discussion on address formats.
+..STEP
+"STEP[/KEYWORD...] [NUMBER]"
+
+Steps the program to the next "keyword" after
+executing the next "number" of steps.
+..SHOW
+"show/w:n[:m]   show topic"
+
+The show command displays various information about the current
+state of the debugger, target etc.
+ The show commands all take one switch, the /w window switch.
+n determines which window the results of the command should be displayed in.
+m if supplied determines which line in the window the display starts on
+(0 is top.) If not given, the display starts at the bottom but scrolls.
+
+"SHOW m[:n]"
+
+Displays source file lines m though n. Source file must have been set with 
+SET SOURCE command.
+...SOURCE
+"SHOW SOURCE [m:[n]]
+
+Displays source file lines about the current PC. If neithor m or n is specified
+it displays just the line corresponding to the current PC. If just m is 
+specified, it displays the line m above and below the PC. If M and n are
+specified, it displays the line m above and n below the PC's line.
+...BREAK
+"SHOW BREAK"
+
+Displays all breakpoints.
+...FREE
+Displays information about available kernel resources.
+....PACKETS
+"SHOW FREE PACKETS"
+
+Gives number of unused PACKETS.
+....STRUCTURES
+"SHOW FREE STRUCTURES"
+
+Gives information about the KERNEL (pool used to create structures).
+...NAMES
+"SHOW NAMES"
+
+Lists the named kernel structures.
+...EXCEPTION
+"SHOW EXCEPTION"
+
+Types last exception message.
+...EXCEPTION GROUPS
+"SHOW HEAP process"
+
+Gives information about the the heap.
+...PCB
+"SHOW PCB process"
+
+Displays the pcb of the specified process.
+...PROCESS
+"SHOW PROCESS/ALL"
+"SHOW PROCESS process"
+
+Displays the state of the specified process.
+...SCOPE
+"SHOW SCOPE"
+
+Displays the current scope setting.
+...STACK
+"SHOW STACK"
+
+Displays "called from" parents of the current procedure.
+...STEP
+"SHOW STEP"
+
+Displays the current step settings.
+...TRACE
+"SHOW TRACE"
+
+Displays the current tracepoints, and trace settings.
+...WATCH
+"SHOW WATCH"
+
+Displays the current status of all watchpoints.
+...RUN
+"SHOW RUN"
+
+Displays the RUN queue.
+...READY/ACTIVE
+"SHOW READY/ACTIVE"
+
+Displays the READY/ACTIVE queue.
+...READY/SUSPENDED
+"SHOW READY/SUSPENDED"
+
+Displays the READY/SUSPENDED queue.
+...INACTIVE
+"SHOW INACTIVE"
+
+Displays the INACTIVE queue.
+...MAPPING
+"SHOW MAPPING [process descriptor]
+
+Shows the PARs and PDRs associated with a given process. If Process descriptor
+is ommited, shows current process mapping registers.
+...LOGICAL
+"SHOW LOG 'xxxxx'
+
+Shows logical name and translation. If string ommited, shows all logical names.
+...SEMAPHORE 
+"SHOW SEMAPHORE semaphore descriptor"
+
+Displays information about a SEMAPHORE.
+See DESCRIPTOR .
+...REGISTER
+"SHOW REGISTER"
+
+Displays all the registers, ala the pdbwindow.com
+...REGION
+"SHOW REGION region descriptor
+
+Displays information about a shared region.
+...RING BUFFER 
+"SHOW RING BUFFER ring buffer descriptor"
+
+Displays information about a RING BUFFER.
+See DESCRIPTOR .
+...PACKET QUEUE 
+"SHOW PACKET QUEUE packet queue descriptor"
+
+DISPLAYS information about a PACKET QUEUE.
+...STACK
+"SHOW STACK n"
+
+Shows memory of current stack. n is number of words to display. If n is
+negative, the display is printed high to low.
+...WINDOW
+"SHOW WINDOW"
+
+Displays size and boundaries of all windows.
+!  CMS REPLACEMENT HISTORY 
+
+
+! *7 HARRIGAN  3-NOV-1983 14:09:22 "fixed /proc /pcb"
+! *6 HARRIGAN  7-JUN-1983 11:38:56 "mispel & set br/state stuff removed"
+! *5 HARRIGAN  1-MAR-1983 10:12:37 ""
+! *4 HARRIGAN  1-MAR-1983 10:02:47 "set br/first, load/exit, go/exit, file variable"
+! *3 HARRIGAN 27-AUG-1982 20:04:46 "added INIT command"
+! *2 HARRIGAN 27-JUN-1982 12:13:20 ""
+!  1A1 HARRIGAN 27-JUN-1982 11:46:39 ""
+! *1 HARRIGAN 27-JUN-1982 11:18:28 ""
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
