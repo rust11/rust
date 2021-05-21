@@ -18,20 +18,18 @@ for them. The problem does not seem to be present under SimH (which throttles
 the clock), but if it does crop up let me know (because I found the patch
 address).
 
-The contents of this folder:
+These are the documents. They're not all specifically for RT-11.
 
-\FILES
-README.TXT
-MPPRL2.DSK
 AA-M388A-TC_IntroToMicroPowerPascal_Jan82.pdf
 micropower_pascal_mpprsxvms_messagesmanual_v15.pdf
 micropower_pascal_runtime_service_manual_v15.pdf
 micropower_pascal_system_users_guide_v15 (1).pdf
+
 8208_AD-C740C-30_rtSwDisp.pdf
 8209_AD-C740C-31_rtSwDisp.pdf
 8211_AD-C740C-33_rtSwDisp.pdf
 
-The /FILES subdirectory and MPPRL2.DSK contain the following:
+The /FILES subdirectory and MPPRL2.DSK (RT-11 RL02) contain:
 
 ACPPFX.MAC   ADINC .PAS   ADPFX .MAC   ADSUB .PAS   ARBVFY.COM
 ARBVFY.PAS   CARS2 .PAS   CARS3 .PAS   CFDCMR.MAC   CFDFAL.MAC
