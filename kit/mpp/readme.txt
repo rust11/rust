@@ -1,7 +1,5 @@
 RT-11 MicroPowerPascal (MPP)
 
-The zip file contains MPP components that I've collected over the years.
-
 The distribution kit was recovered from five RX02's. I've transferred the
 files to an RL02 disk image and to a directory (/FILES). 
 
@@ -20,7 +18,7 @@ for them. The problem does not seem to be present under SimH (which throttles
 the clock), but if it does crop up let me know (because I found the patch
 address).
 
-The zip file contents:
+The contents of this folder:
 
 \FILES
 README.TXT
