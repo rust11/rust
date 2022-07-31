@@ -5,6 +5,7 @@ include rid:cldef
 include rid:eldef
 include rid:mxdef
 
+;	SR1V1.R - 
 ;	Each test is performed with the condition codes initially
 ;	clear and again with the condition codes set. Results of
 ;	the second test are only displayed if the condition codes
@@ -125,6 +126,9 @@ $psdef
 $vedef
 smini$
 
+mtp$c=1		; bugfix - replace MTPS with PSW access
+fpu$c=1		; bugfix - remove spurious FPU instruction
+
 cuAlst::.word	c$ut00
 	.word	c$ut01
 	.word	c$ut02
@@ -215,6 +219,9 @@ c$ustk:	.word	0		; restore stack
 ;	spl	7			; no interrupts, we're british
 	clr	t$rvec			; zap vector
 	mov	#-1,t$rsem		; let traps through
+.if ne mtp$c
+	mov	#psw,r3			; r3 -> psw for tscnd$
+.endc
 	jmp	@ts.fun(r5)		; continue in function
 
 cu$blk:					; here if nothing happened
@@ -322,7 +329,11 @@ c$ut'tst::
 	.endm
 
 	.macro	tscnd$		; set condition codes
+.if ne mtp$c
+	mov	c$ucnd,(r3)	; r3 -> PSW - 177776 
+.iff
 	mtps	c$ucnd
+.endc
 	.endm
 .sbttl	c$ut00
 
@@ -674,7 +685,11 @@ tr$t13:	tsexi$
 
 fu$t14:	mov	#^o160000,r0
 	mov	r0,ph.r0(r4)
+.if ne fpu$c
+	nop
+.iff
 	setd
+.endc
 	tscnd$
 ts$t14:	tst	(r0)+
 	tsblk$
@@ -921,5 +936,15 @@ ts$t23:	sxt	(r0)+
 	tsblk$
 tr$t23:	tsexi$
 
+.sbttl	program identification
+
+$imgdef	SR1 2 0
+$imginf	fun=sav cre=hammo aut=ijh use=<Test MMU SR1 register SR1.SAV>
+$imgham	yrs=<2013, 2022> oth=<>
+;	%date
+$imgdat	<01-Aug-2022 02:41:56>   
+;	%edit
+$imgedt	<29   >
+
 .end
-
+                                                                                                                                                                                                                                                                                                   
