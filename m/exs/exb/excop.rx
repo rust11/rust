@@ -1,0 +1,54 @@
+/* file -  copy - EXPAT copy command */
+#include "c:\f\m\rid\rider.h"
+#include "c:\f\m\rid\dcdef.h"
+#include "c:\f\m\rid\fidef.h"
+#include "c:\f\m\rid\imdef.h"
+#include "c:\f\m\rid\vfdef.h"
+#include "c:\f\m\rid\fidef.h"
+#if Win
+#include "c:\f\m\rid\stdef.h"
+#endif 
+#include "c:\f\m\exs\exb\exmod.h"
+cm_cop(
+dcTdcl *dcl )
+{register vfTobj *src = &Isrc;
+  vfTobj *dst = &Idst;
+  register vfTent *ent ;
+  register FILE *opt ;
+  char rgt [mxSPC];
+  int err = 0;
+  int cha ;
+  int sta ;
+  ULONG cnt = 1;
+  vf_alc (src);
+  cu_gdt ();
+  for(;;)  {
+    if( !vf_att (src))break;
+    if( !vf_scn (src))break;
+    cnt = 0;
+    ent = &src->Pscn->Ient;
+    while ( vf_nxt (src) != 0) {
+      if( cu_sub (ent->Anam))continue;
+      if( !cu_cdt (ent))continue;
+      ++cnt;
+      if( !vf_acc (src)){ ++err ; break;}
+      cu_res (dst->Aspc,ent->Anam,rgt);
+      if( !cu_que (ent->Anam))continue;
+      cu_log (ent->Anam);
+      if( (opt = fi_opn (rgt, "wb", "")) == 0){ ++err ; break;}
+      while ( (cha = vf_get (src)) != EOF) {
+        if( !cu_asc (cha))continue;
+        if( (fi_ptb (opt, cha)) != EOF)continue;
+        im_rep ("E-Error writing %s", rgt);
+        fi_prg (opt, "");
+         ++err;break;
+      } 
+      if( err)break;
+      fi_clo (opt, "");
+      fi_stp (rgt, (ctl.Qdat ? &ctl.Inew: &ent->Itim), "");
+    } 
+   break;} 
+  cu_prg ();
+  cu_fnf (cnt);
+  return 1;
+} 

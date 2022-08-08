@@ -1,0 +1,98 @@
+/* file -  exdir - expat directory command */
+#include "c:\f\m\rid\rider.h"
+#include "c:\f\m\rid\dcdef.h"
+#include "c:\f\m\rid\fidef.h"
+#include "c:\f\m\rid\mxdef.h"
+#include "c:\f\m\rid\vfdef.h"
+#if Win
+#include "c:\f\m\rid\stdef.h"
+#endif 
+#include "c:\f\m\exs\exb\exmod.h"
+/* code -  directory */
+#define DIS(fmt,str)  fprintf(opt,fmt,str)
+#define TYP(fmt)  fprintf(opt,fmt)
+#define LIN  TYP("\n")
+cm_dir(
+dcTdcl *dcl )
+{register vfTobj *src = &Isrc;
+  vfTscn *scn ;
+  register vfTent *ent ;
+  FILE *opt = NULL;
+  char fmt [mxSPC+3];
+  char tim [32];
+  int lin ;
+  int col = 0;
+  ULONG len ;
+  ULONG tot = 0;
+  ULONG cnt = 1;
+  vf_alc (src);
+  cu_gdt ();
+  lin = ctl.Qpau ? 0: -1;
+  for(;;)  {
+    if( !vf_att (src))break;
+    if( !vf_scn (src))break;
+    cnt = 0;
+    if( (opt = cu_opt (".LST")) == 0)break;
+    scn = src->Pscn;
+    ent = &scn->Ient;
+    while ( vf_nxt (src) != 0) {
+      if( cu_sub (ent->Anam))continue;
+      ++cnt;
+      tot += (len = cu_len (ent->Vlen));
+      if( !cu_cdt (ent))continue;
+      st_low (ent->Anam);
+      cu_fmt (ent->Anam, fmt);
+#if Win
+      if ( ctl.Aexe[0]) {
+        if ( ctl.Qlst) {
+          DIS("%s", fmt);
+          LIN; }
+        DIS("%s", fmt);
+        cu_exe (src, ent);
+        continue; }
+#endif 
+      if ( ctl.Qlst) {
+        DIS("%s", fmt);
+        LIN;
+        continue; }
+      DIS("%13s ", fmt);
+      if ( st_len (fmt) >= 13) {
+        LIN;
+        if ( !ctl.Qbrf) {TYP("              ") ;} }
+      if ( ctl.Qbrf) {
+        if( ++col < 7)continue;
+        LIN;
+        if( !cu_pau (opt,&lin))break;
+         col = 0;continue; }
+      if ( len > 65535L) {
+        DIS(" %6luk", len/1024L);
+        } else {
+        DIS(" %6lu ", len); }
+      if ( ent->Vflg & vfCTG_) {DIS("C ", NULL) ;} else {
+        DIS("  ", NULL) ; }
+      ti_dat (&ent->Itim, tim);
+      DIS("%s  ", tim);
+      ti_hmt (&ent->Itim, tim);
+      DIS("%s", tim);
+      if ( ctl.Qful) {
+        if ( !ctl.Qoct) {DIS(" %6ld ", ent->Vsta/512L) ;} else {
+          DIS(" %6lo ", ent->Vsta/512L) ; }
+        if ( src->Vsys == vfXDP) {
+          if ( !ctl.Qoct) {DIS("  %6ld ", ent->Vlst/512L) ;} else {
+            DIS("  %6lo ", ent->Vlst/512L) ; }
+           } }
+      LIN;
+      if( !cu_pau (opt, &lin))break;
+    } 
+    if ( col != 0) {LIN ;}
+    if ( ctl.Qful) {
+      DIS(" %ld files,", cnt);
+      DIS(" %ld blocks\n", tot);
+      if ( scn->Vemp != 0) {DIS(" %ld free blocks", scn->Vemp/512L) ;}
+      LIN; }
+   break;} 
+  fi_clo (opt, "");
+  cu_prg ();
+  cu_fnf (cnt);
+  return 1;
+} 

@@ -1,0 +1,248 @@
+/* file -  EXPAT - expatriate file exchange program */
+/* code -  EXPAT implementation */
+/* code -  local definitions */
+#include "c:\f\m\rid\rider.h"
+#include "c:\f\m\rid\codef.h"
+#include "c:\f\m\rid\dcdef.h"
+#include "c:\f\m\rid\fidef.h"
+#include "c:\f\m\rid\fsdef.h"
+#include "c:\f\m\rid\imdef.h"
+#include "c:\f\m\rid\medef.h"
+#include "c:\f\m\rid\mxdef.h"
+#include "c:\f\m\rid\tidef.h"
+#include "c:\f\m\rid\vfdef.h"
+#include "c:\f\m\exs\exb\exmod.h"
+#if Win
+#include "c:\f\m\rid\cldef.h"
+#include "c:\f\m\rid\rxdef.h"
+#include "c:\f\m\rid\stdef.h"
+#endif 
+/* code -  Local structures */
+vfTobj Isrc = {0};
+vfTobj Idst = {0};
+cuTctl ctl = {NULL, &Isrc, &Idst};
+char *cuAhlp [] =  {
+  "PDP-11 file exchange program EXPAT.SAV V1.0",
+  " ",
+  "COPY path path	 Copy files    /ASCII/LOG/QUERY",
+  "DIRECTORY path	 List files    /BRIEF/FULL/LIST/OUTPUT=path/PAUSE",
+  "TYPE path	 Display files /LOG/PAUSE/QUERY",
+  "Date options:   /BEFORE:date/DATE:d",
+  "EXIT		 Exit EXPAT",
+  "HELP		 Display this help",
+  NULL,
+  };
+/* code -  start */
+ex_dcl ();
+ex_dco ();
+start()
+{
+  im_ini ("EXPAT");
+  co_ctc (coENB);
+  ex_dcl ();
+} 
+/* code -  overlay thunks */
+cv_cop(
+dcTdcl *dcl )
+{cm_cop (dcl);
+  ex_dco ();
+  return 1;
+} 
+cv_dir(
+dcTdcl *dcl )
+{if ( ctl.Qxdp|ctl.Qdrs|ctl.Qpas) {cm_xdp (dcl) ;} else {
+    cm_dir (dcl) ; }
+  ex_dco ();
+  return 1;
+} 
+cv_typ(
+dcTdcl *dcl )
+{cm_typ (dcl);
+  ex_dco ();
+  return 1;
+} 
+/* code -  qualifiers */
+/* code -  cu_asc - /ascii elide non-ascii codes */
+cu_asc(
+register char cha )
+{if( ctl.Q7bt && cha & 0200)return 0;
+  if( !ctl.Qasc)return 1;
+  if( (cha >= 040) && (cha < 0177))return 1;
+  if( (cha >= 011) && (cha <= 015))return 1;
+  if( (cha == 032))return 1;
+  return 0;
+} 
+/* code -  cu_exc - /exclude=string */
+cu_exc(
+vfTent *ent )
+{register char *exc = ctl.Aexc;
+  if( !*exc)return 0;
+  return ( st_wld (exc, ent->Anam));
+} 
+/* code -  cu_log - /log log filename */
+cu_log(
+char *nam )
+{if( ctl.Qque)return;
+  if ( ctl.Qlog) {PUT("%s\n", nam) ;}
+} 
+/* code -  cu_pau - /pause output every 24 lines */
+cu_pau(
+register FILE *opt ,
+register int *cnt )
+{if( *cnt < 0)return 1;
+  if ( *cnt+1 >= 24) {
+    if ( opt != 0) {fi_flu (opt) ;} }
+  return ( cl_mor (cnt));
+} 
+/* code -  cu_que - /query operation */
+cu_que(
+char *nam )
+{register char str [mxNAM];
+  if( !ctl.Qque)return 1;
+  st_cop (nam, str);
+  st_upr (str);
+  PUT("%13s", str);
+  return ( cl_que (" ? "));
+} 
+/* code -  utilities */
+/* code -  cu_fmt - format file spec for directory display */
+cu_fmt(
+register char *spc ,
+register char *fmt )
+{int len = st_len (spc);
+  int dot = st_fnd (".", spc) - spc;
+  int dif = 3 - (len-dot);
+  st_cop (spc, fmt);
+  if( dot <= 0)return;
+  while ( dif-- >= 0) {st_app (" ", fmt) ;}
+} 
+/* code -  cu_fnf - check file ! found */
+cu_fnf(
+ULONG cnt )
+{if( cnt != 0)return 1;
+  im_rep ("E-No files found: %s", Isrc.Aspc);
+} 
+/* code -  cu_len - normalize block length */
+ULONG cu_len(
+ULONG len )
+{return ( (len+511L)/512L);
+} 
+/* code -  cu_opt - default /ouput file */
+FILE *cu_opt(
+char *typ )
+{char *opt = ctl.Aopt;
+  if ( Idst.Aspc[0]) {
+    fi_def (Idst.Aspc, typ, opt);
+    } else {
+    st_cop ("TT:", opt); }
+  return ( (ctl.Hopt = fi_opn (opt, "wb","")));
+} 
+/* code -  cu_prg - purge files */
+cu_prg()
+{vf_prg (&Isrc);
+  vf_prg (&Idst);
+} 
+/* code -  cu_res - form resultant file spec */
+cu_res(
+char *spc ,
+char *nam ,
+register char *res )
+{fs_res (spc, nam, res);
+  fi_loc (res, res);
+  st_low (res);
+} 
+/* code -  cu_sub - check for subdirectory */
+cu_sub(
+char *sub )
+{return ( st_fnd (".DIR", sub) != 0);
+} 
+/* code -  dates */
+static cu_gdi (tiTplx *,char *);
+static cu_cdi (vfTent *,tiTplx *,char *,int );
+/* code -  cu_gdt - get date qualifier information */
+cu_gdt()
+{if( !cu_gdi (&ctl.Ibef, ctl.Abef))return 0;
+  if( !cu_gdi (&ctl.Idat, ctl.Adat))return 0;
+  if( !cu_gdi (&ctl.Isin, ctl.Asin))return 0;
+  if ( ctl.Qnew|ctl.Qdat) {tm_clk (&ctl.Inew) ;}
+  return 1;
+} 
+/* code -  cu_gdi - get date item */
+cu_gdi(
+tiTplx *plx ,
+register char *str )
+{if( !str[0])return 1;
+  if( ti_sdt (plx, str))return 1;
+   im_rep ("E-Invalid date [%s]", str);return 0;
+} 
+/* code -  cu_cdt - check dates */
+cu_cdt(
+register vfTent *ent )
+{if( !cu_cdi (ent, &ctl.Ibef, ctl.Abef, -1))return 0;
+  if( !cu_cdi (ent, &ctl.Idat, ctl.Adat, 0))return 0;
+  if( !cu_cdi (ent, &ctl.Isin, ctl.Asin, 1))return 0;
+  if( ctl.Qnew && !cu_cdi (ent, &ctl.Inew, "1", 0))return 0;
+  if( cu_exc (ent))return 0;
+  return 1;
+} 
+/* code -  cu_cdi - check date item */
+cu_cdi(
+register vfTent *ent ,
+register tiTplx *dat ,
+char *str ,
+int cas )
+{register int dif ;
+  if( !str[0])return 1;
+  dif = ent->Itim.Vyea - dat->Vyea;
+  if ( !dif) {dif = ent->Itim.Vmon - dat->Vmon ;}
+  if ( !dif) {dif = ent->Itim.Vday - dat->Vday ;}
+  if( !dif && !cas)return 1;
+  if( dif >  0&& cas > 0)return 1;
+  if( dif <  0&& cas < 0)return 1;
+  return 0;
+} 
+#if Win
+/* code -  cu_exe - /execute=command SHE command */
+cu_exe(
+vfTobj *obj ,
+vfTent *ent )
+{char cmd [mxLIN];
+  if( !ctl.Aexe[0])return 1;
+  st_unq (ctl.Aexe, cmd);
+  st_rep ("%p", obj->Apth, cmd);
+  st_rep ("%s", ent->Anam, cmd);
+  st_quo (cmd, cmd);
+  return ( (im_exe ("root:she.exe", cmd, 0)) >= 0);
+} 
+#endif 
+/* code -  cx_dis - generic dispatcher */
+cx_dis(
+dcTdcl *dcl ,
+int (*fun )(vfTobj *,vfTent *))
+{register vfTobj *src = &Isrc;
+  register vfTent *ent ;
+  int err = 0;
+  ULONG cnt = 1;
+  vf_alc (src);
+  cu_gdt ();
+  for(;;)  {
+    if( !vf_att (src))break;
+    if( !vf_scn (src))break;
+    cnt = 0;
+    ent = &src->Pscn->Ient;
+    if( (cu_opt (".LST")) == 0)return ( 0 );
+    while ( vf_nxt (src) != 0) {
+      if( cu_sub (ent->Anam))continue;
+      if( !cu_cdt (ent))continue;
+      st_low (ent->Anam);
+      ++cnt;
+      if( !cu_que (ent->Anam))continue;
+      cu_log (ent->Anam);
+      if( !vf_acc (src)){ ++err ; break;}
+      if( !((*fun)(src, ent))){ ++err ; break;}
+    } 
+   break;} 
+  cu_prg ();
+  cu_fnf (cnt);
+  return 1;
+} 

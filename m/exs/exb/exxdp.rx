@@ -1,0 +1,336 @@
+/* file -  extyp - expat xxdp commands */
+#include "c:\f\m\rid\rider.h"
+#include "c:\f\m\rid\cldef.h"
+#include "c:\f\m\rid\dcdef.h"
+#include "c:\f\m\rid\fidef.h"
+#include "c:\f\m\rid\mxdef.h"
+#include "c:\f\m\rid\tidef.h"
+#include "c:\f\m\rid\medef.h"
+#include "c:\f\m\rid\vfdef.h"
+#if Win
+#include "c:\f\m\rid\stdef.h"
+#endif 
+#include "c:\f\m\exs\exb\exmod.h"
+static cxTfun cf_xdp ;
+static int cu_dsc (char *,char *);
+static cu_idx ();
+static char cuAfnd [mxLIN];
+#define cuTxdp struct cuTxdp_t 
+struct cuTxdp_t
+{FILE *Hidx ;
+  int Vxnf ;
+  char Afnd [mxLIN];
+   };
+cuTxdp xdp = {0};
+#define DIS(fmt,str)  fprintf(opt,fmt,str)
+#define DS2(fmt,s1,s2)  fprintf(opt,fmt,s1,s2)
+#define DS3(fmt,s1,s2,s3)  fprintf(opt,fmt,s1,s2,s3)
+#define TYP(fmt)  fprintf(opt,fmt)
+#define LIN  TYP("\n")
+/* code -  ld_anl - LDA analysis machine */
+/* code -  Machine memory */
+#define ldTlda struct ldTlda_t 
+struct ldTlda_t
+{vfTobj *Pobj ;
+  sbyte *Plow ;
+  char *Pmsg ;
+  int Verr ;
+  ULONG Vcnt ;
+  int Vlda ;
+  WORD Vval ;
+  WORD Vzer ;
+  WORD Vadr ;
+  WORD Vnxt ;
+  WORD Vwrd ;
+  WORD Vpas ;
+  WORD Vchk ;
+  WORD Vlow ;
+  WORD Vhgh ;
+  WORD Vsta ;
+  WORD V46x ;
+  WORD V52x ;
+  WORD V200 ;
+  WORD V202 ;
+  WORD V210 ;
+  int Vemt ;
+  int Veml ;
+  int Vems ;
+  int Vspn ;
+  int Vtrp ;
+  int Vtrl ;
+  int Vtrs ;
+  int Vmmu ;
+  WORD Vpad ;
+  WORD Vpvl ;
+  WORD Vrec ;
+  WORD Vtop ;
+  char *Pnam ;
+  char Atop [mxSPC];
+   };
+ldTlda lda  = {0};
+#define LOW(off)  low[off/2]
+/* code -  Machine instructions */
+#define BYT  ld_byt()
+#define WRD  ld_wrd()
+#define ERR  lda.Verr
+#define CHK  lda.Vchk
+#define MSG(msg)  lda.Pmsg = msg
+/* code -  ld_anl - LDA analysis engine */
+static ld_byt ();
+static ld_wrd ();
+static ld_det (WORD ,BYTE );
+ld_ini()
+{if ( !lda.Plow) {lda.Plow = me_acc (512*3) ;}
+} 
+ld_exi()
+{me_dlc (lda.Plow);
+} 
+ld_anl(
+vfTobj *obj ,
+char *nam )
+{register WORD adr ;
+  BYTE val ;
+  int len ;
+  WORD *low = (WORD *)lda.Plow;
+  ++lda.Vcnt;
+  me_clr (low, 512*3);
+  lda.Pobj = obj;
+  lda.Vval = 0;
+  lda.Vlda = 0;
+  lda.Pnam = nam;
+  lda.Vlow = 0177777;
+  lda.Vhgh = 0;
+  lda.Vsta = 0;
+  lda.Vadr = 0;
+  lda.Vpad = 0;
+  lda.Vpvl = 0;
+  lda.Vpas = 0;
+  lda.Vemt = 0;
+  lda.Veml = 0;
+  lda.Vems = 0;
+  lda.Vtrp = 0;
+  lda.Vtrl = 0;
+  lda.Vtrs = 0;
+  lda.Vspn = 0;
+  lda.Vmmu = 0;
+  for(;;)  {
+    MSG("Error reading file");
+    ERR = 0;
+    lda.Vzer = 2;
+    for(;;)  {
+      if( ERR)return 0;
+      CHK = 0;
+      val = BYT;
+      if ( !val) {--lda.Vzer ;}
+      if( !lda.Vzer)return 1;
+      if( val > 1)return 0;
+      if( val != 1)continue;
+      if( BYT != 0)return 0;
+      len = WRD & 0177777;
+      adr = WRD;
+      lda.Vrec = MAX(len, lda.Vrec);
+      if( ERR)return 0;
+      if( len < 5)return 0;
+      if( (len -= 6) == 0){ lda.Vsta = adr ; break;}
+      while ( len-- > 0) {
+        val = BYT;
+        if( ERR)return 0;
+        ld_det (adr, val);
+        ++adr;
+      } 
+      BYT;
+      if( ERR)return 0;
+      MSG("Checksum error");
+      if ( !CHK & 255) {
+        if( st_fnd(".bi", nam))return 0;
+        if( !lda.Vval)return 1;
+        return 0; }
+      ++lda.Vlda;
+      ++lda.Vval;
+    } 
+    if ( lda.Vhgh & 1) {++lda.Vhgh ;}
+    if ( lda.Vtop & 1) {++lda.Vtop ;}
+    lda.V46x = LOW(046);
+    lda.V52x = LOW(052);
+    lda.V200 = LOW(0200);
+    lda.V202 = LOW(0202);
+    lda.V210 = LOW(02100);
+    return 1;
+  } 
+} 
+/* code -  ld_det - detect XXDP /passes routine */
+ld_det(
+WORD ptr ,
+BYTE byt )
+{register WORD *low = (WORD *)lda.Plow;
+  register WORD adr ;
+  register WORD val ;
+  WORD cod ;
+  if ( ptr < 03000) {lda.Plow[ptr] = byt ;}
+  lda.Vlow = MIN(ptr, lda.Vlow);
+  lda.Vhgh = MAX(ptr, lda.Vhgh);
+  if ( ptr > lda.Vtop) {
+    lda.Vtop = ptr;
+    st_cop (lda.Pnam, lda.Atop); }
+  if ( !(ptr & 1)) {
+    lda.Vadr = ptr;
+    lda.Vnxt = ptr + 1;
+    lda.Vwrd = byt & 255;
+    return; }
+  adr = lda.Vadr;
+  val = lda.Vwrd | (byt&255)<<8;
+  if ( val == 0104035 && adr != 02100) {
+    PUT("%o	%o	; LoaSup\n", adr, val); }
+  if( ptr != lda.Vnxt)return;
+  if (( (adr > 046) && adr == LOW(046))
+  &&((val & ~7) == 04710)) {
+    lda.Vpas = adr; }
+  cod = val & 255;
+  if ( (val & ~255) == 0104000) {
+    if ( cod < 50) {++lda.Vemt ;}
+    if ( cod == lda.Veml+1) {++lda.Vems ;}
+    lda.Veml = cod;
+    if ( ctl.Qemt) {
+      PUT("%-6o:%-6o\n", adr, val); }
+    if ( adr == LOW(030)) {++lda.Vspn ;} }
+  if ( (val & ~255) == 0104400) {
+    ++lda.Vtrp;
+    if ( cod == lda.Vtrl+1) {++lda.Vtrs ;}
+    lda.Vtrl = cod; }
+  if (( lda.Vpad == adr-2)
+  &&(lda.Vpvl == 0005037)
+  &&(val == 0177572)) {
+    ++lda.Vmmu; }
+  lda.Vpad = adr;
+  lda.Vpvl = val;
+} 
+/* code -  ld_wrd - get a word */
+ld_wrd()
+{WORD wrd ;
+  register sbyte *byt = (sbyte *)&wrd;
+  *byt++ = BYT;
+  *byt++ = BYT;
+  return ( wrd);
+} 
+/* code -  ld_byt - get a sbyte */
+ld_byt()
+{register WORD val ;
+  if( ERR)return 0;
+  val = vf_get (lda.Pobj);
+  if( val == 0177777){ ++ERR ; return 0;}
+  val &= 255;
+  CHK += val;
+  return ( val);
+} 
+/* code -  cm_xdp - XXDP analytic directory */
+static int cuVlin ;
+cm_xdp(
+dcTdcl *dcl )
+{char *fnd = xdp.Afnd;
+  ld_ini ();
+  *fnd = 0;
+  if ( ctl.Asch[0]) {
+    st_cop (ctl.Asch, fnd);
+    st_upr (fnd);
+    st_ins ("*", fnd);
+    st_app ("*", fnd);
+    PUT("fnd=[%s]\n", fnd);
+  } 
+  cuVlin = ctl.Qpau ? 0: -1;
+  cx_dis (dcl, &cf_xdp);
+  if ( ctl.Qana) {
+    PUT("Highest address: %s %o\n", lda.Atop, lda.Vtop);
+    PUT("Longest record: %d bytes\n", lda.Vrec); }
+  if ( lda.Vcnt != 0) {
+    PUT("%d files\n", lda.Vcnt); }
+  ld_exi ();
+} 
+cf_xdp(
+vfTobj *src ,
+vfTent *ent )
+{FILE *opt = ctl.Hopt;
+  char fmt [mxSPC+3];
+  char dsc [mxLIN];
+  char *fnd = xdp.Afnd;
+  int drs ;
+  int pas ;
+  int xmx ;
+  int dsp = 1;
+  if( !cu_pau (NULL,&cuVlin))return 1;
+  if (( !ld_anl (src, ent->Anam))
+  &&(lda.Vval)) {
+    DIS("%s\n", lda.Pmsg); }
+  if ( !ctl.Qana) {
+    if ( !cu_dsc (ent->Anam, dsc)) {
+      if( *fnd)return 1; }
+  } 
+  drs = lda.V210 == 0104035;
+  pas = lda.Vpas;
+  xmx = lda.V52x & 010000;
+  if (( !(ctl.Qpas|ctl.Qdrs|ctl.Qxmx))
+  ||(ctl.Qpas && pas)
+  ||(ctl.Qdrs && drs)
+  ||(ctl.Qxmx && xmx)) {
+    } else {
+    return 1; }
+  cu_fmt (ent->Anam, fmt);
+  DIS("%13s ", fmt);
+  TYP(drs ? "D": "-");
+  TYP(pas ? "P": "-");
+  TYP(xmx ? "X": "-");
+  TYP(" ");
+  if ( !ctl.Qana) {
+    if ( dsc[0]) {
+      if ( dsc[0] != '*') {TYP(" ") ;}
+      DIS("%s", dsc); }
+    LIN;
+    return 1;
+  } 
+  DS3("%06o:%06o %06o ", lda.Vlow, lda.Vhgh, lda.Vsta);
+  DIS("(52: %06o)", lda.V52x);
+  DIS("(200: %06o)", lda.V200);
+  TYP(" ");
+  if ( lda.Vspn) {TYP("S") ;}
+  if ( lda.Vemt) {DIS("E=%-4d", lda.Vemt) ;}
+  if ( lda.Vemt) {TYP(" ") ;}
+  if ( lda.Vtrp) {DIS("T=%-4d", lda.Vtrp) ;}
+  if ( lda.Vtrp) {TYP(" ") ;}
+  if ( lda.Vmmu) {DIS("M=%-4d ", lda.Vmmu) ;}
+  LIN;
+  return 1;
+} 
+/* code -  cu_dsc - get an XXDP image description */
+cu_dsc(
+char *str ,
+char *dsc )
+{char *fnd = xdp.Afnd;
+  char mod [mxLIN];
+  char lin [mxLIN];
+  char *ptr ;
+  int len ;
+  st_cop (str, mod);
+  st_upr (mod);
+  mod[4] = 0;
+  *dsc = 0;
+  if( !cu_idx ())return 0;
+  fi_see (xdp.Hidx, 0L);
+  for(;;)  {
+    if( (len = fi_get (xdp.Hidx, lin, mxLIN-1)) == EOF)return 0;
+    if( len < 10)continue;
+    if( me_cmp (mod, lin, 4))break;
+  } 
+  if( (ptr = st_fnd (" ", lin)) == 0)return 0;
+  st_cop (ptr+1, dsc);
+  if( !*fnd)return 1;
+  return ( st_wld (fnd, dsc));
+} 
+/* code -  cu_idx - open XINDEX.TXT */
+cu_idx()
+{char spc [mxSPC];
+  if( xdp.Hidx != 0)return 1;
+  if( xdp.Vxnf)return 0;
+  cl_dir (spc);
+  st_app ("xindex.txt", spc);
+  if( (xdp.Hidx = fi_opn (spc, "r", "")) != 0)return ( 1 );
+   ++xdp.Vxnf;return 0;
+} 

@@ -1,0 +1,44 @@
+/* file -  extyp - expat type command */
+#include "c:\f\m\rid\rider.h"
+#include "c:\f\m\rid\dcdef.h"
+#include "c:\f\m\rid\fidef.h"
+#include "c:\f\m\rid\vfdef.h"
+#include "c:\f\m\rid\fidef.h"
+#if Win
+#include "c:\f\m\rid\stdef.h"
+#endif 
+#include "c:\f\m\exs\exb\exmod.h"
+/* code -  type */
+cm_typ(
+dcTdcl *dcl )
+{register vfTobj *src = &Isrc;
+  register vfTent *ent ;
+  int lin = ctl.Qpau ? 0: -1;
+  register int cha ;
+  int err = 0;
+  ULONG cnt = 1;
+  vf_alc (src);
+  cu_gdt ();
+  for(;;)  {
+    if( !vf_att (src))break;
+    if( !vf_scn (src))break;
+    cnt = 0;
+    ent = &src->Pscn->Ient;
+    while ( vf_nxt (src) != 0) {
+      if( cu_sub (ent->Anam))continue;
+      if( !cu_cdt (ent))continue;
+      ++cnt;
+      if( !cu_que (ent->Anam))continue;
+      cu_log (ent->Anam);
+      if( !vf_acc (src)){ ++err ; break;}
+      while ( (cha = vf_get (src)) != EOF) {
+        if( !cu_asc (cha))continue;
+        if ( cha != 0) {PUT("%c", cha) ;}
+        if ( (cha&255) == '\n') {
+          if( !cu_pau(NULL,&lin))break; } }
+      if( err)break; }
+   break;} 
+  cu_prg ();
+  cu_fnf (cnt);
+  return 1;
+} 
