@@ -1,5 +1,15 @@
+;???;	DRS:DLP - Check block number out-of-range RL01/RL02
+;???;	DRS:DLP - Seek/Size should be wait I/O
+;!!!;	DRS:DLP - Reset drive after errors
+;!!!;	DRS:DLP - DLP did not clear IE; fixed
+;!!!;	DRS:DRP	- Indicate EMT 373 size function
+;	ip.r0?
 ;	side 1/side 2 media density
 ;	RLV12 22-BIT BAE support
+
+siz$c=1	; volume size
+rst$c=1	; reset unit
+dsb$c=1	; ISR disables interrupts
 boo$c=1	; new boot code
 uni$c=1	; 4-unit default
 .title	dlp - RUST DL: driver
@@ -13,7 +23,7 @@ uni$c=1	; 4-unit default
 ;	%build
 ;	goto 'p1'
 ;	macro	drs:dlp/object:drb:dlv
-;	macro	drs:drmmgt+drs:dlp/object:drb:dlp
+;	macro	drs:mmg$t+drs:dlp/object:drb:dlp
 ;	link:
 ;	link	drb:dlv/execute:drb:dlv.sys/map:drb:dlv/nobitmap/bound:1000
 ;	xxboot
@@ -46,9 +56,9 @@ $imgdef	DLP 1 0
 $imginf fun=drv cre=hammo aut=ijh use=<RUST RL01/RL02 disk driver DL:>
 $imgham	yrs=<2004> oth=<>
 ;	%date	
-$imgdat <29-Oct-2008 13:28:47.07>
+$imgdat <07-Aug-2022 15:47:38>   
 ;	%edit
-$imgedt <48   >
+$imgedt <54   >
 .endm
 
 $brdef		;RT-11 bootstrap
@@ -123,21 +133,6 @@ $drcnd
 ;	Both only check the start location of a transfer for a 22-bit
 ;	boundary on a non-RLV12..
 ;
-; POLLED SEEKS ETC
-;
-;	The DEC driver has always performed seeks as polled I/O in 
-;	fork state, blocking systems for incredible periods. Device
-;	size and internal get-status operations are also polled.
-;
-;	The problem may originate from the original driver. It was
-;	written at a time when driver construction hadn't evolved
-;	to handle internal operations well (thus the pseudo queue
-;	element to read the bad block replacement table).
-;
-;	One Unix driver has the same behaviour as the DEC driver.
-;	It's either a clone or there actually is some wierd problem
-;	with the DL hardware.
-;
 ; BOOT RETRIES
 ;
 ;	The DEC driver doesn't implement retries in the bootstrap.
@@ -170,7 +165,7 @@ map	dlcsr.,,174400		; csr
    map	dl.adr		; 04 	; track/sector
    map	dl.wct,0	; 06 	; word count (write)
    map	dl.dat		; 06 	; data value (read)
-xm map	dl.ext		; 10? 	; extended memory (rlv12)
+   map	dl.ext		; 10? 	; extended memory (rlv12)
 map	dlvec.,,160		; vector
 map	dlpri.,,5		; interrupt priority
 .if ne uni$c
@@ -196,13 +191,11 @@ map	dlsiz.,,dl1sz.		;
 
 ;	CSR definitions.
 
-map	dlrdy$,,1		; operation complete
-;				; actually "drive ready"
+map	dldrv$,,1		; drive ready
 map	dlfun$,,7*2		; function
 map	dlext$,,60		; 18-bit extended address
 map	dlenb$,,100		; interrupt enable
-map	dlgo$,,200		; clear to start operation
-;				; actually "controller ready"
+map	dlrdy$,,200		; clear to start operation
 map	dluni$,,1400		; unit number (0..3)
 map	dlerr$,,100000		; error seen
 
@@ -226,12 +219,13 @@ map	dltrk$,,177600	;dl.dat	; track mask (RL02)
 
 ;	Get device status/size
 
-map	dlmrk$,,1	;dl.adr; marker
+map	dlmrk$,,1	;dl.adr	; marker
 map	dlsts$,,2		; get status
 map	dlrst$,,10		; reset errors
 map	dlrep$,,13		; get device size (rst,sts,mrk)
 
 map	dlrl2$,,200	;dl.dat	; RL02 
+map	dlvol$,1000		; volume check pending
 .sbttl	i/o packet
 
 ;	All data associated with request
@@ -248,9 +242,10 @@ map	dlrl2$,,200	;dl.dat	; RL02
 	map	ip.loc		; current disk location (pointer)
 	map	ip.see		; seek value
 	map	ip.adr		; disk address
+	map	ip.siz		; volume block size
 				;
 	map	ip.bu0		; buffer address
-     xm	map	ip.bu1		; extended address
+	map	ip.bu1		; extended address
 	map	ip.rwc		; request word count
 	map	ip.twc		; transfer word count 
 				;
@@ -262,11 +257,6 @@ map	dlrl2$,,200	;dl.dat	; RL02
 .sbttl	driver definition
 
 ;	RT11A, special functions, variable size
-;
-;	.drspf	spdpr.		;physical read
-;	.drspf	spdpw.		;physical write
-;	.drspf	dysiz.		;get volume size
-;	.drspf	dytab.		;get XX tables
 
 	$drcnd			; driver conditionals
 	$drstd	dlcsr.,dlvec.,dlpri.,dlrty.,dlnam.
@@ -274,6 +264,12 @@ map	dlrl2$,,200	;dl.dat	; RL02
      xm	<.drdef	xx,dlcod.,derta$!defun$!devar$,0,xxCSR.,xxVEC.,dma=YES>
      xm <.drptr	fetch=dr$fet, load=dr$loa>	
 	.drest	class=dedkt.	; disk class
+
+	.drspf	sfdgs.		; get volume size
+       ;.drspf	sfdrb.		; read badblock tables
+       ;.drspf	sfdwd.		; write with deleted data mark
+	.drspf	sfdpw.		; physical write
+	.drspf	sfdpr.		; physical read
 
 	xxumx. = dlumx.		; maximum units
 	$drsel	<stuct$> 1	; set units=n
@@ -297,14 +293,11 @@ x$xabt:	.word	0			; abort flag
 x$xuct:	.word	dluct.			; unit count
 x$xfrk:	.blkb	fk.bbs			; fork block
 x$xloc:	.rept	dlumx.			; current location map
-	.word	-1			; invalid
+	.word	-1			; invalid (force initial reset)
 	.endr				;
 x$xpkt:	.blkb	ip.bbs			; i/o packet
-	.if ne mmg$t			;
 x$x18b:	.word	^c3			; 22bit address mask
-	.endc				;
 
-;		ip.trn			;
 x$xfun:	.byte	dlrea.			; 0 	logical read
 	.byte	dlwri.			; 1 	logical write
 	.byte	1			; 2 373	get device size
@@ -395,10 +388,15 @@ xx$der:	jmp	xx$her			;
 	call	xx$fun
 .endm
 
+.macro	xxopr$	cod
+	movb	cod,r0
+	call	xx$opr
+.endm
+
 xx$iop:	call	xx$agn			; setup retry point
 10$:	call	xx$loc			; ensure current location known
 	call	xx$geo			; do the geometry
-;	call	xx$bbr			; check bad block replacement
+       ;call	xx$bbr			; check bad block replacement
 	call	xx$see			; seek to it
 	call	xx$trn			;
 	mov	ip.twc(r3),r0		; get transfer word count
@@ -412,7 +410,7 @@ xx$iop:	call	xx$agn			; setup retry point
 	swab	r0			; block
 	add	r0,ip.lb0(r3)		; update block number
 	br	10$			;
-.sbttl	interrupt, done, online
+.sbttl	function, interrupt, done
 
 ;	Setup function and request interrupt
 ;
@@ -425,14 +423,15 @@ xx$fun:	begin	x$xctn			; continue after interrupt
 	mov	ip.uni(r3),r1		; get unit
 	swab	r1			;
 	bis	r1,r0			;
-     xm	mov	ip.bu1(r3),r1		; get extended address
-x$x22b:;mov	r1,dl.ext(r5)		; patched by dr$loa
+	mov	ip.bu1(r3),r1		; get extended address
+	bnew	x$x18b,10$		; not 22-bit
+	mov	r1,dl.ext(r5)		; patched by dr$loa
+10$:
      xm	asl	r1			; shift into place
      xm	asl	r1			;
      xm	asl	r1			;
      xm	asl	r1			;
      xm	bis	r1,r0			;
-	xx22b.=.-x$x22b
 20$:	bis	#dlenb$,r0		; interrupt enable
 	mov	r0,(r5)			; issue function
 xx$ret:	return
@@ -442,6 +441,10 @@ xx$ret:	return
 	.drast	xx,dlpri.,xx$abt	; INTERRUPT
 	.fork	x$xfrk			; fork
 	call	xx$pnt			; setup usual pointers
+.if ne dsb$c
+	bic	#dlenb$,(r5)		; disable interrupts
+	tst	r4			; do we have a queue element?
+.endc
 	beq	xx$ret			; no queue element
 	assume	dlerr$ eq 100000	;
 	mov	(r5),r0			; get status
@@ -454,6 +457,10 @@ xx$err:	mov	r0,@ip.loc(r3)		; force location check (r0 is negative)
 	end	x$xagn			; retry from restart point
 
 xx$abt:	call	xx$pnt			; abort
+.if ne dsb$c
+	bic	#dlenb$,(r5)		; disable interrupts
+	tst	r4			; do we have a queue element?
+.endc
 	beq	xx$ret			; nothing happening
 	br	xx$fin			; and out of here
 
@@ -468,7 +475,21 @@ xx$fin:	.drfin	xx			;finish up
 
 xx$loc:	begin				; get unit disk location
 					; DEC drive setup code would go here
-	bplw	@ip.loc(r3),10$,	; already set 
+	bplw	@ip.loc(r3),10$		; already set 
+.if ne rst$c				; reset drive
+	mov	#dlrep$,dl.adr(r5)	; report size/status
+	xxfun$	#dlsta.			; reset drive
+.endc
+.if ne siz$c
+	mov	#dlrep$,dl.adr(r5)	; report size/status
+	xxfun$	#dlsta.			; get the status
+	mov	#dl1sz.,ip.siz(r3)	; assume an RL01
+	mov	dl.dat(r5),r1		; get response
+	assume	dlrl2$ eq 200		;
+	bplb	r1,10$			; RLO1
+	assume dl2sz. eq dl1sz.*2	;
+	asl	ip.siz(r3)		; RL02
+.endc
 	xxfun$	#dlrhd.			; read header
 	psh	dl.dat(r5)		; get the header
 	bic	#^cdltrk$,(sp)		; isolate track
@@ -491,6 +512,15 @@ xx$trn:	begin				; transfer - read or write
 	end				;
 
 xx$siz:	call	xx$agn			; get unit size
+.if ne siz$c
+	mov	#-1,@ip.loc(r)
+.endc
+.if ne rst$c
+	call	xx$loc			; reset drive
+.endc
+.if ne siz$c
+	mov	ip.siz(r3),r0
+.iff
 	mov	#dlrep$,dl.adr(r5)	; report size/status
 	xxfun$	#dlsta.			; get the status
 	mov	#dl1sz.,r0		; assume an RL01
@@ -499,6 +529,7 @@ xx$siz:	call	xx$agn			; get unit size
 	bplb	r1,10$			; RLO1
 	assume dl2sz. eq dl1sz.*2	;
 	asl	r0			; RL02
+.endc
 10$:	call	xx$pw0			; return the value
 xx$don:	jmp	xx$fin			;
 
@@ -673,7 +704,6 @@ bo$boo:	mov	#b$rksp,sp		; setup the stack
 	.drend	xx
 	drinf$
 .sbttl	load service routine
-.if ne mmg$t
 
 ;	RLV12 detection and setup
 
@@ -690,11 +720,6 @@ dr$loa:	mov	(r5),r5			; the driver
 	pop	(r3)			; restore vector
 	.mtps	#0			; unblock interrupts
 	clr	x$x18b(r5)		; clear unibus 18 bit mask
-	mova	30$,r0			; r0 -> patch source
-	movi	x$x22b,r5,r1		; r1 -> x$x22b patch target
-	.rept	xx22b./2		; patch count
-	mov	(r0)+,(r1)+		; patch the code
-	.endr				;
 	br	20$			;
 10$:	cmp	(sp)+,(sp)+		; not RXV12 - pop interrupt
 	pop	(r3)			; restore vector
@@ -702,10 +727,4 @@ dr$loa:	mov	(r5),r5			; the driver
 20$:	clc				;
 	return				;
 
-30$:	mov	r1,dl.ext(r5)		; rlv12 patch
-	nop				;
-	nop				;
-	nop				;
-	assume	.-30$ eq xx22b.		; check patch size
-.endc	; mmg$t
 .end
