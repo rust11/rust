@@ -104,7 +104,7 @@
 ;
 ;	o Runs under RT-11, RUST and Windows
 ;	o Runs under RSX using RUST/RTX
-;	o Supports DOS11, XXDP, RT-11, RUST, RSX and VMS volumes
+;	o Supports XXDP, RT-11, RUST volumes
 ;	o Supports Windows directories when running under Windows
 ;	  or when using V11 to run RUST under Windows.
 ;
@@ -528,7 +528,6 @@ code	cu_sub - check for subdirectory
 	sub : * char
   is	reply st_fnd (".DIR", sub) ne	; subdirectory?
   end
-
 code	dates
 
 ;	/BEFORE/DATE/NEWFILES/SINCE 
@@ -659,100 +658,7 @@ End
   end
 end file
 
-code	cm_xdp - display XXDP file description
-
-	cf_xdp : cxTfun
-
-  func	cm_xdp
-	dcl : * dcTdcl
-  is	cx_dis (dcl, &cf_xdp)
-	fine
-  end
-
-  func	cf_xdp
-	src : * vfTobj
-	ent : * vfTent
-  is	nam : [mxSPC] char
-	st_cop (ent->Anam, nam)
-	st_upr (nam)
-	PUT("%s ", nam)
-	nam[4] = 0
-	st_app ("??.bi?", nam)
-	cu_idx (nam)
-	PUT("\n") if !that
-	fine
-  end
-code	cm_idx - XXDP index
-
-	idx : * FILE = <>
-
-  func	cm_idx
-	dcl : * dcTdcl
-  is	reply cu_idx (ctl.Astr)
-  end
-
-  func	cu_idx
-	str : * char
-  is	mod : [mxLIN] char
-	lin : [mxLIN] char
-	len : int
-	cnt : int = 0
-	st_cop (str, mod)
-	st_upr (mod)
-	st_ins ("*", mod)
-	st_app ("*", mod)
-
-	if idx eq
-	   idx = fi_opn ("exs:xindex.txt", "r", "")
-	.. fine if fail
-
-	fi_see (idx, 0L)
-	repeat
-	   len = fi_get (idx, lin, mxLIN-1)
-	   quit if len eq EOF
-	   next if !len
-	   if st_wld (mod, lin)
-	   .. ++cnt, PUT("%s\n", lin)
-	end
-	reply cnt
-  end
-
-end file
-
-code	cm_... - 
-
-	cf_... : cxTfun
-
-  func	cm_...
-	dcl : * dcTdcl
-  is	cx_dis (dcl, &cf_xdp)
-	fine
-  end
-
-  func	cf_...
-	dcl : * dcTdcl
-	src : * vfTobj
-	ent : * vfTent
-  is	nam : [mxSPC] char
-	PUT("%s\n", ent->Anam)
-	fail
-	fine
-  end
-
-code	cm_xrt - run xxrt app
-
-;	Called by XXRT for run specs that specify devices
-;
-;	EXPAT XXRT "r dev:filnam.typ/passes address [dev:xxrt.sav]"
-
-  func	cm_xrt
-	dcl : * dcTdcl
-  is	src : * vfTobj~ = &Isrc		; source object
- 	PUT("XXRT [%s]\n", src->Aspc)
-	fine
-  end
-
-ANALYSE
+ANALYSE
 MOVE
 SEARCH
 TOUCH
