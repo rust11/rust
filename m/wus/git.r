@@ -279,6 +279,8 @@ code	cu_sub - extract common subdirectory
 	str : * char
   is	cmd : [mxLIN] char
 
+++ctl.Qraw
+++ctl.Qver
 	st_cop (_exe, cmd)	; "c:\\\git.exe" 
 	st_app (" ", cmd)	; "c:\\\git.exe " 
 	st_app (str, cmd)	; "c:\\\git.exe <cmd>" 
@@ -309,7 +311,7 @@ code	cu_flt - filter output
 	"nothing added"
 	"file changed"
 	"rewrite"
-	"Your branch"
+	"Your branch is"
 	"Enumerating"
 	"Delta"
 	"Compressing"

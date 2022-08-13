@@ -29,6 +29,7 @@ include	exb:exmod
       2,  "/EX*CLUDE",	dc_fld, &ctl.Aexc, 32,	dcSPC|dcASS_
       2,  "/LO*G",	dc_set, &ctl.Qlog, 1,	0
       2,  "/PA*USE",	dc_set, &ctl.Qpau, 1,	0
+      2,  "/PA*GE",	dc_set, &ctl.Qpau, 1,	0
       2,  "/QU*ERY",	dc_set, &ctl.Qque, 1,	0
       2,  <>,		<>, <>, 	   0,	dcRET_
   end
