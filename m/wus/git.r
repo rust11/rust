@@ -309,6 +309,7 @@ code	cu_flt - filter output
 	"nothing added"
 	"file changed"
 	"rewrite"
+	"Your branch"
 	"Enumerating"
 	"Delta"
 	"Compressing"
