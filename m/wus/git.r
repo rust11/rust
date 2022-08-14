@@ -220,13 +220,11 @@ code	git status
 
 code	cm_upd - update <file>
 
-;	Copy file to git tree and <add>
+;	Copy file to git tree
 
   func	cm_upd
 	dcl : * dcTdcl
-  is	fine if !cu_upd (ctl.Aspc)
-	cm_add (dcl)
-	fine
+  is	cu_upd (ctl.Aspc)
   end
 code	cu_upd - update \git file
 
