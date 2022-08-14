@@ -232,10 +232,11 @@ code	cm_upd - update <file>
 	src : * char
   is	dst : [mxSPC] char
 	fail if !fi_exs (src, ""); no such file
-	st_cop (_git, dst)
-	cu_sub (src, st_end (dst))
-	pass fail
-	fi_cop (src, dst, "", 1)
+	st_cop (_git, dst)	; "c:\f\git\"
+	cu_sub (src,st_end(dst)); "c:\f\git\<sub>\filnam.typ"
+	pass fail		;
+	st_low (src)		; lower case specs for git
+	fi_cop (src, dst, "", 1); copy the file
 	reply that
   end
 
@@ -277,8 +278,6 @@ code	cu_sub - extract common subdirectory
 	str : * char
   is	cmd : [mxLIN] char
 
-++ctl.Qraw
-++ctl.Qver
 	st_cop (_exe, cmd)	; "c:\\\git.exe" 
 	st_app (" ", cmd)	; "c:\\\git.exe " 
 	st_app (str, cmd)	; "c:\\\git.exe <cmd>" 
