@@ -273,20 +273,22 @@ code	in_chk - compute checksum
 
 	reply cmVseg if cmVseg		; count is explicit
 					;
-	while dev->Vcod ne -1		; find device, if any
-	&& dev->Vcod ne (cla->Vdsw&255)	;
-	   ++dev			; next 
-	end				;
-					;
-	if dev->Vcod ne -1		; found something
-	   cnt = dev->Vcnt		; assume normal
-	   if dev->Vthr gt siz		; above threshold?
-	   .. cnt =  dev->Valt		; yep - use alternate
-	else
-	   cnt = 31			; start at the top
-	   cnt = 16 if siz le 12288	; and whittle down
-	   cnt = 4 if siz le 2048	;
-	.. cnt = 1 if siz le 512	;
+	if !cla->Vflg & fcCON_		; not a container file
+	   while dev->Vcod ne -1	; find device, if any
+	      if dev->Vcod eq (cla->Vdsw&255) ; found the device
+	         cnt = dev->Vcnt	; assume normal
+	         if dev->Vthr gt siz	; above threshold?
+	         .. cnt = dev->Valt	; yep - use alternate
+	      .. reply cnt		; done
+	      ++dev			; next 
+	.. end				;
+
+;	Use RT-11 algorithm to determine directory segment count
+
+	cnt = 31			; start at the top
+	cnt = 16 if siz le 12288	; and whittle down
+	cnt = 4 if siz le 2048		;
+	cnt = 1 if siz le 512		;
 	reply cnt
   end
 code	in_res - restore directory
