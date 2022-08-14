@@ -225,6 +225,7 @@ code	cm_upd - update <file>
   func	cm_upd
 	dcl : * dcTdcl
   is	cu_upd (ctl.Aspc)
+	cm_add (dcl)
 	fine
   end
 code	cu_upd - update \git file
