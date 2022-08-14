@@ -214,7 +214,7 @@ code	git status
 
   func	cm_sts
  	dcl : * dcTdcl
-  is	cu_cmd ("status")
+  is	cu_cmd ("status ")
 	fine
   end
 
