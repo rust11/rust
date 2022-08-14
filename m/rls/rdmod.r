@@ -1,4 +1,6 @@
+;???:	RLS:RDMOD - Add INIT/NAKED to expose BOOT1$,HOME$$,BOOT2$ etc
 ;???;	RLS:RDMOD - Enter/Delete/Rename to be added
+;\\\;	RLS:RDMOD - Merged cts:/rls:rtdir.d - rtThdr was different
 ;	rd_ini clears segment
 ;	do bad_block scan
 ;	[ EMPTYFIL]
@@ -19,6 +21,8 @@ include	rid:rddef
 If Win
 include rid:rtutl
 rt_ftm(ent,siz) := 
+Else
+include rid:rtrea
 End
 mnt$c=0
 
@@ -71,7 +75,7 @@ mnt$c=0
 	END(x)	:= (x->Vsta & rtEND_)
 	EMP(x)	:= (x->Vsta & rtEMP_)
 	PER(x)	:= (x->Vsta & rtPER_)
-	NXT(s,x) := E(P(V(x)) + s->Vsiz)	; fast rd_nxt ()
+	NXT(s,x) := E(P(V(x)) + s->Vsiz) ; fast rd_nxt ()
 
 ;	rd_loc : (*rdTseg, WORD) *rtTent
 	rd_emp : (*rtTent) void-
@@ -108,7 +112,8 @@ mnt$c=0
 	me_clr (seg, #rdTseg)
 	seg->Pfil = fil
   end
-code	entry routines
+;???;	RLS:RDMOD - RD_END doesn't check corrupt directory
+code	entry routines
 
   proc	rd_fst				; point to first entry
 	seg : * rdTseg~
@@ -208,7 +213,7 @@ code	segment routines
 	   fail ++seg->Verr if fail	; oops
 	.. ++seg->Vval			; segment is valid
 	seg->Vidx = idx			; current segment index
-	seg->Vsiz = rtRTA + seg->Vext	; entry size
+	seg->Vsiz = (rtRTA*2)+seg->Vext	; entry size
 	rd_red (seg)			; reduce and calculate
 ;sic]	rd_cal (seg)
 	fine
@@ -276,8 +281,8 @@ code	rd_cal - calculate segment parameters
   func	rd_cal
 	seg : * rdTseg~
   is	ent : * rtTent~ = rd_fst (seg)
-	seg->Vsiz = rtRTA + seg->Vext
-	seg->Vavl = (1024/<word>seg->Vsiz) - 1 ;<word> to avoid PDP-11 long div
+	seg->Vsiz = (rtRTA*2) + seg->Vext
+	seg->Vavl = (1024/<word>seg->Vsiz)-1 ;<word> avoids PDP-11 long div
 	while !END(ent)
 	   --seg->Vavl
 	.. ent = rd_nxt (seg, ent)
@@ -568,12 +573,12 @@ code	rd_loc - locate entry via block number
 	wri : int 			; write flag
   is	ent : * rtTent~			;
 	seg->Vidx = 1			; manual segment index
-	seg->Vsiz = rtRTA + ext		; manual entry size
+	seg->Vsiz = (rtRTA*2) + ext	; manual entry size
 					;
 	seg->Vtot = tot			; total segments
 	seg->Vsuc = 0			; no successor segment
 	seg->Vlst = 1			; we are the last segment
-	seg->Vext = ext			; extra bytes per entry
+	seg->Vext = ext			; extra words per entry
 	seg->Vbas = (tot*2) + 6		; first data block
 	ent = seg->Aent			;
 	ent->Anam[0]=0			; force " EMPTY.FIL"
@@ -655,8 +660,7 @@ code	rd_blk - check for blank (initialized) directory
 	.. fail
 	fine
   end
-end file
-code	rd_dem - check volume demography
+code	rd_dem - check volume demography
 
 ;	Work out used/free blocks, bad/sys files, protected files
 ;	Calls bad block driver to record bad block files 
@@ -670,7 +674,6 @@ code	rd_dem - check volume demography
 	bad : * bdTbad
   is	ent : * rtTent~ 
 	me_clr (dem, #rdTdem)
-
 	fail if !rd_get (seg, 1)
 	while rd_val (seg)
 	   ent = rd_fst (seg)		; first in segment
@@ -709,7 +712,8 @@ code	rd_bad - enter bad block into table
 	ent->Vcnt = cnt			;
 	fine
   end
-code	rd_dmp - maintenance dump
+end file
+code	rd_dmp - maintenance dump
 ;If mnt$c
 
   func	rd_dmp
