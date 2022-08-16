@@ -1,23 +1,129 @@
-;+++;	KPROO - Extend help using DCL HELP KEYPAD and HLPINT.MAC
-mor$c=0		; more help screens
 .title	kphlp - display help
 .include "kps:kpmac.mac"
+.include "kps:kpkey.mac"
 
-hl$hlp::;call	sc$ini		; that's called from root
-	.print	#n$phlp		;
+	pf2 = ^o100013
+
+hl$hlp::mov	#n$phlp,r2	; help screens
+
+;	Display a help screen
+
+10$:	.print	r2
+
+;	Continue (PF1) or return (anything else)
+
 	bis	#ttons$,t$tmod	; disable display updates
-10$:	call	tt$cha	#-1	; peek
-.if ne mor$c
-	bneb	r0,#,20$	; no more
-	call	tt$cha	#0	; gobble it
-	.print	(r1)+		; print the next
-	br	10$		; wait again
-.endc
-20$:	bic	#ttons$,t$tmod	; enable update
+	call	tt$cha	#1	; get a keystroke
+	bnew	r0,#pf2,30$	; no more help required
+
+;	Next screen or wrap-around
+
+	call	sc$ini
+20$:	bgtb	(r2)+,20$	; find next help screen
+	bneb	(r2),10$	; do the next
+	br	hl$hlp		; start over
+
+;	Done
+
+30$:	bic	#ttons$,t$tmod	; enable update
 	inc	d$iini		; force repaint
 	return
 
 meta <$ a><.ascii /a/><.byte cr.,lf.>
+n$phlp:
+$ < >
+$ <  +--------+--------+--------+---------+   >
+$ <  |PF1     |PF2     |PF3     |PF4      |   >   
+$ <  |Gold    |Help    |FindNext|Del Line |   >   
+$ <  |        |        |Find    |Und Line |   >   
+$ <  +--------+--------+--------+---------+   >   
+$ <  |7       |8       |9       |-        |   >   
+$ <  |Page    |Section |Append  |Del Word |   >
+$ <  |Command |Fill    |Replace |Und Word |   >
+$ <  +--------+--------+--------+---------+   >
+$ <  |4       |5       |6       |,        |   >
+$ <  |Advance |Backup  |Cut     |Del Char |   >
+$ <  |Bottom  |Top     |Paste   |Und Char |   >
+$ <  +--------+--------+--------+---------+   >
+$ <  |1       |2       |3       |Enter    |   >
+$ <  |Word    |Eol     |Char    |         |   >
+$ <  |Case    |Del Eol |Insert  |         |   >
+$ <  +--------+--------+--------+         |   >
+$ <  |0                |.       |         |   >
+$ <  |Line             |Select  |Enter    |   >
+$ <  |Open Line        |Reset   |Subs     |   >
+$ <  +-----------------+--------+---------+   >
+$ <                                         >
+.byte	128.
+$ < >
+$ <  +--------+--------+--------+   >
+$ <  |        |        |        |   >
+$ <  |Find    |Insert  |Remove  |   >
+$ <  |        |Here    |        |   >
+$ <  +--------+--------+--------+   >
+$ <  |        |        |        |   >
+$ <  |Select  |Prev    |Next    |   >
+$ <  |        |Screen  |Screen  |   >
+$ <  +--------+--------+--------+   >
+$ <     >
+$ <  Key           Operation    >
+$ <  ---           ---------    >
+$ <  Find          Define search string    >
+$ <  Insert        Insert paste buffer    >
+$ <  Remove        Delete select area    >
+$ <                Delete character if no select area    >
+$ <  Select        Select or unselect marked area    >
+$ <  Previous      Display previous page    >
+$ <  Next          Display next page    >
+$ <  Gold-Previous Go to start of file    >
+$ <  Gold-Next     Go to end of file      >
+
+.byte	128.
+$ < >
+$ <  Arrow commands   >
+$ <   >
+$ <  Key             Operation         Gold Operation   >
+$ <  ---             ----------        --------------   >
+$ <  Up-Arrow        Up one line       Start of page   >
+$ <  Down-Arrow      Down one line     End of page   >
+$ <  Left-Arrow      Left one column   Start of line   >
+$ <  Right-Arrow     Right one column  End of line   >
+.byte 128.
+$ < >
+$ <  Control key commands   >
+$ <   >
+$ <  Key     Name        Operation   >
+$ <  ---     ----        ---------   >
+$ <  Ctrl-A  All         Select All   >
+$ <  Ctrl-B  Bold        (De)select bold font   >
+$ <  Ctrl-C  Copy        Copy select area to paste buffer   >
+$ <  Ctrl-G  Gold        [Gold]   >
+$ <  Ctrl-H  Help        Display help   >
+$ <  Ctrl-K  Command     [Gold][Command]   >
+$ <  Ctrl-R  Repaint     Repaint screen   >
+$ <  Ctrl-U  Erase       Erase to start of line   >
+$ <  Ctrl-V  Insert      Insert paste buffer   >
+$ <  Ctrl-X  Cut         Copy select area and delete   >
+$ <  Ctrl-Z  Quit        Exit KEYPAD   >
+.byte 128.
+$ < >
+$ <  Gold letter commands   >
+$ <   >
+$ <  Key     Name        Operation   >
+$ <  ---     ----        ---------   >
+$ <  Gold-B  Bullet      Creates or deletes bullets   >
+$ <  Gold-D  Outdent     Decreases indenting   >
+$ <  Gold-E  Indent      Increases indenting   >
+$ <  Gold-F  Format      UnHTMLizes text   >
+$ <  Gold-H  HTML        HTMLizes text   >
+$ <  Gold-L  Lowercase   Converts to lowercase   >
+$ <  Gold-R  Rule        Inserts horizontal rule   >
+$ <  Gold-U  Uppercase   Converts to uppercase   >
+$ <  Gold-X  Exit        Saves file and exits   >
+.byte 0
+.end
+
+m
 n$phlp:
 $ <+--------+--------+--------+---------+   >
 $ <|PF1     |PF2     |PF3     |PF4      |   >   
@@ -43,9 +149,9 @@ $ <+-----------------+--------+---------+   >
 $ <                                         >
 .byte	128.
 .even
-
-.end
-n$phlp:
+
+m
+n$phlp:
 $ <+--------+--------+--------+---------+   >
 $ <|PF1     |PF2     |PF3     |PF4      |   >   
 $ <|Gold    |Help    |FindNext|Del Line |   >   
@@ -70,28 +176,4 @@ $ <+-----------------+--------+---------+   >
 $ <                                         >
 .byte	128.
 .even
-n$phlp:
-$ <+--------+--------+--------+---------+   >
-$ <|PF1     |PF2     |PF3     |PF4      |   >   
-$ <|Gold    |Help    |FindNext|Del Line |   >   
-$ <|        |        |Find    |Und Line |   >   
-$ <+--------+--------+--------+---------+   >   
-$ <|7       |8       |9       |-        |   >   
-$ <|Page    |Section |Append  |Del Word |   >
-$ <|Command |Fill    |Replace |Und Word |   >
-$ <+--------+--------+--------+---------+   >
-$ <|4       |5       |6       |,        |   >
-$ <|Advance |Backup  |Cut     |Del Char |   >
-$ <|Bottom  |Top     |Paste   |Und Char |   >
-$ <+--------+--------+--------+---------+   >
-$ <|1       |2       |3       |Enter    |   >
-$ <|Word    |Eol     |Char    |         |   >
-$ <|Case    |Del Eol |Insert  |         |   >
-$ <+--------+--------+--------+         |   >
-$ <|0                |.       |         |   >
-$ <|Line             |Select  |Enter    |   >
-$ <|Open Line        |Reset   |Subs     |   >
-$ <+-----------------+--------+---------+   >
-$ <                                         >
-.byte	128.
-.even
+
