@@ -1,3 +1,4 @@
+;???;	CUS:MD - Add /NOPROTECT
 ;	Shouldn't fi_exs come before fi_opn
 file	md - make directory
 include	rid:rider
@@ -11,6 +12,7 @@ include	rid:mxdef
 include	rid:rtdev
 include	rid:rtcla
 include	rid:rtdir
+include	rid:rttim
 
 ;	%build
 ;	rider cus:md/object:cub:
@@ -49,15 +51,15 @@ include	rid:rtdir
 	mdEXT_ := BIT(2)
 	mdSEG_ := BIT(3)
 
-	CTLX : mdTctl = {0}
+	mdIctl : mdTctl = {0}
 
 	md_rst : (*mdTctl)
 	md_rsx : (*mdTctl)
 
 data	DCL processing
 
-	A(x) := CTLX.x
-	V(x) := &CTLX.x
+	A(x) := mdIctl.x
+	V(x) := &mdIctl.x
 
 	cu_mak : dcTfun
 
@@ -106,7 +108,7 @@ data	DCL processing
   func	cu_mak
 	dcl : * dcTdcl
   is	dst : rtTdst
-	ctl : * mdTctl = &CTLX
+	ctl : * mdTctl = &mdIctl
 	ctl->Vqua = dcl->Vflg
 
 ;	fine if dc_con (dcl, dcRST_|dcRT_|dcRSX_)
@@ -127,7 +129,8 @@ data	DCL processing
 
 	hdr : rtThdr = {0}
 	ent : rtTent = {0}
-	ext : fxText = {0}
+	wrd : WORD = 0
+	fex : fxText = {0}
 	cla : rtTcla = {0}
 	ter : WORD = (rtEND_)
 
@@ -135,30 +138,41 @@ data	DCL processing
 	rxPTY := 063471
 	rxFIL := 023364
 
+	QUA(x) := (ctl->Vqua & x)
+
   func	md_rst
 	ctl : * mdTctl
   is	fil : * FILE = <>
 	spc : [mxSPC] char
 	dis : * char = ctl->Aspc
 	tmp : [84] char
+	tim : tiTplx
+	ftm : rtTftm
 	alc : int
 	seg : int
-	wrd : int
 	cnt : int
+	siz : int
+	ext : int = 0		; extra words
 
-	alc = 1024
-	alc = ctl->Valc if ctl->Vqua & mdALC_
+	alc = 1024		; default block count
+	alc = ctl->Valc if QUA(mdALC_)
 
-	seg = (alc / 512) + 2
-	seg = ctl->Vseg if ctl->Vqua & mdSEG_
+	seg = (alc / 512) + 2	; default directory segments
+	seg = ctl->Vseg if QUA(mdSEG_)
 	seg = 31 if seg gt 31
+	seg = 1 if seg eq
 
-	wrd = ctl->Vrt ? 0 ?? 3
-	wrd = ctl->Vext if ctl->Vqua & mdEXT_
-	wrd = 24 if wrd gt 24
+	siz = rtRTA*2
+	if QUA(mdEXT_)			; want extra words
+	   if (ctl->Vrst)		; not with /RUST
+	   .. fail im_rep ("E-Incompatible options: /RUST/EXTRA", "")
+	   ext = ctl->Vext		; extra words
+	else
+	   siz += rtRTX*2 if !ctl->Vrt
+	end
 
 	if alc lt (6 + (seg*2) + 1)
-	.. fail im_rep ("E-Directory too small %s", dis)
+	.. fail im_rep ("E-Directory file too small %s", dis)
 
 	if !dp_ter (dis, spc, dpMHT_|dpRMT_)
 	.. fail im_rep ("E-Invalid directory specification %s", dis)
@@ -184,10 +198,10 @@ data	DCL processing
 	if cla.Vflg & fcNET_
 	.. fail im_rep ("E-Can't create network directory %s", dis)
 
-	ext.Valc = alc
-	fil = fx_opn (spc, "wb", <>, &ext)
+	fex.Valc = alc
+	fil = fx_opn (spc, "wb", <>, &fex)
 	if fail
-	   if ext.Verr eq 1
+	   if fex.Verr eq 1
 	      im_rep ("E-Insufficient space for directory %s", dis)
 	   else
 	   .. im_rep ("E-Error creating directory %s", dis)
@@ -220,31 +234,28 @@ data	DCL processing
 	hdr.Vtot = seg
 	hdr.Vnxt = 0
 	hdr.Vlst = 1
-	hdr.Vext = wrd*2
+	hdr.Vext = rtRTX*2 if not ctl->Vrt
+	hdr.Vext = ext*2 otherwise
 	hdr.Vblk = 6 + (seg*2)
 	fi_wri (fil, &hdr, #rtThdr)
-	ent.Vsta = rtEMP_
+
+	tm_clk (&tim)				; wall clock time
+	rt_tpf (&tim, &ftm)			; RT-11 file time
+
+	ent.Vsta = rtEMP_			; directory entry
 	ent.Vlen = alc-6-(seg*2)
 	ent.Anam[0] = rx_EM
 	ent.Anam[1] = rxPTY
 	ent.Anam[2] = rxFIL
-						; empty.fil
-	fi_wri (fil, &ent, (#rtTent)-rtRTX+(wrd*2))
+	ent.Vdat = ftm.Vdat
+	ent.Vtim = ftm.Vsec | 0100000
+	ent.Vctl = ftm.Vext			; only written for /rust
+						;
+	fi_wri (fil, &ent, siz)			; write entry
+	fi_wri (fil, &wrd, 2) while ext--	; write extra words
 	fi_wri (fil, &ter, 2)			; rtEND_
-	fx_clo (fil, "", &ext)			; close, setting size
+	fx_clo (fil, "", &fex)			; close, setting size
 	fi_prt (spc, "")			; protect the directory
-
-;	Now, to put a date/time on the empty
-
-	st_app ("empty.bad", spc)
-	fil = fi_opn (spc, "wb", <>)
-	pass fail
-
-; ???	Write a single byte to force a file?
-
-	fi_pch (fil, 0)
-	fi_clo (fil, <>)
-	fi_del (spc)
   end
 
 	rxV05 := 0107123			; homeblock version
