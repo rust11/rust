@@ -1,0 +1,1687 @@
+.title	program
+.include "lib:share.mac"
+$esdef		;errors
+$fedef		;features - temporary because of $icdef
+$icdef		;image control
+$ihdef		;rsx image header
+$ildef		;rsx image label
+$jbdef		;jobs
+$xidef
+;
+$imgdef	PROGRA 5 4
+$imginf	fun=sav cre=hammo aut=ijh use=<Analyse RT-11, RUST & RSX programs>
+$imgham	yrs=<1982,1983,1984,1985,1986,1988,2004> oth=PROGRAM
+;	%date
+$imgdat	<16-Jan-2006 23:25:39.40>
+;	%edit
+$imgedt	<42   >
+;
+;
+;	%build
+;	goto 'P1'
+;	macro:	macro/object:cub:progra	lib:mpl/lib+lib:prefac+cus:progra
+;	link:	link/link:lib:output/execute:cub:progra cub:progra
+;	%end
+
+meta <$bits c,d,?z><bit #'c,d><beq z><ctype <c >><z:>
+meta <$bitx c,d,e,?z><bit #'c,d><beq z><ctype <e >><z:>
+
+meta	<ctype c><call ctype><type <c>>
+set sysptr 54
+
+start:	asr	#1		;this the first time?
+	bcc	5$		;nope
+	.settop	#room		;get the space we need
+	cmp	r0,#room	;enough space?
+	bhis	5$		;yes
+	sec			;make sure we display message
+	$error	<Not enough memory>
+5$:
+	clr	ifile		;
+	mov	j$busp,sp	;reset the stack
+;	.purge	#0		;
+;	.csigen	#room,#types,#0,#line
+	mov	j$busp,sp	;reset the stack
+	psh	#-1		;catch the end of the switchs
+	.csispc	#files,#types,#0,#line
+	tstb	line		;got anything?
+	beq	10$
+	call	lookup
+	bcc	20$		;
+;V4	.wait	#3		;check for a file
+;V4	bcc	20$		;forget it
+10$:	.print	#i$midt		;display it
+	br	start
+20$:	mov	sysptr,r1
+	mov	4+<5*2*3>+4(r1),r1 ;image block size
+	mov	r1,imglen	;imglen = block length
+	cmp	r1,#3		;try for three blocks
+	blos	25$		;no
+	mov	#3,r1		;yes
+25$:	swab	r1		;r1 = wordcount
+	.readw	#area,#3,#program,r1,#0	;read the handler
+	$error	<Error reading image>
+	call	imguse		;pickup the usage string
+
+	tst	(sp)+		;forget the count
+	mov	sp,r5		;point r5 to the options
+	call	setpro		;check for set
+	tstb	o$popr		;this a show?
+	beq	start		;no
+
+30$:	$print
+	call	p$gen		;file name and size
+	cmp	o$ptyp,#^rrt	;force rt-11?
+	beq	35$		;yes
+	call	rsx		;check an rsx image
+	bcc	start		;it was rsx
+
+35$:	call	p$imi		;image information
+	call	p$vec		;vectors
+	call	p$sys		;syscom area
+	call	p$opt		;get the options
+	call	p$ovr		;overlay structure
+	call	p$rel		;relocatable
+	call	p$vir		;virtual jobs
+	call	p$bit		;check the bit map
+	jmp	start
+
+;	General
+
+p$gen:
+	$type	<Program name	>
+	$file	#ifile
+	call	p$ver			;check for a version
+	$print
+	$type	<File size	>
+	$decima	imglen
+	$print	< blocks>
+	return
+
+
+lookup:	.purge	#3
+	mov	#ifile,r1
+	mov	#50$,r2			; type list
+	tst	6(r1)			; were they explicit?
+	bne	20$			; yep
+	tst	(r2)+			; go through the list
+10$:	mov	(r2)+,6(r1)		; try another
+	beq	30$			; nope
+20$:	.lookup	#area, #3, r1, #0
+	bcs	10$			; try again
+	return
+
+30$:	$error	<File not found>
+50$:	.word	0			; explicit
+	.rad50	/savsysrelfeaexetsk/	; lotsa things
+	.word	0
+.sbttl	syscom
+
+p$sys:
+	$print
+	$type	<Start address	>
+	$octal	$userpc
+	$print
+	$type	<Stack address	>
+	$octal	$usersp
+	$print
+	$type	<Job status word	>
+	$octal	$jsw
+
+	tst	$jsw
+	bne	10$
+	jmp	20$
+10$:	$type	< = >
+swap$=100000
+ttlc$=40000
+rentr$=20000
+ttspc$=10000
+exit$=4000
+virt$=2000
+ovly$=1000
+chain$=400
+iohlt$=200
+ttwai$=100
+spxit$=40
+edit$=20
+gtlin$=10
+	mov	$jsw,bitoct
+	clr	bitcnt
+	$bitx	swap$	$jsw	Swap
+	$bitx	ttlc$	$jsw	Lower
+	$bitx	rentr$	$jsw	Reenter
+	$bitx	ttspc$	$jsw	Single
+	$bitx	exit$	$jsw	Chain_@file
+	$bitx	virt$	$jsw	Virtual
+	$bitx	ovly$	$jsw	Overlay
+
+	$bitx	chain$	$jsw	Chain
+	$bitx	iohlt$	$jsw	I/O_Halt
+	$bitx	ttwai$	$jsw	Nowait
+	$bitx	spxit$	$jsw	Exit_@file
+	$bitx	edit$	$jsw	Edit
+	$bitx	gtlin$	$jsw	Get_line
+20$:	$print
+
+	$type	<Program size	>
+	mov	$usertop,r5
+	call	sizes
+
+	$type	<Memory limit	>
+	cmp	$rel,#^rrel
+	beq	30$
+	mov	$klimit,r5
+	bne	40$
+30$:	$print	<None>
+	br	70$
+40$:	$decima	r5
+	$type	< kilowords, >
+	cmp	r5,#32.		;too big?
+	blo	50$		;no
+	mov	#-1,r5		;yes
+	br	60$		;
+
+50$:	swab	r5		;
+	asl	r5		;
+	asl	r5		;
+	asl	r5		;
+60$:	call	sizes
+70$:
+100$:	return
+.sbttl	options
+
+p$opt:				;display the options
+	cmp	$vic,#^rvic	;this got options?
+	beq	10$		;yes
+	return			;no
+
+10$:	$print			;yes
+	$type  <Image options	>
+	mov	$vic0,bitoct
+	clr	bitcnt		;
+	$octal	$vic0
+	$type	< = >
+;;;	$bitx	ictup$	$vic0	<Upper >
+	$bitx	ictup$	$vic0	<Lower >
+	$bitx	ictcl$	$vic0	<Loop >
+	$bitx	ictcy$	$vic0	<Ctrly >
+	$bitx	ictct$	$vic0	<Ctrlt >
+	$bitx	ictcf$	$vic0	<Ctrlf >
+	$bitx	icctz$	$vic0	<Ctrlz >
+	$bitx	icfpu$	$vic0	<Fpu >
+	$bitx	icnra$	$vic0	<Rt11a >
+	$bitx	icnrs$	$vic0	<Rt11s >		;Files
+	$bitx	icntr$	$vic0	<Notrace >
+	$bitx	ictrp$	$vic0	<Traps >
+	$bitx	iciop$	$vic0	<IOpage >
+;;;	$bitx	icsys$	$vic0	<System >
+	$bitx	icnap$	$vic0	<Nopaths >
+	$bitx	icunm$	$vic0	<Unmapped >
+	$bitx	icmmu$	$vic0	<MMU >
+	$bitx	icrtm$	$vic0	<Realtime >
+	$print
+	return
+.sbttl	virtual, relocatable, bitmap
+
+p$vir:					;virtual limit
+	cmp	$vir,#^rvir		;this a virtual program?
+	bne	100$			;nope
+	$print
+	$print	<Virtual job>
+	$type	<Virtual limit	>
+	mov	$limit,r5		;get the virtual high limit
+	call	sizes
+	tst	$windows
+	beq	90$
+	$type	<Overlay table	>
+	$octal	$windows
+90$:	$print
+100$:	return
+
+p$rel:	cmp	$rel,#^rrel		;this a rel file?
+	bne	100$			;nope
+	$print
+	$print	<Relocatable job>	;
+
+	$type	<Root size	>	
+	mov	$root,r5
+	call	sizes
+
+	$type	<Stack size	>
+	mov	$stack,r5
+	call	sizes
+
+	tst	$over
+	beq	10$			;not overlaid
+	$type	<Overlay size	>
+	mov	$over,r5
+	call	sizes
+
+10$:	$type  <Relocation 	block=>
+	$decima	$reloc
+	$print
+100$:	return
+	
+p$ovr:
+	bit	#ovly$,$jsw		;overlaid?
+	beq	100$			;nope
+	$print	
+	$type	<Overlay table	>
+	$octal	$table
+	$print
+100$:	return
+
+p$bit:	tst	$bitm
+	bne	50$
+	$print	
+	$print	<No bitmap>
+50$:	return
+.sbttl	vectors
+
+p$vec:
+	psh	$bpt
+	bis	$iot,(sp)
+	bis	$trap,(sp)+
+	beq	30$
+	$print
+
+	tst	$bpt			;got a BPT vector?
+	beq	10$			;nope
+	$print
+	$type	<BPT vector	>
+	$octal	$bpt
+	$type	<, >
+	$octal	$bpt+2
+	$print
+
+10$:	tst	$iot
+	beq	20$
+	$type	<IOT vector	>
+	$octal	$iot
+	$type	<, >
+	$octal	$iot+2
+	$print
+
+20$:	tst	$trap
+	beq	30$
+	$type	<TRAP vector	>
+	$octal	$trap
+	$type	<, >
+	$octal	$trap+2
+	$print
+30$:	
+100$:	return
+.sbttl	version
+
+p$ver:	mov	$releas,r1	;get the version
+	beq	100$		;not there
+	sub	#<^rV00>,r1	;check for a version number
+	bcs	100$		;not there
+	cmp	r1,#<^r 99>	;this a valid version number?
+	bhi	100$		;nope
+;	$print	
+	$type	< (>		;<Release	>
+	$rad50	$release
+	$type	<)>
+.if eq 1
+	mov	#$versions,r5	;point to the version numbers
+	clr	r4		;signal the first
+10$:	cmp	(r5),#-1	;this the end?
+	beq	50$		;yes
+	tst	(r5)		;is this blank?
+	beq	40$		;yes
+	tst	r4		;done the first?
+	bne	20$		;yes
+	inc	r4		;nope
+	$type	<, versions=(>
+	br	30$		;
+20$:	$type	<,>
+30$:	$rad50	(r5)
+40$:	tst	(r5)+		;skip it
+	br	10$
+50$:	tst	r4		;did we get one?
+	beq	60$		;nope
+	$type	<)>		;yes
+.endc
+60$:;	$print
+100$:	return
+.sbttl	utilities
+
+sizes:	$octal	r5
+	$type	< bytes, >
+	clc
+	ror	r5
+	$number	r5
+	$print	< words>
+	return
+
+ctype:	inc	bitcnt
+	cmp	bitcnt,#6.
+	blos	20$
+	$print
+	$type	<		>
+	$octal	bitoct
+	$type	< = >
+	mov	#1,bitcnt
+20$:	return
+.sbttl	image information area
+
+;	Display information from image ID area if present.
+;
+;	Image name:	PROGRA V5.1 1984
+;	Image usage:	Analyses programs
+;	System & STB:	RUST/XM
+;	Author ID:	Hammo, IJH
+;
+;	110:170		;program id area
+;
+;	jb.ivn,,110	;.rad50	/v0n/	;version number
+;	jb.iun,,112	;.word	update	;update number
+;	jb.irg,,114	;.word	-1	;resorc guard
+;	jb.iig,,116	;.rad50	/img/	;image information guard
+;	jb.isi,,120	;.rad50	/shp/	;system id
+;	jb.isd,,122	;.word	stbdat	;stb date or zero
+;	jb.inm,,124	;.rad50	/prgnam/;image name
+;	jb.ifn,,130	;.rad50	/fun/	;image function
+;	jb.iib,,132	;.word	block	;information block number
+;	jb.ici,,134	;.rad50	/crenam/;creator id
+;	jb.iai,,140	;.rad50	/abc/	;author initials
+;	jb.ius,,142	;.word	i$muse	;pointer to usage string
+;	jb.icd,,144	;.word	credat	;pointer to creation date & time
+;	jb.edt,,146	;.word	edt	;edit number
+
+p$imi:	cmp	ima+jb.iig,#^rimg ;is this ours?
+	beq	10$		;yes
+	sec			;no
+	return
+
+10$:	$print
+	$type	<Image ID	>
+	$rad50	ima+jb.inm
+	$rad50	ima+jb.inm+2
+	$type	< >
+	$rad50	ima+jb.ivn
+	mov	ima+jb.iun,r1	;got an update number?
+	beq	20$		;no
+	$type	<.>		;yes
+	call	$integer	;display it
+20$:	$print
+
+	tst	ima+jb.ifn	;got a function?
+	beq	40$		;no
+	$type	<Image type	>
+	call	imgfun		;and display it
+	$print
+
+40$:	mov	imgius,r1	;got a usage string?
+	beq	80$		;no
+	$type	<Image purpose	>
+
+45$:	mov	#50.,r2		;count this out
+50$:	movb	(r1)+,r0	;get the next
+	bit	#177,r0		;any more?
+	beq	70$		;no
+	cmpb	r0,#40		;too low?
+	blo	60$		;yes
+	.ttyout			;its fine
+60$:	dec	r2		;dont do too many
+	bne	50$		;
+70$:	$print
+80$:
+
+90$:	$type	<System ID	>;
+	tst	ima+jb.isi	;got a system?
+	bne	95$		
+	$type	<None >		;
+	br	110$		;
+95$:	cmp	ima+jb.isi,#^rshp
+	bne	100$		;
+	$type	<RUST/XM  >
+;	$type	<SHAREplus>
+	br	110$		;
+100$:	$rad50	ima+jb.isi
+
+110$:	$print
+
+	mov	ima+jb.isd,r1	;
+	beq	115$		;
+	$type 	<System STB date	>
+	call	shostb		;display an STB date
+	$print
+
+115$:	tst	ima+jb.ici	;got a manufacturer?
+	bne	120$		;yes
+	tst	ima+jb.iai	;got an author?
+	beq	150$		;no
+120$:	$type	<Creator ID	>
+	tst	ima+jb.ici	;this known?
+	beq	130$		;no
+	mov	#1,r50cap	;title
+	$rad50	ima+jb.ici	;manufacturer
+	clr	r50cap		;
+	$rad50	ima+jb.ici+2	;
+	$type	< >		;
+130$:	tst	ima+jb.iai	;got an author?
+	beq	140$		;no
+	$type	<(>		;yes
+	clr	r50cap		;
+	$rad50	ima+jb.iai	;
+	$type	<)>		;
+140$:	$print
+	mov	ima+jb.icd,r1
+	beq	150$		;no date
+	call	locdat		;locate the date string
+	cmp	(r1)+,#^rdat	;guard word okay?
+	bne	150$		;nope
+	$type	<Creation date	>
+	.print	r1		;
+	$print			;newline
+
+150$:	mov	ima+jb.ied,r1	;get the edit
+	beq	155$		;
+	$type  <Image edit 	>
+	$decima	r1		;display the number
+	$print			;
+
+155$:	tst	ima+jb.iib	;got an information block?
+	beq	160$		;no
+	$type	<Image header	block=>
+	$number	ima+jb.iib
+	$print
+160$:	return
+
+imgfun:	mov	#100$,r1	;look for it
+10$:	cmp	(r1)+,ima+jb.ifn ;this our function?
+	beq	30$		;yes
+20$:	bitb	#177,(r1)+	;look for the end of it
+	bne	20$		;
+	inc	r1		;
+	bic	#1,r1		;
+	tst	(r1)		;
+	bne	10$		;
+	$rad50	ima+jb.ifn
+	br	40$		;not known
+30$:	.print	r1		;display the string
+40$:	return
+
+meta	<imgfun c d><.rad50 /c/><.ascii "d"<200>><.even>
+100$:	
+
+imgfun	sav	<RT-11 executable image>
+imgfun	han	<RT-11 device driver>
+imgfun	drv	<RT-11 device driver>
+imgfun	sys	<System image>
+imgfun	fea	<RUST/XM installable feature>
+imgfun	run	<RUST/XM shared runtime>
+imgfun	chn	<RT-11 executable image - CHAIN only>
+;
+imgfun	rst	<RUST executable image>
+imgfun	rsc	<RUST executable image - CHAIN only>
+imgfun	rsj	<RUST/SJ executable image>
+imgfun	rxm	<RUST/XM executable image>
+imgfun	rjc	<RUST/SJ executable image - CHAIN only>
+imgfun	rxc	<RUST/XM executable image - CHAIN only>
+;
+imgfun	shp	<RUST/XM executable image>
+imgfun	shc	<RUST/XM executable image - CHAIN only>
+imgfun	shr	<RUST/XM shareable image>
+imgfun	shn	<RUST/XM device driver>
+imgfun	boo	<RT-11 bootable image>
+imgfun	sbo	<RT-11 executable & bootable image>
+	.word	0
+
+;	Get the usage string
+;
+;	It will usually be in the first two blocks
+
+imguse:	clr	imgius		;assume none
+	cmp	ima+jb.iig,#^rimg ;is this ours?
+	bne	60$		;yes
+	mov	ima+jb.ius,r1	;get the usage string
+	beq	60$		;is none
+	mov	r1,r2		;
+	add	#ima,r1		;point to it
+	cmp	r2,#1024.-40.	;do we already have it?
+	blo	50$		;yes
+
+;	Locate the block
+
+	mov	#buff2,r0	;
+	mov	#512.,r1	;
+10$:	clr	(r0)+		;
+	dec	r1		;
+	bne	10$		;
+	clr	buff2+512.	;put in two stoppers
+	mov	ima+jb.ius,r1	;get it again
+	call	read		;read in the block
+50$:	mov	r1,imgius	;store the address
+60$:	return
+
+locdat:				;locate date string
+	sub	#2,r1		;point to the guard word
+	mov	r1,r2		;get a copy
+	add	#ima,r1		;
+	cmp	r2,#1024.-12.	;string in first two blocks?
+	blos	100$		;yes - fine
+	mov	r2,r1		;get it back
+	call	read		;read in the block
+100$:	return			;
+
+;	r1 = string address
+
+read:	mov	r1,r2		;
+	bic	#^c777,r1	;r1 = string address
+	add	#buff2,r1	;
+	clc			;
+	ror	r2		;
+	clrb	r2		;
+	swab	r2		;r2 = start block number
+
+	mov	#512.,r4	;assume two blocks
+	mov	imglen,r3	;
+	sub	r2,r3		;got enough space?
+	ble	40$		;no room at all
+	dec	r3		;room for one or two?
+	bpl	30$		;
+	asr	r4		;256. only
+30$:	.readw	#area, #3, #buff2, r4, r2
+	bcc	60$		;we have it
+40$:	mov	#70$,r1		;display the message
+60$:	return
+70$:	.ascii	"(I/O error reading string)"
+	.even
+.sbttl	show stb date
+
+;	..mmmmdddddyyyyy
+;	YYYYYYYMMMMDDDDD
+;	.  .  .  .  .  .
+;	       .       .
+
+shostb:	tst	r1		;got one?
+	beq	30$		;no
+	psh	r1		;save it
+	bic	#^c37,r1	;trim the day
+	cmp	r1,#10.		;single digit?
+	bhis	5$		;no
+	$type	<0>		;
+5$:	$intege	r1		;
+	$type	<->		;
+	mov	(sp),r1		;
+	asr	r1		;
+	asr	r1		;
+	asr	r1		;
+	asr	r1		;
+	asr	r1		;
+	bic	#^c17,r1	;
+	cmp	r1,#12.		;too high?
+	blos	10$		;no
+	clr	r1		;yes
+10$:	psh	r1		;
+	asl	r1		;
+	add	(sp)+,r1	;
+	add	#100$,r1	;
+	mov	#3,r2		;
+20$:	.ttyout	(r1)+		;display it
+	dec	r2		;
+	bne	20$		;
+	$type	<->		;
+	pop	r1		;
+	swab	r1		;
+	asr	r1		;
+	bic	#^c177,r1	;
+	add	#1972.,r1	;
+	$integer r1		;
+30$:	return
+
+100$:	.ascii	/BadJanFebMarAprMayJunJulAugSepOctNovDec/
+	.even
+;	read library block
+;	new flags
+;	fix "library il.ext"
+;
+.sbttl	rsx
+
+;	Check and report an RSX image
+;
+;	r3 ->	label
+;	r4 ->	post libary label
+;	r5 ->	header
+;
+;	Display label, read-only section, libraries, header
+
+rsx:	cmp	o$ptyp,#^rrsx	;force rsx?
+	beq	10$		;yes
+	call	chkrsx	
+	bcs	20$		;not rsx
+10$:	call	pntrsx		;force pointers
+	call	rsxlab		;display the label
+	call	rsxlib		;display the libraries
+	call	pnthdr		;fixup for header
+	call	rsxhea		;display the header
+	clc
+20$:	return			;not rsx
+.sbttl	support routines
+
+.macro	rsxnam	c d e
+	$type	<c'd	>
+	movi	d,e,r2	
+	$rad50	(r2)+
+	$rad50	(r2)+
+.endm
+.macro	rsxdat	c d e
+	$type	<c'd	>
+	movi	d,e,r2	
+	call	rsxdat
+.endm
+.macro	rsxoct	c d e f
+	$type	<c'd	>
+.if nb <f>
+	$octal	f
+.iff
+	$octal	d(e)
+.endc
+.endm
+.macro	rsxdec	c d e f
+	$type	<c'd	>
+.if nb <f>
+	$decima	f
+.iff
+	$decima	d(e)
+.endc
+.endm
+.macro	rsxpag c d e f
+	$type	<c'd	>
+.if nb <f>
+	psh	f
+.iff
+	psh	d(e)
+.endc
+	call	rsxpag
+.endm
+
+rsxpag:	psh	2(sp)
+	$decima	(sp)
+	$type	<	>
+	asl	(sp)
+	asl	(sp)
+	asl	(sp)
+	asl	(sp)
+	asl	(sp)
+	asl	(sp)
+	$octal	(sp)+
+	pop	(sp)
+	return
+
+.macro	rsxtab	x c d e f
+	$type	<		>
+	x <c> d e f
+	$print
+.endm
+.macro	rsxtap	x c d e f
+	$type	<	>
+	x <c> d e f
+	$print
+.endm
+
+.macro	rsxnew
+	$print
+.endm
+
+.sbttl	display label
+
+rsxlab:
+	$print
+	$print	<Image label:>
+	$print
+rsxnam <Task name:	> il.tsk r3
+rsxtab					rsxoct <Task priority:	> ix.pri r4
+rsxnam <Partition:	> il.par r3
+rsxtab					rsxoct <NHD start addr:	> ix.xfr r4
+rsxoct <Low virt. addr:	> il.sad r3
+rsxtab					rsxpag <Ext. pages:	> ix.ext r4
+rsxoct <High root addr:	> il.hgv r3
+rsxtab					rsxoct <Seg rel blk:	> ix.sgl r4
+rsxoct <Max virt. addr:	> il.mxv r3	
+rsxtab					rsxdec <Header rel blk:	> ix.hrb r4
+rsxpag <Root page size:	> il.ldz r3
+rsxtap					rsxdec <Label blocks:	> ix.blk r4
+rsxpag <Max. page size:	> il.mxz r3
+rsxtap					rsxdec <Task LUNs:	> ix.lun r4
+rsxoct <Par0 page off.:	> il.off r3
+
+	clr	r2	;
+	bisb	il.wnd(r3),r2
+rsxtab					rsxdec <Readonly block:	> ix.rob r4
+rsxdec <Window count:	> il.wnd r3 r2
+	clr	r2	;
+	bisb	il.sys(r3),r2
+rsxtab					rsxpag <Readonly pages:	> ix.rol r4
+rsxdec <System ID:	> il.sys r3 r2	
+	movb	il.sys(r3),r2
+	call	rsxsys
+rsxnew
+rsxoct <Ovr Seg Dsc Siz:> il.seg r3
+rsxnew
+rsxoct <Load flags:	> il.flg r3
+	mov	il.flg(r3),r0
+	call	rsxflg
+rsxnew
+rsxdat <Creation date:	> il.dat r3
+rsxnew
+
+;	New header
+
+	bit	#ilnew$,il.flg(r3)
+	beq	10$
+rsxoct	<Label rev lev:	> il.lrl r3
+rsxnew
+rsxoct	<AME control:	> il.ame r3
+rsxnew
+10$:	return
+
+;	RSX system code
+;
+;	r2 =	code
+;
+;	0 =	RSX-11D
+;	1 =	RSX-11M
+;	2 =	RSX-11S
+;	3 =	IAS
+;	4 =	RSX-11M/plus
+;	5 =	VMS AME
+
+rsxsys:	$type	< = >
+	cmp	r2,#6		;too high?
+	blo	10$		;no
+	mov	#6,r2		;yes
+10$:	asl	r2		;
+	.print	50$(r2)		;and display it
+	return
+
+50$:	.word	100$,101$,102$,103$,104$,105$,199$
+100$:	.ascii	"RSX-11D"<200>	;
+101$:	.ascii	"RSX-11M"<200>
+102$:	.ascii	"RSX-11S"<200>
+103$:	.ascii	"IAS"<200>
+104$:	.ascii	"RSX-11M/plus"<200>
+105$:	.ascii	"VMS/RSX"<200>
+199$:	.ascii	"Unknown"<200>
+	.even
+
+;	RSX date
+;
+;	r2 -> date field
+
+rsxdat:	add	#6,r2		;
+	mov	-(r2),r1	;day of month
+	call	$intege		;
+	$type	<->		;
+	mov	-(r2),r1	;
+	cmp	r1,#12.		;too high?
+	blos	10$		;no
+	clr	r1		;Bad month
+10$:	psh	r1		;
+	asl	r1		;
+	add	(sp)+,r1	;
+	add	#100$,r1	;
+	.ttyout	(r1)+		;
+	.ttyout	(r1)+		;
+	.ttyout	(r1)+		;
+	$type	<->		;
+	mov	-(r2),r1	;
+	add	#1900.,r1	;
+	call	$intege		;
+	return
+100$:	.ascii	/BadJanFebMarAprMayJunJulAugSepOctNovDec/
+	.even
+
+;	Display the flags
+;
+;	r0 = flags
+
+rsxflg:	mov	r0,bitoct
+	mov	r0,20$
+	bne	10$
+	return
+10$:	clr	bitcnt
+	$type	< = >
+	$bitx	ilnxh$	20$	<nxh >
+	$bitx	ilxhr$	20$	<xhr >
+	$bitx	ilsup$	20$	<sup >
+	$bitx	iliop$	20$	<iop >
+	$bitx	ilres$	20$	<res >
+	$bitx	ilchk$	20$	<chk >
+	$bitx	ilcmp$	20$	<cmp >
+	$bitx	ilprv$	20$	<prv >
+	$bitx	ilnsd$	20$	<nsd >
+	$bitx	ilslv$	20$	<slv >
+	$bitx	ilpmd$	20$	<pmd >
+	$bitx	ilacp$	20$	<acp >
+	$bitx	ilnhd$	20$	<nhd >
+	$bitx	ilpic$	20$	<pic >
+	$bitx	ilnew$  20$	<new >
+	bit	#ilnew$,il.flg(r3)
+	beq	15$
+	mov	il.fl2(r3),20$
+	$bitx	ilcli$	20$	<cli >
+	$bitx	ilfmp$  20$	<new >
+15$:	return
+20$:	.word	0
+.sbttl	rsx libraries
+
+;	RSX resident libraries
+;	Check for read-only section first
+;
+;	il.rnm	4,0	;r$lnam
+;	il.rsa	2,4	;r$lsa  - start address
+;	il.rhv	2,6	;r$lhgv - high virtual limit
+;	il.rmv	2,10	;r$lmxv
+;	il.rlz	2,12	;r$lldz
+;	il.rmz	2,14	;r$lmxz
+;	il.rof	2,16	;r$loff
+;	il.rwd	2,20	;r$lwnd
+;	il.rsg	2,22	;r$lseg
+;	il.rfl	2,24	;r$lflg
+;	il.rda	6,26	;r$ldat
+;	il.rbs	0,34	;r$lsiz - resident libary descriptor size
+
+rsxlib:
+	psh	r3		;save r3 here
+	clr	-(sp)		;remember headers
+	psh	#7		;count them
+	cmp	r3,r4		;this mplus?
+	beq	5$		;no
+	add	#8.,(sp)	;yes - adjust for supervisor mode
+5$:	add	#il.lib,r3	;
+	tst	ix.rol(r4)	;got a read-only section?
+	beq	10$		;no
+	$print
+	$print	<Read-only section> ;yes
+	call	100$		;display it
+	dec	(sp)		;count it
+	add	#il.rbs,r3	;
+	tst	(r3)		;more coming?
+	bne	10$		;yep
+	$print			;nope
+10$:	tst	(r3)		;got any more?
+	beq	30$		;no
+	tst	2(sp)		;this the first?
+	bne	20$		;no
+	inc	2(sp)		;
+	$print
+	$print	<Libraries:>
+20$:	call	100$		;display it
+	add	#il.rbs,r3	;point to the next
+	dec	(sp)		;any more?
+	bne	10$		;yes
+30$:	cmp	(sp)+,(sp)+	;clean up
+	pop	r3		;
+	return
+
+;	Display library pointed to by r3
+
+100$:	$print
+rsxnam <Library name:	> il.rnm r3
+rsxnew
+rsxoct <Start address:	> il.rsa r3
+rsxnew
+rsxoct <Virtual limit:	> il.rhv r3
+rsxnew
+rsxoct <Max. address:	> il.rmv r3	
+rsxnew
+rsxpag <Page size:	> il.rlz r3
+rsxnew
+rsxpag <Max. page size:	> il.rmz r3
+rsxnew
+rsxoct <Par offset:	> il.rof r3
+rsxnew
+	clr	r2	;
+	bisb	il.rwd(r3),r2
+rsxdec <Window count:	> il.rwd r3 r2
+rsxnew
+rsxoct <Segment:	> il.rsg r3
+rsxnew
+rsxoct <Load flags:	> il.rfl r3
+	mov	il.rfl(r3),r0
+	call	rsxrfl
+rsxnew
+rsxdat <Creation date:	> il.rda r3
+rsxnew
+	return
+
+;	Resident library flags
+;
+;	r0 = flags
+
+rsxrfl:	mov	r0,bitoct
+	mov	r0,20$
+	bne	10$
+	return
+10$:	$type	< = >
+	$bitx	ilrcm$	20$	<com >
+	$bitx	ilrpc$	20$	<pic >
+	$bitx	ilrsp$	20$	<sup >
+	$bitx	ilrcl$	20$	<cls >
+	$bitx	ilrap$	20$	<apr >
+	$bitx	ilrrw$	20$	<r/w >
+	return
+20$:	.word	0
+.sbttl	rsx image header
+
+;	Display the image header
+;
+;	ih.csp	2,0	;h.csp	current stack pointer
+;	ih.hbs	2,2	;h.hdln	header byte size
+;	ih.efm	2,4	;h.eflm	event flag mask
+;	ih.efa	2,6	;h.eflm+2 event flag address
+;	ih.cui	2,10	;h.cuic	current uic
+;	ih.dui	2,12	;h.duic	default uic
+;	ih.ips	2,14	;h.ips	initial ps
+;	ih.ipc	2,16	;h.ipc	initial pc
+;	ih.isp	2,20	;h.isp	initial sp
+;	ih.dba	2,22	;h.odva	odt sst vector address
+;	ih.dbl	2,24	;h.odvl	odt sst vector byte length
+;	ih.tka	2,26	;h.tkva	task sst vector address
+;	ih.tkl	2,30	;h.tkvl	task sst vector length
+;	ih.pra	2,32	;h.pfva	power fail acb address
+;	ih.fpa	2,34	;h.fpva	fpu acb address
+;	ih.rda	2,36	;h.rcva	receive acb address
+;	ih.esa	2,40	;h.efsv	event flag save area address
+;	ih.fsa	2,42	;h.fpsa	fpu/eas save area address
+;	ih.wnd	2,44	;h.wnd	pointer to number of window blocks
+;	ih.dsw	2,46	;h.dsw	directive status word
+;	ih.fcs	2,50	;h.fcs	fcs impure area pointer
+;	ih.for	2,52	;h.fort	fortran impure area pointer
+;	ih.ovr	2,54	;h.ovly	overlay impure area pointer
+;	ih.vex	2,56	;h.vext	work area extension vector pointer
+;	ih.spr	1,60	;h.spri	swap priority difference
+;	ih.nml	1,61	;h.nml	network mailbox lun
+;	ih.rva	2,62	;h.rrva	receive by reference acb address
+;	ih.x25	2,64	;	new
+;	ih.r01	2,66	;	
+;	ih.r02	2,70	;	
+;	ih.gua	2,72	;h.gard	pointer to guard word (lbs bad)
+;	ih.nln	2,74	;h.nlun	number of luns
+;	ih.lun	word*2	;h.lun	first lun
+;	ih.ln1		;	ih.lun+<4*ih.nln> = ih.wnd
+;	ih.ln2		;
+;	...		;
+;	ih.wnc		;	number of windows
+;	ih.wn0	ih.wbs	;
+;	ih.wn1	ih.wbs
+;
+;	ih.gr5,,-14	;
+;	ih.gr4,,-12	;
+;	ih.gr3,,-10	;
+;	ih.gr2,,-6	;
+;	ih.gr1,,-4	;
+;	ih.gr0,,-2	;initial registers
+;	i$hgua		;ih.gua points here
+
+rsxhea:	bit	#ilnhd$,il.flg(r4)	;got a header?
+	beq	10$			;yes
+	return				;no
+
+10$:	$print
+	$print	<Image header:>
+	$print
+rsxoct <Current stack:	> ih.csp r5
+rsxtab				rsxoct <Event flag save:> ih.esa r5
+rsxoct <Header size:	> ih.hbs r5
+rsxtab				rsxoct <FPU save area:	> ih.fsa r5
+rsxoct <Event flag mask:> ih.efm r5
+rsxtab				rsxoct <Window pointer:	> ih.wnd r5
+rsxoct <Event flag area:> ih.efa r5
+rsxtab				rsxoct <DSW:		> ih.dsw r5
+rsxoct <Current UIC:	> ih.cui r5
+rsxtab				rsxoct <FCS area:	> ih.fcs r5
+rsxoct <Default UIC:	> ih.dui r5
+rsxtab				rsxoct <Fortran area:	> ih.for r5
+rsxoct <Initial PS:	> ih.ips r5
+rsxtab				rsxoct <Overlay area:	> ih.ovr r5
+rsxoct <Initial PC:	> ih.ipc r5
+rsxtab				rsxoct <Extension vector:> ih.vex r5
+rsxoct <Initial SP:	> ih.isp r5
+				clr	r1
+				bisb	ih.spr(r5),r1
+rsxtab				rsxoct <Swap priority:	> ih.spr r5 r1
+rsxoct <ODT SST vector:	> ih.dba r5
+				clr	r1
+				bisb	ih.nml(r5),r1
+rsxtab				rsxoct <Net mailbox lun:> ih.nml r5 r1
+				pop	ih.spr(r5)
+rsxoct <ODT SST length:	> ih.dbl r5
+rsxtab				rsxoct <Recv-ref ACB:	> ih.rva r5
+rsxoct <Task SST vector:> ih.tka r5
+rsxtab				rsxoct <X25 area:	> ih.x25 r5
+rsxoct <Task SST length:> ih.tkl r5
+rsxtab				rsxoct <Reserved:	> ih.r01 r5
+rsxoct <Powerfail ACB:	> ih.pra r5
+rsxtab				rsxoct <Reserved:	> ih.r02 r5
+rsxoct <FPU ACB:	> ih.fpa r5
+rsxtab				rsxoct <Guard pointer:	> ih.gua r5
+rsxoct <Receive ACB:	> ih.rda r5
+rsxtab				rsxoct <Lun count:	> ih.nln r5
+	return
+
+;rsxoct <:	> ih. r5
+;rsxoct <:	> ih. r5
+;	ih.nln	2,74	;h.nlun	number of luns
+;	ih.lun	word*2	;h.lun	first lun
+;	ih.ln1		;	ih.lun+<4*ih.nln> = ih.wnd
+;	ih.ln2		;
+;	...		;
+;	ih.wnc		;	number of windows
+;	ih.wn0	ih.wbs	;
+;	ih.wn1	ih.wbs
+;
+;	ih.gr5,,-14	;
+;	ih.gr4,,-12	;
+;	ih.gr3,,-10	;
+;	ih.gr2,,-6	;
+;	ih.gr1,,-4	;
+;	ih.gr0,,-2	;initial registers
+;	i$hgua		;ih.gua points here
+.sbttl	check rsx image
+
+;	check rsx image - autodetect
+;
+;	r3 ->	label
+;	r4 ->	post libary label
+;	r5 ->	header
+;
+;	c=0	rsx image
+;
+;	Score the image
+
+chkrsx:	cmp	imglen,#3	;is this big enough?
+	blo	110$		;no - not rsx
+	call	pntrsx		;get the pointers
+
+10$:	call	valrsx		;check stuff
+	bcs	110$		;not RSX
+	bit	#1,il.sad(r3)	;base address
+	bne	110$		;can't be odd
+
+	tstb	il.sys(r3)	;(not expecting rsx11d)
+	beq	110$		;not strictly true, but good test since
+				;almost all are #1 or #4.
+	cmpb	il.sys(r3),#10.	;leave space for future versions
+	bhi	110$		;
+;	cmp	il.hrb(r4),#2	;356 - header relative block
+;	bne	110$		;not rsx image
+;	tst	ih.gua(r5)	;got a guard?
+;	beq	110$		;no
+;	bit	#1,ih.gua(r5)	;this really a guard?
+;	bne	110$		;no
+	tst	(pc)+		;this is an rsx image
+110$:	sec			;not rsx
+	return
+
+
+pntrsx:	mov	#buff,r3	;r3 -> label
+	mov	r3,r4		;r4 -> post library
+	cmpb	il.sys(r3),#4	;this mplus?
+	bne	10$		;no
+	add	#il.rbs*8.,r4	;adjust for mplus libraries
+10$:	mov	r3,r5		;
+	add	#2000,r5	;point to header
+	return
+;
+;	Read in header if it's not at block 3 (i.e. 2 + 1)
+
+pnthdr:	cmp	ix.hrb(r4),#2	;this the default?
+	beq	10$		;yep
+	.readw	#area,#3,r5,#256.,ix.hrb(r4) ;read the header
+	bcc	10$		;
+	$error	<Error reading image>
+10$:	return
+
+
+;	Validate RSX image (using label only)
+;
+;	c=0	rsx image
+
+valrsx:
+10$:;	tst	il.sad(r3)	;10 - should be zero
+;	bne	110$		;
+	tst	il.hgv(r3)	;12 - must be non-zero
+	beq	110$		;
+	tst	il.mxv(r3)	;14 - must be non-zero
+	beq	110$		;
+	tst	il.ldz(r3)	;16 - load must be non-zero
+	beq	110$		;
+	tst	il.mxz(r3)	;20 - must be non-zero
+	beq	110$		;
+	tst	il.off(r3)	;22 - must be zero
+	bne	110$		;
+	tst	il.dat+xi.cmo(r3);40 - month
+	beq	110$		;
+	cmp	il.dat+xi.cmo(r3),#12.
+	bhi	110$		;
+	tst	il.dat+xi.cda(r3);42 - day
+	beq	110$		;
+	cmp	il.dat+xi.cda(r3),#31.
+	bhi	110$		;
+	tst	(pc)+		;loadable
+110$:	sec			;not loadable
+	return
+
+
+
+.if ne 0
+	mov	ih.nln(r5),r1	;number of luns
+	asl	r1		;
+	asl	r1		;4 bytes per lun
+	add	#ih.lun,r1	;point past luns
+;	add	r5,r1		;
+	cmp	r1,ih.wnd(r5)	;this the same as the window pointer?
+	bne	110$		;no - not rsx
+	add	r5,r1		;relocate to buffer
+	mov	(r1),r2		;get the window count
+	sub	r5,r1		;
+	assume	ih.wbs eq 16.	;
+	asl	r2		;
+	asl	r2		;
+	asl	r2		;
+	asl	r2		;
+	add	r2,r1		;point past windows
+	add	#18.,r1		;point past registers (and count)
+	cmp	r1,ih.gua(r5)	;is this the guard address?
+	bne	110$		;no
+.endc
+.sbttl	set program
+
+;	Show a program
+;
+;			no options
+;	/f		/full
+;	/t:rt		rt image
+;	/t:rsx		rsx image
+;
+;	Set a program
+;
+;	/c:itm		clear item
+;	/j:val		new jsw value
+;	/k:n		kilowords
+;	/l		list image
+;	/s:itm		set item
+;	/y		noquery
+;	/z		init image
+;
+;	r5 ->	csi options on stack
+
+setpro:	mov	#from,r0	;
+10$:	clr	(r0)+		;
+	cmp	r0,#to		;
+	blo	10$		;
+	call	getops		;get the options
+	tst	o$popr		;is this a set at all?
+	bmi	40$		;yes
+
+	tst	modded		;jsw chaged?
+	bne	200$		;yes
+	return			;no
+
+40$:	tst	iniopt		;should we init it?
+	bne	45$		;yes
+	psh	sets		;
+	bis	clears,(sp)+	;should we set or clear it?
+	beq	100$		;no - just list it
+	cmp	buff+jb.vic,#^rvic ;this our id?
+	beq	50$		;yes - do it
+	psh	buff+jb.vic	;
+	bis	buff+jb.vic+2,(sp)
+	bis	buff+jb.vic+4,(sp)+
+	beq	45$		;its emtpy - fill it in
+	tst	noqopt		;/noquery?
+	bne	45$		;yes
+42$:	$type	<?PROGRA-E-Image control area in use>
+	jmp	generr		;
+
+;	init
+
+45$:	mov	#^rvic,buff+jb.vic ;put us in
+	clr	buff+jb.vic+2
+	clr	buff+jb.vic+4
+
+;	set/clear
+
+50$:	bic	clears,buff+jb.vic+2
+	bic	clears+2,jb.vic+4
+	bis	sets,buff+jb.vic+2
+	bis	sets+2,buff+jb.vic+4
+
+	clr	-(sp)		;test if there is anything at all
+	bis	buff+jb.vic+2,(sp) ;
+	bis	buff+jb.vic+4,(sp) ;
+	tst	(sp)+		;any otption available
+	bne	60$		;yes
+	clr	buff+jb.vic	;clear the flag
+60$:	inc	modded		;remember to write it
+
+100$:	mov	kwords,r0	;got a kword limit?
+	beq	120$		;no
+	movb	r0,r0		;
+	mov	r0,buff+jb.kwl	;yes - set it
+	inc	modded		;
+120$:
+200$:	tst	modded		;did we modify it?	
+	beq	300$		;no
+	.writw	#area, #3, #buff, #256., #0
+	bcc	300$		;fine
+	$type	<?PROGRA-E-Error writing image >
+	jmp	generr		;
+
+300$:	tst	lists		;should we list it?
+	bne	310$		;yes
+	jmp	500$		;no
+
+310$:	tst	buff+jb.kwl	;got a kiloword limit?
+	beq	320$		;no
+	$type	<Kiloword limit:	>
+	$decima	buff+jb.kwl
+	$print
+
+320$:	cmp	buff+jb.vic,#^rvic ;this setup?
+	beq	340$		;yes
+	psh	buff+jb.vic	;
+	bis	buff+jb.vic+2,(sp)
+	bis	buff+jb.vic+4,(sp)+
+	beq	330$		;
+	$print	<?PROGRA-I-Image control area in use>
+330$:	$type	<?PROGRA-I-Image not initialized for options>
+	jmp	inferr		;
+
+340$:	$type	<Options set:	>
+	tst	buff+jb.vic+2	;got any?
+	bne	345$		;yes
+	$type	<None>
+	br	380$		;
+
+345$:	mov	#ic0lst,r2	;get the list
+350$:	bit	(r2)+,buff+jb.vic+2 ;is this set?
+	beq	360$		;no
+	.print	r2		;yes
+360$:	tstb	(r2)+		;
+	bpl	360$		;
+	inc	r2		;
+	bic	#1,r2		;
+	tst	(r2)		;any more?
+	bne	350$		;yes
+380$:	$print			;no
+500$:	$sxtsta	cat=succes	;
+	jmp	start		;and start over
+
+meta	<show c d><.word c><.ascii &d&<200>><.even>
+ic0lst:	
+show	icntr$	<Notrace >
+show	ictup$	<Lower >
+show	ictcl$	<Loop >
+show	ictcy$	<Ctrly >
+show	ictct$	<Ctrlt >
+show	ictcf$	<Ctrlf >
+show	icfpu$	<Fpu >
+show	icnra$	<Rt11a >
+show	icnrs$	<Rt11s >
+show	ictrp$	<Traps >
+show	iciop$	<Iopage >
+show	icnap$	<Nopaths >
+show	icunm$	<Unmapped >
+show	icctz$	<Ctrlz >
+show	icmmu$	<MMU >
+show	icrtm$	<Realtime >
+.word	0
+.sbttl	process options
+
+.macro	opt	nam	rou=0	val=0	adr=0	ctl=0
+	.byte	''nam
+	.byte	ctl
+	.word	rou
+	.word	val
+	.word	adr
+.endm
+
+;	nam	rou	val	adr	ctl
+optlst:
+opt	F	op$ful	1	0	0		;/Full
+opt	T	op$typ	1	0	swval$		;/T:sys
+;
+opt	S	set	100000	0	swval$		;/S:itm
+opt	C	clear	100000	0	swval$		;/C:itm
+opt	L	list	100000	0	0		;/L:itm
+opt	K	kilo	100000	0	swval$		;/K:size
+opt	Y	noquery	100000	0	0		;/Y
+opt	Z	init	100000	0	0		;/Z
+opt	J	setjsw	1	0	swreq$		;/J:jsw
+.word	0
+
+;	Process options
+;
+;	r0	
+;	r1
+;	r2 ->	switch frame
+;	r3 =	option word
+;	r4 =	value (default = 0)
+;	r5 ->	switch input
+
+map	sw.nam	byte,0	;switch name
+map	sw.ctl	byte	;control byte
+map	sw.rou		;routine
+map	sw.val		;value
+map	sw.adr		;address
+map	sw.bbs		;
+
+map	swreq$,,100	;required value
+map	swval$,,200	;optional value
+
+getops:
+5$:	clr	r4		;default is no value
+	mov	(r5)+,r3	;get the next
+	bpl	10$		;not the last and no value
+	cmp	r3,#-1		;this the last?
+	beq	80$		;yes
+	mov	(r5)+,r4	;get the value
+10$:	cmpb	r3,#'a		;this upper case?
+	blo	20$		;no
+	cmpb	r3,#'z		;really?
+	bhi	20$		;no
+	bicb	#'a-'A,r3	;yes
+20$:	mov	#optlst,r2	;get the option list
+30$:	tst	(r2)		;is this the last?
+	bne	40$		;no
+	$type	<?PROGRA-F-Invalid option>
+	br	opterr		;
+
+40$:	cmpb	r3,(r2)		;is this the switch?
+	beq	50$		;yes
+	add	#sw.bbs,r2	;no - get the next
+	br	30$		;
+
+50$:	tst	r3		;got a value?
+	bmi	60$		;yes
+	bitb	swreq$,sw.ctl(r2) ;require a value?
+	beq	70$		;no
+	$type	<?PROGRA-F-Option requires value>
+	br	opterr		;
+
+60$:	bitb	#swval$!swreq$,sw.ctl(r2) ;does it accept a value?
+	bne	70$		;yes
+	$type	<?PROGRA-F-Option does not accept value>
+	br	opterr		;
+
+70$:	bis	sw.val(r2),o$popr ;remember what we are doing
+	call	@sw.rou(r2)	;call the routine
+	br	5$		;and look for the next
+80$:	tst	o$popr		;get anything at all?
+	bne	90$		;yes
+	inc	o$popr		;no - force show
+90$:	return
+
+opterr:	$type	< >		;
+	$file	#ifile		;
+	$type	< />		;
+	.ttyout	r3		;
+	$print
+	bisb	eserr$,j$blev	;
+	jmp	start
+
+generr:	bisb	eserr$,j$blev	;
+inferr:	tst	ifile+2		;got a file?
+	beq	20$		;no
+	$type	< >		;
+	$file	#ifile		;
+20$:	$print			;
+	jmp	start		;
+.sbttl	set
+
+.macro	item	nam	val	adr
+	.rad50	/nam/
+	.word	val,adr
+.endm
+ic0=0
+ic2=2
+
+.if eq 1
+from:
+sets:	.word	0,0
+clears:	.word	0,0
+lists:	.word	0,0
+kwords:	.word	0
+modded:	.word	0
+noqopt:	.word	0
+iniopt:	.word	0
+;
+o$popr:	.word	0		;1 => show, 100000 => set
+;
+o$ptyp:	.word	0		;^rsys or nothing
+o$pful:	.word	0		;<>0 => /full
+to:
+.endc
+
+items:;	nam	val	adr
+item	upp	ictup$	ic0
+item	low	ictup$	ic0
+item	loo	ictcl$	ic0
+item	cty	ictcy$	ic0
+item	ctt	ictct$	ic0
+item	ctf	ictcf$	ic0
+
+item	fpu	icfpu$	ic0
+item	rta	icnra$	ic0
+item	rts	icnrs$	ic0
+item	iop	iciop$	ic0
+item	trp	ictrp$	ic0
+item	ntr	icntr$	ic0
+;item	sys	icsys$	ic0
+item	nap	icnap$	ic0
+item	unm	icunm$	ic0
+item	ctz	icctz$	ic0
+item	mmu	icmmu$	ic0
+item	rtm	icrtm$	ic0
+item	all	-1	ic0
+.word	0
+
+set:	call	getitem		;get the item
+	bis	r0,sets(r1)	;set the flag
+	return
+
+clear:	call	getitem		;get the item
+	bis	r0,clears(r1)	;
+	return
+
+list:	tst	r4		;is this the default?
+	bne	10$		;no
+	bis	#-1,lists	;yes - list them all
+	br	20$		;
+10$:	call	getitem		;
+	bis	r0,lists(r1)	;
+20$:	return
+
+kilo:	bis	#100000,kwords	;remember we got it
+	cmp	r4,#32.		;is this too large?
+	blos	10$		;no
+	$print	<?PROGRA-E-Maximum kiloword size is 32.>
+	jmp	generr		;
+10$:	movb	r4,kwords	;remember it
+	return
+
+noquery:inc	noqopt		;
+	return
+init:	inc	iniopt
+	return
+
+setjsw:	mov	r4,buff+jb.jsw	;store the new jsw
+	inc	modded		;say we need update
+	return
+
+op$ful:	inc	o$pful
+	return
+op$typ:	mov	r4,o$ptyp
+	return
+
+;	r3	switch
+;	r4	value
+
+;	r0	bit
+;	r1	offset
+
+getitem:			;find the item in r4
+	clr	r0		;
+	clr	r1		;
+	tst	r4		;got a value?
+	beq	30$		;no - ignore this
+	mov	#items,r0	;search for it
+10$:	cmp	r4,(r0)+	;is this ours?
+	beq	20$		;yes
+	cmp	(r0)+,(r0)+	;no - skip it
+	tst	(r0)		;any more?
+	bne	10$		;yes
+	$type	<?PROGRA-E-Item not found >
+	$rad50	r4		;display it
+	$print
+	jmp	generr		;and forget it
+20$:	mov	2(r0),r1	;r1 = address
+	mov	(r0),r0		;r0 = value
+30$:	return
+.sbttl	error package
+
+;print::	.print	r2		;print it
+;	br	even
+error:	bcs	errorp
+even:	tstb	(r2)+		;skip it
+	bgt	even
+	inc	r2
+	bic	#1,r2
+	rts	r2		;its o.k.
+fatal:
+errorp:	$type	<?>
+	.print	#i$mnam		;
+	$type	<-E->
+	.print	r2		;and the tail
+	tst	ifile		;got a file?
+	beq	10$		;no
+	$type	< >		;yes
+	$file	#ifile		;display it
+10$:	$print
+	$sxtsta	cat=fatal	;
+	jmp	start
+
+types:	.rad50	/         /
+
+;
+;	start of dynamic buffers
+;
+$=.				;get current address
+;
+;	set program data
+;
+map	from,null,$		;
+map	sets,word*2		;
+map	clears,word*2		;
+map	lists,word*2
+map	kwords
+map	modded
+map	noqopt
+map	iniopt
+;
+map	o$popr			;1 => show, 100000 => set
+;
+map	o$ptyp			;^rsys or nothing
+map	o$pful			;<> 0 => /full
+map	to,null			;end of set program
+;
+;	csi data
+;
+map	files,word*15.		;output files
+map	ifile,word*20.		;input files
+;files:	.blkw	3*5
+;ifile:	.blkw	5*4
+;
+;	miscs
+;
+map	area,word*5		;
+map	line,byte*84.		;
+;area:	.blkw	5
+;line:	.blkb	84.
+map	bitcnt
+map	bitoct
+map	imgius
+map	imglen
+;bitcnt:	.word	0
+;bitoct:	.word	0
+;imgius:	.word	0		;points to image use string
+;imglen:	.word	0		;image length
+
+;	
+;	image buffer
+;
+map	buff,null			;
+map	progra,null			;
+map	ima,word*512.			;
+map	buff2,word*512.			;
+map	room				;
+;
+;	offsets in progra buffer
+;
+meta	<off c d><c=progra+d>
+;
+off	$vir	0
+off	$limit	2
+off	$bpt	14
+off	$iot	20
+off	$trap	34
+off	$userpc	40
+off	$usersp	42
+off	$jsw	44
+off	$usradr	46
+off	$userto	50
+off	$root	52
+off	$stack	54
+off	$klimit	56
+off	$over	56
+off	$rel	60
+off	$reloc	62
+off	$table	64
+off	$window	66
+off	$releas	110
+off	$versio	112
+off	$vic	210
+off	$vic0	212
+off	$vic1	214
+off	$bitm	360
+
+
+;buff:
+;program:
+;ima:
+;meta	<map c d><c=progra+d>
+;map	$vir	0
+;map	$limit	2
+;map	$bpt	14
+;map	$iot	20
+;map	$trap	34
+;map	$userpc	40
+;map	$usersp	42
+;map	$jsw	44
+;map	$usradr	46
+;map	$userto	50
+;map	$root	52
+;map	$stack	54
+;map	$klimit	56
+;map	$over	56
+;map	$rel	60
+;map	$reloc	62
+;map	$table	64
+;map	$window	66
+;map	$releas	110
+;map	$versio	112
+;map	$vic	210
+;map	$vic0	212
+;map	$vic1	214
+;map	$bitm	360
+;.blkb	1024.-<.-ima>
+;buff2:	.blkb	1024.
+;room:
+.end	start
+

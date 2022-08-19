@@ -1,0 +1,1930 @@
+ter$c=1
+;	cu_ptr is replaced by get/put to an intermediate structure
+;???;	BOOT - use EMTs for bo$chk and messages
+;???;	BOOT - BOOT> boot XXX crashes applying default .SYS (.csispc)
+;???;	BOOT - /SELF fails; BOOT must check for valid boot image
+;???;	BOOT - im.rep fails; printf crashes
+;---;	BOOT - driver not found reported as fnf
+;---;	BOOT - app exit kills memory somewhere
+;---;	BOOT - stack location problem with RUSTx embedded boot
+rst$c=0		; restore monitor after boot driver fault
+sec$c=1		; use inc instead of bis to set cbit
+loo$c=1		; shorten lookup
+stk$c=0		; stack location
+
+.title	boot - RUST bootstrap manager
+.include "lib:rust.mac"
+
+	.asect			; the entire module is an asect
+
+$jbdef		;job
+
+;+++;	BOOT - look for more jmp-2-branch optimizations
+;+++;	BOOT - Use NOAUTO instead of NOIMAGE
+;+++;	BOOT - Should be BOOT> SET dev:file explicitly
+;+++;	BOOT - Add boot-time UI under BOOT
+;+++;	BOOT - Add COPY/BOOT
+;xxx;	BOOT - BOOT>BOOT completed
+;xxx;	BOOT - repair and clean up
+
+;???	Move all interactive stuff to BOOT extension
+;???	Move back system detection logic
+
+rxm$c=0		; default to RUST/SJ boot
+aut$c=1		; autoboot
+qui$c=0		; default to NOQUIET
+h50$c=1		; default to 50 hertz
+
+suf$c=0		; boot suffix correction
+mes$c=0		; memory size
+ctr$c=0		; ctrl/h, ctrl/r support
+ctc$c=1		; ctrl/c recognition
+pwf$c=0		; power-fail trap (redundant)
+mnm$c=0		; move monitor name to rmon
+wri$c=0		; write memory test
+xdp$c=0		; xxdp support
+seg$c=0		; additional directory segment checks
+clk$c=0
+hgh$c=0		; recover boot block after boot read fail (redundant)
+.asect
+
+;	BOOT.SYS is both a bootable and executable image.
+;
+;	When booted it acts as a subset RT-11 monitor. The
+;	usual task is to then RUN RUST.SAV or RUSTX.SAV.
+;
+;	When executed with RUN etc it acts as a configuration
+;	utility which is used to specify the name of the 
+;	executable image (RUST.SAV or RUSTX.SAV).
+;
+; ???	When executed under BOOT.SYS itself it acts as a 
+;	bootstrap manager.
+;
+;	BOOT utility
+;
+;	%build
+;	macro	cus:boot/object:cub:bootm
+;	link	cub:bootm/exe:cub:/map:cub:/cross
+;	set 	program/traps/loop/jsw=41000 cub:boot
+;	exit
+;	!
+;	copy cub:boot.sav cub:rust.sys
+;	cub:rust.sys
+;	set image BOOT.SAV
+;	set suffix V
+;	exit
+;	!
+;	copy cub:boot.sav cub:rustx.sys
+;	cub:rustx.sys
+;	set image RUSTX.SAV
+;	set suffix P
+;	exit
+;	end:
+;	%end
+
+$brdef		;boot area
+$chdef		;channel
+$cldef		;cli
+$cndef		;config
+$cpdef		;cpu types
+$dedef		;devices
+$dsdef		;device status
+$emdef		;emts
+$esdef		;error severity
+$fndef		;filenames
+$erdef		;errors
+$hwdef		;hardware
+$imdef		;image
+$iodef		;i/o
+$jsdef		;jsw
+$kjdef		;j11
+$kwdef		;clocks
+$mmdef
+$psdef		;psw
+$rmdef		;rmon
+$rtdef		;rt11a
+$sgdef		;sysgen
+$tcdef		;terminal config
+$txdef		;text
+$vedef		;vectors
+
+meta	<bosav$><jsr r5,bo$sav>
+meta	<bores$><jsr r5,bo$res>
+meta	<bofat$ nam stk=-word><jsr r2,bo$fat><.byte bo'nam'.,stk+word>
+meta	<borot$ cnt lim><jsr r3,bo$rot><.byte cnt,lim>
+meta	<asect$ adr val><.=adr><val>
+meta	<limit$ lim><assume . le lim>
+
+.if eq stk$c
+asect$	j$busp	c$ustk
+.endc
+asect$	j$bjsw	jsovr$			; set overlay bit
+asect$	400				; image ident area
+$imgdef	BOOT 4 0
+$imginf	fun=sbo cre=hammo aut=ijh use=<RUST bootstrap manager>
+$imgham	yrs=<1986,1987,1988,2004,2011> oth=<BOOT>
+;	%date
+$imgdat	<09-Jul-2022 00:51:28>   
+;	%edit
+$imgedt	<427  >
+
+;	Relocation 
+
+	meta	<.wordr a><rel .word a off=0>
+	meta	<movr a,b><rel mov a,b>
+
+	upctr. = 0
+
+	.macro	rel a b c off=2
+	.irp upx.,<\upctr.>
+	up'upx. = .+off
+	.endr
+	upctr. = upctr. + 1
+	.if nb c
+	a	b,c
+	.iff
+	a	b
+	.endc
+	.endm
+
+	.macro	reloc$
+	upmid. = upctr.
+	b$oloc = .
+	. = b$orel
+	upx. = 0
+	.rept upmid.
+	.irp	upy.,<\upx.>
+	.word	up'upy.
+	.endr
+	upx. = upx. + 1
+	.endr
+	.word	0
+	rmfre. == <r$mmon+rm.syu>-.
+	limit$	r$mmon+rm.syu		; end of csw area
+	. = b$oloc
+	.endm
+.sbttl	boot start and rmon
+
+	.macro	bofre$	lab, off
+	assume <.-r$mmon> le off
+	lab =  <r$mmon+off>-.
+	asect$	r$mmon+off
+	.endm
+
+	asect$	0
+	.rad50	/MON/			; identify as monitor image
+
+	asect$	1000
+	b$obuf = 1000
+	b$osec:
+	b$olow=.-<512.*3>-256.		; low address of boot real estate
+	b$ostk=.-<512.*3>-82.-32.	; boot stack
+	b$olin=.-<512.*3>-82.		; input line
+	b$olnx=.-<512.*3>-1		; end of input line
+	b$oseg=.-<512.*3>		; boot directory segment buffer
+	b$oswp=.-512.			; low memory swap buffer
+	r$mmon=.		;000	; 67,0 - not RUST monitor
+	r$mcsw=.+4		;004	; csw area - once-only code
+
+boXsec::
+bo$sec::nop				; RUST/BT RMON signature
+	mov	#bo$clk,v$eclk		; point to clock ps
+	clr	v$eclk+ve.ps		;
+	clr	r5			; location zero
+	mov	(r5),b$rdup		; save DUP flags
+10$:	clr	(r5)+			;0	trap catcher
+	clr	(r5)+			;2	trap catcher
+	mov	#bo$cat,(r5)+		;4	bus trap
+	clr	(r5)+			;6	cleared
+	mov	#bo$cat,(r5)+		;10	cpu trap
+	clr	(r5)+			;12	cleared
+
+	bvcw	@#ps,15$		; yep - we have a PS
+	mov	#bomf0.,b$omfp		; nope - use MTPS instead
+	mov	#bomf1.,b$omfp+word	; mfps 2(sp)
+15$:	bis	#100,@#h$wlks	;r2=100	; check & set clock
+	bvs	20$			; no clock register
+	bis	#cnkwc$,r$mcfg		; we have a clock
+					;
+20$:	bvcw	(r5)+,20$		; size kernel memory
+	tst	-(r5)			; backup
+
+;	Copy ourselves to top of memory
+;	Copies the boot block to the swap buffer b$oswp
+;
+;	r5 -> 160000 (typical end-of-memory)
+;	r0 -> b$renx+2 	end of primary/secondary/extension
+
+	mov	#b$renx+2,r0		;
+30$:	mov	-(r0),-(r5)		;
+	bnew	r0,30$			;
+
+;	r5 ->	
+;	Relocate high copy 
+
+	mov	#b$orel,r0		; relocation list
+40$:	mov	(r0)+,r2		; get the next
+	beq	50$			; all done
+	add	r5,r2			; relocate pointer
+	add	r5,(r2)			; relocate value
+	br	40$			;
+50$:	add	#bo$onc,r5		; where we continue
+	jmp	(r5)			; continue
+
+;	Relocation table inserted here by .wordr and movr macros
+
+b$orel:					; relocation table
+
+	bofre$	boSYU. rm.syu
+b$osyu=.+1			;	; boot device unit
+r$msyu:	.word	0		;274	; system device unit (in high byte)
+r$msyv:	.byte	5		;276	; system version - always RT-11 version
+r$msup:	.byte	33		;277	; system update
+boXcfg::				; label for boot.r
+r$mcfg:	.if ne h50$c			;
+	.word	cn50h$		;300	; system configuration flags - built
+	.iff
+	.word	0		;300	; system configuration flags - built
+	.endc				;
+r$mscr:	.word	0		;302	; GT control block address - unused
+r$mtks:	.word	h$wtks		;304	; console addresses
+r$mtkb:	.word	h$wtkb		;306
+r$mtps:	.word	h$wtps		;310
+r$mtpb:	.word	h$wtpb		;312
+
+bo$sav:	pshs	<r4,r3,r2,r1,r0>	; save registers
+	jmp	(r5)			; destroys r5
+
+bo$res:	bit	(sp),(sp)+		; skip, don't change c-bit
+	pops	<r0,r1,r2,r3,r4>	; restore registers
+	rts	r5			;
+
+bo$mfp:	psh	(sp)			; make space for it
+b$omfp:	bomf0.=nop			; nop
+	bomf1.=mfps+66			; mfps 2(sp)
+	mov	@#ps,word(sp)		; nop mfps 2(sp)
+	return				;
+
+	bofre$	boMTP. rm.mtp
+r$mmtp:	br	bo$mtp		;360	; move to ps
+r$mmfp:	br	bo$mfp		;362	; move from ps
+r$msyi:	.word	desyi.		;364	; system device index
+b$oidt::.byte	0		;366	; identify flag (BOOT V2.4)
+b$orun::.byte	1		;367	; run image
+r$mcf2:	.word	0		;370	; confg2 - extension config word
+r$msyg:	.word	sgfpu$		;372	; sysgen options - from boot impure
+
+	stack	pc ps			;	
+	assume	vbit eq 2		;	
+	assume	sp.ps eq 2		; and so is rti
+bo$cat:	bis	(pc),sp.ps(sp)	;374	; set return vbit (bis #2,2(sp))
+bo$mtp:	rti			;400	; (pop (sp),sev,return)
+	.word	0		;402	; unused
+
+r$mpnp:	.word	b$opnm-r$mmon	;404	; pname table offset
+r$mmnm:	.rad50	/BOOT  /	;406 ?	; monitor name
+r$msuf:	.rad50	/  V/		;412 ?	; driver suffix
+b$opnm:	.rad50	"TT "		;414	; pname table
+b$osnm:	.rad50	"SY "		;416	; system device permanent name
+r$mmes:	.word	1600		;420\	; sj/fb memory size in pages - constant
+b$ompt:	.word	0		;422/	; dummy memory map
+r$mtcf:	.wordr	b$otcf		;424 ?	; pointer to ttcnfg
+	.word	0		;426	; unused
+r$mmpt:	.word	b$ompt-r$mmon	;430	; offset to memory map
+.sbttl	vectors
+
+;	Fill in vectors before/after image activation
+;
+;	r2	must be safe
+;	r3 =	base location
+
+bo$vez:	clr	r3			; block zero (no relocation)
+bo$vec:	mov	#bic,(r3)		; bic r0,r0
+	mov	#emexi.,word(r3)	; .exit
+	movr	#r$mmon,jb.sys(r3) 	; rmon address
+	movr	#b$ovec,r0		; get the relocation list
+10$:	mov	(r0)+,r1		; get the next
+	beq	20$			; is no next - r1=0
+	add	r3,r1			;
+	mov	(r0)+,(r1)+		; move in one
+	clr	(r1)+			; clear the next
+	br	10$			;
+20$:
+	.if ne clk$c
+	bis	#cnclo$,r$mcfg		; evidence of a clock
+	.iff
+	.mtps	#0			; clear PS
+	.endc
+	return				;
+
+;	Vector fill & relocate data
+;
+;	This data is restored after each exit. Supports bootstraps
+;	and maintenance programs which overwrite the vectors.
+
+meta	<borel$ boo vec><.word vec><.wordr boo>
+b$ovec:	borel$	bo$bus,v$ebus		; bus vector
+	borel$	bo$cpu,v$ecpu		; cpu vector
+	borel$	bo$emt,v$eemt		; emt vector
+	b$opev=.-<word*2>		; patch point
+	borel$	bo$clk,v$eclk		; clock vector
+	borel$	bo$clk,k$pvec		; programmable clock
+	borel$	bo$bus,v$emmu		; mmu vector
+	borel$	bo$fpu,v$efpu		; fpu vector
+	.if ne	pwf$c			;
+	borel$	bo$pwf,v$epow		; power fail
+	.endc				;
+	.word	0			;
+
+;	Once-only code that won't fit in RMON table
+
+bo$onc:
+
+;	RUST/XM needs the following to boot.
+
+	mov	b$rdvn,r0		; b$rdvn - with wrong suffix
+	mov	r0,b$osnm		;
+10$:	sub	#40.,r0			; get it down to the suffix
+	bhis	10$			; more
+	add	#40.,r0			; bump it back
+	sub	r0,b$osnm		; b$osnm - minus suffix
+
+	.if ne suf$c
+	movr	#b$rdvn,r0		; b$rdvn - with wrong suffix
+	mov	(r0)+,(r0)		; b$rdvs - initially null
+20$:	sub	#40.,(r0)		; get it down to the suffix
+	bhis	20$			; more
+	add	#40.,(r0)		; bump it back
+	sub	(r0),-(r0)		; b$rdvn - minus suffix
+	mov	(r0),b$osnm		; b$osnm - minus suffix
+;	add	b$rsfx,-(r0)		; b$rdvn - with correct suffix
+;	mov	b$rdvn,b$opnm+desyi.	; system device name
+;	mov	(r0),b$opnm+desyi.	; system device name
+;	add	b$rsfx,(r0)		; b$rdvn - with correct suffix
+	.endc
+	.if ne mnm$c
+	mov	b$rfn0,r$mmnm		; monitor name
+	mov	b$rfn1,r$mmnm+word	;
+	mov	b$rsfx,r$msuf		; suffix
+	.endc
+	beqw	b$rers,#<^rERA>,30$	; no era
+	clr	b$rera			;
+30$:	fall	bo$rst
+.sbttl	reset and commands
+
+;	Reset monitor
+
+bo$exi:	.enabl	lsb			; app exit
+bo$rst:	mov	(pc)+,sp		; our stack
+b$pstk:	.wordr	b$ostk			; system stack
+	call	bo$vez			; reset vectors
+	mov	@#v$ebus,b$oswp+v$ebus 	; two are done by hand
+	mov	@#v$eclk,b$oswp+v$eclk	; for traps during read swaps
+	.if ne hgh$c			; (which should not occur)
+	call	bo$hgh			; force boot block high
+	.endc
+	.dsabl	lsb
+
+	clr	(pc)+			; clear flags
+b$olfd:	.word	0			; no line feed pending
+	tst	b$octc			; already done this?
+	bpl	bo$com			; yep
+	beqb	b$oidt,10$ 		; don't display "BOOT V2.3"
+	movr	#b$rnam,r0		; setup for print
+	.print				;
+10$:	mov	#ctrlc,(pc)+		; signal title done, let ctrl/c thru
+b$octc:	.word	-1			; done the tertiary stuff
+	bneb	b$orun,bo$run		; run the startup image
+	fall	bo$com
+
+;	Get a boot command
+;
+;	Invoked by NOIMAGE, .EXIT, boot fail or [ctrl/c]
+;
+;	boot> image[.sav]
+
+bo$com:	movr	#b$olin,r1		; point to the line
+	movr	#b$oprm,r2		; the prompt
+10$:	.gtlin	r1,r2			; get the command
+	tstb	(r1)			; got a null line?
+	beq	10$			; yes
+	movr	#b$oimg+fn.fil,r0	; set the image name pointer
+	call	bo$fil			; get a file spec
+	tstb	(r1)			; did the command terminate?
+	bne	20$			; no
+	tst	(r0)			; did we get a file?
+	bne	bo$run			; yes - load it
+20$:	bofat$	xic			; command error
+.sbttl	load image
+
+bo$chn:	mov	b$pstk,sp		; reset the stack
+	call	bo$vez			; reset vectors
+	jsr	r0,bo$loa		;
+b$ochn:	.byte	imchn.,emloo.		; chain lookup
+	.word	500			; chain file spec
+;sic]	.word	0			; sequence - ignored
+
+bo$run:	jsr	r0,bo$loa		;
+b$otlo:	.byte	imchn.,emloo.		; lookup
+	.wordr	b$oimg			; image spec
+;sic]	.word	0			; sequence - ignored
+
+;	Load image
+;
+;	r0 ->	emt .lookup block
+
+bo$loa:	emt	375			; look it up
+	bcs	40$			; file not found
+.if ne xdp$c
+	mov	r0,t$llen		; file size
+.endc
+	movr	#b$otrr,r0		; read the root
+	emt	375			;
+	bcs	30$			; error reading block zero
+
+	mov	#b$obuf,r3		; point to the buffer
+.if ne xdp$c
+	cmp	2(3),#1			; an XXDP LDA file?
+	beq	bo$xdp			; yes
+.endc
+	call	bo$vec			; fill in vectors etc.
+	jsr	r3,bo$mbl		; move down block zero
+	.word	b$obuf			; source
+	.word	0			; destination
+	.word	256.			; count
+					;
+	mov	@#j$btop,r1		; c=0 - get the program size
+	assume	b$obuf eq 1000		;
+	sub	r3,r1			; remove what we have
+	blo	10$			; its all in (remember settop)
+;sic]	clc				;
+	ror	r1			; make it words
+	inc	r1			; one more for settop logic
+	mov	r1,b$otwc		; setup the word count
+	movr	#b$otir,r0		; read it
+	emt	375			;
+	bcs	30$			; i/o error
+
+;	Go
+;
+;	r3 ->	block zero buffer
+;	r5 =	^rboo
+
+10$:	mov	@#j$busp,sp		; setup their stack
+	clr	@#j$bcct		; no command in buffer
+	mov	#^rboo,r5		; this is boot
+	mov	@#j$bupc,pc		; and start the program
+					;
+30$:	bofat$	xio			; I/O error
+40$:	bofat$	xfn			; file not found
+
+;	Image lookup & read data
+
+b$otrr:	.byte	imchn.,emrea.		; read image root
+	.word	0			; block number
+	.word	b$obuf			; buffer address
+	.word	256.			; word count
+;sic]	.word	0			; wait - ignored
+
+b$otir:	.byte	imchn.,emrea.		; read image 
+	.word	1			; block number
+	.word	1000			; buffer
+b$otwc:	.word	0			; word count
+;sic]	.word	0			; wait - ignored
+
+.if ne xdp$c
+tl$err:
+tl$adr:	
+.endc
+.sbttl	emt dispatch
+
+;	Dispatch program request
+;
+;	r0	request r0 for old emts
+;	r1	zero
+;	r2	computed emt code
+;	r3	word(r5) for emt 375 requests
+;	r4 ->	channel
+;	r5 	request r0 - copied to r0 on exit
+;	cbit	clear
+
+b$oclf:	.byte	clccl$			; cliflg - cli flags
+b$oclt:	.byte	-1			; clityp - cli type
+b$otcf:	.word	tc0xn$!tc0lm$!tc0sc$	; ttcnfg - terminal config
+bo$emt:	bic	#cbit,word(sp)		; clear the error bit
+	bosav$				; save all registers
+	stack	r0 r1 r2 r3 r4 r5 pc ps	; 
+	clrb	@#j$berr		; assume error code 0
+	mov	r0,r5			; r5 -> emt code or area
+	mov	sp.pc(sp),r1		; get the emt
+	mov	-(r1),r2		; r2 = emt code byte
+	movr	#b$oemt,r1		; r1 -> dispatch list
+	cmpb	r2,#374			; old/374/375/376?
+	blo	20$			; old emt
+	beq	10$			; 374
+	cmpb	r2,#376			; 375 or 376?
+	beq	bo$ovx			; 376 - error from overlay handler
+	add	#b$o375-b$o374,r1	; 375
+	mov	(r5),r0			; r0 = subcode ! channel
+	mov	word(r5),r3		; r3 = word(r5)
+10$:	add	#b$o374-b$oemt,r1	; 374
+	mov	r0,r2			; r2 = subcode ! channel
+	movb	r0,r0			; isolate channel
+	asl	r0			; multiply by 10
+	mov	r0,r4			; *2
+	asl	r0			;
+	asl	r0			;
+	add	r0,r4			; *10.
+     	add	r$pcsw,r4		; r4 -> channel
+	swab	r2			; r2 = subcode
+20$:	bic	#^c377,r2		; isolate subcode
+	clr	-(sp)			; dispatch address
+	stack	rou r0 r1 r2 r3 r4 r5 pc ps
+30$:	movb	(r1)+,(sp)		; (sp) = address
+	beq	40$			; end of table - check invalid
+;
+	cmpb	r2,(r1)+		; this the one?
+	bne	30$			; no
+	clr	r1			; r1 = 0
+	asl	(sp)			; make a word offset
+    rel	add	#b$oemd,(sp)		; add in the base address
+	call	@(sp)+			; yes - do it
+	br	bo$ems			; success returns
+					;
+40$:	cmpb	r2,(r1)			; is this one invalid?
+	beq	bo$emf			; yes - return error code
+	tstb	(r1)+			; end of the list?
+	bne	40$			; no - look again
+	cmpb	r2,(r1)+		; below minimum code?
+	blo	bo$emf			; yes
+	cmpb	r2,(r1)+		; above maximum code?
+	bhi	bo$emf			; yes
+	br	bo$emq			; no - just ignore it
+.sbttl	emt return
+
+;	bo$emr	test cbit
+;	bo$emf	fail
+;	bo$emq	quit - no error
+;	bo$ems	success - stack popped
+
+	stack	ret r0 r1 r2 r3 r4 r5 pc ps
+bo$emr:	bcc	bo$emq			; return
+bo$emf:
+	.if ne	sec$c
+	inc	sp.ps(sp)		; rti c=1
+	.iff
+	bis	#cbit,sp.ps(sp)		; fail
+	.endc
+bo$emq:	tst	(sp)+			; quiet
+	stack	r0 r1 r2 r3 r4 r5 pc ps	;
+bo$ems:	mov	r5,(sp)			; restore r0
+	call	bo$chk			; check for an abort
+	bores$				; restore all registers
+	rti				; and quit
+
+	stack	ret r0 r1 r2 r3 r4 r5 pc ps
+bo$ovx:	bofat$	xio sp.pc		; i/o error
+
+;	EMT list
+;
+; list:	.byte	offset, subcode		valid subcodes
+;	...
+;	.byte	0
+;	.byte	subcode, subcode, ...	invalid subcodes - may not be zero
+;	.byte	0
+;	.byte	minimum			minumum subcode
+;	.byte	maximum			maximum subcode
+
+meta	<boemt$ cod adr><.byte adr-b$oemd/word,cod>
+b$oemt:	boemt$	217	bo$ovl		; read overlay
+	boemt$	340	bo$tti		; ttyin
+	boemt$	341	bo$tto		; ttyout
+	boemt$	342	bo$dst		; dstatu
+	boemt$	343	bo$fet		; fetch
+	boemt$	344	bo$csi		; csigen
+	boemt$	345	bo$gln		; csispc & gtlin
+	boemt$	350	bo$exj		; exit (jump)
+	boemt$	351	bo$pri		; print
+	boemt$	353	bo$qst		; qset
+	boemt$	354	bo$sto		; settop
+
+	.byte	0,0			; invalid done in routines
+	.byte	340,377			; minimum & maximum
+b$o374:	boemt$	0	bo$wai		; wait - dummy for search logic
+	boemt$	10	bo$chj		; chain
+	boemt$	12	bo$dat		; date
+	.byte	0,0			; all are valid
+;	.byte	0,em74h.+2		; limits (+2 for new releases)
+	.byte	0,em74h.		; limits
+b$o375:	boemt$	1	bo$loj		; lookup
+	boemt$	3	bo$trp		; trpset
+	boemt$	10	bo$rea		; read
+	boemt$	20	bo$gjb		; gtjb
+	boemt$	21	bo$gtm		; gtim
+	boemt$	27	bo$cst		; cstat
+	boemt$	34	bo$gvl		; gval
+	boemt$	40	bo$sdt		; sdttm/gtimx/stimx
+	.byte	0,2,4,5,6,0		; enter rename savest reopen
+	.byte	11,32,0			; write spfun
+;	.byte	0,em75h.+2		; limits (+2 for new releases)
+	.byte	0,em75h.		; limits
+	.even				;
+b$oemd=.-2				; sic] emt dispatch base
+.sbttl	print, ttyout, ttyin
+
+;	Print & ttyout
+;
+;	r0	request r0 for old emts
+;	r1	zero
+;	r2
+;	r3	word(r5) for emt 375 requests
+;	r4 ->	channel
+;	r5 	request r0 - restored to r0 on exit
+;	cbit	clear
+;
+;	r0 ->	string
+;
+;	r0	undefined
+;	r1 ->	past last byte
+
+	.enabl	lsb			;
+bo$pri:	mov	r0,r1			; get a copy
+10$:	movb	(r1)+,r0		; get the next
+	beq	bo$new			; done - do new line
+	cmpb	r0,#200			; this the last?
+	beq	20$			; yes
+	call	bo$put			; display it
+	br	10$			;
+bo$new:	mov	#cr*256.+lf,r0		; yes
+	call	(pc)			; cr then lf
+	swab	r0			; get the next
+bo$tto:	callr	bo$put			; display the character
+
+;	ttinr
+;
+;	Does not support rubout or convert to upper case
+
+bo$tti:	movr	#b$olfd,r3		; point to the line feed
+	mov	(r3),r5			; got a line feed?
+	bne	bo$cr3			; yes - clear it and quit
+	call	bo$chk			; get the character
+	bcs	bo$emf			; no character
+	mov	r0,r5			; return the character
+	cmpb	r5,#cr			; this a return?
+	bne	20$			; no
+	movb	#lf,(r3)		; yes - linefeed next time
+20$:	return				;
+	.dsabl	lsb			;
+;+++;	BOOT - .csispc to support a single file and no switches
+.sbttl	csi, gtlin
+
+;	Pick up the parameters for CSI requests and report an error
+;	Process gtlin requests
+;	Convert input to uppercase after echo
+
+bo$gln:	stack	ret r0 r1 r2 r3 r4 r5 pc ps str prm flg lin bbs
+;o$csi:	stack	ret r0 r1 r2 r3 r4 r5 pc ps str prm flg bbs
+bo$csi:	stack	ret r0 r1 r2 r3 r4 r5 pc ps cmd ext out bbs
+	borot$	3 sp.bbs		; get the first three
+	stack	prm flg lin ret r0 etc	; if line buffer
+	stack	prm flg ret r0 etc	;
+	stack	cmd ext out
+;sic]	pop	r2			; r2 = str (zero)	str
+	pop	r4			; r4 -> the prompt	typ
+	pop	r0			; r0 -> the flag	out
+	asr	r0			; is it set for another parameter?
+	bcc	bo$emf			; no - and its not gtlin
+	stack	ret r0 r1 r2 r3 r4 r5 pc ps lin bbs
+	borot$	1 sp.bbs		; get the line buffer address
+;sic]	pop	r2			; r2 -> the buffer
+	asr	r0			; was this csispc?
+	bne	70$			; yes
+					; get line
+	mov	r2,r1			; r1 -> buffer
+	mov	r4,r0			; got a prompt?
+	beq	20$			; no
+10$:	.print				; yes
+20$:	call	bo$chk			; get a character
+	bcs	20$			; nothing doing
+	cmpb	r0,#cr			; terminate on lf
+	beq	50$			;
+	cmpb	r0,#rubout		; this a delete?
+	bne	30$			; no
+	cmp	r1,r2			; at start of line?
+	beq	20$			; yes
+	dec	r1			; no
+	movr	#60$,r0			; nope - do rubout
+	br	10$			; rub it out
+30$:rel	cmp	r1,#b$olnx		; any more space in line?
+	bhis	20$			; no - refuse it
+	.ttoutr				; no - display it
+	cmpb	r0,#'a			; this lowercase?
+	blo	40$			; no
+	cmpb	r0,#'z			; really?
+	bhi	40$			; no
+	sub	#'a-'A,r0		; yes
+40$:	movb	r0,(r1)+		; store it
+	br	20$			; look again
+50$:	clrb	(r1)			; terminate it
+	br	bo$new			; new line and return
+60$:	.byte	bs,space,bs,200		; rubout
+70$:	jmp	bo$csp
+.sbttl	cstat, exit, settop, date, trpset, gtim, gval
+
+;	cstat
+
+bo$cst:	mov	r3,r5			; return address in r0
+	mov	(r4)+,(r3)+		; ch.csw 
+	bpl	bo$emf			; oops - channel not open
+	mov	(r4)+,(r3)+		; ch.sbl
+	mov	(r4)+,(r3)+		; ch.len
+	mov	(r4)+,(r3)+		; ch.use
+	movb	byte(r4),(r3)+		; ch.uni
+	clrb	(r3)+			;
+	mov	b$opnm+desyi.,(r3)+	; system device name
+	return
+
+;	settop
+;
+;	r5 	new top address
+
+bo$sto:	cmp	b$ousr,r5		; value ok?
+	bhis	30$			; yes
+	mov	b$ousr,r5		; return the value
+30$:	mov	r5,@#j$btop		; return low location
+	return				;
+
+;	date
+
+bo$dat:	mov	b$rdat,r5		; return the date
+bo$wai:	return				; dummy wait routine
+
+;	trpset
+
+bo$trp:	mov	r3,b$otrp		; setup the trap location
+	return				;
+
+;	sdttm/gtimx
+
+bo$sdt: bneb	(r5),#1,10$		; not .gtimx
+	mov	b$rdat,(r3)+		; date
+	call	bo$gtm			; time
+	mov	b$rera,(r3)+		; era
+10$:	return
+
+;	gtim
+
+bo$gtm:	mov	b$rhot,(r3)+		; high order
+	mov	b$rlot,(r3)+		; low order
+	return
+
+;	gval
+;
+;	34	0	gval
+;		1	peek
+;		2	pval	ignored
+;		3	poke	ignored
+
+bo$gvl:	cmpb	(r5),#1			; what is it?
+	bhi	20$			; pval or poke
+	beq	10$			; peek
+    	add	@#j$bsys,r3		; relocate it
+10$:	mov	(r3),r5			; return value in r0
+20$:	return				;
+.sbttl	gtjb, dstat, fetch, qset
+
+;	gtjb
+
+bo$gjb:	mov	r3,r5			; return block address in r0
+	clr	(r3)+			; job number
+	mov	b$ousr,(r3)+		; high limit
+	clr	(r3)+			; low limit
+	mov	(pc)+,(r3)+		; csw area pointer
+r$pcsw:	.wordr	r$mcsw			; 
+	clr	(r3)+			; clear impure address
+	clr	(r3)+			; no multiterminal
+bo$cr3:	clr	(r3)+			; no virtual high limit
+	return				;
+
+;	dstat				
+;
+;	r0 ->	device name
+;	0(sp)	dblk!phyflg
+;
+;	The information is about an imaginary RT11A disk.
+;	It is sufficient to convince a program that the disk is loaded.
+;	All logical names translate to SY: - no device name check is made.
+
+	stack	ret r0 r1 r2 r3 r4 r5 pc ps buf bbs
+	.enabl	lsb			;
+bo$dst:
+	borot$	1 sp.bbs		; rotate the stack one place
+;sic]	pop	r2			; r2 = buffer
+	call	10$			; clean up address, return it in r5
+	mov	#dsrta$+377,(r2)+	; de.sta - rt-11 disk
+	mov	#100,(r2)+		; de.hsz - it is very small
+	mov	pc,(r2)+		; de.ent - it is loaded here
+	mov	pc,(r2)+		; de.dsz - and it is quite large
+	return				;
+
+;	fetch & qset
+;
+;	Pickup the parameter and ignore it
+
+bo$fet:
+bo$qst:	stack	ret r0 r1 r2 r3 r4 r5 pc ps buf bbs
+	borot$	1 sp.bbs		; rotate the stack one place
+;sic]	pop	r2			; r2 = buffer
+10$:	bic	#1,r2			; clean up the address
+	mov	r2,r5			; and return it
+20$:	return				;
+	.dsabl	lsb			;
+
+;	chain and exit
+
+bo$exj:	jmp	bo$exi			; exit (jump)
+bo$chj:	jmp	bo$chn			; chain (jump)
+.sbttl	lookup 
+
+;	r0	request r0 for old emts
+;	r1	zero
+;	r2
+;	r3	word(r5) for emt 375 requests
+;	r4 ->	channel
+;	r5 	request r0 - restored to r0 on exit
+;	cbit	clear
+;
+;	r5 ->	chn ! cod
+;		filespec address
+;
+;	r1 =	start block
+;	r2 ->	entry
+;	r3 ->	fn.fil(dblk)
+;	r4 ->	channel
+;	r5 ->	chn ! cod
+
+	.enabl	lsb
+bo$loo:	clr	(r4)			; channel not open
+;sic]	mov	word(r5),r3		; r3 -> filespec
+	tst	(r3)+			; r3 -> fn.fil(r3)
+	clr	r5		; r1=0	; assume non-file open
+	tst	(r3)			; non file open?
+	beq	60$			; yes - we are done
+	mov	#1,r0			; first segment
+
+;	Next segment
+
+10$:	asl	r0			; *2
+	cmp	(r0)+,(r0)+		; +4
+	mov	#512.,r1		; word count
+	movr	#b$oseg,r2		; buffer address
+	beqw	r0,r$mblk,15$		; already have the segment
+	mov	r1,(pc)+		; invalidate directory buffer
+r$mblk:	.word	0			;
+	call	bo$red			; call the read routine
+	bcs	bo$xdi			; oops - directory i/o error
+	mov	r0,r$mblk		; remember directory segment
+	assume	rt.hbs-word eq rt.blk	;
+
+15$:	add	#rt.blk,r2		; point at first entry
+	mov	(r2)+,r1		; rt.blk - get first start block
+
+;	Entry loop
+
+20$:	bit	#rtiv$p,(r2)		; this a valid directory?
+	bne	bo$xdf			; no
+	bit	#rtend$,(r2)		; end of segment?
+	bne	40$			; yes - get next segment
+	.if ne seg$c
+   rel	cmp	r2,#b$oseg+1024.	; exact end of segment buffer?
+	beq	40$			; yes
+	bhi	bo$xdf			; invalid directory
+	.endc
+	mov	r2,r0			; r0 -> sta fil nam len
+	bit	#rtper$,(r0)+		; rt.sta - permanent entry?
+	beq	30$			; no
+					;
+	mov	r3,r5			; get a copy
+	bnew	(r5)+,(r0)+,30$		; compare filnamtyp
+	bnew	(r5)+,(r0)+,30$		;
+	beqw	(r5)+,(r0)+,50$		;
+					
+;	Next entry
+ 
+30$:	add	rt.len(r2),r1		; increment start block
+	add	#rt.ebs,r2		; next entry
+	add	b$oseg+rt.ext,r2	; add in extra bytes
+	br	20$			; look at the next
+
+;	Next segment
+
+40$:	mov	b$oseg+rt.nxt,r0	; get the next segment
+	bmi	bo$xdf			; ridic segment number
+	bne	10$			; more segments
+	jmp	bo$emf			; file not found
+					
+;	Setup channel
+;
+;	r1	start block
+;	r5	length (zero for non-file)
+
+50$:	mov	(r0),r5			; rt.len - return length in r0
+60$:	mov	#csact$+desyi.,(r4)+	; rt.csw
+	mov	r1,(r4)+		; rt.sbl - zero for non-file
+	mov	r5,(r4)+		; rt.len - zero for non-file
+	clr	(r4)+			; rt.use
+	mov	r$msyu,(r4)+		; rt.uni - in high-byte
+bo$rt2:	return				; found
+	.dsabl	lsb
+					;
+	stack	ret r0 r1 r2 r3 r4 r5 pc ps
+bo$xdi:	bofat$	xio sp.pc		; directory I/O error
+bo$xdf:	bofat$	xdf sp.pc		; directory format error
+.sbttl	read & overlay read
+
+;	EMT 217 read supported for overlays.
+;
+;	r0	virtual block
+;	sp.buf	buffer address
+;	sp.wct	word count
+;	sp.com	completion - ignored
+
+	stack	ret r0 r1 r2 r3 r4 r5 pc ps buf wct com bbs
+bo$ovl:	borot$	3 sp.bbs		; rotate the stack
+	stack	buf wct com ret r0 r1 r2 r3 r4 r5 pc ps bbs
+	losbl.=<ch.bbs*imchn.>+ch.sbl	;
+ 	add	r$mcsw+losbl.,r0	; r0 = block
+;sic]	pop	r2			; r2 = buffer
+	pop	r1			; r1 = word count
+	tst	(sp)+			; forget the ast
+	br	bo$rec			;
+
+;	EMT 375 read
+;
+;	r4 ->	channel
+;	r5 ->	cod!chn	channel number
+;		blk	virtual block
+;		buf	buffer address
+;		wct	word count
+;		com	completion - ignored
+
+bo$loj:	br	bo$loo			; branch across read routine
+bo$rea:	tst	(r5)+			; skip the channel & code
+	mov	(r5)+,r0		; r0 = virtual block number
+	mov	(r5)+,r2		; r2 = buffer address
+	mov	(r5)+,r1		; r1 = word count
+					;
+	mov	ch.sbl(r4),r3		; r3 = logical start block
+	beq	10$			; non-file access
+	mov	ch.len(r4),r5		; r5 = file length in blocks
+	sub	r0,r5			; subtract start block
+	blos	20$			; end of file error
+	swab	r5			; get block count
+	bne	10$			; 256+ is big enough for anything
+	cmp	r5,r1			; compare remainder with wordcount
+	bhis	10$			; fine
+	mov	r5,r1			; truncate request
+10$:	add	r3,r0			; r0 = logical block number
+	br	bo$rec			;
+20$:	clr	r5			; end of file - no data read
+	jmp	bo$emf			; failed
+
+;	Read common
+;
+;	Common overlay & emt read
+;
+;	r0	logical block
+;	r1	word count
+;	r2	buffer address
+;	r3:r4	preserved
+;
+;	r5	actual wordcount - returned in r0
+
+bo$rec:	mov	r1,r5			; get the word count
+   rel	psh	#bo$emr			; return to bo$emr
+	fall	bo$red			; read the data
+.sbttl	read primitive
+
+;	r0 =	logical block number
+;	r1 =	word count
+;	r2 ->	buffer address
+;	r0:r5	preserved
+;
+;	Called from bo$rec and bo$loo
+;	Save the stack, setup read stack
+;	Swap block zero and swap buffer copy of boot driver
+;	Save and setup b$rdvu - setup r$msyu 
+;	Issue the read operation
+;	Swap back swap buffer and block zero
+;	Restore b$rdvu unless modified by read operation
+
+bo$red:	bosav$				; save all registers
+	mov	sp,40$			; save the stack
+	stack	r0 r1 r2 r3 r4 r5	;
+   rel	cmp	sp,#b$olow		; using the monitor stack?
+b$ousr=.-2
+	bhis	10$			; yes - dont swap
+    	mov	b$pstk,sp		; no - use system stack
+					;
+10$:	.mtps	#340			;
+	mov	#b$rdvu,r4		; save low version
+	mov	(r4),-(sp)		; save location
+	mov	b$rdvu,(r4)		; set it up (with high version)
+	movb	(r4),b$osyu		; build monitor copy
+	clr	-(sp)			; assume restore
+	sub	r2,r4			; can read modify area?
+	bcs	15$			; nope
+	psh	r1			; words
+	asl	(sp)			; bytes
+	sub	(sp)+,r4		; will read modifiy @#4722?
+	adc	(sp)			; c=1 if true
+15$:	stack	flg,sav			;
+					;
+	call	bo$swp			; swap once
+	mov	#jmp+37,@#br$ioe	; catch I/O errors
+	movr	#20$,@#br$ioe+word 	; jmp @#20$
+	call	@b$rrea			; call the read routine
+					; all registers lost
+	tst	(pc)+			; returns only if okay
+20$:	sec				; errors patched to come here
+	call	bo$swp			; swap back again
+	adc	r4			; setup the cbit
+	assume	ioher. eq 1		; r4 = 0 or 1
+	movb	r4,@#j$berr		; set I/O error code if one occurred
+	stack	flg,sav			;
+	asr	(sp)+			; reset device unit word?
+	bcs	50$			; nope
+	stack	sav			;
+	mov	(sp),@#b$rdvu		; yes - restore it
+					; (no need to pop dvu)
+50$:	mov	(pc)+,sp		; reset the stack
+40$:	.word	0			; saved stack
+	.mtps	#0			;
+	rorb	r4			; reset the cbit
+	bores$				; restore all registers
+	return				; return to caller
+
+;	Swap boot block and image low memory
+;
+;	cbit not modified
+;	r4 low byte cleared
+
+	.enabl	lsb
+	.if ne hgh$c
+bo$hgh:	bpcw	#1,b$ohgh,20$		;boot block is already high
+	.endc
+bo$swp:	bic	r4,r4			;c=? block zero
+	.if ne hgh$c			;c=?
+	inc	(pc)+			;c=?
+b$ohgh:	.word	0			;c=? even = high, odd = low
+	.endc				;c=?
+	movr	#b$oswp,r5		;c=? get swap buffer
+10$:	psh	(r4)			;c=? save low value
+	mov	(r5),(r4)+		;c=? replace it
+	pop	(r5)+			;c=? swap it
+	bit	#777,r4			;c=? all done?
+	bne	10$			;c=? no
+20$:	return				;c=? r4+0 is clear
+	.dsabl	lsb
+.sbttl	csispc 
+
+;	Here because of branch distances
+;
+;	r2 ->	string
+;	r4 ->	default types
+;	r0 ->	output specs
+
+bo$csp:	asl r0
+bpt
+	add	#3*5*2,r0	; r0 -> rad50 output
+	mov	#^rsy,(r0)+	; r0 -> fil in devfilnamtyp
+	mov	r2,r1		; r1 -> string
+	mov	6(r4),r2	; r2 = default type
+	call	bo$fil		; translate the spec
+;	beqw	(r0),bo$emj	;
+	return
+.sbttl	traps
+
+;	Traps may be lost if they occur during boot read routines.
+;	We could (should) set PR7 to block interrupts at this time.
+;
+;	b$otrp	trap routine address
+;	c=0	bus/mmu error
+;	c=1	cpu error
+;
+;	b$otrp is not cleared - thus program can loop
+
+	.enabl	lsb			;
+bo$cpu:	sec				; cpu error
+bo$mmu:					; mmu error
+bo$bus:	psh	b$otrp			; c=? -	get the trap location
+	beq	10$			; c=? -	no routine - crash
+	bic	(pc),(pc)+		; c=? -	this is almost original
+b$otrp:	.word	0			; 	trap location
+	return				; c=? -	enter bus/cpu/mmu sst
+10$:	bcs	20$			; cpu error
+	stack	nul pc ps		;
+	bofat$	xbu sp.pc		; bus error
+20$:	bofat$	xcp sp.pc		; cpu error
+	.dsabl	lsb			;
+					;
+bo$clk:	add	#1,b$rlot		; low order
+	adc	b$rhot			; high order
+	.if eq clk$c
+	bis	#cnclo$,r$mcfg		; evidence of a clock
+	.endc
+bo$fpu:	rti				; ignore FPU traps (Unix)
+					;
+	.if ne	pwf$c			;
+	stack	pc ps			;
+bo$pwf:	bofat$	xpf sp.pc		; powerfail
+	.endc				;
+.sbttl	errors
+
+;	Secondary and tertiary boot messages.
+;
+;	bofat$	cod stk
+;
+;	jsr	r2,bo$fat
+;	.byte	cod		error code
+;	.byte	stk		stack depth to pc
+;
+;	r0/r1	print
+;	r2 ->	message string
+;	r3 ->	stack pc
+;	r4 ->	print routine
+;	r5 	safe
+
+	stack	r2 etc			;
+bo$fat:	movr	#b$omsg.,r0		;sic] get the message header	
+	movr	#bo$pri,r4 		; point to the print routine
+	psh	r0			; save it
+	stack	r0 r2 etc		;
+	call	(r4)			; print the header
+					;
+	movb	(r2)+,r0		; get the offset
+	add	(sp)+,r0		; r0 -> message
+	stack	r2 etc			;
+	movb	(r2)+,r3		; stack offset
+	add	sp,r3			; r3 -> stack pc
+	mov	r2,(sp)			; return address
+					;
+	stack	ret etc			;
+	call	(r4)			; print the message
+	tstb	(r1)			; need " error" added?
+	bmi	10$			; no - just location
+	beq	20$			; no - nothing
+	movr	#b$oerr,r0 		; yes
+	call	(r4)			; print " error "
+					;
+10$:	mov	(r3),r1			; r1 = error pc
+	call	bo$num			; display the location
+					;
+20$: 	movr	#b$oimm,r0		; point to the filename
+	call	(r4)			; display the name & newline
+.if ne 0
+	call	bo$chk			;
+	.if ne	rst$c			; restore 
+	bmiw	pc,bo$rsj		; restore
+	call	bo$swp			; swap the driver back
+	.iff
+	tst	pc			; are we in the secondary boot
+	bmi	bo$rsj			; yes - cannot recover
+	.endc
+bo$hlt:	halt				;
+.endc
+bo$rsj:	jmp	bo$rst			; restore monitor and prompt
+	.if ne ctr$c
+bo$rom:	jmp	@#173000		; start bootstrap rom
+	.endc
+
+;	Display a number
+;
+;	r1	number
+;	r0	burnt
+;	r2/r3	burnt
+
+bo$num:	mov	#111111,r3 	; loop control
+	clr	r2		; there once was a glichette named brigette
+10$:	clr	r0		; who fancied the occassional fidget
+20$:	asl	r1		; well, its fetch a bit here
+	rol	r0		; and fudge a bit there
+	asl	r3		; when it itches, ya just find ya digit
+	bcc	20$		; keep fiddling
+	beq	30$		; must print the final digit
+	bis	r0,r2		; set the print flag
+	beq	10$		; nothing to print so far
+30$:	add	#'0,r0		; start or continue printing
+	call	bo$tto		; display the character
+	tst	r3		; done all digits ?
+	bne	10$		; nope, go scritch it
+	return			;
+.sbttl	messages
+
+;	.ascii	"message"	message string
+;	.byte	>0		 error <pc> filnam.typ
+;	.byte	<1		<pc> filnam.typ
+;	.byte	0		filnam.typ
+;
+;	Messages that end with <200> have " error" appended
+
+meta	<bomsg$ nam ctl><bo'nam'.=.-b$omsg><b$o'nam: ctl>
+b$omsg:	.ascii	<cr><lf>"?BOOT-U-"<200>	;
+b$oerr:	.ascii	" error "<200>		;
+b$oimm:;.ascii	" "			; " filnam.typ"
+	.byte	0			;
+					;
+bomsg$	xbu	<.ascii	"Bus"<200>>	; Bus error
+;omsg$	xtp	<.ascii	"T11"<200>>	; Falcon error
+bomsg$	xcp	<.ascii	"Cpu"<200>>	; CPU error
+bomsg$	xio	<.ascii	"I/O"<200>>	; I/O error
+bomsg$	xdf	<.ascii	"Directory"<200>>; Bad directory
+bomsg$	xic	<.ascii	"Command"<200>>	; command error
+bomsg$	xfn	<.ascii	"File not found"<200><0>> ; File not found
+.if ne pwf$c
+bomsg$	xpf	<.ascii	"Power"<200>>	; Power error
+.endc
+	.even
+.sbttl	terminal output
+
+;	Handles [ctrl/q] [ctrl/s] protocol
+;
+;	r0	character to write
+
+bo$put:	psh	r0			; save the output character
+10$:	call	bo$chk			; handle ctrl/q & ctrl/s
+	tstb	@r$mtps			; ready yet?
+	bpl	10$			; no
+	pop	r0			; get the character back
+	movb	r0,@r$mtpb		; move it in
+	return				; c=0
+
+;	Check terminal input
+;
+;	Check for [ctrl/q] & [ctrl/s]
+;	Check for [ctrl/c] abort
+
+bo$chk:	.enabl	lsb			; check terminal
+10$:	call	bo$get			; get another
+	bcs	30$			; nothing doing - ignore it
+	beq	10$			; ignore spurious ctrl/q
+	.if ne ctr$c
+	beqb	r0,#ctrlr,bo$rom	; ^R -> ROM boot
+	beqb	r0,#ctrlh,bo$hlt	; ^H -> HALT
+	.endc
+	beqb	r0,b$octc,40$		; ^C -> abort
+	bneb	r0,#ctrls,50$		; not ctrl/s
+20$:	call	bo$get			; get another
+	bcs	20$			; none there
+	bne	20$			; not ctrl/q
+30$:	sec				; c=1 => no character
+	return
+40$:	call	bo$new			; ctrl/c abort
+	br	bo$rsj			; restart
+
+bo$get:	tstb	@r$mtks			; get one
+	bpl	30$			; none there
+	movb	@r$mtkb,r0		; get it
+	bic	#^c177,r0		; clean it up
+	cmp	r0,#ctrlq		; check for ctrl/q
+50$:	clc				; got one
+	return				;
+	.dsabl	lsb			;
+.sbttl	filename, rad50
+
+;	Convert filename
+;
+;	r0 ->	filespec+fn.nam
+;	r1 ->	ascii string - popped past
+;	r2 =	default type
+;
+;	r3:r4	burnt
+
+	.enabl	lsb
+bo$fil:	psh	r0			; save r0
+	mov	r2,6(r0)		; default type
+	movr	#bo$pck,r4		;
+10$:	mov	(sp),r0			; get back the name
+	jsr	r5,(r4)			; get the first
+	.byte	3,':			; look for a colon
+	beq	10$			; ignore devices
+	jsr	r5,(r4)			; get the next
+	.byte	3,'.			; look for a dot
+	bne	20$			; no type
+	jsr	r5,(r4)			; get the type
+	.byte	3,-1			; dont skip anything
+20$:	pop	r0			; get back the pointer
+	return
+	.dsabl	lsb
+
+;	Convert ascii to rad50
+;
+;	jsr	r5,bo$pck
+;	.byte	cnt		number to convert - always 3
+;	.byte	ter		terminating character to match
+;
+;	r0 ->	output word - popped
+;	r1 ->	input string
+;	r2:r3	destroyed
+;
+;	z=0	next char does not match
+;	z=1	next char matched and skipped
+
+	.enabl	lsb
+bo$pck: psh	(r5)+			; get the counter and terminator
+	clr	(r0)			; clear it first
+10$:	mov	#39.,r3			; multiply by 40.
+	mov	(r0),r2			; get the value
+20$:	add	r2,(r0)			; once
+	dec	r3			; count it
+	bne	20$			; more
+
+	movr	#b$orad,r3		; get the states list
+30$:	movb	(r3)+,r2		; get the next offset
+	beq	40$			; forget it
+	bpl	30$			; skip range parameters
+	cmpb	(r1),(r3)+		; check the range
+	blo	30$			; its too low
+	cmpb	(r1),(r3)+		; too high
+	bhi	30$			;
+	movb	(r1)+,r3		; accept the character
+	add	r3,r2			; and compute the present value
+	add	r2,(r0)			; add in the new value
+40$:	decb	(sp)			; got more?
+	bne	10$			; do another sign
+	tst	(r0)+			; pop past the word
+	swab	(sp)			; look at the terminator
+	cmpb	(r1)+,(sp)+		; is this the terminator?
+	beq	50$			; yes - z=1
+	dec	r1			; no - z=0 - backup
+50$:	rts	r5			;
+b$orad:	.byte	-22,'0,'9,-100,'A,'Z,-140,'a,'z,-11,'$,'$,0
+	.even
+	.dsabl	lsb
+;***;	BO$ROT - elegant - generalize to library
+.sbttl	stack rotate, move block
+
+;	Rotate the stack 
+;
+;	BO$ROT handles stack rotates for EMTs with stack parameters.
+;
+;	r0	unchanged
+;	r1:r2	burnt
+;	r2	returns first of the stack
+;	r3	burnt
+;	r4:r5	unchanged
+;
+;	borot$	cnt lim
+;
+;	jsr	r3,bo$rot
+;	.byte	cnt		number of words to rotate
+;	.byte	lim		usually sp.bbs
+;
+;	stack	ret r0 r1 r2 r3 r4 r5 pc ps p1 p2 p3 bbs
+;	borot$	3 sp.bbs
+;	r2 = p1
+;	stack	p2 p3 ret r0 r1 r2 r3 r4 r5 pc ps bbs
+;
+;	Call pushs r3 on the stack. This is used to rotate the top word.
+;	Thus the offset to SP.BBS is really to the last parameter.
+
+bo$rot:	movb	(r3)+,r2		; r2 is the count
+10$:	movb	(r3),r1			; point to it
+	add	sp,r1			; sp -> top of stack
+	mov	(r1),(sp)		; rotate to the bottom
+20$:	mov	-(r1),word(r1)		; move one up
+	cmp	r1,sp			; moved them all?
+	bne	20$			; no
+	dec	r2			; got another
+	bne	10$			; yes
+	cmpb	(r3)+,(sp)+		; inc r3 and pop dummy
+	pop	r2			; return top word in r2
+	jmp	(r3)			; go back to them
+
+;	Move block
+;
+;	jsr	r3,bo$mbl
+;	.word	source
+;	.word	destination
+;	.word	count
+;
+;	r0	source
+;	r1	destination
+;	r2	count
+
+bo$mbl:	mov	(r3)+,r0		;move block source
+	mov	(r3)+,r1		;destination
+bo$m01:	mov	(r3)+,r2		;count
+10$:	mov	(r0)+,(r1)+		;move one
+	bvs	20$			;memory error during startup
+	sobw	r2,10$			;count it
+	rts	r3			;
+20$:	bofat$	xbu			;bus error
+.end
+;???;	BOOT release ident string below
+;???;	BOOT - 1024. byte buffer at end of image
+.sbttl	bootstrap setup data
+
+reloc$				; build relocation table.
+
+;	RUST information area
+
+b$rfre: brfre. == b$rims-.
+limit$	b$rims			; don't overwrite boot signature area
+asect$	b$rims
+boXspc==b$rims			;	  label for BOOT.R
+	b$oima:	.asciz "RUST.SAV" ;	- Executable ascii name
+		.byte	0,0,0	;	- See GTLIN
+
+;	RT-11/RUST information area
+
+asect$	b$rtmv	0		;retver - RTEM version (rts$id)
+asect$	b$rdvn	0		;b$devn - device name in rad50 with suffix
+asect$	b$rdvs	0		;b$devs - device name without suffix
+asect$	b$rdvu	<.rad50 "bot">	;b$devu - device unit bot=bootable, rte=>rtem
+asect$	b$rfn0	0		;b$fnam - filename 0 (e.g. /RT1/
+asect$	b$rfn1	0		;	- filename 1 (e.g. /1FB/)
+asect$	b$rrea	0		;b$read - read routine start address
+asect$	b$rhto	0		;syhtop - system handler top address (unused)
+asect$	b$rdup	0		;dupflg - copied from @#0 - 0 if from DUP
+asect$	b$rrms	2048.		;$rmsiz - v3/v5 monitor size in bytes
+				;	- v3/v5 boot string - 28. bytes maximum
+asect$	b$rnam	<.asciz "BOOT V2.4"> ;  - BOOT ident string
+b$oprm:	.ascii <cr>"boot> "<200>;	 boot prompt
+				;	- some free bytes here
+asect$	b$rimg			;	- BOOT image
+boXimg==b$rimg			;	  label for BOOT.R
+	.if ne rxm$c
+	b$oimg:	.rad50	/SY RUSTX SAV/ ;-
+	.iff
+	b$oimg:	.rad50	/SY RUST  SAV/ ;-
+	.endc
+asect$	b$rrst	<.rad50 "RST">	;	- RUST ident (not standard RT-11)
+;asect	b$rdvs	0		;b$devs - device suffix in rad50
+boXsuf==b$rsfx			;	  label for BOOT.R
+	.if ne rxm$c
+asect$	b$rsfx	<.rad50	"  P">	;suffx	- v5 rad50 handler suffix
+	.iff
+asect$	b$rsfx	<.rad50	"  V">	;suffx	- v5 rad50 handler suffix
+	.endc
+asect$	b$rsyg	;sgmmu$		;syop	- v5 sysgen options (probably v4 too)
+				;	- v3 swap file size (zero)
+
+;	This area follows the 1024. word boot in memory.
+;	It is constructed by the RT-11/RUST/V11 boot loaders.
+;	The area is absent when hard booting (except under V11)
+
+asect$	b$rhot	0		;btime  - time booted (if from DUP)
+asect$	b$rlot	0		;	- low order time
+asect$	b$rdat	0		;bdate  - date booted
+	.rad50	/ERA/		;	- extended date signature
+asect$	b$rera	0		;	- extended date
+
+b$otop:				; end of boot area
+
+.if eq stk$c
+	.if ne stk$c
+	c$ustk = .+2000
+	.iff
+	.blkb	2000		; cusp stack
+c$ustk:
+	.endc
+.endc
+.sbttl	BOOT UTILITY
+;;;$limit	b$limp				; below boot impure
+;;;$asect	b$lemu				; utility startup
+
+meta	<bmchk$ adr><jsr r1,bm$chk><.word adr>
+meta	<bmerr$ adr><jsr r1,bm$err><.word adr>
+
+;	Process bootstrap command line
+
+start::	mov	r5,b$msys		; remember if we're under BOOT
+	bnew	r5,#^rboo,bm$cli	; not booting under boot
+	sub	#borel.,b$xunp+2	; relocate some routines
+	sub	#borel.,b$xrad+2	;
+	mov	#^rsys,b$xsys+2		;
+bm$cli:	mov	j$busp,sp		; setup the stack
+	mov	#b$mlin,r4		; r4 -> command line
+	.gtlin	r4,#b$mpro		; get a command
+	call	bu$skp			; skip white space
+	tstb	(r4)			; anything to process?
+	beq	bm$cli			; no - ignore it
+	mov	#b$msym,r1		; get symbol table
+	cmp	b$msys,#^rboo		; this boot?
+	bne	bm$fnc			; nope
+	mov	#b$xsym,r1		; point to symbols
+bm$fnc:	call	bu$fnd			; go match the command
+	bmchk$	b$mxic			; invalid command if not found
+	clr	r1			; r1 guaranteed zero
+	call	(r0)			; do it
+	br	bm$cli			; start again
+
+bm$set:	tst	(sp)+			; skip the return
+	mov	#b$mset,r1		; set command
+	br	bm$fnc			; try again
+
+bm$exi:	mov	sp,r0			;
+	.exit				; exit
+
+;	Error processing 
+;
+;	Abort command file unless SET ERROR NONE
+;
+;	jsr	r1,bm$err
+;	.word	message-pointer
+
+bm$chk:	bcs	bm$err			; an error
+	tst	(r1)+			; skip the address
+	rts	r1			;
+bm$err:	.print	#b$merr			; display the start of it
+	.print	(r1)			; display the rest of it
+	$stsev	#eserr$			; set the severity
+	jmp	bm$cli			; and start again
+.sbttl	show command
+
+;	show
+;
+;	Image is FILNAM.TYP
+;	Clock is 50_HERTZ
+;	Startup is NOQUIET
+;	Suffix is " "
+
+bm$sho:	.print	#b$msim			; print the header
+	mov	#b$oima,r0		; assume image
+	tst	b$oimg			; set noimage
+	bne	5$			; nope
+	mov	#b$msni,r0		;
+5$:	.print				; and the image name
+	movb	#'5,b$mshe		; assume 50hertz
+	bit	#cn50h$,r$mcfg		; is it 50?
+	bne	10$			; yes
+	movb	#'6,b$mshe		; no
+10$:	.print	#b$mscl			; clock is set
+	mov	#b$msqu,r0		;
+	.print	#b$msta			; startup is set 
+	mov	#b$msqu,r0		;
+	cmp	b$oqui,#nop		; quiet?
+	beq	20$			; yep
+	mov	#b$msnq,r0		;
+20$:	.print				;
+	.print	#b$msuf			; boot suffix is
+	movb	b$rsfx,r0		; get suffix
+	bne	30$			; got one
+	movb	#32.,r0			;
+	br	35$			; use space
+30$:	add	#'A-1,r0		; make letter
+35$:	.ttyout				;
+	.ttyout	#'"			;
+	.print	#b$mnew			;
+	return
+bm$hlp:	.print	#b$mhlp			; help information
+	return
+bx$hlp:	.print	#b$xhlp			; boot help info
+	return
+bx$idt:	.print	#i$midt			; image information
+	return
+.sbttl	set [no]image=spec
+
+;	Write new BOOT image name & string
+ 
+bm$img:	tstb	(r4)			; got a filespec?
+	beq	10$			; no
+	mov	sp,r1			; save the stack
+	clr	b$mimg+fn.fil		; clear the file name
+	.csispc	#b$mspc, #b$mtyp, r4 	; get the filespec
+	mov	r1,sp			;
+	bcc	20$			; fine
+10$:	bmerr$	b$mxic			; invalid file specification
+20$:	tst	b$mspc+fn.fil		; output file specified?
+	bne	10$			; yes - invalid command
+					;
+	mov	#b$mimg+fn.fil,r0	; new filespec
+	mov	#b$oimg+fn.fil,r1	; where we store it
+	mov	(r0)+,(r1)+		; move in the spec
+	mov	(r0)+,(r1)+		;
+	mov	(r0)+,(r1)+		;
+	mov	#b$oima,r1		; ascii name
+	mov	#b$oimg+fn.fil,r2	; rad50 filnam.typ
+	mov	(r2)+,r0		;
+	call	cv$rfu			; fil
+	mov	(r2)+,r0		;
+	call	cv$rfu			; nam
+	movb	#'.,(r1)+		; .
+	mov	(r2)+,r0		;
+	call	cv$rfu			; typ
+.if ne ter$c
+	movb	#boimg.,b$oimb		; patch image branch
+.endc
+	br	bm$upd			; update the image
+
+bm$nim:	clr	b$oimg			; set noimage
+	clrb	b$oima			; clear image string
+.if ne ter$c
+	clrb	b$oimb			; nop image branch
+.endc
+	br	bm$upd
+
+bm$suf:	call	bu$skp			; skip whitespace
+	movb	(r4)+,r0		; get suffix
+	beq	10$			; invalid
+	call	bu$skp			; skip whitespace
+	bneb	(r4),10$		; invalid
+	call	bu$alp			; convert case
+	bcs	10$			; invalid
+	sub	#'A-1,r0		; make rad50
+	mov	r0,b$rsfx		; setup suffix
+	br	bm$upd			; 
+10$:	bmerr$	b$mxsf			; invalid suffix
+
+bm$nsf:	clr	b$rsfx			; clear suffix
+	br	bm$upd			;
+
+
+;	set 50hertz
+;	set 60hertz
+
+bm$50h:	bis	#cn50h$,r$mcfg		; setup the 50hertz flag
+	br	bm$upd			; update monitor file
+
+bm$60h:	bic	#cn50h$,r$mcfg		; setup the 60hertz flag
+	br	bm$upd			; update monitor file
+
+bm$qui:	mov	#nop,b$oqui		; make it quiet
+	br	bm$upd			
+
+bm$nqu:	mov	#emt+351,b$oqui		; make it noquiet
+	br	bm$upd			;
+
+;	Write data back to image
+
+bm$upd:	.writw	#b$mare,#imchn.,#b$lsec,#bosws.,#1 ; write it back
+	bmchk$	b$mxio			; I/O error
+	return				;
+.sbttl	boot image
+
+bx$ccl:
+
+;	Boot specified monitor
+
+bx$boo:
+.if ne 0
+	mov	#x,r0
+	mov	r4,r1
+	call	bo$fil			; get spec
+	bneb	(r1),			; didn't terminate
+	.purge	#0			;
+	.lookup	#b$oiob,#0,b$xspc	; look it up
+	bochk$				; not found
+	.readw	#b$oiob,#0,#1,#1000,#1024. ; read in the boot
+	bochk$				; check errors
+	.purge	#0			;
+	.lookup	#b$oiob,#0,b$xsy	; lookup system device
+	bochk$				; not found
+	.readw	#b$oiob,#0,#0,#b$xbuf,#256. ; read primary
+	bochk$				; check errors
+
+	mov	@#j$bsys,r1		;
+	movb	rm.syu+1(r1),r0		; system unit
+	clr	pc			; start secondary
+.endc
+.sbttl	find command symbol
+
+;	Find command symbol
+;
+;	The symbol must terminate with whitespace or end-of-line.
+;
+;	ccc:cccccc	Run by name
+;	cccccc		If not command pass to dcl
+; 
+;	r1 ->	patterns
+;	r4 ->	target
+;	c=0	r0 -> routine
+;	c=1	not found or ambiguous
+; 
+;	r1 ->	patterns
+;	r2 ->	target
+;	r3 =	wildcard flag
+;	r4 ->	target
+;
+;	r1 ->	symbol table
+;	r4 ->	command line
+
+bu$fnd::clr	-(sp)			;result
+10$:	clr	r3			;r3<>0 => wildcard seen
+	mov	(r1)+,(sp)		;store the result
+	beq	50$			;end of list
+	mov	r4,r2			;get the pointer back
+20$:	cmpb	(r1),#'*		;this the wildcard?
+	bne	24$			;nope
+	movb	(r1)+,r3		;yes - flag wildcard seen
+24$:	movb	(r2),r0			;get the next
+	call	bu$idt			;get/convert identifier character
+	bcs	30$			;we are done
+	inc	r2			;skip it
+	tstb	(r1)			;overrun?
+	beq	40$			;yep, skip it
+25$:	cmpb	r0,(r1)+		;got a match?
+	beq	20$			;yep
+	br	40$			;try it on the next
+30$:	tstb	(r1)			;exact match?
+	beq	60$			;yes
+	tst	r3			;did we find it?
+	bne	60$			;yes - we have it
+40$:	tstb	(r1)+			;even up
+	bne	40$			;
+	inc	r1			;
+	bic	#1,r1			;
+	br	10$			;try the next
+50$:	sec				;not found
+	mov	r4,r2			;dont change the pointer
+60$:	pop	r0			;return the address
+	mov	r2,r4			;update the pointer
+	bcc	bu$skp			;success - check for whitespace
+	return
+.sbttl	skip whitespace, case convert
+
+;	Skip whitespace
+
+bu$skp:					;skip whitespace
+	psh	#1			;c=1 => no whitespace found
+10$:	cmpb	(r4),#'!		;got a comment?
+	bne	15$			;no
+	clrb	(r4)			;yes - ignore the rest
+15$:	tstb	(r4)			;end of line?
+	beq	25$			;yes - whitespace seen
+	cmpb	(r4),#space		;this a space
+	beq	20$			;yes
+	cmpb	(r4),#ht		;this a tab?
+	bne	30$			;no
+20$:	inc	r4			;
+	clr	(sp)			;c=0 => whitespace seen
+	br	10$			;
+25$:	clr	(sp)			;
+30$:	asr	(sp)+			;c=1 => no whitespace seen
+	return
+
+;	Check/convert identifier, digit, alpha
+
+	.enabl	lsb			;
+bu$idt:	call	bu$alp			;check alphabetic
+	bcc	30$			;fine
+	cmpb	r0,#'_			;an underline?
+	beq	30$			;yes 
+bu$dig:	cmpb	r0,#'0			;this a digit?
+	blo	40$			;no
+	cmpb	r0,#'9			;really?
+	bhi	40$			;yes
+30$:	tst	(pc)+			;matched
+40$:	sec				;did not
+	return				;
+	.dsabl	lsb			;
+
+bu$alp:	cmpb	r0,#'a			;lower case?
+	blo	10$			;no
+	cmpb	r0,#'z			;really?
+	bhi	10$			;no
+	sub	#'a-'A,r0		;make it lower case
+10$:	cmpb	r0,#'A			;lower case?
+	blo	20$			;no
+	cmpb	r0,#'Z			;really?
+	bhi	20$			;nope
+	tst	(pc)+			;alpha
+20$:	sec				;not alpha
+	return
+.sbttl	convert rad50 to ascii
+
+;	cv$rfu	convert rad50 to ascii (upper)
+;	cv$rfl	convert rad50 to ascii (lower)
+;
+;	r0	rad50 value
+;	r1 ->	output
+;
+;	r0	number of characters output
+;	c=1	no characters output
+;	r1 ->	past output at zero byte
+
+cv$rfu:	tst	(pc)+		;rad50 to ascii (upper)
+cv$rfl:	sec			;rad50 to ascii lower case
+	pshs	<r3,r2>		;
+	ror	-(sp)		;(sp) <0 => lower
+	clrb	(sp)		;(sp) = characters output
+	mov	#100$,r2	;get the divisors
+20$:	mov	#-1,r3		;init the result
+30$:	inc	r3		;next character
+	sub	(r2),r0		;this it?
+	bcc	30$		;nope
+	add	(r2),r0		;bump back
+
+	tst	r3		;a null?
+	beq	80$		;yep, forget it
+	cmp	r3,#50		;this out of range?
+	blo	50$		;no
+	mov	#50,r3		;yes
+50$:	tst	(sp)		;want lower case?
+	bmi	60$		;yes
+	movb	200$(r3),(r1)+	;upper case
+	br	70$		;
+60$:	movb	300$(r3),(r1)+	;lower case
+70$:	incb	(sp)		;count it
+80$:	tst	-(r2)		;any more?
+	bne	20$		;yep
+	pops	<r0,r2,r3>	;restore it
+	clrb	(r1)		;terminate the string
+	tst	r0		;got any?
+	bne	97$		;yes
+	sec			;no
+97$:	return
+
+	.word	0,1,50
+100$:	.word	50*50
+
+200$:	.ascii	&_ABCDEFGHIJKLMNOPQRSTUVWXYZ$%*0123456789?&
+300$:	.ascii	&_abcdefghijklmnopqrstuvwxyz$%*0123456789?&
+.sbttl	utility data
+
+;	Command list
+
+meta	<bment$ c d><.word d><.asciz "c"><.even>
+
+b$xsym:
+bment$	<BO*OT>		bx$boo
+bment$	<EX*IT>		bm$exi
+bment$	<HE*LP>		bx$hlp
+bment$	<ID*ENTIFY>	bx$idt
+	.word	0
+
+b$msym:
+bment$	<EX*IT>		bm$exi
+bment$	<HE*LP>		bm$hlp
+bment$	<ID*ENTIFY>	bx$idt
+bment$	<SH*OW>		bm$sho
+bment$	<SE*T>		bm$set
+b$mset:
+bment$	<NOIM*AGE>	bm$nim
+bment$	<IM*AGE>	bm$img
+;memt$	<ST*ARTUP>	bm$set
+bment$	<QU*IET>	bm$qui
+bment$	<NOQU*IET>	bm$nqu
+;ment$	<CL*OCK>	bm$set
+bment$	<50*_HERTZ>	bm$50h
+bment$	<60*_HERTZ>	bm$60h
+bment$	<SU*FFIX>	bm$suf
+bment$	<NOSU*FFIX>	bm$nsf
+	.word	0
+
+meta	<bmhlp$ str><.ascii "str"<cr><lf>>
+b$mhlp:	
+bmhlp$ <EXIT		Return to system>
+bmhlp$ <HELP		Display this help frame>
+bmhlp$ <IDENTIFY	Display image version information>
+bmhlp$ <SHOW		Display bootstrap configuration>
+bmhlp$ <SET IMAGE spec	Set bootstrap image filespec>
+bmhlp$ <SET NOIMAGE	Clear bootstrap image filespec>
+bmhlp$ <SET 50_HERTZ	Set bootstrap for 50 hertz clock>
+bmhlp$ <SET 60_HERTZ	Set bootstrap for 60 hertz clock>
+bmhlp$ <SET [NO]QUIET 	Startup indentification is (not) displayed>
+bmhlp$ <SET SUFFIX char	Set default driver suffix>
+bmhlp$ <SET NOSUFFIX 	Clear default driver suffix>
+	.byte	200
+
+b$xhlp:	
+bmhlp$ <BOOT spec	Boot specified monitor>
+bmhlp$ <EXIT		Return to system>
+bmhlp$ <HELP		Display this help frame>
+bmhlp$ <IDENTIFY	Display image version information>
+	.byte	200
+
+b$merr:	.ascii	"?BOOT-E-"<200>
+b$mxic:	.asciz	"Invalid command"
+b$mxio:	.asciz	"I/O error updating bootstrap configuration"
+b$mxsf:	.asciz	"Invalid suffix"
+
+b$mxdm:	.asciz	"Device missing BO:"	
+b$msim:	.ascii	"Boot image is "<200>
+b$msni:	.asciz	/NOIMAGE/
+b$mscl:	.ascii	"Boot clock is "
+b$mshe:	.asciz	"50_HERTZ"
+b$msta:	.ascii	"Boot startup is "<200>
+b$msqu:	.asciz	"QUIET"
+b$msnq:	.asciz	"NOQUIET"
+b$msuf:	.asciz	/Boot suffix is "/<200>
+b$mnew:	.byte	0
+
+b$mpro:	.ascii	"BOOT> "<200>	;prompt
+	.even				;
+b$msys:	.word	0			;^rboo for boot
+b$mare:	.blkw	10.			;emt area
+b$mtyp:	.rad50	/savsavsavsav/		;csi file types
+b$mspc:	.blkw	3*5			;output specs
+b$mimg:	.blkw	6*4			;input specs
+b$mlin:	.blkb	82.			;input line
+					;
+b$mloo:	.byte	0			;channel
+	.byte	emloo.			;lookup
+	.word	10$			;filename
+	.word	0			;sequence number
+10$:	.rad50	/bo          /		;boot device
+
+.end	start
+

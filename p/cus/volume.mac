@@ -1,0 +1,2441 @@
+;???;	RSTS and XXDP boot signatures are similar
+;!	Bad home block label not reported. Must be DEC at least.
+;!	Requires /OVER=LABEL to mount.
+;
+;!	/VERIFY currently doesn't report home block checkum errors
+;!	'cos too many RT-11 volumes have it wrong.
+;
+;!	/VERIFY doesn't check for missing ENDBLK
+;!	It's not required if it falls exactly past segment end.
+;
+;	Rewrite in Rider
+;	Add RSX, DOS and XXDP
+;	Add invalid rad50 file name test
+;	Add repair
+;	copy should default to entire directory
+;	backup/directory
+;	restore/directory
+;
+tapsta=0
+.title	volume
+.include "lib:share.mac"
+$brdef		;bootstrap
+$dcdef		;device codes
+$esdef		;error severity
+$hadef		;handler
+$jbdef		;job
+$rtdef		;rt-11 file structure
+$txdef		;text
+$v1def		;magtape volume header
+
+$imgdef	VOLUME 1 6
+$imginf	fun=sav cre=hammo aut=ijh use=<Describe and verify volume contents>
+$imgham	yrs=<1984,1985,1986,1987,1989> oth=<>
+;	%date
+$imgdat	<27-Apr-2005 13:30:31.30>
+;	%edit
+;	<82   >
+
+;	%build
+;	macro lib:preface+cus:volume+lib:mpl/lib/object:cub:volume
+;	link cub:volume/exe:cub:/map:cub:,lib:output
+;	!execute/macro/norun/link:lib:output/object:cub:/execute:cub:volume -
+;	!lib:mpl/lib+lib:prefac+cus:volume/map:cub:volume
+;	%end
+
+meta <$bits c,d,?z><bit #'c,d><beq z><$type <c >><z:>
+.macro	$error c g=0 ret=1
+	jsr	r2,errerr
+	.word	g!ret
+	.ascii	&c&<200>
+	.even
+.endm
+.macro	$fatal	c g=0 ret=0
+	jsr	r2,faterr
+	.word	g!ret
+	.ascii	&c&<200>
+	.even
+.endm
+.macro	$warn	c g=0 ret=1
+	jsr	r2,warerr
+	.word	g!ret
+	.ascii	&c&<200>
+	.even
+.endm
+.macro	$inform	c g=0 ret=1
+	jsr	r2,inferr
+	.word	g!ret
+	.ascii	&c&<200>
+	.even
+.endm
+.macro	bitent	c d
+	.word	c
+	.ascii	&d&<200>
+	.even
+.endm
+.macro	shobit	c,d
+.iif nb <c>,mov c,r1
+.iif nb <d>,mov d,r2
+	call	shobit
+.endm
+
+	erl$g  = 1
+	mmg$t  = 2
+	tim$it = 4
+	rtem$  = 10
+	mpty$  = 1000
+	timer$ = 2000
+	mtty$  = 20000
+	stask$ = 40000
+	fpu11$ = 400	;v51
+
+	wonly$	= 20000
+
+usersp=42
+
+;	/L	List		Displays formatted information
+;	/B	Brief		
+;	/F	Full		Displays binary information
+;	/R	Report
+;	/V	Verify		Reports errors only
+;	/Y	Noquery
+
+optlst:	.word	'L,swlis$
+	.word	'B,swbri$
+	.word	'F,-1
+	.word	'R,swrep$
+	.word	'V,swver$
+	.word	'Y,swnqu$
+.word	0
+
+	swlis$=1
+	swbri$=2
+	swful$=4
+	swrep$=10
+	swver$=20
+	swnqu$=40
+defopt= swlis$!swver$
+
+opts:	.word	0		;
+.sbttl	mainline
+
+start:	clr	opts		;
+	clr	systyp		;system type
+	mov	usersp,sp	;get the stack
+	clr	file3		;no input
+	.csigen	#room,#types,#0,#line
+	mov	r0,buff3	;
+	mov	usersp,sp	;again
+	psh	#-1		;
+	.csispc	#files,#types,#line
+	tstb	line		;got anything?
+	bne	20$
+10$:	.print	#i$midt		;show who we are
+	br	start
+
+20$:	.wait	#3		;got a file?
+	bcc	40$		;yep
+30$:	$fatal	<Invalid command>
+
+40$:	tst	(sp)+		;
+50$:	mov	(sp)+,r0	;get the next
+	cmp	r0,#-1		;all done?
+	beq	100$		;yes
+	tst	r0		;got a value?
+	bpl	60$		;no
+55$:	$fatal	<Invalid option>
+60$:	cmpb	r0,#'a		;lower?
+	blo	70$		;no
+	cmpb	r0,#'z		;
+	bhi	70$		;
+	sub	#'a-'A,r0	;
+70$:	bic	#^c377,r0	;clean it up
+	mov	#optlst,r1	;
+80$:	cmpb	(r1),r0		;this ours?
+	beq	90$		;yes
+	cmp	(r1)+,(r1)+	;no
+	tst	(r1)		;any more?
+	bne	80$
+	br	55$		;no
+90$:	bis	2(r1),opts	;yes - set the flag
+	br	50$		;and get the next
+
+100$:	tst	opts		;this the default?
+	bne	110$		;no
+	mov	#defopt,opts	;yes - set it up
+
+110$:	mov	#3-1,chan	;get the channel
+	mov	#file3-10,filep	;get the pointer
+next:	add	#10,filep	;point to the next
+	inc	chan		;get the next channel
+	cmp	chan,#10.	;anymore?
+	bhis	10$		;no
+	mov	filep,r0	;point to the file
+	mov	#file3,r1	;
+	mov	(r0)+,(r1)+	;get it
+	mov	(r0)+,(r1)+	;
+	mov	(r0)+,(r1)+	;
+	mov	(r0)+,(r1)+	;
+	.wait	chan		;is this one active?
+	bcs	next		;no
+	call	show		;yes
+	br	next		;
+10$:	jmp	start		;quit
+
+show:	call	dstat		;get the device status
+	cmp	opts,#swver$	;is this a verify?
+	beq	shover		;
+	bit	#swful$,opts	;this full?
+	bne	shoful		;yes
+
+sholst:	call	devnam
+	call	reaboo		;read in the bootstrap
+	call	maglst		;check for magtape
+	bcc	10$		;yes - skip the rest
+	call	boolst		;get the boot stuff
+	call	reahom		;read the home block
+	call	badlst		;get the bad block table
+	call	inilst		;get the init stuff
+	call	buplst		;get the backup stuff
+	call	vollst		;get the volume stuff
+	call	chklst		;get the checksum
+	call	dirlst		;get the directory
+10$:	return
+
+shoful:	$print
+	call	devnam
+	call	reaboo
+	call	magful
+	bcc	10$
+	call	booful
+	call	reahom
+	call	badful
+	call	iniful
+	call	bupful
+	call	volful
+	call	chkful
+	call	dirful
+10$:	return
+
+shover:	call	reaboo
+	call	magver
+	bcc	10$
+	call	boover
+	call	reahom
+	call	badver
+	call	iniver
+	call	bupver
+	call	volver
+;V4	call	chkver
+	call	dirver
+10$:	return
+
+devnam:	$type	<Device name:	>
+	$file	#file3
+	$print
+	return
+.sbttl	read routines
+
+reaboo:	clr	booflg		;assume o.k.
+	clr	secflg		;
+	clr	r1		;block zero
+	mov	#256.,r2	;count
+	call	reagen		;
+	bcc	10$		;
+	dec	booflg		;not ok
+	dec	secflg		;forget the secondary
+	$error	<Error reading boot block>
+	sec
+10$:	return
+
+reasec:	mov	#2,r1		;
+	mov	#5*256.,r2	;
+	mov	#buff2,r3	;directory buffer
+	call	reabuf		;read the remainder
+	bcc	30$		;fine
+	$error	<Error reading secondary bootstrap>
+	dec	secflg		;
+20$:	sec
+30$:	return
+
+reahom:	clr	homfla		;
+	mov	#1,r1		;block
+	mov	#256.,r2	;count
+	call	reagen		;
+	bcc	20$		;
+	dec	homfla		;
+	$error	<Error reading home block>
+	sec			;
+20$:	return
+
+reaseg:	clr	segfla		;
+	mov	nxtseg,r1	;
+	asl	r1		;
+	add	#4,r1		;
+	mov	#512.,r2	;
+	call	reagen		;
+	bcc	10$		;fine
+	dec	segfla		;
+	$error	<Error reading directory segment>,shosgn
+	sec			;
+10$:	return			;
+
+shosgn:	$decima	nxtseg
+	return
+.sbttl	generic read
+
+;	Read the buffer
+;	Clear it first to check for null reads
+
+reagen:	mov	#buff1,r3	;r3 = buffer
+reabuf:	call	clrbuf		;clear the buffer
+	psh	r3		;save the buffer address
+	psh	-2(r3)		;save previous word
+	tst	physio		;should we use physical?
+	beq	15$		;no
+	bpl	14$		;not DM:
+	tst	-(r3)		;backup for guard word
+14$:	.spfun	#area, chan, #377, r3, r2, r1
+	br	16$		;
+
+15$:	.readw	#area, chan, r3, r2, r1
+16$:	mov	2(sp),r3	;get buffer address
+	pop	-2(r3)		;restore dm: status word
+	bcc	20$		;
+	tst	magsta		;are we reading magtape?
+	bne	20$		;yes - ignore errors
+	$error	<Error reading block>,30$,ret=1
+	sec
+20$:	pop	r3		;restore this
+	return
+
+30$:	$decima	r1
+	$type	< of >
+	return
+
+clrbuf:	psh	r3
+	psh	r2
+10$:	clr	(r3)+		;
+	dec	r2		;
+	bne	10$		;
+	pop	r2
+	pop	r3		;
+	return
+.sbttl	magtape read
+
+;	Magtape i/o
+;
+;	r3	buffer address
+;	r2	word count
+;	r1	block number - unused
+;
+;	r0 =	words transferred
+
+magios:	.word	0		;i/o status
+magiov:	.word	0		;i/o value
+	.word	0		;
+	.word	0		;
+magrwc:	.word	256.		;requested wordcount
+magawc:	.word	256.		;actual word count
+mageof:	.word	0		;
+
+reamag:	clr	magios		;
+	clr	magiov		;clear the status
+	clr	mageof		;clear end of file
+	mov	magblk,r1	;
+	mov	magrwc,r2	;get the word count
+	mov	#buff1,r3	;get the buffer
+	call	clrbuf		;clear the buffer
+				;
+	.spfun	#area,chan,#370,r3,r2,#magios,#0
+	bcs	5$		;fine
+	jmp	100$		;fine
+
+5$:
+.if ne tapsta
+	$type	<Magtape:	>
+	$type	<Type=>		;
+	clr	r0		;
+	bisb	errbyt,r0	;
+	$octal	r0		;
+	$type	<, Status=>	;
+	$octal	magios		;transfer count
+	$type	<, Value=>	;
+	$octal	magiov		;
+	$type	<, >
+	$octal	magiov+2
+	$type	<, >
+	$octal	magiov+4
+	$print
+.endc
+
+	cmp	magios,#1	;this end of file?
+	bne	10$		;no
+	inc	mageof		;yes - report it
+	br	100$		;
+
+10$:	bit	#swful$,opts	;want it all?
+	bne	15$		;yes
+	jmp	100$		;no
+15$:	$type	<Magtape status	>
+	$type	<Type=>		;
+	clr	r0		;
+	bisb	errbyt,r0	;
+	$octal	r0		;
+
+	$type	<, Count=>	;
+	$decima	r2		;transfer count
+	cmp	magios,#6	;was this read overflow?
+	bne	20$		;no
+	$type	<, Truncated=>	;
+	mov	r2,r0		;
+	sub	magiov,r0	;r0 is actual count
+	$decima	r0		;report it
+	br	90$		;
+
+20$:	cmp	magios,#5	;was this an overflow
+	bne	30$		;no
+	$type	<, Short read>	;
+	br	90$		
+
+30$:	$type	<, Status=>	;
+	$octal	magios		;
+	$type	<, Value=>	;
+	$octal	magiov		;
+
+90$:	$print			;
+100$:	clc			;
+	return
+.sbttl	dstatus
+
+dstat:	clr	devsts		;assume error
+	clr	physio		;assume virtual i/o
+	clr	magdev		;
+	.dstat	#devsts, filep	;get the device status
+	bcs	40$		;forget it
+
+;	check write only device
+
+	bit	#wonly$,devsts	;this a write-only device?
+	beq	10$		;nope
+	$fatal	<Write-only device>
+
+10$:	mov	filep,r0	;point to the name
+	tst	2(r0)		;is this a file?
+	bne	20$		;yes
+	dec	physio		;assume DM:
+	cmpb	devsts,#dedmc.	;this a DM:?
+	beq	20$		;yes - force physical
+	clr	physio		;assume not physical
+	cmpb	devsts,#dedlc.	;or a DL:?
+	bne	20$		;no
+	inc	physio		;use physical i/o
+				;
+20$:	clr	magdev		;not magtape yet
+	cmpb	devsts,#demmc.	;magtape?
+	beq	30$		;yes
+	cmpb	devsts,#demsc.	;
+	beq	30$		;
+	cmpb	devsts,#demtc.	;
+	beq	30$		;
+	cmpb	devsts,#demuc.	;
+	bne	40$		;
+30$:	inc	magdev		;
+40$:	return			;
+
+physio:	.word	0		;<>0 => use spfuns to read
+devsts:	.blkw	4		;device status
+magdev:	.word	0		;tape device
+.sbttl	system specific
+
+medtyp:	.word	0		;media type
+map	munk.,,0		;unknown
+map	mdis.,,2		;disk
+map	mtap.,,4		;tape
+
+sysdec:	.word	0		;DEC system identified
+
+sysrta:	.word	0		;<>0 => rt11
+sysrsx:	.word	0		;<>0 => rsx
+sysvms:	.word	0		;<>0 => vms
+sysrst:	.word	0		;<>0 => rsts
+
+systyp:	.word	0		;
+map	sunk.,,0		;unknown
+map	srta.,,2		;rt11a
+map	srsx.,,4		;rsx
+map	svms.,,6		;vms
+map	srst.,,10		;rsts
+
+inisys:	call	setrta		;
+	clr	systyp
+	clr	sysrsx		;
+	clr	sysvms		;
+	clr	sysdec		;
+	return
+
+setrta:	mov	#1,sysrta	;assume rt11
+	mov	#srta.,systyp	;
+	return
+
+setrsx:	clr	sysrta		;
+	mov	#1,sysrsx	;
+	mov	#srsx.,systyp	;
+	return
+
+setvms:	clr	sysrta		;
+	mov	#1,sysvms	;
+	mov	#svms.,systyp	;
+	return
+
+setrst:	clr	sysrta		;rsts system
+	mov	#1,sysrst	;
+	mov	#srst.,systyp	;
+	return
+
+onlrta:	cmp	systyp,#srta.	;this rt11a?
+	beq	10$		;yes
+	tst	systyp		;unknown so far?
+	beq	10$		;
+	tst	(sp)+		;pop a level up
+10$:	return
+
+onldis:	cmp	medtyp,#mdis.	;this a disk?
+	beq	10$		;yes
+	tst	medtyp		;unknown?
+	beq	10$		;
+	tst	(sp)+		;
+10$:	return
+
+sysnms:	.word	100$,102$,104$,106$,110$
+
+100$:	.ascii	/Unknown/<200>
+102$:	.ascii	/RT-11/<200>
+104$:	.ascii	/RSX/<200>
+106$:	.ascii	/VMS/<200>
+110$:	.ascii	/RSTS/<200>
+	.even
+
+strnms:	.word	100$,102$,104$,106$,110$
+100$:	.ascii	/Unknown/<200>
+102$:	.ascii	/RT11A/<200>
+104$:	.ascii	/FILES11A/<200>
+106$:	.ascii	/FILES11B/<200>
+110$:	.ascii	&RDS0/RDS1&
+	.even
+.sbttl	boots
+
+booflg:	.word	0		;read block 0 o.k.
+secflg:	.word	0		;0=read secondary boot o.k.
+boosta:	.word	0		;
+boovnm:	.word	0		;0,3,4,5
+boostr:	.word	0		;address of bootstring
+boocon:	.word	0		;bootstrap configuration (v5 only)
+
+map	loval$,,1		;valid bootblock (has nop)
+map	loboo$,,2		;is bootable (has branch)
+;
+map	lorst$,,40		;RUST bootstrap
+map	lorsx$,,100		;rsx bootstrap
+map	lorte$,,200		;rtem bootstrap
+map	lounb$,,400		;unknown bootstrap
+map	lov2b$,,1000		;v2 bootstrap
+map	lov3b$,,2000		;v3 bootstrap
+map	lov4b$,,4000		;v4 bootstrap
+map	lov5b$,,10000		;v5 bootstrap
+map	lov5h$,,20000		;v5 handler
+map	lopri$,,40000		;has primary bootstrap
+map	losec$,,100000		;has secondary bootstrap
+map	loall$,,177774		;all DEC flags
+
+.enabl	lsb
+boover:	call	getboo		;get the bootstrap stuff
+	bcc	10$		;fine
+boogar:	$warn	<Bootstrap block is garbage>
+	sec			;
+10$:	return			;non-fatal
+.dsabl	lsb
+
+booful:
+boolst:	call	getboo		;get it
+	bcs	boogar		;forget it
+
+	$type	<Bootstrap ID:	>
+	mov	boostr,r1	;got a string?
+	beq	5$		;no
+	call	string		;yes
+	br	6$		;
+5$:	$type	<None>		;
+6$:	$print
+
+	$type	<Boot status:	>
+	tst	boovnm		;do we know about it?
+	bne	50$		;yes
+	mov	systyp,r0	;found some structure?
+	.print	sysnms(r0)	;yes
+	$type	< system, >	;
+	bit	#loboo$,boosta	;does it have a bootstrap?
+	bne	10$		;yes
+	$type	<non-bootable >
+	br	20$		;and quit
+10$:	$type	<probably bootable>
+20$:	$print			;done
+	return			;we are done
+
+;	We have a bootstrap string of some kind
+
+50$:	cmp	boovnm,#4	;what do we have?
+	beq	60$		;v4
+	bhi	70$		;v5
+	cmp	boovnm,#2	;2 or 3?
+	bhi	55$		;V3
+	$type	<V2 or earlier, >
+	br	80$		;
+55$:	$type	<V3B or earlier, >
+	br	80$		;
+60$:	$type	<V4 or later, >
+	br	80$		;
+70$:	$type	<V5 or later, >
+80$:	bit	#loboo$,boosta	;is it bootable?
+	bne	90$		;yes
+	$type	<non-bootable >
+	br	100$		;
+90$:	$type	<bootable >	;
+	bit	#lorst$,boosta	;
+	beq	100$		;
+	$type	<(RUST) >	;
+100$:	$print			;
+	cmp	boovnm,#3	;
+	blos	110$		;no more
+	bit	#loboo$,boosta	;got a bootstrap?
+	bne	150$		;yes
+110$:	jmp	boov5h		;check for v5 media type
+
+;	Display v4/v5 data
+
+150$:	$type	<System name:	>
+	$rad50	buff1+b$rdvn	;DD
+;	$rad50	buff1+b$rsfx	;X
+	$type	<:>		;
+	$rad50	buff1+b$rfn0	;RT1
+	$rad50	buff1+b$rfn1	;1FB
+	$type	<.SYS>		;
+	$print
+
+;	Display sysgen options
+
+200$:	$type	<Sysgen options:	>
+	tst	buff1+b$rsyg	;got anything?
+	bne	210$		;yes
+	$type	<None>		;no
+	br	250$		;
+210$:	$bits	stask$	buff1+b$rsyg
+	$bits	mtty$	buff1+b$rsyg
+	$bits	timer$	buff1+b$rsyg
+	$bits	mpty$	buff1+b$rsyg
+	$bits	fpu11$	buff1+b$rsyg
+	$bits	rtem$	buff1+b$rsyg
+	$bits	tim$it	buff1+b$rsyg
+	$bits	mmg$t	buff1+b$rsyg
+	$bits	erl$g	buff1+b$rsyg
+250$:	$print
+
+;	Display v5 handler stuff
+
+boov5h:	mov	boocon,r4	;get the v5 stuff
+	beq	25$		;we have none
+	clr	r0		;check the checksum
+	mov	r4,r2		;
+	mov	#4,r3		;
+10$:	movb	(r2)+,r1	;get the next
+	add	r1,r0		;
+	dec	r3		;
+	bne	10$		;
+20$:	incb	r0		;checksum o.k.?
+	beq	30$		;yes
+	$warn	<Media type checksum is garbage>
+25$:	jmp	100$		;
+
+30$:	$type	<Media type:	>
+	cmpb	br.ept(r4),#brp11. ;this an 11?
+	bne	40$		;no
+	$type	<PDP-11>	;
+	br	50$		;
+40$:	$type	<CPU=>		;
+	movb	br.ept(r4),r1	;
+	bic	#^c377,r1	;
+	$decima	r1		;
+50$:	$type	<, >	;
+	movb	br.ect(r4),r3	;get it
+;	bmi	55$		;
+;	bit	#brcge$,r3	;is it valid?
+;	bne	60$		;
+;55$:	$type	<?>		;
+;	br			;
+60$:	clr	150$		;none done
+	meta	<v5bit c d><jsr r2,200$><.ascii <c>&d&<200>><.even>
+	v5bit	brcub$	<Unibus>
+	v5bit	brcqb$	<Q-Bus>
+	v5bit	brccb$	<CTI>
+	v5bit	brcum$	<Unibus MSCP>
+	v5bit	brcqm$	<Q-Bus MSCP>
+	v5bit	brccm$	<CTI MSCP>
+;
+	movb	br.eft(r4),r1	;get the filestructure
+	cmpb	r1,#brfrt.	;this RT11A?
+	bne	80$		;no
+	$type	<, RT11A>	;yes
+	br	90$		;
+80$:	$type	<Files=>	;
+	bic	#^c377,r1	;
+	$decima	r1		;
+90$:	$print
+100$:	return
+
+150$:	.word	0
+
+200$:	bitb	(r2)+,r3	;is this set?
+	beq	220$		;no
+	tst	150$		;this the first
+	beq	210$		;no
+	$type	<, >		;yes
+210$:	inc	150$		;count them
+	.print	r2		;
+220$:	call	even		;
+	rts	r2		;and quit
+.sbttl	get boot information
+
+;	Check for nothing, noboot, boot
+;	Check for RT11, RSX, RSTS & VMS
+
+getboo:	clr	boosta		;start it
+	clr	boovnm		;
+	clr	boostr		;
+	clr	boocon		;
+	call	reasec		;get the secondary boot
+
+;	All initialized disks start with a NOP
+
+5$:	cmp	buff1,#nop	;start with a nop?
+	bne	40$		;this is not a bootstrap
+	bis	#loval$,boosta	;this is a bootstrap
+
+;	All initialized disks have executable code in location two.
+;
+;	br loc		v2/v3/v4/v5 bootstrap
+;
+;	mov #n,r0	v2/v3 noboot
+;	jsr r0,loc	v4 noboot
+;	reset		v5 noboot
+
+				;check for branch
+	mov	buff1+br$beg,r0	;get the beginning
+	tstb	r0		;branch may not be negative
+	bmi	10$		;not a branch
+	mov	r0,r1		;
+	clrb	r1		;remove offset
+	cmp	r1,#br		;this a branch?
+	beq	50$		;yes - we have something bootable
+
+;	v2/v3	mov #n,r0	v2	B-NO BOOT ON VOLUME
+;		mov #n,r0	v3	?BOOT-No boot on volume
+;		jsr r0,loc	v4	?BOOT-F-No boot on volume
+;		reset		v5	?BOOT-U-No boot on volume
+
+10$:	cmp	r0,#brv3n$	;this a mov #n,r0?
+	bne	20$		;no
+
+;	v2/v3 noboot
+
+	mov	buff1+b$rv3p,boostr ;yes - this is the string
+	add	#buff1,boostr	;and offset to it
+	mov	boostr,r1	;point to it
+	mov	#32.,r2		;look for the ?
+11$:	cmpb	(r1)+,#'?	;this the first?
+	beq	12$		;yes
+	dec	r2		;count them
+	bne	11$		;keep looking
+	br	35$		;give up
+
+;	v2 noboot
+
+12$:	cmpb	(r1)+,#'B	;this really ours?
+	bne	35$		;no
+	cmpb	(r1),#'-	;this V2 or earlier?
+	bne	15$		;no - assume V3 or later
+	bis	#lov2b$,boosta	;v2 - ?B-NO BOOT ON VOLUME
+	mov	#2,boovnm	;
+	br	40$		;
+
+;	v3 noboot
+
+15$:	bis	#lov3b$,boosta	;v3 - ?BOOT-No boot on volume
+	mov	#3,boovnm	;v3 
+	br	40$		;we are done
+
+;	v4 noboot
+
+20$:	cmp	r0,#brv4n$	;this a jsr r0,report?
+	bne	25$		;no - not v4
+	mov	#buff1+b$rv4s,boostr ;yes
+	bis	#lov4b$,boosta	;
+	mov	#4,boovnm	;v4 - ?BOOT-F-No boot on volume
+	br	40$		;
+
+;	v5 noboot
+;	rsx noboot
+
+25$:	cmp	r0,#reset	;this a reset?
+	bne	35$		;no - unknown bootstrap
+
+	mov	buff1+br$beg+2,r0 ;get the branch
+	tstb	r0		;may not be negative
+	bmi	35$		;not our branch
+	movb	r0,r0		;extend it
+	asl	r0		;
+	add	#buff1+br$beg+4,r0 ;point to its branch destination
+	cmp	(r0),#br	;this the v5 signature?
+	beq	30$		;yes
+	cmp	(r0),#bmi	;really not?
+	bne	35$		;no - unknown
+30$:	mov	r0,boocon	;save it
+	sub	#4,boocon	;point to the config
+	mov	#5,boovnm	;v5
+	tst	(r0)+		;skip the branch
+
+	cmp	(r0)+,#brv4n$	;this jsr r0,report?
+	bne	35$		;no
+	add	#2,r0		;yes - skip the pc index to report
+	mov	r0,boostr	;save the string address
+	bis	#lov5b$,boosta	;v5 - ?BOOT-U-No boot on volume
+	br	40$		;
+
+35$:	call	rsxboo		;check for RSX bootstrap
+	bcc	40$		;it was
+	call	rstboo		;this a RSTS bootstrap?
+	bcc	40$		;it was
+;	call	vmsboo		;check for VMS bootstrap
+;	bcc	40$		;
+	bis	#lounb$,boosta	;
+40$:	br	300$		;
+
+;	v2/v3/v4/v5 bootstrap
+
+50$:	bis	#loboo$,boosta	;this is a bootstrap
+	bis	#lopri$,boosta	;has primary bootstrap
+	movb	r0,r0		;get the branch offset
+	asl	r0		;
+	add	#buff1+br$beg+2,r0 ;point to the first instruction
+
+;	Check for V5 handler
+				;
+	cmp	(r0),#br	;this a v5 handler?
+	beq	60$		;yes
+	cmp	(r0),#bmi	;sure?
+	bne	70$		;no
+60$:	bis	#lov5h$,boosta	;yes - remember it
+	sub	#4,r0		;point to configuration data
+	mov	r0,boocon	;save it
+
+;	Check for V4 bootstrap or later
+
+70$:	cmp	buff1+b$rdvu,#^rbot ;this a V4 or later?
+	beq	80$		;yes
+	cmp	buff1+b$rdvu,#^rrte ;is this RTEM?
+	bne	90$		;no
+	bis	#lorte$,boosta	;yes
+80$:	cmp	buff1+b$rrst,#^rrst ;is this RUST?
+	bne	85$		;no
+	bis	#lorst$,boosta	;yes
+85$:	bis	#lov4b$,boosta	;at least RT-11 V4
+	bis	#losec$,boosta	;has secondary bootstrap
+	mov	#buff1+b$rnam,boostr ;it has a name
+	tst	boovnm		;already got v5?
+	bne	150$		;yes
+	mov	#4,boovnm	;no
+	br	150$		;
+
+90$:	bis	#lov3b$,boosta	;assume v3 bootstrap
+	mov	#buff1+b$rnam,boostr ;assume it has a name
+	mov	#3,boovnm	;assume 3 or earlier
+	br	150$		;
+150$:
+
+300$:	bit	#loval$,boosta	;does it have something valid?
+	beq	310$		;no
+	tst	(pc)+		;yes
+310$:	sec			;no
+	return
+
+;	Check for RSX bootstrap
+;
+;000	nop
+;002	reset
+;004	mov #x,sp
+;010	mov pc,r0
+;012	add #str-.,r0
+
+rsxboo:
+	cmp	buff1+2,#reset	;this RSX?
+	bne	90$		;no
+	cmp	buff1+4,#12706	;really?
+	bne	90$		;no
+	cmp	buff1+10,#010700 ;certain?
+	bne	90$		;no
+	cmp	buff1+12,#62700	;utterly certain?
+	bne	90$		;no
+	mov	buff1+14,r0	;yes
+	add	#buff1+14,r0	;add in the offset
+	mov	r0,boostr	;remember it
+	call	setrsx		;remember its rsx
+	bis	#lorsx$,boosta	;
+	tst	(pc)+		;
+90$:	sec
+	return
+
+;	Check for rsts bootstrap
+;
+;	We know very little about rsts.
+;
+;000		nop
+;002		br	setup
+;004		6
+;006		halt
+;010		12
+;012		0
+;
+;020		jmp @(pc)+ or mov (pc)+,pc
+;022		start
+;056	setup	startup code
+
+rstboo:				;check for rsts boot
+	cmp	buff1+4,#6	;what we need?
+	bne	90$		;no
+	tst	buff1+6		;
+	bne	90$		;no
+	cmp	buff1+10,#12	;
+	bne	90$		;no
+	call	setrst		;assume its rsts
+	tst	(pc)+		;
+90$:	sec
+	return
+.sbttl	magtape
+
+;	vol1 hdr1 eof eof eof	;empty
+;	vol1 boot hdr1 ...	;bootable
+;	... hdr1 data		;not empty
+;
+;	We have to leave the boot block in buff1 for bootstrap tests
+
+magblk:	.word	0		;
+magsta:	.word	0		;magtape status
+map	m.mag$,,1		;this is a magtape
+map	m.boo$,,2		;its bootable
+map	m.bup$,,4		;its a BUP volume
+map	m.for$,,10		;its not RT-11 format
+map	m.vol$,,20		;vol1 seen
+map	m.hd1$,,40		;hdr1
+map	m.hd2$,,100		;hdr2
+map	m.hd3$,,200		;hdr3
+map	m.eof$,,400		;eof
+map	m.unk$,,1000		;unknown - probably data
+map	m.mar$,,2000		;tape mark
+
+magver:
+	clr	magsta		;no magtape
+	clr	magblk		;no block
+	call	magchk		;check for magtape
+	bcs	10$		;not ours
+	call	buptst		;this bup?
+	bcs	5$		;no
+	call	bumver		;yes - check for BUP volume
+5$:	clc			;
+10$:	return
+
+maglst:
+magful:
+	clr	magsta		;no magtape
+	clr	magblk		;no block
+	call	magchk		;check for magtape
+	bcs	10$		;its not ours
+	call	buptst		;this a bup volume?
+	bcs	5$		;no
+	bit	#swful$,opts	;want it all?
+	beq	4$		;no
+	call	bumful		;yes
+	br	5$		;
+4$:	call	bumlst		;yes
+5$:	call	maggen		;do the general stuff
+	tst	(pc)+		;it was magtape
+10$:	sec			;it was noe
+	return
+
+maggen:	
+	mov	#mtap.,medtyp	;remember the type
+	call	maglab		;display the first
+	$print
+10$:	inc	magblk		;get the next block
+	call	reamag		;
+	call	maglab		;
+	$print
+	bit	#swful$,opts	;want it all?
+	bne	10$		;no
+	cmp	magblk,#5.	;gone too far?
+	bhi	20$		;yes
+15$:	bit	#m.mar$!m.eof$!m.unk$,magsta
+	beq	10$		;keep looking
+20$:	return
+
+;	Check for magtape header
+
+magchk:
+	tst	magdev		;is this specifically us?
+	bne	20$		;yes
+	mov	#buff1,r3	;point to it
+	cmp	(r3)+,#"VO	;this a volume header?
+	bne	10$		;yes
+	cmp	(r3)+,#"L1	;really?
+	bne	10$		;not magtape
+	bis	#m.mag$,magsta	;this is magtape
+	tst	(pc)+		;
+10$:	sec
+20$:	return			;
+.sbttl	magtape label
+
+;	Display the label in buff1
+
+.macro	mtshow c d e
+	$type	<c>
+	mov	r3,r1
+	add	#d-1,r1
+	mov	#e,r2
+	call	ascii
+	$print
+.endm
+
+maglab:	mov	#buff1,r3	;r3 -> buffer
+	tst	mageof		;seen a tape mark?
+	beq	5$		;no
+	jmp	75$		;yes - report it
+
+5$:	cmp	(r3),#"VO	;this a volume label?
+	bne	10$		;
+	bis	#m.vol$,magsta	;
+	mtshow <Label		>	v1.lab+1	4
+	mtshow <Volume ID	>	v1.vol+1	6
+	mtshow <Accessibility	>	v1.acc+1	1
+	mtshow <Owner ID	>	v1.usr+1	10.
+	mtshow <Label version	>	v1.lsv+1	1
+				;
+;	mtshow <Label		>	1	4
+;	mtshow <Volume ID	>	5	6
+;	mtshow <Accessibility	>	11.	1
+;	mtshow <Owner ID	>	38.	14.
+;	mtshow <Label version	>	80.	1
+	jmp	100$		;
+
+10$:	cmp	(r3),#"EO	;EOF?
+	bne	11$		;no
+	cmpb	2(r3),#'V	;EOV?
+	beq	13$		;yes
+	cmpb	2(r3),#'F	;really?
+	bne	11$		;
+	bis	#m.eof$,magsta	;we have seen eof
+	br	13$		;
+
+11$:	cmp	(r3),#"HD	;A header?
+	bne	12$		;no
+	cmpb	2(r3),#'R	;really?
+	bne	12$		;
+	br	13$		;
+
+12$:	jmp	70$		;not HDR or EOF
+
+13$:	cmpb	3(r3),#'1	;HDR1?
+	beq	14$		;yes
+	jmp	20$		;no
+14$:	bis	#m.hd1$,magsta	;
+	mtshow <Label		>	1	4
+	mtshow <File ID		>	5	17.
+	mtshow <Fileset ID	>	22.	6
+	mtshow <File section	>	28.	4
+	mtshow <File sequence	>	32.	4
+	mtshow <Gen. number	>	36.	4
+	mtshow <Gen. version	>	40.	2
+	mtshow <Creation date	>	42.	6
+	mtshow <Expiration date	>	48.	6
+	mtshow <Accessibility	>	54.	1
+	mtshow <Block count	>	55.	6
+	mtshow <System ID	>	61.	13.
+	jmp	100$
+
+20$:	cmpb	3(r3),#'2	;RSX HDR2?
+	beq	25$		;yes
+	jmp	30$		;unknown
+25$:	bis	#m.hd2$,magsta	;
+	mtshow <Label		>	1	4
+	mtshow <Record format	>	5	1
+	mtshow <Block length	>	6	5.
+	mtshow <Record length	>	11.	5.
+	mtshow <System dep.	>	16.	21.
+	mtshow <Carriage control>	37.	1
+	mtshow <System dep.	>	38.	13.
+	mtshow <Buffer offset	>	51.	2
+	jmp	100$		;
+
+30$:	cmpb	3(r3),#'3	;VMS HDR3?
+	bne	40$		;no
+	bis	m.hd3$,magsta	;
+	mtshow <Label		>	1	4
+	mtshow <VMS undefined	>	5.	40.
+	mtshow <VMS undefined	>	45.	23.
+	jmp	100$	
+40$:	jmp	70$		;
+
+.if ne 0
+50$:	cmp	(r3),#"EO	;eof?
+	bne	60$		;no
+	mtshow <Label		>	1	4
+	mtshow <Block count	>	55.	6
+	bis	#m.eof$,magsta	;we have seen eof
+	br	100$		
+.endc
+
+60$:	cmp	(r3),#240	;this a boot block?
+	bne	70$		;no
+	bis	#m.boo$,magsta	;bootable
+	$print	<Label		Bootstrap>
+	br	100$		;
+
+70$:;	cmpb	1(r3),#40	;this a tape mark?
+;	bhi	80$		;no
+	br	80$		;
+
+75$:	bit	#swful$,opts	;want this too?
+	beq	76$		;no
+	$type	<Tape mark	>
+	movb	(r3),r1		;
+	bic	#^c377,r1	;
+	$decima	r1		
+	$print
+76$:	bis	#m.mar$,magsta	;we have seen a label
+	br	90$		;
+
+80$:	mtshow <Unknown 	>	1	4
+	mtshow <Undefined	>	5.	40.
+	mtshow <Undefined	>	45.	35.
+90$:	br	100$		;
+
+100$:	return
+.sbttl	bads
+
+;	Bad block replacement table
+;	This applies only to DL: and DM: handlers
+
+mintar:	.word	-1		;minimum target
+maxtar:	.word	0		;maximum target
+minrep:	.word	-1		;minimum replacement
+maxrep:	.word	0		;maximum replacement
+badcnt:	.word	0
+
+badful:	call	onlrta		;only rt-11
+	call	onldis		;only disks
+	$print
+	$print	<Bad block replacement information:>
+	$print
+5$:	call	badlst
+	mov	#buff1,r5		;point to them
+	mov	#buff1+202,r3
+	call	table
+	$print
+10$:	return
+
+badver:	call	onlrta		;
+	call	onldis		;only disks
+	call	badtst
+	bcs	10$
+;	tst	badcnt
+;	bne	badnum
+10$:	return
+
+	.enabl	lsb
+badlst:	call	onlrta			;
+	call	onldis			;only disks
+	call	badtst			;verify it
+badnum:	$type	<Replace data:	>
+	mov	badcnt,r1		;how many?
+	bne	90$			;no
+	$type	<None>
+	br	100$
+90$:	$decima	r1
+100$:	$print
+110$:	return
+	.dsabl	lsb
+
+badtst:	clr	badcnt			;assume no bad blocks
+	tst	buff1			;got any badblocks?
+	beq	80$			;no
+	mov	#-1,mintar		;setup
+	clr	maxtar
+	mov	#-1,minrep
+	clr	maxrep
+
+	mov	#buff1,r5		;point to it
+	mov	#buff1+<10.*2>+2,r4	;end of it
+
+10$:	tst	(r0)			;is this the end
+	beq	60$			;yes - we are done
+	inc	badcnt			;
+	cmp	(r0),mintar		;new low?
+	bhis	20$			;not really
+	mov	(r0),mintar		;yes
+20$:	cmp	(r0),maxtar		;
+	blos	30$			;
+	mov	(r0),maxtar		;
+30$:	cmp	2(r0),minrep		;
+	bhis	40$			;
+	mov	2(r0),minrep		;
+40$:	cmp	2(r0),maxrep		;
+	blos	50$			;
+	mov	2(r0),maxrep		;
+50$:	cmp	(r0)+,(r0)+		;
+	cmp	r0,#buff1+<10.*2>+2	;end of it?
+	blo	60$			;no
+	tst	(r0)			;is it terminated?
+	beq	60$			;yes
+	$error	<Bad block replacement table not terminated>
+
+60$:	cmp	mintar,#8.		;minimum target too low?
+	blo	70$			;yes
+	cmp	minrep,#8.		;minimum replacement too low?
+	blo	70$			;yes
+	cmp	maxtar,minrep		;maximum target below minimum replace?
+	bhi	70$			;no
+	cmp	minrep,maxtar		;min replace above max target?
+	bhi	80$			;yes
+70$:	$warn	<Bad block replacement table is garbage>
+80$:	return
+.sbttl	directory restore
+
+iniver:	call	onlrta			;only rt11a
+	call	onldis			;only disks
+	call	initst
+	return
+
+inilst:	call	onlrta			;only rt11a
+	call	onldis			;only disks
+	call	initst			;test it
+	$type	<Restore data:	>
+	tst	buff1+204		;anything there?
+	bne	20$			;yes
+	$print	<None>
+	br	30$
+20$:	mov	#buff1+204,r5
+	add	#5.*2,r5
+	add	#2,r5
+	call	ininam			;display the name
+	$type	<, >
+	add	#<7*2>-<3*2>,r5
+	call	ininam
+	$print
+30$:	return
+
+iniful:	call	onlrta			;only rt11a
+	call	onldis			;only disks
+	$print
+	$print	<Directory restore information:>
+	$print
+5$:	call	inilst			;list it first
+	mov	#buff1+252,r3
+	mov	#buff1+204,r5
+	call	table
+	$print
+	mov	#buff1+204,r5
+	call	inihea
+	call	inient
+	tst	iniext			;extra words?
+	bne	10$			;yep-no second entry
+	call	inient
+10$:	$print
+	return
+iniext:	.word	0
+
+inihea:
+	mov	r5,r1
+	sub	#buff1,r1
+	$octal	r1
+	$type	<	Limit=>
+	$octal	(r5)+			;
+	$type	<, Link=>
+	$octal	(r5)+
+	$type	<, Last=>
+	$octal	(r5)+
+	$type	<, Extra=>
+	mov	(r5),iniext
+	$octal	(r5)+
+	$type	<, Start=>
+	$octal	(r5)+
+	$print
+	return
+
+inient:	mov	r5,r1
+	sub	#buff1,r1
+	$octal	r1
+	$type	<	Status=>
+	$octal	(r5)+
+	$type	<, Name=>
+	call	ininam
+	$type	<, Length=>
+	$octal	(r5)+
+	$type	<, Time=>
+	$octal	(r5)+
+	$type	<, Date=>
+	$octal	(r5)+
+	$print
+	return
+
+ininam:	$rad50	(r5)+
+	$rad50	(r5)+
+	$type	<.>
+	$rad50	(r5)+
+	return
+
+initst:	mov	#buff1+204,r5	;check the header and entries
+	tst	(r5)		;got any?
+	beq	10$		;no
+	call	inihec
+	bcs	5$
+	call	inienc
+	bcs	5$
+	tst	iniext		;got extra words?
+	bne	10$		;yep--no second entry
+	call	inienc		;extra words screw up second entry test
+	bcc	10$
+5$:	$warn	<Directory restore information is garbage>
+	sec
+10$:	return
+
+inihec:	mov	(r5)+,r0	;get limit
+	beq	90$		;no
+	cmp	r0,#37		;too many?
+	bhi	90$		;yes
+	cmp	(r5)+,r0	;invalid link?
+	bhi	90$		;yes
+	cmp	(r5)+,r0	;invalid last?
+	bhi	90$		;yes
+	bit	#1,(r5)		;odd extra byte count?
+	bne	90$		;yes
+	cmp	(r5)+,#512.	;much too many?
+	bhis	90$		;yes
+	cmp	(r5)+,#8.	;blocks start in a reasonable place?
+	blo	90$		;no
+	tst	(pc)+		;header is reasonable
+90$:	sec			;header is unreasonable
+	return
+
+iiniext:	.word	0
+
+inienc:				;check an entry
+	tstb	(r5)		;lowbyte of status always clear
+	bne	90$		;but it is not
+	tst	(r5)		;but it must have something
+	beq	90$		;it does not
+	add	#7.*2,r5	;skip the entry
+	tst	(pc)+
+90$:	sec
+	return
+.sbttl	bups
+
+;	252	"BUP"
+;	255	"FILNAMTYP"		(spaces indicates empty)
+;	266	Volume
+;	270	Volumes in set		(not valid for magtape)
+;	272	Size of last volume	(not used for magtape)
+
+bupful:	call	onlrta		;rt11 only
+	call	onldis		;only disks
+bumful:	$print	<Backup information: >
+	$print
+10$:	call	buplst
+	mov	#buff1+252,r5
+	mov	#buff1+274,r3
+	call	table
+	$print
+	$type	<252	Guard=>
+	mov	#buff1+252,r1
+	mov	#3,r2
+	call	ascii
+	$print
+	$type	<255	Filename=>
+	mov	#buff1+255,r1
+	mov	#9.,r2
+	call	ascii
+	$print
+	$type	<266	Volume=>
+	$decima	buff1+266
+	$type	<, Total volumes=>
+	$decima	buff1+270
+	$type	<, Size of last=>
+	$decima	buff1+272
+	$print
+20$:	return
+
+bupver:	call	onlrta		;rt11 only
+	call	onldis		;only disks
+bumver:	call	buptst
+	bcs	10$
+	$type	<?VOLUME-I-Backup volume: >
+	call	bupnam
+10$:	return
+
+buplst:	call	onlrta		;rt11 only
+	call	onldis		;only disks
+bumlst:	call	buptst
+	$type	<Backup data:	>
+	tst	bupflg		;do we have any?
+	bpl	10$		;yes
+	$print	<None>
+	return			;no
+10$:	call	bupnam		;tell them the name
+	return
+
+;	252	"BUP"
+;	255	"FILNAMTYP"	(spaces indicates empty)
+;	266	Volume
+;	270	Volumes in set
+;	272	Size of last volume
+
+bupnam:	tst	bupflg
+	bmi	30$
+	beq	20$
+	mov	#buff1+255,r1
+	mov	#6,r2
+	call	100$		;display the name
+	$type	<.>		;
+	mov	#3,r2		;
+	call	100$
+	$type	<, Volume >
+	$decima	buff1+266
+
+	bit	#m.mag$,magsta	;this is magtape
+	bne	10$		;yes - no volume count
+	$type	< of >
+	$decima	buff1+270
+10$:	$print
+	br	30$
+20$:	$print	<(Initialized BUP volume)>
+30$:	return
+
+100$:	movb	(r1)+,r0	;get the next
+	cmpb	r0,#40		;this o.k.?
+	beq	140$		;ignore spaces
+	bhi	120$		;yes
+110$:	$type	<?>		;replace questionable characters
+	br	140$		;
+120$:	cmpb	r0,#177		;too high?
+	bhis	110$		;yes
+	.ttyout			;no - its o.k.
+140$:	dec	r2		;anymore?
+	bne	100$		;yes
+	return
+
+bupflg:	.word	0
+buptst:	clr	bupflg
+	cmp	buff1+252,#"BU	;this a BUP volume?
+	bne	5$		;no
+	cmpb	buff1+254,#'P	;really?
+	beq	10$		;yes
+5$:	dec	bupflg		;no
+	sec			;forget it
+	return			;not a BUP volume
+
+10$:	cmpb	buff1+255,#40	;is it empty?
+	beq	20$		;yes - its empty
+	inc	bupflg		;no
+20$:	clc			;its a BUP volume
+	return
+.sbttl	vols
+.macro	volloc	off
+	mov	#off,r1
+	call	volloc
+.endm
+
+volwar:	.word	0
+volerr:	.word	0
+
+volful:	$print
+	$print	<Volume identification information:>
+	$print
+
+volfu2:	volloc	700
+
+	$type	<RTEM guard:	>
+	$octal	buff1+700
+	$type	<	">
+	$rad50	buff1+700
+	$type	<">
+	cmp	buff1+700,#^rrte
+	beq	10$		;
+	tst	buff1+700
+	beq	10$
+	cmp	buff1+700,#177777	;v5.4 writes -1
+	bne	5$			;not a -1
+	$type	<	(V5.4 RTEM guard)>
+	br	10$
+5$:	$type	<	(Should be rad50 "RTE", 0 or 177777)>
+10$:	$print
+	volloc	702
+	$type	<RTEM block:	>
+	$octal	buff1+702	;
+	tst	buff1+702
+	beq	20$
+	cmp	buff1+700,#^rrte
+	beq	20$
+	$type	<		(Should be zero)>
+20$:	$print
+	br	volls2
+
+volver:	call	voltst
+	return
+
+vollst:	call	voltst
+	tst	volwar		;got warnings?
+	bne	volfu2		;yes - show the MBZ areas
+
+volls2:	tst	sysrta		;this rt-11?
+	beq	30$		;no - skip cluster/segment
+	volloc	722
+
+	$type	<Cluster size:	>
+	$octal	buff1+722
+	cmp	buff1+722,#1		;should be one
+	beq	10$			;
+	$type	<		(Should be 1)>
+10$:	$print
+
+	volloc	724
+	$type	<First segment:	>
+	$octal	buff1+724
+	cmp	buff1+724,#6
+	beq	20$
+	$type	<		(Should be 6)>
+20$:	$print
+
+;	V3A
+;	V4A
+;	V50
+
+30$:	volloc	726
+	$type  <System version:	>
+	$rad50	buff1+726
+	tst	sysrta			;RT-11?
+	beq	40$			;nope
+
+	cmp	buff1+726,#^rV3A	
+	beq	40$
+	cmp	buff1+726,#^rV4A	
+	beq	40$
+	cmp	buff1+726,#^rV05	
+	beq	40$
+	$type	< (Should be V3A, V4A or V05)>
+40$:	$print
+
+	volloc	730
+	$type	<Volume ID:	>
+	mov	#buff1+730,r1
+	mov	#12.,r2
+	call	ascii
+	$print
+
+	volloc	744
+	$type	<Owner name:	>	
+	mov	#buff1+744,r1
+	mov	#12.,r2
+	call	ascii
+	$print
+
+	volloc	760
+	$type	<System ID:	>
+	mov	#buff1+760,r1
+	mov	#12.,r2
+	call	ascii
+	tst	sysrta
+	beq	100$
+	$type	< (RT-11)>
+100$:	tst	sysrsx
+	beq	110$
+	$type	< (RSX)>
+110$:	tst	sysvms
+	beq	120$
+	type	< (VMS)>
+120$:	$print
+	return
+
+volloc:	bit	#swful$,opts	;full?
+	beq	10$		;no
+	$octal	r1		;yes
+	$type	<	>	;
+10$:	return
+
+voltst:				;test the volume
+	clr	volwar		;
+	clr	volerr		;
+	call	systid		;check the system ID
+	cmp	buff1+700,#^rrte;this rtem?
+	beq	20$		;yes
+	cmp	buff1+700,#-1	;this v5.4?
+	beq	10$		;yes
+	tst	buff1+700	;no - mbz
+	bne	20$		;
+10$:	tst	buff1+702	;
+	beq	30$		;
+20$:	inc	volwar		;
+
+30$:	tst	sysrta		;this rt-11?
+	beq	50$		;no
+	cmp	buff1+722,#1	;cluster should be one
+	beq	40$		;
+	inc	volwar		;
+40$:	cmp	buff1+724,#6	;first block should be six
+	beq	45$		;
+	inc	volerr		;
+				;
+45$:	cmp	buff1+726,#^rV3A;RT-11 system version	
+	beq	50$		;
+	cmp	buff1+726,#^rV4A;	
+	beq	50$		;
+	cmp	buff1+726,#^rV05;	
+	beq	50$		;
+	inc	volwar		;
+
+50$:	tst	volerr		;
+	beq	60$		;
+	$warn	<Identification area is garbage>
+	br	70$		;
+60$:	tst	volwar		;roughly o.k.
+	beq	70$		;
+	$warn	<Identification area is not V4/V5 compatible>
+70$:	return
+.sbttl	system id
+
+;	Check system ID for rt111a, file11a, file11b
+
+systid:	mov	#buff1+760,r0	;check for DEC first
+	jsr	r1,cmpstr	;compare
+	.asciz	/DEC/		;
+	.even
+	bcs	100$		;not a DEC system
+	inc	sysdec		;a DEC system
+	add	#3,r0		;skip DEC
+	jsr	r1,cmpstr	;
+	.asciz	/RT11A/		;
+	.even
+	bcc	10$		;its rt11a
+	jsr	r1,cmpstr	;
+	.asciz	/VMSEXCHNG/	;exchange volume (hopefully not rsts)
+	.even
+	bcs	20$		;not rt11a
+10$:	call	setrta		;its rt11
+	br	100$		;
+20$:	jsr	r1,cmpstr
+	.asciz	/FILE11A/	;sometimes this
+	.even
+	bcc	25$		;
+	jsr	r1,cmpstr	;
+	.asciz	/FILES11A/	;
+	.even
+	bcs	30$		;
+25$:	call	setrsx		;
+	br	100$		;
+30$:	jsr	r1,cmpstr
+	.asciz	/FILE11B/	;perhaps this
+	.even
+	bcc	35$		;
+	jsr	r1,cmpstr	;
+	.asciz	/FILES11B/	;
+	.even
+	bcs	40$		;
+35$:	call	setvms		;
+	br	100$		;
+40$:
+100$:	bit	#loall$,boosta
+	bne	110$		;a DEC boot block
+	$warn	<System identification is invalid>
+110$:	return
+
+;	Compare string
+;
+;	r0 ->	target
+;	jsr	r1,cmpstr
+;	.asciz	/string/
+;
+;	c=0	same, r0 points past string
+;	c=1	different, r0 unchanged
+
+cmpstr:
+	psh	r0		;save it for fails
+10$:	cmpb	(r0)+,(r1)+	;these the same?
+	bne	20$		;no
+	tstb	(r1)		;found the end?
+	bne	10$		;no
+	mov	r0,(sp)		;yes - pop past
+	tst	(pc)+		;
+20$:	sec
+30$:	bitb	#377,(r1)+	;find the end
+	bne	30$		;
+	inc	r1		;
+	bic	#1,r1		;
+	pop	r0		;
+	rts	r1		;
+.sbttl	checksum
+
+chkver:	tst	sysrta
+	beq	10$
+	call	chksum
+	beq	10$
+	$warn	<Home block checksum is garbage>
+	sec			;
+10$:	return			;non-fatal
+
+chkful:	
+chklst:	volloc	776
+	$type	<Checksum:	>
+	$octal	buff1+776
+	call	chksum
+	beq	20$
+	tst	sysrta
+	beq	20$
+	$type	< (Should be >
+	$octal	r1
+	$type	<)>
+20$:	$print
+	return
+
+chksum:	mov	#buff1,r0	;
+	clr	r1
+	mov	#255.,r2
+10$:	add	(r0)+,r1
+	dec	r2
+	bne	10$
+	cmp	r1,(r0)		;is this right?
+	return
+.sbttl	directory data
+
+;	Directory segment status
+
+map	lo.sts	word,0		;errors detected in segment
+map	lo.tot			;total
+map	lo.nxt			;next segment
+map	lo.hgh			;high segment
+map	lo.ext			;extra bytes
+map	lo.blk			;start block of first
+map	lo.ebk			;end block in segment
+map	lo.sta			;or of all status words
+map	lo.lst			;last block in segment
+map	lo.bks			;blocks in segment
+map	lo.lkc			;link count
+map	lo.lfs			;linked from segment
+map	lo.lts			;linked to segment (approved)
+map	lo.lfa			;links from
+map	lo.lta			;links to
+map	lo.erc			;error count for segment
+map	lo.las			;last segment flag (set to -1)
+map	lo.bbs			;
+;
+map	loier$,,1		;input error
+map	lodup$,,2		;duplicate filenames
+map	losbh$,,4		;start block too high
+map	losbl$,,10		;start block too low
+;
+map	lomis$,,20		;missing link
+map	lomul$,,40		;multiple links
+map	loend$,,100		;end segment wrong
+map	lonam$,,200		;nam in entry
+map	lotot$,,400		;tot invalid
+map	lonxt$,,1000		;nxt invalid
+map	lohgh$,,2000		;hgh invalid
+map	loext$,,4000		;ext invalid
+map	loblk$,,10000		;blk invalid
+map	losta$,,20000		;sta invalid
+map	lolen$,,40000		;len invalid
+map	logar$,,100000		;segment is garbage
+;
+dirbit:	
+bitent	loier$	<I/O error>
+bitent	lodup$	<Duplicate names>
+bitent	losbh$	<Start block high>
+bitent	losbl$	<Start block low>
+bitent	lomis$	<Missing link>
+bitent	lomul$	<Multiple links>
+bitent	loend$	<End segment>
+bitent	lonam$	<Filename>
+bitent	lotot$	<Segment total>
+bitent	lonxt$	<Next segment link>
+bitent	lohgh$	<High segment number>
+bitent	loext$	<Extra byte count>
+bitent	loblk$	<Segment start block>
+bitent	losta$	<File status word>
+bitent	lolen$	<File length>
+bitent	logar$	<Garbage>
+.word	0
+
+map	l.lso$,,1	;link to segment one
+map	l.mis$,,2	;segments are missing
+map	l.mul$,,4	;multiple segment links
+map	l.hal$,,10	;highest in use above limit
+map	l.bro$,,20	;broken linkage
+map	l.sbh$,,40	;block numbers overlap
+map	l.sbl$,,100	;block numbers are missing
+
+lnkbit:
+bitent	l.lso$	<Segment one link>
+bitent	l.mis$	<Segments missing>
+bitent	l.mul$	<Multiple segment links>
+bitent	l.hal$	<High segment above limit>
+bitent	l.bro$	<Broken linkages>
+bitent	l.sbh$	<Block numbers overlap>
+bitent	l.sbl$	<Block numbers missing>
+.word	0
+
+segs.=31.
+dirfrm:
+segerc:	.word	0		;total segment errors
+segsta:	.word	0		;combined status words
+segwar:	.word	0		;number of warnings
+segerr:	.word	0		;number of errors
+segtot:	.word	0		;total segments
+segext:	.word	0		;extra bytes
+seghgh:	.word	0		;highest in use
+segmul:	.word	0		;segments multiply linked
+segmis:	.word	0		;number of segments missing
+seglim:	.word	0		;controls last segment tested
+dirsts:	.word	0		;status of all
+lnksts:	.word	0		;status of linkages
+
+namsta:	.word	0		;-> first name in list
+namnxt:	.word	0		;-> next name in list
+namend:	.word	0		;-> end of list
+namful:	.word	0		;name table full
+namdup:	.word	0		;name duplicate counter
+
+dirto:
+.sbttl	directory drivers
+
+;	/verify
+
+dirver:	call	onlrta		;
+	call	dirtst		;
+	return			;
+
+;	/full
+
+dirful:	call	onlrta		;
+	$print
+	$print	<Directory information:>
+	$print
+	call	dirlst		;do the listing
+	call	dirshs		;show the segments
+10$:	return
+
+;	/list
+
+dirlst:	call	onlrta		;
+	call	dirtst		;get it
+	bcc	10$		;fine
+	$type	<Segment status:	>
+	shobit	dirsts,#dirbit	;
+	$print
+	$type	<Linkage status:	>
+	shobit	lnksts,#lnkbit
+	$print
+10$:	sec
+	return
+
+;	Show segments
+
+dirshs:					;show segments
+	mov	buff3,r5		;point to them
+	mov	#1,r4			;
+100$:	$type	<Segment >		;
+	$decima	r4
+	$type	<	>
+	tst	(r5)			;this o.k.
+	bne	110$			;no
+	$type	<Fine>
+	br	200$			;
+110$:	shobit	(r5),#dirbit		;
+200$:	$print
+	inc	r4			;
+;	tst	lo.las(r5)		;was this the last?
+;	bne	210$			;yes
+	cmp	r4,seglim		;was this the last tested
+	bhis	210$			;yes
+	add	#lo.bbs,r5		;next plex
+	br	100$			;no
+210$:	return
+.sbttl	test directory
+
+;	Look for a good directory
+
+dirtst:				;test the directory
+	mov	#dirfrm,r0	
+5$:	clr	(r0)+		;clear local stuff
+	cmp	r0,#dirto
+	blo	5$		;
+	mov	buff3,r1	;
+	mov	#lo.bbs*segs.,r2;upto 64 segments
+10$:	clr	(r1)+		;clear it out
+	dec	r2		;
+	bne	10$		;
+	mov	#-1,-2(r1)	;initially the last segment
+
+;	Setup name table
+
+	mov	r1,namsta	;first directory entry
+	mov	r1,namnxt	;next entry
+	.settop	#-2		;get the rest
+	sub	#2,r0		;
+	mov	r0,namend	;end of table area
+
+;	Cycle thru segment tests
+
+	mov	buff3,r5	;point to them
+	mov	#lo.bbs*segs.,r2;upto 31 segments
+	mov	#1,nxtseg	;
+	mov	#segs.,seglim	;setup segment limit
+20$:	call	segtst		;get a segment
+	tst	devsts		;this a network disk?
+	bmi	25$		;nope
+	tst	lo.nxt(r5)	;got another segment?
+	beq	30$		;nope
+
+25$:	cmp	nxtseg,seglim	;is this the limit?
+	bhis	30$		;yes
+;	tst	lo.las(r5)	;is this the last?
+;	bne	30$		;yes
+	inc	nxtseg		;get the next segment
+	add	#lo.bbs,r5	;point to next plex
+	br	20$		;
+
+30$:;	mov	#-1,lo.las(r5)	;terminate the list
+
+;	All segments tested
+;	Check linkages
+;	Report results
+
+100$:	call	dirlks		;check the linkages
+	clr	-(sp)		;
+	tst	dirsts		;how did we do?
+	beq	110$		;fine
+	bis	#1,(sp)		;set an error
+	$fatal	<Directory is corrupted>,ret=1
+110$:	tst	lnksts		;do any segments have problems?
+	beq	120$		;no
+	bis	#1,(sp)		;set an error
+	$fatal	<Directory linkage is corrupted>,ret=1
+120$:	asr	(sp)+		;retun the error status
+	return
+.sbttl	directory segment test
+
+;	Perform individual segment tests
+;	We do not assume anything to do with linkages
+;	since we have not yet established the high segment
+;
+;	r5 ->	segment plex
+;	r4 ->	segment buffer
+
+segtst:	call	reaseg		;get the segment
+	bcc	10$		;fine
+	call	reaboo		;try a home
+	call	reaseg		;try again
+	bcc	10$		;
+	bis	#loier$,(r5)	;set it
+	fall	10$		;but keep going
+
+;	Check segment contains all same value
+
+10$:	mov	#buff1,r4	;point to the buffer
+	mov	#512.,r3	;count them
+	mov	(r4),r2		;get the first word
+20$:	cmp	(r4)+,r2	;see if we got anything
+	bne	30$		;there is some significance here
+	dec	r3		;
+	bne	20$		;
+	bis	#logar$,(r5)	;this is garbage
+	mov	#100000,lo.erc(r5) ;too many errors
+	jmp	500$		;and quit
+
+;	Copy the segment header
+
+30$:	mov	#buff1,r4	;point to the buffer
+	mov	r4,r0		;get a copy
+	mov	r5,r1		;
+	add	#lo.tot,r1	;point to it
+	mov	#rt.hbs/2,r2	;
+40$:	mov	(r0)+,(r1)+	;
+	dec	r2		;
+	bne	40$		;
+
+;	Check the segment header
+
+100$:	mov	rt.tot(r4),r1	;get the total
+	beq	110$		;this is garbage
+	cmp	r1,#31.*2	;too many segments?
+	blo	120$		;no
+110$:	bis	#lotot$,(r5)	;rt.tot is garbage
+	inc	lo.erc(r5)	;count the number of errors
+
+120$:	mov	rt.nxt(r4),r1	;get the next
+	beq	140$		;this is the last
+				;links to segment one handled later
+	cmp	r1,#31.*2	;too high?
+	blo	140$		;no
+130$:	bis	#lonxt$,(r5)	;rt.nxt is garbage
+	inc	lo.erc(r5)	;count the number of errors
+
+140$:	cmp	nxtseg,#1	;is this the first?
+	bne	160$		;no - ignore it
+	mov	rt.hgh(r4),r1	;yes - get it
+	beq	150$		;invalid
+	cmp	r1,#31.*2	;too high
+	blo	160$		;no
+150$:	bis	#lohgh$,(r5)	;rt.hgh is garbage
+	inc	lo.erc(r5)	;count the number of errors
+
+160$:	mov	rt.ext(r4),r1	;get the extra words
+	beq	180$		;fine
+	bit	#177401,r1	;odd or greater than 256.
+	beq	180$		;no
+	bis	#loext$,(r5)	;yes
+	inc	lo.erc(r5)	;and count it
+
+180$:	mov	rt.blk(r4),r1	;get the start block
+	cmp	r1,#8.		;may not be below six
+	bhis	200$		;accept it - though it may be wrong
+	bis	#loblk$,(r5)	;rt.blk is wrong
+	inc	lo.erc(r5)	;count the error
+
+;	Check the entries
+;
+;	Forget this if the extra-byte count is wrong.
+
+200$:	bit	#loext$,(r5)	;extra-bytes wrong?
+	bne	500$		;yes - ignore the segment
+	mov	r4,r3		;point to the entries
+	add	#rt.hbs,r3	;r3 -> entry
+
+;	Entry loop
+
+210$:	mov	(r3),r1		;get the status word
+	bis	r1,lo.sta(r5)	;accumulate the status
+	mov	#900$,r2	;get the valid patterns
+220$:	mov	(r2)+,r0	;get the type
+	cmp	r1,(r2)+	;is this valid?
+	beq	230$		;yes
+	tst	(r2)		;anymore?
+	bne	220$		;yes
+	bis	#losta$,(r5)	;status is wrong
+	inc	lo.erc(r5)	;and count it
+	br	400$		;and ignore the entry
+
+; 	r0 = type
+
+230$:	tst	r0		;is this endblk?
+	beq	400$		;yes - ignore the rest
+
+;	Filename entries
+
+	mov	rt.len(r3),r1	;get the length
+	add	r1,lo.bks(r5)	;count the total blocks
+	bcc	250$		;it did not rollover
+;bpt
+	bis	#lolen$,(r5)	;lengths are wrong
+	inc	lo.erc(r5)	;
+250$:	tst	rt.fil(r3)	;got a name?
+	bne	260$		;yes
+	bis	#lonam$,(r5)	;no - name is wrong
+	br	270$		;dont register it
+260$:	bit	#rtper$,(r3)	;this a permanent entry?
+	beq	270$		;no
+	call	stonam		;yes - store the name
+	bcc	270$		;no problems
+	bis	#lodup$,(r5)	;duplicate name	
+270$:				;
+
+400$:	mov	#rt.ebs,r1	;accumulate size
+	add	rt.ext(r4),r1	;r1 = entry size
+	add	r1,r3		;point to the next
+	cmp	r3,#buff1+1024.	;too far?
+	bhis	410$		;yes - far too far
+	cmp	(r3),#rtend$	;is this the last?
+	beq	420$		;yes - we are done
+	add	r3,r1		;make sure this entry will fit
+	cmp	r1,#buff1+1024.	;does it all fit in?
+	blo	210$		;yes - look at it
+410$:	bis	#loend$,(r5)	;no - endblk error
+	inc	lo.erc(r5)	;count it
+420$:	
+500$:	call	limtst		;see if we can reset the limit
+	return
+
+900$:	.word	0,rtend$	;endbblock
+	.word	1,rtper$	;permanent
+	.word	1,rtprp$	;permanent protected
+	.word	2,rtten$	;tentative
+	.word	3,rtemp$	;empty
+	.word	0
+
+;	Reset the segment limit
+;
+;	If segment one is o.k. we can reset the segment limit
+;	If a subsequent segment has an error we reset it to 31.
+;	This optimises the test path for good directories.
+;
+;	r5 ->	segment plex
+
+limtst:				;reset segment limit
+	cmp	nxtseg,#1	;is this segment one?
+	bne	10$		;no
+	mov	lo.hgh(r5),seglim ;yes - use its limit
+	cmp	seglim,#segs.	;too high?
+	bhi	20$		;yes
+10$:;	tst	(r5)		;got any errors?
+;	bne	20$		;yes - use maximum
+	cmp	lo.nxt(r5),seglim ;does this link past it?
+	blos	30$		;no - we can use it
+20$:	mov	#segs.,seglim	;yes - reset it
+30$:	return
+.sbttl	directory segment linkage test
+
+;	Run thru the segments first looking for a good set of links
+;
+;	segtot	Total segments
+;	seghgh	Highest segment in use
+;	segmul	Multiple links or link to segment 1
+;	segmis	Some segments are unused
+;	segbks	Total blocks accounted for
+
+dirlks:	mov	#1,seghgh		;first is always one
+	mov	buff3,r5		;point to the first
+	mov	r5,r4			;
+100$:	inc	segtot			;count this one
+	bis	(r4),dirsts		;remember total status
+	bit	#logar$!lonxt$,(r4) 	;is this one o.k. for us
+	beq	110$			;yes
+	bis	#l.bro$,lnksts		;
+	br	200$			;and quit
+					;no - cannot complete chain
+110$:	mov	lo.nxt(r4),r2		;get the next
+	beq	200$			;this was the last segment
+
+	cmp	r2,seghgh		;is this the highest so far?
+	blos	115$			;no
+	mov	r2,seghgh		;yes
+115$:	clr	r3			;do a very cheap multiply
+	dec	r2			;
+120$:	add	#lo.bbs,r3		;
+	dec	r2			;
+	bne	120$			;
+
+	add	r5,r3			;r3 -> the one we linked to
+	inc	lo.lkc(r3)		;increment the link count
+	tst	lo.lfs(r3)		;already got a linkage?
+	beq	130$			;no
+	bis	#lomul$,(r3)		;multiple linkages
+	bis	#lomul$,(r4)		;
+	inc	segmul			;remember we have multiple links
+	bis	#l.mul$,lnksts		;remember it
+	br	200$			;and do not circulate forever
+
+;	r4 -> 	current segment
+;	r3 ->	next segment
+
+130$:	bis	lo.sta(r4),segsta	;remember accumulated status
+	mov	lo.nxt(r4),lo.lts(r4)	;remember its o.k.
+	mov	lo.nxt(r4),lo.lfs(r3)	;remember the segment
+	mov	r4,lo.lfa(r3)		;
+	mov	r3,lo.lta(r4)		;fill in the pointers
+
+;	Check that end block of current is start block of next
+
+140$:	mov	lo.blk(r4),r0		;get the current start block
+	add	lo.bks(r4),r0		;r0 is last block in segment
+	bcs	150$			;corrupted
+	cmp	r0,lo.blk(r3)		;does it match next segment start?
+	beq	160$			;yes
+	blo	150$			;overlap - sbh
+	bis	#losbl$,(r3)		;start block is too low
+	bis	#losbl$,dirsts		;remember directory wrong
+	bis	#l.sbl$,lnksts		;remember linkages wrong
+	br	160$			;
+150$:	bis	#losbh$,(r3)		;too high
+	bis	#losbh$,dirsts		;
+	bis	#l.sbh$,lnksts		;
+160$:	mov	r3,r4			;now look for the next
+	br	100$			;go again
+
+;	We have got to the last segment
+;	Or we have a circular list
+
+200$:	mov	seghgh,r1		;get the highest
+	sub	segtot,r1		;see if any are missing
+	mov	r1,segmis		;are some missing?
+	beq	210$			;fine
+	bis	#l.mis$,lnksts		;
+210$:	mov	#-1,lo.las(r4)		;this is the last we will consider
+300$:	return
+.sbttl	store and check names
+
+;	Store name
+;
+;	Save name in entry name list
+;	
+;	r3 ->	directory entry
+;
+;	c=1	duplicate name
+
+stonam:	pshs	<r5,r4,r3,r2,r1,r0>	;
+	mov	namsta,r0		;get the list
+	mov	namnxt,r4		;get the end of it
+	add	#rt.fil,r3		;r3 -> filename
+10$:	cmp	r0,r4			;is this next storage point
+	beq	30$			;yes
+	mov	r0,r1			;get the stored name
+	mov	r3,r2			;check the name
+	cmp	(r1)+,(r2)+		;this the same?
+	bne	20$			;no
+	cmp	(r1)+,(r2)+		;this the same?
+	bne	20$			;no
+	cmp	(r1)+,(r2)+		;this the same?
+	beq	60$			;yep
+20$:	add	#6,r0			;next entry
+	br	10$			;look again
+
+;	Not found
+;
+;	r0=r4	next name
+
+30$:	add	#6,r4			;point to the new next storage point
+	cmp	r4,namend		;gone too far?
+	bhis	40$			;yes
+	mov	r4,namnxt		;store it for next time
+	mov	(r3)+,(r0)+		;store the name
+	mov	(r3)+,(r0)+		;
+	mov	(r3)+,(r0)+		;
+	br	100$			;fine
+
+;	Table full
+
+40$:	tst	namful			;already reported it?
+	bne	50$			;yes
+	inc	namful			;once only
+	$inform	<RT11A name table full> ;
+50$:	br	100$			;no errors
+
+;	Duplicate found
+
+60$:	cmp	-2(r1),#^rBAD		;a bad file?			;V4
+	beq	100$			;yes - ignore duplicates	;V4
+	inc	namdup			;count the duplicates
+	bit	#swful$,opts		;this a /full listing?
+	bne	70$			;yes - forget the count
+	cmp	namdup,#6.		;shown enough?
+	bhis	85$			;yes
+70$:	mov	#file3+word,r2		;point to the filename
+	psh	(r2)+			;
+	psh	(r2)+			;
+	psh	(r2)+			;
+	mov	#file3+word,r2		;point to the filename
+	mov	(r3)+,(r2)+		;copy the name
+	mov	(r3)+,(r2)+		;
+	mov	(r3)+,(r2)+		;
+	$warn	<Duplicate filename>	;
+	pop	-(r2)			;put name back
+	pop	-(r2)			;
+	pop	-(r2)			;
+80$:	br	105$			;error
+85$:	$warn	<More than five duplicate file names>
+	br	105$			;
+					;
+100$:	tst	(pc)+			;fine
+105$:	sec				;duplicate
+	pops	<r0,r1,r2,r3,r4,r5>	;
+	return				;
+.sbttl	table, ascii, string
+
+;	Display an octal table
+;
+;	r5 ->	first word
+;	r3 ->	last word
+
+table:
+10$:	$print
+	mov	r5,r1
+	sub	#buff1,r1
+	$octal	r1
+	$tab
+	mov	#8.,r4		;count them
+20$:	$octal	(r5)+		;do the next
+	$tab			;
+	cmp	r5,r3		;all done?
+	bhis	30$		;yes
+	dec	r4
+	bne	20$
+	br	10$
+30$:	$print
+	return
+
+;	Display an ascii string
+;
+;	r1 ->	first
+;	r2 =	number to display
+
+ascii:	$type	<">		;
+10$:	movb	(r1)+,r0	;get the next
+	bne	20$		;
+	$type	<_>		;null
+	br	50$		;
+20$:	cmpb	r0,#40		;
+	blo	30$
+	cmpb	r0,#177
+	blo	40$
+30$:	$type	<?>
+	br	50$
+40$:	.ttyout
+50$:	dec	r2
+	bne	10$
+	$type	<">
+	return
+
+;	string
+;
+;	throw out formatting stuff
+
+string:	mov	#64.,110$	;printable limit
+	mov	#72.,120$	;total limit
+	$type	<">		;
+	clr	100$		;clear the found flag
+10$:	movb	(r1)+,r0	;get the next
+	bgt	20$		;fine
+	tst	100$		;did we print something already?
+	bne	70$		;yes - we are done
+20$:	cmpb	r0,#40		;
+	blo	50$
+	cmpb	r0,#177
+	bhis	50$
+40$:	inc	100$		;count it
+	.ttyout
+	dec	110$		;done too many?
+	bne	50$		;
+	br	60$		;
+50$:	dec	120$		;over the total
+	bne	10$
+60$:	$type	<...>
+70$:	$type	<">
+	return
+100$:	.word	0
+110$:	.word	32.		;32 printing
+120$:	.word	60.		;60 total
+.sbttl	bit printer
+
+;	Bit printer
+;
+;	r1	bitmap
+;	r2	table
+;
+;	ht ht ht data
+
+shobit:	pshs	<r4,r3>		;save these
+10$:	mov	#8.*2,r3	;column
+	mov	#-1,r4		;first
+20$:	bit	(r2)+,r1	;this set
+	beq	50$		;no
+	mov	r2,r0		;get a copy
+30$:	inc	r3		;count it
+	tstb	(r0)+		;any more?
+	bgt	30$		;yes
+	dec	r3		;was one too many
+	inc	r4		;this the first?
+	beq	40$		;yes - that always fits
+	add	#2,r3		;account for comma and space
+	cmp	r3,#80.		;too far?
+	blos	35$		;no
+	$print			;yes
+	$type	<		>;
+	tst	-(r2)		;backup
+	br	10$		;and do it again
+35$:	$type	<, >		;yes
+40$:	.print	r2		;
+50$:	tstb	(r2)+		;
+	bgt	50$		;
+	inc	r2		;
+	bic	#1,r2		;
+	tst	(r2)		;
+	bne	20$		;
+	pops	<r3,r4>		;
+	return
+.sbttl	errors
+
+inferr:	$type	<?VOLUME-I->
+	br	generr
+warerr:	$type	<?VOLUME-W->
+	bisb	#eswar$,j$blev
+	br	generr
+errerr:	bisb	#eserr$,j$blev
+	$type	<?VOLUME-E->
+	br	generr
+faterr:	bisb	#eserr$,j$blev	;
+	$type	<?VOLUME-F->	;
+	br	generr		;
+
+generr:	psh	(sp)		;
+	psh	(r2)+		;save the goto and return
+	call	print2		;print it
+	mov	r2,4(sp)	;reset the return address
+	mov	(sp),r2		;get it
+	bic	#1,r2		;got a routine?
+	beq	10$		;no
+	$type	< >		;
+	call	(r2)		;yes
+10$:	$type	< >		;
+	$file	#file3		;display it
+	$print			;
+	bit	#1,(sp)+	;return?
+	beq	20$		;no
+	pop	r2		;yes
+	return			;
+20$:	jmp	start		;start again
+
+;	general - set error
+
+;print::	call	print2		;
+;	rts	r2
+;
+print2:.print	r2
+even:	tstb	(r2)+		;skip it
+	bgt	even
+	inc	r2
+	bic	#1,r2
+	return
+
+boofla:	.word	0		;boot read o.k.
+secfla:	.word	0		;secondary boot read ok
+homfla:	.word	0		;home block read o.k.
+segfla:	.word	0		;last segment read o.k.
+nxtseg:	.word	1		;next segment to read
+
+types:	.rad50	/            /
+chan:	.word	3		;
+filep:	.word	file3		;
+files:	.blkw	3*5
+file3:	.blkw	4
+file4:	.blkw	5*4
+area:	.blkw	5
+line:	.blkb	84.
+	.word	0		;dm: status
+buff3:	.word	0
+
+buff1 =	.
+buff2 = buff1 + 512.
+room  = buff2 + <512.*5>
+.end	start

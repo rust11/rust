@@ -1,0 +1,246 @@
+dbg$c=0
+.title	consol
+.include "lib:share.mac"
+$jbdef
+$jsdef
+$rmdef
+$tedef
+$tedef		;terminal definition
+$vedef
+
+;	RT-11 CONSOL utility
+;
+;	%build
+;	!if "'p1'" goto 'p1'
+;	macro:
+;	macro/object:cub: cus:consol
+;	link:
+;	link/execute:cub: cub:consol,lib:share
+;	%end
+
+;	Image information area
+
+$imgdef	CONSOL 1 1
+$imginf	fun=sav cre=hammo aut=ewm use=<Switch RUST console>
+$imgham	yrs=<1985,2004> oth=<>
+;	%date	
+$imgdat <01-Mar-2008 15:50:21.03>
+;	%edit
+$imgedt <11   >
+
+.asect
+.=j$bjsw
+	.word	jsovr$
+.csect
+.if eq dbg$c
+c$otks::.word	176500, 176502, 176504, 176506
+c$ovec::.word	300
+.iff
+c$otks::.word	177560, 177562, 177564, 177566
+c$ovec::.word	60
+.endc
+c$osys:	.word	0
+c$osav:	.word	0
+c$oset:	.word	100001
+
+start:	mov	r5,c$osys		; system flag
+	beqb	j$bcct,co$set		; no CCL command
+	bic	#100000,c$oset		;
+	mov	sp,r5			;
+	.serr				;
+	.csispc	#c$oopt, #c$odef
+	bcs	co$inv			;
+	tst	(sp)+
+10$:	beqw	sp,r5,100$		; all done
+	clr	r1
+	pop	r0	
+	bpl	20$
+	pop	r1
+
+20$:	bneb	r0,#'C,40$
+	bplw	r0,co$inv
+	bis	#100000,c$oset
+	mov	#c$otks,r2
+	mov	#4,r3
+30$:	mov	r1,(r2)+
+	add	#2,r1
+	sobw	r3,30$
+	br	10$
+
+40$:	bneb	r0,#'V,50$
+	bplw	r0,co$inv
+	bis	#100000,c$oset
+	mov	r1,c$ovec
+	br	10$
+
+50$:	bneb	r0,#'L,60$
+	bmiw	r0,co$inv
+	clrb	c$oset
+	call	co$lst
+	br	10$
+
+60$:	bneb	r0,#'S,co$inv
+	bmiw	r0,co$inv
+	clrb	c$oset
+	inc	c$osav
+	br	10$
+
+100$:	beqw	c$osav,110$		; no save
+	call	co$sav			; save them
+	br	120$			;
+110$:	beqw	c$oset,#100001,co$set	;
+120$:	br	co$exi
+
+co$inv:	.print	#m$sinv
+	br	co$exi
+
+co$set:	beqw	c$osys,#^rshp,co$shp	; do RUST/XM version
+	mov	c$ovec,r1		;
+	call	co$prt			; protect the vector
+	.mtps	#340			; block interrupts
+	mov	#c$otks,r0		;
+	mov	@#j$bsys,r1		;
+	psh	@rm.tks(r1)		;
+	psh	@rm.tps(r1)		;
+	bic	#100,@rm.tks(r1)	; clear enables
+	bic	#100,@rm.tps(r1)	; clear enables
+	add	#rm.tks,r1		;
+	mov	(r0)+,(r1)+
+	mov	(r0)+,(r1)+
+	mov	(r0)+,(r1)+
+	mov	(r0)+,(r1)+
+	mov	#v$ekbd,r0
+	mov	c$ovec,r1
+	mov	(r0)+,(r1)+
+	mov	(r0)+,(r1)+
+	mov	(r0)+,(r1)+
+	mov	(r0)+,(r1)+
+	mov	c$ovec,r1
+	call	co$vec		; check for revectoring
+
+	mov	@#j$bsys,r1
+	bic	#^c100,(sp)
+	bis	(sp)+,@rm.tps(r1)
+	bic	#^c100,(sp)
+	bis	(sp)+,@rm.tks(r1)
+	.mtps	#0
+co$exi:	mov	sp,r0
+	.exit
+
+;	Revector keyboard interrupt under RUST/SJ
+;
+;	r1 ->	new vector
+;
+;	sy$kbd:	mov	@#v$ekbd,-(sp)
+;		jmp	@(sp)+
+;	sy$frk:	...
+
+co$vec:	mov	@#j$bsys,r0
+	add	rm.frk(r0),r0		;r0 -> fork routine
+	sub	#6,r0			;back another one
+	cmp	(r0),#013746		;mov @#xx,-(sp)
+	bne	20$			;are no more hooks
+	cmp	2(r0),#v$ekbd		;keyboard revector?
+	bne	20$			;nope
+	mov	r0,(r1)			;yes - revector it
+20$:	return
+
+co$shp:	$cmkrnl	#c$oemt,#100$,pic=yes
+	bcc	10$			;fine
+	.print	#m$ster
+10$:	br	co$exi
+
+100$:	mov	@#p$hter,r4		;get the address of terminal
+	beq	110$			;no terminal - ignore
+	cmpb	te.cot(r4),#tedlt.	;this a dl terminal?
+	bne	120$			;nope
+	mov	#r$mtks,r1		;
+	mov	te.tks(r4),(r1)+	;setup addresses
+	mov	te.tkb(r4),(r1)+
+	mov	te.tps(r4),(r1)+	;
+	mov	te.tpb(r4),(r1)+
+	mov	te.vec(r4),@#s$ycvc	;setup the vector
+110$:	return
+120$:	.soft	0			;
+
+co$sav:	.writw	#c$oemt, #15., #1000, #256., #1
+	bcc	10$
+	.print	#m$swrt
+10$:	return
+
+co$lst:	.print	#m$scsr
+	mov	c$otks,r0
+	call	sh$oct
+	.print	#m$svec
+	mov	c$ovec,r0
+	call	sh$oct
+	.print	#m$snew
+	return
+
+;	Protect vector 
+;
+;	r1 eq vector
+
+co$prt:	call	(pc)
+	call	(pc)			; two words per vector
+	psh	r2			;
+	psh	r1			;
+	asr	r1			; get a byte offset
+	mov	r1,r2			; 
+	bic	#^c7,r2			; the bit
+	asr	r1			; divide by eight
+	asr	r1			;
+	asr	r1			; the bitmap byte
+	add	@#j$bsys,r1		;
+	add	#rm.lmp,r1
+	bisb	b$tbit(r2),(r1)		;*set the bits
+	pop	r1			;
+	pop	r2			;
+	tst	(r1)+			;
+	return
+b$tbit:	.byte	200,100,40,20,10,4,2,1	; protection bits
+
+
+sh$pad:	mov	(pc)+,(pc)+	; pad octal
+sh$oct:	clr	(pc)+		;
+s$hpad:	.word	0		; padding fla
+	tst	(pc)+		; flag octal
+sh$dec:	sec			;
+	pshs	<r2,r1,r0>	; save them
+	jsr	r3,30$		; assume decimal
+10$:	10000.,1000.,100.,10.,1,0
+20$:	100000,10000,1000,100,10,1,0
+30$:	bic	r2,r2		; no digits seen yet
+	bcs	40$		; is decimal
+	add	#20$-10$,r3	;
+	beqw	s$hpad,40$	; not padding
+	mov	#'0,r2		; show all digits
+40$:	mov	r0,r1		;
+50$:	mov	#-1,r0		; look for a digit
+60$:	inc	r0		; step up dividend
+	sub	(r3),r1		; subtract
+	bcc	60$		; go again
+	add	(r3)+,r1	; bumb it back to positive
+	beqw	(r3),70$	; final digit
+	bnew	r0,70$		; got something
+	beqw	r2,80$		;
+70$:	mov	#'0,r2		;
+	add	r2,r0		;
+	.ttyout
+80$:	bnew	(r3),50$	;any more to do ?
+	pops	<r3,r0,r1,r2>
+	return
+
+m$scsr:	.ascii	/?CONSOL-I-CSR= /<200>
+m$svec:	.ascii	/, Vector=/<200>
+m$snew:	.asciz	//
+m$ster:	.asciz	/?CONSOL-E-Not a DL: terminal/
+m$swrt:	.asciz	/?CONSOL-E-Error writing new settings/
+m$sinv:	.asciz	/?CONSOL-E-Invalid command/
+	.even
+c$oemt:	.blkw	10.
+c$odef:	.rad50	/            /
+c$oopt:	.blkw	3*5
+	.blkw	8.*4
+.end	start
+

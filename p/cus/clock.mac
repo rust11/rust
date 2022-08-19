@@ -1,0 +1,479 @@
+;+++;	CUS:CLOCK - needs description
+;	Get command line going again
+;
+.title	CLOCK	
+.include "lib:share.mac" 
+$chdef
+$cndef		;config
+$esdef		;errors
+$jbdef		;job
+$rmdef		;rmon
+$txdef		;ascii
+$videf		;vamp information
+.library "ntb:netmac.mlb"
+uadef$		;unit access
+
+;	CLOCK	Setup system time via network
+;
+;	%build
+;	macro	cus:clock/object:cub:clock
+;	link	cub:clock/execute:cub:clock
+;	delete/noquery cub:clock.obj
+;	%end
+
+$imgdef	CLOCK 2 0
+$imginf	fun=sav cre=hammo aut=ijh use=<Set system time via network>
+$imgham	yrs=<1987,1988> oth=<>
+;	%date
+$imgdat	<09-Apr-2005 04:38:31.00>
+;	%edit
+$imgedt	<28   >
+
+.macro	check	string
+	jsr	r1,check
+	.asciz	&string&
+	.even
+.endm 
+.macro	error	string
+	jsr	r1,error
+	.asciz	&string&
+	.even
+.endm 
+
+.macro	mul	src,dst
+	psh	dst
+	psh	src
+	call	ut$mul
+	pop	dst
+	pop	dst!1
+.endm
+
+.macro	div	src,dst
+	psh	dst!1
+	psh	dst
+	psh	src
+	call	ut$div
+	pop	dst
+	pop	dst!1
+.endm
+
+.macro	ash	cnt,dst
+	psh	dst
+	psh	cnt
+	call	ut$ash
+	pop	dst
+.endm
+.sbttl	main
+
+;	Main
+;
+;	--	Auto
+;	NF:	NF:/TP:/NT:
+;	DD:	TU58	DD:
+;	TOY:	TOY
+;	/D:date
+;	/T:time
+;
+;	Access TP: or NT: and get the time
+;	Access DD:
+;
+
+start:	.serr				;soft errors
+;	call	getcom			;get any command
+;	bcs	10$			; nothing specific
+;	.dstat	#info,#device		;make sure we have it
+;	check	<Error accessing device>
+					;
+	vxSHO = 100000!<1023.*8.>
+10$:	mov	#^rnf,device		;try for NF:
+	.dstat	#info,#device		;make sure we have it
+	bcs	20$			;fine
+	call	fetch
+	bcs	15$
+	.lookup	#area, #0, #show, #0
+15$:	check	<Error accessing NF: clock>
+
+	mov	@#j$bsys,r0
+	add	#rm.csw,r0
+	mov	#vxSHO,ch.sbl(r0)	;fudge SHOW channel
+	mov	#-1,ch.len(r0)		;
+	br	40$
+
+20$:	mov	#^rtp,device		;try for TP:
+	.dstat	#info,#device		;make sure we have it
+	bcc	30$			;fine
+					;
+	mov	#^rvx,device		;try for VX:
+	.dstat	#info,#device		;make sure we have it
+	bcc	30$			;its next
+					;
+	mov	#^rnt,device		;try for NT:
+	.dstat	#info,#device		;make sure we have it
+	bcc	30$			;
+
+	mov	#^rdd,device		;
+	.dstat	#info,#device		;make sure we have it
+	bcc	25$			;
+	check	<Network not installed>
+25$:	mov	#^rdd7,device		;
+	mov	#8.,block
+	clr	device+2
+	br	31$
+
+30$:	mov	#vitim$,block		;
+	mov	#^rclo,device+2
+31$:	call	fetch
+	bcs	35$
+	.lookup	#area, #0, #device, #0	;find it
+35$:	check	<Error accessing information>
+
+40$:	.readw	#area, #0, #buffer, #64., block
+	check	<Error reading information>
+
+	call	time			;get the time out if it
+	.exit
+
+;	Display error message and quit
+
+check:	bcc	even			;fine
+error:	.print	#header			;the header
+	.print	r1			;the message
+	$exit	sev=#eserr$		;exit with an error
+
+even:	tstb	(r1)+			;skip the message
+	bne	even			;
+	inc	r1			;
+	bic	#1,r1			;
+	rts	r1			;
+.sbttl	get command
+
+;	Get optional command
+;
+;	windup quark
+;
+;	clock			default search list
+;	clock dev:		device name
+;	clock node		TPnet node name
+
+getcom:	cmp	j$bcct,#1		;got a command?
+	blos	20$			;no
+10$:	mov	sp,r1			;save the stack
+	.csispc	#file0,#types,#0,#line	;get the command
+	tst	(sp)+			;no switchs yet
+	bne	syntax			;
+	mov	r1,sp			;ignore options
+					;
+	tst	file0			;got an output?
+	bne	syntax			;yes - not supported
+	tst	file3			;got a specification
+	beq	syntax			;no
+	call	getdev			;get the device
+	tst	(pc)+			;got it
+20$:	sec				;not it
+	return
+
+syntax:	error	<Invalid command>
+.sbttl	get device name
+
+;	Get device name
+
+getdev:	mov	#file3,r1		;try for a TP: name
+	call	devchk			;is this a TP name?
+	bcc	30$			;yes
+
+;	Node name - search TPnet tables
+
+	clr	unit			;
+	call	lookup			;lookup TP:
+10$:	call	get			;get the next
+	bcs	40$			;are no more
+	cmp	node0,ua.no0(r4)	;is this it?
+	bne	20$			;no
+	cmp	node1,ua.no1(r4)	;really?
+	beq	25$			;yes
+20$:	inc	unit			;next unit
+	br	10$			;
+25$:	mov	#^rtp0,device		;setup the device name
+	add	unit,device		;
+	call	purge			;purge the channel
+30$:	tst	(pc)+			;got it
+35$:	sec				;
+	return
+40$:	error	<No such node>		;
+.sbttl	check device name
+
+;	Check device and filename
+;
+;	r1 ->	file spec
+;
+;		tp0:
+;		tp0
+
+	.enabl	lsb
+devchk:	mov	(r1)+,r0		;get the device name
+	call	70$			;try that
+	bcs	20$			;fine
+	tst	(r1)			;may not have name following
+	beq	30$			;does not
+10$:	jmp	syntax			;oops
+
+20$:	mov	(r1)+,r0		;get the file name
+	beq	10$			;no name
+	tst	(r1)			;only one word allowed
+	bne	40$			;no go
+	call	70$			;
+	bcs	40$			;not found
+30$:	mov	r0,device		;set it up
+fetch:	.fetch	room,#device		;
+	bcs	40$			;
+	mov	r0,room
+	tst	(pc)+			;
+40$:	sec				;error
+	return				;something
+	.dsabl	lsb
+
+;	Check TP:, NT:, VX:	
+
+70$:	mov	#^rtp,r3		;tp
+	call	80$			;
+	mov	#^rnt,r3		;
+	call	80$			;
+	mov	#^rvx,r3		;
+	call	80$			;
+	br	100$			;
+80$:	mov	r0,r2			;
+	sub	r3,r2			;try plain TP:
+	beq	90$			;TP0:
+	sub	#<^r  0>,r2		;try for a unit
+	cmp	r2,#7			;must be in range
+	bhi	100$			;no good
+90$:	tst	(sp)+			;do not return
+	tst	(pc)+			;fine
+100$:	sec				;not fine
+	return
+.sbttl	database operations
+
+;	Get/put information
+;
+;	TP: is open on channel zero.
+;
+;	unit:	.word	1,2...7
+;	device:	.rad50	/tpn/
+;	node:	.rad50	/node/
+;	record:	.blkb	ua.bbs
+
+get:	cmp	unit,#7			;gone too high?
+	bhi	20$			;yes
+	.readw	#area,#1,r4,#ua.bbs/word,unit
+	bcc	10$			;fine
+	error	<Error accessing TP:>
+10$:	tst	(pc)+			;fine
+20$:	sec				;no more nodes
+	return
+
+put:	.writw	#area,#1,r4,#ua.bbs/word,unit
+	bcc	10$
+	error	<Error accessing TP:>
+10$:	return
+
+lookup:	.lookup	#area, #1, #tpp, #0	;look it up
+	bcc	10$			;fine
+	error	<TP: not installed>	;
+10$:	return
+
+purge:	.purge	#1			;purge it
+	return
+.sbttl	get the time
+
+;	Get the date & time
+
+time:	psh	r5			;save this
+
+	.gval	#area, #rm.cfg		;get config
+	bit	#cn50h$,r0		;was it 50 hertz?
+	bne	10$			;yes
+	mov	#60.,hertz		;no
+
+10$:	mov	#buffer,r4		;point to the buffer
+	add	#vi.dat,r4		;skip the header
+	mov	#dattim,r5		;r5 -> output area
+
+;	No year implies no time at all
+
+	mov	(r4)+,(r5)		;get the year
+	beq	50$			;no year is no time
+	sub	#1972.,(r5)		;adjust for the year
+	cmp	(r5),#177	;37	;is the year too high?		;Y2K+
+	bhi	60$			;yes - year too high
+	mov	(r5),r0			;
+	bic	#140,(r5)		;
+	bic	#37,r0			;
+	ash	#9.,r0			;
+	bis	r0,(r5)			;				;Y2K-
+					;
+	mov	(r4)+,r0		;get the month
+	ash	#10.,r0			;put it in place
+	bis	r0,(r5)			;set in the data
+
+	mov	(r4)+,r0		;get the day
+	ash	#5,r0			;five left
+	bis	r0,(r5)+		;store it
+	bne	20$			;got a date
+	mov	#-1,-word(r5)		;dont change the date
+
+;	Decode the time
+
+20$:	psh	(r4)+			;2(sp)=hour
+	psh	(r4)+			;0(sp)=minute
+
+	mov	(r4)+,r2		;r1 = seconds
+	mul	hertz,r2		;r3 = seconds*ticks
+
+;	ticks = hundreths / (100/hundreths)
+;	      = hundreths * frequency / 100
+
+	mov	(r4)+,r0		;r0 = hundreths
+	mul	hertz,r0		;r0/r1 = hundreths*frequency
+	div	#100.,r0		;r0 = ticks
+	add	r3,r0			;r0 = ticks*seconds
+
+	pop	r2			;r2 = minute
+	pop	r3			;r3 = hour
+	mul	#60.,r3			;r3 = hour*60
+	add	r3,r2			;r2 = hour*60 + minute
+	
+	mov	#60.,r1			;r1 = 60
+	mul	hertz,r1		;r1 = 60 * frequency
+	mul	r1,r2			;r2/r3 = hours*minutes in ticks
+
+	add	r0,r3			;add ticks*seconds
+
+;	Store time
+
+	mov	r2,(r5)+		;high order
+	mov	r3,(r5)			;low order
+	bne	30$			;setup
+	tst	-(r5)			;is this zero/zero?
+	bne	30$			;no
+	dec	(r5)+			;yes - dont set time
+	dec	(r5)			;with pattern -1,-1
+
+30$:	.sdttm	#area, #dattim		;set date and time
+	pop	r5			;
+	return
+
+50$:	error	<No time available>	;
+60$:	error	<Invalid date>		;
+.sbttl	ash, mul & div
+
+;	ash
+;
+;	psh	dst
+;	psh	cnt
+;	call	ash
+;	pop	dst
+
+	stack	ret cnt dst
+ut$ash:	tst	sp.cnt(sp)		;left or right?
+	beq	30$			;nothing
+	bpl	20$			;left
+10$:	asr	sp.dst(sp)		;one more
+	inc	sp.cnt(sp)		;do it
+	bne	10$			;
+	br	30$			;
+20$:	asl	sp.dst(sp)		;left
+	dec	sp.cnt(sp)		;more
+	bne	20$			;
+30$:	pop	(sp)			;squeeze out count
+	return
+
+;	multiply
+;
+;	psh	dst
+;	psh	src
+;	call	mul
+;	pop	dst
+;	pop	dst!1
+
+	stack	ret src dst
+ut$mul:	mov	sp.src(sp),mulsrc
+	mov	sp.dst(sp),muldst
+	pshs	<r5,r4,r3,r2,r1,r0>
+	mov	#mulblk,r5
+	call	jmul
+	pops	<r0,r1,r2,r3,r4,r5>
+	stack	ret hgh low
+	mov	mulres+2,sp.hgh(sp)
+	mov	mulres,sp.low(sp)
+	return
+
+mulblk:	.word	3
+	.word	mulsrc
+	.word	muldst
+	.word	mulres
+mulsrc:	.word	0,0
+muldst:	.word	0,0
+mulres:	.word	0,0
+
+;	divide
+;
+;	psh	dst!1
+;	psh	dst
+;	psh	src
+;	call	div
+;	pop	dst		quotient
+;	pop	dst!1		remainder
+
+	stack	ret src ds0 ds1
+ut$div:	mov	sp.src(sp),divsrc
+	mov	sp.ds0(sp),divdst
+	mov	sp.ds1(sp),divdst+2
+	pshs	<r5,r4,r3,r2,r1,r0>
+	mov	#divblk,r5
+	call	jdiv
+	pops	<r0,r1,r2,r3,r4,r5>
+	pop	(sp)				;overwrite src
+	stack	ret res rem
+	mov	divres,sp.res(sp)
+	mov	divrem,sp.rem(sp)
+	return
+
+divblk:	.word	4
+	.word	divsrc
+	.word	divdst
+	.word	divres
+	.word	divrem
+divsrc:	.word	0,0
+divdst:	.word	0,0
+divres:	.word	0,0
+divrem:	.word	0,0
+.sbttl	data
+
+unit:	.word	0		;TP unit
+entry:	.blkb	ua.bbs		;unit entry
+tpp:	.rad50	/tp units  ac/	;ACP lookup name
+
+types:	.blkw	4		;file types
+file0:	.blkw	5		;device name
+	.blkw	5*2		;two more
+file3:	.blkw	1
+node0:	.blkw	1		;node name
+node1:	.blkw	3
+	.blkw	5*4
+line:	.blkb	84.		;input line
+
+header:	.ascii	/?CLOCK-E-/<200>	;header
+	.even
+info:	.blkw	4
+device:	.rad50	"tp clock  if"
+show:	.rad50	"nf          "
+hertz:	.word	50.			;clock frequency
+area:	.blkw	10
+dattim:	.blkw	3
+block:	.word	0
+buffer:	.blkw	128.
+room:	.word	driver
+driver:	
+
+.end	start
+

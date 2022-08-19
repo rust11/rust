@@ -1,0 +1,2425 @@
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58
+Table of contents
+
+    2-   1	RUST preface
+    4-   1	boot start and rmon
+    5-   1	vectors
+    6-   1	reset and commands
+    7-   1	load image
+    8-   1	emt dispatch
+    9-   1	emt return
+   10-   1	print, ttyout, ttyin
+   11-   2	csi, gtlin
+   12-   1	cstat, exit, settop, date, trpset, gtim, gval
+   13-   1	gtjb, dstat, fetch, qset
+   14-   1	lookup
+   15-   1	read & overlay read
+   16-   1	read primitive
+   18-   1	traps
+   19-   1	errors
+   20-   1	messages
+   21-   1	terminal
+   22-   1	filename, rad50
+   23-   2	stack rotate, move block
+   24-   3	bootstrap setup data
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 1
+
+
+      1					.title	boot - RUST bootstrap manager
+      2					.include "lib:rust.mac"
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 2
+RUST preface
+
+      1					.sbttl	RUST preface
+      2					.enabl	lc, gbl, mcl
+      3			.list	ttm
+      4			.library "lib:rust.mlb"
+      5			.mcall	spl, .print
+      6		002021 	ma$yea=2021
+      7	000000		local
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 3
+RUST preface
+
+      1
+      2			;	cu_ptr is replaced by get/put to an intermediate structure
+      3			;???;	BOOT - use EMTs for bo$chk and messages
+      4			;???;	BOOT - BOOT> boot XXX crashes applying default .SYS (.csispc)
+      5			;???;	BOOT - /SELF fails; BOOT must check for valid boot image
+      6			;???;	BOOT - im.rep fails; printf crashes
+      7			;---;	BOOT - driver not found reported as fnf
+      8			;---;	BOOT - app exit kills memory somewhere
+      9			;---;	BOOT - stack location problem with RUSTx embedded boot
+     10
+     11	000000			.asect			; the entire module is an asect
+     12
+     13	000000		$jbdef		;job
+     14
+     15			;+++;	BOOT - look for more jmp-2-branch optimizations
+     16			;+++;	BOOT - Use NOAUTO instead of NOIMAGE
+     17			;+++;	BOOT - Should be BOOT> SET dev:file explicitly
+     18			;+++;	BOOT - Add boot-time UI under BOOT
+     19			;+++;	BOOT - Add COPY/BOOT
+     20			;xxx;	BOOT - BOOT>BOOT completed
+     21			;xxx;	BOOT - repair and clean up
+     22
+     23			;???	Move all interactive stuff to BOOT extension
+     24			;???	Move back system detection logic
+     25
+     26		000000 	rst$c=0		; restore monitor after boot driver fault
+     27		000001 	sec$c=1		; use inc instead of bis to set cbit
+     28		000001 	loo$c=1		; shorten lookup
+     29		000000 	stk$c=0		; stack location
+     30		000000 	csp$c=0		; .CSISPC attempt
+     31
+     32		000000 	rxm$c=0		; default to RUST/SJ boot
+     33		000001 	aut$c=1		; autoboot
+     34		000000 	qui$c=0		; default to NOQUIET
+     35		000001 	h50$c=1		; default to 50 hertz
+     36
+     37		000000 	suf$c=0		; boot suffix correction
+     38		000000 	mes$c=0		; memory size
+     39		000000 	ctr$c=0		; ctrl/h, ctrl/r support
+     40		000001 	ctc$c=1		; ctrl/c recognition
+     41		000000 	pwf$c=0		; power-fail trap (redundant)
+     42		000000 	mnm$c=0		; move monitor name to rmon
+     43		000000 	wri$c=0		; write memory test
+     44		000000 	xdp$c=0		; xxdp support
+     45		000000 	seg$c=0		; additional directory segment checks
+     46		000000 	clk$c=0
+     47		000000 	hgh$c=0		; recover boot block after boot read fail (redundant)
+     48	000000		.asect
+     49
+     50			;	BOOT.SYS is both a bootable and executable image.
+     51			;
+     52			;	When booted it acts as a subset RT-11 monitor. The
+     53			;	usual task is to then RUN RUST.SAV or RUSTX.SAV.
+     54			;
+     55			;	When executed with RUN etc it acts as a configuration
+     56			;	utility which is used to specify the name of the
+     57			;	executable image (RUST.SAV or RUSTX.SAV).
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 3-1
+RUST preface
+
+     58			;
+     59			; ???	When executed under BOOT.SYS itself it acts as a
+     60			;	bootstrap manager.
+     61			;
+     62			;	BOOT utility
+     63			;
+     64			;	%build
+     65			;	@@cts:rtboo
+     66			;	macro	cus:boot.r/object:cub:bootm/list:cub:bootm
+     67			;	rider	cus:boot  /object:cub:bootr
+     68			;	link cub:boot(m,r),ctb:rtboo/exe:cub:boot/map:cub:boot/cross,lib:crt
+     69			;	!link	cub:bootm/exe:cub:/map:cub:/cross
+     70			;	set 	program/traps/loop/jsw=41000 cub:boot
+     71			;	exit
+     72			;	!
+     73			;	copy cub:boot.sav cub:rust.sys
+     74			;	cub:rust.sys
+     75			;	set image BOOT.SAV
+     76			;	set suffix V
+     77			;	exit
+     78			;	!
+     79			;	copy cub:boot.sav cub:rustx.sys
+     80			;	cub:rustx.sys
+     81			;	set image RUSTX.SAV
+     82			;	set suffix P
+     83			;	exit
+     84			;	end:
+     85			;	%end
+     86
+     87	000000		$brdef		;boot area
+     88	000000		$chdef		;channel
+     89	000000		$cldef		;cli
+     90	000000		$cndef		;config
+     91	000000		$cpdef		;cpu types
+     92	000000		$dedef		;devices
+     93	000000		$dsdef		;device status
+     94	000000		$emdef		;emts
+     95	000000		$esdef		;error severity
+     96	000000		$fndef		;filenames
+     97	000000		$erdef		;errors
+     98	000000		$hwdef		;hardware
+     99	000000		$imdef		;image
+    100	000000		$iodef		;i/o
+    101	000000		$jsdef		;jsw
+    102	000000		$kjdef		;j11
+    103	000000		$kwdef		;clocks
+    104	000000		$mmdef
+    105	000000		$psdef		;psw
+    106	000000		$rmdef		;rmon
+    107	000000		$rtdef		;rt11a
+    108	000000		$sgdef		;sysgen
+    109	000000		$tcdef		;terminal config
+    110	000000		$txdef		;text
+    111	000000		$vedef		;vectors
+    112
+    113	000000		meta	<bosav$><jsr r5,bo$sav>
+    114	000000		meta	<bores$><jsr r5,bo$res>
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 3-2
+RUST preface
+
+    115	000000		meta	<bofat$ nam stk=-word><jsr r2,bo$fat><.byte bo'nam'.,stk+word>
+    116	000000		meta	<borot$ cnt lim><jsr r3,bo$rot><.byte cnt,lim>
+    117	000000		meta	<asect$ adr val><.=adr><val>
+    118	000000		meta	<limit$ lim><assume . le lim>
+    119
+    120			.if eq stk$c
+    121	000000		asect$	j$busp	c$ustk
+    122			.endc
+    123	000044		asect$	j$bjsw	jsovr$			; set overlay bit
+    124	000046		asect$	400				; image ident area
+    125	000400		$imgdef	BOOT 4 0
+    126	000400		$imginf	fun=sbo cre=hammo aut=ijh use=<RUST bootstrap manager>
+    127	000430		$imgham	yrs=<1986,1987,1988,2004,2011> oth=<BOOT>
+    128			;	%date
+    129	000536		$imgdat	<23-Jun-2022 05:58:07>
+    130			;	%edit
+    131	000566		$imgedt	<429  >
+    132
+    133			;	Relocation
+    134
+    135	000566			meta	<.wordr a><rel .word a off=0>
+    136	000566			meta	<movr a,b><rel mov a,b>
+    137
+    138		000000 		upctr. = 0
+    139
+    140				.macro	rel a b c off=2
+    141				.irp upx.,<\upctr.>
+    142				up'upx. = .+off
+    143				.endr
+    144				upctr. = upctr. + 1
+    145				.if nb c
+    146				a	b,c
+    147				.iff
+    148				a	b
+    149				.endc
+    150				.endm
+    151
+    152				.macro	reloc$
+    153				upmid. = upctr.
+    154				b$oloc = .
+    155				. = b$orel
+    156				upx. = 0
+    157				.rept upmid.
+    158				.irp	upy.,<\upx.>
+    159				.word	up'upy.
+    160				.endr
+    161				upx. = upx. + 1
+    162				.endr
+    163				.word	0
+    164				rmfre. == <r$mmon+rm.syu>-.
+    165				limit$	r$mmon+rm.syu		; end of csw area
+    166				. = b$oloc
+    167				.endm
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 4
+Boot start and rmon
+
+      1			.sbttl	boot start and rmon
+      2
+      3				.macro	bofre$	lab, off
+      4				assume <.-r$mmon> le off
+      5				lab =  <r$mmon+off>-.
+      6				asect$	r$mmon+off
+      7				.endm
+      8
+      9	000566			asect$	0
+     10	000000	051646 		.rad50	/MON/			; identify as monitor image
+     11
+     12	000002			asect$	1000
+     13		001000 		b$obuf = 1000
+     14	001000			b$osec:
+     15		175400 		b$olow=.-<512.*3>-256.		; low address of boot real estate
+     16		175616 		b$ostk=.-<512.*3>-82.-32.	; boot stack
+     17		175656 		b$olin=.-<512.*3>-82.		; input line
+     18		175777 		b$olnx=.-<512.*3>-1		; end of input line
+     19		176000 		b$oseg=.-<512.*3>		; boot directory segment buffer
+     20		000000 		b$oswp=.-512.			; low memory swap buffer
+     21		001000 		r$mmon=.		;000	; 67,0 - not RUST monitor
+     22		001004 		r$mcsw=.+4		;004	; csw area - once-only code
+     23
+     24			;	RT-11 has a fixed offset database (RMON) which we must replicate.
+     25			;	Once-only start-up code is stuffed into the dynamic areas of RMON.
+     26
+     27	001000		boXsec::
+     28	001000	000240 	bo$sec::nop				; RUST/BT RMON signature
+     29	001002	012767 		mov	#bo$clk,v$eclk		; point to clock ps
+		004006
+		177070
+     30	001010	005067 		clr	v$eclk+ve.ps		;
+		177066
+     31	001014	005005 		clr	r5			; location zero
+     32	001016	011567 		mov	(r5),b$rdup		; save DUP flags
+		003712
+     33	001022	005025 	10$:	clr	(r5)+			;0	trap catcher
+     34	001024	005025 		clr	(r5)+			;2	trap catcher
+     35	001026	012725 		mov	#bo$cat,(r5)+		;4	bus trap
+		001374
+     36	001032	005025 		clr	(r5)+			;6	cleared
+     37	001034	012725 		mov	#bo$cat,(r5)+		;10	cpu trap
+		001374
+     38	001040	005025 		clr	(r5)+			;12	cleared
+     39
+     40	001042			bvcw	@#ps,15$		; yep - we have a PS
+     41	001050	012767 		mov	#bomf0.,b$omfp		; nope - use MTPS instead
+		000240
+		000272
+     42	001056	012767 		mov	#bomf1.,b$omfp+word	; mfps 2(sp)
+		106766
+		000266
+     43	001064	052737 	15$:	bis	#100,@#h$wlks	;r2=100	; check & set clock
+		000100
+		177546
+     44	001072	102403 		bvs	20$			; no clock register
+     45	001074	052767 		bis	#cnkwc$,r$mcfg		; we have a clock
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 4-1
+Boot start and rmon
+
+		040000
+		000176
+     46								;
+     47	001102		20$:	bvcw	(r5)+,20$		; size kernel memory
+     48	001106	005745 		tst	-(r5)			; backup
+     49
+     50			;	Copy ourselves to top of memory
+     51			;	Copies the boot block to the swap buffer b$oswp
+     52			;
+     53			;	r5 -> 160000 (typical end-of-memory)
+     54			;	r0 -> b$renx+2 	end of primary/secondary/extension
+     55
+     56	001110	012700 		mov	#b$renx+2,r0		;
+		005014
+     57	001114	014045 	30$:	mov	-(r0),-(r5)		;
+     58	001116			bnew	r0,30$			;
+     59
+     60			;	r5 ->
+     61			;	Relocate high copy
+     62
+     63	001122	012700 		mov	#b$orel,r0		; relocation list
+		001146
+     64	001126	012002 	40$:	mov	(r0)+,r2		; get the next
+     65	001130	001403 		beq	50$			; all done
+     66	001132	060502 		add	r5,r2			; relocate pointer
+     67	001134	060512 		add	r5,(r2)			; relocate value
+     68	001136	000773 		br	40$			;
+     69	001140	062705 	50$:	add	#bo$onc,r5		; where we continue
+		001554
+     70	001144	000115 		jmp	(r5)			; continue
+     71
+     72			;	Relocation table inserted here by .wordr and movr macros
+     73
+     74	001146		b$orel:					; relocation table inserted here
+     75
+     76	001146			bofre$	boSYU. rm.syu		; report free space in link map
+     77
+     78			;	Remainder of RMON table
+     79
+     80		001275 	b$osyu=.+1			;offset	; boot device unit
+     81	001274	000000 	r$msyu:	.word	0		;274	; system device unit (in high byte)
+     82	001276	   005 	r$msyv:	.byte	5		;276	; system version - always RT-11 version
+     83	001277	   033 	r$msup:	.byte	33		;277	; system update
+     84	001300		boXcfg::				; label for boot.r
+     85	001300		r$mcfg:	.if ne h50$c			; 50 hertz
+     86	001300	000040 		.word	cn50h$		;300	; system configuration flags - built
+     87				.iff			;	; 60 hertz
+     88				.word	0		;300	; system configuration flags - built
+     89				.endc				;
+     90	001302	000000 	r$mscr:	.word	0		;302	; GT control block address - unused
+     91	001304	177560 	r$mtks:	.word	h$wtks		;304	; console addresses
+     92	001306	177562 	r$mtkb:	.word	h$wtkb		;306	;
+     93	001310	177564 	r$mtps:	.word	h$wtps		;310	;
+     94	001312	177566 	r$mtpb:	.word	h$wtpb		;312	;
+     95
+     96	001314		bo$sav:	pshs	<r4,r3,r2,r1,r0>	; save registers
+     97	001326	000115 		jmp	(r5)			; destroys r5
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 4-2
+Boot start and rmon
+
+     98
+     99	001330	031626 	bo$res:	bit	(sp),(sp)+		; skip, don't change c-bit
+    100	001332			pops	<r0,r1,r2,r3,r4>	; restore registers
+    101	001344	000205 		rts	r5			;
+    102								; move from/to psw
+    103	001346		bo$mfp:	psh	(sp)			; make space for it
+    104	001350	000240 	b$omfp:	bomf0.=nop			; nop
+    105		106766 		bomf1.=mfps+66			; mfps 2(sp)
+    106	001350	013766 		mov	@#ps,word(sp)		; nop mfps 2(sp)
+		177776
+		000002
+    107	001356	000207 		return				;
+    108
+    109	001360			bofre$	boMTP. rm.mtp		; report free space in link map
+    110	001360	000407 	r$mmtp:	br	bo$mtp		;360	; move to ps
+    111	001362	000771 	r$mmfp:	br	bo$mfp		;362	; move from ps
+    112	001364	000002 	r$msyi:	.word	desyi.		;364	; system device index
+    113	001366	   000 	b$oqui::.byte	0		;366	; identify flag (BOOT V2.4)
+    114	001367	   001 	b$orun::.byte	1		;367	; run image
+    115	001370	000000 	r$mcf2:	.word	0		;370	; confg2 - extension config word
+    116	001372	000400 	r$msyg:	.word	sgfpu$		;372	; sysgen options - from boot impure
+    117
+    118	001374			stack	pc ps			;
+    119	001374			assume	vbit eq 2		;
+    120	001374			assume	sp.ps eq 2		; and so is rti
+    121	001374	051766 	bo$cat:	bis	(pc),sp.ps(sp)	;374	; set return vbit (bis #2,2(sp))
+		000002
+    122	001400	000002 	bo$mtp:	rti			;400	; (pop (sp),sev,return)
+    123	001402	000000 		.word	0		;402	; unused
+    124
+    125	001404	000414 	r$mpnp:	.word	b$opnm-r$mmon	;404	; pname table offset
+    126	001406	007347 	r$mmnm:	.rad50	/BOOT  /	;406 ?	; monitor name
+	001410	076400
+    127	001412	000026 	r$msuf:	.rad50	/  V/		;412 ?	; driver suffix
+    128	001414	100040 	b$opnm:	.rad50	"TT "		;414	; pname table
+    129	001416	075250 	b$osnm:	.rad50	"SY "		;416	; system device permanent name
+    130	001420	001600 	r$mmes:	.word	1600		;420\	; sj/fb memory size in pages - constant
+    131	001422	000000 	b$ompt:	.word	0		;422/	; dummy memory map
+    132	001424		r$mtcf:	.wordr	b$otcf		;424 ?	; pointer to ttcnfg
+    133	001426	000000 		.word	0		;426	; unused
+    134	001430	000422 	r$mmpt:	.word	b$ompt-r$mmon	;430	; offset to memory map
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 5
+Vectors
+
+      1			.sbttl	vectors
+      2
+      3			;	Fill in vectors before/after image activation
+      4			;
+      5			;	r2	must be safe
+      6			;	r3 =	base location
+      7
+      8	001432	005003 	bo$vez:	clr	r3			; block zero (no relocation)
+      9	001434	012713 	bo$vec:	mov	#bic,(r3)		; bic r0,r0
+		040000
+     10	001440	012763 		mov	#emexi.,word(r3)	; .exit
+		000350
+		000002
+     11	001446			movr	#r$mmon,jb.sys(r3) 	; rmon address
+     12	001454			movr	#b$ovec,r0		; get the relocation list
+     13	001460	012001 	10$:	mov	(r0)+,r1		; get the next
+     14	001462	001404 		beq	20$			; is no next - r1=0
+     15	001464	060301 		add	r3,r1			;
+     16	001466	012021 		mov	(r0)+,(r1)+		; move in one
+     17	001470	005021 		clr	(r1)+			; clear the next
+     18	001472	000772 		br	10$			;
+     19	001474		20$:
+     20				.if ne clk$c
+     21				bis	#cnclo$,r$mcfg		; evidence of a clock
+     22				.iff
+     23	001474			.mtps	#0			; clear PS
+     24				.endc
+     25	001514	000207 		return				;
+     26
+     27			;	Vector fill & relocate data
+     28			;
+     29			;	This data is restored after each exit. Supports bootstraps
+     30			;	and maintenance programs which overwrite the vectors.
+     31
+     32	001516		meta	<borel$ boo vec><.word vec><.wordr boo>
+     33	001516		b$ovec:	borel$	bo$bus,v$ebus		; bus vector
+     34	001522			borel$	bo$cpu,v$ecpu		; cpu vector
+     35	001526			borel$	bo$emt,v$eemt		; emt vector
+     36		001526 		b$opev=.-<word*2>		; patch point
+     37	001532			borel$	bo$clk,v$eclk		; clock vector
+     38	001536			borel$	bo$clk,k$pvec		; programmable clock
+     39	001542			borel$	bo$bus,v$emmu		; mmu vector
+     40	001546			borel$	bo$fpu,v$efpu		; fpu vector
+     41				.if ne	pwf$c			;
+     42				borel$	bo$pwf,v$epow		; power fail
+     43				.endc				;
+     44	001552	000000 		.word	0			;
+     45
+     46			;	Once-only code that won't fit in RMON table
+     47
+     48	001554		bo$onc:
+     49
+     50			;	RUST/XM needs the following to boot.
+     51
+     52	001554	016700 		mov	b$rdvn,r0		; b$rdvn - with wrong suffix
+		003136
+     53	001560	010067 		mov	r0,b$osnm		;
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 5-1
+Vectors
+
+		177632
+     54	001564	162700 	10$:	sub	#40.,r0			; get it down to the suffix
+		000050
+     55	001570	103375 		bhis	10$			; more
+     56	001572	062700 		add	#40.,r0			; bump it back
+		000050
+     57	001576	160067 		sub	r0,b$osnm		; b$osnm - minus suffix
+		177614
+     58
+     59				.if ne suf$c
+     60				movr	#b$rdvn,r0		; b$rdvn - with wrong suffix
+     61				mov	(r0)+,(r0)		; b$rdvs - initially null
+     62			20$:	sub	#40.,(r0)		; get it down to the suffix
+     63				bhis	20$			; more
+     64				add	#40.,(r0)		; bump it back
+     65				sub	(r0),-(r0)		; b$rdvn - minus suffix
+     66				mov	(r0),b$osnm		; b$osnm - minus suffix
+     67			;	add	b$rsfx,-(r0)		; b$rdvn - with correct suffix
+     68			;	mov	b$rdvn,b$opnm+desyi.	; system device name
+     69			;	mov	(r0),b$opnm+desyi.	; system device name
+     70			;	add	b$rsfx,(r0)		; b$rdvn - with correct suffix
+     71				.endc
+     72				.if ne mnm$c
+     73				mov	b$rfn0,r$mmnm		; monitor name
+     74				mov	b$rfn1,r$mmnm+word	;
+     75				mov	b$rsfx,r$msuf		; suffix
+     76				.endc
+     77	001602			beqw	b$rers,#<^rERA>,30$	; no era
+     78	001612	005067 		clr	b$rera			;
+		003172
+     79	001616		30$:	fall	bo$rst
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 6
+Reset and commands
+
+      1			.sbttl	reset and commands
+      2
+      3			;	Reset monitor
+      4
+      5	001616		bo$exi:	.enabl	lsb			; app exit
+      6	001616	012706 	bo$rst:	mov	(pc)+,sp		; our stack
+      7	001620		b$pstk:	.wordr	b$ostk			; system stack
+      8	001622	004767 		call	bo$vez			; reset vectors
+		177604
+      9	001626	013767 		mov	@#v$ebus,b$oswp+v$ebus 	; two are done by hand
+		000004
+		176150
+     10	001634	013767 		mov	@#v$eclk,b$oswp+v$eclk	; for traps during read swaps
+		000100
+		176236
+     11				.if ne hgh$c			; (which should not occur)
+     12				call	bo$hgh			; force boot block high
+     13				.endc
+     14				.dsabl	lsb
+     15
+     16	001642	005027 		clr	(pc)+			; clear flags
+     17	001644	000000 	b$olfd:	.word	0			; no line feed pending
+     18	001646	005767 		tst	b$octc			; already done this?
+		000022
+     19	001652	100014 		bpl	bo$com			; yep
+     20	001654			beqb	b$oqui,10$ 		; /QUIET - don't display "BOOT V2.3"
+     21	001662			movr	#b$rnam,r0		; setup for print
+     22	001666			.print				;
+     23	001670	012727 	10$:	mov	#ctrlc,(pc)+		; signal title done, let ctrl/c thru
+		000003
+     24	001674	177777 	b$octc:	.word	-1			; done the tertiary stuff
+     25	001676			bneb	b$orun,bo$run		; run the startup image
+     26	001704			fall	bo$com
+     27
+     28			;	Get a boot command
+     29			;
+     30			;	Invoked by NOIMAGE, .EXIT, boot fail or [ctrl/c]
+     31			;
+     32			;	boot> image[.sav]
+     33
+     34	001704		bo$com:	movr	#b$olin,r1		; point to the line
+     35	001710			movr	#b$oprm,r2		; the prompt
+     36	001714		10$:	.gtlin	r1,r2			; get the command
+     37	001730	105711 		tstb	(r1)			; got a null line?
+     38	001732	001770 		beq	10$			; yes
+     39	001734			movr	#b$oimg+fn.fil,r0	; set the image name pointer
+     40	001740	004767 		call	bo$fil			; get a file spec
+		002436
+     41	001744	105711 		tstb	(r1)			; did the command terminate?
+     42	001746	001002 		bne	20$			; no
+     43	001750	005710 		tst	(r0)			; did we get a file?
+     44	001752	001013 		bne	bo$run			; yes - load it
+     45	001754		20$:	bofat$	xic			; command error
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 7
+Load image
+
+      1			.sbttl	load image
+      2
+      3			;	Chain to image
+      4
+      5	001762	016706 	bo$chn:	mov	b$pstk,sp		; reset the stack
+		177632
+      6	001766	004767 		call	bo$vez			; reset vectors
+		177440
+      7	001772	004067 		jsr	r0,bo$loa		;
+		000014
+      8	001776	   017 	b$ochn:	.byte	imchn.,emloo.		; chain lookup
+	001777	   001
+      9	002000	000500 		.word	500			; chain file spec
+     10			;sic]	.word	0			; sequence - ignored
+     11
+     12			;	Run image
+     13
+     14	002002	004067 	bo$run:	jsr	r0,bo$loa		;
+		000004
+     15	002006	   017 	b$otlo:	.byte	imchn.,emloo.		; lookup
+	002007	   001
+     16	002010			.wordr	b$oimg			; image spec
+     17			;sic]	.word	0			; sequence - ignored
+     18
+     19			;	Load image
+     20			;
+     21			;	r0 ->	emt .lookup block
+     22
+     23	002012	104375 	bo$loa:	emt	375			; look it up
+     24	002014	103444 		bcs	40$			; file not found
+     25			.if ne xdp$c
+     26				mov	r0,t$llen		; file size
+     27			.endc
+     28	002016			movr	#b$otrr,r0		; read the root
+     29	002022	104375 		emt	375			;
+     30	002024	103435 		bcs	30$			; error reading block zero
+     31
+     32	002026	012703 		mov	#b$obuf,r3		; point to the buffer
+		001000
+     33			.if ne xdp$c
+     34				cmp	2(3),#1			; an XXDP LDA file?
+     35				beq	bo$xdp			; yes
+     36			.endc
+     37	002032	004767 		call	bo$vec			; fill in vectors etc.
+		177376
+     38	002036	004367 		jsr	r3,bo$mbl		; move down block zero
+		002540
+     39	002042	001000 		.word	b$obuf			; source
+     40	002044	000000 		.word	0			; destination
+     41	002046	000400 		.word	256.			; count
+     42								;
+     43	002050	013701 		mov	@#j$btop,r1		; c=0 - get the program size
+		000050
+     44	002054			assume	b$obuf eq 1000		;
+     45	002054	160301 		sub	r3,r1			; remove what we have
+     46	002056	103410 		blo	10$			; its all in (remember settop)
+     47			;sic]	clc				;
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 7-1
+Load image
+
+     48	002060	006001 		ror	r1			; make it words
+     49	002062	005201 		inc	r1			; one more for settop logic
+     50	002064	010167 		mov	r1,b$otwc		; setup the word count
+		000062
+     51	002070			movr	#b$otir,r0		; read it
+     52	002074	104375 		emt	375			;
+     53	002076	103410 		bcs	30$			; i/o error
+     54
+     55			;	Go
+     56			;
+     57			;	r3 ->	block zero buffer
+     58			;	r5 =	^rboo
+     59
+     60	002100	013706 	10$:	mov	@#j$busp,sp		; setup their stack
+		000042
+     61	002104	005037 		clr	@#j$bcct		; no command in buffer
+		000510
+     62	002110	012705 		mov	#^rboo,r5		; this is boot
+		007347
+     63	002114	013707 		mov	@#j$bupc,pc		; and start the program
+		000040
+     64								;
+     65	002120		30$:	bofat$	xio			; I/O error
+     66	002126		40$:	bofat$	xfn			; file not found
+     67
+     68			;	Image lookup & read data
+     69
+     70	002134	   017 	b$otrr:	.byte	imchn.,emrea.		; read image root
+	002135	   010
+     71	002136	000000 		.word	0			; block number
+     72	002140	001000 		.word	b$obuf			; buffer address
+     73	002142	000400 		.word	256.			; word count
+     74			;sic]	.word	0			; wait - ignored
+     75
+     76	002144	   017 	b$otir:	.byte	imchn.,emrea.		; read image
+	002145	   010
+     77	002146	000001 		.word	1			; block number
+     78	002150	001000 		.word	1000			; buffer
+     79	002152	000000 	b$otwc:	.word	0			; word count
+     80			;sic]	.word	0			; wait - ignored
+     81
+     82			.if ne xdp$c
+     83			tl$err:
+     84			tl$adr:
+     85			.endc
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 8
+Emt dispatch
+
+      1			.sbttl	emt dispatch
+      2
+      3			;	Dispatch program request
+      4			;
+      5			;	r0	request r0 for old emts
+      6			;	r1	zero
+      7			;	r2	computed emt code
+      8			;	r3	word(r5) for emt 375 requests
+      9			;	r4 ->	channel
+     10			;	r5 	request r0 - copied to r0 on exit
+     11			;	cbit	clear
+     12
+     13	002154	   004 	b$oclf:	.byte	clccl$			; cliflg - cli flags
+     14	002155	   377 	b$oclt:	.byte	-1			; clityp - cli type
+     15	002156	140200 	b$otcf:	.word	tc0xn$!tc0lm$!tc0sc$	; ttcnfg - terminal config
+     16	002160	042766 	bo$emt:	bic	#cbit,word(sp)		; clear the error bit
+		000001
+		000002
+     17	002166			bosav$				; save all registers
+     18	002172			stack	r0 r1 r2 r3 r4 r5 pc ps	;
+     19	002172	105037 		clrb	@#j$berr		; assume error code 0
+		000052
+     20	002176	010005 		mov	r0,r5			; r5 -> emt code or area
+     21	002200	016601 		mov	sp.pc(sp),r1		; get the emt
+		000014
+     22	002204	014102 		mov	-(r1),r2		; r2 = emt code byte
+     23	002206			movr	#b$oemt,r1		; r1 -> dispatch list
+     24	002212	120227 		cmpb	r2,#374			; old/374/375/376?
+		000374
+     25	002216	103425 		blo	20$			; old emt
+     26	002220	001410 		beq	10$			; 374
+     27	002222	120227 		cmpb	r2,#376			; 375 or 376?
+		000376
+     28	002226	001461 		beq	bo$ovx			; 376 - error from overlay handler
+     29	002230	062701 		add	#b$o375-b$o374,r1	; 375
+		000012
+     30	002234	011500 		mov	(r5),r0			; r0 = subcode ! channel
+     31	002236	016503 		mov	word(r5),r3		; r3 = word(r5)
+		000002
+     32	002242	062701 	10$:	add	#b$o374-b$oemt,r1	; 374
+		000032
+     33	002246	010002 		mov	r0,r2			; r2 = subcode ! channel
+     34	002250	110000 		movb	r0,r0			; isolate channel
+     35	002252	006300 		asl	r0			; multiply by 10
+     36	002254	010004 		mov	r0,r4			; *2
+     37	002256	006300 		asl	r0			;
+     38	002260	006300 		asl	r0			;
+     39	002262	060004 		add	r0,r4			; *10.
+     40	002264	066704 	     	add	r$pcsw,r4		; r4 -> channel
+		000622
+     41	002270	000302 		swab	r2			; r2 = subcode
+     42	002272	042702 	20$:	bic	#^c377,r2		; isolate subcode
+		177400
+     43	002276	005046 		clr	-(sp)			; dispatch address
+     44	002300			stack	rou r0 r1 r2 r3 r4 r5 pc ps
+     45	002300	112116 	30$:	movb	(r1)+,(sp)		; (sp) = address
+     46	002302	001410 		beq	40$			; end of table - check invalid
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 8-1
+Emt dispatch
+
+     47			;
+     48	002304	120221 		cmpb	r2,(r1)+		; this the one?
+     49	002306	001374 		bne	30$			; no
+     50	002310	005001 		clr	r1			; r1 = 0
+     51	002312	006316 		asl	(sp)			; make a word offset
+     52	002314		    rel	add	#b$oemd,(sp)		; add in the base address
+     53	002320	004736 		call	@(sp)+			; yes - do it
+     54	002322	000415 		br	bo$ems			; success returns
+     55								;
+     56	002324	120211 	40$:	cmpb	r2,(r1)			; is this one invalid?
+     57	002326	001410 		beq	bo$emf			; yes - return error code
+     58	002330	105721 		tstb	(r1)+			; end of the list?
+     59	002332	001374 		bne	40$			; no - look again
+     60	002334	120221 		cmpb	r2,(r1)+		; below minimum code?
+     61	002336	103404 		blo	bo$emf			; yes
+     62	002340	120221 		cmpb	r2,(r1)+		; above maximum code?
+     63	002342	101002 		bhi	bo$emf			; yes
+     64	002344	000403 		br	bo$emq			; no - just ignore it
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 9
+Emt return
+
+      1			.sbttl	emt return
+      2
+      3			;	bo$emr	test cbit
+      4			;	bo$emf	fail
+      5			;	bo$emq	quit - no error
+      6			;	bo$ems	success - stack popped
+      7
+      8	002346			stack	ret r0 r1 r2 r3 r4 r5 pc ps
+      9	002346	103002 	bo$emr:	bcc	bo$emq			; return
+     10	002350		bo$emf:
+     11				.if ne	sec$c
+     12	002350	005266 		inc	sp.ps(sp)		; rti c=1
+		000020
+     13				.iff
+     14				bis	#cbit,sp.ps(sp)		; fail
+     15				.endc
+     16	002354	005726 	bo$emq:	tst	(sp)+			; quiet
+     17	002356			stack	r0 r1 r2 r3 r4 r5 pc ps	;
+     18	002356	010516 	bo$ems:	mov	r5,(sp)			; restore r0
+     19	002360	004767 		call	bo$chk			; check for an abort
+		001722
+     20	002364			bores$				; restore all registers
+     21	002370	000002 		rti				; and quit
+     22
+     23	002372			stack	ret r0 r1 r2 r3 r4 r5 pc ps
+     24	002372		bo$ovx:	bofat$	xio sp.pc		; i/o error
+     25
+     26			;	EMT list
+     27			;
+     28			; list:	.byte	offset, subcode		valid subcodes
+     29			;	...
+     30			;	.byte	0
+     31			;	.byte	subcode, subcode, ...	invalid subcodes - may not be zero
+     32			;	.byte	0
+     33			;	.byte	minimum			minumum subcode
+     34			;	.byte	maximum			maximum subcode
+     35
+     36	002400		meta	<boemt$ cod adr><.byte adr-b$oemd/word,cod>
+     37	002400		b$oemt:	boemt$	217	bo$ovl		; read overlay
+     38	002402			boemt$	340	bo$tti		; ttyin
+     39	002404			boemt$	341	bo$tto		; ttyout
+     40	002406			boemt$	342	bo$dst		; dstatu
+     41	002410			boemt$	343	bo$fet		; fetch
+     42	002412			boemt$	344	bo$csi		; csigen
+     43	002414			boemt$	345	bo$gln		; csispc & gtlin
+     44	002416			boemt$	350	bo$exj		; exit (jump)
+     45	002420			boemt$	351	bo$pri		; print
+     46	002422			boemt$	353	bo$qst		; qset
+     47	002424			boemt$	354	bo$sto		; settop
+     48
+     49	002426	   000 		.byte	0,0			; invalid done in routines
+	002427	   000
+     50	002430	   340 		.byte	340,377			; minimum & maximum
+	002431	   377
+     51	002432		b$o374:	boemt$	0	bo$wai		; wait - dummy for search logic
+     52	002434			boemt$	10	bo$chj		; chain
+     53	002436			boemt$	12	bo$dat		; date
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 9-1
+Emt return
+
+     54	002440	   000 		.byte	0,0			; all are valid
+	002441	   000
+     55			;	.byte	0,em74h.+2		; limits (+2 for new releases)
+     56	002442	   000 		.byte	0,em74h.		; limits
+	002443	   013
+     57	002444		b$o375:	boemt$	1	bo$loj		; lookup
+     58	002446			boemt$	3	bo$trp		; trpset
+     59	002450			boemt$	10	bo$rea		; read
+     60	002452			boemt$	20	bo$gjb		; gtjb
+     61	002454			boemt$	21	bo$gtm		; gtim
+     62	002456			boemt$	27	bo$cst		; cstat
+     63	002460			boemt$	34	bo$gvl		; gval
+     64	002462			boemt$	40	bo$sdt		; sdttm/gtimx/stimx
+     65	002464	   000 		.byte	0,2,4,5,6,0		; enter rename savest reopen
+	002465	   002
+	002466	   004
+	002467	   005
+	002470	   006
+	002471	   000
+     66	002472	   011 		.byte	11,32,0			; write spfun
+	002473	   032
+	002474	   000
+     67			;	.byte	0,em75h.+2		; limits (+2 for new releases)
+     68	002475	   000 		.byte	0,em75h.		; limits
+	002476	   045
+     69				.even				;
+     70		002476 	b$oemd=.-2				; sic] emt dispatch base
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 10
+Print, ttyout, ttyin
+
+      1			.sbttl	print, ttyout, ttyin
+      2
+      3			;	Print & ttyout
+      4			;
+      5			;	r0	request r0 for old emts
+      6			;	r1	zero
+      7			;	r2
+      8			;	r3	word(r5) for emt 375 requests
+      9			;	r4 ->	channel
+     10			;	r5 	request r0 - restored to r0 on exit
+     11			;	cbit	clear
+     12			;
+     13			;	r0 ->	string
+     14			;
+     15			;	r0	undefined
+     16			;	r1 ->	past last byte
+     17
+     18				.enabl	lsb			;
+     19	002500	010001 	bo$pri:	mov	r0,r1			; get a copy
+     20	002502	112100 	10$:	movb	(r1)+,r0		; get the next
+     21	002504	001406 		beq	bo$new			; done - do new line
+     22	002506	120027 		cmpb	r0,#200			; this the last?
+		000200
+     23	002512	001426 		beq	20$			; yes
+     24	002514	004767 		call	bo$put			; display it
+		001542
+     25	002520	000770 		br	10$			;
+     26	002522	012700 	bo$new:	mov	#cr*256.+lf,r0		; yes
+		006412
+     27	002526	004717 		call	(pc)			; cr then lf
+     28	002530	000300 		swab	r0			; get the next
+     29	002532	000167 	bo$tto:	callr	bo$put			; display the character
+		001524
+     30
+     31			;	ttinr
+     32			;
+     33			;	Does not support rubout or convert to upper case
+     34
+     35	002536		bo$tti:	movr	#b$olfd,r3		; point to the line feed
+     36	002542	011305 		mov	(r3),r5			; got a line feed?
+     37	002544	001165 		bne	bo$cr3			; yes - clear it and quit
+     38	002546	004767 		call	bo$chk			; get the character
+		001534
+     39	002552	103676 		bcs	bo$emf			; no character
+     40	002554	010005 		mov	r0,r5			; return the character
+     41	002556	120527 		cmpb	r5,#cr			; this a return?
+		000015
+     42	002562	001002 		bne	20$			; no
+     43	002564	112713 		movb	#lf,(r3)		; yes - linefeed next time
+		000012
+     44	002570	000207 	20$:	return				;
+     45				.dsabl	lsb			;
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 11
+Print, ttyout, ttyin
+
+      1			;+++;	BOOT - .csispc to support a single file and no switches
+      2			.sbttl	csi, gtlin
+      3
+      4			;	Pick up the parameters for CSI requests and report an error
+      5			;	Process gtlin requests
+      6			;	Convert input to uppercase after echo
+      7
+      8	002572		bo$gln:	stack	ret r0 r1 r2 r3 r4 r5 pc ps str prm flg lin bbs
+      9			;o$csi:	stack	ret r0 r1 r2 r3 r4 r5 pc ps str prm flg bbs
+     10	002572		bo$csi:	stack	ret r0 r1 r2 r3 r4 r5 pc ps cmd ext out bbs
+     11	002572			borot$	3 sp.bbs		; get the first three
+     12	002600			stack	prm flg lin ret r0 etc	; if line buffer
+     13	002600			stack	prm flg ret r0 etc	;
+     14	002600			stack	cmd ext out
+     15			;sic]	pop	r2			; r2 = str (zero)	str
+     16	002600			pop	r4			; r4 -> the prompt	typ
+     17	002602			pop	r0			; r0 -> the flag	out
+     18	002604	006200 		asr	r0			; is it set for another parameter?
+     19	002606	103260 		bcc	bo$emf			; no - and its not gtlin
+     20	002610			stack	ret r0 r1 r2 r3 r4 r5 pc ps lin bbs
+     21	002610			borot$	1 sp.bbs		; get the line buffer address
+     22			;sic]	pop	r2			; r2 -> the buffer
+     23	002616	006200 		asr	r0			; was this csispc?
+     24			.if ne csp$c
+     25				bne	70$			; yes
+     26			.iff
+     27	002620	001253 		bne	bo$emf			; yes
+     28			.endc
+     29								; get line
+     30	002622	010201 		mov	r2,r1			; r1 -> buffer
+     31	002624	010400 		mov	r4,r0			; got a prompt?
+     32	002626	001401 		beq	20$			; no
+     33	002630		10$:	.print				; yes
+     34	002632	004767 	20$:	call	bo$chk			; get a character
+		001450
+     35	002636	103775 		bcs	20$			; nothing doing
+     36	002640	120027 		cmpb	r0,#cr			; terminate on lf
+		000015
+     37	002644	001427 		beq	50$			;
+     38	002646	120027 		cmpb	r0,#rubout		; this a delete?
+		000177
+     39	002652	001006 		bne	30$			; no
+     40	002654	020102 		cmp	r1,r2			; at start of line?
+     41	002656	001765 		beq	20$			; yes
+     42	002660	005301 		dec	r1			; no
+     43	002662			movr	#60$,r0			; nope - do rubout
+     44	002666	000760 		br	10$			; rub it out
+     45	002670		30$:rel	cmp	r1,#b$olnx		; any more space in line?
+     46	002674	103356 		bhis	20$			; no - refuse it
+     47	002676			.ttoutr				; no - display it
+     48	002700	120027 		cmpb	r0,#'a			; this lowercase?
+		000141
+     49	002704	103405 		blo	40$			; no
+     50	002706	120027 		cmpb	r0,#'z			; really?
+		000172
+     51	002712	101002 		bhi	40$			; no
+     52	002714	162700 		sub	#'a-'A,r0		; yes
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 11-1
+Csi, gtlin
+
+		000040
+     53	002720	110021 	40$:	movb	r0,(r1)+		; store it
+     54	002722	000743 		br	20$			; look again
+     55	002724	105011 	50$:	clrb	(r1)			; terminate it
+     56	002726	000675 		br	bo$new			; new line and return
+     57	002730	   010 	60$:	.byte	bs,space,bs,200		; rubout
+	002731	   040
+	002732	   010
+	002733	   200
+     58			.if ne csp$c
+     59			70$:	jmp	bo$csp
+     60			.endc
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 12
+Cstat, exit, settop, date, trpset, gtim, gval
+
+      1			.sbttl	cstat, exit, settop, date, trpset, gtim, gval
+      2
+      3			;	cstat
+      4
+      5	002734	010305 	bo$cst:	mov	r3,r5			; return address in r0
+      6	002736	012423 		mov	(r4)+,(r3)+		; ch.csw
+      7	002740	100203 		bpl	bo$emf			; oops - channel not open
+      8	002742	012423 		mov	(r4)+,(r3)+		; ch.sbl
+      9	002744	012423 		mov	(r4)+,(r3)+		; ch.len
+     10	002746	012423 		mov	(r4)+,(r3)+		; ch.use
+     11	002750	116423 		movb	byte(r4),(r3)+		; ch.uni
+		000001
+     12	002754	105023 		clrb	(r3)+			;
+     13	002756	016723 		mov	b$opnm+desyi.,(r3)+	; system device name
+		176434
+     14	002762	000207 		return
+     15
+     16			;	settop
+     17			;
+     18			;	r5 	new top address
+     19
+     20	002764	026705 	bo$sto:	cmp	b$ousr,r5		; value ok?
+		000544
+     21	002770	103002 		bhis	30$			; yes
+     22	002772	016705 		mov	b$ousr,r5		; return the value
+		000536
+     23	002776	010537 	30$:	mov	r5,@#j$btop		; return low location
+		000050
+     24	003002	000207 		return				;
+     25
+     26			;	date
+     27
+     28	003004	016705 	bo$dat:	mov	b$rdat,r5		; return the date
+		001774
+     29	003010	000207 	bo$wai:	return				; dummy wait routine
+     30
+     31			;	trpset
+     32
+     33	003012	010367 	bo$trp:	mov	r3,b$otrp		; setup the trap location
+		000746
+     34	003016	000207 		return				;
+     35
+     36			;	sdttm/gtimx
+     37
+     38	003020		bo$sdt: bneb	(r5),#1,10$		; not .gtimx
+     39	003026	016723 		mov	b$rdat,(r3)+		; date
+		001752
+     40	003032	004767 		call	bo$gtm			; time
+		000006
+     41	003036	016723 		mov	b$rera,(r3)+		; era
+		001746
+     42	003042	000207 	10$:	return
+     43
+     44			;	gtim
+     45
+     46	003044	016723 	bo$gtm:	mov	b$rhot,(r3)+		; high order
+		001730
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 12-1
+Cstat, exit, settop, date, trpset, gtim, gval
+
+     47	003050	016723 		mov	b$rlot,(r3)+		; low order
+		001726
+     48	003054	000207 		return
+     49
+     50			;	gval
+     51			;
+     52			;	34	0	gval
+     53			;		1	peek
+     54			;		2	pval	ignored
+     55			;		3	poke	ignored
+     56
+     57	003056	121527 	bo$gvl:	cmpb	(r5),#1			; what is it?
+		000001
+     58	003062	101004 		bhi	20$			; pval or poke
+     59	003064	001402 		beq	10$			; peek
+     60	003066	063703 	    	add	@#j$bsys,r3		; relocate it
+		000054
+     61	003072	011305 	10$:	mov	(r3),r5			; return value in r0
+     62	003074	000207 	20$:	return				;
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 13
+Gtjb, dstat, fetch, qset
+
+      1			.sbttl	gtjb, dstat, fetch, qset
+      2
+      3			;	gtjb
+      4
+      5	003076	010305 	bo$gjb:	mov	r3,r5			; return block address in r0
+      6	003100	005023 		clr	(r3)+			; job number
+      7	003102	016723 		mov	b$ousr,(r3)+		; high limit
+		000426
+      8	003106	005023 		clr	(r3)+			; low limit
+      9	003110	012723 		mov	(pc)+,(r3)+		; csw area pointer
+     10	003112		r$pcsw:	.wordr	r$mcsw			;
+     11	003114	005023 		clr	(r3)+			; clear impure address
+     12	003116	005023 		clr	(r3)+			; no multiterminal
+     13	003120	005023 	bo$cr3:	clr	(r3)+			; no virtual high limit
+     14	003122	000207 		return				;
+     15
+     16			;	dstat
+     17			;
+     18			;	r0 ->	device name
+     19			;	0(sp)	dblk!phyflg
+     20			;
+     21			;	The information is about an imaginary RT11A disk.
+     22			;	It is sufficient to convince a program that the disk is loaded.
+     23			;	All logical names translate to SY: - no device name check is made.
+     24
+     25	003124			stack	ret r0 r1 r2 r3 r4 r5 pc ps buf bbs
+     26				.enabl	lsb			;
+     27	003124		bo$dst:
+     28	003124			borot$	1 sp.bbs		; rotate the stack one place
+     29			;sic]	pop	r2			; r2 = buffer
+     30	003132	004767 		call	10$			; clean up address, return it in r5
+		000024
+     31	003136	012722 		mov	#dsrta$+377,(r2)+	; de.sta - rt-11 disk
+		100377
+     32	003142	012722 		mov	#100,(r2)+		; de.hsz - it is very small
+		000100
+     33	003146	010722 		mov	pc,(r2)+		; de.ent - it is loaded here
+     34	003150	010722 		mov	pc,(r2)+		; de.dsz - and it is quite large
+     35	003152	000207 		return				;
+     36
+     37			;	fetch & qset
+     38			;
+     39			;	Pickup the parameter and ignore it
+     40
+     41	003154		bo$fet:
+     42	003154		bo$qst:	stack	ret r0 r1 r2 r3 r4 r5 pc ps buf bbs
+     43	003154			borot$	1 sp.bbs		; rotate the stack one place
+     44			;sic]	pop	r2			; r2 = buffer
+     45	003162	042702 	10$:	bic	#1,r2			; clean up the address
+		000001
+     46	003166	010205 		mov	r2,r5			; and return it
+     47	003170	000207 	20$:	return				;
+     48				.dsabl	lsb			;
+     49
+     50			;	chain and exit
+     51
+     52	003172	000167 	bo$exj:	jmp	bo$exi			; exit (jump)
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 13-1
+Gtjb, dstat, fetch, qset
+
+		176420
+     53	003176	000167 	bo$chj:	jmp	bo$chn			; chain (jump)
+		176560
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 14
+Lookup
+
+      1			.sbttl	lookup
+      2
+      3			;	r0	request r0 for old emts
+      4			;	r1	zero
+      5			;	r2
+      6			;	r3	word(r5) for emt 375 requests
+      7			;	r4 ->	channel
+      8			;	r5 	request r0 - restored to r0 on exit
+      9			;	cbit	clear
+     10			;
+     11			;	r5 ->	chn ! cod
+     12			;		filespec address
+     13			;
+     14			;	r1 =	start block
+     15			;	r2 ->	entry
+     16			;	r3 ->	fn.fil(dblk)
+     17			;	r4 ->	channel
+     18			;	r5 ->	chn ! cod
+     19
+     20				.enabl	lsb
+     21	003202	005014 	bo$loo:	clr	(r4)			; channel not open
+     22			;sic]	mov	word(r5),r3		; r3 -> filespec
+     23	003204	005723 		tst	(r3)+			; r3 -> fn.fil(r3)
+     24	003206	005005 		clr	r5		; r1=0	; assume non-file open
+     25	003210	005713 		tst	(r3)			; non file open?
+     26	003212	001464 		beq	60$			; yes - we are done
+     27	003214	012700 		mov	#1,r0			; first segment
+		000001
+     28
+     29			;	Next segment
+     30
+     31	003220	006300 	10$:	asl	r0			; *2
+     32	003222	022020 		cmp	(r0)+,(r0)+		; +4
+     33	003224	012701 		mov	#512.,r1		; word count
+		001000
+     34	003230			movr	#b$oseg,r2		; buffer address
+     35	003234			beqw	r0,r$mblk,15$		; already have the segment
+     36	003242	010127 		mov	r1,(pc)+		; invalidate directory buffer
+     37	003244	000000 	r$mblk:	.word	0			;
+     38	003246	004767 		call	bo$red			; call the read routine
+		000250
+     39	003252	103454 		bcs	bo$xdi			; oops - directory i/o error
+     40	003254	010067 		mov	r0,r$mblk		; remember directory segment
+		177764
+     41	003260			assume	rt.hbs-word eq rt.blk	;
+     42
+     43	003260	062702 	15$:	add	#rt.blk,r2		; point at first entry
+		000010
+     44	003264	012201 		mov	(r2)+,r1		; rt.blk - get first start block
+     45
+     46			;	Entry loop
+     47
+     48	003266	032712 	20$:	bit	#rtiv$p,(r2)		; this a valid directory?
+		070377
+     49	003272	001047 		bne	bo$xdf			; no
+     50	003274	032712 		bit	#rtend$,(r2)		; end of segment?
+		004000
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 14-1
+Lookup
+
+     51	003300	001022 		bne	40$			; yes - get next segment
+     52				.if ne seg$c
+     53			   rel	cmp	r2,#b$oseg+1024.	; exact end of segment buffer?
+     54				beq	40$			; yes
+     55				bhi	bo$xdf			; invalid directory
+     56				.endc
+     57	003302	010200 		mov	r2,r0			; r0 -> sta fil nam len
+     58	003304	032720 		bit	#rtper$,(r0)+		; rt.sta - permanent entry?
+		002000
+     59	003310	001407 		beq	30$			; no
+     60								;
+     61	003312	010305 		mov	r3,r5			; get a copy
+     62	003314			bnew	(r5)+,(r0)+,30$		; compare filnamtyp
+     63	003320			bnew	(r5)+,(r0)+,30$		;
+     64	003324			beqw	(r5)+,(r0)+,50$		;
+     65
+     66			;	Next entry
+     67
+     68	003330	066201 	30$:	add	rt.len(r2),r1		; increment start block
+		000010
+     69	003334	062702 		add	#rt.ebs,r2		; next entry
+		000016
+     70	003340	066702 		add	b$oseg+rt.ext,r2	; add in extra bytes
+		172442
+     71	003344	000750 		br	20$			; look at the next
+     72
+     73			;	Next segment
+     74
+     75	003346	016700 	40$:	mov	b$oseg+rt.nxt,r0	; get the next segment
+		172430
+     76	003352	100417 		bmi	bo$xdf			; ridic segment number
+     77	003354	001321 		bne	10$			; more segments
+     78	003356	000167 		jmp	bo$emf			; file not found
+		176766
+     79
+     80			;	Setup channel
+     81			;
+     82			;	r1	start block
+     83			;	r5	length (zero for non-file)
+     84
+     85	003362	011005 	50$:	mov	(r0),r5			; rt.len - return length in r0
+     86	003364	012724 	60$:	mov	#csact$+desyi.,(r4)+	; rt.csw
+		100002
+     87	003370	010124 		mov	r1,(r4)+		; rt.sbl - zero for non-file
+     88	003372	010524 		mov	r5,(r4)+		; rt.len - zero for non-file
+     89	003374	005024 		clr	(r4)+			; rt.use
+     90	003376	016724 		mov	r$msyu,(r4)+		; rt.uni - in high-byte
+		175672
+     91	003402	000207 	bo$rt2:	return				; found
+     92				.dsabl	lsb
+     93								;
+     94	003404			stack	ret r0 r1 r2 r3 r4 r5 pc ps
+     95	003404		bo$xdi:	bofat$	xio sp.pc		; directory I/O error
+     96	003412		bo$xdf:	bofat$	xdf sp.pc		; directory format error
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 15
+Read & overlay read
+
+      1			.sbttl	read & overlay read
+      2
+      3			;	EMT 217 read supported for overlays.
+      4			;
+      5			;	r0	virtual block
+      6			;	sp.buf	buffer address
+      7			;	sp.wct	word count
+      8			;	sp.com	completion - ignored
+      9
+     10	003420			stack	ret r0 r1 r2 r3 r4 r5 pc ps buf wct com bbs
+     11	003420		bo$ovl:	borot$	3 sp.bbs		; rotate the stack
+     12	003426			stack	buf wct com ret r0 r1 r2 r3 r4 r5 pc ps bbs
+     13		000230 		losbl.=<ch.bbs*imchn.>+ch.sbl	;
+     14	003426	066700 	 	add	r$mcsw+losbl.,r0	; r0 = block
+		175602
+     15			;sic]	pop	r2			; r2 = buffer
+     16	003432			pop	r1			; r1 = word count
+     17	003434	005726 		tst	(sp)+			; forget the ast
+     18	003436	000426 		br	bo$rec			;
+     19
+     20			;	EMT 375 read
+     21			;
+     22			;	r4 ->	channel
+     23			;	r5 ->	cod!chn	channel number
+     24			;		blk	virtual block
+     25			;		buf	buffer address
+     26			;		wct	word count
+     27			;		com	completion - ignored
+     28
+     29	003440	000660 	bo$loj:	br	bo$loo			; branch across read routine
+     30	003442	005725 	bo$rea:	tst	(r5)+			; skip the channel & code
+     31	003444	012500 		mov	(r5)+,r0		; r0 = virtual block number
+     32	003446	012502 		mov	(r5)+,r2		; r2 = buffer address
+     33	003450	012501 		mov	(r5)+,r1		; r1 = word count
+     34								;
+     35	003452	016403 		mov	ch.sbl(r4),r3		; r3 = logical start block
+		000002
+     36	003456	001411 		beq	10$			; non-file access
+     37	003460	016405 		mov	ch.len(r4),r5		; r5 = file length in blocks
+		000004
+     38	003464	160005 		sub	r0,r5			; subtract start block
+     39	003466	101407 		blos	20$			; end of file error
+     40	003470	000305 		swab	r5			; get block count
+     41	003472	001003 		bne	10$			; 256+ is big enough for anything
+     42	003474	020501 		cmp	r5,r1			; compare remainder with wordcount
+     43	003476	103001 		bhis	10$			; fine
+     44	003500	010501 		mov	r5,r1			; truncate request
+     45	003502	060300 	10$:	add	r3,r0			; r0 = logical block number
+     46	003504	000403 		br	bo$rec			;
+     47	003506	005005 	20$:	clr	r5			; end of file - no data read
+     48	003510	000167 		jmp	bo$emf			; failed
+		176634
+     49
+     50			;	Read common
+     51			;
+     52			;	Common overlay & emt read
+     53			;
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 15-1
+Read & overlay read
+
+     54			;	r0	logical block
+     55			;	r1	word count
+     56			;	r2	buffer address
+     57			;	r3:r4	preserved
+     58			;
+     59			;	r5	actual wordcount - returned in r0
+     60
+     61	003514	010105 	bo$rec:	mov	r1,r5			; get the word count
+     62	003516		   rel	psh	#bo$emr			; return to bo$emr
+     63	003522			fall	bo$red			; read the data
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 16
+Read primitive
+
+      1			.sbttl	read primitive
+      2
+      3			;	r0 =	logical block number
+      4			;	r1 =	word count
+      5			;	r2 ->	buffer address
+      6			;	r0:r5	preserved
+      7			;
+      8			;	Called from bo$rec and bo$loo
+      9			;	Save the stack, setup read stack
+     10			;	Swap block zero and swap buffer copy of boot driver
+     11			;	Save and setup b$rdvu - setup r$msyu
+     12			;	Issue the read operation
+     13			;	Swap back swap buffer and block zero
+     14			;	Restore b$rdvu unless modified by read operation
+     15
+     16	003522		bo$red:	bosav$				; save all registers
+     17	003526	010667 		mov	sp,40$			; save the stack
+		000142
+     18	003532			stack	r0 r1 r2 r3 r4 r5	;
+     19	003532		   rel	cmp	sp,#b$olow		; using the monitor stack?
+     20		003534 	b$ousr=.-2
+     21	003536	103002 		bhis	10$			; yes - dont swap
+     22	003540	016706 	    	mov	b$pstk,sp		; no - use system stack
+		176054
+     23								;
+     24	003544		10$:	.mtps	#340			;
+     25	003564	012704 		mov	#b$rdvu,r4		; save low version
+		004722
+     26	003570	011446 		mov	(r4),-(sp)		; save location
+     27	003572	016714 		mov	b$rdvu,(r4)		; set it up (with high version)
+		001124
+     28	003576	111467 		movb	(r4),b$osyu		; build monitor copy
+		175473
+     29	003602	005046 		clr	-(sp)			; assume restore
+     30	003604	160204 		sub	r2,r4			; can read modify area?
+     31	003606	103404 		bcs	15$			; nope
+     32	003610			psh	r1			; words
+     33	003612	006316 		asl	(sp)			; bytes
+     34	003614	162604 		sub	(sp)+,r4		; will read modifiy @#4722?
+     35	003616	005516 		adc	(sp)			; c=1 if true
+     36	003620		15$:	stack	flg,sav			;
+     37								;
+     38	003620	004767 		call	bo$swp			; swap once
+		000102
+     39	003624	012737 		mov	#jmp+37,@#br$ioe	; catch I/O errors
+		000137
+		000664
+     40	003632			movr	#20$,@#br$ioe+word 	; jmp @#20$
+     41	003640	004777 		call	@b$rrea			; call the read routine
+		001064
+     42								; all registers lost
+     43	003644	005727 		tst	(pc)+			; returns only if okay
+     44	003646	000261 	20$:	sec				; errors patched to come here
+     45	003650	004767 		call	bo$swp			; swap back again
+		000052
+     46	003654	005504 		adc	r4			; setup the cbit
+     47	003656			assume	ioher. eq 1		; r4 = 0 or 1
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 16-1
+Read primitive
+
+     48	003656	110437 		movb	r4,@#j$berr		; set I/O error code if one occurred
+		000052
+     49	003662			stack	flg,sav			;
+     50	003662	006226 		asr	(sp)+			; reset device unit word?
+     51	003664	103402 		bcs	50$			; nope
+     52	003666			stack	sav			;
+     53	003666	011637 		mov	(sp),@#b$rdvu		; yes - restore it
+		004722
+     54								; (no need to pop dvu)
+     55	003672	012706 	50$:	mov	(pc)+,sp		; reset the stack
+     56	003674	000000 	40$:	.word	0			; saved stack
+     57	003676			.mtps	#0			;
+     58	003716	106004 		rorb	r4			; reset the cbit
+     59	003720			bores$				; restore all registers
+     60	003724	000207 		return				; return to caller
+     61
+     62			;	Swap boot block and image low memory
+     63			;
+     64			;	cbit not modified
+     65			;	r4 low byte cleared
+     66
+     67				.enabl	lsb
+     68				.if ne hgh$c
+     69			bo$hgh:	bpcw	#1,b$ohgh,20$		;boot block is already high
+     70				.endc
+     71	003726	040404 	bo$swp:	bic	r4,r4			;c=? block zero
+     72				.if ne hgh$c			;c=?
+     73				inc	(pc)+			;c=?
+     74			b$ohgh:	.word	0			;c=? even = high, odd = low
+     75				.endc				;c=?
+     76	003730			movr	#b$oswp,r5		;c=? get swap buffer
+     77	003734		10$:	psh	(r4)			;c=? save low value
+     78	003736	011524 		mov	(r5),(r4)+		;c=? replace it
+     79	003740			pop	(r5)+			;c=? swap it
+     80	003742	032704 		bit	#777,r4			;c=? all done?
+		000777
+     81	003746	001372 		bne	10$			;c=? no
+     82	003750	000207 	20$:	return				;c=? r4+0 is clear
+     83				.dsabl	lsb
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 17
+Read primitive
+
+      1			.if ne csp$c
+      2			.sbttl	csispc
+      3
+      4			;	Here because of branch distances
+      5			;
+      6			;	r2 ->	string
+      7			;	r4 ->	default types
+      8			;	r0 ->	output specs
+      9
+     10			bo$csp:	asl r0
+     11			bpt
+     12				add	#3*5*2,r0	; r0 -> rad50 output
+     13				mov	#^rsy,(r0)+	; r0 -> fil in devfilnamtyp
+     14				mov	r2,r1		; r1 -> string
+     15				mov	6(r4),r2	; r2 = default type
+     16				call	bo$fil		; translate the spec
+     17			;	beqw	(r0),bo$emj	;
+     18				return
+     19			.endc
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 18
+Traps
+
+      1			.sbttl	traps
+      2
+      3			;	Traps may be lost if they occur during boot read routines.
+      4			;	We could (should) set PR7 to block interrupts at this time.
+      5			;
+      6			;	b$otrp	trap routine address
+      7			;	c=0	bus/mmu error
+      8			;	c=1	cpu error
+      9			;
+     10			;	b$otrp is not cleared - thus program can loop
+     11
+     12				.enabl	lsb			;
+     13	003752	000261 	bo$cpu:	sec				; cpu error
+     14	003754		bo$mmu:					; mmu error
+     15	003754		bo$bus:	psh	b$otrp			; c=? -	get the trap location
+     16	003760	001403 		beq	10$			; c=? -	no routine - crash
+     17	003762	041727 		bic	(pc),(pc)+		; c=? -	this is almost original
+     18	003764	000000 	b$otrp:	.word	0			; 	trap location
+     19	003766	000207 		return				; c=? -	enter bus/cpu/mmu sst
+     20	003770	103403 	10$:	bcs	20$			; cpu error
+     21	003772			stack	nul pc ps		;
+     22	003772			bofat$	xbu sp.pc		; bus error
+     23	004000		20$:	bofat$	xcp sp.pc		; cpu error
+     24				.dsabl	lsb			;
+     25								;
+     26	004006	062767 	bo$clk:	add	#1,b$rlot		; low order
+		000001
+		000766
+     27	004014	005567 		adc	b$rhot			; high order
+		000760
+     28				.if eq clk$c
+     29	004020	052767 		bis	#cnclo$,r$mcfg		; evidence of a clock
+		100000
+		175252
+     30				.endc
+     31	004026	000002 	bo$fpu:	rti				; ignore FPU traps (Unix)
+     32								;
+     33				.if ne	pwf$c			;
+     34				stack	pc ps			;
+     35			bo$pwf:	bofat$	xpf sp.pc		; powerfail
+     36				.endc				;
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 19
+Errors
+
+      1			.sbttl	errors
+      2
+      3			;	Secondary and tertiary boot messages.
+      4			;
+      5			;	bofat$	cod stk
+      6			;
+      7			;	jsr	r2,bo$fat
+      8			;	.byte	cod		error code
+      9			;	.byte	stk		stack depth to pc
+     10			;
+     11			;	r0/r1	print
+     12			;	r2 ->	message string
+     13			;	r3 ->	stack pc
+     14			;	r4 ->	print routine
+     15			;	r5 	safe
+     16
+     17	004030			stack	r2 etc			;
+     18	004030		bo$fat:	movr	#b$omsg.,r0		;sic] get the message header
+     19	004034			movr	#bo$pri,r4 		; point to the print routine
+     20	004040			psh	r0			; save it
+     21	004042			stack	r0 r2 etc		;
+     22	004042	004714 		call	(r4)			; print the header
+     23								;
+     24	004044	112200 		movb	(r2)+,r0		; get the offset
+     25	004046	062600 		add	(sp)+,r0		; r0 -> message
+     26	004050			stack	r2 etc			;
+     27	004050	112203 		movb	(r2)+,r3		; stack offset
+     28	004052	060603 		add	sp,r3			; r3 -> stack pc
+     29	004054	010216 		mov	r2,(sp)			; return address
+     30								;
+     31	004056			stack	ret etc			;
+     32	004056	004714 		call	(r4)			; print the message
+     33	004060	105711 		tstb	(r1)			; need " error" added?
+     34	004062	100404 		bmi	10$			; no - just location
+     35	004064	001406 		beq	20$			; no - nothing
+     36	004066			movr	#b$oerr,r0 		; yes
+     37	004072	004714 		call	(r4)			; print " error "
+     38								;
+     39	004074	011301 	10$:	mov	(r3),r1			; r1 = error pc
+     40	004076	004767 		call	bo$num			; display the location
+		000012
+     41								;
+     42	004102		20$: 	movr	#b$oimm,r0		; point to the filename
+     43	004106	004714 		call	(r4)			; display the name & newline
+     44			.if ne 0
+     45				call	bo$chk			;
+     46				.if ne	rst$c			; restore
+     47				bmiw	pc,bo$rsj		; restore
+     48				call	bo$swp			; swap the driver back
+     49				.iff
+     50				tst	pc			; are we in the secondary boot
+     51				bmi	bo$rsj			; yes - cannot recover
+     52				.endc
+     53			bo$hlt:	halt				;
+     54			.endc
+     55	004110	000167 	bo$rsj:	jmp	bo$rst			; restore monitor and prompt
+		175502
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 19-1
+Errors
+
+     56				.if ne ctr$c
+     57			bo$rom:	jmp	@#173000		; start bootstrap rom
+     58				.endc
+     59
+     60			;	Display a number
+     61			;
+     62			;	r1	number
+     63			;	r0	burnt
+     64			;	r2/r3	burnt
+     65
+     66	004114	012703 	bo$num:	mov	#111111,r3 	; loop control
+		111111
+     67	004120	005002 		clr	r2		; there once was a glichette named brigette
+     68	004122	005000 	10$:	clr	r0		; who fancied the occassional fidget
+     69	004124	006301 	20$:	asl	r1		; well, its fetch a bit here
+     70	004126	006100 		rol	r0		; and fudge a bit there
+     71	004130	006303 		asl	r3		; when it itches, ya just find ya digit
+     72	004132	103374 		bcc	20$		; keep fiddling
+     73	004134	001402 		beq	30$		; must print the final digit
+     74	004136	050002 		bis	r0,r2		; set the print flag
+     75	004140	001770 		beq	10$		; nothing to print so far
+     76	004142	062700 	30$:	add	#'0,r0		; start or continue printing
+		000060
+     77	004146	004767 		call	bo$tto		; display the character
+		176360
+     78	004152	005703 		tst	r3		; done all digits ?
+     79	004154	001362 		bne	10$		; nope, go scritch it
+     80	004156	000207 		return			;
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 20
+Messages
+
+      1			.sbttl	messages
+      2
+      3			;	.ascii	"message"	message string
+      4			;	.byte	>0		 error <pc> filnam.typ
+      5			;	.byte	<1		<pc> filnam.typ
+      6			;	.byte	0		filnam.typ
+      7			;
+      8			;	Messages that end with <200> have " error" appended
+      9
+     10	004160		meta	<bomsg$ nam ctl><bo'nam'.=.-b$omsg><b$o'nam: ctl>
+     11	004160	   015 	b$omsg:	.ascii	<cr><lf>"?BOOT-U-"<200>	;
+	004161	   012
+	004162	   077
+	004163	   102
+	004164	   117
+	004165	   117
+	004166	   124
+	004167	   055
+	004170	   125
+	004171	   055
+	004172	   200
+     12	004173	   040 	b$oerr:	.ascii	" error "<200>		;
+	004174	   145
+	004175	   162
+	004176	   162
+	004177	   157
+	004200	   162
+	004201	   040
+	004202	   200
+     13	004203		b$oimm:;.ascii	" "			; " filnam.typ"
+     14	004203	   000 		.byte	0			;
+     15								;
+     16	004204		bomsg$	xbu	<.ascii	"Bus"<200>>	; Bus error
+     17			;omsg$	xtp	<.ascii	"T11"<200>>	; Falcon error
+     18	004210		bomsg$	xcp	<.ascii	"Cpu"<200>>	; CPU error
+     19	004214		bomsg$	xio	<.ascii	"I/O"<200>>	; I/O error
+     20	004220		bomsg$	xdf	<.ascii	"Directory"<200>>; Bad directory
+     21	004232		bomsg$	xic	<.ascii	"Command"<200>>	; command error
+     22	004242		bomsg$	xfn	<.ascii	"File not found"<200><0>> ; File not found
+     23			.if ne pwf$c
+     24			bomsg$	xpf	<.ascii	"Power"<200>>	; Power error
+     25			.endc
+     26				.even
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 21
+Terminal
+
+      1			.sbttl	terminal
+      2
+      3			;	Terminal output
+      4			;
+      5			;	Handles [ctrl/q] [ctrl/s] protocol
+      6			;
+      7			;	r0	character to write
+      8
+      9	004262		bo$put:	psh	r0			; save the output character
+     10	004264	004767 	10$:	call	bo$chk			; handle ctrl/q & ctrl/s
+		000016
+     11	004270	105777 		tstb	@r$mtps			; ready yet?
+		175014
+     12	004274	100373 		bpl	10$			; no
+     13	004276			pop	r0			; get the character back
+     14	004300	110077 		movb	r0,@r$mtpb		; move it in
+		175006
+     15	004304	000207 		return				; c=0
+     16
+     17			;	Check terminal input
+     18			;
+     19			;	Check for [ctrl/q] & [ctrl/s]
+     20			;	Check for [ctrl/c] abort
+     21
+     22	004306		bo$chk:	.enabl	lsb			; check terminal
+     23	004306	004767 	10$:	call	bo$get			; get another
+		000042
+     24	004312	103413 		bcs	30$			; nothing doing - ignore it
+     25	004314	001774 		beq	10$			; ignore spurious ctrl/q
+     26				.if ne ctr$c
+     27				beqb	r0,#ctrlr,bo$rom	; ^R -> ROM boot
+     28				beqb	r0,#ctrlh,bo$hlt	; ^H -> HALT
+     29				.endc
+     30	004316			beqb	r0,b$octc,40$		; ^C -> abort
+     31	004324			bneb	r0,#ctrls,50$		; not ctrl/s
+     32	004332	004767 	20$:	call	bo$get			; get another
+		000016
+     33	004336	103775 		bcs	20$			; none there
+     34	004340	001374 		bne	20$			; not ctrl/q
+     35	004342	000261 	30$:	sec				; c=1 => no character
+     36	004344	000207 		return
+     37	004346	004767 	40$:	call	bo$new			; ctrl/c abort
+		176150
+     38	004352	000656 		br	bo$rsj			; restart
+     39
+     40	004354	105777 	bo$get:	tstb	@r$mtks			; get one
+		174724
+     41	004360	100370 		bpl	30$			; none there
+     42	004362	117700 		movb	@r$mtkb,r0		; get it
+		174720
+     43	004366	042700 		bic	#^c177,r0		; clean it up
+		177600
+     44	004372	020027 		cmp	r0,#ctrlq		; check for ctrl/q
+		000021
+     45	004376	000241 	50$:	clc				; got one
+     46	004400	000207 		return				;
+     47				.dsabl	lsb			;
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 22
+Filename, rad50
+
+      1			.sbttl	filename, rad50
+      2
+      3			;	Convert filename
+      4			;
+      5			;	r0 ->	filespec+fn.nam
+      6			;	r1 ->	ascii string - popped past
+      7			;	r2 =	default type
+      8			;
+      9			;	r3:r4	burnt
+     10
+     11				.enabl	lsb
+     12	004402		bo$fil:	psh	r0			; save r0
+     13	004404	010260 		mov	r2,6(r0)		; default type
+		000006
+     14	004410			movr	#bo$pck,r4		;
+     15	004414	011600 	10$:	mov	(sp),r0			; get back the name
+     16	004416	004514 		jsr	r5,(r4)			; get the first
+     17	004420	   003 		.byte	3,':			; look for a colon
+	004421	   072
+     18	004422	001774 		beq	10$			; ignore devices
+     19	004424	004514 		jsr	r5,(r4)			; get the next
+     20	004426	   003 		.byte	3,'.			; look for a dot
+	004427	   056
+     21	004430	001002 		bne	20$			; no type
+     22	004432	004514 		jsr	r5,(r4)			; get the type
+     23	004434	   003 		.byte	3,-1			; dont skip anything
+	004435	   377
+     24	004436		20$:	pop	r0			; get back the pointer
+     25	004440	000207 		return
+     26				.dsabl	lsb
+     27
+     28			;	Convert ascii to rad50
+     29			;
+     30			;	jsr	r5,bo$pck
+     31			;	.byte	cnt		number to convert - always 3
+     32			;	.byte	ter		terminating character to match
+     33			;
+     34			;	r0 ->	output word - popped
+     35			;	r1 ->	input string
+     36			;	r2:r3	destroyed
+     37			;
+     38			;	z=0	next char does not match
+     39			;	z=1	next char matched and skipped
+     40
+     41				.enabl	lsb
+     42	004442		bo$pck: psh	(r5)+			; get the counter and terminator
+     43	004444	005010 		clr	(r0)			; clear it first
+     44	004446	012703 	10$:	mov	#39.,r3			; multiply by 40.
+		000047
+     45	004452	011002 		mov	(r0),r2			; get the value
+     46	004454	060210 	20$:	add	r2,(r0)			; once
+     47	004456	005303 		dec	r3			; count it
+     48	004460	001375 		bne	20$			; more
+     49
+     50	004462			movr	#b$orad,r3		; get the states list
+     51	004466	112302 	30$:	movb	(r3)+,r2		; get the next offset
+     52	004470	001410 		beq	40$			; forget it
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 22-1
+Filename, rad50
+
+     53	004472	100375 		bpl	30$			; skip range parameters
+     54	004474	121123 		cmpb	(r1),(r3)+		; check the range
+     55	004476	103773 		blo	30$			; its too low
+     56	004500	121123 		cmpb	(r1),(r3)+		; too high
+     57	004502	101371 		bhi	30$			;
+     58	004504	112103 		movb	(r1)+,r3		; accept the character
+     59	004506	060302 		add	r3,r2			; and compute the present value
+     60	004510	060210 		add	r2,(r0)			; add in the new value
+     61	004512	105316 	40$:	decb	(sp)			; got more?
+     62	004514	001354 		bne	10$			; do another sign
+     63	004516	005720 		tst	(r0)+			; pop past the word
+     64	004520	000316 		swab	(sp)			; look at the terminator
+     65	004522	122126 		cmpb	(r1)+,(sp)+		; is this the terminator?
+     66	004524	001401 		beq	50$			; yes - z=1
+     67	004526	005301 		dec	r1			; no - z=0 - backup
+     68	004530	000205 	50$:	rts	r5			;
+     69	004532	   356 	b$orad:	.byte	-22,'0,'9,-100,'A,'Z,-140,'a,'z,-11,'$,'$,0
+	004533	   060
+	004534	   071
+	004535	   300
+	004536	   101
+	004537	   132
+	004540	   240
+	004541	   141
+	004542	   172
+	004543	   367
+	004544	   044
+	004545	   044
+	004546	   000
+     70				.even
+     71				.dsabl	lsb
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 23
+Filename, rad50
+
+      1			;***;	BO$ROT - elegant - generalize to library
+      2			.sbttl	stack rotate, move block
+      3
+      4			;	Rotate the stack
+      5			;
+      6			;	BO$ROT handles stack rotates for EMTs with stack parameters.
+      7			;
+      8			;	r0	unchanged
+      9			;	r1:r2	burnt
+     10			;	r2	returns first of the stack
+     11			;	r3	burnt
+     12			;	r4:r5	unchanged
+     13			;
+     14			;	borot$	cnt lim
+     15			;
+     16			;	jsr	r3,bo$rot
+     17			;	.byte	cnt		number of words to rotate
+     18			;	.byte	lim		usually sp.bbs
+     19			;
+     20			;	stack	ret r0 r1 r2 r3 r4 r5 pc ps p1 p2 p3 bbs
+     21			;	borot$	3 sp.bbs
+     22			;	r2 = p1
+     23			;	stack	p2 p3 ret r0 r1 r2 r3 r4 r5 pc ps bbs
+     24			;
+     25			;	Call pushs r3 on the stack. This is used to rotate the top word.
+     26			;	Thus the offset to SP.BBS is really to the last parameter.
+     27
+     28	004550	112302 	bo$rot:	movb	(r3)+,r2		; r2 is the count
+     29	004552	111301 	10$:	movb	(r3),r1			; point to it
+     30	004554	060601 		add	sp,r1			; sp -> top of stack
+     31	004556	011116 		mov	(r1),(sp)		; rotate to the bottom
+     32	004560	014161 	20$:	mov	-(r1),word(r1)		; move one up
+		000002
+     33	004564	020106 		cmp	r1,sp			; moved them all?
+     34	004566	001374 		bne	20$			; no
+     35	004570	005302 		dec	r2			; got another
+     36	004572	001367 		bne	10$			; yes
+     37	004574	122326 		cmpb	(r3)+,(sp)+		; inc r3 and pop dummy
+     38	004576			pop	r2			; return top word in r2
+     39	004600	000113 		jmp	(r3)			; go back to them
+     40
+     41			;	Move block
+     42			;
+     43			;	jsr	r3,bo$mbl
+     44			;	.word	source
+     45			;	.word	destination
+     46			;	.word	count
+     47			;
+     48			;	r0	source
+     49			;	r1	destination
+     50			;	r2	count
+     51
+     52	004602	012300 	bo$mbl:	mov	(r3)+,r0		;move block source
+     53	004604	012301 		mov	(r3)+,r1		;destination
+     54	004606	012302 	bo$m01:	mov	(r3)+,r2		;count
+     55	004610	012021 	10$:	mov	(r0)+,(r1)+		;move one
+     56	004612	102403 		bvs	20$			;memory error during startup
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 23-1
+Stack rotate, move block
+
+     57	004614			sobw	r2,10$			;count it
+     58	004620	000203 		rts	r3			;
+     59	004622		20$:	bofat$	xbu			;bus error
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 24
+Stack rotate, move block
+
+      1			;???;	BOOT release ident string below
+      2			;???;	BOOT - 1024. byte buffer at end of image
+      3			.sbttl	bootstrap setup data
+      4
+      5	004630		reloc$				; build relocation table.
+      6
+      7			;	RUST information area
+      8
+      9	004630	000050 	b$rfre: brfre. == b$rims-.
+     10	004630		limit$	b$rims			; don't overwrite boot signature area
+     11	004630		asect$	b$rims			;
+     12		004700 	boXspc==b$rims			;	- label for BOOT.R
+     13	004700	   122 		b$oima:	.asciz "RUST.SAV" ;	- Executable ascii name
+	004701	   125
+	004702	   123
+	004703	   124
+	004704	   056
+	004705	   123
+	004706	   101
+	004707	   126
+	004710	   000
+     14	004711	   000 			.byte	0,0,0	;	- See GTLIN
+	004712	   000
+	004713	   000
+     15
+     16			;	RT-11/RUST information area
+     17
+     18	004714		asect$	b$rtmv	0		;retver - RTEM version (rts$id)
+     19	004716		asect$	b$rdvn	0		;b$devn - device name in rad50 with suffix
+     20	004720		asect$	b$rdvs	0		;b$devs - device name without suffix
+     21	004722		asect$	b$rdvu	<.rad50 "bot">	;b$devu - device unit bot=bootable, rte=>rtem
+     22	004724		asect$	b$rfn0	0		;b$fnam - filename 0 (e.g. /RT1/
+     23	004726		asect$	b$rfn1	0		;	- filename 1 (e.g. /1FB/)
+     24	004730		asect$	b$rrea	0		;b$read - read routine start address
+     25	004732		asect$	b$rhto	0		;syhtop - system handler top address (unused)
+     26	004734		asect$	b$rdup	0		;dupflg - copied from @#0 - 0 if from DUP
+     27	004736		asect$	b$rrms	2048.		;$rmsiz - v3/v5 monitor size in bytes
+     28							;	- v3/v5 boot string - 28. bytes maximum
+     29	004740		asect$	b$rnam	<.asciz "BOOT V2.4"> ;  - BOOT ident string
+     30	004752	   015 	b$oprm:	.ascii <cr>"boot> "<200>;	 boot prompt
+	004753	   142
+	004754	   157
+	004755	   157
+	004756	   164
+	004757	   076
+	004760	   040
+	004761	   200
+     31							;	- some free bytes here
+     32	004762		asect$	b$rimg			;	- BOOT image
+     33		004762 	boXimg==b$rimg			;	- label for BOOT.R
+     34				.if ne rxm$c
+     35				b$oimg:	.rad50	/SY RUSTX SAV/ ;-
+     36				.iff
+     37	004762	075250 		b$oimg:	.rad50	/SY RUST  SAV/ ;-
+	004764	071733
+	004766	076400
+	004770	073376
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 24-1
+Bootstrap setup data
+
+     38				.endc
+     39	004772		asect$	b$rrst	<.rad50 "RST">	;	- RUST ident (not standard RT-11)
+     40			;asect	b$rdvs	0		;b$devs - device suffix in rad50
+     41		004774 	boXsuf==b$rsfx			;	  label for BOOT.R
+     42				.if ne rxm$c
+     43			asect$	b$rsfx	<.rad50	"  P">	;suffx	- v5 rad50 handler suffix
+     44				.iff
+     45	004774		asect$	b$rsfx	<.rad50	"  V">	;suffx	- v5 rad50 handler suffix
+     46				.endc
+     47	004776		asect$	b$rsyg	;sgmmu$		;syop	- v5 sysgen options (probably v4 too)
+     48							;	- v3 swap file size (zero)
+     49
+     50			;	This area follows the 1024. word boot in memory.
+     51			;	It is constructed by the RT-11/RUST/V11 boot loaders.
+     52			;	The area is absent when hard booting (except under V11)
+     53
+     54	004776		asect$	b$rhot	0		;btime  - time booted (if from DUP)
+     55	005002		asect$	b$rlot	0		;	- low order time
+     56	005004		asect$	b$rdat	0		;bdate  - date booted
+     57	005006	021021 		.rad50	/ERA/		;	- extended date signature
+     58	005010		asect$	b$rera	0		;	- extended date
+     59
+     60	005012		b$otop:				; end of boot area
+     61
+     62			.if eq stk$c
+     63				.if ne stk$c
+     64				c$ustk = .+2000
+     65				.iff
+     66	005012			.blkb	2000		; cusp stack
+     67	007012		c$ustk:
+     68				.endc
+     69			.endc
+     70
+     71		000001 	.end
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 24-2
+Symbol table
+
+AUT$C = 000001   	BO$FPU  004026   	BRRBS.  000014
+BELL    000007   	BO$GET  004354   	BRSBN.  000002
+BITS  = 177777   	BO$GJB  003076   	BRSWC.  002000
+BIT0$ = 000001   	BO$GLN  002572   	BRV3N$  012700
+BIT1$ = 000002   	BO$GTM  003044   	BRV4B$  000416
+BIT10$= 002000   	BO$GVL  003056   	BRV4N$  004067
+BIT11$= 004000   	BO$LOA  002012   	BRV5B$  000415
+BIT12$= 010000   	BO$LOJ  003440   	BR$BEG  000002
+BIT13$= 020000   	BO$LOO  003202   	BR$BPT  000014
+BIT14$= 040000   	BO$MBL  004602   	BR$IOE  000664
+BIT15$= 100000   	BO$MFP  001346   	BR$REP  000672
+BIT2$ = 000004   	BO$MMU  003754   	BR$SEC  001000
+BIT3$ = 000010   	BO$MTP  001400   	BR$SJA  000040
+BIT4$ = 000020   	BO$M01  004606   	BR$SRA  000120
+BIT5$ = 000040   	BO$NEW  002522   	BR.EBO  000004
+BIT6$ = 000100   	BO$NUM  004114   	BR.EBS  000006
+BIT7$ = 000200   	BO$ONC  001554   	BR.ECK  000003
+BIT8$ = 000400   	BO$OVL  003420   	BR.ECT  000001
+BIT9$ = 001000   	BO$OVX  002372   	BR.EDT  000005
+BOMF0.= 000240   	BO$PCK  004442   	BR.EFT  000002
+BOMF1.= 106766   	BO$PRI  002500   	BR.EPT  000000
+BOMTP.= 000000   	BO$PUT  004262   	BS      000010
+BOSYU.= 000126   	BO$QST  003154   	BYTE  = 000001
+BOXBU.= 000024   	BO$REA  003442   	B$OBUF= 001000
+BOXCFG  001300 G 	BO$REC  003514   	B$OCHN  001776
+BOXCP.= 000030   	BO$RED  003522   	B$OCLF  002154
+BOXDF.= 000040   	BO$RES  001330   	B$OCLT  002155
+BOXFN.= 000062   	BO$ROT  004550   	B$OCTC  001674
+BOXIC.= 000052   	BO$RSJ  004110   	B$OEMD= 002476
+BOXIMG= 004762 G 	BO$RST  001616   	B$OEMT  002400
+BOXIO.= 000034   	BO$RT2  003402   	B$OERR  004173
+BOXSEC  001000 G 	BO$RUN  002002   	B$OIMA  004700
+BOXSPC= 004700 G 	BO$SAV  001314   	B$OIMG  004762
+BOXSUF= 004774 G 	BO$SDT  003020   	B$OIMM  004203
+BO$BUS  003754   	BO$SEC  001000 G 	B$OLFD  001644
+BO$CAT  001374   	BO$STO  002764   	B$OLIN= 175656
+BO$CHJ  003176   	BO$SWP  003726   	B$OLNX= 175777
+BO$CHK  004306   	BO$TRP  003012   	B$OLOC= 004630
+BO$CHN  001762   	BO$TTI  002536   	B$OLOW= 175400
+BO$CLK  004006   	BO$TTO  002532   	B$OMFP  001350
+BO$COM  001704   	BO$VEC  001434   	B$OMPT  001422
+BO$CPU  003752   	BO$VEZ  001432   	B$OMSG  004160
+BO$CR3  003120   	BO$WAI  003010   	B$OPEV= 001526
+BO$CSI  002572   	BO$XDF  003412   	B$OPNM  001414
+BO$CST  002734   	BO$XDI  003404   	B$OPRM  004752
+BO$DAT  003004   	BRCCB$  000004   	B$OQUI  001366 G
+BO$DST  003124   	BRCCM$  000040   	B$ORAD  004532
+BO$EMF  002350   	BRCGE$  000100   	B$OREL  001146
+BO$EMQ  002354   	BRCQB$  000002   	B$ORUN  001367 G
+BO$EMR  002346   	BRCQM$  000020   	B$OSEC  001000
+BO$EMS  002356   	BRCUB$  000001   	B$OSEG= 176000
+BO$EMT  002160   	BRCUM$  000010   	B$OSNM  001416
+BO$EXI  001616   	BRFRE.= 000050 G 	B$OSTK= 175616
+BO$EXJ  003172   	BRFRT.  000020   	B$OSWP= 000000
+BO$FAT  004030   	BRIOE$  004167   	B$OSYU= 001275
+BO$FET  003154   	BRNBS.  000034   	B$OTCF  002156
+BO$FIL  004402   	BRP11.  000020   	B$OTIR  002144
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 24-3
+Symbol table
+
+B$OTLO  002006   	CH.LEN  000004   	CPSC$P  000360
+B$OTOP  005012   	CH.PRO  000001   	CPSMH.  000003
+B$OTRP  003764   	CH.SBL  000002   	CPT11.  000004
+B$OTRR  002134   	CH.UNI  000011   	CPUNK.  000000
+B$OTWC  002152   	CH.USE  000006   	CPV11.  000001
+B$OUSR= 003534   	CLCCL$  000004   	CPX73.  000060
+B$OVEC  001516   	CLCCL.  000002   	CR      000015
+B$OXBU  004204   	CLCT$N  177774   	CSACT$  100000
+B$OXCP  004210   	CLDCL$  000002   	CSEOF$  020000
+B$OXDF  004220   	CLDCL.  000001   	CSHER$  000001
+B$OXFN  004242   	CLKMN$  000200   	CSI     000233
+B$OXIC  004232   	CLK$C = 000000   	CSIN$M  177701
+B$OXIO  004214   	CLUCF$  000001   	CSIN$N  177701
+B$O374  002432   	CLUCF.  000000   	CSIN$P  000076
+B$O375  002444   	CLUCL$  000010   	CSNPH$  002000
+B$PSTK  001620   	CLUCL.  000003   	CSNPU$  010000
+B$RBOT  000062   	CL.FLG  000000   	CSNRE$  000400
+B$RDAT  005004   	CL.TYP  000001   	CSNWR$  001000
+B$RDUF  000000   	CNBAT$  000010   	CSP$C = 000000
+B$RDUP  004734   	CNBUS$  000100   	CSRW$M  176377
+B$RDVN  004716   	CNCAC$  000001   	CSRW$P  001400
+B$RDVS  004720   	CNCIS$  000200   	CSSPL$  004000
+B$RDVU  004722   	CNCLO$  100000   	CSSUB$  040000
+B$REND  005006   	CNEIS$  000400   	CSTEN$  000200
+B$RENX  005012   	CNFBM$  000001   	CSTTI$  000000
+B$RERA  005010   	CNFGJ$  000200   	CSWLK$  000100
+B$RERS  005006   	CNFPU$  000100   	CSWRI$  040000
+B$RFN0  004724   	CNGCC$  010000   	CTC$C = 000001
+B$RFN1  004726   	CNGTL$  000400   	CTRLA   000001
+B$RFRE  004630   	CNKMS$  000040   	CTRLB   000002
+B$RHOT  005000   	CNKWC$  040000   	CTRLC   000003
+B$RHTO  004732   	CNLDS$  000020   	CTRLD   000004
+B$RIMG  004762   	CNLKS$  020000   	CTRLE   000005
+B$RIMS  004700   	CNMPY$  000002   	CTRLF   000006
+B$RKSP  010000   	CNPRO$  020000   	CTRLH   000010
+B$RLOT  005002   	CNP03$  004000   	CTRLN   000016
+B$RNAM  004740   	CNP60$  100000   	CTRLO   000017
+B$RREA  004730   	CNP70$  040000   	CTRLP   000020
+B$RRMS  004736   	CNQUE$  002000   	CTRLQ   000021
+B$RRST  004772   	CNSLE$  000020   	CTRLR   000022
+B$RSFX  004774   	CNSLK$  000002   	CTRLS   000023
+B$RSYG  004776   	CNSWR$  000004   	CTRLT   000024
+B$RTMV  004714   	CNSWW$  000010   	CTRLU   000025
+B$RTOP  000664   	CNUSR$  001000   	CTRLW   000027
+B$RV3P  000004   	CNVTS$  000004   	CTRLX   000030
+B$RV4S  000006   	CNV60$  001000   	CTRLY   000031
+CBIT    000001   	CNXMM$  010000   	CTRLZ   000032
+CHEXT.  000001   	CN50H$  000040   	CTR$C = 000000
+CHIMG.  000017   	CPE11.  000002   	C$USTK  007012
+CHIPT.  177776   	CPE44.  000001   	C2BUS$  000100
+CHKER.  177775   	CPF00.  000002   	C2CAC$  000001
+CHMAX.  000374   	CPF11.  000003   	C2CIS$  000200
+CHMIN.  000001   	CPJ11.  000005   	C2DBG$  002000
+CHOPT.  177777   	CPJ53.  000100   	C2EIS$  000400
+CH.BBS  000012   	CPJ73.  000020   	C2GCC$  010000
+CH.CSW  000000   	CPJ83.  000040   	C2KMS$  000040
+CH.IOC  000010   	CPNON.  000000   	C2KXJ$  004000
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 24-4
+Symbol table
+
+C2LDS$  000020   	DE.ENT  000004   	EMHRS.  000357
+C2MPY$  000002   	DE.FNM  000022   	EMINF.  000044
+C2PRO$  020000   	DE.HAN  000046   	EMLCK.  000346
+C2P60$  100000   	DE.HSZ  000002   	EMLOO.  000001
+C2P70$  040000   	DE.IND  000044   	EMMKT.  000022
+C2SWR$  000004   	DE.IOC  000052   	EMMTT.  000037
+C2SWW$  000010   	DE.PRI  000040   	EMMWT.  000011
+C2V60$  001000   	DE.QUE  000042   	EMPEE$  016001
+C3ACT$  000040   	DE.SFR  000074   	EMPLA.  000036
+C3ATT$  001000   	DE.STA  000000   	EMPOK$  016003
+C3DMA$  000200   	DE.SYG  000010   	EMPRI.  000351
+C3NIN$  000020   	DE.TYP  000012   	EMPRO.  000031
+C3OWN$  002000   	DE.UNM  000054   	EMPUR.  000003
+C3RES$  000100   	DE.VEC  000034   	EMPVL$  016002
+C364U$  000400   	DE.VE2  000036   	EMQST.  000353
+DEABO$  000100   	DE16B$  000001   	EMRCD.  000026
+DEABT$  002000   	DE18B$  000002   	EMRCO.  000355
+DECAC$  010000   	DE22B$  000004   	EMREA.  000010
+DEDMA$  000001   	DE64U$  000400   	EMREN.  000004
+DEDMI$  001000   	DSCOD$  000377   	EMREO.  000006
+DEDMX$  000004   	DSFUN$  002000   	EMRSM.  000002
+DEEXT$  000400   	DSGAB$  001000   	EMRSX.  000377
+DEFUN$  002000   	DSHAB$  004000   	EMSAV.  000005
+DEGAB$  001000   	DSRON$  040000   	EMSCC.  000035
+DEHAB$  004000   	DSRTA$  100000   	EMSDA.  000025
+DELOG$  000040   	DSSPC$  010000   	EMSDT$  020000
+DEMAP$  000020   	DSVAR$  000400   	EMSDT.  000040
+DEMNT$  004000   	DSWON$  020000   	EMSER.  000004
+DENLI.  000006   	EMABI.  000013   	EMSFD.  000042
+DEPRC$  000200   	EMASX.  000356   	EMSFP.  000030
+DEP6H$  040000   	EMCDF.  000015   	EMSOF.  000360
+DEREM$  000002   	EMCHA.  000010   	EMSPD.  000001
+DERON$  040000   	EMCHC.  000013   	EMSPF.  000032
+DERTA$  100000   	EMCLO.  000006   	EMSPP.  000041
+DESER$  020000   	EMCLZ.  000045   	EMSRS.  000352
+DESIN$  000100   	EMCMK.  000003   	EMSTP.  000354
+DESPC$  010000   	EMCMP.  000046   	EMSTX$  020002
+DESPF$  100000   	EMCMT.  000023   	EMSYS.  000373
+DESPO$  000020   	EMCSG.  000344   	EMTLK.  000007
+DESYI.  000002   	EMCSS.  000345   	EMTRP.  000003
+DESYN$  000010   	EMCST.  000027   	EMTSX.  000101
+DETIM$  000040   	EMCTX.  000033   	EMTTI.  000340
+DETTI.  000000   	EMDAT.  000012   	EMTTO.  000341
+DEUNL$  000200   	EMDEL.  000000   	EMTWT.  000024
+DEVAB$  000010   	EMDEV.  000014   	EMULK.  000347
+DEVAR$  000400   	EMDST.  000342   	EMWAI.  000000
+DEVMI.  000004   	EMENT.  000002   	EMWRI.  000011
+DEV2H$  040000   	EMEXI.  000350   	EM.CHN  000000
+DEWON$  020000   	EMFET.  000343   	EM.P0   000002
+DE.ACC  000050   	EMFPR.  000043   	EM.SUB  000001
+DE.ACT  000017   	EMGJB.  000020   	EM74H.  000013
+DE.ASP  000016   	EMGTM.  000021   	EM75H.  000045
+DE.BBS  000076   	EMGTX$  020001   	EPLOW$  000200
+DE.CON  000014   	EMGVL$  016000   	EPR5L$  000040
+DE.CSR  000032   	EMGVL.  000034   	EPSGN$  000100
+DE.DEV  000020   	EMHAR.  000376   	EP.BAS  000004
+DE.DSZ  000006   	EMHER.  000005   	EP.BBS  000010
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 24-5
+Symbol table
+
+EP.FIL  000002   	ERSP1.  000354   	H$WPKS  177540
+EP.FLG  000000   	ERSP2.  000353   	H$WPRQ  177772
+EP.LST  000001   	ERSP3.  000352   	H$WPSW  177776
+EP.OUT  000006   	ERSP4.  000351   	H$WSID  177764
+ERACM.  000377   	ERSST.  000357   	H$WSLM  177774
+ERACP.  000327   	ERSTA.  000340   	H$WSWR  177570
+ERACR.  000325   	ERSTB.  000316   	H$WTKB  177562
+ERADR.  000371   	ERTER.  000323   	H$WTKS  177560
+ERATS.  000322   	ERTRP.  000330   	H$WTPB  177566
+ERBPT.  000332   	ERUNL.  000363   	H$WTPS  177564
+ERBUG.  000335   	ERUNS.  000326   	H$WUSZ  177762
+ERBUS.  000366   	ERUNV.  000334   	H50$C = 000001
+ERCHN.  000370   	ERUSP.  000337   	IE      000100
+ERCLI.  000343   	ERUSR.  000377   	IMACT$  000100
+ERCOM.  000350   	ERVEC.  000337   	IMCCL$  001000
+ERCPU.  000365   	ESC     000033   	IMCHA$  000002
+ERCRA.  000320   	ESDEF$  000234   	IMCHN.  000017
+ERCRP.  000314   	ESDFN$  000001   	IMCHS$  040000
+ERCSI.  000350   	ESERR$  000004   	IMDCL$  000400
+ERCTT.  000321   	ESFAT$  000010   	IMGET$  000001
+ERDEC.  000002   	ESINF$  000001   	IMNAC$  000200
+ERDEV.  000347   	ESSUC$  000001   	IMOPN$  000004
+ERDIN.  000364   	ESUNC$  000220   	IMREE$  000020
+ERDIO.  000375   	ESWAR$  000002   	IMRES$  000040
+ERDVF.  000345   	FALSE = 000000   	IMSTA$  000010
+EREMT.  000367   	FATAL$= 000010   	IMUCF$  000000
+ERFET.  000374   	FF      000014   	IMUCL$  001400
+ERFIL.  000344   	FNWIL.  132500   	IMVOV$  100000
+ERFPU.  000362   	FN.BBS  000010   	INFO$ = 000001
+ERFUL.  000372   	FN.DEV  000000   	IOAM$M  177770
+ERIKM.  000313   	FN.FIL  000002   	IOAM$P  000007
+ERIMG.  000342   	FN.NAM  000004   	IOCDM.  000004
+ERIOE.  000341   	FN.TYP  000006   	IOCIM.  000000
+ERIOT.  000331   	FN.XBS  000012   	IOCNO.  000002
+ERISM.  000343   	FN.XEC  000004   	IOCR$M  177776
+ERKSP.  000336   	FN.XFL  000000   	IOEOF.  000000
+ERMAX.  000312   	FN.XNM  000002   	IOHER.  000001
+ERMEM.  000361   	FN.XTP  000006   	IOIOC.  000000
+ERMMU.  000360   	FN.XVR  000010   	IOKDM.  000005
+ERNDV.  000376   	HAT     000136   	IOKIM.  000001
+ERNEW.  000000   	HGH$C = 000000   	IOREA$  000100
+EROCT.  000001   	HT      000011   	IOREA.  000010
+EROVL.  000373   	HWCBY$  001000   	IORET.  000001
+EROVR.  000356   	HWCDP$  000001   	IOSDM.  000007
+ERPDE.  000006   	HWLKE$  000100   	IOSIM.  000003
+ERPGJ.  000010   	HWPKE$  000115   	IOSPF$  000040
+ERPNI.  000317   	H$WCCR  177746   	IOSPF.  000032
+ERPOC.  000005   	H$WCPE  177766   	IOSUM$  000001
+ERPOW.  000333   	H$WCPM  177750   	IOUDM.  000006
+ERPRC.  000324   	H$WHMR  177752   	IOUIM.  000002
+ERPRO.  000346   	H$WLKS  177546   	IOUSM$  000002
+ERPR5.  000007   	H$WLSS  177760   	IOWAI.  000000
+ERROR$= 000004   	H$WMPB  177770   	IOWRI$  000200
+ERR5L.  000004   	H$WMR0  177572   	IOWRI.  000011
+ERR50.  000003   	H$WMR1  177574   	IO.AST  000012
+ERSPF.  000315   	H$WMR2  177576   	IO.BLK  000002
+ERSP0.  000355   	H$WPKB  177542   	IO.BUF  000004
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 24-6
+Symbol table
+
+IO.CHN  000000   	JB.HSZ  000052   	JSHLT$  000200
+IO.COD  000001   	JB.IAI  000140   	JSIND$  000040
+IO.COM  000010   	JB.ICD  000144   	JSOVR$  001000
+IO.FBS  000014   	JB.ICI  000134   	JSRST$  020000
+IO.FUN  000011   	JB.IED  000146   	JSTTL$  040000
+IO.MOD  000010   	JB.IFN  000130   	JSTTR$  000100
+IO.TBS  000012   	JB.IIB  000132   	JSTTS$  010000
+IO.WCT  000006   	JB.IIG  000116   	JSUSR$  100000
+I$MDAG  000536 G 	JB.INH  000200   	JSVBG$  000200
+I$MDAT  000540 G 	JB.INM  000124   	JSVIR$  002000
+I$MIDT  000430 G 	JB.INS  000202   	JSW     000044
+I$MNAM  000530 G 	JB.IPS  001004   	J$BAFN  000400
+I$MUSE  000400   	JB.IRG  000114   	J$BAMF  000776
+JBAUN.  100000   	JB.ISD  000122   	J$BAUL  000112
+JBAUT.  177777   	JB.ISI  000120   	J$BAUR  000110
+JBECR$  000200   	JB.ISR  001002   	J$BAUT  000140
+JBEEX$  000377   	JB.IUN  000112   	J$BBDA  000070
+JBEIN$  100000   	JB.IUS  000142   	J$BBLE  000064
+JBETE$  177777   	JB.IUX  000172   	J$BBPT  000062
+JBRTX.  071670   	JB.IVN  000110   	J$BBRD  000066
+JBVIC.  105353   	JB.JSP  001000   	J$BCCT  000510
+JB.AFN  000400   	JB.JSW  000044   	J$BCFN  000500
+JB.AMF  000776   	JB.KWL  000056   	J$BCHA  000500
+JB.AUL  000112   	JB.LEV  000053   	J$BCQE  001010
+JB.AUR  000110   	JB.LOT  000064   	J$BCSR  000176
+JB.AUT  000140   	JB.LQE  001006   	J$BCST  000512
+JB.BDA  000070   	JB.MAP  000360   	J$BCS0  000174
+JB.BLE  000064   	JB.RBL  000062   	J$BCS1  000172
+JB.BPT  000062   	JB.REF  000060   	J$BDST  000056
+JB.BRD  000066   	JB.ROS  000056   	J$BDSW  000046
+JB.CCT  000510   	JB.RRS  000052   	J$BDSZ  000054
+JB.CFN  000500   	JB.RSS  000054   	J$BEFL  000510
+JB.CHA  000500   	JB.RTX  000254   	J$BEIF  000512
+JB.CQE  001010   	JB.SEV  000053   	J$BEOF  000540
+JB.CSR  000176   	JB.SIG  000256   	J$BEPT  001012
+JB.CST  000512   	JB.SYG  000060   	J$BERR  000052
+JB.CS0  000174   	JB.SYS  000054   	J$BEXI  000000
+JB.CS1  000172   	JB.TOP  000050   	J$BHBT  000022
+JB.DST  000056   	JB.TTF  000056   	J$BHCS  000600
+JB.DSW  000046   	JB.TTN  000057   	J$BHDC  000020
+JB.DSZ  000054   	JB.UPC  000040   	J$BHDV  000021
+JB.EFL  000510   	JB.USA  000046   	J$BHFT  000026
+JB.EIF  000512   	JB.USP  000042   	J$BHF0  000022
+JB.EOF  000540   	JB.VC0  000000   	J$BHF1  000024
+JB.EPT  001012   	JB.VC1  000002   	J$BHIC  000072
+JB.ERR  000052   	JB.VEC  001000   	J$BHIT  000070
+JB.EXI  000000   	JB.VIC  000210   	J$BHST  000400
+JB.HBT  000022   	JB.VIE  000300   	J$BHSZ  000052
+JB.HCS  000600   	JB.VIF  000000   	J$BIAI  000140
+JB.HDC  000020   	JB.VOT  000066   	J$BICD  000144
+JB.HDV  000021   	JB.VTO  000002   	J$BICI  000134
+JB.HFT  000026   	JSCHA$  000400   	J$BIED  000146
+JB.HF0  000022   	JSCOM$  004000   	J$BIFN  000130
+JB.HF1  000024   	JSDCC$  004000   	J$BIIB  000132
+JB.HIC  000072   	JSDCX$  000040   	J$BIIG  000116
+JB.HIT  000070   	JSEDI$  000020   	J$BINH  000200
+JB.HST  000400   	JSGTL$  000010   	J$BINM  000124
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 24-7
+Symbol table
+
+J$BINS  000202   	KJPWF.  000000   	MMDRS$  077402
+J$BIPS  001004   	KJRED$  000004   	MMDRW.  000006
+J$BIRG  000114   	KJRQ1$  000020   	MMDUM$  170000
+J$BISD  000122   	KJRW7$  100000   	MMDWA.  000004
+J$BISI  000120   	KJUNI$  001000   	MMDWM.  000005
+J$BISR  001002   	KJYEL$  000010   	MMDWS$  077406
+J$BIUN  000112   	KJ11A.  000001   	MMD4K.  077406
+J$BIUS  000142   	KLDON$  000200   	MMENB$  000001
+J$BIUX  000172   	KLENB$  000100   	MMINC$  000170
+J$BIVN  000110   	KLPRI.  000006   	MMI18.  007600
+J$BJSP  001000   	KLRGS.  000001   	MMI22.  177600
+J$BJSW  000044   	KPDON$  000200   	MMKP0.  000000
+J$BKWL  000056   	KPENB$  000100   	MMKP1.  000200
+J$BLEV  000053   	KPERR$  100000   	MMKP2.  000400
+J$BLOT  000064   	KPEXT.  000006   	MMKP3.  000600
+J$BLQE  001006   	KPFIX$  000040   	MMKP4.  001000
+J$BMAP  000360   	KPLIN$  000105   	MMKP5.  001200
+J$BRBL  000062   	KPLIN.  000004   	MMKP6.  001400
+J$BREF  000060   	KPMOD$  000010   	MMKP7.  001600
+J$BROS  000056   	KPPRI.  000006   	MMMAP$  000002
+J$BRRS  000052   	KPRAT$  000006   	MMMOD$  000140
+J$BRSS  000054   	KPRGS.  000003   	MMNRA$  100000
+J$BRTX  000254   	KPRUN$  000001   	MMPAG$  000016
+J$BSEV  000053   	KPUPD$  000020   	MMPAV.  000015
+J$BSIG  000256   	KP10H.  000002   	MMPA$M  017777
+J$BSYG  000060   	KP100.  000000   	MMPA$N  017777
+J$BSYS  000054   	K$JCCR  177746   	MMPA$P  160000
+J$BTOP  000050   	K$JCPE  177766   	MMPIB.  000010
+J$BTTF  000056   	K$JCPM  177750   	MMPIK.  000040
+J$BTTN  000057   	K$JHMR  177752   	MMPIS.  000200
+J$BUPC  000040   	K$JMER  177744   	MMPIV.  002000
+J$BUSA  000046   	K$JPRQ  177772   	MMPLA$  040000
+J$BUSP  000042   	K$LCSR  177546   	MMPN$N  176000
+J$BVEC  001000   	K$LVEC  000100   	MMPRS$  000001
+J$BVIC  000210   	K$PCNT  172544   	MMPUM$  030000
+J$BVIE  000300   	K$PCSR  172540   	MMP12.  160000
+J$BVIF  000000   	K$PRPT  172542   	MMP18.  001600
+J$BVOT  000066   	K$PVEC  000104   	MMP22.  010000
+J$BVTO  000002   	LF      000012   	MMP61.  120000
+KJADR$  000100   	LONG  = 000004   	MMP62.  100000
+KJBOO.  000002   	LOO$C = 000001   	MMREG$  000003
+KJBOU.  000003   	LOSBL.= 000230   	MMROA$  020000
+KJBO$P  170000   	MADOL.= 001012   	MMSPC$  000020
+KJCBY$  001000   	MAVAL.= 000004   	MMSYS$  000004
+KJCDP$  000001   	MA$YEA= 002021   	MMVIP.  000006
+KJFPA$  000400   	MES$C = 000000   	MMWIP.  000040
+KJHAT$  000010   	MMBIP.  000100   	MM.P0   000000
+KJHLT$  000200   	MMCUM$  140000   	MM.P1   000002
+KJIOT$  000020   	MMDED$  000040   	MM.P2   000004
+KJIR$P  000016   	MMDED.  000040   	MM.P3   000006
+KJIR1.  000002   	MMDEF$  000001   	MM.P4   000010
+KJIR7.  000016   	MMDMO$  000100   	MM.P5   000012
+KJMO$P  000360   	MMDMO.  000100   	MM.P6   000014
+KJNXM$  000040   	MMDNO.  000000   	MM.P7   000016
+KJODT.  000001   	MMDPT$  000007   	MM.SBS  000040
+KJPOK$  000001   	MMDRA.  000001   	MM22B$  000020
+KJPU$P  000006   	MMDRO.  000002   	MM22M$  000010
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 24-8
+Symbol table
+
+MNM$C = 000000   	PR5     000240   	RM.IDV  000426
+M$KDD0  177360   	PR6     000300   	RM.IML  000446
+M$KDP0  177320   	PR7     000340   	RM.INS  000417
+M$KID0  172300   	PS      177776   	RM.INX  000416
+M$KID1  172302   	PSCUM$  140000   	RM.JBS  000455
+M$KID2  172304   	PSDUM$  170000   	RM.JNM  000322
+M$KID3  172306   	PSINV.  000002   	RM.KMN  000450
+M$KID4  172310   	PSKER.  000000   	RM.LMP  000326
+M$KID5  172312   	PSPR$V  000005   	RM.MAX  000314
+M$KID6  172314   	PSPUM$  030000   	RM.MES  000420
+M$KID7  172316   	PSREG$  004000   	RM.MFP  000362
+M$KIP0  172340   	PSSUP.  000001   	RM.MNM  000406
+M$KIP1  172342   	PSUSR.  000003   	RM.MON  000000
+M$KIP2  172344   	PSW     177776   	RM.MPT  000430
+M$KIP3  172346   	PWF$C = 000000   	RM.MSZ  000420
+M$KIP4  172350   	QUAD  = 000010   	RM.MTP  000360
+M$KIP5  172352   	QUI$C = 000000   	RM.NET  000342
+M$KIP6  172354   	QUOTE   000047   	RM.NUL  000444
+M$KIP7  172356   	RMCLF.  177776   	RM.PGD  000452
+M$MPA0  000000   	RMCLT.  177777   	RM.PNP  000404
+M$MPA1  020000   	RMFRE.= 000016 G 	RM.P1X  000432
+M$MPA2  040000   	RMNET.  177776   	RM.QCO  000270
+M$MPA3  060000   	RMRSZ.  177776   	RM.QHK  000456
+M$MPA4  100000   	RMTCF.  177776   	RM.RTS  000464
+M$MPA5  120000   	RMXMP.  000004   	RM.RUN  000367
+M$MPA6  140000   	RM.     000446   	RM.SCH  000244
+M$MPA7  160000   	RM.BBS  000456   	RM.SCR  000302
+M$MSR0  177572   	RM.BLK  000256   	RM.SL2  000502
+M$MSR1  177574   	RM.CAL  000434   	RM.SPS  000504
+M$MSR2  177576   	RM.CFG  000300   	RM.SPU  000272
+M$MSR3  172516   	RM.CFS  000366   	RM.SUF  000412
+M$SDD0  177260   	RM.CF2  000370   	RM.SUP  000277
+M$SDP0  177220   	RM.CF3  000466   	RM.SYG  000372
+M$SID0  172200   	RM.CHK  000260   	RM.SYI  000364
+M$SIP0  172240   	RM.CLG  000422   	RM.SYN  000324
+M$UDD0  177620   	RM.CPU  000377   	RM.SYU  000274
+M$UDP0  177660   	RM.CSW  000004   	RM.SYV  000276
+M$UID0  177600   	RM.CXT  000320   	RM.TCF  000424
+M$UID1  177602   	RM.DAT  000262   	RM.THP  000472
+M$UID2  177604   	RM.DEC  000474   	RM.TIM  000320
+M$UID3  177606   	RM.DFL  000264   	RM.TKB  000306
+M$UID4  177610   	RM.DRP  000350   	RM.TKS  000304
+M$UID5  177612   	RM.DWT  000440   	RM.TPB  000312
+M$UID6  177614   	RM.EDT  000452   	RM.TPL  000434
+M$UID7  177616   	RM.EMR  000400   	RM.TPS  000310
+M$UIP0  177640   	RM.EMU  000503   	RM.TRS  000442
+M$UIP1  177642   	RM.ERA  000414   	RM.UCF  000342
+M$UIP2  177644   	RM.ERC  000356   	RM.USA  000374
+M$UIP3  177646   	RM.ERL  000376   	RM.USL  000352
+M$UIP4  177650   	RM.E16  000316   	RM.USR  000266
+M$UIP5  177652   	RM.FOR  000453   	RM.V54  000456
+M$UIP6  177654   	RM.FRK  000402   	RM.V55  000506
+M$UIP7  177656   	RM.F00  000455   	RM.WLD  000454
+NBIT    000010   	RM.GTV  000354   	RM.XNR  000470
+NULL  = 000000   	RM.GVC  000436   	RM.XOF  000462
+PR0     000000   	RM.HUB  000460   	RM.XPB  000500
+PR4     000200   	RM.IDT  000366   	RM.XPS  000476
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 24-9
+Symbol table
+
+RST$C = 000000   	R$MMFP  001362   	SS3     000217
+RTAG$P  140000   	R$MMNM  001406   	STK$C = 000000
+RTARC$  000100   	R$MMON= 001000   	SUCCS$= 000001
+RTBIC.  000001   	R$MMPT  001430   	SUCC$ = 000001
+RTBIS.  000002   	R$MMTP  001360   	SUF$C = 000000
+RTBLU$  000001   	R$MPNP  001404   	TBIT    000020
+RTCUS$  000010   	R$MSCR  001302   	TCACA$  000200
+RTDT$P  037777   	R$MSUF  001412   	TCACC$  100000
+RTEMP$  001000   	R$MSUP  001277   	TCAHU$  000100
+RTEND$  004000   	R$MSYG  001372   	TCAIN$  040000
+RTEXT$  000200   	R$MSYI  001364   	TCAOU$  020000
+RTEX$M  177774   	R$MSYU  001274   	TC.ASW  000000
+RTFIX$  010000   	R$MSYV  001276   	TC.BBS  000010
+RTGET.  000000   	R$MTCF  001424   	TC.CF0  000000
+RTGRN$  000002   	R$MTKB  001306   	TC.CF1  000002
+RTHGH$  020000   	R$MTKS  001304   	TC.CF2  000004
+RTIV$P  070377   	R$MTPB  001312   	TC.CF3  000006
+RTMOV.  000003   	R$MTPS  001310   	TC.CNT  000005
+RTPDL$  100000   	R$PCSW  003112   	TC.FIL  000004
+RTPER$  002000   	SEC$C = 000001   	TC.WID  000006
+RTPRE$  000020   	SEG$C = 000000   	TC0FB$  000010
+RTPRO$  100000   	SEMI    000073   	TC0FF$  000004
+RTPRP$  102000   	SGERL$  000001   	TC0LM$  040000
+RTRED$  000004   	SGFPU$  000400   	TC0RM$  000100
+RTRON$  040000   	SGMMG$  000002   	TC0RT$  020000
+RTTEN$  000400   	SGMPT$  001000   	TC0SC$  100000
+RTTI$M  000003   	SGMTT$  020000   	TC0SM$  010000
+RTTXT$  000040   	SGRTM$  000010   	TC0TB$  000001
+RTXTR$  000100   	SGSJB$  040000   	TC0WR$  000002
+RT.BLK  000010   	SGSJT$  002000   	TC0XN$  000200
+RT.CHN  000012   	SGTIM$  000004   	TC1CL$  000003
+RT.CTL  000016   	SGTSX$  100000   	TC1PE$  000010
+RT.DAT  000014   	SPACE   000040   	TC1PO$  000020
+RT.EBS  000016   	SP.BBS= 000030   	TC1RA$  000200
+RT.EXT  000006   	SP.BUF= 000000   	TC1SB$  000004
+RT.FIL  000002   	SP.CMD= 000000   	TC1WA$  100000
+RT.HBS  000012   	SP.COM= 000004   	TC3CC$  040000
+RT.HGH  000004   	SP.ETC= 000002   	TC3CN$  100000
+RT.JOB  000013   	SP.EXT= 000002   	TC3DT$  000020
+RT.LEN  000010   	SP.FLG= 000000   	TC3DZ$  010000
+RT.NAM  000004   	SP.LIN= 000022   	TC3HU$  004000
+RT.NXT  000002   	SP.NUL= 000000   	TC3OE$  000100
+RT.PRO  000022   	SP.OUT= 000004   	TC3ST$  002000
+RT.STA  000000   	SP.PC = 000002   	TC3XN$  000200
+RT.TIM  000012   	SP.PRM= 000000   	TRUE  = 000001
+RT.TOT  000000   	SP.PS = 000004   	UNCON$= 000220
+RT.TYP  000006   	SP.RET= 000000   	UPCTR.= 000043
+RT.UIC  000020   	SP.ROU= 000000   	UPMID.= 000043
+RT.VER  000017   	SP.R0 = 000000   	UPX.  = 000043
+RT.XBS  000024   	SP.R1 = 000002   	UP0   = 001424
+RUBOUT  000177   	SP.R2 = 000000   	UP1   = 001450
+RXM$C = 000000   	SP.R3 = 000006   	UP10  = 001544
+R$MBLK  003244   	SP.R4 = 000010   	UP11  = 001550
+R$MCFG  001300   	SP.R5 = 000012   	UP12  = 001620
+R$MCF2  001370   	SP.SAV= 000000   	UP13  = 001664
+R$MCSW= 001004   	SP.STR= 000022   	UP14  = 001706
+R$MMES  001420   	SP.WCT= 000002   	UP15  = 001712
+Boot - RUST bootstrap manager	MACRO V05.06  Thursday 23-Jun-22 05:58  Page 24-10
+Symbol table
+
+UP16  = 001736   	VARY  = 000000   	VE.BBS  000004
+UP17  = 002010   	VBIT    000002   	VE.PC   000000
+UP2   = 001456   	VEADR.  000010   	VE.PS   000002
+UP20  = 002020   	VEBPT.  000003   	VT      000013
+UP21  = 002072   	VEBUG.  000017   	V$EBPT  000014
+UP22  = 002210   	VEBUS.  000001   	V$EBUS  000004
+UP23  = 002316   	VECPU.  000002   	V$ECLK  000100
+UP24  = 002540   	VEEMT.  000006   	V$ECLP  000104
+UP25  = 002664   	VEFAT$  040000   	V$ECPU  000010
+UP26  = 002672   	VEFPU.  000012   	V$EEMT  000030
+UP27  = 003112   	VEIOT.  000004   	V$EFPU  000244
+UP3   = 001520   	VEKSP.  000015   	V$EIOT  000020
+UP30  = 003232   	VEMAX.  000020   	V$EKBD  000060
+UP31  = 003520   	VEMEM.  000011   	V$EMAX  000600
+UP32  = 003534   	VEMMU.  000013   	V$EMEM  000114
+UP33  = 003634   	VENOP.  000000   	V$EMMU  000250
+UP34  = 003732   	VEPOW.  000005   	V$EPOW  000024
+UP35  = 004032   	VEPRC$  020000   	V$ETER  000064
+UP36  = 004036   	VESST$  010000   	V$ETRP  000034
+UP37  = 004070   	VESYS$  004000   	WARN$ = 000002
+UP4   = 001524   	VETRN$  001000   	WORD  = 000002
+UP40  = 004104   	VETRP.  000007   	WRI$C = 000000
+UP41  = 004412   	VEUNV.  000016   	XDP$C = 000000
+UP42  = 004464   	VEUSE$  100000   	ZBIT    000004
+UP5   = 001530   	VEUSP.  000014   	$     = 001002
+UP6   = 001534   	VEWEA$  002000   	...V1 = 000003
+UP7   = 001540
+
+. ABS.	007012    000	(RW,I,GBL,ABS,OVR)
+      	000000    001	(RW,I,LCL,REL,CON)
+Errors detected:  0
+
+*** Assembler statistics
+
+
+Work  file  reads: 163
+Work  file writes: 181
+Size of work file: 24656 Words  ( 97 Pages)
+Size of core pool: 11776 Words  ( 46 Pages)
+Operating  system: RT-11
+
+Elapsed time: 00:00:02.13
+CUB:BOOTM,CUB:BOOTM=CUS:BOOT.R
+                                                      

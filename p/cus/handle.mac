@@ -1,0 +1,1094 @@
+.title	handler
+.include "lib:share.mac"
+$brdef		;boots
+$drdef		;driver
+$hadef		;handlers
+
+;	SHOW and SET handler
+;
+;	handle	filespec		! show handler
+;
+;	%build
+;	macro/obj:cub:handle lib:jobmac/lib+lib:prefac+cus:handle
+;	link/exe:cub:handle lib:output,cub:handle
+;	%end
+;
+$imgdef	HANDLE 4 6
+$imginf	fun=sav cre=hammo aut=ijh use=<Analyses RT-11 and RUST drivers>
+$imgham	yrs=<1982,1983,1984,1985,1986,1987,1989> oth=HANDLER
+;	%date
+$imgdat	<26-Nov-2005 19:10:32.03>
+;imgdat	<23-Aug-1989 12:57:31.32>
+;	%edit
+$imgedt	<65   >
+;imgedt	<30   >
+;
+start:	mov	sp,r1		;save this
+	clr	ifile
+	.csispc	#files,#types,#0,#line
+	mov	r1,sp		;restore the stack
+	tstb	line		;got anything?
+	bne	20$
+10$:	.print	#i$midt
+	br	start
+20$:	tst	ifile+2		;do we have a filename
+	bne	25$		;yes
+	mov	ifile,ifile+2	;use device as handler name
+	mov	#<^rsy>,ifile	;and assume system disk
+25$:	tst	ifile		;got a device?
+	beq	start		;no - ignore it
+	.dstat	#dstat,#ifile	;get the status
+	$error	<Invalid device>
+30$:	tst	dstat+4		;is it loaded?
+	bne	40$		;fine
+	.fetch	free,#ifile	;
+	bcc	35$		;
+	$fatal	<Invalid device>
+35$:	mov	r0,free
+40$:	.purge	#3
+	.lookup	#area, #3, #ifile, #0
+	bcc	50$		;fine
+	$fatal	<File not found>
+
+;	Determine handler size	
+
+50$:	mov	#512.,r1	;for screwy devices
+	tst	r0		;got any size?
+	beq	80$		;no - try a block
+	swab	r0		;get words
+	bne	80$		;ridiculous
+	asl	r0		;
+	add	#buff,r0	;try for a top address
+	.settop	r0		;
+	sub	#buff,r0	;get what we got
+	clc			;
+	ror	r0		;get words
+	mov	r0,r1		;we have as much as we can get
+
+;	Read handler
+
+80$:	mov	r1,hantop	;save the top
+	add	#handler,hantop	;
+	.readw	#area,#3,#handler,r1,#0 ;read the handler
+	$error	<Input error>
+	call	getdev		;decode the device name
+	$print
+	br	hangen		;do the general stuff
+.sbttl	general
+
+;	General
+;
+;	Handler name	
+;	Sysgen options
+;	Image options
+;	Device status
+
+hangen:	$type	<Driver name	>
+	$file	#ifile
+	call	hanpur
+	$print
+
+	$type	<Sysgen options	>
+	tst	$sysgen
+	bne	85$
+	$type	none
+	br	90$
+85$:	$bits	stask$	$sysgen
+	$bits	mtty$	$sysgen
+	$bits	timer$	$sysgen
+	$bits	mpty$	$sysgen
+	$bits	fpu11$	$sysgen
+	$bits	rtem$	$sysgen
+	$bits	tim$it	$sysgen
+	$bits	mmg$t	$sysgen
+	$bits	erl$g	$sysgen
+	cmp	$22bit,#^r22b	;is this 22-bit
+	bne	90$		;no
+	$type	<(22-bit) >
+90$:	$print
+
+100$:	$type	<Device status	>
+	$bits	filst$	$status
+	$bits	ronly$	$status
+	$bits	wonly$	$status
+	$bits	specl$	$status
+	$bits	hndlr$	$status
+	$bits	spfun$	$status
+	$bits	abtio$	$status
+	$bits	varsz$	$status
+	$print
+	br	s$code
+.sbttl	more
+
+;	Device code
+;	Device size
+;	Device CSR	Pro= PDP=
+
+s$code:
+	$type	<Device code	>	;device code
+	clr	r1			;isolate the code
+	bisb	$status,r1		;
+	call	$octal			;display it
+	$print				;
+					;
+	$type	<Device size	>	;device block size
+	$decimal $dvsiz			;
+	$print				;
+					;
+	$type	<Device CSR	>	;device CSRs
+	mov	#$csr,r5		;point to the CSRs
+					;
+	tst	(r5)			;got a CSR?
+	bne	50$			;yes - this is the usual
+	bit	#drv2q$,$cqe		;this LS: with two CSRs?
+	beq	50$			;no
+	$type	<pdp=>			;
+	$octal	-(r5)			;pdp-11 csr
+	$type	< pro=>			;
+	$octal	-(r5)			;pro csr
+	br	100$			;and quit
+					;
+50$:	$octal	(r5)			;display the CSR
+	tst	(r5)			;got one?
+	beq	100$			;no
+	cmp	(r5),-(r5)		;got one to display as well?
+	bne	100$			;no
+55$:	mov	#6.,r4			;maximum of 6
+60$:	tst	-(r5)			;got any more?
+	beq	100$			;no
+	$type	<	>		;
+	$octal	(r5)			;yes
+	dec	r4			;any more?
+	bne	60$			;yes
+	tst	-2(r5)			;any more coming?
+	beq	100$			;no
+	$print				;
+	br	55$			;
+100$:	$print				;
+	br	s.vector		;
+.sbttl	vectors
+
+;	Device vector
+;
+;	Device vector	vector, pc=+nnn, ps=nnn
+;	Device vectors	
+;	Device vector	PDP
+;	Vector CTI slot	
+dw$id=401
+dz$id=2004
+
+s.vector:
+	mov	#$vector,r2		;point to the table
+	mov	(r2)+,r3		;get the first
+	bmi	40$			;its a table
+
+;	Single vector
+
+	$type	<Device vector 	>	;
+	$octal	$vector			;display vector
+	$type	<, pc=+>		;
+	mov	r2,r1			;offset
+	add	(r2)+,r1		;
+	sub	#$driver,r1		;
+	$octal	r1
+	$type	<, ps=>
+	$octal	(r2)+
+	$print
+	br	60$
+
+;	Vector table
+
+40$:	asl	r3			;read sysmac.sml
+	add	r2,r3			;point to the table
+	tst	(r3)			;is this a slot based table?
+	bpl	50$			;no
+
+;	CTI slot
+;
+;	r3 ->	table
+;	r4 =	first vector
+;	r5	vector value
+
+	clr	r4			;no vector
+	tst	(r3)+			;skip the indicator
+	$type  <Vector CTI slot	> 	;yes - display the slot number
+	$octal	(r3)			;display the slot number
+	cmp	(r3),#dw$id		;this a DW?
+	bne	42$			;no
+	$type	< (dw)>
+	br	46$			;
+42$:	cmp	(r3),#2004		;this a DZ?
+	bne	46$
+	$type	< (dz)>
+46$:	tst	(r3)+			;
+	$print				;
+	mov	(r3)+,r5		;get the first offset
+	bmi	60$			;are none
+	br	52$			;do the first - possibly zero
+
+;	Vector table
+
+50$:	mov	(r3),r4			;first vector
+51$:	mov	(r3)+,r5		;get the next
+	ble	55$			;oops - no more
+52$:	$type  <Device vectors	>	;
+53$:	$octal	r5			;
+	mov	r3,r5			;remember isr
+	add	(r3)+,r5		;add in relocation
+	sub	#$driver,r5		;and base it
+	type	<, pc=+>
+	$octal	r5
+	type	<, ps=>
+	$octal	(r3)+			;priority
+	$print
+	mov	(r3)+,r5		;got any more?
+	ble	55$			;no
+	$type	<		>	;yes
+	br	53$			;do another
+
+;	Check for two vector tables	
+
+55$:	beq	60$			;not v5.4
+	cmp	r4,#470			;this the special case?
+	bne	60$			;no
+	br	50$			;yes - r3 points to next set
+					;
+60$:	br	checks			;
+.sbttl	checks
+
+;	Handler size
+;	Bootstrap size
+;	System calls
+;	Handler calls
+;	SHAREplus
+
+checks:
+	call	imgopt		;
+	$type	<Driver size 	>
+	mov	$hsize,r5	;bytes/words
+	call	sizes
+	tst	$bptr		;got a bootstrap?
+	beq	50$		;nopr
+	$type	<Bootstrap 	start=>
+	$octal	$bptr		
+	$type	<, end=>
+	mov	$bptr,r5
+	add	$blen,r5
+	$octal	r5
+	$print
+	call	bootyp		;get v5 stuff
+50$:
+
+;	System calls
+;
+;	Abort routine
+
+60$:	mov	#-1,useflg	;
+	mov	$isr,r0		;get the isr offset
+	bne	70$		;has an ISR
+	call	usehea		;
+	$type	<no ISR>
+	br	80$		;
+70$:	add	#$isr,r0	;point to primary interrupt
+	cmp	-(r0),#return	;is this a simple return?
+	beq	80$		;yes
+	call	usehea		;
+	$type	<abort>		;
+80$:	cmp	handler+40,#1	;got a start address?
+	blos	90$		;no
+	call	usehea		;
+	$type	<program>
+90$:	call	synetc		;check for .synch
+	tst	$incheck
+	beq	95$		;no install check
+	call	usehea
+	$type	<install check>
+95$:	tst	useflg		;
+	bmi	100$		;none
+	$print
+
+;	SHAREplus
+;	Handler calls
+
+100$:	call	shpuse		;
+	call	serchk
+	br	set$
+.sbttl	set
+
+;	SET options
+;
+;	set modifies
+;	set items
+
+se.dec=100
+se.no=200
+se.oct=040
+set$:
+	tst	$sets		;got set routines?
+	beq	100$		;no
+	call	setuse		;yes - check modifies
+
+5$:	mov	#$sets,r5	;point to them
+	$type	<SET items	SET >
+	br	11$		;do the first
+10$:	tst	(r5)		;any more?
+	beq	100$		;nope
+	type	<		SET >		;
+11$:	$rad50	devnam		;
+	type	< >		;a space
+	bitb	#se.no,7(r5)	;NO?
+	beq	20$		;nope
+	type	<[NO]>		;yes, NO
+20$:	$rad50	2(r5)		;
+	$rad50	4(r5)		;the option
+	bitb	#se.oct,7(r5)	;octal value?
+	beq	30$		;nope
+	type	<=octal-value>	;
+	br	40$
+30$:	bitb	#se.dec,7(r5)	;decimal value?
+	beq	40$		;nope
+	type	<=decimal-value>
+40$:	call	nowrit		;check nowrite options
+	$print
+	add	#10,r5		;skip it
+	br	10$
+100$:	jmp	start
+.sbttl	nowrite
+
+;	Nowrite - check RT-11 /NOWRITE for unit zero and unit 1
+;
+;	dy	2 or 4
+;	dw	2
+;
+;	ha.beg	br	.+?
+;	.byte	0/1,0/1,0/1,0/1	;etc.
+
+nowrit:	cmp	2(r5),#^rwri	;this WRIte?
+	bne	60$		;no
+	cmp	4(r5),#^rte	;this wriTE?
+	bne	60$		;no
+	type	< >		;
+	mov	#$begin,r2	;get the start of it
+	mov	(r2)+,r0	;get the branch
+	clrb	r0		;clear out offset
+	cmp	r0,#br		;this branch instruction?
+	bne	60$		;no 
+	clr	r3		;unit number
+	clr	-(sp)		;remember header
+	mov	#4.,r4		;maximum four units
+10$:	cmpb	(r2)+,#1	;is this too high for us?
+	bhi	40$		;yes - forget the rest
+	bne	30$		;noset nowrite
+	tst	(sp)		;this the first?
+	bne	15$		;no
+	inc	(sp)		;yes
+	$type	< Nowrite = >	;
+	br	20$
+15$:	$type	<,>
+20$:	$rad50	devnam		;
+	$octal	r3		;
+	type	<:>		;
+30$:	inc	r3		;next unit number
+	cmp	r3,#4		;this too many?
+	blo	10$		;no - do more
+40$:	tst	(sp)+		;
+60$:	return
+.sbttl	handler purpose
+
+;	Handler purpose
+
+hanpur:	mov	#codes,r5
+	tstb	$status		;this supposed to be an rk05?
+	bne	10$		;no
+	tst	$status		;is it a disk?
+	bpl	20$		;no - dont say its a disk
+10$:	cmpb	(r5)+,$status	;is this it?
+	beq	30$		;yes
+;	dec	r1		;check the next
+;	bmi	30$		;got it
+20$:	tstb	(r5)+		;skip to next
+	bne	20$		;keep skipping
+	tstb	(r5)		;was this the last?
+	bne	10$		;nope
+	mov	#descs,r5	;search by name
+22$:	cmp	devnam,(r5)+	;is this ours?
+	beq	30$		;yes
+24$:	tstb	(r5)+		;no
+	bne	24$		;
+	inc	r5		;
+	bic	#1,r5		;
+	tst	(r5)		;any more?
+	bne	22$		;yes
+	br	50$		;no - not found
+
+30$:	type	< >
+40$:	$output	(r5)+		;display them
+	tstb	(r5)		;any more?
+	bne	40$		;yep
+50$:	return
+.sbttl	v53 image options
+
+;	V53 image options	
+;
+;	drptr		
+;	drest	
+;	drspf
+;	drtab
+
+imgopt:	mov	#handler,r5		;point to it
+	cmp	(r5),#^rhan		;this V5.3?
+	beq	10$			;yes
+	return				;no
+10$:	call	drest
+	call	drptr
+	call	drtab
+	call	drspf
+	return
+
+;	Installation = drptr
+
+drptr:
+10$:	mov	dr.md2(r5),r4		;get the nofetch flag
+	bic	#77777,r4		;
+	tstb	dr.mod(r5)		;got nofetch in modifications?
+	bpl	11$			;no
+	clr	r4			;yes - don't do it here
+11$:	cmp	dr.ptf(r5),#240		;too low?
+	blo	12$			;yes
+	cmp	dr.ptf(r5),#277		;too high?
+	bhi	12$			;yes
+	bisb	dr.ptf(r5),r4		;got pointer routines
+12$:	bit	#100037,r4		;got anything at all?
+	beq	100$			;no
+	$type	<Install calls	>	;
+	bit	#100000!drftp$,r4	;got a fetch routine?
+	beq	20$			;no
+	$type	<fetch=>		;
+	tst	r4			;nofetch?
+	bpl	15$			;no
+	$type	<nofetch >		;
+	br	16$			;
+15$:	$octal	dr.ftp(r5)		;
+	$type	< >			;
+16$:	bic	#100000!drftp$,r4	;got a fetch routine?
+					;
+20$:	bit	#drrlp$,r4		;release
+	beq	30$			;no
+	bic	#drrlp$,r4		;release
+	$type	<release=>		;
+	$octal	dr.rsp(r5)		;
+	$type	< >			;
+30$:	bit	#drlop$,r4		;load
+	beq	40$			;no
+	bic	#drlop$,r4		;load
+	$type	<load=>			;
+	$octal	dr.lop(r5)		;
+	$type	< >			;
+40$:	bit	#drunp$,r4		;unload
+	beq	50$			;no
+	bic	#drunp$,r4		;unload
+	$type	<unload=>		;
+	$octal	dr.unp(r5)		;
+	$type	< >			;
+50$:	bic	#^c37,r4		;any left over?
+	beq	60$			;no
+	$type	<other=>		;
+	$octal	r4			;display the others
+60$:	$print				;
+100$:	return
+
+;	drest - classification	
+
+drest:
+100$:	$type	<Driver class	>	;
+	movb	dr.cla(r5),r4		;get the class
+	beq	120$			;is none
+	$type	<class=>		;
+	asl	r4			;get the word
+	asl	r4			;
+	.print	d.rcla(r4)		;class
+	mov	d.rcla+2(r4),r4		;get the mods
+	$type	< >			;
+
+;	mod
+;
+;	r4 ->	mod list
+
+120$:	clr	r3			;
+	bisb	dr.mod(r5),r3		;got mods?
+	beq	140$			;no
+	$type	<mod=>			;yes
+					;
+	clr	r2			;count them
+	tstb	r3			;nofetch?
+	bpl	124$			;no
+	bicb	#200,r3			;clear it
+	inc	r2			;count it
+	$type	<nofetch>		;
+124$:	tst	r4			;got a table?
+	beq	135$			;no
+125$:	bitb	2(r4),r3		;got this one
+	beq	130$			;no
+	bicb	2(r4),r3		;yes - remember we did it
+	tst	r2			;time for a !
+	beq	126$			;no
+	$type	<!>			;yes
+126$:	inc	r2			;count it
+	.ttyout	(r4)			;display the mod
+	.ttyout	byte(r4)		;
+130$:	add	#4,r4			;next
+	tst	(r4)			;any more?
+	bne	125$			;yes
+135$:	tst	r3			;still got more?
+	beq	138$			;no
+	tst	r2			;time for a !
+	beq	136$			;no
+	$type	<!>			;yes
+136$:	bic	#^c377,r2		;clean it up
+	$octal	r2			;display it
+138$:	$type	< >			;next field
+
+;	data
+
+140$:	tst	dr.dat(r5)		;got a data table?
+	beq	160$			;no
+	cmp	dr.dat(r5),#-1		;this v5.4 .drtab?
+	beq	160$			;yes
+	$type	<data=>			;
+	$octal	dr.dat(r5)		;yes
+	$type	< >			;
+
+;	type
+
+150$:	tst	dr.typ(r5)		;got a type?
+	beq	160$			;no
+	$type	<type=>			;
+	$rad50	dr.typ(r5)		;yes
+	$type	< >			;
+
+;	replace
+
+160$:	tst	dr.rep(r5)		;got a replacement table
+	beq	170$			;no
+	$type	<replace=>		;yes
+	$octal	dr.rep(r5)		;
+	$type	< >			;
+
+;	mod2
+
+170$:	bit	#77777,dr.md2(r5)	;got mod2?
+	beq	180$			;no
+	$type	<mod2=>			;yes
+	mov	dr.md2(r5),r2		;get it
+	bic	#drnfq$,r2		;clean it up
+	bit	#drv2q$,r2		;v2?
+	beq	175$			;no
+	bic	#drv2q$,r2		;v2?
+	$type	<v2>			;yes
+175$:	tst	r2			;still got some
+	beq	180$			;no
+	$octal	r2			;yes - display it
+180$:	$print				;
+	return
+
+drtab:	cmp	dr.daf(r5),#-1		;this .DRTAB?
+	beq	10$			;yes
+	tst	dr.use(r5)		;got a user table?
+	beq	40$			;no
+10$:	$type	<Driver tables	>	;we have tables
+	cmp	dr.daf(r5),#-1		;got a DEC table?
+	bne	20$			;no
+	$type	<DEC=>			;
+	$octal	dr.dap(r5)		;table address
+	$type	< (>
+	$decima	dr.dal(r5)		;decimal byte size
+	$type	< bytes)>		;
+20$:	tst	dr.use(r5)		;got a user table?
+	beq	30$			;no
+	$type	<User=>			;
+	$octal	dr.use(r5)		;user table
+30$:	$print				;
+40$:	return				;
+
+drspf:	mov	#72.-16./4.,100$	;number on a line
+	stack	cnt			;
+	tst	dr.sfm(r5)		;got a map?
+	beq	40$			;no
+	$type	<Functions	>	;
+	movi	dr.sfm,r5,r4		;point to them
+	call	10$			;do this lot
+	$print				;
+;	function table
+	return
+
+10$:	dec	100$			;any more fit here?
+	bne	15$			;yes
+	$print				;no
+	$type	<		>	;
+	mov	#72.-16./4.,100$	;number on a line
+					;
+15$:	clr	r3			;
+	bisb	(r4)+,r3		;bits
+	clr	r2			;
+	bisb	(r4)+,r2		;number
+	beq	40$			;forget this
+20$:	asr	r3			;this one set?
+	bcc	30$			;no
+	$octal	r2			;yes
+	$type	< >			;
+30$:	inc	r2			;next function
+	tst	r3			;any more functions?
+	bne	20$			;yes
+;	$print				;yes
+	tst	(r4)			;any more lines?
+	beq	40$			;no
+;	$type	<		>	;
+	br	10$			;
+40$:	return				;
+					;
+100$:	.word	0			;line count
+	
+;	Device classification
+
+d.rcla:
+	.word	100$,0			;0	unknown
+	.word	1$,0			;1	null
+	.word	2$,0			;2	tt
+	.word	3$,0			;3	tp?
+	.word	4$,1010$		;4	disk
+	.word	5$,0			;5	magtape
+	.word	6$,0			;6	cassette
+	.word	7$,0			;7	lp
+	.word	10$,0			;10	decnet exec
+	.word	11$,0			;11	decnet protocol
+	.word	12$,0			;12	decnet line
+	.word	13$,0			;13	ethernet port
+	.word	14$,0			;14	psuedo handler
+	.word	15$,0			;15	virtual terminal
+	.word	16$,0			;16	serialised input
+	.word	17$,0			;17	serialised output
+	.word	20$,0			;20	serialised input/output
+
+100$:	.asciz	|UK (Unknown)|<200>
+1$:	.asciz	|NL (Null)|<200>
+2$:	.asciz	|TT (Terminal)|<200>
+3$:	.asciz	|TP (Terminal Port)|<200>
+4$:	.asciz	|DK (Disk)|<200>
+5$:	.asciz	|MT (Magtape)|<200>
+6$:	.asciz	|CT (Cassette)|<200>
+7$:	.asciz	|LP (Lineprinter)|<200>
+10$:	.asciz	|DE (Decnet Exec)|<200>
+11$:	.asciz	|DP (Decnet Protocol)|<200>
+12$:	.asciz	|DL (Decnet Line)|<200>
+13$:	.asciz	|NI (Ethernet Port)|<200>
+14$:	.asciz	|PS (Psuedo Driver)|<200>
+15$:	.asciz	|VT (Virtual Terminal)|<200>
+16$:	.asciz	|SI (Serialised Input)|<200>
+17$:	.asciz	|SO (Serialised Output)|<200>
+20$:	.asciz	|SB (Serialised Input/Output)|<200>
+	.even
+
+1010$:	.word	"dx,1			;dx	rx01 compatible
+	.word	"dm,1			;dm	extra words
+	.word	0			;
+.sbttl	v5 boot type
+
+bootyp:	mov	$bptr,r0	;
+	add	#handler,r0	;point to start of boot
+	cmp	(r0)+,#240	;this a standard boot?
+	bne	10$		;not one we know
+	mov	(r0),r1		;get the branch
+	clrb	r1		;
+	cmp	r1,#br		;is this a branch?
+	bne	10$		;no - ignore it
+	mov	(r0)+,r1	;yes - get the offset
+	movb	r1,r1		;sign extend
+	bmi	10$		;we do not accept negative
+	asl	r1		;make it words
+	add	r1,r0		;r0 -> entry or entry-2
+	mov	(r0),r1		;check for BR or BMI
+	clrb	r1		;
+	cmp	r1,#br		;this a branch?
+	beq	5$		;yes
+	cmp	r1,#bmi		;this bmi?
+	bne	10$		;no - ignore it
+5$:	sub	#4,r0		;point to handler descriptor
+	mov	r0,r4		;supply it
+	call	boov5h		;
+10$:	return
+
+boov5h:	$type	<Boot media	>	;
+	clr	r0		;check the checksum
+	mov	r4,r2		;
+	mov	#4,r3		;
+10$:	movb	(r2)+,r1	;get the next
+	add	r1,r0		;
+	dec	r3		;
+	bne	10$		;
+20$:	incb	r0		;checksum o.k.?
+	beq	30$		;yes
+	$type	<Type checksum wrong>
+25$:	jmp	100$		;
+
+30$:	cmpb	br.ept(r4),#brp11. ;this an 11?
+	bne	40$		;no
+	$type	<PDP-11>	;
+	br	50$		;
+40$:	$type	<CPU=>		;
+	movb	br.ept(r4),r1	;
+	bic	#^c377,r1	;
+	$decima	r1		;
+50$:	$type	<, >	;
+	movb	br.ect(r4),r3	;get it
+;	bmi	55$		;
+;	bit	#brcge$,r3	;is it valid?
+;	bne	60$		;
+;55$:	$type	<?>		;
+;	br			;
+60$:	clr	v5bits		;none done
+	meta	<v5bit c d><jsr r2,v5bit><.ascii <c>&d&<200>><.even>
+	v5bit	brcub$	<Unibus>
+	v5bit	brcqb$	<Q-Bus>
+	v5bit	brccb$	<CTI>
+	v5bit	brcum$	<Unibus MSCP>
+	v5bit	brcqm$	<Q-Bus MSCP>
+	v5bit	brccm$	<CTI MSCP>
+;
+	movb	br.eft(r4),r1	;get the filestructure
+	cmpb	r1,#brfrt.	;this RT11A?
+	bne	80$		;no
+	$type	<, RT11A>	;yes
+	br	90$		;
+80$:	$type	<Files=>	;
+	bic	#^c377,r1	;
+	$decima	r1		;
+90$:	$print
+100$:	return
+
+v5bits:	.word	0
+
+v5bit:
+200$:	bitb	(r2)+,r3	;is this set?
+	beq	220$		;no
+	tst	v5bits		;this the first
+	beq	210$		;no
+	$type	<, >		;yes
+210$:	inc	v5bits		;count them
+	.print	r2		;
+220$:	tstb	(r2)+		;
+	bgt	220$		;
+	inc	r2		;
+	bic	#1,r2		;
+	rts	r2		;and quit
+.sbttl	search for things
+
+;	emt	342	.dstat		modifies memory copy
+;	emt	375	read/write	modifies image
+;	jsr r5,@324(r5)	.synch
+
+found:	.word	0
+
+setuse:	mov	#handler,r2		;
+	mov	#handler+1000.,r3	;end of search area
+	jsr	r5,find			;look for emt 342
+	emt	342			;
+	bcs	10$			;not found
+	bis	#1,found		;modifies memory
+10$:	jsr	r5,find			;emt 375
+	 emt	375
+	bcs	20$			;not found
+	bis	#2,found		;modifies image
+20$:	tst	found			;got either of them?
+	beq	30$			;no
+	$type	<SET modifies	>	;
+	asr	found			;memory?
+	bcc	26$			;no
+	$type	<memory>		;
+	tst	found			;and image?
+	beq	27$			;no
+	$type	<, >			;yes
+26$:	asr	found			;image?
+	bcc	27$			;no
+	$type	<image>			;
+27$:	$print				;
+30$:	return
+.sbttl	system calls
+
+useflg:	.word	-1			;
+usehea:	inc	useflg			;
+	bne	10$			;not the first
+	$type	<System calls	>
+	br	20$			;
+10$:	$type	<, >
+20$:	return
+
+synetc:	mov	#$driver,r2
+	mov	hantop,r3		;assume this is the top
+	tst	$bptr			;got a boot?
+	beq	30$			;no
+	mov	$bptr,r3		;yes - use it as top
+	add	#handler,r3		;
+30$:	jsr	r5,find			;look for an offset
+	.word	324			;
+35$:	bcs	50$			;not found
+	cmp	-4(r1),#4575		;this jsr r5,@324(r5)?
+	beq	40$			;yes
+	jsr	r5,findn		;
+	.word	324
+	br	35$			;
+40$:	call	usehea
+	$type	<.synch>
+50$:	return
+.sbttl	shareplus
+
+;	cmp	r4,#^rshp	checks for SHAREplus
+;	bne			not SHAREplus
+;	cmp	r3,#stb		checks STB
+
+shpuse:					;check SHAREplus use
+	mov	#handler,r2		;
+	mov	#handler+1000.,r3	;end of search area
+	jsr	r5,find			;look for ^rshp
+	.rad50	/shp/
+10$:	bcs	60$			;no more
+	mov	-4(r1),r0		;get it
+	bic	#^c170000,r0		;clean it up
+	cmp	r0,#cmp			;this a compare?
+	beq	20$			;yes
+	jsr	r5,findn		;no
+	.rad50	/shp/			;
+	br	10$			;
+20$:;	$type  <SHAREplus 	install check>	;
+	$type  <RUST/XM    	install check>	;
+30$:	mov	r1,r3			;must be in next 10
+	mov	r1,r2			;save for modify check
+	add	#10,r3			;
+	jsr	r5,findn		;
+	.word	020327			;look for a compare
+	bcs	40$			;not there
+	$type	<, stb check>		;
+40$:	mov	r2,r3			;must be in next 40
+	add	#40,r3			;
+	jsr	r5,findn
+	.word	bis!2762		;bis #n,x(r2)
+	bcs	50$			;not found
+	$type	<, modifies control>	;
+50$:	$print
+60$:	return
+
+
+find:	mov	r2,r1			;get the start
+findn:	cmp	r1,r3			;too far?
+	bhis	10$			;yes
+	cmp	(r1)+,(r5)		;this our target?
+	bne	findn			;no
+	tst	(pc)+			;yes
+10$:	sec				;
+	bit	(r5),(r5)+		;
+	rts	r5
+.sbttl	check services used
+
+serflg:	.word	0		;
+frkser:	.word	0		;fork service address
+intser:	.word	0		;$inten
+timser:	.word	0		;timeout
+errser:	.word	0		;
+ptwser:	.word	0		;
+ptbser:	.word	0		;
+gtbser:	.word	0		;
+mapser:	.word	0		;$mpt
+relser:	.word	0		;
+lstser:
+
+serchk:	clr	serflg		;
+	mov	#frkser,r0	;see which we have
+	mov	#$driver,r1	;
+	add	$hsize,r1	;point to the end
+	tst	-(r1)		;.fork
+	mov	r1,(r0)+	;.fork
+	tst	-(r1)		;
+	mov	r1,(r0)+	;.inten
+	tst	-(r1)		;
+	clr	(r0)		;assume not there
+	bit	#tim$it,$sysgen	;got timeout?
+	beq	10$		;no
+	mov	r1,(r0)		;yes
+	tst	-(r1)		;
+10$:	tst	(r0)+		;
+	clr	(r0)
+	bit	#erl$g,$sysgen	;got sysgen?
+	beq	20$		;no
+	mov	r1,(r0)		;yes
+	tst	-(r1)		;
+20$:	mov	#5.,r2		;count these
+30$:	tst	(r0)+		;
+	clr	(r0)		;
+	bit	#mmg$t,$sysgen	;got mmu?
+	beq	40$		;no
+	mov	r1,(r0)		;yes
+	tst	-(r1)		;
+40$:	dec	r2		;
+	bne	30$		;
+	tst	-(r1)		;
+	mov	r1,r3		;last to check
+
+;	Addresses setup
+
+	mov	#handler,r2	;
+	add	#10,r2		;skip the first lot
+
+110$:	cmp	(r2),#4777	;this a call @$?
+	beq	120$		;
+	cmp	(r2),#4577	;jsr r5,@aa?
+	bne	200$		;no
+
+120$:	tst	(r2)+		;yes
+	mov	(r2),r1		;
+	add	r2,r1		;
+	add	#2,r1		;
+	mov	#frkser,r0	;look for it
+130$:	cmp	(r0)+,r1	;this our one?
+	beq	140$		;yes
+	cmp	r0,#lstser	;all done?
+	blo	130$		;no
+	br	150$		;yes - not found
+140$:	sub	#2,r0		;
+	sub	#frkser,r0	;
+	bis	500$(r0),serflg	;remember it
+
+150$:				;
+200$:	tst	(r2)+		;
+	cmp	r2,r3		;all done?
+	blo	110$		;no
+	mov	serflg,r3	;get the services
+	beq	300$		;none used
+	clr	v5bits
+	$type	<Driver calls	>	;
+	v5bit	1	<fork>
+	v5bit	2	<inten>
+	v5bit	4	<timio>
+	v5bit	10	<errlog>
+	v5bit	20	<putwrd>
+	v5bit	40	<putbyt>
+	v5bit	100	<getbyt>
+	v5bit	200	<mpphy>
+	swab	r3
+	v5bit	1	<reloc>
+	$print
+300$:	return
+
+500$:	.word	1,2,4,10,20,40,100,200,400
+.sbttl	utilities
+
+sizes:	$octal	r5
+	$type	< bytes, >
+	clc
+	ror	r5
+	$number	r5
+	$print	< words>
+	return
+
+getdev:	mov	ifile+2,r2
+	mov	r2,devnam
+	mov	#9$,r3
+3$:	sub	(r3),r2
+	bcc	3$
+	add	(r3)+,r2
+4$:	sub	(r3),r2
+	bcc	4$
+	add	(r3),r2	;r2 = low order character
+	sub	r2,devnam
+	return
+9$:	.word	3100,50
+
+
+.macro	desc nam,cod,cat,acp,sht,lng
+	.byte	cod
+.if nb <nam>
+	.asciz	_nam: lng_
+.iff
+	.asciz	_reserved_
+.endc
+.endm
+
+codes:	$dddef	rtd=yes
+	.byte	0
+	.even
+
+.macro	desc nam,cod,cat,acp,sht,lng
+	.rad50	/nam/
+	.asciz	_nam: lng_
+	.even
+.endm
+descs:	$dddef	hsd=yes usd=yes
+	.word	0
+.sbttl	error package
+
+error:	bcs	errorp
+even:	tstb	(r2)+		;skip it
+	bgt	even
+	inc	r2
+	bic	#1,r2
+	rts	r2		;its o.k.
+fatal:
+errorp:	$type	<?>		;display the header
+	.print	#i$mnam		;display the name
+	$type	<-E->		;
+	.print	r2		;
+	tst	ifile		;got a filename?
+	beq	10$		;no
+	$type	< >
+	$file	#ifile		;yes
+10$:	$print
+	jmp	start
+
+types:	.rad50	/syssyssyssys/
+files:	.blkw	3*5
+ifile:	.blkw	5*4
+devnam:	.word	0		;DD:
+area:	.blkw	5
+line:	.blkb	84.
+dstat:	.blkw	5
+hantop:	.word	0		;top of handler in memory
+buff:
+handler:
+meta	<map c d><c=handler+d>
+map	$22bit	0		;22-bit flag
+map	$hsize	52
+map	$dvsiz	54
+map	$status	56
+	filst$ = 100000
+	ronly$ = 40000
+	wonly$ = 20000
+	specl$ = 10000
+	hndlr$ = 4000
+	spfun$ = 2000
+	abtio$ = 1000
+	varsz$ = 400
+map	$sysgen	60
+	erl$g  = 1
+	mmg$t  = 2
+	tim$it = 4
+	rtem$  = 10
+	mpty$  = 1000
+	timer$ = 2000
+	mtty$  = 20000
+	stask$ = 40000
+	fpu11$ = 400	;v51
+map	$bptr	62
+map	$blen	64
+map	$csr	176
+map	$inchec	200
+map	$sets	400
+
+
+map	$driver	1000
+map	$vector	1000
+map	$isr	1002
+map	$prior	1004
+map	$lqe	1006
+map	$cqe	1010
+map	$begin	1012
+free:	.word	room
+room:
+.end	start

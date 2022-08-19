@@ -1,0 +1,597 @@
+;	,
+;	values
+;	clock date/time
+;
+;	VT200 control sequences
+;	VTxxx SHOW
+;	SHOW terminal type
+;	SETUP F1:<esc>$
+;	SETUP [NO]APPLICATION
+.title	setup - terminal etc setup program
+.include "lib:share.mac"
+$aldef
+$cndef
+$jbdef
+$rmdef
+.library "lib:sm.mlb"
+smini$
+
+;	%build
+;	macro	cus:setup/object:cub:setup !/list:tmp:a.a
+;	link	cub:setup/exe:cub:setup/map:cub:setup/cross
+;	%end
+
+$imgdef	SETUP 1 0
+$imginf	fun=sav cre=hammo aut=ijh use=<RUST setup utility>
+$imgham	yrs=<1983,1989>
+;	%date
+$imgdat	<31-Mar-2004 01:41:22.00>
+;	%edit
+$imgedt	<12   >
+
+	map	co.mod,,0
+	map	co.fun
+	map	co.str
+	
+	.macro	error
+		jmp	co$err
+	.endm
+
+	.macro	vcom$	fun, mod, str,seq=//
+	  .if	nb fun
+		.word	mod
+		.word	fun
+		.asciz	str
+		.asciz	seq
+		.even
+	  .iff
+		.word	0
+	  .endc
+	.endm
+
+	set	coter.	10000
+	set	cotab.	10001
+	set	comor.	10002
+	set	coany.	10003
+	set	coval.	10004
+
+	set	coC..	1			; clock
+	set	co.T.	2			; terminal
+	set	co..P	4			; printer
+	set	coCT.	coC..!co.T.
+	set	co.TP	co.T.!co..P
+	set	coCTP	coCT.!co..P
+
+t$bcom:
+t$bclk:	vcom$	t$bopt	cotab.	/CL*OCK/
+	vcom$	vc$dft	coC..	/DEF*AULT/
+	vcom$	vc$exi	coter.	/EX*IT/
+t$bprt:	vcom$	t$bopt	cotab.	/PR*INTER/
+	vcom$	vc$rst	coCTP	/RESet/
+	vcom$	vc$sav	coC..	/SA*VE/
+	vcom$	vc$sho	coC..	/SH*OW/
+	vcom$	t$bcom	cotab.	/S*ETUP/
+t$btrm:	vcom$	t$bopt	cotab.	/TER*MINAL/
+t$btt:	vcom$	t$bopt	cotab.	/TT/
+	
+
+t$bopt:	vcom$	co$seq	coCTP	/BO*LD/		|@1m|
+	vcom$	co$seq	coCTP	/NOBO*LD/	|@m|
+	vcom$	co$seq	coCTP	/CLE*AR/   	|@H@J@m@r@?6l@?7l@?1l$>@4l|	
+	vcom$	co$seq	coCT.	/DA*RK/		|@?5l|
+	vcom$	co$seq	co.TP	/DEN*SE/	|@3"z|
+	vcom$	co$seq	co.TP	/DO*WN/		|$K|
+	vcom$	co$seq	co.TP	/DR*AFT/	|@0"z|
+	vcom$	co$seq	coCT.	/GE*NERIC100/	|@61"p|
+	vcom$	co$seq	coCTP	/GRA*PHIC/	|$Pq|
+	vcom$	vc$hlp	coCTP	/HE*LP/		
+	vcom$	vc$hor	coCTP	/HO*RIZONTAL/	
+	vcom$	co$seq	co.T.	/I*NTERLACE/	|@?9h|
+	vcom$	co$seq	co.T.	/NOI*NTERLACE/	|@?9l|
+	vcom$	co$seq	coCT.	/J*UMP/		|@?4l|
+	vcom$	co$seq	co..P	/LAND*SCAPE/	|@1_J|
+	vcom$	vc$lan	co.TP	/LA*NG/				; ???
+	vcom$	co$seq	co.TP	/LE*TTER/	|@3"z@0w|
+	vcom$	co$seq	coCT.	/LIG*HT/	|@?5h|
+	vcom$	co$seq	coCTP	/LIS*TING/	|@0"z@4w|
+	vcom$	co$seq	coCTP	/ME*MO/		|@2"z|
+	vcom$	co$seq	coCTP	/NE*WLINE/	|@20h|
+	vcom$	co$seq	coCTP	/NONE*WLINE/	|@20l|
+	vcom$	co$seq	coCTP	/P*AGELENGTH/	|@066t|
+	vcom$	co$seq	co..P	/POR*TRAIT/	|@0_J|
+	vcom$	co$seq	coCTP	/REP*EAT/	|@?8h|
+	vcom$	co$seq	coCTP	/NOREP*EAT/	|@?8l|
+	vcom$	co$seq	coCTP	/RES*ET/	|$c|
+	vcom$	co$seq	coCTP	/SM*OOTH/	|@?4h|
+	vcom$	vc$tab	comor.	/TA*BS/				;???
+	vcom$	co$seq	coCTP	/NOTA*BS/	|@3g|
+	vcom$	co$seq	coCTP	/TE*XT/		|$\|
+	vcom$	co$seq	coCTP	/UNDERL*INE/	|@4m|
+	vcom$	co$seq	coCTP	/NOUNDERL*INE/	|@[m|
+	vcom$	co$seq	co.TP	/UP*/		|$L|		;???
+	vcom$	co$seq	coCTP	/VE*RTICAL/	||		;???
+	vcom$	co$seq	coCTP	/VT100*/	|$<|
+	vcom$	co$seq	coCTP	/VT52*/		|@?2l|
+	vcom$	co$seq	coCTP	/WR*AP/		|@?7h|
+	vcom$	co$seq	coCTP	/NOWR*AP/	|@?7l|
+	vcom$	co$seq	coCTP	/80*/		|@?3l|
+	vcom$	co$seq	coCTP	/132*/		|@?3h|
+	vcom$
+
+c$osel:	.word	0
+c$ocfg:	.word	0
+
+map	cotrm.,,0
+map	coprt.,,1
+map	coclk.,,2
+
+c$oemt:	.blkw	5
+c$odst:	.blkw	4
+c$ostk:	.word	0
+c$occl:	.word	1
+c$oloa:	.word	0
+c$oval:	.word	0
+c$osym:	.blkb	32.
+c$olin:	.blkb	84.
+
+c$oprm:	.ascii	/SETUP> /<128.>
+m$sidt:	.asciz	/?SETUP-I-RUST terminal SETUP utility V1.0/
+
+m$sfac:	.ascii	/?SETUP-/<128.>
+m$sinv:	.ascii	/E-Invalid command syntax: /<128.>
+m$scom:	.ascii	/E-Invalid command: /<128.>
+m$sinc:	.ascii	/E-Incomplete command: /<128.>
+m$sval:	.ascii	/E-Invalid value: /<128.>
+m$ssel:	.ascii	/E-Incompatible command: /<128.>
+m$scfg:	.ascii	/E-Device not installed: /<128.>
+m$sprt:	.ascii	/E-Error accessing printer: /<128.>
+m$snew:	.asciz	//
+	.even
+c$oprt:	.rad50	/            /
+c$obuf:	.blkb	84.
+.sbttl	dispatch commands
+
+;	r4 ->	command line
+;	r3 ->	table entry
+
+  subr	start
+	mov	sp,c$ostk		; save stack
+	call	co$cfg			; get local config
+co$agn:	mov	c$ostk,sp		; reset stack
+10$:	mov	#c$olin,r4		; line
+	.gtlin	r4, #c$oprm		; command
+	bneb	(r4),20$		; got something
+	.print	#m$sidt			; show ident
+	br	10$			; try again
+
+20$:	asr	c$occl			; once only
+	bcc	40$			;
+	beqb	@#j$bcct,40$		; no CCL command
+	mov	#j$bcst,r0		;
+	mov	r4,r1			;
+30$:	movb	(r0)+,(r1)+		;
+	sobb	@#j$bcct,30$		;
+					;
+40$:	mov	r4,r0			; case conversion
+50$:	beqb	(r0),70$		;
+	blob	(r0),#lowA.,60$		; not lower
+	bhib	(r0),#lowZ.,60$		; not lower
+	bicb	#^o40,(r0)		;
+60$:	tstb	(r0)+			;
+	br	50$			;
+70$:	mov	#co.T.,c$osel		; selected device
+	call	co$trn	#t$bcom		;
+	br	10$			;
+  end
+
+  proc	co$trn
+	p1	tab,r3
+      repeat
+	call	co$par #c$osym
+	call	co$fnd r3,#c$osym
+	if	(r3) eq #cotab.
+		if	r3 eq #t$bprt
+		...	mov	#co..P,c$osel
+		mov	co.fun(r3),r3
+		mov	r3,tab(sp)
+	...	next			
+	call	co$ter
+	call	co$skp
+	leave	ifb (r4) eq
+	ifb	(r4)+ ne #comma.
+	...	call	co$inv
+      end
+  end
+
+code	co$par - parse next item
+
+;	in	r4	command line
+;		sym,r2	symbol
+
+  proc	co$par	<r0, r2>
+	p1	sym,r2
+	clr	r0			; assume nothing found
+	call	co$skp			; skip white space
+     repeat				;
+	leave 	ifb (r4) eq		;
+	leave	ifb (r4) eq #space.	; got a space
+	leave	ifb (r4) eq #colon.	; got a colon
+	leave	ifb (r4) eq #equal.	; got equals
+	leave	ifb (r4) eq #comma.	; got a comma
+	movb	(r4)+,(r2)+		; move another
+	inc	r0			; we got something
+     end				;
+	call	co$skp			; skip white space
+	clrb	(r2)			; terminate string
+	if	r0 eq			; oops
+	...	call	co$err	#m$sinv, #0
+  end
+
+;	out	r3	table entry
+;		r5 
+
+  proc	co$fnd	r4
+	p1	tab,r3			; table
+	p2	sym,r2
+     repeat
+	leave	if (r3) eq		; not found
+	mov	r3,r5			;
+	add	#co.str,r5		;
+	mov	sym(sp),r2		; get the target
+	clr	r1			;
+      repeat				;
+	ifb	(r5) eq #'*		; made it?
+		inc	r1		;
+		inc	r5		; skip it
+	...	next			; check remainder
+	ifb	(r2) eq			; end of candidate
+		leave ifb (r5) eq	; end of model
+		leave ifb r1 ne		; got minimum
+		clr	r1		; no chop
+	...	leave			;
+	ifb	(r5) eq
+		clr	r1		; not found
+	...	leave			;
+	next	ifb (r2)+ eq (r5)+	; still matching
+	clr	r1			;
+      endless				;
+	whileb	(r5)+ ne		; skip string
+	end				;
+	exit	if r1 ne		; found it
+
+	whileb	(r5)+ ne		; skip display string
+	end				;
+	inc	r5			; round up
+	bic	#1,r5			;
+	mov	r5,r3
+     end
+	call	co$err	#m$scom,sym(sp)
+  end
+
+code	co$ter - terminal
+
+;	In	r3 -> symbol
+;		r4 -> command line remainder
+;		r5 -> symbol escape sequence
+
+  proc	co$ter	<r0,r1,r2>
+	if	(r3) eq #comor.
+	andb	(r4) eq
+	...	call	co$err	#m$sinc	#c$osym
+;	if	(r3) eq #coter.
+;	andb	(r4) ne
+;	...	error
+
+	if	(r3) eq #coter.
+		call	@co.fun(r3)
+	else
+		ifb	(r4) ne
+		andb	(r4) ne #comma.
+		...	call	co$inv
+		call	co$cmp
+	...	call	co$seq
+  end
+
+  proc	co$val
+	if	(r3) eq #coval.
+		clr	r0
+		clr	r2
+		ifb	(r4)+ ne #colon.
+		...	call	co$err #m$sval, #c$osym
+	     repeat
+		ifb	(r4) lt #dig0.
+		orb	(r4) hi #dig9.
+		...	leave
+		movb	(r4)+,r1
+		sub	#dig0.,r1
+		asl	r0
+		psh	r0
+		asl	r0
+		asl	r0
+		add	(sp)+,r0
+		add	r1,r0
+		inc	r2
+	     end
+		if	r2 eq
+		...	call	co$err #m$sval, #c$osym
+		mov	r0,c$oval
+	end
+  end
+
+  proc	co$skp
+	whileb	(r4) eq #space.
+		inc	r4
+	end
+  end
+code	check compatibility
+
+;	r3 ->	flags
+
+  proc	co$cmp
+	bpsw	c$osel,(r3),10$		; compatible with selection?
+	call	co$err	#m$ssel		;
+10$:	bpsw	c$osel,c$ocfg,20$	; is device present?
+	call	co$err	#m$scfg
+20$:	end
+
+code	get local config
+
+  proc	co$cfg
+	mov	#co.T.,c$ocfg		; assume not pro
+	.gval	#c$oemt, #rm.cf2	; get confg2
+	bpcw	#c2pro$,r0,10$		; not a pro
+	bpsw	#c2kxj$,r0,10$		; not a pro
+	mov	#coC..,c$ocfg		; on a pro
+10$:	mov	#^rlp,c$oprt		; try LP on
+	.dstat	#c$odst,#c$oprt		;
+	bcc	20$			; fine
+	mov	#^rls,c$oprt		; try LS on
+	.dstat	#c$odst,#c$oprt		;
+	bcs	30$			; no printer installed
+20$:	bis	#co..P,c$ocfg		; we have a printer
+30$:	end
+
+  proc	co$inv
+	call	co$err	#m$sinv, #0
+  end
+
+  proc	co$err
+	p1	msg,r1
+	p2	obj
+	.print	#m$sfac
+	.print	msg(sp)
+	beqw	r1,10$
+	beqb	(r1),10$
+	.print	#c$osym	;obj(sp)
+	br	20$
+10$:	.print	#m$snew
+20$:	jmp	co$agn
+  end
+code	commands
+
+  subr	vc$exi
+	.exit	
+  end
+
+  subr	vc$hlp
+  end
+
+  subr	vc$lan
+  end
+
+  subr	vc$tab
+  end
+
+  subr	vc$hor
+  end
+
+  subr	vc$sav
+  end
+
+  subr	vc$rst
+  end
+
+  subr	vc$dft
+  end
+
+  subr	vc$sho
+  end
+code	output escape sequence
+
+  subr	co$seq
+	mov	r5,r0
+	mov	#c$obuf,r1
+10$:	movb	(r0)+,r2		; get next
+	beq	50$			;
+	bneb	r2,#dolar.,20$		;
+	movb	#esc.,r2		;
+20$:	bneb	r2,#atsgn.,30$		;
+	movb	#esc.,(r1)+		;
+	movb	#lsqua.,r2		;
+30$:	bneb	r2,#under.,40$		;
+	movb	#space.,r2
+40$:	movb	r2,(r1)+		; store it
+	br	10$
+
+50$:	bpcw	#coCT.,c$osel,60$	; not the terminal
+	movb	#128.,(r1)		; terminate buffer
+	.print	#c$obuf			; output is easy
+	br	90$			;
+					;
+60$:	clrb	(r1)+
+	clrb	(r1)+
+	bic	#1,r1
+	sub	#c$obuf,r1		;
+	asr	r1			; word count
+	bnew	c$oloa,70$		; already open
+	.fetch	#c$odrv,#c$oprt		; fetch the driver
+	bcs	80$			;
+	.lookup	#c$oemt, #0, #c$oprt	; open channel
+	bcs	80$			; error accessing device
+	inc	c$oloa			; is loaded now
+70$:	.writw	#c$oemt,#0,#c$obuf,r1,#0; write control string 
+	bcc	90$			;
+80$:	call	co$err	#m$sprt,#1	; error accessing printer
+90$:	end
+
+c$odrv:	
+
+.end	start
+.end
+
+[NO]BOLD	Bold font
+CLEAR		Soft reset 
+[NO]CURSOR	Hide/Show cursor
+DARK		Display white on black
+DENSE	    	Dense printing
+
+DARK	Display white on black		
+
+
+code	terminal commands
+
+	.macro	coter$ str
+	jsr	r1,co$prt
+	.ascii	/str/<128.>
+	.even
+	.endm
+
+co$prt:	.print	r1
+10$:	tstb	(r1)+
+	bpl	10$
+	inc	r1
+	bic	#1,r1
+	rts	r1
+
+  subr	te$bol			; BOLD
+	coter$	<$[1m>		;
+  end
+  subr	te$nbo			; NOBOLD
+	coter$	<$[m>		;
+  end
+  subr	te$clr			; CLEAR
+	coter$	^|$[H$[J$[m$[r$[?6l$[?7l$[?1l$>$[4l|
+  end
+  subr	te$drk			; DARK
+	coter$	<$[?5l>		;
+  end
+  subr	te$lgt			; LIGHT
+	coter$	<$[?5h>		;
+  end
+
+  subr	te$den			; DENSE
+	coter$	<$[3"z>		;
+  end
+
+  subr	te$dwn			; DOWN
+	coter$	<$K>		;
+  end
+
+  subr	te$drf			; DRAFT 
+	coter$	<$[i0"z>	;
+  end
+
+  subr	te$gen			; GENERIC100 
+;	coter$	<$[>		; ???
+  end
+
+  subr	te$gra			; GRAPHIC 
+	coter$	<$[P q>		; ???
+  end
+
+  subr	te$hor			; HORIZONTAL 
+	coter$	<$[>		; ???
+  end
+
+  subr	te$int			; INTERLACE
+	coter$	<$[?9h>		;
+  end
+
+  subr	te$nin			; NOINTERLACE 
+	coter$	<$[i?nl>	;
+  end
+
+  subr	te$jmp			; JUMP 
+	coter$	<$[>		; ???
+  end
+
+  subr	te$lng			; LANG 
+	coter$	<$[>		; ???
+  end
+
+  subr	te$let			; LETTER 
+	coter$	<$[3"z$[0w>	;
+  end
+
+  subr	te$lst			; LISTING 
+	coter$	<$[0"z$[4w>	;
+  end
+
+  subr	te$			; 
+	coter$	<$[>		;
+  end
+
+  subr	te$			; 
+	coter$	<$[>		;
+  end
+
+  subr	te$			; 
+	coter$	<$[>		;
+  end
+
+  subr	te$			; 
+	coter$	<$[>		;
+  end
+
+  subr	te$			; 
+	coter$	<$[>		;
+  end
+
+  subr	te$			; 
+	coter$	<$[>		;
+  end
+
+  subr	te$			; 
+	coter$	<$[>		;
+  end
+
+  subr	te$			; 
+	coter$	<$[>		;
+  end
+
+  subr	te$tab			; TABS
+	coter$	<$[>		;
+  end
+  subr	te$ntb			; NOTABS
+	coter$	<$[3g>		;
+  end
+  subr	te$wrp			; WRAP
+	coter$	<$[?7h>		;
+  end
+  subr	te$nwr			; NOWRAP
+	coter$	<$[?7l>		;
+  end
+
+  subr	te$80			; 80
+	coter$	<$[?3l>		;
+  end
+  subr	te$132			; 132
+	coter$	<$[?3h>		;
+  end
+
+
+.end	start
+.end
+
+ SET [ENTITY] PAGE|SECTION "string"
+ SET [ENTITY] PAGE|SECTION integer LINES
+ SET [ENTITY] SEARCH GENERAL|EXACT|BEGIN|END|[UN]BOUNDED
+
+ SET [SCREEN] 80
+ SET [SCREEN] 132
+ SET [SCREEN] DARK
+ SET [SCREEN] LIGHT
+ SET [NO]QUIET
+
+ SET WRAP [column-number]
+ SET NOWRAP

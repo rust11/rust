@@ -1,0 +1,1264 @@
+title	driver
+
+;;;;
+;	-----------------------------------------------------------------------
+;	RUST DRIVER utility
+;	-----------------------------------------------------------------------
+;	MACRO routines included
+;	
+;	%build
+;		!if/logical=vms goto vms
+;		goto 'p1'
+;	maree:	maree	cus:driver /object:cub:driver
+;	link:	link	cub:driver,lib:maree/execute:cub:driver/map:cub:driver
+;		!delete	cub:driver.obj
+;		!if "'p1'" goto end
+;		!copy	cub:driver.sav sy:driver.sav
+;		goto	end
+;
+;	vms:	goto 'p1'
+;	maree:	mvb:maree cus:driver
+;	macro:	vax macro cus:driver/obj:skr:
+;	link:	vax link skr:driver,lib:maree/library/execute:skr:driver
+;	end:
+;	%end
+;
+;	-----------------------------------------------------------------------
+
+
+only(shp)
+macro
+;.include "lib:maree.mac"
+.include "lib:share.mac"
+.library "lib:share.mlb"
+$pldef			;plex
+$imgdef	DRIVER 3 0
+$imginf	fun=sav cre=hammo aut=ijh use=<RUST driver setup utility DRIVER.SAV V3.0>
+$imgham	yrs=<1985,1986,1987> oth=<>
+;	%date
+$imgdat	<07-Apr-2005 20:29:21.23>
+;imgdat	<25-Nov-2003 21:10:27.12>
+;	%edit
+$imgedt	<121  >
+maree
+only
+;	-----------------------------------------------------------------------
+;	Verbs
+;	-----------------------------------------------------------------------
+
+use	verb main					;main program
+use							;
+	verb ap$opn(han(),new(),res)			;open handler
+	verb ap$iox(fil(),sig)				;check i/o errors
+	verb co$ops(opt(),bit,idx,res)			;setup option
+	verb co$hlp					;command help
+	verb ap$hlp(han(),mod)				;help handler
+	verb co$ana(han(),val)				;analyse
+	verb co$git(flg,str())				;generated item
+	verb ap$rec(han(),rec(),new(),ctl,uni,val,org,pos);record item
+	verb ap$put(rec())				;put record
+	verb co$sho(han(),rec(),val,ctl,uni)		;show settings
+	verb sh$ops(han(),opt(),bit,idx)		;show option
+	verb sh$pat(han())				;patch handler
+	verb sh$res(han())				;restore patch
+	verb sh$upd(han(),dat())			;update handler
+	verb co$set(han(),ctl,mod,off,val,uni,inp,res)	;process item
+	verb sh$mac(han(),ctl,val,mod,off,uni,inp,res)	;macro interface
+
+;	-----------------------------------------------------------------------
+;	Import
+;	-----------------------------------------------------------------------
+
+	use(mad:sys)				;	map, plexs etc.
+	use(mad:acp)				;	acp
+	use(mad:cli)				;	cli interpreter
+	use(mad:cliutl)				;	cli utilities
+	use(mad:cvt)				;	convert
+	use(mad:msg)				;	messages
+	use(mad:plx)				;	plex
+	use(mad:sig)				;	signal
+	use(mad:str)				;	string
+
+;	-----------------------------------------------------------------------
+;	CLI data
+;	-----------------------------------------------------------------------
+
+	set(cohnf.=1)				;	handler field
+	set(coitf.=2)				;	item field
+						;
+	word(c$ouni)				;	/unit:n
+	word(c$vuni)				;	unit number
+	word(c$vcod)				;	/code:n value
+	word(c$o22b)				;	/22bit
+	word(c$oana)				;	analyse
+	word(c$ohlp)				;	help
+	word(c$oidt)				;	ident
+	word(c$oexi)				;	exit
+	word(c$oset)				;	set
+	word(c$osho)				;	show
+	plex(c$shan=byte$t)			;	handler name
+	plex(s$hhan=file$t)			;	handler file plex
+	plex(s$hdat=file$t)			;	new/data handler plex
+	plex(s$hwrk=word$t)			;	working area
+	plex(s$hitm=word$t)			;	rad50 item name
+						;
+	word(s$hgin)				;	guard area index
+	word(s$hrin)				;	record area index
+	plex(s$hrec=word$t)			;	record plex
+	word(s$hdst)				;	index to .DSTAT patch
+	word(h$aupd)				;	handler update flag
+	plex(h$aset=word$t)			;	set array
+	plex(h$aclr=word$t)			;	clear array
+;	-----------------------------------------------------------------------
+;	Handler set structures
+;	-----------------------------------------------------------------------
+
+	set(ha.set=128)			;	set table
+					;
+	item(h.aval=0)			;	item value
+	 set(haend$=0)			;	end of values
+	item(h.aop0=1)			;	item name
+	item(h.aop1=2)			;
+	item(h.aoff=3)			;	offset in high-byte
+	item(h.amod=3)			;	mode & offset
+	 set(hahex$=^p12)		;	hex numeric
+	 set(haoct$=^p13)		;	octal numeric
+	 set(hanum$=^p14)		;	numeric - decimal default
+	 set(hanot$=^p15)		;	no is valid
+	item(h.asws=4)			;	4-word entry
+
+;	-----------------------------------------------------------------------
+;	Handler recording area
+;	-----------------------------------------------------------------------
+;
+	item(h.arg0=0)			;	recording guard
+	item(h.arg1=1)			;	recording guard two
+	item(h.aro0=2)			;	handler option word 0
+	item(h.acon=3)			;	de.con default
+	item(h.atyp=4)			;	de.typ default
+	item(h.asta=5)			;	ha.sta default
+	item(h.asyg=6)			;	ha.syg default
+	set(hargs.=8)			;	guard size
+	set(harg0.=^rhan)		;	guard values
+	set(harg1.=^rdlr)		;
+					;
+	set(ho.ro0=2)			;
+	set(ho.con=3)			;
+	set(ho.typ=4)			;
+	set(ho.sta=5)			;
+	set(ho.syg=6)			;
+					;
+	set(ha.rn0=0)			;	option name - rad50
+	set(ha.rn1=1)			;	option name
+	set(ha.run=2)			;	unit in low byte
+	set(ha.rct=2)			;	control flags in high
+	set(ha.rvl=3)			;	recorded value
+	set(harws.=4)			;	record word size
+					;
+	item(h.arn0=0)			;	name zero
+	item(h.arn1=1)			;	name one
+	item(h.arct=2)			;	control
+	item(h.arvl=3)			;	value
+					;
+	set(haset$=^p9)			;	no value
+	set(hauni$=^p10)		;	unit specified
+	set(hapac$=^p11)		;	packed value
+	set(hahex$=^p12)		;	octal value
+	set(haoct$=^p13)		;	octal value
+	set(hadec$=^p14)		;	decimal value
+	set(haneg$=^p15)		;	negated value
+
+;	-----------------------------------------------------------------------
+;	Set handler signals
+;	-----------------------------------------------------------------------
+
+	set(shsis.=-1)			;	invalid set item
+	set(shsin.=-2)			;	set item not found
+	set(shsfn.=-3)			;	file not found
+	set(shscf.=-4)			;	create failed
+	set(shsup.=-5)			;	i/o error
+;	-----------------------------------------------------------------------
+;	Handler generation structures
+;	-----------------------------------------------------------------------
+
+	set(ha.22b=0)		;	22bit flag
+	set(ha22b.=^r22b)	;
+				;
+	set(ha.hsz=21)		;	handler byte size
+	set(ha.dsz=22)		;	minimum device size
+	set(ha.sta=23)		;	handler status word
+	set(ha.syg=24)		;	sysgen options
+	set(ha.bpt=25)		;	boot pointer
+	set(ha.ble=26)		;	bootstrap byte size
+	set(ha.brd=27)		;	boot read routine
+				;
+	set(ha.ccs=61)		;	cti csr
+	set(ha.pcs=62)		;	pdp-11 csr
+	set(ha.csr=63)		;	first csr address
+	set(ha.ins=64)		;	installation check routine
+				;
+	set(ha.vec=256)		;	vector or vector table
+	set(ha.isr=257)		;	offset to major isr
+	set(ha.hol=258)		;	handler hold flag
+	set(ha.lqe=259)		;	last queue entry
+	set(ha.cqe=260)		;	current queue entry
+	set(ha.md2=260)		;	mod2 flags
+	 set(hav2q$=^o40000)	;	 v2 flag
+	set(ha.beg=261)		;	handler start i/o routine
+				;
+;	Vector descriptor	;
+				;
+	set(h.avvc=0)		;	vector address or terminator
+	set(h.avof=1)		;	offset to isr
+	set(h.avps=2)		;	isr psw
+	set(havbs.=3)		;	size of vector descriptor
+				;
+	set(havt0.=0)		;	v5.0 terminator
+	set(havt1.=^p15)	;	v5.1 terminator
+;	-----------------------------------------------------------------------
+;	Device status word
+;	-----------------------------------------------------------------------
+
+	set(dscod$=^o377)	;low byte is device code - see $dcdef
+				;
+	set(dsvar$=^o400)	;	variable size device
+	set(dsgab$=^o1000)	;	generic abort
+	set(dsfun$=^o2000)	;	accepts spfun
+	set(dshab$=^o4000)	;	handler abort
+	set(dsspc$=^o10000)	;	special directory
+	set(dswon$=^o20000)	;	write-only
+	set(dsron$=^o40000)	;	read-only
+	set(dsrta$=^o100000)	;	rt11a file-structured
+				;
+;	RT-11 sysgen		;
+				;
+	set(sgerl$=^o1)		;erlg$	erl$g	error logging
+	set(sgmmg$=^o2)		;mmgt$	mmg$t	memory management
+	set(sgtim$=^o4)		;timit$	tim$it	device timeout
+	set(sgrtm$=^o10)	;rtem$	rte$m
+	set(sgfpu$=^o400)	;fpu11$		FPU
+	set(sgmpt$=^o1000)	;mpty$		memory parity
+	set(sgsjt$=^o2000)	;timer$		SJ timer
+	set(sgmtt$=^o20000)	;mtty$		multi-terminal
+	set(sgsjb$=^o40000)	;stask$		system job
+	set(sgtsx$=^o100000)	;tsxp$		TSX
+;	-----------------------------------------------------------------------
+;	SHAREplus device status
+;	-----------------------------------------------------------------------
+;
+; HA.OPT	
+;	/CODE		
+;	/DEFAULT	Setup standard defaults
+;	/FORCE 		Ignore disable mask
+;	/ENABLE		Set handler enable mask
+;	/DISABLE	Set handler disable mask
+;	
+; DE.CON
+;	/22BIT		de22b$	h.acon
+;	/SINGLE		desin$	h.acon
+;	/FUNCTIONS	despf$	h.acon
+;
+; DE.TYP
+;	/SYNCHRONOUS	desyn$	h.atyp
+;	/TIMEOUT	detim$	h.atyp
+;	/ABORT		deabo$	h.atyp
+;
+;	/EXTERNAL	deext$	h.atyp
+;	/ABSOLUTE	dedmi$	h.atyp
+;	/CACHE		decac$	h.atyp
+;	/SERIALIZE	deser$	h.atyp
+;	/PAR6		dep6h$	h.atyp
+;
+; HA.DST
+;	/CODE=N
+;	/VARSZ		400
+;	/ABTIO		1000
+;	/SPFUN		2000
+;	/HNDLR		4000
+;	/SPECL		10000
+;	/WONLY		20000
+;	/RONLY		40000
+;	/FILST		100000
+;
+; HA.SYG
+;	/TIM$IT
+;	/MMG$T
+;	/ERL$G
+	
+	set(de16b$=^o1)		;16-bit device (always set)
+	set(de18b$=^o2)		;18-bit device
+	set(de22b$=^o4)		;22-bit device
+	set(devab$=^o10)	;virtual address device
+	set(demap$=^o20)	;mmu mapped addresses
+	set(delog$=^o40)	;logical device
+	set(desin$=^o100)	;single unit device
+	set(deprc$=^o200)	;per-process (do not schedule)
+	set(dev2h$=^o40000)	;2 vector tables present
+	set(despf$=^o100000)	;permit all special functions
+;
+; DE.TYP - SHARE-eleven device type
+;
+	set(dedma$=^o1)		;dma device (xm handler)
+	set(derem$=^o2)		;remote device (star host)
+	set(dedmx$=^o4)		;22-bit device
+	set(desyn$=^o10)	;synchronous device (NL,VM,RE,TT)
+	set(despo$=^o20)	;spooled device (unused)
+	set(detim$=^o40)	;time-out supported
+	set(deabo$=^o100)	;device abort supported
+;
+; DE.TYP - SHAREplus installation defaults
+;
+	set(deunl$=^o200)	;handler has v5.4 unload routine
+	set(deext$=^o400)	;external handler
+	set(dedmi$=^o1000)	;performs internal dma
+	set(deabt$=^o2000)	;abort by default
+	set(demnt$=^o4000)	;mount by default
+	set(decac$=^o10000)	;cache by default
+	set(deser$=^o20000)	;serialize by default
+	set(dep6h$=^o40000)	;par6 handler
+;
+; DE.STA - RT-11 device status (high byte)
+;
+	set(devar$=^o400)	;varsz$	variable size device
+	set(degab$=^o1000)	;abtio$	generic abort
+	set(defun$=^o2000)	;spfun$	accepts spfun
+	set(dehab$=^o4000)	;hndlr$	handler abort
+	set(despc$=^o10000)	;specl$	special directory
+	set(dewon$=^o20000)	;wonly$	write-only
+	set(deron$=^o40000)	;ronly$	read-only
+	set(derta$=^o100000)	;filst$	rt11a file-structured
+;	%abstract
+;	-----------------------------------------------------------------------
+;	DRIVER
+;	-----------------------------------------------------------------------
+;
+;	Use this utility to configure RT-11 device handlers.
+;
+;	-----------------------------------------------------------------------
+;
+;	ANALYSE	file				Display handler internals
+;	EXIT					Exit utility
+;	HELP					Display HELP frame
+;	HELP	file				Display SET item syntax
+;	IDENT					Identify utility version
+;	SET	file item=value,...		Configure handler
+;		/UNIT=n				Specify unit number
+;		/[NO]22BIT			Set (clear) 22-bit flag
+;	SHOW	file				Display known settings
+;
+;	-----------------------------------------------------------------------
+;
+;	This SHAREplus utility is used to configure RT-11 device handlers.
+;	It runs with some restrictions under standard RT-11 monitors.
+;
+;	This utility does not use the same syntax as RT-11 SET commands.
+;	You specify the name of the handler file, rather than the device
+;	name. This lets you configure any device handler on the system,
+;	not just those available to the current monitor.
+;
+;	. |set dux port=1/unit=1|	! rt-11/xm = set du0: port=1
+;
+;	The /22BIT item controls the SHAREplus 22-bit memory flag.
+;	You should only apply this to devices which support 22-bit
+;	data transfers.
+;
+;	DRIVER maintains a record of the known item settings. It does
+;	this by extending the size of the handler file the first time
+;	you apply SET or SHOW to the handler. Use the SHOW command to
+;	display the current settings. DRIVER can only keep track of
+;	the all settings if all SET operations are applied with
+;	the utility.
+;
+;	. |show dux|		!	display SY:DUX.SYS settings
+;
+;	The HELP command displays a list of the available SET items
+;	and the type of value they take.
+;
+;	. |help dyx|		!	display SY:DYX.SYS item syntax
+;	%end
+;	-----------------------------------------------------------------------
+;	Memory updates	
+;	-----------------------------------------------------------------------
+;
+;	DRIVER does not support standard RT-11 handlers which update the
+;	memory image of the handler.
+;
+;	(1)	.DSTAT is used to locate the handler.
+;		SHAREplus does not support .DSTAT in kernel mode.
+; ???		SHAREplus now supports kernel .DSTAT
+;
+;	(2)	It is almost impossible to be certain that the DRIVER
+;		device handler image and the memory image are the same.
+;
+;	(3)	A forced /MEMORY may be implemented later. This could
+;		conflict with automatic memory updates.
+;
+;	DRIVER patchs the .DSTAT code to return an error. The device
+;	handler assumes that it is not loaded and does not attempt to
+;	update memory.
+;	-----------------------------------------------------------------------
+;	MAIN - Set handler
+;	-----------------------------------------------------------------------
+;
+;	main
+;
+;	usage	setup data areas, process commands.
+;
+;	-----------------------------------------------------------------------
+
+task MAIN					;
+	ms$ini("DRIVER")			;	setup messages
+	ac$ini					;	setup acp
+	map(s$hhan,512)				;	2 block handler
+	map(c$shan,clfnl.)			;	handler name
+	map(s$hdat,256)				;	new/data handler
+	map(s$hwrk,256)				;	value plex
+	map(s$hitm,2)				;	item name
+	map(s$hrec,harws.)			;	record plex
+	map(h$aset,hargs.)			;	set mask
+	map(h$aclr,hargs.)			;	clear mask
+only(shp)					;	SHAREplus
+macro						;
+	movb	#15.,s$hhan+p.lchn		;	setup the channel
+maree						;
+only						;
+						;
+do						;	endless loop
+iff(detect(m$ssig))				;	Catch signals
+	cl$ini("DRIVER")			;	init CLI
+	cl$prm(cldcl$,clfd0.,"DRIVER> ")	;	get the command
+	ift(c$oidt) cl$idt ifx			;	ident
+						;
+	ift(c$ohlp)				;	help
+	 iff(cl$prs(cohnf.)) co$hlp		;	command help
+	 ift ap$opn(s$hhan,s$hdat)		;	open the handler
+	 ap$hlp(s$hhan) ifx ifx			;	handler help
+						;
+ ift(c$oset!c$osho!c$oana)			;
+	cl$prm(cldcl$,cohnf.,"Handler? ")	;	get the handler
+  ift(c$oset&_h$aupd)				;
+	cl$prm(cldcl$,coitf.,"Items?   ")	;	items
+  ifx						;
+	ap$opn(s$hhan,s$hdat)			;	open the handler
+	cl$fld(coitf.)				;	position at items
+  ift(c$oana)					;
+	co$ana(s$hhan)				;	analyse handler
+  iff						;
+   ift(c$osho)					;
+	co$sho(s$hdat,s$hrec)			;	show handler
+   iff						;	set handler
+	do cl$opt endf(co$set(s$hhan))		;	process the items
+	ift(h$aupd) sh$upd(s$hhan,s$hdat) ifx	;	update options
+	s$hhan(key)=0				;	force write to disk
+	s$hdat(key)=0 				;	force write to disk
+	ap$iox(s$hhan,shsup.)			;	update i/o error
+  ifx ifx					;
+ ifx						;
+ift	ms$rep					;	report the error
+ifx	ac$pur(s$hhan) ac$pur(s$hdat)		;	purge both of them
+endt(c$oexi)					;	command loop
+exit						;
+;	-----------------------------------------------------------------------
+;	AP$OPN - Open the handler
+;	-----------------------------------------------------------------------
+;
+;	ap$opn(fil(),new())	
+;
+;		fil()		handler file plex
+;		new()		new handler file plex
+;
+;	Usage	Open the device handler.
+;		Read entire handler into 4kw buffer
+;		Create the record area if not currently present.
+;
+;	-----------------------------------------------------------------------
+
+task	AP$OPN(han(),new(),res)			;	open the handler
+	cl$fld(cohnf.)				;	position at handler file
+	cl$fil(0,c$shan)			;	get the filespec
+	res=ac$opn(han,acold$,c$shan,"SY:NONAME.SYS"); open the file
+	st$mov(a$cnam,c$shan)			;	get the result name
+	ap$iox(han,shsfn.)			;	check file not found
+iff(c$ohlp)					;	dont extend for HELP
+	han(res-1*256)				;	position at guard
+ iff(han(pop)=harg0.^(han(pop)=harg1.))		;	create new file
+	res=ac$opn(new,acwri$,c$shan,"",res+1)	;	create new handler
+	ap$iox(new,shscf.)			;	create failed
+	han(0) new(0)				;	rewind them
+	do(res-1*256-1) new(pop)=han(pop) end	;	copy the handler
+	new=han					;	copy the last one
+	new(res-1*256)				;	position at records
+	new(pop)=harg0. new(pop)=harg1.		;	write out the guard
+	do({256-2}) new(pop)=0 end		;	clear the rest
+	ap$iox(new,shscf.)			;	create failed
+	ap$iox(han,shscf.)			;	create failed
+	ac$pur(han)				;	purge the original
+	ac$clo(new)				;	close the new file
+	res=ac$opn(han,acold$,c$shan,"")	;	get the new handler
+	ap$iox(han,shscf.)			;	create failed
+ ifx						;	done
+	res=ac$opn(new,acold$,c$shan,"")	;	use new for record area
+	ap$iox(han,shscf.)			;	create failed
+	s$hgin=res-1*256			;	start of guard area
+	s$hrin=s$hgin+hargs.			;	start of record area
+ifx						;
+exit						;
+
+;	-----------------------------------------------------------------------
+;	AP$IOX - Check I/O error
+;	-----------------------------------------------------------------------
+;
+;	ap$iox(fil(),sig)
+;
+;		fil()		file to check
+;		sig		signal to issue if error
+;
+;	usage	issue SIG if FIL(mode) has eof or error set
+;
+;	-----------------------------------------------------------------------
+
+task	AP$IOX(fil(),sig)			;	check errors
+;ift(fil(mode)&aceof$) jot("eof") ifx		;
+;ift(fil(mode)&acerr$) jot("err") ifx		;
+	ift(fil(mode)&{aceof$!acerr$})		;	got an error
+	 cl$sig(sig) ifx			;	signal it
+exit						;
+;	-----------------------------------------------------------------------
+;	CO$INI - Init CLI
+;	-----------------------------------------------------------------------
+;
+;	co$ini(fld)
+;
+;		fld		field number - zero => major init
+;
+;	-----------------------------------------------------------------------
+
+task	CO$INI(fld,res)				;	init
+iff(fld)					;	major init only
+	c$ohlp=0				;	help
+	c$oidt=0				;	ident
+	c$oexi=0				;	exit
+	c$oset=0				;	set
+	c$osho=0				;	show
+	c$ouni=0 c$vuni=0			;	/unit=n
+	c$oana=0				;	analyse
+	c$o22b=0				;	/22bit
+	c$shan(0)=0				;	handler name
+	s$hdst=0				;	no .DSTAT patch
+	pl$clr(h$aset) pl$clr(h$aclr)		;	clear these
+ifx						;
+exit						;
+;	-----------------------------------------------------------------------
+;	CO$SIG - Signals
+;	-----------------------------------------------------------------------
+; 
+;	co$sig(sig)
+; 
+;		sig		signal
+; 
+;	usage	called by CL$INI to process application signals
+; 
+;	-----------------------------------------------------------------------
+;	%messages
+
+task	CO$SIG(sig)				;	signal routine
+case(-sig)					;	dispatch the signal
+	ms$msg("Unknown error","")		;	unknown error
+of(-shsis.) ms$msg("SET option error ",c$lsym)	;	SET option error
+of(-shsin.) ms$msg("SET option not found ",c$lsym) ;	SET option not found
+of(-shsfn.) ms$msg("File not found ",c$shan)	;	handler not found
+of(-shscf.) ms$msg("File extend failed ",c$shan);	file extend failed
+of(-shsup.) ms$msg("Update I/O error ",c$shan)	;	error updating 
+case						;
+exit(sig)					;
+;	%end					;
+;	-----------------------------------------------------------------------
+;	CO$COM - Command processor
+;	-----------------------------------------------------------------------
+;	
+;	co$com(con,res)
+;	
+;		con		option control
+;	result	res	true	fine
+;			fail	command not found
+;			signal	command decode error
+;
+;	in	c$lsym		command symbol to decode
+;	out	c$o%%%		command option flag maybe
+;		c$oimm	true	immediate command
+;
+;	usage	called by CL$COM to search for application command
+;
+;	-----------------------------------------------------------------------
+
+task	CO$COM(con,res)				;
+	res=1					;	assume found
+	ift(cl$mat("A*NALYSE")) c$oana=con iff	;	analyse		;V4
+	ift(cl$mat("H*ELP")) c$ohlp=con iff	;	help
+	ift(cl$mat("I*DENTIFY")) c$oidt=con iff	;	ident
+	ift(cl$mat("E*XIT")) c$oexi=con iff	;	exit
+	ift(cl$mat("SE*T")) c$oset=con iff	;	set
+	ift(cl$mat("SH*OW")) c$osho=con iff	;	show
+	res=0					;	invalid command
+	ifx ifx ifx ifx ifx ifx			;	
+exit(res)					;
+;	-----------------------------------------------------------------------
+;	CO$OPT - Option processor
+;	-----------------------------------------------------------------------
+;	
+;	co$opt(con,res)
+;	
+;		con		option control
+;	result	res	true	option found
+;			fail	option not found
+;			signal	option syntax error
+;
+;	in	c$lsym		option symbol to match
+;	out	c$o%%%		option flag word maybe
+;
+;	usage	called by CL$OPT to process application options
+;
+;	-----------------------------------------------------------------------
+
+	word(l$ocon,l$ores)
+task	CO$OPT(con,res)					;
+	ift(cl$mat("U*NIT")) c$ouni=con res=clval$	;	/UNIT=octal
+	 ift(con&clval$)				;	got a value
+	  c$vuni=cv$val(cvoct.,c$llin) ifx iff		;	octal
+	ift(cl$mat("CO*DE")) res=clval$			;	/CODE=octal
+	 ift(con&clval$) h$aupd=1			;	got a value
+	  c$vcod=cv$val(cvoct.,c$llin)			;	get the value
+		h$aset(ho.sta)=h$aset(ho.sta)&'255!c$vcod ;	setup the code
+		h$aclr(ho.sta)=h$aclr(ho.sta)!255	;	to clear it
+	 ifx iff					;
+							;
+;	ift(cl$mat("2*2BIT")) c$o22b=con ifx		;	/22bit
+		l$ocon=con l$ores=0			;
+		res=co$ops("2*2BIT",de22b$,ho.con)
+		res=co$ops("ABO*RT",deabo$,ho.typ)
+		res=co$ops("ABS*OLUTE",dedmi$,ho.typ)
+		res=co$ops("ABT*IO",degab$,ho.sta)
+		res=co$ops("CA*CHE",decac$,ho.typ)
+		res=co$ops("ER*LG",sgerl$,ho.syg)
+		res=co$ops("EX*TERNAL",deext$,ho.typ)
+		res=co$ops("FI*LST",dsrta$,ho.sta)
+		res=co$ops("FU*NCTIONS",despf$,ho.con)
+		res=co$ops("H*NDLR",dshab$,ho.sta)
+		res=co$ops("M*MGT",sgmmg$,ho.syg)
+		res=co$ops("P*AR6",dep6h$,ho.typ)
+		res=co$ops("R*ONLY",dsron$,ho.sta)
+		res=co$ops("SE*RIALIZE",deser$,ho.typ)
+		res=co$ops("SI*NGLE",desin$,ho.con)
+		res=co$ops("SPE*CL",dsspc$,ho.sta)
+		res=co$ops("SPF*UN",dsfun$,ho.sta)
+		res=co$ops("SY*NCHRONOUS",desyn$,ho.typ)
+		res=co$ops("TIME*OUT",detim$,ho.typ)
+		res=co$ops("TIMI*T",sgtim$,ho.syg)
+		res=co$ops("V*ARSZ",dsvar$,ho.sta)
+		res=co$ops("W*ONLY",dswon$,ho.sta)
+	ifx ifx
+exit(res)
+
+;	CO$OPS	Set/clear handler option words
+;
+;	co$ops("opt*ion",bit,idx)
+
+task	co$ops(opt(),bit,idx,res)
+ift(l$ores)					;already found it
+	res=l$ores				;return previous status
+iff						;look for it
+	ift(cl$mat(opt))			;not found
+	  iff(l$ocon&clneg$)			;not negated
+		h$aset(idx)=h$aset(idx)!bit	;set the bit
+	  ift	h$aclr(idx)=h$aclr(idx)!bit ifx	;clear the bit
+	  h$aupd=1 l$ores=1 res=1		;adjust later
+	ifx					;
+ifx						;
+exit(res)					;
+;	-----------------------------------------------------------------------
+;	CO$HLP - Display HELP frame
+;	-----------------------------------------------------------------------
+;
+;	co$hlp
+;
+;	usage	display HELP frame for utility
+;		display HELP frame for handler
+;
+;	-----------------------------------------------------------------------
+
+task	CO$HLP					;
+;  jot("ANALYSE file	Display handler configuration")			;V4
+   jot("EXIT		Return to system")
+   jot("IDENTIFY	Display DRIVER image information")
+   jot("HELP		Display this HELP frame")
+   jot("HELP file	Display driver SET item syntax")
+   jot("SET file items	Configure device driver items")
+   jot(" /UNIT=octal	Specify unit for SET command")
+   jot(" /[NO]config	Set (clear) driver configuration flags")
+   jot("SHOW file	Display known driver settings")
+exit						;
+;	-----------------------------------------------------------------------
+;	AP$HLP - Display handler help frame
+;	-----------------------------------------------------------------------
+;
+;	ap$hlp(han())
+;
+;		han		handler plex
+;
+;	usage	display handler SET item syntax
+;
+;	set(ha.set=128)			;set table
+;					;
+;	item(h.aval=0)			;item value
+;	 set(haend$=0)			;end of values
+;	item(h.aop0=1)			;item name
+;	item(h.aop1=2)			;
+;	item(h.aoff=3)			;offset in low byte
+;	item(h.amod=3)			;mode in high byte
+;	item(h.asws=4)			;4-word entry
+;
+;	-----------------------------------------------------------------------
+
+task	AP$HLP(han(),mod)			;
+	han(ha.set)				;	position at set items
+do ift(han)					;	cycle thru items
+	mod=han(h.amod)				;	get the mode
+	st$typ("SET ")				;	indent
+	st$typ(a$cfil)				;	handler name
+	st$typ(" ")				;
+	ift(mod&hanot$)				;	negatable
+	 st$typ("[NO]") ifx			;
+	han(pop)				;	skip value
+	cv$asc(cvcap$!cvr50.,han(pop),s$tter)	;	first part of name
+	cv$asc(cvcap$!cvr50.,han(pop),s$tter)	;	second part of name
+	han(pop)				;	skip mod & off
+	ift(mod&hahex$)
+	 st$typ("=hex") iff			;
+	ift(mod&haoct$)				;	octal
+	 st$typ("=octal") iff			;
+	ift(mod&hanum$)				;	decimal
+	 st$typ("=decimal") ifx ifx ifx		;
+	st$prt("")				;	new line
+ifx endf(han)					;	do them all
+exit						;
+;	-----------------------------------------------------------------------
+;	CO$ANA - Analyse handler
+;	-----------------------------------------------------------------------
+;
+;	co$ana(han(),val)
+;
+;		han()		handler plex
+;		val		value - internal
+;
+;	usage	display hardwired options
+;
+;	-----------------------------------------------------------------------
+
+task	CO$ANA(han(),val)			;
+	own(flg)				;	temporary flags
+						;
+	st$typ("Sysgen options	")		;
+	val=han(ha.syg)				;	get the sysgen stuff
+	co$git(val&sgmmg$,"Mapped")		;
+	co$git(han(ha.22b)=ha22b.,"22-bit")	;
+	co$git(val&sgtim$,"Timeout")		;
+	co$git(val&sgerl$,"Error_log")		;
+	co$git(val&sgrtm$,"RTEM")		;
+	co$git(val&sgtsx$,"TSX")		;
+	st$prt("")				;
+						;
+	st$typ("Device status	")		;
+	val=han(ha.sta)				;	device status word
+	co$git(val&dsrta$,"RT11A")		;
+	co$git(val&dsspc$,"RT11S")		;
+	co$git(val&dsfun$,"Functions")		;
+;	co$git(val&dsvar$,"Variable_size")	;
+	co$git(val&dsron$,"Read_only")		;
+	co$git(val&dswon$,"Write_only")		;
+	st$prt("")				;
+						;
+	st$typ("Device code 	")		;	device code
+	cv$asc(cvoct.,han(ha.sta)&255,s$tter)	;	
+	st$prt("")				;
+						;
+	st$typ("Device size 	")		;	device size
+	ift(han(ha.dsz))			;	ignore null size
+	 cv$asc(cvdec.,han(ha.dsz),s$tter) ifx	;	display size
+	co$git(val&dsvar$," Variable")		;	variable
+	st$prt("")				;
+						;
+	st$typ("Device CSR	")		;	get the CSR
+	ift((han(ha.csr)=0)^(han(ha.md2)&hav2q$)) ;	got two csrs?
+	 st$typ("pdp=")				;	yes
+	 cv$asc(cvoct.,han(ha.pcs),s$tter)	;	display pdp csr
+	 st$typ(" pro=")			;
+	 cv$asc(cvoct.,han(ha.ccs),s$tter)	;	display pro csr
+	iff					;
+	 cv$asc(cvoct.,han(ha.csr),s$tter)	;	display csr
+	ifx					;
+	st$prt("")				;
+						;
+	flg=han(ha.md2)&hav2q$			;	two tables flag
+	val=han(ha.vec)				;	get the vector
+	ift(val<0)				;	vector table
+	 han(val&^o77777+{1+ha.vec})		;	point at table
+	 ift(han<0) han(pop)			;	cti slot
+	  st$typ("CTI slot	")		;
+	  cv$asc(cvoct.,han(pop),s$tter)	;	display the slot
+	  st$prt("")				;
+	 iff					;
+	  val=1 ift(flg) val=2 ifx		;	two tables
+	  do(val)				;
+	   st$typ("Device vectors	")	;	Vector table
+						;
+	   do ift(han&^o77777)			;	next vector
+	    cv$asc(cvoct.,han(pop),s$tter)	;	display it
+	    han(pop) han(pop)			;	skip offset & psw
+	    st$typ(" ")				;	separate them
+	   ifx endf(han&^o77777)		;	
+	  ift(val=2) val=0 han(pop) st$prt("") ifx ;	do the second table
+	 end					;
+	 ifx					;
+	iff					;
+	st$typ("Device vector	")		;	single vector
+	cv$asc(cvoct.,val,s$tter)		;	display the vector
+	ifx					;
+	st$prt("")				;
+						;
+	st$typ("Bootstrap	")		;	Bootstrap
+	ift(han(ha.bpt)) st$typ("Present")	;
+	iff st$typ("None") ifx			;
+	st$prt("")				;
+exit						;
+;	-----------------------------------------------------------------------
+;	CO$GIT - Show generated item
+;	-----------------------------------------------------------------------
+;
+;	co$git(flg,str())
+;
+;		flg	display string if true
+;		str()	string to display
+;
+;	usage	Display string conditionally
+;	note	period and space appended to string.
+;
+;	-----------------------------------------------------------------------
+
+task	CO$GIT(flg,str())			;
+	ift(flg)				;	flag is set
+	st$typ(str)				;	type the string
+	st$typ(". ")				;	separate it
+	ifx					;
+exit						;
+;	-----------------------------------------------------------------------
+;	CO$SHO - Show current settings
+;	-----------------------------------------------------------------------
+;
+;	co$sho(han(),rec(),val,ctl,uni)
+;
+;		han()		handler plex
+;		rec()		record plex
+;		val		value - internal
+;		ctl		item control - internal
+;		uni		unit - internal
+;
+;		h.arn0	^ritm	item name
+;		h.arn1	^rnam	
+;		h.arct		control flags & unit
+;		h.arvl		value
+;
+;		set dux csr=177600
+;		set dux vector=300
+;		set dux/unit=0 part=1
+;		set dux/unit=1 part=2
+;		set dux/unit=1 nowrite
+;
+;	usage	display known settings of file specified
+;
+;	-----------------------------------------------------------------------
+
+task	CO$SHO(han(),rec(),val,ctl,uni)		;
+	han(s$hrin)				;	position at records
+	uni={-1}				;	force first unit
+
+do	ift(han)				;	we have some more
+	rec(0) do(harws.) rec(pop)=han(pop) end	;	get the next record
+	ctl=rec(ha.rct)				;	get control flags
+	val=rec(ha.rvl)				;	get the value
+						;
+	st$typ("SET ")				;	start the display
+	st$typ(a$cfil)				;	the file name
+	st$typ(" ")				;	indent
+						;
+	ift(ctl&haneg$) st$typ("NO") ifx	;	negated
+	cv$asc(cvcap$!cvr50.,rec(ha.rn0),s$tter);	display the name
+	cv$asc(cvcap$!cvr50.,rec(ha.rn1),s$tter);
+						;
+	iff(ctl) st$typ("=default") ifx		;	still default
+						;
+	ift(ctl&{hapac$!haoct$!hadec$!hahex$})	;	got a value
+	 st$typ("=")				;	=
+	 ift(ctl&hapac$) 			;	rad50
+	  cv$asc(cvcap$!cvr50.,val,s$tter) iff	;
+	  ift(ctl&hahex$) 			;	octal
+	   cv$asc(cvhex.,val,s$tter) iff	;
+	  ift(ctl&haoct$) 			;	octal
+	   cv$asc(cvoct.,val,s$tter) iff	;
+	   cv$asc(cvdot$!cvdec.,val,s$tter)	;	decimal
+	 ifx ifx ifx ifx			;
+						;
+	 ift(ctl&hauni$)			;	explicit unit
+	 st$typ("/UNIT=")			;
+	  cv$asc(cvoct.,ctl&255,s$tter) ifx	;
+	st$prt("")				;	newline
+ifx						;	end item
+endf(han)					;
+						;
+ift(han(s$hgin+ho.con)!han(s$hgin+ho.typ))	;	it is set
+	sh$ops(han,"22BIT",de22b$,ho.con)	;
+	sh$ops(han,"ABORT",deabo$,ho.typ)	;
+	sh$ops(han,"ABSOLUTE",dedmi$,ho.typ)	;
+	sh$ops(han,"CACHE",decac$,ho.typ)	;
+	sh$ops(han,"EXTERNAL",deext$,ho.typ)	;
+	sh$ops(han,"FUNCTIONS",despf$,ho.con)	;
+	sh$ops(han,"PAR6",dep6h$,ho.typ)	;
+	sh$ops(han,"SERIALIZE",deser$,ho.typ)	;
+	sh$ops(han,"SINGLE",desin$,ho.con)	;
+	sh$ops(han,"SYNCHRONOUS",desyn$,ho.typ)	;
+	sh$ops(han,"TIMEOUT",detim$,ho.typ)	;
+	st$prt("")				;	newline
+ifx
+ift(han(s$hgin+ho.sta))				;	it is set
+	sh$ops(han,"VARSZ$",dsvar$,ho.sta)	;	status options
+	sh$ops(han,"ABTIO$",degab$,ho.sta)
+	sh$ops(han,"SPFUN$",dsfun$,ho.sta)
+	sh$ops(han,"HNDLR$",dshab$,ho.sta)
+	sh$ops(han,"SPECL$",dsspc$,ho.sta)
+	sh$ops(han,"WONLY$",dswon$,ho.sta)
+	sh$ops(han,"RONLY$",dsron$,ho.sta)
+	sh$ops(han,"FILST$",dsrta$,ho.sta)
+	c$vcod=han(s$hgin+ho.sta)&255		;	isolate code
+	ift(c$vcod)				;	got one
+	  st$typ("/CODE=")
+	  cv$asc(cvoct.,c$vcod,s$tter)		;
+	ifx					;
+	st$prt("")				;	newline
+ifx
+ift(han(s$hgin+ho.syg))				;	sysgen options
+	sh$ops(han,"ERL$G",sgerl$,ho.syg)
+	sh$ops(han,"MMGT$",sgmmg$,ho.syg)
+	sh$ops(han,"TIM$IT",sgtim$,ho.syg)
+	st$prt("")				;	newline
+ifx
+exit						;
+
+;	SH$OPS	Show options
+;
+;	sh$ops(han(),"option",bit,idx)
+
+task	sh$ops(han(),opt(),bit,idx)
+	ift(han(s$hgin+idx)&bit)		;	it is set
+	st$typ("/") st$typ(opt) ifx		;	a slash
+exit
+;	-----------------------------------------------------------------------
+;	AP$REC - Record current item
+;	-----------------------------------------------------------------------
+;
+;	ap$rec(han(),rec(),wrk(),ctl,uni,val,org,pos)
+;
+;		han()		handler plex
+;		rec()		record plex
+;		wrk()		work plex
+;		ctl		control flags built by CO$SET
+;		uni		unit number, if any
+;		val		input value, if any
+;		org		plex origin - internal
+;		pos		sort position - internal
+;
+;	usage	Record current item
+;
+;		ha.rn0	^ritm	item name
+;		ha.rn1	^rnam	
+;		ha.rct		control flags & unit
+;		ha.rvl		value
+;
+;	note	generic and unit=0 items cancel each other out.
+;		items are sorted <generic,unit=0,unit=1>
+;
+;	-----------------------------------------------------------------------
+
+task	AP$REC(han(),rec(),wrk(),ctl,uni,val,org,pos);
+	rec(ha.rn0)=s$hitm(0)			;	pick up the item
+	rec(ha.rn1)=s$hitm(1)			;	item name
+	rec(ha.rct)=ctl!(uni&255)		;	control
+	rec(ha.rvl)=val				;	setup the value
+	han(s$hrin) wrk(0)			;	position at records
+						;
+	uni=0					; uni	rec() stored flag
+do	org=han(key)				;	remember where we are
+	rec(0)					;	rewind record
+ ift(han)					;	all done
+	ctl=rec(h.arct) val=han(h.arct)		; ctl	rec(h.arct)
+						; val	han(h.arct)
+	pos=val&255-(ctl&255)			;	compare units
+	iff(pos) pos=han-rec	 		;	compare first
+	 iff(pos) pos=han(h.arn1)-rec(h.arn1)	;	compare second
+	ifx ifx					;
+						;
+	ift(((ctl&hauni$)=0)^(val&hauni$))	;	unit precedence
+	 iff(uni) ap$put(rec) uni=1 ifx ifx	;
+						;
+	ift(pos<0) ap$put(han) iff		;	handler first
+	 iff((val&hauni$=0)^(ctl&hauni$))	;	align units
+	  iff(uni) ap$put(rec) uni=1 ifx ifx	;	insert wrk one
+	 ift(pos>0) ap$put(han) 		;	handler last
+	ifx ifx					;
+	han(org+harws.)				;	next entry
+ ifx						;
+endf(han)					;	somethings done
+	iff(uni) ap$put(rec) ifx		;	append
+	wrk=0					;	terminate it
+	han(s$hrin) wrk(0)			;	position
+	do({254-hargs.}) han(pop)=wrk(pop) end	;	copy out result
+exit						;
+;	-----------------------------------------------------------------------
+;	AP$PUT - Put record
+;	-----------------------------------------------------------------------
+;
+;	ap$put(rec())
+;
+;		rec()		record plex
+;	usage	copy REC to S$HWRK temporary copy
+;
+;	-----------------------------------------------------------------------
+
+task	AP$PUT(rec())				;	put record
+	do(4) s$hwrk(pop)=rec(pop) end		;	copy it
+exit						;
+;	-----------------------------------------------------------------------
+;	SH$UPD	Update options
+;	-----------------------------------------------------------------------
+;
+;	sh$upd(han(),dat())
+;
+;	usage	Write changed options out to file
+;
+;	-----------------------------------------------------------------------
+
+task	sh$upd(han(),dat())
+	han(ha.sta)=han(ha.sta)&'h$aclr(ho.sta)!h$aset(ho.sta)
+	han(ha.syg)=han(ha.syg)&'h$aclr(ho.syg)!h$aset(ho.syg)
+	h$aset(0) h$aclr(0) dat(s$hgin)
+	do(hargs.) dat=dat&'h$aclr(pop)
+		dat(pop)=dat!h$aset(pop)
+	end
+exit
+;	-----------------------------------------------------------------------
+;	CO$SET - Set item
+;	-----------------------------------------------------------------------
+;
+;	co$set(han(),ctl,val,mod,off,uni,inp,res)
+;
+;		han()		local reference to handler
+;		ctl		internal control flags
+;		val		value to to pass to SET routine
+;		mod		handler mode flags
+;		off		offset to handler SET routine
+;		uni		device unit
+;	result	res	true	processed item o.k.
+;			false	no item or error
+;
+;	usage	call to decode next SET item for handler.
+;
+;	-----------------------------------------------------------------------
+
+task	CO$SET(han(),ctl,val,mod,off,uni,inp,res);	process item
+	cl$skp cl$skp(^a,) cl$skp		;	skip preliminary stuff
+ift(c$llin)					;
+;ift(c$llin!c$o22b)				;
+;ift(c$o22b)					;	/22bit
+;	st$mov("22BIT",c$lsym)			;	simulate symbol
+;	s$hitm(0)=^r22b				;
+;	s$hitm(1)=^rit				;
+;	ift(c$o22b>0)				;	/22bit
+;	 han(0)=^r22b ctl=haset$		;	set it
+;	iff					;	/no22bit
+;	 han(0)=0 ctl=haneg$			;	clear it
+;	ifx					;
+;	c$o22b=0				;	once only
+;iff						;	handler set item
+	cl$sym					;	get a symbol in
+	ift(st$cmp(c$lsym,"NO"))		;	negated option
+	 ctl=ctl+haneg$	ifx			;	negated option
+						;
+	s$hitm(0)=cv$val(cvr50.,c$lsym)		;	get the item name
+	s$hitm(1)=cv$val(cvr50.,c$lsym)		;
+	iff(s$hitm(0)) cl$sic ifx		;	invalid command
+						;
+;	find the name				;
+						;
+	han(ha.set)				;	position at set table
+ do ift(han)					;	check another
+	ift(han(h.aop0)=s$hitm(0)&(han(h.aop1)=s$hitm(1))) res=1
+	iff han(han(key)+h.asws)		;	skip it
+	ifx					;
+   iff	cl$sig(shsin.)				;	option missing
+   ifx						;
+ endt(res)					;
+						;
+	val=han(h.aval)				;	default value
+	mod=han(h.amod)				;	mode
+	off=han(h.aoff)&255+^o200		;	offset
+	ift(ctl&haneg$) off=off+2 ifx		;	negated offset
+	uni=^o100000				;	assume no unit
+	ift(c$ouni) uni=c$vuni ctl=ctl!hauni$ ifx ;	unit
+	inp=0					;	command value
+						;
+	ift(ctl&haneg$)				;	negated option
+	iff(mod&hanot$) cl$sic ifx		;	invalid negated option
+	ifx					;
+						;
+	iff(cl$skp(^a=)!cl$skp(^a:))		;	no value
+	 ctl=ctl!haset$ ift			;	simple set command
+	ift(st$let(c$llin)) ctl=ctl!hapac$	;	remember packed value
+	 inp=cv$val(cvr50.,c$llin) iff		;	rad50 value
+	ift(mod&hahex$) ctl=ctl!hahex$		;	remember octal number
+	 inp=cv$val(cvhex.,c$llin) iff		;	get octal
+	ift(mod&haoct$) ctl=ctl!haoct$		;	remember octal number
+	 inp=cv$val(cvoct.,c$llin) iff		;	get octal
+	ift(mod&hanum$) ctl=ctl!hadec$		;	decimal number
+	 inp=cv$val(cvdec.,c$llin) iff		;	get decimal
+	cl$sic ifx ifx ifx ifx ifx		;	no value expected
+	cl$end					;	check end of field
+						;
+;;;	sh$pat(han)				;	patch the handler
+	res=sh$mac(han,ctl,val,mod,off,uni,inp)	;	set the item
+	sh$res(han)				;	restore patchs
+	iff(res) cl$sig(shsis.) ifx		;	invalid option
+;ifx						;	/22bit
+	ap$rec(s$hdat,s$hrec,s$hwrk,ctl,uni,inp);	record the item
+	res=1					;	
+ifx						;
+exit(res)					;
+;	-----------------------------------------------------------------------
+;	SH$PAT - Patch the handler
+;	-----------------------------------------------------------------------
+;
+;	sh$pat(han())
+;
+;		han()		device handler
+;
+;	out	s$hdst		retains index to patch location
+;				required so that .DSTATU can be put back
+;
+;	usage	call to apply patchs to handler
+;
+;	.dstat	Replace .dstat calls with forced error.
+;		This stops images from modifying the memory image.
+;		This is required since the handler being configured may
+;		be a different image to the handler in memory.
+;
+;		The .DSTAT call is modified as follows:
+;
+;		old			new
+;		psh	#dnam		psh	#dnam
+;		emt	342		com	(sp)+
+;		bcc/s	addr		bcc/s	addr
+;
+;		COM (SP)+ removes the .DSTAT argument from the stack
+;		and sets the cbit. This causes the .DSTAT to fail and
+;		the handler code assumes the handler is not loaded.
+;
+;	-----------------------------------------------------------------------
+
+	set(lodst.=^o104342)			;	.dstatus emt
+	set(lobcc.=^o103000)			;	bcc code
+	set(lobcs.=^o103400)			;	bcs code
+	set(lobc$p=^o177000)			;	normalisation mask
+	set(locsp.=^o005126)			;	com (sp)+ code
+						;
+task	SH$PAT(han())				;
+	han(32)					;	cannot occur lower
+do	ift(han(pop)=lodst.)			;	this is a .dstatu
+	 ift(han&lobc$p=lobcc.)			;	followed by bcc/bcs
+	  han(push)=locsp.			;	.dstatu = com (sp)+
+	  s$hdst=han(key)			;	remember the index
+	ifx ifx					;
+endt(han(key)>=510)				;	process all code
+exit						;
+;	-----------------------------------------------------------------------
+;	SH$RES - Restore patch
+;	-----------------------------------------------------------------------
+;
+;	sh$res(han())
+;
+;		han()		device handler
+;
+;	out	s$hdst		retains index to patch location
+;
+;	usage	puts back code patched out by SH$PAT
+;
+;	-----------------------------------------------------------------------
+
+task	SH$RES(han())				;	restore patch
+	ift(s$hdst)				;	we patched dstat
+	 han(s$hdst)=lodst.			;	restore the .DSTATU
+	 s$hdst=0				;	clear it
+	ifx					;
+exit						;
+;	-----------------------------------------------------------------------
+;	SH$MAC - MACRO interface to handler
+;	-----------------------------------------------------------------------
+;
+;	sh$mac(han(),ctl,val,mod,off,uni,inp,res)
+;
+;		han()		local reference to handler
+;		ctl		internal control flags
+;		val		value from SET table
+;		mod		handler mode flags
+;		off		offset to handler SET routine
+;		uni		device unit
+;		inp		command input value
+;
+;	result	res	true	processed item o.k.
+;			false	no item or error
+;
+;	Handler is passed:
+;
+;		r0		command input value
+;		r1		unit specified, or 100000
+;		r2		undefined
+;		r3		value from SET table
+;		r4		undefined
+;		r5 ->		command line in reverse - undocumented
+;		cbit		clear 		(r5 -> not implemented)
+;		entry+4		called for negated options
+;
+;	usage	passes control to handler macro code
+;
+;	-----------------------------------------------------------------------
+
+task	SH$MAC(han(),ctl,val,mod,off,uni,inp,res)
+only(shp)				;
+	han(0)				;	force mapping
+macro					;
+	mov	inp(r5),r0		;	input value
+	mov	uni(r5),r1		;	unit
+	mov	han(r5),r2		;	get the handler
+	mov	val(r5),r3		;	set table value
+					;
+	movb	#-1,p.lupd(r2)		;	signal write on plex remap
+	mov	p.lbas(r2),r2		;	point to the base of it
+	add	off(r5),r2		;	add in the offset
+	add	off(r5),r2		;	twice for bytes
+	pshs	<r5,r4>			;	save these two
+	clc				;	carry clear on entry
+	call	(r2)			;	call the routine
+	pops	<r4,r5>			;	get them back
+	bcs	10$			;	got an error
+	inc	res(r5)			;	indicate success
+10$:					;
+maree					;
+only					;
+exit(res)				;
+

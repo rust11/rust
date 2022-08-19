@@ -1,0 +1,535 @@
+.title erase
+
+;	%build
+;	macro:	macro/object:cub:	cus:erase
+;	link:	link/execute:cub:	cub:erase
+;	copy:	copy cub:erase.sav	sy:erase.sav
+;	%end
+;
+;	Image information area
+;
+.include "lib:rust.mac"
+$imgdef	ERASE 2 2
+$imginf	fun=sav cre=hammo aut=ewm use=<Erase a device or a file>
+$imgham	yrs=<1984,1985,1986> oth=<>
+;	%date
+$imgdat	<31-Oct-2004 03:11:54.36>
+;	%edit
+$imgedt	<36   >
+
+
+;	----------------------------------------------------------------------
+;	erase a file or a device
+;	/y	/noquery
+;	/d	/device
+;	/n	/nodelete	do not delete the file
+;	/f	/foreign	use with corrupted disks
+;	/i	/ignore		ignore errors
+;	----------------------------------------------------------------------
+
+$aldef
+$dcdef		;device codes
+
+	varsz$	=	400
+	specl$	=	10000
+	ronly$	=	40000
+	filst$	=	100000
+	dev	=	0
+	fil	=	2
+	nam	=	4
+	typ	=	6
+	usersp	=	42
+
+
+	opty$	=	1
+	optd$	=	2
+	optn$	=	4
+	optf$	=	10
+	opti$	=	20
+	dvvx$	=	100000			;	vax directory
+
+	jsw	=	44
+	gtlin$	=	10
+
+.macro	meta	m n o p q
+.macro	m
+n
+o
+p
+q
+.endm
+.endm
+
+
+meta	<psh loc><mov loc,-(sp)>
+meta	<pop loc><mov (sp)+,loc>
+meta	<$print	s><jsr r2,print><.asciz &s&><.even>
+meta	<$type	s><jsr r2,print><.ascii &s&<200>><.even>
+meta	<$errmes s><.print #ours><$type <s>>
+
+meta	<$erfil	s><$errmes <s>><call $file><$print < >><jmp start>
+meta	<$erdev	s><$errmes <s>><call $device><$print < >><jmp start>
+meta	<$error s><$errmes <s>><$print < >><jmp start>
+.sbttl	start
+
+init:	call	clear		;clear impure area
+;	call	getbuf		;get buffer size
+start:	.sreset			;
+	mov	#dyn,free
+	mov	usersp,sp
+	clr	line
+	clr	$opts		;no options specified
+	.csispc	#files,#types,#0,#line
+	tst	line		;something got?
+	bne	10$
+	.print	#i$midt		;
+	br	start
+
+10$:	tst	infil		;got input?
+	bne	switch		;yes
+	$error	<Invalid command>
+
+switch:	mov	(sp)+,r5	;any switches?
+	beq	40$		;nope
+10$:	mov	(sp)+,r4	;get switch
+	cmpb	r4,#'a		;
+	blo	15$		;
+	cmpb	r4,#'z		;
+	bhi	15$		;
+	sub	#'a-'A,r4	;
+meta	<opt cha,flg><mov #flg,r0><cmpb r4,#cha><beq 20$>
+15$:	opt	uprY.,opty$	
+	opt	uprD.,optd$	
+	opt	uprN.,optn$	
+	opt	uprF.,optf$	
+	opt	uprI.,opti$	
+	$error	<Invalid option>
+20$:	bis	r0,$opts	;
+	dec	r5		;more options?
+	bne	10$		;yes
+
+	tst	infil+2		;got a filename?
+	bne	30$		;yep
+	bpcw	#optd$,$opts,invcom
+	bpsw	#optn$,$opts,invcom
+	br	40$		;no, fine
+30$:	bpsw	#optd$,$opts,invcom
+	bpsw	#optf$,$opts,invcom
+
+40$:	call	tstdev		;device ok?
+	call	open		;open file or device
+	call	getbuf		;
+	call	erase		;erase file or device
+	jmp	start		;all done
+invcom:	$error	<Invalid command>
+
+clear:	mov	#files,r0	;get start of impure
+	mov	#top,r1		;get top of impure
+10$:	clr	(r0)+		;
+	cmp	r0,r1		;all done?
+	blo	10$		;nope
+	return			;
+.sbttl	test device status
+
+tstdev:	.dstat	#daddr,#infil	;get device info's
+	bcc	5$		;handler found?
+	$erdev	<Invalid device >
+5$:	bit	#ronly$,daddr	;read-only device?
+	beq	10$		;no
+	$erdev	<Read-only device >
+10$:	bit	#filst$,daddr	;file-structured?
+	bne	20$		;yes
+	cmpb	daddr,#dentc.	;or SHAREnet?
+	beq	20$		;yes - allow
+	cmpb	daddr,#devxc.	;this vx: ?
+	beq	15$		;yes - allow operation
+	cmpb	daddr,#denfc.	; nf?
+	beq	15$		;
+	cmpb	daddr,#defxc.	; fx?
+	beq	15$		;
+	$erdev	<Not a file-structured device >
+15$:	bis	#dvvx$,$opts	;it's a vax directory
+	bit	#optd$,$opts	;device erase?
+	beq	30$		;nope - fine
+	$erdev	<Can't erase VAMP directory with /D >
+20$:	mov	infil,devnam	;get a copy o the device name
+	clr	devnam+2	;make it non-file
+	.purge	#0		;free channel
+	.fetch	free,#devnam	;
+	bcs	24$
+	mov	r0,free		;
+	.lookup	#area,#0,#devnam;do a non-filestructured lookup
+	bcc	25$
+24$:	$erdev	<Can't access device >
+25$:	tst	infil+2		;got a filename?
+	bne	60$		;skip if yes
+	bit	#optd$,$opts	;/device specified?
+	bne	30$		;yes
+	$erdev	<No file >	;signal error
+30$:	cmp	infil,#^rSY	;erase system device?
+	bne	40$		;no
+	$error	<Can't erase system volume>
+40$:	mov	daddr+6,$len	;get device size
+	bit	#varsz$,daddr	;variable size volume?
+	beq	60$		;no
+	.spfun	#area,#0,#373,#$len,#1,#0	;get the device size
+60$:	return
+.sbttl	directory operations
+
+;	test for a valid directory
+
+tstdir:	.readw	#area,#0,#buff,#256.,#6;read first block of directory
+	bcc	5$		;fine
+	bit	#optd$,$opts	;/device?
+	bne	10$		;yes
+	$erdev	<Directory input error >
+5$:	cmp	buff,#31.	;valid total of segs?
+	bhi	10$		;no
+	cmp	buff+2,#31.	;valid next?
+	bhi	10$		;
+	cmp	buff+4,#31.	;valid highest in use?
+	bhi	10$
+	tst	buff+4		;surely?
+	beq	10$		;
+	mov	buff+12,r5	;get first entry
+	bic	#107400,r5	;clear all possible status bits
+	tst	r5		;is it zero?
+	bne	10$
+	tst	(pc)+		;
+10$:	sec			;signal error
+	return
+
+;	search for protected files
+
+prot:	call	tstdir		;check for valid directory
+	bcs	40$		;no directory, skip this test
+	clr	r1		;
+	mov	#4000,r5	;r5 -> entry status for end of segment
+10$:	asl	r1		;two blocks per segment
+	add	#6,r1		;add in start of dir
+	.readw	#area,#0,#buff,#512.,r1	;read first segment
+	bcc	20$		;fine
+	$erdev	<Device input error >	;
+20$:	mov	buff+2,r1	;r1 -> next segment
+	cmp	r1,#31.		;valid segment number?
+	bhi	40$		;no, invalid dir
+	mov	#7*2,r2		;get standard words per entry
+	add	buff+6,r2	;r2 -> words per entry
+	mov	#buff+12,r3	;r3 address of first entry
+	call	search		;
+	tst	$prot		;any protected?
+	bne	30$		;yes, ask if they are sure
+	tst	r1		;all blocks done?
+	bne	10$		;no
+	return			;no protected files found
+30$:	call	verify		;
+40$:	return
+
+;	proceed one segment
+
+search:	cmp	r3,#buff+512.	;end of buffer?
+	bhis	20$		;
+	tst	(r3)		;is it protected?		;??
+	bpl	10$		;no
+	beq	20$		;catch blank directories
+	mov	#1,$prot	;signal protected files
+	br	20$		;all done
+10$:	bit	(r3),r5		;end of segment?
+	bne	20$		;yes, segment over
+	add	r2,r3		;point to next entry
+	br	search		;and handle it
+20$:	return
+
+;	make sure they want to erase protected files
+
+verify:	mov	@#jsw,-(sp)	;save jsw
+	bis	#gtlin$,@#jsw	;set the bit
+	.gtlin	#line,#prom2	;realy erase protected files?
+	mov	(sp)+,@#jsw	;restore jsw
+	cmpb	line,#'Y	;
+	beq	10$		;yes
+	cmpb	line,#'y	;
+	beq	10$		;
+	jmp	start		;didn,t type yes
+10$:	return			;don't ask again
+.sbttl	open for erase
+
+	assume	dvvx$ eq 100000	;VAMP directory flag wrong
+open:	tst	$opts		;this a VAMP directory?
+	bmi	10$		;yes - ignore directory checks
+	bpsw	#optf$,$opts,10$;foreign device
+	call	tstdir		;test for a valid directory
+	bcc	10$		;fine
+	bit	#optd$,$opts	;erase device?
+	bne	10$		;yes, ignore directory error
+	$error	<Invalid directory>
+10$:	.purge	#0		;free channel
+	.lookup	#area,#0,#infil	;open it
+	bcc	20$
+	$erfil	<File not found >
+20$:	tst	infil+fil	;got a filename?
+	beq	30$		;no
+	mov	r0,$len		;clear only filelength
+30$:	bit	#opty$,$opts	;verify?
+	bne	40$
+	mov	@#jsw,-(sp)
+	bis	#gtlin$,@#jsw	;set the bit
+	call	$file		;show filename
+	.gtlin	#line,#prom	;verify input
+	mov	(sp)+,@#jsw	;restore it
+	cmpb	#'y,line	;yes?
+	beq	40$		;
+	cmpb	#'Y,line	;
+	beq	40$
+	jmp	start		;didn't type yes, go to the start
+
+40$:	bpsw	#optf$,$opts,50$
+	bit	#optd$,$opts	;erase device?
+	beq	50$		;no
+	call	prot		;search for protected files
+50$:	return
+.sbttl	erase		erase file or device
+
+errtot:	.word	0
+errcyc:	.word	0
+
+	assume	dvvx$ eq 100000	;Flag VAMP directory
+erase:	tst	$opts		;this a VAMP directory?
+	bmi	5$		;yes - delete after erase
+	call	delete		;delete the file (checks for protected, too)
+5$:	call	clrbuf		;clear the buffer
+	clr	$wblk		;start zero with block 
+	clr	r0		;
+10$:	add	r0,$wblk	;update blocks written to
+	mov	$len,r5		;block count required
+	cmp	r5,$blk		;enough space for the plex
+	blos	20$		;yes
+	mov	$blk,r5		;no, reduce blockcount
+20$:	mov	r5,r4		;
+	swab	r4		;change to wordcount
+	.writw	#area,#0,#top,r4,$wblk	;
+	bcc	30$		;fine
+	bpsw	#opti$,$opts,35$;/ignored
+	$erfil	<Write error >
+35$:	call	slowly		;
+30$:	clrb	r0		;adjust to blocks
+	swab	r0		;change to blocks
+	sub	r0,$len		;subtract blocks done
+	bne	10$		;do the rest
+40$:	add	errcyc,errtot	;
+	beq	45$		;
+	.print	#warn
+	mov	errtot,r1	;
+	call	decimal
+	.print	#badhdr
+45$:	tst	$opts		;VAMP delete?
+	bpl	50$		;nope
+	call	delete		;yes - check for delete
+50$:	return
+
+slowly:	mov	$wblk,r3	;block
+	mov	r5,r4		;block count
+10$:	.writw	#area,#0,#top,#256.,r3
+	bcc	30$		;
+	inc	errcyc
+	bhisw	r3,#72,20$
+	.print	#warn
+	.print	#wrthdr
+	mov	r3,r1
+	call	decimal
+	.print	#newlin
+20$:	cmp	errcyc,#25.
+	blo	30$
+	add	#25.,errtot
+	sub	#25.,errcyc
+	.print	#warn
+	mov	errtot,r1
+	call	decimal
+	.print	#cychdr
+	mov	$wblk,r1
+	add	r5,r1
+	call	decimal
+	.print	#cycend
+30$:	inc	r3
+	sobw	r4,10$
+	mov	r5,r0
+	swab	r0
+	return
+
+delete:	bit	#optd$,$opts	;erasing device?
+	bne	10$		;yes, no delete
+	bit	#optn$,$opts	;/undelete?
+	bne	10$		;yes, no delete
+	.purge	#1		;free channel
+	.delete	#area,#1,#infil	;delete entry in directory
+	bcc	10$		;only possible error is 'file protected'
+	$erfil	<File is protected >
+10$:	return			;
+.sbttl	getbuf		get size of free memory
+
+getbuf:	.settop	#-2		;get the rest
+	cmp	r0,#buff+512.	;aspace for directory segment?
+	blo	20$		;nope
+
+	sub	#10,r0		;??
+;	sub	#top,r0		;calculate free bytes
+	sub	free,r0		;calculate free bytes
+	clc			;
+	ror	r0		;
+	cmp	r0,#256.	;enough for one block?
+	blo	20$		;nope
+	clrb	r0		;
+	swab	r0		;
+	mov	r0,$blk		;block count
+	ror	r0		;
+	tst	(pc)+
+20$:	sec
+	return
+
+clrbuf:	mov	#top,r0		;clear the buffer
+	mov	#$blk,r1	;blocks
+	swab	r1		;words
+10$:	clr	(r0)+		;
+	dec	r1
+	bne	10$
+	return
+;	----------------------------------------------------------------------
+;	handle the errors
+;	-----------------------------------------------------------------------
+print:	.print	r2		;print it
+10$:	tstb	(r2)+		;skip it
+	bgt	10$
+	inc	r2
+	bic	#1,r2
+	rts	r2
+;
+;	-----------------------------------------------------------------------
+;	unpack filename
+;	-----------------------------------------------------------------------
+$device:mov	#infil,r1
+	call	unpop
+	$type	<:>
+	return
+
+$file:	mov	#infil,r1
+	call	unpop		;unpack the device
+	$type	<:>
+	call	unpop
+	call	unpop
+	tst	(r1)		;got a type?
+	beq	20$		;nope, forget it
+10$:	$type	<.>
+	call	unpop
+20$:	return
+;
+unpop:	mov	(r1)+,r2
+	mov	#3,r4
+	mov	#9$,r3
+2$:	mov	#-1,r0
+	cmp	#174777,r2
+	blo	4$
+3$:	inc	r0
+	sub	(r3),r2
+	bcc	3$
+	add	(r3)+,r2
+	tst	r0		;blank?
+	beq	81$		;nope
+31$:	cmp	#33,r0
+	blo	6$
+	beq	7$
+4$:	add	#40,r0
+5$:	add	#16,r0
+6$:	add	#11,r0
+7$:	add	#11,r0
+8$:	.ttyout	r0
+81$:	dec	r4
+	bne	2$
+	return
+9$:	.word	3100,50,1
+.sbttl	number
+
+;	r1 = number
+
+decimal:mov	#deci,radix
+	br	number
+octal:	mov	#octa,radix
+	fall	number
+
+number:	psh	r0
+	psh	r1
+	psh	r2
+	psh	r3
+	psh	r4
+	clr	r0		;set number flag
+	mov	radix,r4	;get the exponent
+	mov	#num.a,r3	;set up destination
+3$:	mov	#-1,r2		;look for a digit
+4$:	inc	r2		;step up dividend
+	sub	(r4),r1		;subtract
+	bcc	4$		;go again
+	add	(r4)+,r1	;bumb it back to positive
+	tst	r2		;now look at format
+	bne	5$		;something to do
+	mov	r0,r2		;leading blanks ?
+	beq	7$		;nope nothing
+	br	6$		;put in output stream
+5$:	mov	#'0,r0		;no more blanks
+	add	r0,r2
+6$:	movb	r2,(r3)+	;output it
+7$:	tst	(r4)		;any more to do ?
+	bne	3$		;yes
+	add	#'0,r1		;generate last digit
+	movb	r1,(r3)+	;do the last digit
+	movb	#200,(r3)
+	mov	#num.a,r1	;output
+8$:	movb	(r1)+,r0
+	bmi	9$
+	.ttyout
+	br	8$
+9$:	pop	r4
+	pop	r3
+	pop	r2
+	pop	r1
+	pop	r0
+	return
+radix:	deci
+deci:	10000.,1000.,100.,10.,0
+octa:	100000,10000,1000,100,10,0
+num.a:	.byte	0,0,0,0,0,0
+.sbttl	data
+
+warn:	.ascii	/?ERASE-W-/<200>
+wrthdr:	.ascii	/Bad block in system area: block=/<200>
+newlin:	.asciz	//
+cychdr:	.ascii	/ bad blocks detected (continuing at block /<200>
+cycend:	.asciz	/)/
+badhdr:	.asciz	/ bad blocks detected/
+ours:	.ascii	/?ERASE-E-/<200>
+prom:	.ascii	"/Erase; Are you sure? "<200>
+prom2:	.ascii	"Volume contains protected files; Are you sure? "<200>
+	.even
+types:	.rad50	/            /
+
+files:	.blkw	5*3
+infil:	.blkw	4*6
+devnam:	.blkw	4
+area:	.blkw	10
+daddr:	.blkw	5
+$opts:	.word	0
+$prot:	.word	0
+$len:	.word	0
+$wblk:	.word	0
+$blk:	.word	0
+free:	.word	dyn
+
+line:	.blkb	84.
+	.even
+top:
+
+buff:	.blkw	512.
+dyn:
+
+
+.end	init
+
+
