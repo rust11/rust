@@ -1,0 +1,504 @@
+!!	file structure compatibility
+!!
+!!	Creating NF1: for bootstrapping
+!!
+!!	NF utility and switches
+!!
+!!	remote boot
+!!	protection
+!!	configuration
+!!	nf7, rt_dk, rt_sy
+!!
+!!	client		server
+!!	driver		driver
+!!	[acp]		nf server
+!!
+!!	single server
+!!
+!!software	
+!!hardware	
+!!
+!!Emulator
+!!
+!!  nodes
+!!
+!!
+!!	NET.HLP
+!!	NETWORKS
+!!
+!!!B	LI$NET
+!!	DD		NET.DD
+!!	KERMIT		NET.KMT
+!!	NF		NET.NFR
+!!	TCP/IP		NET.TCP
+!!	VTCOM		NET.VTC
+!!	Hardware	NET.HRD
+!!!F	RUST Networks
+!!!E
+!!	configuration
+!!	-- currently single-server
+!!	-- V11 conflicts
+!!	--
+!!
+!!
+!!	Software	NFR.SFT
+!!	Explain name
+!!	NF
+!!
+!!!B	NET.NFR
+!B	LI$NET
+	About		NFR.ABO
+	Bootstrap	NFR.BOO
+!!	Configuration	NFR.CON
+	Installation	NFR.INS
+!!	Operation	NFR.OPR
+	Logicals	NFR.LOG
+	Hardware	NET.HRD
+!F	NF RUST Network
+NF (Network Files) is RUST's Ethernet networking package.
+
+RUST clients access files in native server directories as if they 
+were local files in RT-11 directories, using standard commands, 
+applications and program requests. Server directories are made 
+available via logical names. NF servers provide time-of-day 
+information. RUST/SJ can be booted from the Windows server.
+
+System		Client	Server	Notes
+------		------	------	-----
+RUST/SJ		Yes	No	DEQNA/DELQA only. Complete in 1.2kw.
+RUST/XM		Yes	Yes	Requires RT-11 driver
+Windows		No 	Yes	Server supports MOP RUST/SJ bootstrap
+V11 Emulator	Yes	No	Windows PDP-11 emulator
+VAX/VMS		No	Yes	Waiting on update
+!E
+
+!!	About
+!!
+!B	NFR.ABO
+	Compatibility	NFR.COM
+!!	File_structures	NFR.STR
+	Limitations	NFR.LIM
+	Protection	NFR.PRO
+!!	Tailoring	NFR.TAI
+!F	About NF
+General NF characteristics.
+
+NF is a peer-to-peer file access vehicle, much like Microsoft NETBUI.
+Once installed, NF operation is largely transparent to the user,
+although one or two utilities do complain. RUST/XM provides workarounds
+for these programs.
+
+NF is designed to emulate RT-11 file system behaviour when accessing
+remote disks. On a Q-bus RUST/SJ system the complete package requires
+only 1500 words. Compatibility with standard network protocols is not
+possible within these constraints.
+
+NF is primarily a remote disk access vehicle. In earlier implementations
+it has supported remote terminal access, but this code is currently
+waiting for rejuvination.
+!E
+
+!B	NFR.COM
+!F	NF Compatibility
+NF File system compatibility
+
+Each operating system has its own file system behaviour. For example,
+under RT-11 a new file first appears in a directory after the file is
+closed. Under Windows a new file appears in a directory when it is 
+created. Under VMS new files are given version numbers.
+
+Many RT-11 applications rely implicitly on RT-11 file system behaviour.
+NF goes to extraordinary lengths to map RT-11 behaviour to the native
+file system. To achieve this goal NF creates intermediate files with 
+.TEN or .REN filetypes. These files are usually renamed or deleted but
+may be left hanging after system aborts.
+
+Server directories appear to the RT-11 client as read-only RT-11 
+directories. Only files that fit the RT-11 6.3 naming convention and
+are less than 65536 blocks long are visible. The first six blocks of
+a directory may be written and read as if they were an RT-11 device.
+The file VOLUME.SYS is created on the fly to hold this data.
+!E
+
+!B	NFR.LIM
+!F	NF Limitations
+Operations not supported by NF. RUST clients can't access:
+
+o Filenames outside the RT-11 6.3 convention
+o Logical names longer than three characters
+o Files of 65536 blocks or more
+o Files past the directory 31-segment mark
+
+BETA restrictions:
+
+CREATE	Files are always zero blocks at present.
+INIT	Doesn't delete files.
+MD/RD	RUST clients can't create or delete directories.
+!E
+
+!B	NFR.PRT
+	Ethernet	NFR.ETH
+	Single-Server	NFR.SIN
+!F	NF Protocol
+NF uses a straight-forward packet driven protocol. The protocol
+was first developed in 1978 and has been ported a number of
+hardware and software platforms. It currently supports Ethernet
+and the Windows V11 emulator. The Windows server accesses Ethernet
+via Winpcap running in promiscuous mode.
+ 
+The intricasies of supporting RT-11 file system behaviour and the
+need to implement the package in under 1.5kw on SJ systems has 
+precluded the use of standard network protocols.
+
+Servers are synchronous engines, dealing with one request at a time.
+Transmission errors are handled with a response cache.
+
+!B	NFR.SIN
+!F	NF Single-Server
+NF Anonymous Single-Server operation.
+
+In previous incarnations NF supported multiple servers. The support
+was disabled when the licensing code was removed (the two were
+intertwined). There are plans to reimplement multiple server support
+after catch-up work is done on the RUST/XM and VMS server code. The
+goal then is to radically simplify the previous approach.
+
+The current version of NF operates with a single, unnamed server.
+Single-server networks are the norm.
+!E
+
+!B	NFR.ETH
+!F	NF Ethernet protocols
+NF Ethernet protocol details. NF uses two unassigned DEC protocol
+numbers (6008 was later assigned to DEC AMBER VT240c terminals).
+
+6006	NF messages sent to a server
+6008	NF messages sent (back) to a client
+
+The Windows NF server processes two DEC MOP operations. You disable
+these with the NF command switch /NOMOP.
+
+6001	MOP Boot 
+6002	MOP Online
+
+NF uses multicast address AB-00-04-00-DF-89, taken from the block
+assigned by DEC for customer use (AB-00-04-04-xx-xx).
+
+All nodes use their physical or current station MAC address for
+regular communication. The multicast address is used for initial 
+contact and MOP operations.
+!E
+
+
+!B	NFR.PRO
+!F	NF Protection
+NF Server-side device, directory and file protection.
+
+Clients only have access to devices and directories made available
+with explicit logical name definitions at the server.
+
+Once a device or directory is made available, it, and all its
+subdirectories and files become available to all nodes according
+to the access rights of the server process.
+
+See Limitations for other access restrictions.
+!E
+!!	Booting
+!!
+!B	NFR.BOO
+	Internals	NFR.BOO.INT
+!F	NF Bootstrap
+NF Bootstrap operation.
+
+o The Windows NF server supports MOP bootstrap protocol subset.
+  ROM QNA bootstrap and standard RT-11 BOOT command supported.
+o All boots take place using NF7:. VUP remaps NF0: to NF7: for boots.
+o The server logical name NF7: is used to locate the boot directory.
+  The Windows server defaults the location of NF7: to "RUST:\DEV\NF7".
+  The boot directory is a native Windows directory, not an RT-11 volume.
+o The server logical names RT_SY and RT_DK are used to locate SY: and DK:
+  The Windows server defaults RT_SY and RT_DK to "NF7".
+o The boot directory must be preconfigured with a RUST system and boot.
+  Use the standard INIT, COPY/BOOT etc commands under V11 to preconfigure.
+  The distribution kit includes a minimal preconfigured boot directory.
+o RUST bootstrap clients all boot from the same boot directory, NF7:.
+  It's up to you to synchronise boot directory activities.
+  You can reassign DK: and SY: after the boot completes.
+!E
+
+!B	NFR.BOO.INT
+!F	NF Bootstrap internals
+NF Bootstrap internals notes.
+
+o The full MOP protocol is quite extensive. NF implements only the
+  essentials: the online message and the MOP bootstrap request.
+
+o A ROM boot downloads a bootstrap to a buffer at location 1000.
+  RUST places a copy routine at 1000 and the 256-word boot at 2000.
+  The 256-word boot is taken from block zero of VF7:
+
+o The actual boot is crammed into 256 words so that can also be
+  used as a standard RT-11 driver bootstrap.
+
+o The bootstrap has a simple instruction-counting timeout loop.
+  Thus you can start the NF server after you've triggered the boot.
+  The timeout periods are quite long.
+!E
+!!	Installation
+!!
+!B	NFR.INS
+	SJ		NFR.RSJ
+	XM		NFR.RXM
+!!	VMS		NFR.VMS
+	V11		NFR.V11
+	Windows		NFR.WIN
+!F	NF: Installation
+
+!E
+
+!B	NFR.WIN
+!!!L	NF		NFR.NFU
+!F	Windows Installation
+Installing NF: on Windows.
+
+You must install (free) Ethernet interfacing package Winpcap from
+http://www.winpcap.org (about 450kb). Installation is painless.
+The current RUST release has been tested with WinPcap V3.0.
+
+After WinPcap is installed you simply run the Windows server:
+
+.nf
+
+o See WINDOWS NF for command switch information.
+!E
+
+!B	NFR.RSJ
+!F	RUST/SJ Installation
+Installing NF on RUST/SJ.
+
+PDP-11 RUST/SJ:
+
+1. Install the hardware interfaces and cables.
+2. Install the server software.
+3. Load the NF: driver (NFV.SYS)
+
+The standard RUST/SJ bootstrap automatically loads the driver.
+
+V11 RUST/SJ:
+
+1.  Load the NF: driver (NFW.SYS)
+!E
+
+!B	NFR.RXM
+!!	Server
+!!	V11_Client
+!F	RUST/XM Installation
+Installing NF client on PDP-11 RUST/XM.
+
+1. Install the hardware interfaces and cables.
+2. Install the server software.
+3. Load the NQ: or NU: as below.
+4. Start the client ACP (NFC.SAV) as below.
+5. Load the RUST/XM NF: driver (NFP.SYS)
+
+.create/process/nolog nfs/image=sy:nfw/work=20
+.load nf
+
+PDP-11 RUST/XM:
+
+1. Start the client ACP (NFW.SAV) as below.
+2. Load the RUST/XM NF: driver (NFP.SYS)
+
+.create/process/nolog nfs/image=sy:nfw/work=20
+.wait ::1
+
+V11 RUST/XM:
+
+
+!E
+!B	NFR.VMS
+!F	VAX/VMS Installation
+Installing NF: on VAX/VMS.
+!E
+!B	NFR.V11
+!F	V11 Installation
+Installing NF on V11.
+
+The V11 PDP-11 emulator has embedded NF client/server software.
+The paths taken by RUST/SJ and RUST/XM are:  
+
+	  Device/Driver	   Client	 Server
+	  -------------    ------	 ------
+RUST/SJ:  NF: (NFW.SYS) -> V11 client -> V11 server
+RUST/XM:  NF: (NFP.SYS) -> NFW.SAV    -> V11 server
+
+RUST/SJ installation:
+
+.load nfw		! load nf: windows driver
+
+RUST/XM installation:
+
+.create/process nfw/image=sy:nfw/work=20
+.wait ::1		! wait for process to settle
+.load nf		! install front-end driver
+!E
+!B	NFR.CON
+!F	NF Configuration
+!E
+
+
+!B	NFR.SFT
+!F	NF: Software Components
+A summary of the NF software components.
+
+	System	    Engine	Device	Driver
+	------	    ------      ------	------
+Client:	RUST/SJ	    n/a	    	NF:	NFV.SYS
+	RUST/XM	    NFC.SAV     NF:	NFP.SYS
+
+   V11	RUST/SJ	    n/a		NF:	NFW.SYS
+   V11	RUST/XM	    NFW.SAV	NF:	NFP.SYS
+
+Server:	RUST/XM	    NFS.SAV     NQ:/NU:	NQX.SYS/NUX.SYS
+	VAX/VMS	    NF.EXE      VMS Ethernet driver
+	Windows	    NF.EXE	WinPcap
+!E
+!B	NFR.OPR
+	Logicals	NFR.LOG
+!F	NF Operation
+NF access and control operations.
+!E
+
+
+!B	NFR.LOG
+	Overloaded	NFR.OVR
+	Redirection	NFR.AUT
+!F	NF Logical names
+Defining NF logical names.
+
+The path to a server directory is established with two logical names.
+On the client you assign the logical name to NF:
+
+.define tmp nf:		! pass TMP: accesses to server
+
+On the server you define a matching logical name that specifies the
+actual directory or device:
+
+.define tmp c:\tmp	! define the server path for TMP:
+
+o On Windows servers you use the SHE shell to create logical names.
+o On RUST/XM and VMS servers you use the DCL DEFINE command.
+!E
+
+!B	NFR.AUT 
+!F	Catch-All Redirection
+NF logical name catch-all redirection.
+
+The command below redirects most undefined logical names to NF:
+
+.define * nf:
+
+Redirection applies only to names with three alphabetic characters:
+patterns below are not mapped (where X is any alpha and 0 any digit):
+
+	X	XX
+	X2	XX1
+	X23
+
+Catch-all redirection is particularly useful for RUST/SJ systems 
+with their limited storage capacity for logical names.
+!E
+
+!B	NFR.OVR
+!F	NF Overloaded names
+Overloaded logical names.
+
+Conflict may arise between a native server and client logical names.
+For example, "LIB" might be used at the server to access the native 
+library but at a client to access RT-11 library files.
+
+NF servers provide a solution by first translating logical names
+with an "RT_" prefix. Thus, a server first looks for "RT_LIB" and
+then "LIB". You can use this behaviour to explicitly deny access.
+
+$ define rt_lib c:\pdp\lib	! define separate client logical
+$ define rt_tmp error		! deny access to server TMP:
+!E
+!B	NET.HRD
+!!	DEQNA		NET.DNA
+	DELQA		NET.DQA
+!!	Serial_lines	NET.SER
+!F	NET Hardware
+!E
+
+!B	NET.DQA
+	Switches	NET.DQA.SWI
+	Leds		NET.DQA.LED
+!F	DELQA
+DELQA
+
+The DELQA Q-bus interface may be used in native DELQA mode or
+or in DEQNA compatibility mode.
+
+CSR		Vector
+---		------
+174440		120		
+174460		floating
+!E
+
+!B	NET.DQA.SWI
+!F	DELQA Switches
+DELQA switch settings.
+
+ \         /                 \-----/
++-| Plug  |-------------------\---/-+
+| +-------+		            |
+|		  +---------------+ |
+|		  |S1 S2 S3 S4 S5 | | Switch
+|		  |0* 0* 0* 0* 0* | | 0 = Closed  Push down at top.
+|		  |1  1  1  1  1  | | 1 = Open    Push down at bottom.
+|		  +---------------+ | * = default
+
+Switch	0=Closed	1=Open
+-------	------------	------------
+S1	CSR=17774440	CSR=17774460
+S2	Reserved
+S3	DELQA mode	DEQNA mode
+	Timer disabled	Boot disabled
+S4 S3=0	Boot disabled	Boot enabled  (DELQA)
+   S3=1	Timer disabled	Timer enabled (DEQNA - don't enable the timer)
+S5	Reserved
+!E
+
+!B	NET.DQA.LED
+!F	Leds
+DEQNA/DELQA start-up led status.
+
+ \         /                 \-----/
++-| Plug  |-1-2-3-------------\---/-+
+| +-------+ Leds	            |
+
+1 2 3
+-----
+@ @ @	Startup Okay
+@ @ O	Cable/Transceiver/Network issues
+@ O O	Internal DEQNA/DELQA error
+O O O	Bootstrap not yet executed or
+	ROM upload or Setup prefill fail
+
+Where:
+  @ = Off/Dark
+  O = On/Red
+
+o [O O O] is the usual successful startup state (boot not executed).
+o [@ @ O] means that you should check all the external connections.
+!E
+
+!B	NET.DNA
+!F	DEQNA
+!E
+
+!B	NET.SER
+!F	Serial Lines
+!E
+

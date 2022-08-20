@@ -1,0 +1,1597 @@
+std$c=0
+.title	HLPCOM	
+.include "lib:share.mac"
+.radix 8.
+$aldef
+$chdef
+$cidef
+$fndef
+$esdef
+$didef
+$jbdef
+.library "lib:sm.mlb"
+smini$
+tra$c=0
+par$c=0
+
+;	RUST HELP compiler
+;
+;	%build
+;	macro hls:hlpcom /object=hlb:hlpcom
+;	!link hlb:hlpcom/execute:hlb:hlpcom
+;	%end
+
+.if ne std$c
+.radix	8
+$imgdef	HLPCOM 1 0
+$imginf	fun=sav cre=hammo aut=ijh use=<Compiles RUST HELP files>
+$imgham	yrs=<1989>
+;	%date
+$imgdat	<06-May-2022 20:18:29>   
+;imgdat	<07-Aug-1989 23:10:38.22>
+;	%edit
+$imgedt	<262  >
+;imgedt	<206  >
+.radix	10
+.endc
+
+;	hlpcom outfil.hlb,lstfil.lst=infile.hls,...
+;
+;		live	doc	both
+; don't	display	-	n/a	n/a
+; don't	search	;	n/a	n/a
+; don't	walk	-	_	=
+; don't cascade			NC
+;
+;		live	doc	both
+; don't	display	-d	n/a	n/a
+; don't	search	-s	n/a	n/a
+; don't	walk	-w	-W	=
+; don't cascade	-c	-C
+; 	page	n/a	-P
+;
+;	Continued...	-cC-
+;
+;	source module
+;
+;	.D!				! set prefix - ignored
+;	!!				! comment
+;	!B	name			! begin module NAME
+;		item	label		! menu item names and labels
+;		\item	label		! start new line
+;		-item	label		! search but don't display
+;		;item	label		! don't walk item
+;	!S	...			! optional syntax line
+;		\...			! page break in document mode
+;	!F	...			! optional format line
+;		\...			! page break in document mode
+;	...				! text
+;	!E
+;
+;	!I	file spec		! append file
+;	!I	label [text]		! include - indent=4
+;	!L	label [text]		! literal include - indent=2
+;	!T				! test block
+;	!C	label			! continue search at
+;
+;	!-				! disabled section
+;	!+				! end disabled section
+;	option	"... '' '" "	
+data	help
+
+plex	Module header
+	counter	he.cnt	typ=byte.	;index count and module type
+					;
+plex	Module index
+	text	he.str	typ=vary.	;variable size string
+	value	he.ter	typ=byte.	;terminator and high order
+	index	he.byt	typ=byte.	;byte in block
+	index	he.blk	typ=byte.	;block number
+					;
+	set	hetr$p	bit7$		;terminator
+	set	heby$p	bit6$		;high order byte
+	set	hebl$n	bit6$!bit7$	;high order block negative
+					;
+	set	hecon.	-8		;continue table
+	set	helit.	-7		;literal include
+	set	hepar.	-6		;parameter
+	set	hefmt.	-5		;format (explicit syntax)
+	set	hebod.	-4		;body
+	set	heinc.	-3		;include
+	set	hesyn.	-2		;syntax
+	set	heeom.	-1		;end of module
+
+plex	Symbol
+	set	sbnam.	10		;symbol name size
+	flags	sb.ctl	typ=byte.	;symbol control
+	counter	sb.cnt	typ=byte.	;index counter
+	index	sb.byt	typ=word.	;byte in block
+	index	sb.blk	typ=word.	;block in file
+	area	sb.lab	sbnam.		;symbol label
+	gamut	sbgam.
+
+series	Symbol	bits
+	..	sbdef$			;defined
+	..	sbref$			;references
+	..	sbudf$			;undefined
+	..	sbmul$			;multiple
+	..	sbinc$			;include section
+	..	sbrep$			;undefined already reported
+
+;	file
+
+plex	File
+	flags	fi.flg			;flags
+	counter	fi.chn			;channel
+	pointer	fi.buf			;buffer pointer
+	counter	fi.siz			;buffer size
+	counter	fi.blk			;block number
+	counter	fi.cnt			;byte count
+	pointer	fi.pnt			;character pointer
+	area	fi.nam	fn.bbs		;file name
+	value	fi.len	word		;file length
+	gamut	figam.			;size of it
+
+	set	fiisz.	4096.		;input buffer size
+	set	fiosz.	1024.		;output buffer
+	set	filsz.	512.		;listing buffer
+
+plex	Save
+	pointer	sv.suc			;next channel
+	area	sv.chn	ch.bbs		;channel
+	area	sv.fil	fn.bbs		;rad50 filename
+	gamut	svgam.			;
+
+series	fi	bits
+	..	fiopn$			;file open (output)
+	..	fieof$			;end of file
+	..	fiter$			;file is terminal
+	..	fieom$			;end of module is okay
+code	Macros
+
+.macro	hcfat$	lab
+	call	hc$fat	lab
+.endm
+.macro	hcerr$	lab
+	call	hc$err	lab
+.endm
+.macro	hcwar$	lab
+	call	hc$war	lab
+.endm
+.macro	hcinf$	lab
+	call	hc$inf	lab
+.endm
+
+.macro	trace str
+.if ne tra$c
+	jsr	r1,hc$tra
+	.asciz	"str"
+	.even
+.endc
+.endm
+
+hc$tra:	psh	r0
+	.print	r1
+10$:	tstb	(r1)+
+	bne	10$
+	inc	r1
+	bic	#1,r1
+	pop	r0
+	rts	r1
+data	Impure data
+
+h$cimp:
+h$cpas:	.word	0		;pass number
+h$cend:	.word	0		;end of pass
+h$cdbg:	.word	0		;debug switch
+h$cinf:	.word	0		;/information
+				;
+h$ctop:				;last symbol
+h$cdyn:	.word	0		;dynamic area pointer
+h$csym:	.word	0		;start of symbol table
+h$croo:	.word	0		;root symbol
+h$csct:	.word	0		;symbol count
+
+h$cifl:	.word	0		;\input file
+h$cich:	.word	0		;!input channel
+h$cibf:	.word	0		;/input buffer pointer
+	.blkb	figam.-<.-h$cifl>
+
+h$cofl:	.word	0		;\output file
+h$coch:	.word	0		;!channel
+h$cobf:	.word	0		;/buffer
+	.blkb	figam.-<.-h$cofl>
+
+h$clfl:	.word	0		;\list file flags
+h$clch:	.word	0		;!listing channel
+h$clbf:	.word	0		;/listing buffer
+	.blkb	figam.-<.-h$clfl>
+
+h$crep:	.word	0		;line reported
+h$cfts:	.word	0		;fatals
+h$cers:	.word	0		;errors
+h$cwrs:	.word	0		;warnings
+h$cins:	.word	0		;informations
+				;
+h$cemt:	.blkw	10.		;emt area
+h$ccst:	.blkb	ci.bbs		;channel status area
+h$cdst:	.blkb	di.bbs		;device status area
+
+;	Dynamic strings
+
+h$cfil:	.word	0		;!A input file
+h$cmod:	.word	0		;current module name
+h$clab:	.word	0		;current label name
+h$ccmd:	.word	0		;current command
+h$cstr:	.word	0		;general purpose string
+h$clin:	.word	0		;input line
+h$chea:	.word	0		;header line
+
+;	CSI file specifications
+
+h$ccsi:
+h$cof0:	.blkw	5
+h$cof1:	.blkw	2*5
+h$cifs:
+h$cif0:	.blkw	6*4		;input file spec
+
+h$cfst:	.word	0		;first input file
+h$clst:	.word	0		;last input file
+h$cnxt:	.word	0		;next input file
+h$ccur:	.word	0		;current input file
+
+hcims.=.-h$cimp
+
+;	Static data
+
+h$conc:	.word	0		;once only flag
+h$cbas:	.word	0		;dynamic base
+h$clim:	.word	0		;limit of available (minus some)
+h$cstk:	.word	0		;initial stack
+data	Pure data
+
+h$ctyp:	.rad50	/hlphlblstlst/	;file types
+
+h$cidt:	.asciz	"HELP"
+e$rnip:	.asciz	"No input file"
+e$rswi:	.asciz	"Invalid command switch"
+e$rfat:	.asciz	"%tFatal error near %m"
+e$rcmd:	.asciz	"E-Invalid command"
+e$rloo:	.asciz	"E-Error opening input file "
+e$rent:	.asciz	"E-Error opening output file "
+e$rfet:	.asciz	"E-Error accessing device "
+e$rdst:	.asciz	"E-Invalid device "
+
+e$rmem:	.asciz	"%tMemory exhausted near %m"
+e$rltl:	.asciz	"%tLine too long in %m"
+e$rmlb:	.asciz	"%tMissing label near %m"
+e$rmbd:	.asciz	"%tMissing body in %m"
+e$rmnm:	.asciz	"%tMissing name in %m"
+e$rmsn:	.asciz	"%tMissing syntax line in %m"
+e$rmsm:	.asciz	"%tMissing summary line in %m"
+e$rida:	.asciz	"%tInvalid data line in %m"
+e$ridi:	.asciz	"%tInvalid directive near %m"
+e$rimd:	.asciz	"%tInvalid module layout %m"
+e$rfie:	.asciz	"%tFile input error near %m"
+e$rfoe:	.asciz	"%tFile output error near %m"
+e$rudf:	.asciz	"%tUndefined name %l in %m"
+e$rmul:	.asciz	"%tMultiply defined name %l in %m"
+e$runu:	.asciz	"%tUnused module %l near %m"
+e$reol:	.asciz	"%tExpected end of line near %m"
+e$rfmt:	.asciz	"%tString format error near %m"
+e$rinc:	.asciz	"%tKeywords not permitted in include section"
+e$rnch:	.asciz	"%tNo channel available for %f near %m"
+e$reop:	.asciz	"%tError opening file %f near %m"
+e$rifs:	.asciz	"%tInvalid file spec %f near %m"
+e$rifi:	.asciz	"%tAppended file %f near %m"
+e$ridt:	.asciz	"HELP"
+e$rfac:	.asciz	"?HELP-"
+e$rin:	.asciz	" in "
+e$reom:	.asciz	"Incomplete module %m"
+
+m$stot:	.asciz	"Total memory: "
+m$sfre:	.asciz	"Free  memory: "
+m$ssct:	.asciz	"Symbols used: "
+m$swrd:	.asciz	" words"
+
+h$cnnm:	.asciz	"NONAME"
+h$cnlb:	.asciz	"NOLABEL"
+h$cnew:	.byte	cr.,lf.,0
+	.even
+code	START
+
+native
+  proc	hc$com
+	p1	cmd
+	if	h$conc eq			;once only
+;		inc	h$conc			;
+		mov	sp,h$cstk		;save stack
+		mov	j$btop,r0		;get the last in use
+		add	#word.,r0		;
+		mov	r0,h$cbas		;base of handlers
+		.settop	#-2			;get everything
+		sub	#sbgam.*2,r0		;some overflow
+		mov	r0,h$clim		;setup the limit
+		clr	h$cfst			;
+		clr	h$clst			;
+		clr	h$cnxt			;
+		clr	h$ccur			;no current file
+	end					;
+big repeat
+	mov	h$cstk,sp			;restore stack
+	.sreset					;
+	mov	#h$cimp,r0			;get the impure start
+	mov	#hcims./word.,r1		;get the size
+	repeat					;clear it
+		clr	(r0)+			;
+	count	r1				;
+	mov	h$cbas,h$cdyn			;dynamic memory goes up
+	mov	h$clim,h$csym			;symbol table start
+	mov	h$clim,h$croo			;symbols push downwards
+	sub	#sbgam.,h$croo			;first symbol is root
+
+	call	hc$alc	#h$ccmd	#82.		;a command line
+	call	hc$alc	#h$cstr	#84.		;general purpose string
+	call	hc$csi	cmd(sp)			;process CSI command
+						;
+	call	hc$alc	#h$cibf	#fiisz.		;input buffer
+	call	hc$alc	#h$cobf	#fiosz.		;output buffer
+	call	hc$alc	#h$clbf	#filsz.		;listing buffer
+	call	hc$alc	#h$clin	#134.		;input line
+	call	hc$alc	#h$cfil,#84.		;current filespec
+	call	hc$alc	#h$cmod	#84.		;a module name
+	call	hc$alc	#h$clab	#84.		;label name
+	call	hc$alc	#h$chea	#134.		;header line
+						;
+;	ifb	@h$ccmd eq			;
+;		call	hc$prt	#h$cidt		;say who we are
+;	...	next				;
+						;
+	if	h$cfst eq			;yikes
+	...	hcerr$	#e$rnip			;no input file
+						;
+	call	hc$lrs				;setup listing file
+	call	hc$pas				;do a pass
+	inc	h$cpas				;next pass
+	call	hc$pas				;another pass
+						;
+	call	hc$pad	#h$cofl			;write it out
+	call	hc$pad	#h$clfl			;
+	call	hc$sta				;statistics
+	exit					;
+    end						;next command
+; 	.exit					;out
+  end
+.sbttl	HC$CSI	Process CSI command
+
+  proc	hc$csi	<r1,r2,r3>
+	p1	cmd
+
+	mov	cmd(sp),r2			;get command
+	mov	sp,r3				;save the stack
+	.csispc	#h$cof0,#h$ctyp,r2,h$ccmd	;parse command
+	if	cs
+	...	call	hc$rpt	#e$rcmd, #0	;invalid command
+
+	tst	(sp)+				;skip count
+	while	sp ne r3			;get options
+		pop	r1			;
+		if	r1 mi			;
+		...	hcerr$	#e$rswi		;invalid command switch
+		ifb	r1 eq #uprI.		;
+			inc	h$cinf		;/information
+		elsifb	r1 eq #uprC.		;/compile 
+		else				;
+		...	hcerr$	#e$rswi		;
+	end
+
+	if	h$cif0 ne			;got output
+		call	hc$fet	#h$cif0		;
+		.lookup	#h$cemt,#4,#h$cif0	;
+		if	cs			;
+	   	...	call	hc$rpt #e$rloo, #h$cof0
+	...	call	hc$sav	#h$cif0		;save it
+
+	if	h$cof0 ne			;got output
+		call	hc$fet	#h$cof0		;
+		.enter	#h$cemt,#0,#h$cof0	;
+		if	cs			;
+	...	...	call	hc$rpt #e$rent, #h$cof0
+
+	if	h$cof1 ne			;got listing
+		call	hc$fet	#h$cof1		;
+		.enter	#h$cemt,#1,#h$cof1	;
+		if	cs			;
+	...	...	call	hc$rpt #e$rent, #h$cof1
+  end
+
+  proc	hc$fet	<r1,r2>
+	p1	dev,r1
+	mov	#h$cdst,r2
+	.dstat	r2,r1
+	if	cs
+	...	call	hc$rpt	#e$rdst, r1
+	exit	if di.ent(r2) ne		; already loaded
+	call	hc$alc di.hsz(r2)		; acquire the space
+	mov	r0,r2				;
+	.fetch	r2, r1				;
+	if	cs				;
+	...	call	hc$rpt	#e$rfet, r1	;
+  end
+code	HC$PAS	Process pass
+
+	auto	err			;error flag
+  proc	hc$pas
+	trace	mod
+	clr	err(sp)			;once only error
+	call	hc$irs			;reset input files
+	call	hc$ors			;reset output files
+	clr	h$cend			;not at end
+	clrb	@h$cmod			;no module
+	clrb	@h$clab			;no label
+
+    repeat
+	call	hc$lin			;fetch the first line
+     repeat				;get line block
+	exit	if h$cend ne		;end of pass
+					
+	call	hc$acc	#uprA.		;add file
+	if	r0 ne			;got one
+		call	hc$add		;add file
+	...	leave			;
+
+	call	hc$acc	#uprB.		;accept start of block
+	if	r0 ne			;got it
+		call	hc$beg		;process it
+	...	next			;properly terminated
+
+	call	hc$acc	#uprT.		;test block
+	if	r0 ne			;
+		if	h$cdbg ne	;in debug mode
+			call	hc$beg	;do it
+			exit		;
+		else			;
+			call	hc$skm	;skip the module
+	...	...	next		;
+					;
+	call	hc$acc	#minus.		;conditionalised out section
+	if	r0 ne			;syntax is:
+	   repeat			;  !-
+		call	hc$lin		;  ...
+		leave	if r0 eq	;  ...
+		call	hc$acc	#plus.	;  !+
+	   until r0 ne			;
+	   repeat			;
+		call	hc$skl		;
+		leave	if h$cend ne	;
+	   untilb (r4) ne		;
+	 	next			;
+	end				;
+
+	call	hc$skp			;skip whitespace
+	leave	ifb (r4) eq		;skip null lines
+
+	if	err(sp) eq		;first time
+		inc	err(sp)		;once only
+	...	hcwar$	#e$rida		;invalid data
+     endless				;
+    end					;try again
+  end
+code	HC$BEG	Begin module
+
+;	In	r4 ->		start of label
+;
+;	!B	label		label	; or !D
+;		...	...	menu
+;		...	...
+;	!S	...		syntax	; or !F
+;	!S	...		syntax
+;	body
+;	!E
+
+  proc	hc$beg	<r1,r5>
+	trace	beg
+
+	call	hc$lab	#sbdef$			;define a label
+	mov	r0,r5				;save the label block
+	if	eq				;no label found
+		call	hc$skm			;skip module
+    big	...	exit				;
+	call	hc$mov	h$clab,h$cmod		;record the module name
+	call	hc$eol				;skip end of line
+						;
+	movb	sb.cnt(r5),r0			;get the index count
+	call	hc$put	r0			;put it out
+
+;	Pickup menu
+
+	call	hc$lin				;get another line
+	if	r0 eq				;an error
+		hcwar$	#e$rmbd			;missing body
+    big	...	exit				;
+	ifb	(r4) eq #tab.			;got a menu
+	...	call	hc$men	r5		;pickup menu
+
+;	Pickup !S syntax
+;
+;	The last syntax line terminates with HEBOD. which counts
+;	as two newlines.
+
+	clr	r1				;no newline before first
+	repeat					;pickup syntax
+		call	hc$acc	#uprS.		;accept syntax
+		if	r0 eq			;not syntax
+			call	hc$acc	#uprF.	;try for format
+		...	leave	if r0 eq	;is none
+		if	r1 ne			;not the first
+		...	call	hc$put	#lf.	;put a newline
+		inc	r1			;remember syntax
+		call	hc$syn	r0		;put out syntax
+		call	hc$lin			;get another
+	end					;
+	if	r1 ne				;got syntax
+	...	call	hc$put	#hebod.		;now the body
+;	else
+;	...	;hcwar$	#e$rmsn			;missing syntax line
+
+;	Write out the text
+
+	call	hc$skp				;skip whitespace
+;	ifb	(r4) eq				;no summary line
+;	...	hcwar$	#e$rmsm			;missing summary line
+
+	repeat					;
+		leave	if h$cend ne		;
+		call	hc$acc	#uprL.		;literal include
+		if	r0 ne			;yes
+			call	hc$put	#helit.	;say so
+			call	hc$lin		;skip rest of line
+		...	next			;do the next
+		call	hc$acc	#uprI.		;got an include
+		if	r0 ne			;got one
+			call	hc$inc		;include something
+			call	hc$lin		;get another line
+		...	next			;
+		leave	ifb (r4) eq #xclam.	;any other command ends it
+		call	hc$pln	r4		;write the line
+		call	hc$lin			;get another
+	end					;
+	call	hc$put	#heeom.			;end of module
+						;
+	repeat					;accept multiple ends
+		call	hc$acc	#uprE.		;accept end of module
+		leave	if r0 eq		;not found
+		call	hc$skl			;skip blank lines
+	end					;
+	mov	h$clin,r4			;look at last line
+						;
+	exit	ifb (r4) ne #xclam.		;not a command
+	exit	ifb byte.(r4) eq #minus.	;begin 
+	exit	ifb byte.(r4) eq #uprB.		;begin 
+	exit	ifb byte.(r4) eq #uprT.		;debug block
+	hcwar$	#e$rimd				;invalid module layout
+	call	hc$skm				;skip to next module
+  end
+code	HC$SYN	Put syntax/format
+
+;	!F	XXX		skip tab (not spaces), put rest
+;	!S	/XXX
+
+  proc	hc$syn	<r0,r1,r2>
+	p1	typ				;syntax or format
+	if	typ(sp) eq #uprS.		;
+		call	hc$put	#hesyn.		;syntax coming
+	else					;
+		call	hc$put	#hefmt.		;format coming
+		ifb	(r4) eq #tab.		;skip leading tab
+		...	inc	r4		;but not spaces
+		call	hc$pst r4		;put the rest of it
+	...	exit				;done
+
+call	hc$skp				;skip whitespace
+call	hc$pst r4			;put the rest of it
+exit
+
+;	Skip to white space
+;	Workback to colon or equal
+
+	call	hc$skp				;skip whitespace
+	mov	r4,r1				;remember where we started
+	clr	r2				;no optional text
+	whileb	(r4) gt				;more coming
+		leave	ifb (r4) eq #space. 	;
+		leave	ifb (r4) eq #tab.	;
+		ifb	(r4) eq #equal.		;=
+		 orb	(r4) eq #colon.		;:
+		...	mov	r4,r2		;save position
+		ifb	(r4) eq #slash.		;got slash
+		...	clr	r2		;
+		inc	r4			;next
+	end					;
+	if	r2 ne				;got value on last option
+		if	r2 ne r1		;moved
+		 andb	-byte.(r2) eq #lsqua.	;/OPTION[=aaa]
+		...	dec	r2		;backup to it
+	...	mov	r2,r4			;
+						;
+	call	hc$pst r4			;put the rest of it
+  end
+
+code	HC$INC	Include section
+
+;	!I	label	parameter
+
+  proc	hc$inc	<r0>
+	call	hc$put	#heinc.			;the code
+	call	hc$lab	#sbref$!sbinc$		;reference the symbol
+	call	hc$plb	r0			;put out the label
+	call	hc$skp				;skip to parameter
+	exit	ifb (r4) eq			;is none
+	call	hc$put	#hepar.			;parameter coming
+	call	hc$pln	r4			;put the remainder out
+  end
+
+code	HC$CON	Continue menu
+
+;	!C	label
+
+  proc	hc$con	<r0>
+	call	hc$acc	#uprC.			;check for it
+	exit	if r0 eq			;
+	call	hc$put	#hecon.			;the code
+	call	hc$lab	#sbref$!sbinc$		;reference the symbol
+	call	hc$pln	r4			;put the remainder out
+	call	hc$eol
+	call	hc$lin				;get another line
+  end
+code	HC$MEN	Pickup menu
+
+;	In	r4 ->		start of menu
+;
+;	Out	r0		index count
+;
+;	Syntax	<tab>keyword label
+;
+;	<tab>	<tab> | <space><tab>
+
+  proc	hc$men
+	p1	sym				;symbol
+	trace	men
+	whileb	(r4) eq #tab.			;another option
+		call	hc$skp			;skip whitespace
+		ifb	(r4) ne			;still got some
+		...	call	hc$itm	sym(sp)	;do an item
+		call	hc$lin			;get another line
+	until	r0 eq				;all done
+	call	hc$con				;check for continue
+  end
+
+code	HC$ITM	Process menu item
+
+ proc	hc$itm	<r5>
+	p1	sym			;module
+	trace	itm
+	call	hc$par	h$cstr		;parse the name off
+	if	r0 eq			;none
+		hcwar$	#e$rmnm		;missing name
+	...	exit			;
+	call	hc$lab	#sbref$		;get the symbol
+	mov	r0,r5			;save it
+	exit	if eq			;missing label
+	call	hc$pst	h$cstr		;put out the string
+	call	hc$plb	r5		;
+	exit	if h$cpas ne		;second pass
+	mov	sym(sp),r5		;get the module symbol
+	incb	sb.cnt(r5)		;count the indexes
+  end
+code	HC$LAB	Pickup label
+
+;	Out	r0 ->		symbol
+;		r0=0		missing
+
+  proc	hc$lab	<r1,r2,r5>
+	p1	flg				;symbol flag
+	trace	lab
+	call	hc$skp				;skip whitespace
+	call	hc$par	h$clab			;get the label name
+	if	r0 eq				;none found
+		hcwar$	#e$rmlb			;missing label
+		clr	r0			;forget it
+	...	exit				;
+	call	hc$upr	h$clab			;convert to upper case
+	call	hc$fnd	h$clab			;find it
+	mov	r0,r5				;get it
+	if	eq				;not found
+		call	hc$mak	h$clab		;make it instead
+	...	mov	r0,r5			;
+						;
+	movb	flg(sp),r1			;get the flag
+	movb	(r5),r2				;previous state
+	bisb	r1,(r5)				;set current state
+
+;	Pass two checks
+
+	if	h$cpas ne			;second pass
+		ifb	#sbref$ seton r1	;
+		andb	#sbdef$ setoff r2	;not defined
+		 ifb	#sbrep$ setoff r2	;not reported yet
+		 ...	hcwar$	#e$rudf		;undefined
+			bis	#sbrep$,(r5)	;has been reported now
+		...	exit			;
+
+	        ifb	#sbdef$ seton r1	;definition
+		andb	#sbmul$ seton r2	;multiple definition
+		...	hcwar$	#e$rmul		;
+
+		ifb	#sbref$ setoff r2	;not referenced
+		and	r5 ne h$csym		;and not tree root
+		...	hcinf$	#e$runu		;unused module
+						;
+		ifb	#sbdef$ seton r1	;definition
+		andb	#sbinc$ seton r2	;and this is an include
+		andb	sb.cnt(r5) ne		;and has parameters
+		...	hcwar$	#e$rinc		;include error
+	...	exit				;done
+						;first pass
+;	Definition, pass one
+
+	exit	ifb #sbdef$ setoff r1		;not defined here
+
+	ifb	#sbdef$ seton r2		;defined previously
+		bisb	#sbmul$,(r5)		;remember it
+	...	exit				;forget it
+						;
+	mov	#h$cofl,r1			;get the file stuff
+	mov	fi.cnt(r1),sb.byt(r5)		;the byte offset
+	mov	fi.blk(r1),sb.blk(r5)		;the block number
+  end
+code	HC$FND	Find symbol
+
+  proc	hc$fnd	<r1,r2,r3,r4>
+	p1	nam,r1				;name to find
+	mov	h$croo,r0			;get symbol table
+	while	r0 his h$csym			;more to go
+		movi	sb.lab,r0,r2		;
+		mov	r1,r3			;
+		mov	#sbnam./2,r4		;
+		while	(r2)+ eq (r3)+		;compare
+			dec	r4		;
+			exit	if eq		;found
+		end				;
+		sub	#sbgam.,r0		;do the next
+	end					;
+	clr	r0				;not found
+  end
+
+code	HC$MAK	Make symbol
+
+;	Out	r0 ->		symbol
+;		e$rmem		memory exhausted
+
+  proc	hc$mak	<r1,r2,r3>
+	p1	nam,r1				;label name
+	mov	h$csym,r0			;take from top
+	sub	#sbgam.,r0			;reserve it
+	if	r0 los h$cdyn			;too many?
+	...	hcfat$	#e$rmem			;forget it
+	inc	h$csct				;count the symbol
+	mov	r0,h$csym			;set new base
+	mov	r0,r2				;build it
+	clrb	(r2)+				;no control
+	clrb	(r2)+				;no index count
+	clrw	(r2)+				;no byte in block
+	clrw	(r2)+				;no block in file
+	mov	#sbnam./2,r3			;
+	repeat	
+		movw	(r1)+,(r2)+		;move in the name
+	count	r3
+  end
+code	HC$ADD	Add a file
+
+;	!A	filename
+
+  proc	hc$add
+	exit	if h$cpas ne			;ignore on second pass
+	call	hc$skp				;skip spaces
+	call	hc$par	h$cfil			;get the filespec
+
+	mov	sp,r1				;make space
+	.csispc	#h$ccsi,#h$ctyp,h$cfil		;convert it
+	mov	r1,sp				;reset the stack
+	mov	#h$cifs,r1			;input file spec
+	if	cs				;some error
+	 or	(r1) eq				;no filespec
+		hcwar$	#e$rifs			;tell them
+	...	exit				;
+						;
+	call	hc$fet r1			;fetch driver
+	.purge	#4
+	.lookup	#h$cemt,#4,r1,#0		;lookup the file
+	if	cs				;some error
+	...	hcerr$	#e$reop			;report error
+	call	hc$sav	r1			;save the fle
+	hcinf$	#e$rifi				;
+  end
+
+  proc	hc$sav	r1
+	p1	nam
+	call	hc$alc	#0, #svgam.		;create a save block
+	mov	r0,r1				;
+	clr	(r1)				;clear link
+	if	h$clst eq			;first
+		mov	r1,h$cfst		;
+		mov	r1,h$clst		;
+	else					;
+		mov	r1,@h$clst		;
+	...	mov	r1,h$clst		;
+	if	h$cnxt eq			;no next yet
+	...	mov	r1,h$cnxt		;
+	assume	sv.chn eq 2			;
+	tst	(r1)+				;skip link
+	.savest	#h$cemt,#4,r1			;save status
+	add	#ch.bbs,r1			;skip channel
+	mov	nam(sp),r0			;file name
+	mov	(r0)+,(r1)+			;
+	mov	(r0)+,(r1)+			;
+	mov	(r0)+,(r1)+			;
+	mov	(r0)+,(r1)+			;
+  end
+
+  proc	hc$rst	<r1,r2>				;restore next file
+	mov	#h$cnxt,r1			;
+	clr	r0				;
+	clr	h$ccur				;no current file
+	exit	if (r1) eq			;no more files
+	mov	(r1),r2				;get next
+	mov	(r2),(r1)			;link forward
+	mov	r2,h$ccur			;remember current file
+	assume	sv.chn eq 2			;
+	tst	(r2)+				;skip link
+	.purge	#3				;purge channel
+	.reopen	#h$cemt,#3, r2			;reopen next
+	mov	#1,r0				;fine
+
+  end
+code	HC$ACC	Accept command line
+
+;	In	r4 ->		input line
+;
+;	Out	r0=0		not accepted
+;		r0=command	accepted
+
+  proc	hc$acc
+	p1	sta			;accept state
+	mov	sp,r0			;assume accepted
+	ifb	(r4) ne #xclam.		;not a command line
+		ifb	sta(sp) ne	;wanted a command
+		...	clr	r0	;no match
+	...	exit			;
+					;
+;	command				;
+					;
+	movb	byte.(r4),r0		;get it
+	call	hc$alp	r0		;make uppercase
+	ifb	sta(sp) ne r0		;not the command we want
+	andb	sta(sp) ne byte.(r4)	;punctuation
+		clr	r0		;failed
+	...	exit			;
+	movb	byte.(r4),r0		;return command for success
+	cmpb	(r4)+,(r4)+		;skip the command
+	call	hc$skp			;skip whitespace
+  end
+code	HC$PAR	Parse string
+
+;	In	r4 ->		input line
+;
+;	Out	r0=0		nothing found
+;
+;	Syntax	"... '' '" "	
+
+	auto	quo				;in quotes
+  proc	hc$par	<r1>
+	p1	str,r0				;output
+	clr	quo(sp)				;zap the count
+	mov	#sbnam./2,r1			;clear name space
+	repeat					;
+		clr	(r0)+			;
+	count	r1				;
+	mov	str(sp),r0			;
+    repeat					;
+	leave	ifb (r4) eq			;all over
+	if	quo(sp) eq			;not in quotes
+		leave	ifb (r4) eq #space.	;space stops it
+		leave	ifb (r4) eq #tab.	;so does tab
+		ifb	(r4) eq #dquot.		;start quoted string
+			inc	r4		;skip it
+			inc	quo(sp)		;remember it
+		...	next			;
+.if ne par$c
+		movb	(r4)+,r1		;
+		next	ifb r1 eq #'(		;ignore parentheses for
+		next	ifb r1 eq #')		;"C(hain)" as label "Chain"
+		movb	r1,(r4)+		;accept character
+.iff
+		movb	(r4)+,(r0)+		;otherwise store another
+.endc
+	...	next				;
+
+;	in quotes
+
+	movb	(r4)+,r1			;get the next
+	ifb	r1 eq #dquot.			;terminating quote
+		clr	quo(sp)			;remember its done
+	...	leave				;and quit
+						;
+	ifb	r1 ne #squot.			;not single quote
+		movb	r1,(r0)+		;store it
+	...	next				;
+
+;	single quote 
+
+	ifb	(r4) eq				;nothing coming
+		inc	quo(sp)			;force format error
+	...	leave				;
+	movb	(r1)+,(r0)+			;store the next
+    end						;
+	clrb	(r0)				;terminate string
+	sub	str(sp),r0			;return size
+	if	quo(sp) ne			;invalid syntax in quotes
+	...	hcwar$	#e$rfmt			;string format error
+  end
+code	HC$SKP	Skip whitespace
+
+;	In	r4 ->		line
+;
+;	space. or tab.		skip
+;	!!			terminate line
+
+  proc	hc$skp
+    repeat
+	ifb	(r4) eq #space.		;got a space
+	 orb	(r4) eq #tab.		;or tab
+		inc	r4		;skip it
+	...	next			;
+	ifb	(r4) eq #xclam.		;possible comment
+	 andb	byte.(r4) eq #xclam.	;
+	...	clrb	(r4)		;terminate line
+    endless
+  end
+
+code	HC$SKL	Skip blank lines
+
+  proc	hc$skl
+	repeat
+		bis	#fieom$,h$cifl	;permit eof here
+		call	hc$lin		;
+		bis	#fieom$,h$cifl	;no longer
+		leave	if r0 eq	;end of file
+		call	hc$skp
+	untilb	(r4) ne
+  end
+
+code	HC$SKM	Skip module
+
+  proc	hc$skm	<r0>
+	trace	skm
+    repeat
+	call	hc$lin			;get another line
+	exit	if r0 eq		;end of file
+	call	hc$acc	#uprB.		;check for begin
+	leave	if r0 ne		;found it
+	call	hc$acc	#uprT.		;debug module
+	leave	if r0 ne		;
+    end
+	mov	h$clin,r4		;reset to !B or !D
+  end
+
+code	HC$EOL	Check end of line
+
+  proc	hc$eol
+	call	hc$skp			;skip whitespace
+	exit	ifb (r4) eq		;fine
+	hcwar$	#e$reol			;warn them
+  end
+
+code	HC$MOV	Move string
+
+  proc	hc$mov	<r0,r1>
+	p1	src,r0
+	p2	dst,r1
+	repeat	
+		movb	(r0)+,(r1)+
+	until	eq
+  end
+code	HC$UPR	Convert string to uppercase
+
+  proc	hc$upr	<r0,r1>
+	p1	str,r1
+	whileb	(r1) ne			;do string
+		movb	(r1),r0		;get a character
+		call	hc$alp	r0	;convert to uppercase
+		if	r0 ne		;got one
+		...	movb	r0,(r1)	;replace it
+		inc	r1		;next
+	end				;
+  end
+
+code	HC$ALP	Check and convert alpha
+
+  proc	hc$alp
+	p1	cha,r0			;the character
+	ifb	r0 his #uprA.		;
+	 andb	r0 los #uprZ.		;
+	...	exit			;
+	ifb	r0 his #lowA.		;
+	 andb	r0 los #lowZ.		;
+		add	#uprA.-lowA.,r0	;convert it
+	...	exit			;
+	ifb	r0 his #dig0.		;digit
+	 andb	r0 los #dig9.		;
+	...	exit			;
+	exit	ifb r0 eq #dolar.	;
+	exit	ifb r0 eq #dot.		;
+	exit	ifb r0 eq #under.	;
+	clr	r0			;not alpha
+  end
+code	HC$LIN	Get line
+
+;	Out	r4 ->		input line
+;		r0=0		none
+;		h$cend<>0	end of input
+
+  proc	hc$lin	<r1,r2,r3>
+    repeat					;comments
+	clr	h$crep				;not reported yet
+	mov	h$clin,r4			;get a pointer
+	mov	r4,r3				;working copy
+	mov	#82.,r2				;count it
+						;
+	while	h$cend eq			;more
+		clrb	(r3)			;terminate for messages
+		call	hc$cha			;get a character
+		if	#fiopn$ seton h$clfl 	;got a listing file
+		 and	h$cpas ne		;and second pass
+			inc	h$crep		;line has been reported
+		...	call	hc$lst r0    	;list it
+		next	ifb r0 eq #cr.		;ignore carriage return
+		next	ifb r0 eq #ff.		;and form feed
+		leave	ifb r0 eq #lf.		;got a line feed
+		leave	ifb r0 eq		;or end of file
+		if	r2 ne			;got the space
+			dec	r2		;
+		...	movb	r0,(r3)+	;store it
+	end					;
+	clrb	(r3)				;terminate it 
+	if	r2 eq				;end of line
+	...	hcwar$	#e$rltl			;line too long
+						;
+	if	h$cend ne			;no more
+		clr	r0			;
+		clrb	(r4)			;ignore it
+	...	exit				;quit
+						;
+	call	hc$dbg				;check debug & comment
+	next	if r0 eq			;found null line
+    endless					;
+
+	mov	r4,r3				;r3 -> line
+	whileb	(r3) ne				;got more
+		ifb	(r3) eq #xclam.		;!
+		 andb	byte.(r3) eq (r3)	;!!
+			clrb	(r3)		;terminate it
+		...	leave			;
+		inc	r3			;next
+	end					;
+						;
+	mov	sp,r0				;got a line
+  end
+code	HC$DBG	Check debug and comments
+
+;	In	r4 -> 		line
+;
+;	Out	r0=0		Ignore this line
+
+  proc	hc$dbg	<r3,r2>
+;	.print	r4
+	clr	r0				;assume we skip
+	mov	r4,r3				;get a copy
+	ifb	(r3)+ eq #xclam.		;!
+	  andb	(r3)+ eq #uprD.			;!D
+		ifb	(r3) eq #minus.		;!D-
+			clr	h$cdbg		;turn it off
+			exit			;get another line
+		elsifb	(r3) eq #plus.		;!D+
+			mov	sp,h$cdbg	;turn it on
+			exit			;get another line
+		elsifb	(r3) eq #equal.		;!D=
+		...	inc	r3		;skip it
+		exit	if h$cdbg eq		;not in debug mode
+		mov	r4,r2			;get another copy
+		repeat				;move the remainder down
+			movb	(r3)+,(r2)+	;
+	...	until	eq			;
+
+;	Check for comment line
+
+	ifb	(r4) eq #xclam.			;!
+	 andb	byte.(r4) eq (r4)		;!!
+	...	exit				;skip comment line
+	mov	sp,r0				;keep the line
+  end
+code	HC$CHA	Get character
+
+  proc	hc$cha	<r5>
+	mov	#h$cifl,r5		;get a plex
+    repeat				;
+	if	fi.cnt(r5) eq		;no more in buffer
+		call	hc$rea	r5	;read it
+	...	exit	if r0 eq	;forget it
+	movb	@fi.pnt(r5),r0		;get the next
+	dec	fi.cnt(r5)		;count it
+	inc	fi.pnt(r5)		;
+    until r0 ne				;ignore nulls
+  end
+
+code	HC$REA	Read a block
+
+  proc	hc$rea	<r1,r5>
+	p1	fil,r5				;file block
+    repeat					;
+	call	hc$nif				;check file
+	exit	if r0 eq			;no more input
+						;
+	mov	fi.siz(r5),r1			;get the size
+	asr$	1,r1				;make words
+	.readw	#h$cemt	fi.chn(r5), fi.buf(r5), r1, fi.blk(r5)
+						;r0 = words read
+	if	cc				;fine
+		if	r0 ne r1		;end of file truncation
+		...	bis	#fieof$,(r5)	;remember it next time
+		mov	r0,r1			;calculate blocks
+		clrb	r1			;clear high order
+		swab	r1			;divide by 256.
+		add	r1,fi.blk(r5)		;next block
+						;
+		asl$	1,r0			;make byte count
+		mov	r0,fi.cnt(r5)		;setup the actual count
+		mov	fi.buf(r5),fi.pnt(r5)	;the pointer
+	...	exit				;fine
+
+;	Input error
+
+	ifb	j$berr ne 	 		;not end of file
+	...	hcerr$	#e$rfie			;file input error
+	bis	#fieof$,(r5)			;end of file on this one
+    end
+  end
+
+code	HC$NIF	Next input file
+
+  proc	hc$nif
+    repeat
+	leave	if h$cend ne			;done
+	mov	sp,r0				;assume more in file
+	exit	if #fieof$ setoff (r5)		;right
+	if	#fieom$ setoff h$cifl		;EOM not acceptable
+	...	hcwar$	#e$reom			;warn them
+
+	call	hc$rst				;restore next file
+	leave	if r0 eq			;are no more
+;	leave	if fi.chn(r5) his #14.		;no more channels
+;	inc	fi.chn(r5)			;next channel
+;	.wait	fi.chn(r5)			;is it open
+;	leave	if cs				;no more channels
+	clr	fi.blk(r5)			;new file
+	bic	#fieof$,(r5)			;clear end of file
+	mov	sp,r0				;fine
+	exit					;
+    end						;try again
+	inc	h$cend				;end of input
+	clr	r0				;
+  end
+
+code	HC$IRS	Reset input file
+
+  proc	hc$irs	<r5>
+	mov	#h$cifl,r5
+	clr	(r5)				;no flags
+	mov	#3,fi.chn(r5)			;first channel
+	mov	#fiisz.,fi.siz(r5)		;setup the size
+	clr	fi.cnt(r5)			;no input
+	clr	fi.blk(r5)			;first block
+	mov	fi.buf(r5),fi.pnt(r5)		;setup pointer
+	mov	h$cfst,h$cnxt			;reset list
+	call	hc$rst				;restore first file
+  end
+code	HC$PLN	Put line
+
+  proc	hc$pln	<r0,r1>
+	p1	lin,r1
+	trace	pln
+	whileb	(r1) ne				;got more
+		movb	(r1)+,r0		;get it
+		call	hc$put	r0		;write it
+	end					;
+	call	hc$put	#lf.			;new line
+  end
+
+code	HC$PST	Put string
+
+  proc	hc$pst	<r0,r1>
+	p1	lin,r1
+	trace	pst
+	whileb	(r1) ne				;got more
+		movb	(r1)+,r0		;get it
+		call	hc$put	r0		;write it
+	end					;
+  end
+
+code	HC$PLB	Put label
+
+  proc	hc$plb	<r0,r1,r2,r3,r5>
+	p1	sym,r5				;the symbol
+	trace	plb				;
+						;
+	movb	sb.blk+byte.(r5),r0		;high block
+	movb	sb.blk(r5),r1			;low  block
+	movb	sb.byt(r5),r2			;low byte
+	movb	sb.byt+byte.(r5),r3		;high byte
+						;
+	bis	#hetr$p,r0			;set terminator
+	asr	r3				;high byte
+	if	cs				;got high order
+	...	bis	#heby$p,r0		;high byte flag
+	bis	r3,r1				;remainder into low block
+						;
+	call	hc$put	r0			;put it out
+	call	hc$put	r1			;
+	call	hc$put	r2			;
+  end
+
+code	HC$PAD	Pad output file
+
+  proc	hc$pad	<r0,r5>
+	p1	fil,r5
+	exit	if #fiopn$!fiter$ setoff (r5)	;not open or terminal
+	while	fi.cnt(r5) ne			;more to go
+		call	hc$pch	#0		;put another
+	end					;
+	.close	fi.chn(r5)			;close it
+  end
+code	HC$PUT	Put a character
+
+;	All output runs through this routine
+
+  proc	hc$lst	<r0,r5>
+	p1	cha
+	mov	#h$clfl,r5			;write to listing file
+	exit	if #fiopn$ setoff (r5)		;not open
+	if	#fiter$ seton (r5)		;its the terminal
+		.ttyout	cha(sp)			;go direct
+	...	exit				;
+	call	hc$pch	cha(sp)			;write the character
+  end
+
+  proc	hc$put	<r5>				;write output file
+	p1	cha				;
+	mov	#h$cofl,r5			;write to output file
+  join						;
+  proc	hc$pch	<r5>				;r5 is setup
+	p1	cha				;
+  meet						;
+	movb	cha(sp),@fi.pnt(r5)		;store the character
+	inc	fi.pnt(r5)			;next character
+	inc	fi.cnt(r5)			;count it
+	if	fi.cnt(r5) his fi.siz(r5)	;done enough
+	...	call	hc$wri	r5		;write it out
+  end
+
+code	HC$WRI	Write block
+
+  proc	 hc$wri	<r0,r1,r5>
+	p1	fil,r5
+	mov	fi.cnt(r5),r1			;get the count
+	asr$	1,r1				;make words
+	if	#fiopn$ seton (r5)		;is it open
+	 and	#fieof$ setoff (r5)		;and not end of file
+		.writw	#h$cemt,fi.chn(r5),fi.buf(r5),r1,fi.blk(r5)
+		if	cs			;some error
+			bis	#fieof$,(r5)	;remember it
+	...	...	hcerr$	#e$rfoe		;
+	clrb	r1				;cleanup
+	swab	r1				;r1 is block count
+	add	r1,fi.blk(r5)			;next block
+	mov	fi.buf(r5),fi.pnt(r5)		;
+	clr	fi.cnt(r5)			;
+  end
+
+code	HC$ORS	Reset output file
+
+  proc	hc$ors	<r5>
+	mov	#h$cofl,r5
+	clr	(r5)				;clear all flags
+	mov	#fiosz.,fi.siz(r5)		;setup buffer size
+	clr	fi.cnt(r5)			;no count
+	clr	fi.blk(r5)			;first block
+	mov	fi.buf(r5),fi.pnt(r5)		;setup pointer
+	exit	if h$cpas eq			;ignore file first time 
+	.wait	#0				;got an output file?
+	if	cc				;yes
+	...	bis	#fiopn$,h$cofl		;output file open
+  end
+
+code	HC$LRS	Reset listing file
+
+  proc	hc$lrs	<r1,r5>
+	mov	#h$clfl,r5
+	clr	(r5)				;clear all flags
+	mov	#1,fi.chn(r5)			;setup the channel
+	mov	#filsz.,fi.siz(r5)		;setup buffer size
+	clr	fi.cnt(r5)			;no count
+	clr	fi.blk(r5)			;first block
+	mov	fi.buf(r5),fi.pnt(r5)		;setup pointer
+	.wait	#1				;got a listing file
+	if	cc				;yes
+	...	bis	#fiopn$,h$clfl		;output file open
+						;
+	mov	#h$ccst,r1			;channel status area
+	.cstat	#h$cemt	#1,r1			;get channel status
+	lottn. = ^rtt				;terminal name
+	if	ci.nam(r1) eq #lottn.		;this the terminal?
+	...	bis	#fiter$,(r5)		;yes - remember that
+  end
+code	HC$ALC	Allocate space
+
+  proc	hc$alc	<r0,r1>
+	p1	ptr				;pointer address
+	p2	siz,r0				;size
+	mov	h$cdyn,r1			;allocate the space
+	inc	r0				;round it up
+	bic	#1,r0				;even it
+	add	r0,h$cdyn			;get it
+	if	h$cdyn his h$csym		;too much
+	...	hcfat$	#e$rmem			;memory gone
+						;
+	clrb	(r1)				;clear first byte of it
+	mov	r1,r0				;pointer
+	if	ptr(sp) ne			;have pointer
+	   	mov	r0,@ptr(sp)		;
+	else
+	...	mov	r0,(sp)			;naughty
+  end
+
+code	HC$STA	Display statistics
+
+  proc	hc$sta
+	exit	if h$cinf eq
+	call	hc$typ	#m$stot
+	mov	h$clim,r1			;
+	sub	h$cbas,r1			;
+	clc	
+	ror	r1
+	call	hc$dec	r1
+	call	hc$prt	#m$swrd
+
+	call	hc$typ	#m$sfre
+	mov	h$csym,r1
+	sub	h$cdyn,r1
+	clc	
+	ror	r1
+	call	hc$dec	r1
+	call	hc$prt	#m$swrd
+
+	call	hc$typ	#m$ssct			;symbols
+	call	hc$dec	h$csct			;
+	call	hc$new				;
+  end
+code	HC$ERR	Display error message
+
+  proc	hc$fat
+	p1	msg
+	call	hc$msg	#uprF.,msg(sp),#h$cfts,#esfat$	;fatal
+	.exit
+  end
+
+  proc	hc$err	
+	p1	msg
+	call	hc$msg	#uprE.,msg(sp),#h$cers,#eserr$	;error
+	jmp	start
+  end
+
+  proc	hc$war
+	p1	msg
+	exit	if h$cpas eq
+	call	hc$msg	#uprW.,msg(sp),#h$cwrs,#eswar$	;warning
+  end
+
+  proc	hc$inf
+	p1	msg
+	exit	if h$cpas eq
+	exit	if h$cinf eq
+	call	hc$msg	#uprI.,msg(sp),#h$cins,#esinf$	;warning
+  end
+code	HC$MSG	Display message
+
+  proc	hc$msg	<r0,r1>
+	p1	cha				;error severity character
+	p2	msg,r1				;message text
+	p3	cnt				;error counter address
+	p4	flg				;severity flag
+						;
+	call	hc$typ	#e$rfac			;HELP
+	call	hc$quo	cha(sp)			;severity
+	call	hc$quo	#minus.			;-
+	whileb	(r1) ne				;more to go
+		movbi	(r1)+,r0		;get the next
+		ifb	r0 eq #perct.		;got a parameter
+		 andb	(r1) ne			;and one coming
+			movb	(r1)+,r0	;get it
+			call	hc$arg	r0	;display it
+		...	next			;
+		call	hc$quo	r0		;
+	end					;
+	if	h$ccur ne			;got a filename
+		call	hc$typ	#e$rin		; in 
+		mov	h$ccur,r1		;
+		add	#sv.fil,r1		;
+	   	call	hc$fmt	r1,h$cstr	;    dk:myfile.hlp
+	...	call	hc$typ	h$cstr		;
+	call	hc$new				;and a newline
+						;
+	mov	msg(sp),r1			;get message again
+	ifb	(r1) eq #perct.			;want the text
+	 andb	byte.(r1) eq #lowt.		;yes
+		cmpb	(r1)+,(r1)+		;skip it
+	...	call	hc$rep			;report line
+						;
+	inc	@cnt(sp)			;count it
+	bisb	flg(sp),j$bsev			;set exit severity
+  end
+
+code	HC$ARG	Display argument
+
+;	%t	text line
+;	%l	label
+;	%m	module
+;	$f	file spec
+
+  proc	hc$arg	<r0,r1>
+	p1	arg,r0
+	clr	r1				;assume none
+	if	r0 eq #lowl.			;label
+		mov	h$clab,r1		;
+		if	eq			;
+		 orb	(r1) eq			;
+		...	mov	#h$cnlb,r1	;no label
+						;
+	elsif	r0 eq #lowm.			;module
+		mov	h$cmod,r1		;
+		if	eq			;
+		 orb	(r1) eq			;
+		...	mov	#h$cnnm,r1	;no label
+	elsif	r0 eq #lowf.			;file
+		mov	h$cfil,r1		;
+	else					;oops
+	...	exit				;ignore it
+	call	hc$typ	r1			;display the string
+  end
+code	HC$PRT	Print string with newline
+
+  proc	hc$prt
+	p1	msg
+	call	hc$typ	msg(sp)
+	call	hc$new
+  end
+
+code	HC$TYP	Type string without newline
+
+  proc	hc$typ	<r0,r1>
+	p1	msg,r1
+	whileb	(r1) gt
+		movb	(r1)+,r0
+		call	hc$quo	r0
+	end
+  end
+
+code	HC$QUO	Quote character
+
+  proc	hc$quo	<r0>
+	p1	cha
+	if	#fiter$ setoff h$clfl		;not listing to terminal
+	...	.ttyout	cha(sp)			;write it out
+	if	#fiopn$ seton h$clfl		;listing somewhere
+	...	call	hc$lst	cha(sp)
+  end
+
+code	HC$NEW	Display newline
+
+  proc	hc$new	
+	call	hc$typ	#h$cnew
+  end
+
+code	HC$REP	Report text line
+
+  proc	hc$rep	<r0>
+	exit	if h$crep ne			;already reported
+	inc	h$crep				;once only
+	mov	h$clin,r0			;get the line
+	exit	if eq				;forget it
+	call	hc$prt	r0			;display it
+  end
+code	HC$RPT	Report file error
+
+  proc	hc$rpt
+	p1	msg
+	p2	obj
+	call	hc$typ	#e$rfac
+	call	hc$typ	msg(sp)
+	if	obj(sp) ne
+		call	hc$fmt obj(sp),h$cstr
+	...	call	hc$typ h$cstr
+	call	hc$new
+	jmp	start
+  end
+
+  proc	hc$fmt	<r1,r2>
+	p1	spc,r2
+	p2	lin,r1
+	call	hc$unp
+	movb	#':,(r1)+
+	clrb	(r1)
+	exit	if (r2) eq
+	call	hc$unp
+	call	hc$unp
+	movb	#'.,(r1)+
+	call	hc$unp
+	clrb	(r1)
+  end
+
+hc$unp:	pshs	<r5,r4>
+	mov	(r2)+,r4
+	mova	100$,r5		;get the divisors
+20$:	mov	#-1,r0		;init the result
+	cmp	#^o174777,r4	;is it an *
+	blo	50$		;yep
+30$:	inc	r0		;next character
+	sub	(r5),r4		;this it?
+	bcc	30$		;nope
+	add	(r5),r4		;bump back
+	tst	r0		;a null?
+	beq	90$		;yep, forget it
+	cmp	#^o33,r0		;nah?
+	blo	70$
+	beq	80$
+;	add	#'a-'A,r0	;get lower case
+50$:	add	#^o56,r0
+70$:	add	#^o11,r0
+80$:	add	#^o11,r0
+	movb	r0,(r1)+
+90$:	tst	-(r5)		;any more?
+	bne	20$		;yep
+95$:	pop	r4
+	pop	r5
+	return
+	.word	0,1,40.
+100$:	.word	40.*40.
+
+  proc	hc$dec	<r0,r1,r2,r3>
+	p1	num,r1
+	mov	#h$cdec,r3
+	bic	r2,r2		; no digits seen yet
+50$:	mov	#-1,r0		; look for a digit
+60$:	inc	r0		; step up dividend
+	sub	(r3),r1		; subtract
+	bcc	60$		; go again
+	add	(r3)+,r1	; bumb it back to positive
+	beqw	(r3),70$	; final digit
+	bnew	r0,70$		; got something
+	beqw	r2,80$		;
+70$:	mov	#'0,r2		;
+	add	r2,r0		;
+	call	hc$quo r0	; out
+80$:	bnew	(r3),50$	; any more to do ?
+	end
+h$cdec:	10000.,1000.,100.,10.,1,0
+
+.end
+

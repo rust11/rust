@@ -1,0 +1,453 @@
+!!	TLK - TOOLKIT
+!!
+!B	LI$TLK
+	BAUD		TK.BAU
+	CLONE		TK.CLN
+	CONFIG		TK.CFG
+	COPY		TK.COP
+	DAY		TK.DAY
+!!	FLAK		TK.FLK
+	FLAKEY		TK.FLA
+	GLOBAL		TK.GLB
+	KBD		TK.KBD
+	MEMORY		TK.MEM
+	MLB		TK.MLB
+	PSECT		TK.PSC
+	RATE		TK.RAT
+	RMON		TK.RMN
+	SLOTS		TK.SLT
+	SNAIL		TK.SNL
+	SNIFF		TK.SNF
+	SNOOP		TK.SNO
+	STRIP		TK.STR
+!!	SUCK		TK.SCK
+	VECTOR		TK.VEC
+!F	RUST Toolkit
+Miscellaneous maintenance applications.
+!E
+!!	BAUD
+!!	
+!B	TK.BAU
+!F	BAUD
+Displays the baud rate of a serial line. You specify the output
+CSR address of the line to be tested.
+
+.baud /c:177564
+?BAUD-Clock: 50 hertz, Terminal: 9600 baud.
+
+o Requires unmapped system.
+o The system should be otherwise inactive. 
+o Typing anything aborts the test.
+o Specifying the input CSR address is a common error.
+!E
+!!	CLONE
+!!	
+!B	TK.CLN
+!F	CLONE out-dev=in-dev
+
+In-Device
+Out-Device
+  The input and output devices.
+
+Copies devices such as disks and magtapes. Supports DL:/DM: 
+physical I/O. Useful for copying non-RT-11 media. Copy 
+operations are verified unless /N is specified. Errors are
+reported but don't abort the operation.
+
+/H	Skip home block
+/N	Don't verify
+/T:n	Number of blocks to copy (default is all)
+
+/S:b	Input start block	/B:n	Output start block
+/E:n	Input end block		/C:b	Output end block
+/P	Input physical I/O	/W	Output physical I/O
+
+.r clone
+dl1:*/w=dl0:/p		! physical I/O device copy
+!E
+!!	CONFIG
+!!
+!B	TK.CFG
+!F	CONFIG
+Displays RT-11 config/config2 flags.
+
+.config
+40	50 Hertz
+1000	USR noswap
+20000	Clock SR
+100000	Clock present
+40	KMON swap
+400	EIS present
+!E
+!!	COPY
+!!	
+!B	TK.COP
+!F	COPY out-file=in-file		
+
+In-file
+  The single input file.
+Out-file
+  The output file. Must be specified.
+
+Simple block-for-block copy utility. Used when everything else fails.
+
+.r copy
+out-file=in-file
+
+!E
+!!	DAY
+!!
+!B	TK.DAY
+!F	DAY		
+A poor-man's time-of-year clock.
+
+.DAY		! recalls saved date/time if no date setup
+		! saves date/time if date set
+.STA		! sets date a day later (and saves that)
+.REE		! sets date a day earlier (and saves that)
+!E	 
+!!	CPU
+!!
+!B	CPU
+!F	CPU
+Displays hardware/software environment information. The same 
+code is used by RUST/XM during bootstrap.
+
+.r cpu			! run CPU
+......			! lots of information
+!E
+!!	FLAKEY
+!!	
+!B	TK.FLA	
+!F	FLAKEY
+
+Flakey tests available program memory for errors.
+
+Flakey is useful under a heavily loaded RUST/XM system
+when a memory error is suspected in a failing program.
+!E
+!!	GLOBAL	
+!!	
+!B	TK.GLB
+!F	GLOBAL out-file=in-file
+Converts an STB file to a MACRO source file.
+
+In-file
+  Specify a LINK .STB file.
+Out-file
+  The converted .MAC file.
+
+.r global
+out-file[.mac]=in-file[.stb]
+
+o Overlay handler globals and some others are omitted.
+!E
+!!	KBD
+!!
+!B	TK.KBD
+!F	KBD
+Displays keyboard input codes.
+
+.KBD				! Run the utility
+?KBD-I-Press keys followed by [return]
+KBD> ... [return]		! Press keys followed by [return]
+KBD> [33,117,167] [27,79,119]	! KBD displays the received codes
+
+o KBD displays the codes twice, first in octal, then decimal.
+o Exit with Ctrl-C.
+!E
+!!	MEMORY
+!!
+!B	TK.MEM
+!F	MEMORY		
+Checks the hardware for available addresses and devices.
+
+BETA: Device descriptions are new and incomplete. Please
+report any missed.
+
+.r memory	! check memory
+000000-157776
+172200-172216       MMU   Super. I-PDRs
+172240-172256       MMU   Super. I-PARs
+174400-174406  160  DL:   RL0x Disk
+177110-177116  234  HD:   Hypothetical Disk (Emulators)
+177170-177172  264  DY:   RX0x Floppy
+177400-177414  220  RK:   RK05 Disk
+177546         100  LTC   Line Time Clock
+177560-177562   60  TT:   Console In
+177564-177566   64  TT:   Console Out
+177570              SWR   Switch Register
+177572-177576  250  MMU   SR0-SR2
+177744         114  CPU   Memory Error
+177746              CPU   Cache Control
+!E	
+!!	MLB
+!!
+!B	TK.MLB
+!F	MLB [out-file]=in-file
+Lists RT-11 or RSX-11 MACRO libraries.
+
+In-file
+  Specify an input MACRO library.
+Out-file
+  Output defaults to the terminal.
+
+.mlb lib:share
+MACRO library file:     lib:share.mlb
+Library block size:     311
+Library version:        500(8) h  (rt-11)
+Library creation date:  Monday 21-Feb-2005 16:15:22
+.......................
+$trnlo  $tsdef  $ttdef  $txdef  $tzdef  $ucdef  $uidef  $undef  $usdef
+$user   $uvdef  $vadef  $vcdef  $vddef  $vedef  $vfdef  $videf  $vpdef
+$vrdef  $vvdef  $v1def  $wake   $wbdef  $wddef  $world  $xhdef  $xidef
+$xmdef  $xpdef  $xrdef  $xtdef  $xvdef  .astx   .blkb   .blkw   .hard
+Total entries:          451
+!!	RATE
+!!
+!B	TK.RAT
+!F	RATE [dev:]	
+Measures disk and network I/O thruput rates.	
+
+Device
+  The default device is RAT:, if defined, else SY:.	
+  RATE creates the test data file RATE.TMP on the device.
+
+Switch	Operation
+------	---------
+/B:n	Set the buffer word size. Accepted values are 250, 1000, 2000,
+	5000, 10000, 20000, 30000 or 40000.
+/R	Uses a read test - the default
+/S	RATE moves thru the data file instead of staying at block 0
+/W	Uses a write test -- use with caution.
+!E	
+!!	RMON
+!!	
+!B	TK.RMN
+!F	RMON
+Displays resident monitor variables.
+
+143032  0       rmon    137     143564  143352  320     cntxt   51
+143036  4       csw     0               143354  322     jobnum  146254
+143276  244     sysch   100002  0       143356  324     synch   143606
+143304  252     i.serr  0               143360  326     lowmap  36377
+143306  254     i.spls  0               143374  342     s$ynet  0
+143310  256     blkey   2               143374  342     p$hucf  0
+143312  260     chkey   2               143402  350     d$rpnm  0
+143314  262     date    65241           143404  352     usrloc  126552
+143316  264     dflg    0               143406  354     gtvect  320
+143320  266     usrlc   126552          143410  356     errcnt  0
+...
+!E
+!!	PSECT
+!!
+!B	TK.PSC
+!F	PSECT [out-file=]in-file		
+Displays a summary listing of an RT-11 LINK map.
+
+In-file
+  Specify a LINK .MAP file.
+Out-file
+  Output defaults to the terminal and .LST.
+
+.psect utb:calc
+RT-11 LINK  V05.21      Load Map        Sunday 23Wedne73 20:58  Page 1
+CALC  .SAV      Title:  CALINF  Ident:  000003  /B:003000
+ . ABS.  000000 003000 = 768.   words  (RW,I,GBL,ABS,OVR)
+         003000 000524 = 170.   words  (RW,I,LCL,REL,CON)
+ C$CODE  003524 021760 = 4600.  words  (RO,I,LCL,REL,CON)
+ C$DATA  025504 000660 = 216.   words  (RW,D,LCL,REL,CON)
+ C$STRN  026364 000327 = 108.   words  (RW,D,LCL,REL,CON)
+More?
+ C$STCN  030144 000337 = 112.   words  (RO,D,LCL,REL,CON)
+Transfer address = 003126, High limit = 030502 = 6305.  words
+!E	
+!B	UT$QUE
+!!	SLOTS
+!!	
+!B	TK.SLT
+!F	SLOTS
+Displays the resident monitor device table.
+
+.slots
+slot    $unam1  $unam2  $pname  $entry  $stat   $dvrec  $hsize  $dsize
+0.      NF      V55     TT      0       4       107     166     0.
+1.                      DL      132760  102405  267     1256    0.
+2.                      NL      0       25      105     42      0.
+3.                      LD      0       102446  333     726     0.
+4.                      DY      0       102406  301     1774    0.
+5.                      RK      0       100000  416     422     4800.
+6.                      HD      0       102575  323     314     0.
+7.                      NF      132434  17205   1207    324     0.
+8.                      SL      130246  62051   114     2166    0.
+9.                      CT      126672  60377   250     1354    0.
+16.     DL0     DK
+17.     DL0     SY
+!E
+!!	SNAIL
+!!	
+!B	TK.SNL
+!F	SNAIL
+Walks through application memory.
+
+SNAIL executes a loop incrementally through process memory.
+
+.snail
+
+!E
+!!	SNIFF
+!!	
+!B	TK.SNF
+!F	SNIFF
+A simple network sniffer. Requires NQ:.
+
+SNIFF reports the ethernet traffic. It decodes a TCP/IP subset
+and some SMB messages. There are no options.
+
+Since SNIFF requires NQ: it runs only on Q-bus systems running
+RUST/XM or RT-11/XM. Another option is to use the Baldwin SJ
+NQ: driver.
+
+.r sniff 
+!E
+!!	SNOOP
+!!
+!B	TK.SNO
+!F	SNOOP		
+Analyses RT-11 directories in great detail.
+
+Switch		Operation
+-----		---------
+/C		Copy mode
+/H		Display help
+/I		Ignore copy errors
+/L:n		Last segment to display
+/S:n		Number of segments to copy
+
+.r snoop
+*dl1:			! list DL1: directory
+*a.a=dl1:/c/s:5		! copy five segments to a.a
+
+!!I	UT$HL	DIRECTORY/DETAILED
+!!I	UT$HL	ANALYSE DIRECTORY
+!E	
+!!	STRIP
+!!	
+!B	TK.STR
+!F	STRIP [out-file=]in-file
+Removes MACRO comments.
+
+In-file
+  Specify a MACRO .MAC file.
+Out-file
+  Output defaults to the terminal.
+
+.r strip
+out-file.MAR=in-file.MAC
+^C
+!E
+!!	SUCK
+!!	
+!B	TK.SCK
+!F	SUCK
+
+
+!E
+!!	VECTOR	
+!!
+!B	TK.VEC
+!F	VECTOR		
+Locates vectors, fakes interrupts and displays vector map.
+
+Locate Interrupt Vector
+/C:octal	CSR address
+/D:DZ		Test DZ(V)11. Reports transmit vector.
+/G:octal	Value to write to CSR. Default value is 1
+/P:octal	PDP=11 interrupt priority
+
+.r vector	! RUST/XM: Not supported
+*/c:177564	! Test the terminal vector
+
+Fake Interrupt:
+/I:n		! Fakes an interrupt at the specified address.
+
+.r vector	! RUST/XM: Use with extreme caution
+/i:4		! Fake a bus trap
+
+Display Interrupt Vector Protection Map:
+.r vector	! RUST/XM: user-mode map only.
+*/l		! display the low memory vector protection map.
+!E	
+!B	xxxx
+!F	xxxx
+COPY:   Simple block-for-block copy utility. Used when everything
+        else seems to fail.
+
+        .copy.sav input output    
+     
+ENV:    Displays hardware/software environment information. The same 
+        code is used by RUST/XM during bootstrap.
+
+        {Old. Part of the RUST/XM startup process.}
+
+ETB:    The directory ETB: (Environment Test Binaries) contains many
+        small test programs, all undocumented.
+
+FLAK:   Reports the interrupts occuring in a system.
+
+        {The FB version is more useful.}
+
+FLAKEY: Tests program memory for errors.
+
+GLOBAL  Converts STB file to a MACRO source file.
+
+        .global infile[.stb] outfile[.mac]
+  
+        {Used as part of the RUST/XM development process.}
+
+INT:    Triggers an interrupt via the specified vector.
+
+        /V:n     Specifies interrupt vector
+
+ITB:    The directory ITB: (internal tools binary) contains numerous
+        small test programs for RT-11 EMTs and mechanisms. They're all
+        undocumented but you may sense out of some of them.
+
+KB:     Displays received codes of a keypress.
+
+        {New. Written while I was doing BO:}
+
+LOWMAP: Displays low memory protected by monitor bitmap.
+
+MEMORY: Displays memory sizes and I/O locations.
+
+        {Not a perfect tool.}
+
+MLB:    Lists MACRO libraries.
+
+        .MLB [TT:]=file[.MLB]
+
+        {Old.}
+
+RATE:   Measures the transfer rate of disks in terms of kilowords per
+        second.
+
+RMON:   Displays RMON offset area information.
+
+PROGRA: Displays lots of stuff about RT-11 (and RSX11) programs. Some
+        set options, mostly for RUST/XM.
+
+PSECT:  Summarise the .PSECTs in a LINK .MAP.
+
+SLOTS:  Displays RT-11 device and assignment table slots.
+
+SNOOP:  Excruciating detail on an RT-11 directory.
+
+STRIP:  Remove comments from MACRO sources.
+
+SUCK:   Displays CSI input received. Typically this program is renamed
+        to imitate another program.
+
+VECTOR: Locates the vector and interrupt priority for a device or
+        displays a list of protected vectors.
+!E

@@ -1,0 +1,690 @@
+!!	Note which SET items affect loaded driver
+!!
+!B	LI$DRV
+	Regular		DR$REG
+	\DD:		DR$DDP
+	DL:		DR$DL
+	DU:		DR$DU
+	DY:		DR$DY
+	LD:		DR$LD
+	LP:		DR$LP
+	LS:		DR$LS
+	NL:		DR$NL
+	PC:		DR$PC
+	RK:		DR$RK
+	SL:		UT$SL
+	TT:		DR$TT
+	VM:		DR$VM
+	\Rust		DR$ADD
+	\AL:		DR$AL
+	BG:		DR$BG
+	CP:		DR$CP
+	CT:		DR$CT
+	CY:		DR$CY
+	DB:		DR$DB
+	EI:		DR$EI
+	FL:		DR$FL
+	GT:		DR$GT
+	HD:		DR$HD
+	IB:		DR$IB
+	MO:		DR$MO
+	NF:		DR$NF
+!!	OD:		DR$OD
+	OP:		DR$OP
+	PM:		DR$PM
+!!	RE:		DR$RE
+	TK:		DR$TK
+	TR:		DR$TR
+!!???	TX:		DR$TX
+!!	XM:		DR$XM
+!!	\Decus		DR$DEC
+!!	\CR:		DR$CR
+!!	CT:		DR$CTD
+!!!!	DD:		DR$DDD
+!!	DP:		DR$DP
+!!	DS:		DR$DS
+!!!!	DU:		DR$DUD
+!!	DY:		DR$DYD
+!!	FI:		DR$FI
+!!	FP:		DR$FP
+!!	PC:		DR$PC
+!!	PD:		DR$PD
+!!	RF:		DR$RF
+	\Settings	DR$SET
+	Suffixes	DR$SUF
+!F	RUST Drivers
+RUST/SJ drivers.
+!E
+
+!B	DR$SET
+!F	Driver settings
+Examining driver settings.
+
+You use the DRIVER utility to display the current SET configuration
+of drivers configured under RUST. You can also SET items:
+
+.driver
+DRIVER> show mov
+SET MOV AUTO
+SET MOV CSR=176500
+SET MOV RIGHT
+SET MOV VECTOR=300
+DRIVER> set mov csr=160100
+DRIVER> set mov vector=310
+DRIVER> exit
+
+See the DRIVER utility help entry for more information.
+!E
+
+
+!!Regular
+!!  RUST implementations of standard RT-11 drivers.
+!!Additional
+!!  Additional RUST hardware and software drivers.
+!!DECUS
+!!  Many DECUS drivers are available on the web.
+!!  DEC placed many older RT-11 drivers in the library.
+!!RT-11
+!!  Most standard RT-11 drivers function under RUST.
+!!Missing
+!!  RUST does not supply magtape drivers or DM:.
+!!	SUFFIX PORRIDGE
+!!
+!!???	Complete Implicit, Explicit and Optional
+!!???	Clean up syntax path
+!!
+!B	DR$SUF
+	RT-11		DR.RTX
+	RUST		DR.RST
+!F	Driver Suffixes
+The driver suffix is the third character of a driver filename.
+For example, the suffix of DDV.SYS is "V". 
+
+Each suffix is associated with a specific native system:
+
+Suffix	Example	  Native system
+------	-------	  --------------
+none	DD.SYS	  RT-11/SJ and RT-11/FB
+X	DDX.SYS	  RT-11/XM
+
+V	DDV.SYS	  RUST/SJ
+W	DDW.SYS	  RUST/SJ on the V11 emulator
+P	DDP.SYS	  RUST/XM
+
+Additional information describes the way suffixes are used by
+RT-11 and RUST.
+!E
+
+!!	--------
+!B	DR.RTX
+!!	------
+!F	RT-11 Driver Suffixes
+RT-11 uses fixed runtime suffixs.
+
+RT-11 uses only the drivers as defined by the system suffix.
+
+On RT-11 you can change the system suffix with a SYSGEN operation.
+For example, you could SYSGEN an RT-11/FB system with the suffix "F".
+All drivers for that sysgened system would then have suffix "F".
+
+Since the suffix is fixed it need not be specified. The one exception
+for RT-11 is the COPY/BOOT command which accepts an optional driver 
+specification with suffix:
+
+.copy/boot:dlv boot dl1:	! use driver DL1:DLV.SYS	
+!E
+
+!!	------
+!B	DR.RST
+!!	------
+	Commands	DR.SUF
+!F	RUST Driver Suffixes
+RUST uses search paths to find the best available driver.
+
+System		Search Path
+-------		-----------
+RUST/SJ		ddW.sys ddV.SYS	dd.SYS
+RUST/XM		ddP.SYS	ddX.SYS	ddV.SYS	dd.SYS
+
+Thus, for DU:, RUST/SJ searchs first DUW.SYS if its running under V11,
+then DUV.SYS and then DU.SYS. You can use INSTALL/LOG or LOAD/LOG to 
+see which driver RUST selects.
+
+In general, the search path operation is transparent. Regular RT-11 
+commands function in the expected manner. 
+
+Further information lists commands where a suffix is implicit, explicit
+or optional.
+!E
+
+!!	------
+!B	DR.SUF
+!!	------
+!F	Suffix-related commands
+Commands which treat the suffix as implicit:
+
+.set [device] dd:	Device name with required colon (:).
+.show device dd:		
+.unload dd:
+.remove dd:
+
+Commands which require an explicit suffix:
+
+.analyse driver duv
+.set driver duv ...
+.show driver duv
+
+Commands which accept an optional suffix:
+
+.install nfw
+.load nfw
+.copy/boot:nfw ...	
+!E
+!B	DR$DSK
+!F	Standard Disk SET items
+SET items that apply to all RUST disk-like drivers.
+
+!!SET items must be applied before the driver is loaded.
+
+Item		Operation
+----		----------
+CSR=octal       CSR address
+VECTOR=octal    Vector address          
+RETRY=decimal   Retry count  
+NAME=name       Driver name
+SHOW            Displays driver settings 
+
+SET items that apply to some RUST disk drivers:
+
+Item		Operation
+----		----------
+[NO]WAIT	I/O is performed without interrupts.
+		The default is NOWAIT.
+!E
+!B	DR$REG
+!F	Regular Drivers
+Regular drivers supplied with the RUST kit.
+
+Drivers covered in this section are RUST implementations of
+standard RT-11 drivers.
+
+Standard RT-11 drivers should also function under RUST.
+!E
+!!-----------------------------------
+!!
+!!	DD:
+!!
+!B	DR$DDP
+	Windows_Server	DR$DDP.WIN
+!F	DD:
+RUST DECtape II (TU58) DD: driver. 512 blocks.
+
+BETA: DD: has been tested only with emulators.
+
+SET DD: NAME=octal	! DD
+SET DD: CSR=octal	! 176500
+SET DD: VECTOR=octal	! 300
+SET DD: RETRY=decimal	! 8
+SET DD: PORT=decimal	! 0	DZV port number
+SET DD: SPEED=decimal	! 9600	DZV speed (50,...,4800,7200,9600,19800)
+SET DD: TIMER=decimal	! 2 seconds
+SET DD: [NO]WAIT	! NOWAIT
+!!
+!![NO]WAIT
+!!  I/O is performed without interrupts. The default is NOWAIT.
+
+o The RUST DD: driver supports DLV and DZV-style serial interfaces.
+o The RUST DD: driver implements /PROBE. See INSTALL/PROBE.
+o A Windows DD: server is supplied. See the Windows sub-topic.
+!E
+!B	DR$DDP.WIN
+!F	DD: Windows Server
+When used with DD.EXE, the Windows server, the RUST driver supports
+seven variable-size units, null-segment optimisation and a facility
+to read the server system time (see the CLOCK utility).
+
+Use HELP WINDOWS DD_SERVER for more information.
+!E
+
+
+!!-----------------------------------
+!!
+!!	DL:
+!!
+!B	DR$DL
+!F	DL:
+RUST RL01/RL02 DL: disk driver. 10240/20480 blocks.
+
+SET DL: CSR=octal	! 174400
+SET DL: VECTOR=octal	! 160
+SET DL: RETRY=decimal	! 8
+SET DL: NAME=octal	! DL
+!!SET DL: SHOW		! 
+SET DL: UNITS=decimal	! 2
+
+UNITS=N
+  The number of units supported (1 to 4). Default is two.
+
+o The RUST driver does not support bad block replacement.
+o The mapped driver includes RLV12 support.
+!!RLV12
+!E
+
+
+!!-----------------------------------
+!!
+!!	DU:
+!!
+!B	DR$DU
+	DECUS		DR$DU.DEC
+	Features	DR$DU.FEA
+	Partitions	DR$DU.PAR
+!F	DU:
+RUST MSCP disk driver DU:.
+
+SET DU: CSR=octal	! 172150
+SET DU: VECTOR=octal	! 154
+SET DU: RETRY=decimal	! 8
+SET DU: PORT=decimal	! Ignored by RUST
+SET DU: PART=decimal	! Sets driver and bootstrap
+SET DU: UNIT=decimal	! Sets driver and bootstrap
+
+PORT=decimal
+  Specifies the controller port. Ignored by the RUST driver.
+CSR0, VEC0
+  These RT-11 DU: options are not supported.
+
+o You should LOAD the DU: driver for optimal performance.
+!!CSR=176150
+!!  Use this setting for the T11 Falcon. Note, RUST/SJ has not
+!!  been tested on the Falcon.
+!E
+
+!B	DR$DU.DEC
+!F	DECUS DU: Support.
+DECUS DU: drivers and applications.
+
+DUCM	A set of DU: drivers for RT-11 and TSX-Plus.
+	The major feature is multi-threaded operation permitting
+	overlapped operation of floppies and hard disk operations.
+	BETA: Not tested.
+
+DUSTAT	Reports DU: port and unit characteristics.
+	BETA: Tested under RUST/SJ.
+!B	DR$DU.FEA
+!F	DU: Feature Set
+A comparison of the DU: driver feature sets.
+
+Feature		RUST V3.5	RT-11 V5.5	DUCM*
+-------		---------	----------	----
+32-Bit I/O	Yes		Yes		Yes
+DU: Tables	Yes		Yes		Yes
+Bypass		Yes		Yes		No
+Falcon CSR	Yes		Yes		No
+Boot Partitions	Yes		No		Yes
+
+Multi-Port	No		Yes		Sub-drivers
+Multi-Threaded	No		No		Yes
+SET CSR0/VEC0	No		Yes		No
+Software BBR	No		SYSGEN		No
+!!TSX Tailoring	No		No		Yes
+
+* DUCM.SYS is the Chester Wilson DECUS driver.
+!!** RUST/XM DU: driver supports mapped bypass packets.
+!E
+
+!B	DR$DU.PAR
+!F	DU: Partitions
+Booting from DU: partitions. The best way to manage the process 
+is to choose one DU: unit as the the master unit on which you 
+perform all SET operations. DU0: is used in the examples. To 
+configure DU3: as a bootable partition:
+
+1. SET DU3: UNIT=0, PART=1		! configure driver
+2. COPY/BOOT DU0:BOOT DU0:		!
+3. BOOT DU0:				! if DU: is system device
+   REMOVE DU: | LOAD DU:		! if DU: not the system device
+4. INIT DU3: etc			! if DU3: is uninitialized
+5. COPY DUV.SYS DU3:			! DU3: must have same driver
+6. COPY/BOOT DU3:BOOT DU3:		! optional step
+
+You need to repeat steps 5. and 6. for each bootable DU: unit.
+!E
+
+!!-----------------------------------
+!!
+!!	DY:
+!!
+!B	DR$DY
+!F	DY:
+RUST combined RX01/RX02 DX:/DY: floppy driver. 500/1001 blocks.
+
+SET DY: CSR=octal	! 177170
+SET DY: VECTOR=octal	! 264
+SET DY: RETRY=decimal	! 8
+SET DY: NAME=octal	! DY
+!!SET DY: SHOW		!
+SET DY: [NO]FLIP	! NOFLIP
+SET DY: [NO]JOIN	! NOJOIN
+
+[NO]FLIP
+  Flip sides of DY0:/DY1: accessible as DY2:/DY3:. Default is NOFLIP.
+[NO]JOIN
+  DY0: and DY1: are treated as a double-sided drives. Default is NOJOIN.
+  2002 blocks.
+!E
+
+!!-----------------------------------
+!!
+!!	LD:
+!!
+!B	DR$LD
+!F	LD:		
+RUST logical disk driver LD:
+
+LD: treats (container) disk files as disk volumes. Container 
+files must have the filetype ".DSK".
+
+SET LD: EMPTY		! Dismount all units  
+SET LD: CLEAN		! Remount all mounted units
+
+o RUST sub-directories are an alternative to logical disks.
+!I	UT$HL	MOUNT
+!E	
+
+!!-----------------------------------
+!!
+!!	LP:
+!!
+!B	DR$LP
+!F	LP:
+RUST parallel-port line-printer driver LP:.
+
+BETA: NOHANG not implemented.
+
+SET LP: CSR=octal	! 177514
+SET LP: VECTOR=octal	! 200
+SET LP: WIDTH=decimal	! 132
+SET LP: LENGTH=decimal	! 66
+SET LP: SKIP=decimal	! 0
+SET LP: ENDPAG=decimal	! 0
+SET LP: [NO]BIT8	! BIT8
+SET LP: [NO]CR		! CR
+SET LP: [NO]CTRL	! CTRL
+SET LP: [NO]FORM	! FORM
+SET LP: [NO]FORM0	! NOFORM0
+SET LP: [NO]GRAPH	! GRAPH
+SET LP: [NO]HANG	! HANG
+SET LP: [NO]LC		! LC
+SET LP: [NO]SHARE	! SHARE
+SET LP: [NO]TAB		! TAB
+!E
+!!-----------------------------------
+!!
+!!	LS:
+!!
+!B	DR$LS
+!F	LS:
+RUST serial-port line-printer driver LS:.
+
+BETA: NOHANG not implemented.
+
+SET LS: CSR=octal	! 176500
+SET LS: VECTOR=octal	! 300
+SET LS: WIDTH=decimal	! 132
+SET LS: LENGTH=decimal	! 66
+SET LS: SKIP=decimal	! 0
+SET LS: ENDPAG=decimal	! 0
+SET LS: [NO]BIT8	! BIT8
+SET LS: [NO]CR		! CR
+SET LS: [NO]CTRL	! CTRL
+SET LS: [NO]FORM	! FORM
+SET LS: [NO]FORM0	! NOFORM0
+SET LS: [NO]GRAPH	! GRAPH
+SET LS: [NO]HANG	! HANG
+SET LS: [NO]LC		! LC
+SET LS: [NO]SHARE	! SHARE
+SET LS: [NO]TAB		! TAB
+!E
+!!-----------------------------------
+!!	MO:
+!!
+!B	DR$MO
+	Hardware	DR$MO.HWR
+	Programming	DR$MO.PRG
+!F	MO:
+The RUST mouse driver.
+
+BETA: This new mouse driver is not currently used by any application.
+
+SET MO: CSR=octal	! 176500
+SET MO: VECTOR=octal	! 300
+SET MO: PORT=decimal	! DZV port number (default=0)
+!!T MO: NAME=name	! MO
+SET MO: LEFT		! Left-handed use
+SET MO: RIGHT		! Right-handed use (default)
+SET MO: AUTO		! Auto-detect mouse type (default)
+SET MO: (M2,M3,M4,MM)	! Select mouse type manually
+SET MO: RAW		! Returns raw data (Maintenance)
+!!T MO: [NO]STICKY	! See below. Default is NOSTICKY.
+
+!!The NOSTICKY item causes any left/right button action to set the
+!!middle-button up (because 3-button Microsoft mice are flakey).
+!E
+
+!B	DR$MO.HWR
+!F	Mouse Hardware
+Mouse hardware notes.
+
+o MO: supports DLV11 and DZV11 serial interfaces.
+o Configure DLV11 ports to operate at 1200 baud.
+o Many PC mice will not work with the RUST mouse driver because
+  PC serial devices operate at a lower voltage.
+o The mouse driver detects the mouse type on-the-fly with pattern 
+  matching. Recognised types are:
+
+  MS  Microsoft/Logitech 2- or 3-button mice
+  M3  Microsoft/Logitech 3-button
+  MZ  Microsoft/Logitech 3-button with wheel
+  MM  Mouse Systems Mouse
+!E
+
+!B	DR$MO.PRG
+!F	MO: Programming
+Programming the mouse.
+
+o Open MO: and issue .READx request with wordcount=32 (decimal)
+o The buffer returns a 4-byte header and upto 15 4-byte mouse events:
+
+  Header:
+     0	Event count (1 to 15)
+     1	Mouse type (0=Not detected, 3=MS, 4=M3, 5=MM)
+     2	Hardware error count
+     3	Protocol error count
+
+  Packet:
+     0	Buttons (Octal flags: 1=L, 2=M, 4=R, 200=Error)
+     1	X movement (signed)
+     2	Y movement (signed)
+     3 	Wheel movement (signed)
+!E
+
+!!-----------------------------------
+!!	NF:
+!!
+!B	DR$NF
+!!	BOOT		DR$NF.BOO
+!!	SHOW		DR$NF.SHO
+!F	NF:
+The RUST/SJ NF ethernet DEQNA/DELQA client driver. NF: provides
+a RUST/SJ system with a complete NF client in a single driver.
+NF: is bootable with the BOOT command or with a boot ROM.
+
+SET NF: CSR=octal	! 174440
+SET NF: VECTOR=octal	! 120	
+SET NF: NAME=octal	! NF	
+SET NF: RETRY=decimal	! 8	Transmission retry count
+SET NF: SHOW		! 	Displays network statistics
+SET NF: TIMER=n		! 5	Timeout in seconds.		
+
+o See HELP NETWORKS for for further information
+o NF: must be reloaded after a hardware RESET instruction
+!E
+
+!B	DR$NF.NFW
+!F	Windows NF:
+Windows V11 emulator NF: driver NFW.SYS.
+
+Under the RUST V11 you use the driver NFW.SYS to access files
+on the Windows system. Installation is a single command.
+
+.load nfw
+
+o See HELP NETWORKS for more information.
+!E
+!!-----------------------------------
+!!
+!!	NL:
+!!
+!B	DR$NL
+!F	NL:
+RUST null driver NL:.
+
+o The RUST NL: driver does not return EOF for a seek.
+!E
+!!-----------------------------------
+!!
+!!	PC:
+!!
+!B	DR$PC
+!F	PC:
+RUST papertape reader/punch driver PC:.
+
+SET PC: CSR=octal	! 177550
+SET PC: VECTOR=octal	! 70
+
+o The PC driver has not been tested.
+o BOOT PC:/FOREIGN loads a PDP-11 formatted binary .LDA program.
+!E
+!!-----------------------------------
+!!
+!!	RK:
+!!
+!B	DR$RK
+!F	RK:
+RUST RK05 disk driver RK:. 4800 blocks. 
+
+BETA: Tested only with emulators.
+
+SET RK: CSR=octal	! 177400
+SET RK: VECTOR=octal	! 220
+SET RK: RETRY=decimal	! 8
+SET RK: NAME=octal	! RK
+!!SET RK: SHOW		!
+SET RK: [NO]WAIT	! NOWAIT
+
+[NO]WAIT
+  I/O is performed in wait-mode without interrupts. The default is
+  NOWAIT. Used for testing.
+!E
+!!-----------------------------------
+!!
+!!	SL:
+!!
+!B	UT$SL
+!F	SL:
+RUST single-line editor SL:.
+
+The commands below enable and disable SL:
+
+Enable		Disable
+------		-------
+SET EDIT	SET NOEDIT
+SET SL ON	SET SL OFF
+LOAD SL:	REMOVE SL:
+
+o RT-11 Gold key functions and SET items not supported.
+o RUST SL: line recall is limited by buffer space, not line count.
+!E
+!!-----------------------------------
+!!
+!!	TT:
+!!
+!B	DR$TT
+!F	TT:
+RUST terminal driver TT:.
+
+o The RUST terminal driver is synchronous.
+
++-----------------+
+|  9  6  4  3  1  |
+|                 |
+| 10  8 [6] 4  2  |
++-----------------+
+!E
+!!-----------------------------------
+!!
+!!	VM:
+!!
+!B	DR$VM
+!F	VM:
+RUST virtual memory disk driver VM:.
+
+SET VM: BASE=octal	! 1600
+SET VM: SIZE=decimal	! Sets size limit, not actual size
+SET VM: SHOW		! Display base and size limit.
+
+o RUST/SJ VM: saves/restores the user pars and MMU exception vector,
+  permitting SJ programs that use memory management to also use VM:.
+o MMU errors during VM: operations are reported as device errors.
+  MMU errors that otherwise occur are remapped to bus errors.
+o Bootable driver.
+!E
+!!	BG: and DB:
+!!
+!B	DR$ADD
+!F	RUST Additional Drivers
+Additional drivers supplied with the RUST kit.
+
+Hardware 
+  Additional or alternate hardware drivers.
+
+Software
+  Drivers which perform software functions such tracing program
+  requests. Software drivers are usually controlled with:
+
+  .load dd:     ! load and enable driver
+  .unload dd:   ! disable and unload
+  .remove dd:   ! same as unload, but removes driver as well
+!E
+
+!!-----------------------------------
+!!
+!!	AL:
+!!
+!B	DR$AL
+!F	AL: Alias Driver
+AL: is used to view the information passed to a driver.
+
+.load du        ! if DU: isn't already loaded
+.alias duv      ! explicit driver name required
+.load al        ! load the alias driver
+.dir al:
+iq.csw  143554  csw=100006 sbl=0 len=177777 use=0 ioc=1 uni=0
+iq.blk       6
+iq.fun       0  read
+iq.uni       0
+iq.job       0
+iq.buf   60200
+iq.wct    1000
+iq.com       0
+Continue?
+iq.csw  143554  csw=100006 sbl=0 len=177777 use=0 ioc=1 uni=0
+!E
+!!-----------------------------------
+!!
+!!	BG:
+!!
+!B	DR$BG
+!F	BG: Debugger Driver
+BG: is a smaller version 

@@ -1,0 +1,364 @@
+!B	CF$HOM
+!!	ACPS		CF$ACP
+	Bootstrap	CF$BOO
+	Clocks		CF$CLK
+!!	File_Transfer	CF$TRN
+!!	Configuration	CF$CON
+	Disks		CF$DSK
+	Drivers		CF$DRV
+	Emulators	CF$EMU
+	EIS		CF$EIS
+	Ethernet	CF$ETH
+	Inventory	CF$INV
+	Login		CF$LOG
+	Memory		CF$MEM
+!!	Missing		CF$MIS
+!!	Mouse		CF$MOU
+!!	Network		CF$NET
+	Protection	CF$PRO
+!!	RUST.COM	CF$SJC
+!!	RUST.INI	CF$SJI
+!!	RUSTX.COM	CF$XMC
+!!	RUSTX.INI	CF$XMC
+	Shutdown	CF$SHU
+	SYSGEN		CF$SGN
+!!	Tapes		CF$TAP
+	Terminals	CF$TER
+	Utilities	CF$UTL
+!F	Configuration
+RUST configuration overview.
+
+This set of topics provides quick access to information concerning
+the installation, configuration and general operational behaviour
+of RUST/SJ and RUST/XM.
+!E
+!!	CF$BOO
+!!
+!B	CF$BOO
+!!	BOOT.SYS	
+!F	Bootstrap Procedure
+The general RUST bootstrap process.
+
+Preparation:
+1. The bootstrap files are copied to the device
+2. The bootstrap files are configured
+
+Operation:
+1. The host system loads the device bootstrap
+2. The device bootstrap loads the BOOT.SYS secondary boot
+3. BOOT.SYS loads the system image, RUST.SAV or RUSTX.SAV
+4. RUSTx.SAV reads RUSTx.INI, the initialisation file
+5. RUSTx.SAV configures the system
+6. RUSTx.SAV starts the monitor
+7. The monitor executes RUSTx.COM
+!E
+!!	CF$CLK
+!!
+!B	CF$CLK
+RUST Clock Support
+
+o Automatic 50hz/60hz rate detection during bootstrap
+o Emulator clock rates are hardwired:
+  50hz	V11
+  60hz	E11, SimH
+o Automatic detection may be overriden in RUSTx.INI
+o The TK: driver may be used to substitute for a missing clock
+
+RUST/SJ
+o Supports LSI-11, standard and programmable clocks.
+  BETA: Programmable clock support requires testing.
+o Supports V11 emulator clock
+
+RUST/XM
+o Requires a standard line frequency clock or TK:
+!E
+!B	CF$DSK
+!F	RUST Disks
+RUST disk-like device drivers
+
+BETA: Many drivers not fully tested under emulators other than V11.
+
+DD:	TU58 cassette
+DL:	RL01/RL02 disk
+DU:	MSCP disks and diskettes
+DY:	RX01/RX02 diskette
+HD:	Emulator hypothetical disk
+LD:	Logical disk 
+NF:	Disk-like network access
+RK:	RK05 disk
+VM:	Virtual memory disk
+
+o Standard RT-11/SJ drivers may be used to replace or augment RUST drivers
+o Some earlier disk drivers were placed in the DECUS library by DEC
+o Use HELP DRIVERS for more information
+!E
+!B	CF$DRV
+!F	RUST Drivers
+RUST driver support
+
+o Use HELP DRIVERS to list the available device drivers
+o Support is provided for RT-11 V5.5 driver features
+o RUST native drivers are not backwards compatible with RT-11
+o Standard RT-11 drivers are generally compatible with RUST
+
+RUST/SJ
+o RUST/SJ supports no driver SYSGEN options
+
+RUST/XM
+o RUST/XM supports any mix of RT-11 SYSGEN options 
+o Unmapped drivers are supported using buffered I/O
+o 18-bit driver access to 22-bit memory is also buffered
+o Error logging calls are gracefully ignored
+!E
+!!	Emulators
+!!
+!B	CF$EMU
+!F	RUST Emulator Support
+RUST has been tested on three emulators:
+
+E11	The high-performance Dbit emulator (www.dbit.com)
+SIMH	The standard Supnik emulator (www.simh.trailing-edge.com)
+V11	The emulator tool supplied with the beta RUST kit
+
+BETA: E11 and SIMH driver testing has been limited. Some may fail.
+
+o RUST detects and reports known emulators during start-up
+o V11 was implemented as a development tool for RUST. It is supplied
+  as a configuration tool.
+!E
+!B	CF$EIS
+!F	EIS
+RUST EIS requirement and emulation
+
+EIS hardware, or an EIS emulator, is a system requirement. EIS is the
+PDP-11 Extended Instruction Set which implements integer multiply, divide
+ and shifts. It is used by many RUST utilities.
+
+RUST/SJ
+o The RUST EI: driver emulates EIS on machines lacking EIS hardware.
+  If required, the EI: driver is loaded automatically by the startup
+  command file SY:RUST.COM.
+o The RUST/SJ monitor, DCL interpreter, VIP and VIR do not use EIS
+
+RUST/XM
+o All machines capable of booting RUST/XM are assumed to have hardware
+  EIS capability.
+o The RUST/XM kernel and DCL interpreter use EIS
+
+o RUST utilities make no use of FIS/FPU floating point instructions
+!E
+!!	Ethernet
+!!
+!B	CF$ETH
+!F	Ethernet
+RUST Ethernet support
+
+RUST/SJ
+o The RUST/SJ NF: driver implements Q-bus networking
+
+RUST/XM
+o RUST/XM can act as an NF: client or server
+o RT-11 ethernet drivers are required
+!E
+!!	Inventory
+!!
+!B	CF$INV
+	Missing		CF$INV.MIS
+	DECUS		CF$INV.DEC
+!F	RUST/SJ Inventory
+Data and command files used by RUST
+
+File		Purpose
+----		-------
+RATE.DAT	RATE.SAV data file (created dynamically)
+RUST.HLB	The RUST HELP library
+RUST.COM	RUST startup command file
+RUST.INI	RUST initialisation file
+RUST.UCL	DCL user defined commands
+
+DCL.SAV		RUST/SJ DCL interpreter
+HELP.SAV	HELP utility			HELP.SAV*
+PATCH.SAV	Binary file patch utility	PATCH.SAV**
+RUST.SAV	RUST/SJ system image
+VIP.SAV		File management 		PIP.SAV
+VIR.SAV		Directory utility		DIR.SAV
+VUP.SAV		Device management		DUP.SAV
+!E
+
+
+
+!B	CF$INV.MIS
+!S	Missing components
+Standard RT-11 components not supplied with RUST/SJ
+
+o MACRO, LINK, LIBR, CREF
+o BACKUP, FORMAT, IND, SIPP, PAT, SLP
+o Pre-RT-11 V5.5 drivers
+o Magtape drivers
+!E
+
+!B	CF$INV.DEC
+!F	DECUS components
+DECUS components supplied with RUST/SJ:
+
+SORT.SAV	File sort utility
+ZIP.SAV		File compression utility
+UNZIP		File decompression utility
+
+Minor edits have been made to configure these DECUS utilities for RUST
+usage. The modified sources are available on request.
+!!	Login
+!!
+!B	CF$LOG
+!F	RUST LOGIN/LOGOUT
+RUST LOGIN/LOGOUT procedures
+
+RUST/SJ
+o Login and logout are not required
+
+RUST/XM
+o Full VMS-like LOGIN/LOGOUT procedures are supported
+o Login requirement may be disabled in RUSTX.INI
+o The system boots into the system manager account
+!E!!	Memory
+!!
+!B	CF$MEM
+!F	RUST Memory Requirements
+RUST/SJ and RUST/XM memory requirements and support
+
+RUST/SJ
+o RUST/SJ requires at least 20kw to boot
+o Operation in less than 28kw may be limited
+o Upto 31kw of unmapped memory is supported
+o Extended memory is supported by VM:
+
+RUST/XM
+o Typically, RUST/XM expects at least 128kw memory
+o RUST/XM supports up to four megabytes of memory
+o RUST/XM uses buffered I/O to permit 16-bit and 18-bit drivers
+  and devices to access 22-bit memory.
+o Unibus Mapping Registers (UMRs) are not required or supported.
+!!	Missing
+!!
+!B	CF$MIS
+!F	What's missing?
+!E
+
+!!	RUST.COM
+!!
+!B	CF$SJC
+!F	RUST.COM
+RUST/SJ startup command file
+!E
+
+
+!!	RUST.INI
+!!
+!B	CF$SJI
+!F	RUST.INI
+RUST/SJ bootstrap init file
+!E
+!!	Protection
+!!
+!B	CF$PRO
+!F	RUST Protection
+RUST protection facilities
+
+RUST/SJ
+o File protection is limited to the RT-11 deletion flag
+o System protection is limited to various warnings
+
+RUST/XM
+o DEC UIC-based protection applied to all system objects
+!!	SHUTDOWN
+!!
+!B	CF$SHU
+!F	Shutdown
+RUST/SJ system shutdown
+!E
+!!	SYSGEN
+!!
+!B	CF$SGN
+!F	SYSGEN
+RUST systems do not require or support a SYSGEN process
+
+RUST/SJ
+o Software drivers provide additional features
+
+RUST/XM
+o INSTALL/FEATURE and REMOVE/FEATURE 
+o INSTALL/TERMINA and REMOVE/TERMINAL
+o LOAD and REMOVE drivers
+o Sub-processes
+!E
+!!	Tapes
+!!
+!B	CF$TAP
+!F	RUST Tape Support
+
+o RUST provides no tape drivers
+o RT-11 tape drivers should be compatible
+o The TU58 (DD:) cassette is treated as a disk
+!E
+!!	Terminals
+!!
+!B	CF$TER
+RUST Terminal support
+
+RUST/SJ
+o 8-bit terminal support
+o RUST/SJ supports a single serial port
+o CSR and vector are configured with RUST.INI
+o VT11 graphic terminal supported
+o Some drivers support DZV11 interfaces
+
+RUST/XM
+o 8-bit terminal support
+o RUST/XM boots with a single serial port console
+o Any mix of DL(V)11s, DZ(V)11s and DHV11s may be installed
+o RT-11 multi-terminal API (MTT) supported
+!E
+!!	Transferring
+!!	
+!B	CF$TRN
+!F	RUST System Transfer
+Transferring RUST to a target system
+
+If you already have a method of transferring files to the target machine
+then use that option.
+
+RUST/SJ supports two remote boot options. You can boot RUST/SJ directly
+from a Windows server if you have a hardware TU58 bootstrap or a Q-bus
+Ethernet bootstrap capability. Alternatively, you can toggle in a TU58 
+bootstrap or use the LSI-11 LDA bootstrap loader to access the TU58
+server.
+
+You use remote booted RUST/SJ system to transfer files from the Windows
+server to the target disk. 
+
+
+!E
+
+
+!!	Utilities
+!!
+!B	CF$UTL
+!F	RUST Utilities
+RUST supplies replacements for many standard RT-11 utilities.
+Most replacements have different names to the RT-11 versions.
+
+RT-11		RUST		RT-11		RUST
+-----		----		-----		----
+PIP.SAV		VIP.SAV		SRCCOM.SAV	SRCDIF.SAV
+DIR.SAV		VIR.SAV		BINCOM.SAV	BINDIF.SAV
+DUP.SAV		VUP.SAV		KED.SAV		KEYPAD.SAV
+
+Exceptions include:
+
+Utility
+-------
+DUMP.SAV	RUST DUMP is a superset of RT-11 DUMP.
+HELP.SAV	RUST HELP is a superset of RT-11 HELP.
+PATCH.SAV	RT-11 PATCH is obselete.
+!E
+

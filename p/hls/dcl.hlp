@@ -1,0 +1,170 @@
+!!	DCL User Guide
+!!
+!B	LI$DCL
+	Control_Keys	DCL.CTL
+!!	DCL_Syntax	DCL.SYN	! abbreviations, wildcards
+	Command_Files	DCL.COM	! @ @@
+!!	Control_Keys	DCL.CTL
+!!	File_Specs	DCL.SPC	! Device names
+!!	Logical_Names	DCL.LOG	! types, recursive, paths, catchall
+!!	Sub-Directories	DCL.SUB
+	User_Commands	DCL.UCL
+!!
+!!	Abbreviation	DCL.ABR
+!!	Wildcards	DCL.WLD
+!!	IF/THEN/GOTO	DCL.IF
+!!	DISPLAY
+!F	DCL
+!E
+!!	DCL Syntax
+!!
+!B	DCL_Syntax
+!F	DCL Syntax
+
+ $		Dollar in column zero is ignored
+ !		Exclamation acts as comment sign
+ @file		Execute command file FILE.COM
+ @@file		Execute command file embedded in FILE
+ name := ...	Define user command 
+ name == ...	Define user command 
+ (a,b,c)		Factors
+!E
+!!	Command Files
+!!
+!B	DCL.COM
+!!	Build		DCL.COM.BLD
+!!	Parameters	DCL.COM.PAR
+	Conditionals	DCL.COM.CND
+!F	Command Files
+The '@' operator is used to execute command files.
+
+.@mycom		! executes dk:mycom.com
+
+The '@' operator is recognised only at the start of a line (preceded
+optionally by a dollar sign and/or label). The command below is invalid: 
+
+.link @mylink
+
+o See the sub-topics for parameter and conditional support.
+o Command file data is stored at the top of your process space (setting
+  a limit on the size of command files). 
+o Use the SET KMON IND command to redirect command files to the IND 
+  control file processor. 
+!E
+
+!B	DCL.COM.CND
+!F	Conditionals
+Command file conditionals.
+
+IF <condition> THEN command
+IF ... GOTO label
+IF ... @...
+
+IF "'P1'" THEN ...
+GOTO 'P1'
+
+!E
+!!	File_Specs
+!!
+!!	Devices, drivers
+!!	$
+!!	Sub-Directories
+!!	Control keys
+!!
+!B	DCL.CTL
+!F	Control keys
+Terminal control keys.	
+
+Control Key	Purpose
+-----------	-------
+CTRL-C 		CTRL-C cancels an operation during terminal input.
+		A double CTRL-C aborts most operations.
+CTRL-E		Flips consol terminal output. Requires GT: or OP:.
+CTRL-H		Triggers the debugger. RUST/XM: See SET TERMINAL DEBUG
+CTRL-O		Disables and enables terminal output.
+CTRL-Q		Resumes terminal output after CTRL-S.
+CTRL-R		Redisplays the terminal input line. Application dependent.
+CTRL-P		Pauses output after 24 lines. Requires CP:.
+CTRL-S		Suspends terminal output until you type CTRL-Q.
+CTRL-T		Displays system status. Requires CT:.
+CTRL-U		Erases all input characters on current line.
+CTRL-W		Repaints the terminal screen. Application dependent.
+CTRL-Y		Interrupts program. Requires CY:.
+CTRL-Z		Acts as a line or program terminator for some programs.
+!E
+!B	DCL.UCL
+	Names		DCL.UCL.NAM 
+	Commands	DCL.UCL.CMD
+	Parameters	DCL.UCL.PAR
+	Storage		DCL.UCL.STO
+!!	SHOW COMMANDS
+!!	RT-11_UCL
+!F	User Commands
+User command language (UCL) facility.
+
+name == ...
+  Stores the command ... under the name specified in dynamic memory.
+name := ...
+  Stores the command under the name specified in the user's UCL data file.
+name ::== ...
+  Accepts a command in standard RT-11 UCL syntax and converts it to RUST.
+
+
+.hucl := help dcl users	! define the command HUCL
+
+.hucl :=		! command deleted if command string blank
+
+.show commands		! display all commands
+.show commands h*	! display all commands beginning with 'H'
+!E
+
+!B	DCL.UCL.NAM
+!F	UCL Command Names
+Names may contain letters, digits, underline and dollar sign. They 
+must start with a letter. Command name length is not fixed.
+
+The asterix may be used to mark off a minimum abbreviation.
+
+dec*imate := ...	! minimum abbreviation is "dec"
+!E
+
+!B	DCL.UCL.CMD
+!F	UCL Commands
+UCL command definitions may specify multiple commands. Use 
+the vertical line (|) to separate commands:
+
+dp := dir x.x|print x.x	    ! directory of x.x and then print
+
+Use ^| to represent a literal '|'.
+!E
+
+!B	DCL.UCL.PAR
+!F	UCL Parameters
+RUST UCL supports up to nine parameters, ^1 through ^9.
+
+.dp := dir ^1|print ^1	! directory of ^1 and then print
+.dp x.x			! directory and print x.x
+
+Use "^" alone to specifically copy the command line.
+
+Defaults may be specified:
+
+.dx := dir ^1[a.a]	! directory of ^1 or a.a if ^1 missing
+.dx x.x			! directory of x.x
+.dx			! directory of a.a
+
+Use ^^ to represent a literal '^'.
+!E
+
+!B	DCL.UCL.STO
+!F	UCL command storage
+Commands specified with "==" are stored in dynamic memory.
+
+Commands specified with ":=" or "::=" are stored on disk.
+
+	RUST/SJ		RUST/XM
+	-------		-------
+==	Dynamic		Dynamic
+:= ::=	SY:RUST.UCL	HOM:user.UCL
+!E
+

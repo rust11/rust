@@ -1,0 +1,362 @@
+!!	SHOW LOGICAL single column, pause
+!!
+!!	rust := v11^ rust
+!!	NF
+!!
+!!	SHOW LOGICAL
+!!	/PAUSE 
+!!	%build
+!!	compile/help hls:win/out:hlb:win
+!!	%end
+!!
+!B	WIN
+	DD_Server	WI.DD
+	NF_Server	WI.NF
+	Shell		WI.SHE
+	V11_Emulator	WI.V11
+	Installation	WI.INS
+	Inventory	WI.INV
+!F	RUST Windows Environment
+Supports RUST emulation, configuration and networking.
+
+o C:\RUST\ directory tree
+o SHE command shell
+o V11 PDP-11 emulator
+
+o DD: network server
+o NF: network server
+!!o CO: windows console
+!E
+
+!B	WI.INS
+!!	Shell
+!!	Boot_Server
+!F	RUST Windows Installation
+How to install RUST Windows components.
+
+o Unzip SjWi35.ZIP (which creates C:\RUST\...)
+o Drag SHE.EXE out of C:\RUST on to the desktop or taskbar.
+o Activate SHE.EXE by clicking. 
+!E
+!B	WI.INV
+!F	RUST Windows Inventory
+RUST Windows directories and registry entries.
+
+Logical	Equivalence	Content
+-------	-----------	-------
+ROOT:	C:\RUST\	RUST root directory
+LD*:	PDP:...		V11 device logical names
+PDP:	C:\RUST\PDP\	PDP-11 disk images
+
+Windows registry entries:
+
+WIN_LOCAL_MACHINE	
+ SOFTWARE
+  \Rust\		Rust key
+   Root="C:\RUST"	Defines the root directory
+   \Commands\		Tracks command definition changes
+   \Logicals\		Tracks logical name changes
+   \Devices\		Tracks V11 device logical name changes
+!E
+
+!B	WI.INV.FIL
+!F	SHELL Files
+Standard root directory files.
+
+CALC.EXE	A simple calculator
+DD.EXE		DD: server
+NF.EXE		NF: server
+ROLL.DEF	Logical name definitions
+ROLL.EXE	Logical name utility
+SHE.DEF		Shell command definitions
+SHE.EXE		Shell utility
+US.EXE		File operations
+V11.EXE		PDP-11 emulator
+!B	WI.SHE
+	Logical_Names	WI.SHE.LOG
+	Shell_Commands	WI.SHE.COM
+	Setup_Commands	WI.SHE.SUP
+	Switches	WI.SHE.SWI
+	User_Commands	WI.SHE.USR
+!F	Windows command shell
+SHE.EXE, the RUST Windows command shell.
+
+SHE provides a working environment that supports DEC-style logical
+names. Logical names (of up to three characters) are available to 
+the emulator and networked RUST systems.
+
+SHE hosts the V11 PDP-11 emulator and may be used to initiate
+the DD: and NF: servers.
+
+The command prompt is "o". You can change it with SET PROMPT. The
+dollar sign "$" is used as the prompt in examples. Comments begin
+with the exclamation mark "!".
+!E
+
+!B	WI.SHE.SWI
+!F	Shell Switches
+
+/P:prompt	Defines the shell prompt
+/R:root		Defines the shell root directory
+!E
+!B	WI.SHE.COM
+	SET	WI.SHE.SET
+	SHOW	WI.SHE.SHO
+!F	Shell Commands
+RUST shell commands.
+
+CD directory		Change directory
+COPY file file		Copy files
+DEFINE name		Define logical name
+DELETE file		Delete fle
+DIRECTORY files		Directory
+EXIT			Exit shell
+!!DUMP file		Display file contents
+HELP			Command overview
+HOST command		Execute DOS command
+MD directory		Make directory
+RD directory		Remove directory
+RENAME old new		Rename file
+RESET			Reset logical names
+SEARCH file string	Search files for string
+TIME			Display date and time
+TYPE file		Display file
+UNDEFINE name		Undefine logical name
+!E
+
+!!	----------
+!B	WI.SHE.SET
+!F	Shell SET commands
+
+!!T [NO]DEBUG		I forget
+SET DEFAULT path	Redefines the default device/directory
+SET PROMPT string	Specifies the shell command prompt
+SET [NO]VERIFY		Displays internal command output
+SET ROOT path		Redefines the shell root directory
+!E
+
+!!	----------
+!B	WI.SHE.SHO
+!F	Shell SHOW commands
+
+SHOW COMMANDS [name]	Displays user defined commands
+SHOW ROOT		Displays the shell root directory
+SHOW LOGICALS [name]	Displays logical names
+SHOW SETUP		Displays shell variable states
+
+Wildcards may be used with SHOW COMMANDS and LOGICALS.
+!E
+!B	WI.SHE.SUP
+!F	Shell Setup Commands
+Predefined user commands to run the emulator.
+
+DD		Run the TU58 server DD.EXE
+NF		Run the network server
+PDP file	Run the emulator with PDP:file.DSK
+SJ		Run the default RUST/SJ system
+!!XM		Run the default RUST/XM system
+!E
+!B	WI.SHE.USR
+!F	User Defined Commands
+name := definition
+
+Name
+  Any alphanumeric string including "$" and "_".
+  Use the wildcard "*" to set minimum abbreviations.
+  Names of the form "SET_xxx" and "SHOW_xxx" are matched to
+  SET and SHOW commands (e.g. "SHOW_TEM*PORARY" matches "SHO TEM").
+Definition
+  The command definition. Use "^1" to "^9" to insert parameters.
+  "^a" inserts all parameters". "|" separates lines.
+
+o Definitions are stored in the file RUST:SHE.DEF.
+o Some standard shell commands are dispatched via definitions.
+!E
+!B	WI.SHE.LOG
+!F	Logical Names
+Shell logical name environment.
+
+ROOT		is translated via the registry
+		still needs definition though
+C:		single letter device names are not translated
+!!@..		names starting with "@" are not translated
+
+Logical names are permanent, stored in RUST:ROLL.DEF.
+
+The registry key WIN_LOCAL_MACHINE\SOFTWARE\RUST stores the 
+shell root directory under \Root. The root is shared by all 
+shell utilities. 
+
+Name		Operation
+----		---------
+default		The default device/directory (SET DEFAULT)
+root		The root directory (SET ROOT)
+rt_dk
+rt_sy		
+!E
+
+
+!B	WI.SHE.DEF
+!F	DEFINE logical-name equivalence-name
+Defines a logical name.
+
+Logical Name
+  Any alphanumeric string including "$" and "_".
+Equivalence Name
+  Any alphanumeric string including "$" and "_".
+
+$ define tmp c:\tmp	! defines TMP:
+$ undefine tmp		! undefines it
+
+$ show logical tmp	! displays it
+$ show logical t*	! all starting with "T"
+$ show logical t??	! all with pattern "Txx"
+$ show logical		! displays all logical names
+
+$ show equiv c:\tmp	! all logicals that map to "C:\TMP"
+$ show equiv *tmp*	! with wildcards
+$ show translation tmp	! all translation steps
+!E
+!!	NF:
+!!
+!B	WI.NF
+!F	NF: Server
+NF.EXE is the RUST Windows ethernet network server. 
+
+.NF/switches [device]
+
+Device
+  The name of the ethernet (ndis) device. If no device is specified
+  NF attachs the first available ethernet device.
+
+/DETACH	    Creates a new process and console to run NF.EXE
+/HALT       Halt client before bootstrap starts
+/HELP       Display command and switch summary
+/HIDE	    Creates a new process without a console to run NF.EXE
+/INFO       Display information and warning messages
+/LI[ST]     Lists the available network devices.
+/LOG	    Reports significant events
+/NOMOP      Disables MOP BOOT operations
+/VERBOSE    Reports internal operations
+
+o See NETWORKS for more information.
+!E
+!!	DD:
+!!
+!B	WI.DD
+	BOOT		WI.DD.BOO
+	DISKS		WI.DD.DSK
+	SETUP		WI.DD.SUP
+!F	Windows DD: Server
+The Windows TU58 DD: server.
+
+.DD/switches [device]
+
+Device
+  The name of the comm device, typically COM1 through COM4.
+  DD attachs the first available comm port if none is specified.
+
+/4800	  Connects at 4800 baud instead of 9600 baud.
+/19200	  Connects at 19200 baud instead of 9600 baud.
+/BOOT	  Downloads a bootstrap (see BOOT subtopic)
+/DETACH	  Creates a new process and console to run DD.EXE
+/ECHO     Echo characters received (loopback test)
+/HELP     Display command and switch summary
+/HIDE	  Creates a new process without a console to run DD.EXE
+/LDA	  Downloads a bootstrap in PDP-11 absolute loader format
+/LIST     List available comm ports
+/LOG	  Reports significant events
+/VERBOSE  Reports internal operations
+!!
+!!o See NETWORKS DD for more information.
+!E
+
+!!	DD: DISKS
+!!	
+!B	WI.DD.DSK
+!F	DD: Disks
+Configuring DD: disks.
+
+The DD server locates disk container files with the logical names DD0: 
+through DD6:. The following commands define DD0: and DD2:.
+
+.define dd0 pdp:dd.dsk
+.define dd2 pdp:mydisk.dsk
+
+You can define new DD units and redefine DD units at any time, in just
+the same way that you can change physical media at will. It is up to you
+to ensure that connected PDP-11s will not be affected. The system provides
+no protection.
+
+DD7: is used for internal purposes (such as supplying the client with the
+date and time).
+!E
+
+!!	DD: BOOT
+!!
+!B	WI.DD.BOO
+	TOGGLE-IN	WI.DD.TOG
+!F	DD Bootstrap
+Booting DD:.
+
+The regular PDP-11 ROM DD bootstraps and RT-11 BOOT commands may 
+be used to boot a system from DD0:. If neither of these options is
+available then you may use one of the two cooperative boots below.
+
+LDA Bootstrap
+  1. Execute the LSI-11 microODT command nnnnnnH where nnnnnn is 
+     the address of the serial line CSR, typically 176500.
+  2. Initiate the Windows DD server with the /LDA switch.
+
+Toggle-in Bootstrap
+  1. Initiate the Windows DD server with the /BOOT switch.
+  2. Toggle in the DD: bootstrap (see sub-topic).
+  3. Disable the PDP-11 clock during the bootstrap.
+  4. Start the bootstrap at location 10000
+!E
+
+!!	DD Toggle-In Bootstrap
+!B	WI.DD.TOG
+!F	DD: Toggle-in Bootstrap
+The PDP-11 DD: toggle-in bootstrap.
+
+Address	Value
+-------	-----
+10000	011706
+   02	012700
+   04	001000
+   16	005001
+10010	105737
+   12	176500
+   14	100375
+   16	113721
+10020	176502
+   22	005300
+   24	001371
+10026	000110
+!E
+
+!!	DD Setup
+!!
+!B	WI.DD.SUP
+!F	DD PDP-11 Setup
+Configuring the PDP-11 serial line connection.
+
+Before you use the DD server you need to connect one of the Comm
+ports on the windows machine to a serial line connecter on the 
+target PDP-11.
+
+You need a so-called data cable, i.e. one in which the send and
+receive lines are cross-connected. The PDP-11 end will typically
+be wired as a null modem.
+
+Windows			 PDP-11
+-------			 ------
+ SEND o-----------------> RECV
+ RECV <-----------------o SEND
+!E
+!!	V11
+!!
+!B	WI.V11
+!E
+

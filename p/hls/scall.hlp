@@ -1,0 +1,727 @@
+!!	%build
+!!	compile/help hls:scall/output:hlb:scall
+!!	%end
+!!	was !B SCALL
+!B	RUSTXM
+	$canexh	$canexh	
+	$cmkrnl	$cmkrnl	
+	$crelog	$crelog	
+	$creprc	$creprc	
+	$crerg	$crerg	
+	$dclexh	$dclexh	
+	$dellog	$dellog	
+	$delprc	$delprc	
+	$delrg	$delrg	
+	$exit	$exit	
+	$forcx	$forcx	
+	$hiber	$hiber	
+	$imgdat	$imgdat	
+	$imgdef	$imgdef	
+	$imgedt	$imgedt	
+	$imginf	$imginf	
+	$imgidt	$imgidt	
+	$peek	$peek	
+	$poke 	$poke 	
+	$probe	$probe	
+	$resum	$resum	
+	$schedu	$schedu	
+	$signal	$signal	
+	$stpri	$stpri	
+	$stprn	$stprn	
+	$stprv	$stprv	
+	$stsev	$stsev	
+	$stsig	$stsig	
+	$suspnd	$suspnd	
+	$trnlog	$trnlog	
+	$wake	$wake	
+	$world	$world	
+!F	RUST/XM System calls
+RUST/XM System Calls
+!E	
+
+!B	EM-A1
+!F	area ->	2-word EMT area
+!B	EM-A2
+!F	area ->	2-word EMT area
+!B	EM-A3
+!F	area ->	3-word EMT area
+!B	EM-A4
+!F	area ->	4-word EMT area
+!B	EM-A5
+!F	area ->	5-word EMT area
+!B	EM-A7
+!F	area ->	7-word EMT area
+!B	EM-A13
+!F	area ->	13-word EMT area
+!B	EM-APP
+!F	pid ->	Process ID
+!F	prn ->	Asciz process name
+!B	EM-EPP
+!F	r0	Undefined
+!F	0	No such process	
+!F	1	Missing right to access process	
+!B	EM-RPP
+!F	o The usual process access rules apply
+!F	o The usual PID/PRN encoding rules apply
+!B	EM-R0U
+!F	r0	Undefined
+!B	EM-NIL
+!F	o No status returned
+!E	
+
+!B	EM-JLB
+!F	o Link image with JOBLIB.OBJ
+!B	EM-ALL
+!F	o Supports all RT-11 environments
+!B	EM-CMK
+!F	o CMKRNL rights required
+!B	EM-LNM
+!F	o GRPNAM or SYSNAM rights may be required	
+!B	$CANEXH
+!S	$CANEXH area addr
+Cancel exit handler
+
+!I	EM-A2
+addr ->	Exit handler block
+
+o See $DCLEXH	
+!I	EM-NIL
+!E	
+!!	Environment
+!B	$CMKRNL
+!S	$CMKRNL area rtn p0 p1 p2 p3 p4 chn pic
+Executes a routine in kernel mode	
+
+!I	EM-A7
+rtn ->	Routine to execute in kernel mode
+p0-p4	Parameters for kernel routine
+chn =	EMT request channel argument, default is zero
+pic=yes	Generates position independent call to routine
+
+r0	As returned in RP.R0(R5) by kernel routine	
+255.	Missing CMKRNL right - hard error
+other	As returned by kernel routine
+
+$rpdef	Defines r5 offsets for kernel routine
+
+o The routine terminates with a RETURN, .HARD or .SOFT
+o Routine must be in user par1 region if PIC is not specified
+!I	EM-CMK
+!E	
+!!	status flags
+
+!B	$CRELOG
+!S	$crelog area tbl log equ acm
+Create logical name
+	
+!I	EM-A5
+tbl =	Table selector: 0=system, 1=group, 2=process
+log ->	Asciz logical name
+equ ->	Asciz equivalence name
+acm =	Access mode (unused)
+
+!I	EM-R0U
+0	Superseded existing entry
+1	Logical name not found
+2	Invalid logical name
+3	Invalid table specification
+4	Missing system rights
+5	Insufficient dynamic memory
+
+!I	EM-LNM
+!E	
+!B	$CREPRC
+!S	$creprc area pid img inp out err prv quo nam pri uic mbx sts con
+Create a process
+
+!I	EM-A13
+pid ->	Word to receive PID of created process
+img ->	Asciz filename of image (.SAV or .COM)
+inp ->	Asciz filename of input terminal
+out ->	Asciz filename of output, ignored
+err ->	Asciz filename of error output, ignored
+prv ->	4-word privilege mask, maximized with current rights
+quo ->	Quota list, maximized with current quotas, ignored
+nam ->	Asciz name of process (PRCNAM.SUB)
+pri =	Base priority in low byte, top priority in high byte
+uic =	2-byte UIC - if set indicates detached process
+mbx =	Mailbox unit number for termination message, ignored
+sts =	Status flags word
+con	specify this to continue spec on next line
+
+!I	EM-R0U
+1	Duplicate name 
+2	Exceeded quota
+3	Insufficient dymanic memory
+4	Invalid logical name
+5	Invalid quota list
+6	Invalid status flag
+7	Missing system rights
+8	No slot available
+9	Insufficient permanent memory
+10	Access violation
+11	Invalid filename
+
+$pcdef	Defines $CREPRC call status flags and error codes
+$pqdef	Defines process quotas
+$srdef	Defines access rights
+!E	
+!B	$CRERG
+	RDB	EM-RDB.
+	RCT	EM-RCT.
+!S	$crerg rea rdb
+Create or attach a shared region
+
+!I	EM-A2
+rdb ->	Extended region definition block
+
+!I	EM-R0U
+6	No region control blocks available
+7	Not enough memory available
+10	Invalid size specified
+
+$xmdef	XM definitions
+!E	
+
+!B	EM-RDB.
+	RCT	EM-RCT.
+!F	Region definition block
+Region definition block	
+
+o  Words 1-3 of RDB are standard RT-11 values	
+o  Words 4-10 are SHAREplus values	
+
+offset	symbol	function
+-----	------	--------
+0	xm.rid	region ID
+2	xm.rsz	size of region
+4	xm.rst	region status
+6	xm.rct	region control word
+10-16	xm.rfn	4 word region filename
+20	xm.rui	region UIC
+22	xm.rpr	region protection
+
+!B	EM-RCT.
+!F	Region control word
+Region control word
+
+bit	octal	symbol	meaning
+---	-----	------	-------
+4	000020	xmspm$	returns set when existing region attached
+8	000400	xmsde$	set to explicitly delete named region
+9	001000	xmsnc$	nocreate - inhibits creation of new region
+10	002000	xmsin$	initialize created region - clears first 32 words
+14	040000	xmsex$	returns set when existing section attached
+15	100000	xmscr$	returns set when new section created
+!E	
+!B	$DCLEXH
+	EXH	EM-EXH
+!S	$dclexh area addr
+Declare an exit-handler
+
+!I	EM-A2
+addr ->	exit-handler dispatch block
+
+o The exit handler is called when the program terminates (or aborts)	
+o The exit-handler is called with r5 pointing to the third word of the block
+o Handlers are called on an LIFO basis	
+o Do not do too much in a handler routine	
+
+!I	EM-JLB
+o Supports SHAREplus or unmapped RT-11 
+  Fudges RT-11 .DEVICE to trap to exit dispatcher	
+!E	
+
+!B	EM-EXH
+!F	Exit handler block
+Exit handler block
+
+offset	content
+------	-------
+0	Link to next exit handler - filled in by the system
+2	Address of exit-handler routine - filled in by you
+4	Optional parameter area
+...	...
+!E	
+!B	$DELLOG
+!S	$dellog area tbl log acm
+Delete logical name
+
+!I	EM-A5
+tbl =	Name table: 0=system, 1=group, 2=process
+log ->	Asciz logical name
+acm =	Access mode (unused)
+
+!I	EM-R0U
+!!	Superseded existing entry
+1	Logical name not found
+2	Invalid logical name
+3	Invalid table specification
+4	Missing system rights
+!E	
+!B	$DELPRC
+!S	$delprc area pid prn
+Delete a process
+
+!I	EM-A3
+!I	EM-APP
+
+!I	EM-EPP
+
+o The process terminal is returned to its root process or detached.	
+o The process PCR address is removed from the process map. 	
+o The process body file on VM: is deleted. 	
+o The process channel record is deleted.
+o The process control record (PCR) is deleted.	
+o $DELPRC is asynchronous	
+!I	EM-RPP
+!E	
+!!	...
+!B	$DELRG
+	EXH	EM-EXH
+!S	$delrg area rdb
+Delete a shared plas region
+
+!I	EM-A2
+rdb ->	address of named region definition block
+
+!I	EM-R0U
+2	Invalid region identifier	
+
+o Can always delete dynamic regions created by image
+o Needs XMSDE$ set to delete attached regions	
+o Protected regions cannot be deleted	
+!E	
+!B	$EXIT
+	Examples	EM-EXX
+!S	$exit sev cod img cmd len	
+Exit program
+
+sev =	Exit severity code
+cod =	R0 value for exit
+img ->	Address of image filename to chain too
+cmd ->	Address of command string to execute
+len =	Length of command string
+
+o Set image exit status  
+o Pass an R0 value to the system	
+o Chain to another image 	   
+o Chain to a command file	
+
+o Severity codes are: succs$, info$, warn$, error$, fatal$
+!I	EM-ALL
+!I	EM-NIL
+!E	
+
+!B	EM-EXX
+!F	$exit examples
+$exit examples
+
+$exit				;severity not set
+$exit	#succ$, img=#filnam	;chain to filename
+
+$exit	cmd=#cmdstr		;exit to single command
+				;
+cmdstr:	.asciz	"dir dl2:"	;
+
+$exit	cmd=#cmdstr, len=#cmdlen;execute multiple commands
+				;
+cmdstr:	.asciz	"dir dl2:"	;first command
+	.asciz	"dir dl3:"	;second command
+	cmdlen=.=cmdstr		;length
+!E	
+!B	$FORCX
+!S	$forcx area pid prn	
+Forces exit of the specified process
+
+!I	EM-A3
+!I	EM-APP
+
+!I	EM-EPP
+
+o Target process must have ASTs enabled	
+o Does not $RESUME a suspended process	
+!I	EM-RPP
+!E	
+!B	$HIBER
+!S	$hiber area
+Causes process mainline to hibernate	
+
+!I	EM-A1
+
+o I/O asts and mark-time requests are delivered	
+o Use $WAKE (and other side affects) to wake up program	
+o Identical to RT-11 .SPND request	
+!I	EM-NIL
+!B	EM-IMG
+!F	Image information
+Image information summary
+
+o Updated by BUILD utility	
+o Displayed by PROGRA.SAV (SHOW PROGRAM)	
+o Provides default facility string	
+o Stored in image audit area	
+o Not compatible with RT-11 audit area	
+
+o Issue $IMGDEF call first	
+o These are static macros	
+o No error status is returned	
+!E	
+
+!B	$IMGDAT
+	Setup	EM-IMG
+!S	$imgdat dat
+Specify the image creation date and time
+
+dat	Date string
+
+o BUILD is usually used to insert date and time	
+o BUILD requires the format: <dd-mmm-yyyy hh:mm:ss.cc>. 
+o The value can be displayed with SHOW PROGRAM or PROGRA.SAV
+
+$imgdat	<08-Sep-1986 23:45:14.00>
+
+o Stores a pointer to the string in location 144	
+!E	
+
+!B	$IMGDEF
+	Setup	EM-IMG
+!S	$imgdef nam ver upd
+Define image name, version and update number
+
+nam	6 character asciz name, default is none
+ver	Version number, default is zero
+upd	Update number, default is zero
+
+$IMGDEF defines three macros:
+
+Macro	Defines
+------	-------
+$IMGNAM	Image name
+$IMGVER	Image version number
+$IMGUPD	Image update number
+!E	
+
+!B	$IMGEDT
+	Setup	EM-IMG
+!S	$imgedt edt
+Specify the image edit level
+
+edt	Edit level number
+
+o Much the same as $IMGDAT - see that
+o BUILD requires a five-column field
+o Value is stored in image location 146	
+	
+$imgedt	<1   >
+
+!E	
+!B	$IMGINF
+	Setup	EM-IMG
+!S	$imginf fun cre aut stb blk use con
+Define image function, creator, author and usage
+
+fun	1 rad50 word, defines the image type
+	CHN - RT-11 chainable image
+	FEA - SHAREplus feature
+	HAN - RT-11 handler
+	SAV - RT-11 executable image
+	SHP - SHAREplus executable image
+	SHC - SHAREplus chainable image
+	SHR - SHAREplus shared image
+	SHN - SHAREplus device handler
+cre	2 rad50 words, defines the creator company
+aut	1 rad50 word, defines the author initials
+stb	System symbol table date (STB) - system use
+blk	Information block number, unused
+use	Address of 23 character usage description
+con	Flag set by system
+
+	$imgdef	MYPROG 1 1
+	$imginf	fun=sav cre=hammo aut=ijh use=<My little program>
+!E	
+!B	$IMGIDT	
+	Setup	EM-IMG
+!S	$imgidt st1 st2
+Define a image identification
+
+st1	first string
+st2	second string
+
+o The string is used for image prompts and error messages	
+
+	$imgdef	MYPROG 1 2
+	$imginf	fun=sav cre=hammo aut=ijh use=<My little program>
+	$imgidt	st1=<(c) ZONKware> st2=<1986>
+
+o The calls above produce the string below:
+
+i$midt::.asciz	"?MYPROG-I-MYPROG V1.2 (c) ZONKware 1986"	
+!E	
+!B	$PEEK
+!S	$peek  area addr	
+!F	$peekb area addr
+Examine a physical address in kernel space	
+
+!I	EM-A2
+addr =	Address to access
+
+r0	Contains the value of the location
+
+o $PEEK returns a value of a word address.	
+o $PEEKB returns a value from byte address.
+o Use .TRPSET to catch invalid addresses
+!I	EM-CMK
+!I	EM-JLB
+!I	EM-ALL
+
+!E	
+
+!B	$POKE
+!S	$poke  area addr val	
+!F	$pokeb area addr val	
+Deposit a value into a physical address in kernel space
+
+!I	EM-A3
+addr =	Address to access
+val =	Value to deposit
+
+o See $PEEK for details	
+!E	
+
+!B	$PROBE	
+!S	$probe area addr
+Test for the existence of an address in kernel space
+
+!I	EM-A2
+addr =	Address to test
+
+o Checks whether address responds (can be read)	
+o Some devices lose data when probed	
+
+c=0	Address is present
+c=1	Address does not exist
+
+!I	EM-CMK
+!I	EM-JLB
+!E	
+!B	$RESUM
+!S	$resum area pid prn
+Restart suspended process	
+
+!I	EM-A3
+!I	EM-APP
+
+!I	EM-EPP
+
+o Cancels suspend and hibernate	
+o SHAREplus uses a resume flag, not a counter	
+!I	EM-RPP
+!E	
+
+!B	$SCHEDU
+!S	$sched area	
+Relinquish processor	
+
+!I	EM-A1
+
+o Forces system to schedule next process	
+o Alternative to .TWAIT 	
+!I	EM-NIL
+!E	
+
+!B	$SIGNAL
+!S	$signal area pid prn res
+Signal another process	
+
+!I	EM-A4
+!I	EM-APP
+res	Reserved, should be #0
+
+!I	EM-EPP
+
+o Sends AST to target process	
+o Target must have issued $STSIG call	
+o Target process uses $STSIG to specify AST address	
+!I	EM-RPP
+!E	
+!B	$STPRI
+!S	$stpri area pid prn pri pre
+Set base and top priority of a process
+
+!I	EM-A5
+!I	EM-APP
+pri =	Base & top priority. low byte contains base; high byte top
+	00:15 - 16 normal priorities 
+	16:31 - 16 realtime priorities
+pre ->	Location to receive the previous priority value
+
+!I	EM-EPP
+3	missing right to change priority 	
+
+o Priority is maximized with callers permitted maximum	
+o Top priority is not modified if specified as zero	
+!I	EM-RPP
+!E	
+
+!!???	PID/PRN
+!B	$STPRN
+!S	$stprn area prn
+Change a process name
+
+!I	EM-A2
+prn ->	Asciz string (1-6 chars)
+
+0	Duplicate process name
+1	Invalid name, no name or name starts with 'log'
+
+o Null names are ignored	
+o Duplicate names not permitted	
+o Name may not start with "LOG"	
+!E	
+
+!B	$STPRV	
+	Masks	EM-MSK
+!S	$stprv area enb prv per pre
+Set process system privileges
+
+!I	EM-A5
+enb =	Enable/disable flag
+	0 - privileges are to be disabled
+	1 - privileges are to be enabled
+prv ->	Quad-word privilege mask
+per =	Permanent flag
+	0 - current image privileges
+	1 - permanent process privileges 
+	2 - missing privilege mask
+pre ->	Quad-word to receive the previous privilege mask
+
+!I	EM-R0U
+0	Not all rights set
+1	Invalid mask ID
+
+$srdef		system rights definitions
+!E	
+
+!B	EM-MSK
+!F	Privilege masks
+Privilege masks
+
+Mask		Usage
+----		-----
+author		Authorized privileges that the process may enable
+process		Permanently enabled privileges for the process
+image		Privileges installed with the current image
+current		Currently enabled privileges
+missing		Missing privileges detected by the system
+!E	
+!!	...
+!B	$STSEV
+!S	$stsev sev
+Set image exit severity
+
+sev =	Severity code (succs$, warn$, error$, fatal$)
+
+o Sets severity code in j$bsev	
+!I	EM-ALL
+!I	EM-NIL
+!E	
+
+!!	May not be used in any RT-11 environment
+!B	$STSIG
+!F	$stsig area ast
+Set signal AST address
+
+!I	EM-A2
+ast =	AST address	
+
+r0	previous AST address	
+r0=0	no previous AST address	
+
+o Sets AST address for $SIGNAL calls	
+o See $SIGNAL	
+!E	
+
+!B	$SUSPND
+!F	$suspnd area pid prn
+Suspend a process
+
+!I	EM-A3
+!I	EM-APP
+
+!I	EM-EPP
+
+o Target process is suspended	
+o $SUSPND is not the same as .SPND	
+!I	EM-RPP
+!E	
+!B	$TRNLOG
+!F	$trnlog area log rsl buf tba aca msk
+Translate logical name
+
+log =>	Asciz logical name
+rsl =>	Result length, unused
+!!bln	Result buffer length
+buf =>	Result asciz equivalence name
+tba =>	Result table number
+	0 - found in system table
+	1 - found in group table
+	2 - found in process table 
+aca =>	Result access mode, unused
+msk =	Disable mask
+	1 - system table excluded
+	2 - group table excluded
+	4 - process table excluded
+!!	1 - exclude system table	100 - short reply
+!!	2 - exclude group table		200 - single-step 
+!!	4 - exclude process table	
+r0	Equivalence name in rad50
+1	Logical name not found
+2	Invalid logical name
+3	Invalid table specification
+4	Missing system rights
+!!5	Result buffer overflow
+!E
+!B	$WAKE
+!F	$wake area pid prn
+Restarts hibernating process	
+
+!I	EM-A3
+!I	EM-APP
+
+!I	EM-EPP
+
+o If target is not hibernating, next hibernate will complete immediately
+!I	EM-RPP
+!E	
+!B	$WORLD
+	Status	EM-WOR
+!F	$world area addr
+Obtain information about the system environment
+
+!I	EM-A2
+addr ->	8-word status block
+
+!I	EM-JLB
+!I	EM-ALL
+
+$world	defines offsets
+!E	
+
+!B	EM-WOR
+!F	$world status
+$world status block
+
+offset	symbol	contents	
+------	------	--------
+0	wo.mot	Monitor: 0=rt11 1=STAR-eleven 2=SHARE-eleven 3=TSX 4=RSTS
+		5=RSX, 6=RSX+ 7=IAS 8=VMS 9=Unix11 10=Unix32 11=SHAREplus
+2	wo.san	STAReleven satellite number
+4	wo.sas	STAReleven, number of satellites
+6	wo.jon	SHARE, job/process number
+10	wo.jos	SHARE, number of jobs/processes
+12	wo.uic	User id: member byte, group byte
+14	wo.use	User name: 2 rad50 words.
+16		Reserved
+!E	
+

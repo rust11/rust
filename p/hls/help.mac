@@ -1,0 +1,118 @@
+.title	help root
+.include "lib:share.mac"
+.radix 8.
+$jbdef
+$jsdef
+$aldef
+.library "lib:sm.mlb"
+smini$
+.iif ndf xrt$, xrt$c=0
+
+;	RUST HELP compiler and interpreter
+;
+;	%build
+;	goto 'P1'
+;	goto XXRT
+;	@@hls:hlpcom
+;	@@hls:hlpint
+;	macro hls:help/object=hlb:help
+;	link hlb:help/execute:hlb:help/map:hlb:help/prompt
+;	hlb:hlpint/o:1
+;	hlb:hlpcom/o:1
+;	//
+;	^C
+;	set program/ctrlz hlb:help
+;	!
+;	XXRT:
+;	@@hls:hlpint
+;	display/out:hls:xrt$c.mac "xrt$c=1"
+;	macro hls:(xrt$c+help)/object=hlb:xxhelp
+;	link hlb:xxhelp/execute:hlb:xxhelp/map:hlb:xxhelp/prompt
+;	hlb:xrtint/o:1
+;	hlb:hlpcom/o:1
+;	//
+;	set program/ctrlz hlb:xxhelp
+;	copy hlb:xxhelp.sav sy:/nolog
+;	^C
+;	%end
+
+.if eq xrt$c
+h$rfac:	.asciz	"?HELP-I-"<128.>
+.iff
+h$rfac:	.asciz	"?XXHELP-I-"<128.>
+.endc
+h$rnew:	.asciz	""
+	.even
+
+.radix	8
+$imgdef	HELP 2 0
+$imginf	fun=sav cre=hammo aut=ijh use=<RUST HELP utility/compiler HELP.SAV V2.0>
+$imgham	yrs=<1989>
+;	%date
+$imgdat	<08-Jul-2022 02:05:09>   
+;imgdat	<07-Aug-1989 23:10:38.22>
+;	%edit
+$imgedt	<539  >
+;imgedt	<206  >
+.radix	10
+
+h$rprm:	.ascii	/HELP> /<128.>
+	.even
+h$rlin:	.blkb	84.
+h$rdef:	.rad50	/            /
+h$rspc:	.blkw	39.
+h$rstk:	.word	0
+h$rtop:	.word	0
+h$lctc::.word	0			; ctrl/c seen
+
+  proc	start
+	mov	sp,h$rstk		; save stack
+	mov	j$btop,h$rtop		; save top
+	call	hr$chn			; check RT-11 chain
+     repeat
+	mov	h$rstk,sp		;
+	mov	h$rtop,j$btop		;
+	.sreset				;
+	.rctrlo				;
+	.gtlin	#h$rlin, #h$rprm
+	.csispc	#h$rspc, #h$rdef, #h$rlin
+	clr	r1			; compile flag
+	while	sp ne h$rstk
+		pop	r0		; get next switch
+		if	mi		; has value
+		...	tst	(sp)+	; skip it
+		ifb	r0 eq #uprC.	; "/C"
+		...	inc	r1	; flag compile
+	end
+	ifb	h$rlin eq		;
+		.print	#h$rfac
+		.print	#i$muse		;
+		.print	#h$rnew
+	...	next			;
+	if	r1 ne
+		call	hc$com #h$rlin	; compile a file
+	else
+	...	call	hl$int #h$rlin,#0 ; interpret file
+     end
+  end
+
+;	HR$CHN - Chain interface
+;
+;	"topic"
+;	"TT:=SY:XXRT/X|"
+;	"TT:=SY:XXRT/X/T|topic"
+
+  proc	hr$chn
+	if	#jscha$ setoff @#j$bjsw	; not chained to
+	...	exit
+
+	mov	#j$bhcs,r0	; chain command string
+	mov	#h$rlin,r1
+10$:	movb	(r0)+,(r1)+
+	bne	10$
+	call	hl$int #0,#h$rlin
+	.exit
+  end
+
+.end	start
+

@@ -1,0 +1,339 @@
+!!	IF
+!!
+!!	okay for XM too
+!B	IF
+	/BATCH		IF.BAT
+	/BLANK		IF.BLA
+	/CURRENT	IF.CUR
+	/DEVICE		IF.DEV
+	/EIS		IF.EIS
+	/ERROR		IF.ERR
+	/FEATURE	IF.FEA
+	/FILE		IF.FIL
+	/IMAGE		IF.IMA
+	/LOGICAL	IF.LOG
+	/NODE		IF.NOD
+	/NOT		IF.NOT
+	/PATH		IF.PAT
+	/PROCESS	IF.PRO
+	/QUERY		IF.QUE
+	/REMOTE		IF.REM
+	/ROOT		IF.ROO
+	/SJ		IF.SJ
+	/SUCCESS	IF.SUC
+	/TERMINAL	IF.TER
+	/WARNING	IF.WAR
+	/XM		IF.XM
+!S	IF condition GOTO label
+!S	IF condition THEN command
+Executes a command or transfers control if a condition is met.
+
+Some options are included for RUST/XM compatibility.
+
+.if/query "Continue? " goto contin	! ask for confirmation
+.if/error display "?MYJOB-E-Operation failed"
+.if/sj goto sj				! skip XM section
+
+.if "'P1'" goto present			! check parameter present
+.if "'P1'" eq "EXIT" goto exit		! compare parameter
+.if "'P1'" ne "NOQUERY" goto exit	! compare parameter
+!E	
+
+!B	IF.RSJ
+!F	RUST/SJ always returns false for this option.
+!E
+
+!B	IF.EIS
+!S	/EIS
+True if the EIS Extended Instruction Set is present.
+
+Always true for RUST/XM.
+!B	IF.SJ
+!S	/SJ
+True if executing under RUST/SJ. False for RUST/XM.
+!B	IF.XM
+!S	/XM
+True if executing under RUST/XM. False for RUST/SJ.
+!E	
+
+!B	IF.BAT
+!S	/BATCH
+True if process is a batch process.
+
+!I	IF.RSJ
+!B	IF.BLA
+!S	/BLANK string
+True if the string is blank. 
+
+The usual case is to test for the presence of a command file parameter:
+
+.if/blank "'p1'" exit 	! Exit if P1 is blank
+.display "'p1'"		! Displays 'p1'.
+!B	IF.CUR
+	/NODE		IF.NOD
+	/PROCESS	IF.PRC
+!S	/CURRENT/option
+Tests current process and local node names.
+
+Option
+  /NODE or /PROCESS
+
+!I	IF.RSJ
+!B	IF.NOD
+!S	/NODE=node
+True if local node has the name specified. 
+
+!I	IF.RSJ
+!B	IF.PRC
+!S	/PROCESS=name
+True if current process has the name specified.
+
+!I	IF.RSJ
+!B	IF.DEV
+!S	/DEVICE=in-file	
+True if the specified device is installed.
+!B	IF.ERR
+!S	/ERROR
+True if the process ERROR status is set.
+!B	IF.FEA
+!S	/FEATURE=name
+True if the specified RUST/XM feature is installed.
+
+!I	IF.RSJ
+!B	IF.FIL
+!S	/FILE=in-file
+True if the specified file exists.
+!B	IF.IMA
+!S	/IMAGE=name
+True if the specified image is active in any process.
+
+!I	IF.RSJ
+!B	IF.LOG
+!S	/LOGICAL=name
+True if the specified logical name is defined.
+!B	IF.NOT
+!S	/NOT
+Negates the result of the following IF options.
+
+.if/not/device=dl2: then load dl2:	 ! Load DL2: if not installed
+!B	IF.PAT
+!S	/PATH=name
+True if the specified logical name path is defined.
+!B	IF.PRO
+!S	/PROCESS=name
+True if a process with the specified name exists.
+
+!I	IF.RSJ
+!B	IF.QUE
+!F	/QUERY string	
+Displays the string and requests a terminal response.
+
+The condition is true if the response starts with 'Y' (for Yes).
+
+.if/query "Are you sure? " delete dk:test.doc ! Delete file if Yes
+!B	IF.REM
+!S	/REMOTE
+True if current process has a remote terminal.
+
+Also false when process does not have a terminal attached.
+
+!I	IF.RSJ
+!B	IF.ROO
+!S	/ROOT
+True if current process is a root process.
+
+!I	IF.RSJ
+!B	IF.SUC
+!S	/SUCCESS
+True if error status is not WARNING or ERROR.
+!B	IF.TER
+!S	/TERMINAL
+True if process has terminal attached.
+
+RUST/SJ always returns true for this option.
+!B	IF.WAR
+!S	/WARNING
+True if process WARNING status is set.
+!E	
+!!	IND
+!!
+!B	IND
+	/DELETE		ID.DEL
+	/NODCL		ID.DCL
+	/QUIET		ID.QUI
+	/TRACE		ID.TRA
+!S	IND [in-file]
+Activates IND or executes an IND control file.
+
+!I	IF$
+!I	DIT$	.COM.
+!E	
+
+!B	ID.DEL
+!S	/DELETE
+Deletes the IND file after execution.
+!B	ID.DCL
+!S	/NODCL
+Ignores DCL commands in the control file.
+!B	ID.QUI
+!S	/QUIET
+Suppress terminal display of control file.
+!B	ID.TRA
+!S	/TRACE
+Displays each line in control file.
+!E	
+!!	INIT
+!!
+!!3???	INIT	/DOS removed
+!B	INITIA
+	/BACKUP		BU.INI
+	/BADBLOCKS	IN.BAD
+	/EXTRA		IN.EXT
+	/FILE		IN.FIL
+	/INTERCHANGE	IN.INT
+	/[NO]QUERY	FI$QUE
+	/REPLACE	IN.REP
+	/RESTORE	IN.RES
+	/RT11X		IN.RTX
+	/SEGMENTS	IN.SEG
+	/VOLUMEID	IN.VOL
+	/WAIT		IN.WAI	!!CP$WAI
+!S	INITIALIZE device
+Creates (or destroys) a volume's directory.
+
+!I	DVRDR$
+
+!I	WARDV$
+!E	
+
+!B	IN.BAD
+!S	/BADBLOCKS[:RET]
+Creates .BAD files to cover bad blocks.
+
+Existing .BAD files are retained with the :RETAIN keyword.
+!B	IN.EXT
+!S	/EXTRA=n
+Specifies the extra words per entry for RT-11 disks.
+!B	IN.FIL
+!S	/FILE=in-file
+Creates a magtape bootstrap with the specified file.
+!B	IN.INT
+!S	/INTERCHANGE
+Initializes an IBM interchange floppy.
+
+After the INIT completes you must delete the dummy data file:
+
+. delete ddu:data/interchange
+
+!I	IBMFL$
+!B	IN.REP
+!S	/REPLACE[:RETAIN]
+Creates a bad block replacement table.
+
+RUST Initialize does not support /REPLACE. Use RT-11 DUP.
+
+Use the :RETAIN keyword to retain the existing replacement table.
+
+This option applies only to RK06, RK07, RL01 and RL02 disks.
+!B	IN.RES
+!S	/RESTORE
+Restores an RT-11 directory.
+
+Use this if you initialized an RT-11 directory by mistake. You can use
+/RESTORE only if no files have been transferred to the volume since the
+time it was initialized.
+
+Use COPY/BOOT to restore the boot blocks.
+!B	IN.RTX
+!S	/RT11X
+Initializes a RUST/XM RT11X volume.
+
+RT11X adds a UIC and protection mask to RT-11 directory entries.
+!B	IN.SEG
+!S	/SEGMENTS=n
+Specifies the number of RT-11 directory segments.
+!I	DEF$	dependent on the size of the disk
+!I	DRANG$	1 to 31.
+!B	IN.VOL
+!S	/VOLUMEID[:ONLY]
+Writes the volume and owner ID of the volume.
+
+The system prompts you for the new volume and owner IDs.
+
+Use the :ONLY keyword to change the IDs without initializing the volume.
+
+!I	VOLID$
+!I	OWNID$
+!E	
+
+!B	IN.WAI
+!S	/WAIT
+Permits the operation to take place on a single volume.
+The system tells you which volumes to mount during the operation.
+
+RUST VUP does not support this option for all operations.
+!E
+!!	INSTALL
+!!
+!B	INSTAL
+	/AUTO		IN.AUT
+	/LOG		IN.LOG
+	/[NO]PROBE	IN.PRB
+!S	INSTALL drivers
+Installs device drivers. RUST/SJ selects drivers as follows:
+
+o Selects the specified driver if an explicit suffix is specified.
+o Selects the "W"-suffix driver if present and running under V11.
+o Selects the "V"-suffix driver if present.
+o Otherwise selects the driver without a suffix.
+
+!I	DEVIC$
+
+.install duz	! searchs for duz.sys
+.install du	! searchs for DUW.SYS (V11 only), DUV.SYS then DU.SYS
+!E
+
+!B	IN.AUT
+!S	/AUTO
+Automates driver installation.
+
+Each RT-11 driver checks to see if it can run on a given machine.
+With /AUTO a driver is only installed or loaded if that check succeeds.
+No error message is displayed if the installation check fails.
+
+You use this option to automatate the system setup process:
+
+.load/auto ei                ! install EIS emulator if required
+.load/auto dd,dl,du,rk       ! load if present
+!E
+!B	IN.LOG
+!S	/LOG
+Reports the name of the device driver selected for installation.
+Applies only if the driver is not already installed.
+
+.install/log du
+?DCL-I-Installing driver DL0:DUV.SYS
+
+.load/log tr
+?DCL-I-Installing driver DL0:DUV.SYS
+!E
+
+!B	IN.PRB
+!S	/[NO]PROBE
+The installation routine probes the device.
+
+Probing a device provides further installation checks by testing
+to see if the device is on-line and is identifiable. Most drivers
+ignore this option. System drivers are not probed during bootstrap.
+
+The default is /NOPROBE except for /AUTO.
+
+The TU58 DECtape II tape drive can only be identified by sending
+an INIT message. The examples below enumerate the options:
+
+.install dd:		  ! does not probe
+.install/probe dd:	  ! probes the TU58
+.install/auto dd:	  ! probes the TU58
+.install/auto/noprobe dd: ! does not probe
+!E
+

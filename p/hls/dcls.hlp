@@ -1,0 +1,216 @@
+!!	SEARCH
+!!
+!!???	Only one file spec is actually supported
+!!
+!!6???	Duplicate options will screw up
+!B	SEARCH
+	/ALL		SEAALL
+	/ANY		SEAANY
+	/[NO]EXACT	SEAEXA
+	/NOHEADER	SEANHD
+	/NONE		SEANON
+	/OUTPUT		FI$OUT
+	/PASSALL	SEAPAS
+	/PRINTER	FI$PRI
+	/SOME		SEASOM
+	/TERMINAL	FI$TER
+	VMS_options	SEAVMS
+!S	SEARCH in-file strings
+Searches files for specified strings.
+
+By default SEARCH displays a list of file names with the number of
+matching occurrences. /OUTPUT, /PRINTER or /TERMINAL specify output.
+
+!I	IFSW$
+!I	STRIN$
+  You may specify multiple strings, separated by commas.
+!I	OTD$
+!I	DOT$	.LST.
+!E	
+
+!B	SEAVMS
+	/AND		SEAALL
+	/NAND		SEASOM
+	/NOR		SEANON
+	/OR		SEAANY
+!F	SEARCH VMS options
+These options are supported for compatibility with VMS:
+
+VMS		RUST
+---		----
+/AND		/ALL
+/NAND		/SOME
+/NOR		/NONE
+/OR		/ANY
+!E	
+
+!B	SEAALL
+!F	/ALL
+!F	/AND
+Reports lines that have all the specified strings.
+!B	SEAANY
+!F	/ANY
+!F	/OR
+Reports lines with any of the specified strings.
+!I	DTHIS$	.
+!B	SEAEXA
+!S	/[NO]EXACT
+Differentiates between upper and lowercase letters.
+!I	DEF$	/NOEXACT.
+
+!B	SEASOM
+!F	/SOME
+!F	/NAND
+Reports lines with some but not all the specified strings.
+!B	SEANHD
+!S	/NOHEADER
+Does not display a dividing line between files.
+!B	SEANON
+!F	/NONE filespec string
+!F	/NOR filespec string
+Reports lines that have none of the specified strings.
+!B	SEAPAS
+!S	/PASSALL
+Reports all characters except nulls.
+!E	
+!!	SORT
+!!
+!B	SORT
+	/DESCENDING	SR.DSC
+	/DIBOL		SR.DIB
+	/DICTIONARY	SR.DIC
+	/PAD		SR.PAD
+	/RECORD_SIZE	SR.RSZ
+	/STATISTICS	SR.STA
+!S	SORT in-file out-file
+Sorts a text file.
+
+!I	IF$
+!I	OF$
+
+o The DECUS utility SORT.SAV implements this command.
+!E
+
+!B	SR.DSC
+!S	/DESCENDING
+Sorts in descending order. The default is ascending.
+
+!! Ignored if keys are specified.
+!E
+
+!B	SR.DIB
+!S	/DIBOL[=max-record]
+Specifies DIBOL sort where Ctrl-Z is treated as end of file.
+
+Max-record
+  A decimal number specifying the maximum number of records.
+!E
+
+!B	SR.DIC
+!S	/DICTIONARY
+Sorts in dictionary collating sequence. Case is ignored and
+some leading non-alphanumeric characters are ignored. The
+default collating sequence is ASCII.
+!E
+
+!B	SR.PAD
+!S	/PAD
+Pads output records with spaces.
+!E
+
+!B	SR.RSZ
+!S	/RECORD_SIZE=record-size
+Specifies the maximum record size. The default is 80.
+
+Record-size
+  A decimal number specifying the number of characters.
+!E
+
+!B	SR.STA
+!S	/STATISTICS
+Displays SORT statistics including the number of records
+sorted, the elapsed time and the number of records missed.
+!E
+!!	SQUEEZE
+!!
+!B	SQUEEZ
+	/HARD		SQ.HAR
+	/SOFT		SQ.SOF
+	/LOG		CP$LOG
+	/OUTPUT		SQ.OUT
+	/[NO]QUERY	FI$QUE	
+	/SYSTEM		CP$SYS
+	/WAIT		CP$WAI	
+!S	SQUEEZE device
+Compresses an RT-11 disk.
+
+RUST supports two SQUEEZE operations:
+
+/SOFT	Safe but slow. Does not compress directory. The default
+/HARD	Fast but potentially dangerous. Requires RT-11 DUP.SAV.	
+
+!I	DVRDR$
+
+BETA: /HARD not implemented by VUP yet.
+!E	
+
+!!	/HARD
+!B	SQ.HAR
+	/NOBOOT		SQ.NBO
+	/OUTPUT		SQ.OUT
+	/QUERY		SQ.QUE
+	/WAIT		CP$WAI
+!S	/HARD
+Performs a standard RT-11 physical squeeze.	
+
+The disk may be corrupted if the operation is interrupted.	
+The directory is also compressed.	
+
+!I	WARDV$	
+!E	
+
+!B	SQ.NBO
+!S	/NOBOOT
+Inhibits reboot after squeezing the system disk.
+
+Use with care.
+!E
+
+!!	/SOFT
+
+!B	SQ.SOF
+	/LOG		SQ.LOG
+	/SYSTEM		CP$SYS
+	/WAIT		CP$WAI
+!S	/SOFT device
+Performs a safe but slow squeeze.	
+
+Files are copied to the start of the disk.	
+The directory is not compressed.	
+!E	
+
+!B	SQ.LOG
+!S	/LOG
+Displays the names of files being moved.
+!E	
+
+!B	SQ.OUT
+!S	/OUTPUT:device	
+Transfers files to an output device.
+
+The input device is not affected.	
+The default is /NOQUERY for this option.
+
+The output device must be initialized before the operation.	
+SQUEEZE/OUTPUT does not copy the boot blocks (use COPY/BOOT).
+!E	
+
+!B	SQ.QUE
+!S	/[NO]QUERY device
+Requests confirmation.
+!I	DEF$	/QUERY for SQUEEZE/HARD
+!I	DEF$	/NOQUERY for SQUEEZE/HARD/OUTPUT and SQUEEZE/SOFT.
+
+SQUEEZE/SOFT confirms each file with /QUERY. 
+!E	
+

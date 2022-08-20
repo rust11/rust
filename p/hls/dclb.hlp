@@ -1,0 +1,240 @@
+!!	BACKUP
+!!
+!!???	 file/SAVESET
+!!
+!B	BACKUP
+	/DEVICE		BU.DEV
+	/DIRECTORY	BU.DIR
+	/FILE		BU.FIL
+	/INITIALIZE	BU.INI
+	/[NO]LOG	BU.LOG
+	/OUTPUT		FI$OUT
+	/PRINTER	FI$PRI
+	/[NO]QUERY	BU.QUE
+	/RESTORE	BU.RES
+	/[NO]REWIND	BU.REW
+	/SAVESET	BU.SAV
+	/[NO]SCAN	BU.SCA
+	/TERMINAL	FI$TER
+	/VERIFY		BU.VER
+!S	BACKUP in-files out-files
+Creates, restores and maintains backup volumes.
+
+In some cases the COPY/MULTIVOLUME option is more appropriate than BACKUP.
+BACKUP cannot handle volumes that have bad blocks.
+!!
+!!See also INITIALIZE/BACKUP and DIRECTORY/BACKUP commands.
+
+!I	IFSW$
+!I	OFW$
+
+o The RT-11 utility BUP.SAV is required.
+!E	
+
+!B	BU.DEV
+!S	/DEVICE
+Specifies that an entire device should be backed up.
+!B	BU.DIR
+!S	/DIRECTORY
+Lists the directory of a BACKUP volume.
+!B	BU.FIL
+!S	/FILE
+Combined with /RESTORE/DEVICE to restore a single file.
+!B	BU.INI
+!S	/INITIALIZE device
+Initializes a BACKUP volume.
+!E	
+
+!B	BU.LOG
+!S	/[NO]LOG
+Reports backup operations.
+!E	
+
+!B	BU.QUE
+!S	/[NO]QUERY
+Prompts for confirmation.
+
+Use /NOQUERY with /INIT to supress confirmation.
+!E	
+
+!B	BU.RES
+!S	/RESTORE
+Restores a backup volume.
+
+Copies files from a backup volume to an RT-11 volume.	
+!E	
+
+!B	BU.REW
+!S	/[NO]REWIND
+Rewinds magtape before operation.
+!!I	DOP$	/REWIND.
+!E	
+
+!B	BU.SAV
+!S	 file/SAVESET	
+Specifies the file as a BACKUP saveset.
+!E	
+!B	BU.SCA
+!S	/[NO]SCAN
+Scans disk for bad blocks.
+!E	
+
+!B	BU.VER
+!S	/VERIFY:ONLY
+Verifies a backup volume without restoring data.
+!E	
+!!	BASIC
+!!
+!B	BASIC
+!S	BASIC [program]
+Invokes the BASIC interpreter.
+
+See SET BASIC for optional functions.
+
+Program
+  The name of a BASIC program to execute.
+
+o A BASIC interpreter (BASIC.SAV) is required.
+!E	
+!!	BOOT
+!!
+!B	BOOT
+	/FOREIGN	BO.FOR
+	/NOQUERY	BO.NOQ
+	/ROM		BO.ROM
+	/WAIT		CP$WAI
+!S	BOOT device-or-file
+Boots an operating system.
+
+!I	DEV$
+!I	DDV$	SY:
+!!???	DDV$	BOO: on RUST/XM
+!I	FILE$
+!I	DFT$	.SYS.
+
+o Standard command boots an RT-11 device or NF: virtual RT-11 directory.
+o NF: and NF0: are remapped to the default NF: boot unit NF7:.
+!E	
+
+!B	BO.FOR
+!S	/FOREIGN
+Boots a non-RUST or non-RT-11 volume.
+!E	
+
+!B	BO.NOQ
+!S	/NOQUERY
+Supresses confirmation of the BOOT operation.
+
+Ignored by RUST/SJ.
+!E	
+
+!B	BO.ROM
+!S	/ROM[:octal-address]
+Boots via a ROM bootstrap.
+!I	DAD$	octal 173000.
+!E	
+!!	BUILD
+!!
+!!V4??	/BACKUP
+!!1???	BUILD	Is BUIxxx.COM created on DK: or HOM:?
+!B	BUILD
+	\Command_Files	BD.CMD
+	/DEFAULT	BD.DEF
+	/LOG		BD.LOG
+	/TYPE		BD.TYP
+	\Text_Files	BD.TXT
+	/OUTPUT		BD.OUT
+	\Backup_Files	BD.BCK
+	/BACKUP		BD.BAC
+	/CREATE		BD.CRE
+	/DIRECTORY	BD.DIR
+!F	BUILD [in-file] [p1] ... [p8]
+Extracts command files, creates text files and BUILD logs.
+
+The BUILD facility is used for three separate purposes:
+
+o To extract & execute a command files from source code.
+o To create text files from DCL input.
+o To create, maintain and list BUILD backup log files.
+!E	
+
+!B	BD.CMD
+	/DEFAULT	BD.DEF
+	/LOG		BD.LOG
+	/TYPE		BD.TYP
+!S	Command files
+Extracts & executes a command file from source code.
+
+This operation is also performed with the DCL "@@" operator.
+
+!I	IF$
+!I	P1P8$
+
+.@@sus:boot
+.build/type=pas mps:calc
+!E
+
+!B	BD.DEF
+!S	/DEFAULT:device
+Specifies the default device for input files.
+
+!I	DEV$
+!B	BD.LOG
+!S	/LOG
+Reports the input-file specification at the terminal.
+!B	BD.OUT
+!S	/OUTPUT=out-file
+Specifies the name of the command file created by BUILD.
+
+!I	OF$
+!I	DOF$	DK:BUIpid.COM, where pid is the process id.
+!B	BD.TYP
+!S	/TYPE=typ
+Specifies a default filetype for input files.
+!E	
+
+!!	Text files
+!!
+!B	BD.TXT
+	/OUTPUT		BD.OUT
+!S	BUILD/OUTPUT=out-file
+Copies text from a command file to a text file.
+
+The example creates the file MYFILE.DAT. The two characters '^' and 'Z'
+terminate the file.
+
+.build/output=myfile.com
+these are text lines	
+these are text lines	
+^Z				! '^' and 'Z'
+!E	
+
+!!	Backup files
+!!
+!B	BD.BCK	
+	/BACKUP		BD.BAC
+	/CREATE		BD.CRE
+	/DIRECTORY	BD.DIR
+!F	BUILD	[backup-file]
+Maintains a filename database.
+
+Backup-file	
+  The default backup-file name is DK:BUILD.BUD.
+!E	
+
+!B	BD.BAC
+!F	BUILD/BACKUP in-file
+Creates a backup command file from a BUILD database.
+
+The command file contains a list of all the file entries in
+the database that have the NEW_FILE flag set and the BACKUP flag
+clear.
+!B	BD.CRE
+!F	BUILD/CREATE
+Creates a BUILD database on the target device.
+
+!B	BD.DIR
+!F	BUILD/DIRECTORY
+Lists the directory of a BUILD database.
+!E	
+

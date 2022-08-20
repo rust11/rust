@@ -1,0 +1,333 @@
+!!-----------------------------------
+!!
+!!	DB:
+!!
+!B	DR$DB
+	Overview	DR$DB.OVR
+	Syntax		DR$DB.SYN
+	Display		DR$DB.DIS
+	Memory		DR$DB.MEM
+	Registers	DR$DB.REG
+	Execute		DR$DB.EXE
+	Step		DR$DB.STP
+	Break		DR$DB.BRK
+	Watch		DR$DB.WAT
+	History		DR$DB.REC
+	Traps		DR$DB.TRP
+	Stack		DR$DB.STK
+	Bootstrap	DR$DB.BOO
+!!	Tips		DR$DB.TIP
+	Summary		DR$DB.SUM
+!F	DB: Debugger Driver
+Debugger driver with symbolic instruction display.
+
+Command		    Operation
+-------		    ---------
+SET [NO]DEBUG	    Load/remove debugger	
+SET DB: [NO]BOOT    Enables bootstrap debugging	
+SET DB: BPT	    Trigger debugger
+[ctrl-h]	    Trigger debugger	
+
+.set debug
+[ctrl-h]
+4032  4767      call    17710          |
+4036  104352    .srese                 |
+!E
+!!	Overview
+!!
+!B	DR$DB.OVR
+!F	Overview
+DB: provides an alternate approach to ODT. The debugger displays
+symbolic instructions and provides a fairly rich set of step, watch
+and instruction history facilities.
+
+o You can flip between symbolic and numeric displays.
+o You can step through or over instructions.
+o Watch lets you traps modifications to specific location.
+o The instruction history lets you backtrack through code.
+o You can inhibit debugger traps and pass traps to applications.
+
+o A single breakpoint is supported.
+o Operations are word-oriented.
+
+o BG: provides an alternative smaller debugger.
+!E
+!B	DR$DB.SYN
+!!
+!F	Command Syntax
+DB: command syntax.
+
+An (octal) number, by itself or preceding a command, sets the
+display location.
+
+1000	...	| 2000g
+2000	...	|
+
+Commands consist of one or two characters, followed, in some 
+cases by a number:
+
+1000		| ps		! display psw
+PS	000001	| =2		! deposit 2
+
+Commands may be strung together except where ambiguity arises.
+
+1000	...	| @sp=1000p	! three commands
+1000	...	| rp		! is RP command, not R then P
+!E
+!B	DR$DB.DIS
+!F	Display
+Display commands.
+
+/	Flip instruction/data mode.
+\	Flip octal/decimal mode.
+In instruction mode the debugger displays PDP-11 instructions.
+In data mode the debugger displays word/bytes, rad50 and ascii
+data. You can flip between octal and decimal. 
+
+Address	Value	Instruction			
+-------	-----	-----------
+003312  004367  jsr     r3,11274     		Instruction
+
+Address	Value	Bytes  Rad50 Ascii
+-------	-----	-----  ----- -----
+003316  036527  075 127 i2w [W=]     		Data - Octal
+003316  15703	61 87	i2w [W=]     		Data - Decimal
+
+003312  004367  jsr     r3,11274         |
+003316  036527  bit     20461(r5),#77053 | \	! Flip to data
+003316  036527  075 127 i2w [W=]         | /	! Flip to decimal
+!!	Behaviour
+!!
+!B	DR$DB.TRP
+!F	Traps
+Debugger entry traps.
+
+EA  DA	Address traps
+EB  DB	BPT traps
+EI  DI	Instruction traps
+EK  DK	Keyboard traps
+The debugger is initially gains control via BPT, address traps,
+instruction traps and [ctrl-h]. You can disable each of these.
+
+1000	...	| DA		! disable address traps
+!E
+!B	DR$DB.MEM
+!F	Memory 
+Examining and modifying memory.
+
+n	Open location n	
++[n]	Open .+n, default is 2
+-[n]	Open .-n, default is 2
+@	Open indirect	
+!!_	Open relative
+!!%	Open branch
+>	Open instruction destination
+.	Open PC location
+
+=v	Deposit, open .+2
+!!	Registers
+!!
+!B	DR$DB.REG
+!F	Registers
+Examining and modifying registers.
+
+PC	Display PC
+PS	Display PSW
+R0:R7	Display register
+SP	Display SP
+
+The example below opens R5, modifies it and then uses [enter]
+to examine the other registers.
+
+132072  000261  sec                      | r5
+R5      131610  263 210 ./  [..]         | =400[enter]
+R6      001702  003 302  xb [..]         | [enter]
+R7      132072  264 072 .3r [:.]         | [enter]
+PS      000004  000 004   d [..]         | [enter]
+R0      000000  000 000     [..]         | [enter]
+!E
+!B	DR$DB.EXE
+!F	Execution
+Execution commands.
+
+P	Proceed	
+Proceed gives control back to a program until a breakpoint is 
+encountered or until you use [ctrl-h] to interrupt the program.
+Instructions are recorded if recording is enabled.
+
+TT	Transfer trap
+In some cases the debugger will intercept a trap that was expected
+by a program. You can transfer trap to the program with TT.
+
+X	Exit program
+The exit command causes the program executing to exit.
+!E
+!!	Step
+!!
+!B	DR$DB.STP
+!F	Step
+The step commands let you single-step a program.
+
+S	Step
+I	Step Into
+O	Step Over
+In the example the step command steps "over" the CALL instruction
+at 132074. Use the I command to step "into" a sub-routine.
+
+132072  000261  sec                      | s
+132074  004737  call    @#146636         | s
+132100  103006  bcc     132116           | s
+
+T	Step To
+Use the Step To command to specify where a program should be
+intercepted. In the example the command causes instructions from
+132074 up to 132102 to be executed.
+
+132074  004737  call    @#146636         | [enter]
+132100  103006  bcc     132116           | [enter]
+132102  032737  bit     #100,@#44        | t
+132102  032737  bit     #100,@#44        | 
+!E
+!!	Breaks
+!!
+!B	DR$DB.BRK
+!F	Break Commands
+Break commands.
+
+B	Set break at location
+CB	Clear break
+DB: supports a single explicit break point. The example sets the
+break at 147312 and then proceeds with execution. Control returns
+to the debugger when the program reaches the breakpoint. The CB
+command clears the breakpoint.
+
+147306  126726  cmpb    146000,(sp)+     |
+147312  000205  rts     r5               | bp
+?DB-I-BPT trap 147312
+147312  000205  rts     r5               | cb
+
+RB	Remove break
+You use this command to remove a manual break from a program. The
+command is shorthand for -2=240.
+!E
+!!	Watch
+!!
+!B	DR$DB.WAT
+!F	Watch commands
+Watch commands.
+
+W	Watch location
+CW	Clear watch
+The Watch command traps changes to the value at a specified
+location. CW disables watch.
+
+In the example a watch is set on location zero and execution 
+proceeds. Watch detects a change in the value and displays the 
+old and new values. The Last command is used to see which 
+command caused the modification.
+
+147314  032767  bit     #10000,44        | 0w
+000000  040000  mov     r0,0(sp)         | p
+?DB-I-Watch 000000: Old=040000 New=010067
+146250  001413  beq     146300           | l
+146246  005210	inc	(r0)		 |
+
+Watch checks a location for changes each time the debugger is
+entered, or, after every instruction if recording is enabled.
+!E
+!!	Instruction history
+!!
+!B	DR$DB.REC
+!!	Examples	DB.REC.EXA
+!!	Operation	DB.REC.OPR
+!F	Instruction History
+DB: supports a 64-word instruction history buffer. With recording 
+enabled, instructions are entered into the ring-buffer. Execution
+takes about forty times longer.
+
+ER DR	Enable/Disable recording.
+Enable recording of application instructions. Default is disable.
+
+EP DP	Enable/Disable pervasive recording.
+Enable recording of application and system instructions. Default
+is disable.
+
+P	Proceed
+Proceed does the recording when recording is active.
+
+L	Display previous
+Displays the preceding (last) history entry.
+
+N	Display next
+Displays the succeeding (next) history entry.
+!E
+!!	Stack
+!!
+!B	DR$DB.STK
+!F	Stack monitor
+DB: monitors the stack for underflow. The underflow test takes
+place at the start of the bus address trap entry.
+
+SU[value]
+DB: initially monitors the stack for underflow at location 400.
+You alter this with the SU (Set Underflow) command.
+
+1000	...	| SU500		! catch stack below 500
+1000	...	| P		! continue processing
+?DB-I-STK trap 3404
+3404	...	| @sp		! look at real stack
+110112	372	|		! offending stack
+1000	...	| SU		! disable stack monitor
+
+DB: uses an internal stack to handle underflow traps. The address
+of the stack at the time of the trap is available with @SP.
+!E
+!!	Bootstrap
+!!
+!B	DR$DB.BOO
+!F	Bootstrap debugging
+DB: can be used to debug driver bootstraps.
+
+1. LOAD dev:
+2. COPY/BOOT dev:BOOT dev:
+   You need to set a breakpoint in the bootstrap, either in the 
+   source or by patching the driver or boot block.
+3. SET DEBUG
+4. SET DB: BOOT=dev:
+5. BOOT/FOREIGN dev:
+6. Bootstrap breakpoint passes control to DB:
+   Since the keyboard is blocked CTRL-H is not available.
+   DB: loses control when the system overwrites the vector area.
+   DB: resides in a memory no-mans-land but usually survives.
+7. Debug your driver.
+8. Use COPY/BOOT to restore the bootstrap block.
+!E
+!!	Summary
+!!
+!B	DR$DB.SUM
+!F	Summary
+DB: command summary.
+
+n	Open location n	   nG	pc = n or .	ctrl-h	Trigger debugger
++[n]	Open .+2 or .+n	   P	Proceed		enter	open .+2
+-[n]	Open .-2 or .-n	   S    Step 		;	Repeat command
+@	Open indirect	   I	Step Into 	/	Instruction/Data
+>	Open destination   O	Step Over	\	Octal/Decimal
+.	Open PC location   T	Step To 	=v	deposit, open .+2
+			   TT	Transfer Trap 	X	Exit program
+	
+R0:R7	Open register	   B	Set break	Enable/Disable:
+SP PC	Open SP or PC	   CB	Clear break	EA DA	Address traps
+PS	Open PSW	   RB	Remove break	EB DB	BPT traps
+						EI DI	Instruction traps
+L	Display last	   nW	Watch location	EP DP	Pervasive recording
+N	Display next	   CW	Clear watch	ER DR	Recording
+!E
+!B	DR$DB.TIP
+!F	Debugger Tips
+Various tips.
+
+Monitoring Stack Underflow
+  "500W", or similar, will catch stack underflow. Remember to leave
+  at least thirty words for the debugger.
+!E

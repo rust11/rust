@@ -1,0 +1,900 @@
+!!	DATE
+!!
+!B	DATE
+!S	DATE [date]
+Displays or sets the current system date.
+
+You display the date by typing the DATE command without parameters. To set
+the date specify the desired date with one of the formats below. You need 
+only supply the part of the date that you wish to change.
+
+DATE [dd][-mmm][-yyyy]	Standard format
+DATE [dd][.mm][.yyyy]	Numerical format
+DATE [mm][/dd][/yyyy]	American format
+
+.date 20-jul-2004
+.date 20.7.2004	
+.date 7/20/2004	
+.date
+Thursday 20-Jul-2004 02:35:19	
+
+The year may be abbreviated to two digits as follows:
+
+00-71	2000-2071
+72-99	1972-1999
+!E	
+!!	DEASSIGN
+!!
+!!	[UNDEFINE]
+!!
+!B	DEASSI
+	/PATH		DE.PAT
+	UNDEFINE	UNDEFI
+!S	DEASSIGN [logical-names]
+Removes logical name assignments.
+
+You may specify multiple names separated by commas.
+If no name is supplied, all logical names are removed.	
+
+The UNDEFINE command provides the same functionality.
+
+!I	LOGNM$
+!E	
+
+!B	DE.PAT
+!S	/PATH path-names
+Removes directory path assignments.
+
+!I	PATNM$
+!E	
+!!	DEFINE
+!!
+!!???	"DEFINE" Catch-All
+!!
+!!XM	Multiple logical names, /COMMAND, /[NO]LOG
+!!
+!B	DEFINE
+	/PATH		DF.PAT
+	/PERMANENT	DF.PRM
+	/TRANSLATED	DF.TRN
+!!	/VERIFY		DF.VER
+	Catch-All	DF.DEF
+!F	DEFINE logical-name equivalence-name
+Associate a logical name with an equivalence name.
+
+!I	LOGNM$
+!I	EQVNM$
+
+.define lib du2         ! LIB: translates to DU2:
+.define tst sy:\test\   ! TST: translates to SY:\TEST\
+.define * nf:           ! Default translation is to NF:
+!E	
+
+!B	DF.PAT
+!S	/PATH path-name path-list
+Creates a directory path.
+
+Upto four logical names may be specified for a path. The system
+searchs the directory specified by each logical name in turn.
+
+!I	PATNM$
+!I	PATLS$
+
+.define/path dk dk,sy	! Searches for DK: files on DK: then on SY:
+
+See also DELETE/PATH, SHOW PATHS
+!E	
+
+!B	DF.PRM
+!S	/PERMANENT logical-name equivalence-name
+Modifies internal device name variables.
+
+This maintenance command is used to modify the internal default 
+assignments for DK:, SY: and the implicit boot device BO:.
+
+.define/perm bo: dl2:	! modify system device index and unit
+
+!B	DF.TRN
+!S	/TRANSLATED logical-name equivalence-name
+Assigns a translated equivalence name.
+
+The equivalence name you specify is translated fully before being
+assigned
+
+.define e1 dl0
+.define l1 e1		! l1 = e1
+.show logical l1	
+L1  = E1
+
+.define l2 e1/trans	! l2 = dl0
+.show logical l2	
+L2  = DL0
+!E
+!B	DF.DEF
+!S	Catch-all
+Redirects undefined device name translations.
+
+The catch-all logical name, asterix (*), redirects failed device
+name translations to the specified equivalence name:
+
+.define * dl1:		! make DL1: the catch-all device
+.show volume xxx:	! where XXX: is undefined
+Device name:   HD3:
+Bootstrap ID:  "BOOT V2.2"
+...
+
+o During loading the NF: driver automatically establishes itself as the
+  catch-all device if the catch-all device is not defined.
+
+o The purpose of the catch-all device is quite different under RT-11.
+!E
+!!	DELETE
+!!
+!B	DELETE	
+	/BEFORE		CP$BEF
+	/BY_OWNER	CP$BOW
+	/COMMAND	DE.COM
+	/DATE		CP$DAT
+	/EXCLUDE	CP$EXC
+	/[NO]HEADER	CP$NHD
+	/INFORMATION	CP$INF
+	/INTERCHANGE	CP$INT
+	/[NO]LOG	CP$LOG
+	/NEWFILES	CP$NEW
+	/POSITION	CP$POS
+	/[NO]QUERY	CP$QUE
+	/SINCE		CP$SNC
+!!	/SYSTEM		CP$SYS
+!!	/VAX		CP$VAX
+	/WAIT		CP$WAI
+!S	DELETE in-files
+Deletes files or commands.
+
+On RUST/XM the file space does not become available until all
+files have deaccessed the file.
+!I	IFSW$
+!E	
+
+!B	DE.COM
+	/ALL	DE.C.A
+!S	/COMMAND [command]
+Deletes user-defined commands.
+
+!I	SYMBO$
+!B	DE.C.A
+!S	/ALL
+Deletes all user-defined commands.
+!E	
+!!	DIBOL
+!!
+!!???	Add Defaults & Rights items to each menu?
+!!???	FI$OBJ, FI$LIS - default filetypes
+!B	DIBOL
+	/ALPHABETIZE	DI.ALP
+	/BUFFERING	DI.BUF
+	/CROSSREFERENCE	DI.CRO
+	/[NO]LINENUMBER	DI.LIN
+	/[NO]LIST	FI$LIS
+	/LOG		DI.LOG
+	/[NO]OBJECT	FI$OBJ
+	/ONDEBUG	DI.OND
+	/PAGE		DI.PAG
+	/TABLES		DI.TAB
+	/[NO]WARNINGS	DI.WAR
+!S	DIBOL in-files
+Compiles DIBOL files.
+
+!I	COSYN$		!! compile command syntax
+!!I	IFS$
+!I	DIT$	.DBL.
+!E	
+
+!B	DI.ALP
+!S	/ALPHABETIZE
+Sorts the symbol table.
+!B	DI.BUF
+!S	/BUFFERING
+Inhibits the default double buffering.
+!B	DI.CRO
+!S	/CROSSREFERENCE
+Produces cross-reference map with the /LIST option.
+!B	DI.LIN
+!S	/[NO]LINENUMBERS
+Includes line-numbers in output file.
+!B	DI.LOG
+!S	/LOG
+Creates a log file of compiler errors.
+!B	DI.OND
+!S	/ONDEBUG
+Includes a debug symbol table in the object file.
+!B	DI.PAG
+!S	/PAGE:n
+Sets the listing page size to N lines.
+!I	DEF$	66.
+!B	DI.TAB
+!S	/TABLES
+Includes symbol table in the listing.
+!B	DI.WAR
+!S	/[NO]WARNINGS
+Reports warning messages.
+!E	
+!!	/BINARY
+!!Input	/BLANKLINES	/CASE	/EIGHT	/COMMENTS	/NOEXACT	/spaces
+!!	/MATCH	/MAXIXUM	/WINDOW
+!!Out	/MERGED	/CHANGE	/PARALLEL	/SLP	/FORMFEED	/EDITED
+!!	/LOG	/OUTPUT	/TERMINAL	/PRINTER
+!!
+!!	DIFFER
+!!	
+!!	./BINARY
+!!
+!!???	Wildcards
+!!???	Put /KEYWORD options first with newline
+!!
+!B	DIFFER
+	/BINARY		DF.BIN
+	/BLANKLINES	DF.BLA
+	/CASE		DF.CAS
+	/CHANGEBAR	DF.CHA	!! VMS is CHANGE_BAR
+	/[NO]COMMENTS	DF.COM
+	/[NO]EDITED	DF.EDI
+	/DIFFERENT	DF.DIF
+	/[NO]EIGHT_BIT	DF.EIG
+	/[NO]EXACT	DF.EXA
+	/FORMFEED	DF.FOR
+	/[NO]LOG	DF.LOG
+	/[NO]NUMBERS	DF.NUM
+	/MATCH		DF.MAT
+	/MAXIMUM	DF.MAX
+	/MERGED		DF.MRG
+	/[NO]OUTPUT	FI$OT2
+	/PARALLEL	DF.PAR
+	/PRINTER	FI$PRI
+	/SAME		DF.SAM
+	/SLP		DF.SLP
+	/[NO]SPACES	DF.SPA
+	/TERMINAL	FI$TER
+	/WIDTH		DF.WID
+!!	/WINDOW		DF.WIN
+	[By_Category]	DF.CTX
+!S	DIFFERENCES in-file-1 in-file-2
+Compares files and lists their differences.
+
+!I	IFWR$
+!I	DIT$	.MAC.
+
+!I	DTERM$	.DIF.
+
+o Compares text files by default. Use /BINARY for binary files.
+o Returns WARNING status if files are different.
+!E	
+
+!B	DF.CTX
+	/BINARY		DF.BIN
+	\[Input]	DF.NUL
+	/CASE		DF.CAS
+	/[NO]EIGHT_BIT	DF.EIG
+	/[NO]EXACT	DF.EXA
+	\[Filters]	DF.NUL
+	/BLANKLINES	DF.BLA
+	/[NO]COMMENTS	DF.COM
+	/[NO]SPACES	DF.SPA
+!!
+	\[Comparison]	DF.NUL
+	/MATCH		DF.MAT
+	/MAXIMUM	DF.MAX
+!!	/WINDOW		DF.WIN
+!!
+	\[Style]	DF.NUL
+	/CHANGEBAR	DF.CHA	!! VMS is CHANGE_BAR
+	/MERGED		DF.MRG
+	/PARALLEL	DF.PAR
+!!
+	\[Formatting]	DF.NUL
+	/FORMFEED	DF.FOR
+	/[NO]NUMBERS	DF.NUM
+	/WIDTH		DF.WID
+!!
+	\[Output]	DF.NUL
+	/[NO]OUTPUT	FI$OT2
+	/[NO]LOG	DF.LOG
+	/PRINTER	FI$PRI
+	/QUIET		DF.QUI
+	/SLP		DF.SLP
+	/TERMINAL	FI$TER
+!S	Options By Category
+!E
+
+
+!B	DF.ALW
+!S	/ALWAYS
+Forces an output file even when no differences are detected.
+
+!B	DF.BLA
+!S	/BLANKLINES
+Includes blank lines in the comparison.
+!I	DEF$	/NOEXACT
+!B	DF.CAS
+!S	/CASE=[EXACT|GENERAL]
+Compares files with(out) regard to case.
+!I	DEF$	EXACT
+
+o /[NO]EXACT provides equivalent functionality.
+!E
+
+!B	DF.EXA
+!S	/[NO]EXACT
+Compares files with(out) regard to case.
+!I	DEF$	/EXACT
+
+o Use /EIGHT_BIT/NOEXACT to compare files using the multi-national
+  character set.
+o The /CASE qualifier provides equivalent functionality.
+!E
+
+!B	DF.CHA
+!S	/CHANGEBAR[="cd"]
+Creates a listing with changebars and deletion bullets.
+
+"cd"
+  Specifies the Changebar and Deletion characters.
+  
+  String     Changebar	Deletion
+  ------     ---------	--------
+  (default)  [|]	[o]
+  ""	     [ ]	[ ]
+  ">"	     [>]	[ ]
+  ">-"	     [>]	[-]
+!B	DF.COM
+!S	/[NO]COMMENTS[="c"]
+Controls comment inclusion and the comment character.
+
+/NOCOMMENTS	Comments beginning with ";" are not compared. Default.
+/NOCOMMENTS="c"	You specify the comment character.
+/COMMENTS	Comments are compared.
+
+.differ 1.com 2.com/nocomments="!"	! compare command files
+.differ 1.txt 2.txt/comments		! full comparison
+!B	DF.DEV
+!S	/DEVICE volume-1 volume-2
+Compares two devices.
+!B	DF.EDI
+!S	/[NO]EDITED
+Displays the edited lines used for comparison.
+!I	DEF$ /NOEDITED
+!B	DF.FOR
+!S	/FORMFEED
+Includes formfeeds in the listing.
+!B	DF.LOG
+!S	/[NO]LOG
+Controls the difference summaries and wildcard reporting.
+!I	DEF$ /LOG.
+
+(default)	Displays files same or different message.
+/NOLOG		Displays no summary information.
+/LOG		Reports files selected by wildcards.
+/LOG=ALL	Additionally reports files missed by wildcards.
+!B	DF.MAT
+!S	/MATCH[=n]
+Specifies the minimum number of lines for a match.
+!I	DEF$	3.
+!I	DRANG$	1 to 200.
+!B	DF.MAX
+!S	/MAXIMUM=n
+Specifies the maximum number of differences.
+!I	DEF$	no maximum.
+!B	DF.MRG
+!S	/MERGED[=n]
+Displays a merged listing of the results. The default. 
+
+/MERGED=n
+  The value specifies the number of matched lines to display
+  at the end of each differences section. The default is one.
+!E
+!B	DF.NUM
+!S	/[NO]NUMBERS
+Displays file and page numbers.
+!I	DEF$	/[NO]NUMBERS
+!B	DF.EIG
+!S	/[NO]EIGHT_BIT
+Compare eight-bit characters.
+!I	DEF$	/NOEIGHT_BIT.
+
+o See /NOEXACT for eight-bit case conversion.
+!B	DF.PAR
+!S	/PARALLEL[=n]
+Displays the results side-by-side.
+
+The value specifies the number of matched lines to display
+at the end of each differences section. The default is one.
+!B	DF.SPA
+!S	/[NO]SPACES
+Includes spaces and tabs in the comparison.
+!I	DEF$	/NOSPACES. The RT-11 default is /SPACES.
+!B	DF.TRI
+!S	/[NO]TRIM
+Removes trailing spaces and tabs from SLP file output.
+!I	DEF$	/TRIM.
+!B	DF.VER
+!B	DF.WID
+!s	/WIDTH[=n]
+Specifies the maximum output width.
+
+The default value is 132 columns.
+
+!I	DEF$	no maximum.
+!!!B	DF.WIN
+!!!S	/WINDOW=n
+!!Specifies the size of a comparison window.
+!!
+!!!E	
+
+!B	DF.SLP
+	/ALLOCATE	FI$ALL
+	/AUDITTRAIL	DF.AUD
+	/TRIM		DF.TRI
+!S	/SLP[=out-file]
+Creates a SLP output command file.
+
+!I	ut$IgnOpt
+
+!I	OF$
+!I	DOT$	.SLP.
+
+!B	DF.AUD
+!S	/AUDIT
+The system prompts for an audit string.
+
+Audit strings identify the source of changes.
+
+Audit string
+  Upto 12 characters. 
+
+!I	ut$IgnOpt
+!E	
+
+!B	DF.NUL
+!S	
+!E
+
+!B	DF.DIF
+!S	/DIFFERENT
+Displays only those lines which are different.
+!B	DF.SAM
+!S	/SAME
+Displays only those lines which are the same.
+!E
+
+!!???	DIFFER/BINARY
+!!???	!F
+!!
+!B	DF.BIN		!! DIFFER/BINARY
+	/ALWAYS		DF.ALW
+	/BYTES		DF.BYT
+	/DEVICE		DF.DEV
+	/END		FI$END
+	/[NO]LOG	DF.LOG
+	/OUTPUT		FI$OUT
+	/PRINTER	FI$PRI
+	/QUIET		DF.QUI
+	/SIPP		DF.SIP
+	/START		FI$STA
+	/TERMINAL	FI$TER
+!S	/BINARY in-file-1 in-file-2
+Compares binary files and lists their differences.
+
+.differ utb:*.sav tmp:*.sav
+?BINDIF-I-Comparing UTB:BUILD.SAV with TMP:BUILD.SAV
+Block   Offset  Old     New     Old^New Old-New New-Old
+000000  146     000126  000124  000002  000002  177776
+000007  610     000040  040040  040000  140000  040000
+000017  266     031060  032460  003400  176400  001400
+        270     046455  047055  001400  177400  000400
+
+!I	IFWR$
+!E	
+
+!B	DF.BYT
+!S	/BYTES
+Compares files byte by byte.
+!B	DF.QUI
+!S	/QUIET
+Suppresses the difference listing.
+!B	DF.SIP
+!S	/SIPP=out-file
+Creates a command file for SIPP.
+
+!I	OF$
+!I	DOT$	.COM.
+!E	
+!!	DIRECTORY
+!!
+!!???	/BAD
+!!???	/DETAILED
+!!???	/BACKUP
+!!
+!!2???	DIR	/VAX removed
+!B	DIRECT
+	/ALPHABETIZE	DR.ALP
+	/BACKUP		BU.DIR
+	/BADBLOCKS	DR.BAD
+	/BEFORE		CP$BEF
+	/BEGIN		DR.BEG
+	/BLOCKS		DR.BLO
+	/BRIEF		DR.BRI
+	/BY_OWNER	CP$BOW
+	/COLUMNS	DR.COL
+	/DATE		CP$DAT
+	/DELETED	DR.DEL
+	/DETAILED	DR.DET
+	/EXCLUDE	CP$EXC
+	/FAST		DR.BRI
+	/FREE		DR.FRE
+	/FULL		DR.FUL
+	/INTERCHANGE	DR.INT
+	/LIST		DR.LIS
+	/MODIFIED	DR.MOD
+	/NEWFILES	CP$NEW
+	/OCTAL		DR.OCT
+	/ORDER		DR.ORD
+	/ORGANIZATION	DR.ORG
+	/OUTPUT		FI$OUT
+	/POSITION	DR.POS
+	/PRINTER	FI$PRI
+	/[NO]PROTECTION	DR.PRO
+!!	/REVERSE	DR.REV
+	/SINCE		CP$SNC
+	/SIZE		DR.SIZ
+	/SORT		DR.ORD
+	/SUMMARY	DR.SUM
+	/TENTATIVE	DR.TEN
+	/TERMINAL	FI$TER
+	/TIME		DR.TIM
+	/UIC		DR.UIC
+	/VERSION	DR.VRS
+	/VOLUMEID	DR.VOL
+	/WAIT		CP$WAI
+	File_Structures	DR.ACP
+!S		DIRECTORY [in-files]
+Lists the contents of a directory.
+
+!I	IFSW$
+
+!I	DTERM$	.LIS.
+!E	
+
+!B	DR.ALP
+!S	/ALPHABETIZE
+Sorts the directory in alphabetical order.
+
+!I	DFOR$	VMS directories.
+!B	DR.BEG
+!S	/BEGIN
+Lists the file specified and all following files.
+!B	DR.BLO
+!S	/BLOCKS
+Lists RT-11 file starting block numbers.
+!B	DR.BRI	
+!S	/BRIEF
+Lists only filenames and filetypes.
+!B	DR.COL
+!S	/COLUMNS=n
+Specifies the number of listing columns.
+!I	DEF$	1 column.
+!B	DR.DEL
+!S	/DELETED
+Lists deleted RT-11 files.
+!B	DR.DET
+!S	/DETAILED
+Produces a detailed listing of RT-11 directories.
+
+!I	DDOCU$	SNOOP utility.
+!B	DR.FRE
+!S	/FREE
+Lists the free areas on an RT-11 disk volume.
+!B	DR.FUL
+!S	/FULL
+Lists files and free areas of RT-11 volumes.
+
+Lists file formats of files in VAX/VMS directories.
+!B	DR.INT
+!S	/INTERCHANGE
+Lists files on an IBM interchange floppy.
+
+!I	IBMFL$
+!B	DR.LIS
+!S	/LIST
+Produces a simple list of filenames.
+
+The list is suitable for use with command files.
+!B	DR.MOD
+!S	/MODIFIED
+Lists the most recently modified files first.
+!B	DR.OCT
+!S	/OCTAL
+Displays octal numbers.
+!I	DEF$	decimal.
+!B	DR.ORD
+	/REVERSE	DR.O.R
+!S	/ORDER=category
+Sorts the directory.
+
+Category	Sorted by
+--------	--------
+DAT		Creation date
+NAM		Filename
+POS		Position on disk
+SIZ		Size of file
+TYP		File type
+UIC		UIC number
+PRO		Protection
+VER		Verson number
+
+DAT, POS, UIC and PRO apply only to RT-11 directories.
+!E	
+
+!B	DR.O.R
+!S	/REVERSE
+Uses descending sort.
+!I	DEF$	ascending.
+!B	DR.ORG
+!S	/ORGANISATION
+Lists F11A file organisation information.
+
+!I	SY$XM
+!B	DR.POS
+!S	/POSITION
+Lists RT-11 files in position order.
+
+!I	DTHIS$	 for RT-11 directories.
+!B	DR.PRO
+!S	/[NO]PROTECTION
+Selects (un)protected files.
+!B	DR.SIZ
+!S	/SIZE
+Lists the size of VAX/VMS files.
+!B	DR.SUM
+!S	/SUMMARY
+Displays a summary of RT-11 directory segments.
+!B	DR.TEN
+!S	/TENTATIVE
+Lists RT-11 tentative files.
+!B	DR.TIM
+!S	/TIME
+Displays the creation time of RT11X files.
+!B	DR.UIC
+!S	/UIC
+Displaus RT11X file UICs.
+!B	DR.VRS
+!S	/VERSION
+Displays F11A file version numbers.
+!B	DR.VOL
+!S	/VOLUMEID[:ONLY]	
+Displays the volume ID label.
+
+Specify ONLY to display only the label.
+!E	
+
+!B	DR.ACP
+!F	DIRECTORY File Structures
+!I	NF$BUL
+o Extended directory information, including creation time, is displayed. 
+o UIC and group/member details are valid for files created by RUST/XM.
+o RUST/XM supports RSX and VMS directories with the F11A ACP.
+o The IMPORT utility also lists RSX/VMS directories.
+!E
+
+!B	DR.BAD
+	/END		FI$END
+	/FILES		DR.FIL
+	/START		FI$STA
+	/VERIFY		DR.VER
+	/WAIT		CP$WAI
+!S	DIRECTORY/BAD
+Lists the bad blocks on a volume.
+!E	
+
+!B	DR.FIL
+!S	/FILES
+Lists the names of files containing badblocks.
+
+RT-11 volumes only.
+!B	DR.VER
+!S	/VERIFY
+Tests the disk with a read/write/verify test.
+
+If the system can not read the block, it reports a hard error. If the
+block recovers, it reports a soft error.
+
+!I	WARDV$
+!E	
+!!	DISMOUNT
+!!
+!B	DISMOU
+!S	DISMOUNT devices
+Dismounts logical disk volumes.
+
+!I	DEVIC$
+
+.dismount ld4:		! dismount LD4:
+!E	
+!!	DISPLAY
+!!
+!!	""\"" is new
+!B	DISPLA
+	/DEBUG		DS.DEB
+	/EVERYTHING	DS.EVE
+	/NOTHING	DS.NOT
+	/OUTPUT		FI$OUT
+	/PAUSE		DS.PAU
+	/PRINTER	FI$PRI
+	/QUERY		DS.QUE
+	/TERMINAL	FI$TER
+	Examples	DS.EXM
+!S	DISPLAY [parameters]
+Displays DCL command expansions, a string or expression.
+
+Command	
+  A DCL command. Some commands produce no expansion.
+"String"
+  A string of characters enclosed in quotation marks.
+  Use the "|" separator to specify multiple lines.
+Expression
+  An integer expression
+
+!I	DTERM$	.COM.
+!E	
+
+!B	DS.EXM
+!S	Examples
+DISPLAY command examples.
+
+.display copy a b		! display the copy command
+R PIP
+DK:A.*=DK:B.*/W
+^C
+
+.display 3*(100+10)		! display an expression	
+330				! (can't be output to a file)
+
+.display "No such command"	! display a string
+No such command
+
+.display/pause "Continue? "	! use display to pause
+Continue?
+
+.display/out:a.mac "mmg$t=1"|"tim$it=0" ! create a two line source file
+!E
+!B	DS.DEB
+!S	/DEBUG command
+Initiates the internal DCL debugger.	
+
+DCL command interpretation is implemented by an internal editing
+stream. The debugger is used during development of DCL commands.
+
+The default DISPLAY command rejects some commands as inappropriate
+for DISPLAY (such as EDIT). However, this test is fairly crude and 
+misses some valid commands (such as EDIT/KED). The /DEBUG option 
+supresses the check made by DISPLAY.
+
+Type [return] to get out of the debugger.
+!E	
+
+!B	DS.EVE
+!S	/EVERYTHING
+Displays everything.
+
+o All DCL command expansions are displayed	
+o All command files are displayed
+
+RUST/XM:
+	
+o Terminal input is echoed exactly as received by a program
+o CTRL-C does not discard pending terminal output
+o TRACE displays .PRINT program requests
+o LOGOUT does not disable this option
+!B	DS.NOT
+!S	/NOTHING
+Disables DISPLAY/EVERYTHING.
+!B	DS.PAU
+!S	/PAUSE "string"
+Displays string and waits for [return] to continue.
+!B	DS.QUE
+!S	/QUERY "string"
+Displays string and requests confirmation.
+
+!I	YES$
+!E	
+!!	DUMP
+!!
+!!	/DIRECTORY/VAX
+!B	DUMP
+	/[NO]ASCII	DU.ASC
+	/BYTES		DU.BYT
+	/DECIMAL	DU.DEC
+	/DIRECTORY	DU.DIR
+	/END		FI$END
+	/FOREIGN	DU.FOR
+	/HEXADECIMAL	DU.HEX
+	/IGNORE		DU.IGN
+	/INSTRUCTION	DU.INS
+	/MACRO		DU.MAC
+	/ONLY		DU.ONL
+	/OUTPUT		FI$OUT
+	/PRINTER	FI$PRI
+	/RAD50		DU.RAD
+	/RECORD_SIZE	DU.RSZ
+	/START		FI$STA
+	/TERMINAL	FI$TER
+	/WINDOW		DU.WIN
+	/WORDS		DU.WOR
+!S	DUMP in-files
+Displays the contents of devices and files in many formats.
+
+!I	IFS$
+!I	DIT$	.SAV.
+
+!I	DTERM$	.DMP.
+(RT-11 defaults output to the printer.)
+!E	
+
+!B	DU.ASC
+!S	/[NO]ASCII
+Displays ASCII interpretation.
+!I	DEF$	/ASCII.
+!B	DU.BYT
+!S	/BYTES
+Displays bytes rather than words.
+!B	DU.DEC
+!S	/DECIMAL
+Displays decimal numbers.
+!I	DEF$	octal.
+!B	DU.DIR
+!S	/DIRECTORY dev:
+Interprets the file as an RT-11 directory.
+!B	DU.FOR
+!S	/FOREIGN
+Displays a non-RT-11 magtape.
+!B	DU.HEX
+	/NOOCTAL	DU.NOC
+!S	/HEXADECIMAL
+Displays hexadecimal numbers.
+
+Command			Address	Data
+-------			-------	----
+DUMP/HEX		Octal	Hex and Octal
+DUMP/HEX/NOOCTAL	Hex	Hex
+!B	DU.NOC
+!S	/NOOCTAL
+Suppresses octal output in hex displays.
+!E
+
+!B	DU.IGN
+!S	/IGNORE
+Ignores hardware input errors.
+!B	DU.INS
+!S	/INSTRUCTION
+Interprets data as PDP-11 instructions.
+!B	DU.MAC
+!S	/MACRO
+Produces a MACRO file that will recreate the data.
+!B	DU.ONL
+!S	/ONLY=n
+Lists only the specified (octal) block.
+!B	DU.RAD
+!S	/RAD50
+Interprets the data as RAD50 values.
+!B	DU.RSZ
+!S	/RECORD_SIZE=decimal
+Specifies the record size in bytes. The default is 512.
+
+BUG: Currently limited to multiples of 16.
+!B	DU.WIN
+!S	/WINDOW=decimal
+Specifies the maximum number of bytes displayed for each record.
+!B	DU.WOR
+!S	/WORDS
+Displays 16-bit words.
+!I	DTHIS$
+!E	
+

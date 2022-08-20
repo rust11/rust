@@ -1,0 +1,1994 @@
+;!!!;	h$lpag disabled 
+;+++;	HLPINT to library - use for KEYPAD HELP, as overlay (4kw)
+;***;	HLPINT - Converts .HLP files to .TXT file - what a bonus
+;***;	HLPINT - Conversion to a wiki should be easy (cascade mode)
+;???;	HELP INSTALL has "Install xdrivers"
+;???;	HLS: needs an update.com
+std$c=0
+.iif ndf xrt$c, xrt$c=0		; XXRT HELP
+.title	HELP
+.include "lib:share.mac"
+.nlist me
+.radix 8.
+$aldef
+$esdef
+$cidef
+$dcdef
+$didef
+$jbdef
+$jsdef
+$rmdef
+$tcdef
+.library "lib:sm.mlb"
+smini$
+trace=0
+
+.if ne std$c
+.radix	8
+$imgdef	HELP 3 1
+.if ne xrt$c
+$imginf	fun=sav cre=hammo aut=ijh use=<Processes XXRT HELP commands>
+.iff
+$imginf	fun=sav cre=hammo aut=ijh use=<Processes RUST HELP commands>
+.endc
+$imgham	yrs=<1989>
+;	%date
+$imgdat	<08-Jul-2022 02:05:09>   
+;	%edit
+;	<240  >
+.radix	10
+.endc
+
+;	RUST HELP
+;
+;	%build
+;	goto 'p1'
+;	display/out:hls:xrt$c.mac "xrt$c=0"
+;	macro hls:hlpint/object=hlb:hlpint'p1'
+;	display/out:hls:xrt$c.mac "xrt$c=1"
+;	macro hls:(xrt$c+hlpint)/object=hlb:xrtint
+;	!link:
+;	!link hlb:hlpint/execute:hlb:help
+;	!set program/ctrlz hlb:help
+;	end:
+;	%end
+;
+;	help hlplib.hlb
+;
+;	help	* * *		displays only last topics
+;	help	*..		displays titles at and below *
+;	help	*...		displays everything at and below *
+;
+;	/title			displays titles only
+;	/brief			displays headers only
+;	/examples		displays examples only
+;
+;	/LIBRARY=file	infil	help library
+;	/OUTPUT=file	outfil	output file
+;	 /ALLOCATE=n	outfil	output file size
+;	/TERMINAL	outfil	output to terminal
+;	/PRINTER	outfil	output to printer
+;
+;	/LENGTH=n	/L:n	Page length in lines
+;			/L	No continue messages
+;	/NOPAGE		/H	Hardcopy - no graphics
+;	/NOPROMPT	/B	Batch - no prompts
+;
+;	/DOCUMENT	/D	Output document form
+;
+;	HELP/DOCUMENT *...	
+;
+;	r5 ->	current frame
+;	r4 ->	help text
+;	r3 ->	command line
+
+.macro	trace str
+.if ne trace
+	jsr	r1,hl$tra
+	.asciz	"str"
+	.even
+	nop
+.endc
+.endm
+
+hl$tra:	psh	r0
+	tst	400
+	beq	10$
+	.print	r1
+10$:	tstb	(r1)+
+	bne	10$
+	inc	r1
+	bic	#1,r1
+	pop	r0
+	rts	r1
+
+.macro	hlfat$	lab
+	call	hl$fat	lab
+.endm
+.macro	hlerr$	lab
+	call	hl$err	lab
+.endm
+.macro	hlwar$	lab
+	call	hl$war	lab
+.endm
+data	Help frame
+
+plex	HL
+	flags	hl.ctl			;flags
+	pointer	hl.pre			;predecessor
+					;
+;	area	hl.fil	word*4		;filename
+;	index	hl.chn			;channel
+	index	hl.byt			;byte in block
+	index	hl.blk			;block
+	counter	hl.cnt			;keyword count
+	pointer	hl.hea			;header pointer
+	pointer	hl.key			;current keyword pointer
+	pointer	hl.end			;end of keywords
+	pointer	hl.dyn			;dynamic at end of header
+	index	hl.bbl			;body block
+	index	hl.bby			;body byte
+					;
+	text	hl.mod	32.		;model at this level
+	gamut	hlgam.
+
+series	HL	bits
+	..	hlelp$			;target has elipse
+	..	hltit$			;titles only
+	..	hlbrf$			;brief
+	..	hldsp$			;
+	..	hlhdr$			;brief header has been written
+	..	hlque$			;query mode
+	..	hlsyn$			;display syntax
+	..	hlund$	pos=15		;undefined frame
+
+plex	Module header
+	counter	he.cnt	typ=byte.	;index count and module type
+					;
+plex	Module index
+	text	he.str	typ=vary.	;variable size string
+	value	he.ter	typ=byte.	;terminator and high order
+	index	he.byt	typ=byte.	;byte in block
+	index	he.blk	typ=byte.	;block number
+					;
+	set	hetr$p	bit7$		;terminator
+	set	heby$p	bit6$		;high order byte
+	set	hebl$n	bit6$!bit7$	;high order block negative
+
+	set	helit.	-7		;literal include
+	set	hepar.	-6		;include parameter
+	set	hefmt.	-5		;start of format
+	set	hebod.	-4		;end syntax, start of body
+	set	heinc.	-3		;include section
+	set	hesyn.	-2		;start of syntax
+	set	heeom.	-1		;end of module
+
+plex	File
+	flags	fi.flg			;flags
+	counter	fi.chn			;channel
+	pointer	fi.buf			;buffer pointer
+	counter	fi.siz			;buffer size
+	counter	fi.blk			;next block number
+	counter	fi.cnt			;byte count
+	pointer	fi.pnt			;character pointer
+	gamut	figam.			;size of it
+
+	set	fiisz.	512.		;input buffer size
+	set	fiosz.	512.		;output buffer
+	set	filsz.	512.		;listing buffer
+
+series	fi	bits
+	..	fiopn$			;file open (output)
+	..	fieof$			;end of file
+	..	fiter$			;file is terminal
+data	Impure data
+
+h$limp:
+h$lcol:	.word	0		;column number
+h$llin:	.word	0		;line number
+h$lfnd:	.word	0		;count found in walk
+h$lhom:	.word	0		;screen home done
+h$ldcl:	.word	0		;dcl command coming
+				;
+h$ldir:	.word	0		;first frame pointer
+h$lroo:	.word	0		;root frame pointer
+h$lnew:	.word	0		;new menu frame pointer
+h$lsav:	.word	0		;saved context pointer
+h$llev:	.word	0		;frame level
+				;
+h$lcmd:	.word	0		;command line pointer
+h$lrep:	.word	0		;user reply
+h$lpth:	.word	0		;title path & prompt
+h$lflg:	.word	0		;display & ellipse flags
+h$lhst:	.blkw	3*8.		;history
+h$lidt:	.word	0		;last indent
+
+h$lblk:	.word	0		;saved block
+h$lbyt:	.word	0		;saved byte
+h$lcha:	.word	0		;saved character
+
+h$lbuf:	.word	0		;\output buffer pointer
+h$lpnt:	.word	0		;|output buffer pointer
+h$lend:	.word	0		;/end of buffer pointer
+
+;	files
+
+h$lifl:	.word	0		;input file
+h$lich:	.word	0		;input channel
+h$libf:	.word	0		;input buffer pointer
+	.blkb	figam.-<.-h$lifl>
+
+h$lofl:	.word	0		;output file
+h$loch:	.word	0		;channel
+h$lobf:	.word	0		;buffer
+	.blkb	figam.-<.-h$lofl>
+
+h$lfts:	.word	0		;fatals
+h$lers:	.word	0		;errors
+h$lwrs:	.word	0		;warnings
+				;
+h$lemt:	.blkw	10.		;emt area
+h$ldst:	.blkb	di.bbs		;dstat
+h$lcst:	.blkb	ci.bbs		;channel status area
+h$lof0:	.blkw	3*5		;csi area
+h$lif0:	.blkw	6*4
+
+h$lfil:	.word	0		;output to file
+h$lstp:	.word	0		;stop - from /Continue
+h$llfp:	.word	0		;line-feed pending (in form mode)
+
+hcims.=.-h$limp
+
+;	static data
+
+h$lemu:	.word	0		;running under an emulator
+h$lpag:	.word	0		;paging off
+h$ldoc:	.word	0		;document mode
+h$lfrm:	.word	0		;formfeed off
+h$lcas:	.word	1		;cascading titles on
+h$lprm:	.word	1		;prompting on
+h$lexi:	.word	1		;exit on error
+h$llen:	.word	24.		;page length
+
+h$lonc:	.word	0		;once only flag
+h$lbas:	.word	0		;program base
+h$ldyn:	.word	0		;dynamic area pointer
+h$ltop:	.word	0		;top during walk
+h$llim:	.word	0		;limit of available (minus some)
+h$lchn:	.word	0		;pointer to chain command
+data	Pure data
+
+.if df xrt$c
+h$lhlb:	.rad50	"sy xxrt  hlb"
+.iff
+h$lhlb:	.rad50	"sy rust  hlb"
+.endc
+h$ltyp:	.rad50	/hlblstlstlst/	;file types
+
+e$rnip:	.asciz	"No input file"
+e$rfat:	.asciz	"%tFatal error near %m"
+
+e$rmem:	.asciz	"%tMemory exhausted near %m"
+e$rltl:	.asciz	"%tLine too long in %m"
+e$rfie:	.asciz	"%tFile input error near %m"
+e$rfoe:	.asciz	"%tFile output error near %m"
+e$ropt:	.asciz	"Invalid option"
+e$rnhf:	.asciz	"No help file located"
+e$rmlv:	.asciz	"Maximum level overflow"
+e$ridt:	.asciz	"HELP"
+.if ne xrt$c
+e$rfac:	.asciz	"?XXHELP-"
+.iff
+e$rfac:	.asciz	"?HELP-"
+.endc
+
+e$rcmd:	.asciz	"E-Invalid command"
+e$rloo:	.asciz	"E-Error opening input file "
+e$rent:	.asciz	"E-Error opening output file "
+e$rdst:	.asciz	"E-Invalid device "
+e$rfet:	.asciz	"E-Error accessing device "
+
+h$lnln:	.byte	cr.,lf.,0
+h$ltpc:	.ascii	"Topic? "<128>
+h$lsub:	.ascii	"subtopic? "<128>
+h$lcon:	.ascii	"Continue? "<128>
+h$lnin:	.asciz	"No information available for "
+h$lavl:	.asciz	"Additional information available: "
+h$linf:	.asciz	"nformation available: "
+h$l100:	.byte	esc.,lsqua.,uprH.,esc.,lsqua.,uprJ.
+	.byte	esc.,lsqua.,dig2.,uprJ., 0
+	.even
+code	Start
+
+native	
+  proc	hl$int
+	p1	cmd
+	p2	chn
+	clr	h$lonc
+	call	hl$ini	cmd(sp)			;setup 
+	call	hl$hom				;setup a page
+	ifb	h$ldcl eq			;no DCL command
+	and	@chn(sp) eq			;
+		call	hl$tit			;display title
+	...	call	hl$men			;display directory
+    repeat					;do commands
+	call	hl$flu				;flush any output
+	call	hl$cmd	chn(sp)			;get a command in r4
+	clr	chn(sp)				;once only
+	call	hl$skp				;skip blanks
+	ifb	(r4) eq #ctrlz.			;eof
+	...	call	hl$exi			;
+	ifb	(r4) eq				;just return
+		call	hl$pop			;up a level
+		if	r0 eq			;no more levels
+		...	call	hl$exi		;
+		mov	r5,h$lroo		;reset the root
+	...	next				;
+	ifb	(r4) eq #qmark.			;?
+	orb	(r4) eq #slash.			;/
+	andb	1(r4) eq			;exactly /
+		call	hl$dis			;display it again
+		call	hl$men			;and menu
+	...	next				;
+						;
+	clr	h$lflg				;no flags yet
+    repeat					;
+	ifb	(r4) eq #bslas.			;\
+		bis	#hlque$,h$lflg		;query mode
+	elsifb	(r4) eq #minus.			;-
+		bis	#hltit$,h$lflg		;titles
+	elsifb	(r4) eq #equal.			;= brief
+		bis	#hlbrf$,h$lflg		;brief
+	elsifb	(r4) eq #rsqua.			;]
+		bis	#hlsyn$,h$lflg		;syntax
+	else					;
+	...	leave				;
+	inc	r4				;skip character
+	next	ifb (r4) ne			;more
+	movb	#astrx.,(r4)			;make implicit wildcard
+	clrb	byte.(r4)			;terminate it
+    endless					;
+						;
+	call	hl$roo				;call walk root
+	if	h$lfil ne			;have output file
+or	h$lprm eq			;no more prompts
+	...	call	hl$exi			;exit
+    end						;
+  end						;
+
+code	HL$EXI	Exit help
+
+  proc	hl$exi
+	call	hl$pad	#h$lofl			;pad and close output
+	mov	#1,r0
+	.exit
+  end
+
+code	HL$ALC	Allocate space
+
+  proc	hl$alc	
+	p1	ptr				;pointer address
+	p2	siz,r0				;size
+	mov	h$ldyn,@ptr(sp)			;allocate the space
+	clrb	@h$ldyn				;clear first byte of it
+	inc	r0				;round it up
+	bic	#1,r0				;even it
+	add	r0,h$ldyn			;get it
+	if	h$ldyn his h$llim		;too much
+	...	hlfat$	#e$rmem			;memory gone
+  end
+code	HL$INI	Init most things
+
+  proc	hl$ini
+	p1	cmd
+	if	h$lonc eq			;once only
+		.serr				;
+		inc	h$lonc			;
+		mov	j$btop,r0		;get the last in use
+		add	#word.,r0		;
+		mov	r0,h$lbas		;base of handlers
+		.settop	#-2			;get everything
+		sub	#128.,r0		;some overflow
+		mov	r0,h$llim		;setup the limit
+	end					;
+
+	mov	j$bsys,r0			; check for emulator
+	movb	rm.emu(r0),h$lemu		; get the flag
+						;
+;	.sreset					;
+	mov	#h$limp,r0			;get the impure start
+	mov	#hcims./word.,r1		;get the size
+	repeat					;clear it
+		clr	(r0)+			;
+	count	r1				;
+	mov	h$lbas,h$ldyn			;setup dynamic memory pointer
+
+	call	hl$alc	#h$lcmd #84.		;command buffer
+						;
+	if	cmd(sp) eq			;
+		call	hl$chn			;
+	else					;
+	...	call	hl$csi	cmd(sp)		;get CSI command
+						;
+						;
+	call	hl$alc	#h$libf	#fiisz.		;input buffer
+	call	hl$alc	#h$lobf #fiosz.		;output buffer
+	call	hl$alc	#h$lpth	#84.		;path
+	call	hl$alc	#h$lrep	#84.		;prompt reply
+	call	hl$alc	#h$lbuf	#96.		;output buffer
+	mov	h$lbuf,h$lpnt			;setup pointer
+	addi3	#94.,h$lbuf,h$lend		;setup end pointer
+	call	hl$irs				;reset input
+	call	hl$ors				;reset output
+
+;	Setup initial frame
+
+	call	hl$alc	#h$ldir #hlgam.		;setup initial frame
+	mov	h$ldir,r5			;get a copy of it
+	mov	r5,h$lroo			;reset the root
+	call	hl$clr	r5,#hlgam.		;clear it
+	call	hl$hea				;read the directory
+  end
+code	HL$CSI	Get CSI command
+
+;	aaa=bbb "help command""
+
+  proc	hl$chn	<r1,r2,r3>
+	call	hl$fet	#h$lhlb			;
+	.lookup	#h$lemt,#3,#h$lhlb		; open input
+	if	cs				;
+	...	call	hl$rep #e$rloo, #h$lif0	;
+  end
+
+  proc	hl$csi	<r1,r2,r3>
+	p1	cmd
+    repeat					;get a command
+	mov	cmd(sp),r2			;get command
+	mov	sp,r3				;save the stack
+	clr	-(sp)				;setup a bumper for the list
+	.csispc	#h$lof0,#h$ltyp,r2,h$lcmd	;parse command
+	if	cs
+	...	call	hl$rep	#e$rcmd, #0
+
+	mov	sp,r0				;point to options
+	call	hl$qua	r0			;process them
+	mov	r3,sp				;reset the stack
+
+	if	h$lof0 ne			;got output
+		call	hl$fet	#h$lof0		;
+		ifb	h$ldst ne #dettc.	;not going to terminal
+		...	inc	h$lfil		;remember it
+		.enter	#h$lemt,#0,#h$lof0	;
+		if	cs			;
+	...	...	call	hl$rep #e$rent, #h$lof0
+
+	if	h$lif0 ne			;got input
+		call	hl$fet	#h$lif0		;
+		.lookup	#h$lemt,#3,#h$lif0	;open input
+		if	cs			;
+	...	...	call	hl$rep #e$rloo, #h$lif0
+
+
+	.wait	#3				;got an input file?
+	if	cs				;no
+		call	hl$fet	#h$lhlb		;
+		.lookup	#h$lemt,#3,#h$lhlb	;find one
+		if	cs			;no such file
+	...	...	hlfat$	#e$rnhf		;no help file
+	if	h$lpag mi			;default page setting
+		neg	h$lpag			;default on
+	 if	h$lfil ne			;file output
+	  or	h$lemu ne			;emulator
+	 	clr	h$lpag			;default is nopage
+	 else					;terminal output
+		.gval	#h$lemt, #rm.tcf	;get TT config
+		mov	r0,r1			;address thereof
+		.peek	#h$lemt r1		;get config word
+		if	#tc0sc$ setoff r0	;not scope mode
+	 ...	...	clr h$lpag		;disable paging
+	end					;
+
+	if	h$ldoc gt			;document mode
+	  if	h$lcas mi			;cascade default
+	  ...	clr	h$lcas			;defaults off
+	  if	h$lfrm mi			;form mode default
+	  ...	neg	h$lfrm			;is on
+	  if	h$llen mi			;page length
+	  ...	mov	#24.,h$llen		;(unused at present)
+	else					;
+		clr	h$ldoc			;document mode off
+	  if	h$lcas mi			;cascade default
+	  ...	neg	h$lcas			;defaults on
+	  if	h$lfrm mi			;form mode
+	  ...	clr	h$lfrm			;defaults off
+	  if	h$llen mi			;page length
+	  ...	mov	#24.,h$llen		;default
+  big end					;
+						;
+	if	h$lprm mi			;prompt default
+	...	neg	h$lprm			;is on
+	exit
+  big end
+  end
+
+  proc	HL$FET	<r1>
+	p1	dev,r1
+	.dstat	#h$ldst, r1
+	if	cs
+	...	call	hl$rep	#e$rdst, r1
+
+	.fetch	h$ldyn, r1
+	if	cs
+	...	call	hl$rep	#e$rfet, r1
+	mov	r0,h$ldyn
+  end
+
+code	HL$QUA	Get command qualifiers
+
+  proc	hl$qua	<r0,r1,r2,r3>
+	p1	opt,r3				;option list
+	clr	h$ldcl				;no dcl command
+	mov	#-1,r0				;undefined
+	mov	r0,h$lcas			;cascading titles
+	mov	r0,h$lpag			;use paging
+	mov	r0,h$lprm			;prompt
+	mov	r0,h$ldoc			;document
+	mov	r0,h$lfrm			;form
+	mov	r0,h$llen			;length
+	tst	(r3)+				;skip the option count
+    repeat					;
+	clr	r2				;no value
+	mov	(r3)+,r1			;r1 = option
+	exit	if eq				;that was the last
+	if	mi				;has a value
+	...	mov	(r3)+,r2		;r2 = value
+	ifb	r1 eq #uprB.			;/Batch
+		clr	h$lprm			; = don't prompt
+	elsifb	r1 eq #uprD.			;/Document
+		mov	#1,h$ldoc		; = document on
+	elsifb	r1 eq #uprF.			;/Formfeeds
+		mov	#1,h$lfrm		; = formfeed on
+	elsifb	r1 eq #uprH.			;/Hardcopy
+		clr	h$lpag			; = /Nopage
+	elsifb	r1 eq #uprK.			;/Kascade
+		mov	#1,h$lcas		;
+	elsifb	r1 eq #uprL.			;/Length
+		mov	r2,h$llen		; = setup length
+	elsifb	r1 eq #uprN.			;/Nocascade
+		clr	h$lcas			; = cascade off
+	elsifb	r1 eq #uprP.			;/Page
+		mov	#2,h$lpag		; = explicit paging
+	elsifb	r1 eq #uprS.			;/Scroll
+		clr	h$lfrm			; = noform
+	elsifb	r1 eq #uprT.			;/Topic
+		mov	#1,h$ldcl		; = dcl command coming
+	elsifb	r1 eq #uprX.			;/exit
+		mov	#1,h$lexi		; abort on error
+	else					;otherwise
+	...	hlfat$	#e$ropt			;invalid option
+    end						;
+  end
+code	HL$ROO	Walk from root
+
+  proc	hl$roo
+	trace	hl$roo
+	mov	hl.dyn(r5),h$ldyn		;reset dynamic
+	call	hl$sav				;save current frame
+	clr	h$lfnd				;none found so far
+	clr	h$lnew				;and no new one
+	call	hl$wlk				;start walk
+	if	h$lfnd eq #1			;got exactly one
+	 and	h$lnew ne			;and a new one found
+		call	hl$res			;restore it
+		mov	h$lnew,r5		;use it
+		mov	r5,h$lroo		;as new root
+		mov	hl.dyn(r5),h$ldyn	;reset dynamic area
+		call	hl$men			;display the menu
+	elsif	h$lfnd eq			;nothing found
+		clr	h$lhom			;not at home
+		call	hl$hom			;reset the page
+		call	hl$tit			;the title
+		if	r5 ne h$ldir		;not a top
+		...	call	hl$new		;and newline
+		call	hl$typ	#h$lnin		;no information
+		call	hl$pth	#space.		;setup the path
+		call	hl$typ	h$lpth		;display the path
+		call	hl$upr	h$lcmd		;get uppercase
+		call	hl$me			;
+;		call	hl$prt	h$lcmd		;display the path
+		call	hl$new			;another newline
+		call	hl$men			;display the menu
+	else					;nothing new
+	...	call	hl$res			;restore previous
+  end
+
+hl$me:	bneb	@h$lpth,10$
+	call	hl$upr	h$lcmd
+	mov	h$lcmd,r0
+	bneb	(r0)+,#'M,10$
+	bneb	(r0)+,#'E,10$
+	bneb	(r0),10$
+	call	hl$prt #30$	
+	br	20$
+10$:	call	hl$prt h$lcmd
+20$:	return
+30$:	.asciz	/you/
+	.even
+
+;	Save context at top of free area
+
+  proc	hl$sav	<r0,r1,r2>
+	trace	hl$sav
+	mov	h$lroo,r0			;get the root
+	mov	hl.dyn(r5),r1			;get end of this
+	subi3	r0,r1,r2			;get the size
+	neg	r2				;sub r2,h$llim,r2
+	add	h$llim,r2			;r2 -> start of save area
+	if	r2 los h$ldyn			;no space
+	...	hlfat$	#e$rmem			;exhausted memory
+	mov	r2,h$lsav			;remember where we saved it
+	mov	r2,h$ltop			;reset top
+	while	r0 lo r1			;more needed
+	...	mov	(r0)+,(r2)+		;move it in
+  end
+
+;	Restore saved context
+
+  proc	hl$res	<r0,r1,r2>
+	trace	hl$res
+	mov	h$lsav,r0			;get the saved stuff
+	mov	h$llim,r1			;get the top
+	mov	h$lroo,r2			;the destination
+	while	r0 lo r1			;move it back
+	...	mov	(r0)+,(r2)+		;
+  end
+code	HL$WLK	Walk thru help file
+
+;	In	r4 ->		remainder of command
+;		r5 ->		current frame
+;
+;	Out	unwound		multiple topics found, wildcards, ellipses
+;		rooted		single topic found with menu
+;
+;	Syntax	*%		selects item
+;		...		selects all items at and below
+;
+;	Wild	Wildcards or ellipses
+;	Seek	Positions at unique option
+
+  proc	hl$wlk	<r1,r2,r4>
+	trace	hl$wlk
+
+	clr	h$lstp				;not aborted
+	call	hl$skp				;skip to next keyword
+	call	hl$elp				;check ellipse
+	bicb	#hldsp$,(r5)			;not displayed yet
+	bisb	h$lflg,(r5)			;setup the flags
+	bisb	r0,(r5)				;set the ellipse flag
+						;
+	ifb	(r4) eq				;at the end & no ellipse
+	 and	hl.cnt(r5) ne			;and has menu
+	 and	h$lfnd eq 			;and this is the first
+		mov	r5,h$lnew		;setup possible new one
+	...	call	hl$sav			;save it
+						;
+	ifb	(r4) eq				;or at end of it
+	 orb	#hlelp$ seton (r5)		;display everything
+		inc	h$lfnd			;remember it
+		if	#hltit$ seton (r5)	;title only
+			call	hl$tit		;
+		elsif	#hlbrf$ seton (r5)	;or brief
+			call	hl$brf		;
+		else				;
+	...	...	call	hl$dis		;display all
+						;
+	ifb	(r4) eq				;no more model
+	 or	hl.cnt(r5) eq			;no menu
+	...	exit				;quit
+						;
+	call	hl$par				;parse the next keyword
+	call	hl$fst				;setup for index search
+	repeat					;search menu
+		bicb	#hldsp$,(r5)		;needs redisplay later
+		call	hl$mat			;match it
+		if	r0 ne			;found it
+;???			mov	r0,r2		;save match flag
+			call	hl$psh		;push the next frame
+			call	hl$wlk		;walk thru it
+			call	hl$pop		;pop it off
+;???
+		...	;leave	if r2 gt	;exact match
+		call	hl$nxt			;point at next option
+		leave	if h$lstp ne		;
+	until	r0 eq				;
+  end						;
+code	HL$PAR	Parse command string
+
+;	In	r4 ->		command string
+;		r5 ->		frame
+;
+;	Out	hl.mod		search model
+
+  proc	hl$par	<r0,r1,r2>
+	trace	hl$par
+	addi3	#hl.mod,r5,r1			;point to target
+	clrb	(r1)				;terminate model
+	mov	#30.,r2				;maximum size
+						;
+;	call	hl$skp				;skip whitespace
+;	call	hl$elp				;check ...
+;	movb	r0,(r5)				;set the flags
+;	exit	if ne				;got it
+						;
+	ifb	(r4) eq #slash.			;got a /
+	...	movb	(r4)+,(r1)+		;store it
+    repeat					;
+	clrb	(r1)				;terminate model
+	call	hl$elp				;check ellipse
+	exit	if r0 ne			;got one
+	ifb	(r4) eq #slash.			;/
+	 orb	(r4) eq #space.			;space
+	 orb	(r4) eq #tab.			;tab
+	 orb	(r4) eq 			;end of line
+	...	exit				;
+	if	r2 ne				;more to go
+		dec	r2			;
+	...	movb	(r4),(r1)+		;store the next
+	inc	r4				;skip it
+    end						;
+  end						;
+
+code	HL$ELP	Check for ellipse and brief
+
+;	In	r4 ->		input 
+;
+;	Out	r0=hlelp$	ellipse seen
+;		r0=hlbrf$	brief seen
+;
+;	Syntax	...		Ellipse
+
+  proc	hl$elp	<r4>
+	clr	r0				;assume none
+      repeat
+	call	hl$skp				;
+	ifb	(r4) ne #equal.			;
+	andb	(r4) ne #dot.			;got neither
+	...	exit				;done 
+	ifb	(r4) eq #equal.			;brief
+		inc	r4			;skip it			bis	#hlbrf$,r0		;remember it
+	...	next				;
+	ifb	(r4)+ eq #dot.			;.
+	 andb	(r4)+ eq #dot.			;..
+	 andb	(r4)+ eq #dot.			;...
+		bis	#hlelp$,r0		;set ellipse
+	else					;
+	...	exit				;probably an error
+      end
+  end
+code	HL$MAT	Match option
+
+;	In	hl.mod		target specification
+;		hl.key ->	keyword string
+;
+;	Out	r0=n		matched
+
+  proc	hl$mat	<r3,r4,r5>
+	trace	hl$mat
+	mov	sp,r0				;assume on
+	exit	if #hlelp$ seton (r5)		;in ellipse
+	addi3	#hl.mod,r5,r3			;model
+	mov	hl.key(r5),r4			;keyword string
+	call	hl$wil				;search for it
+  end
+
+code	HL$WIL	Wildcard search
+
+;	In	r3 ->		input model with wildcards
+;		r4 ->		current option string
+;
+;	Out	r0=n		found
+;		r0 < 0		not exact or wildcards seen
+;		r0 > 0		exact, no wildcards
+;
+;	r3 ->	text, *, %, ...
+;	r4 ->	text, [NO]
+;		No special treatment for [ if ] is missing
+
+  proc	hl$wil	<r1, r2,r3,r4>
+	trace	hl$wil
+	ifb	(r4) eq #bslas.			;start with \?
+	...	inc	r4			;yes - ignore that
+	ifb	(r4) eq #bslas.			;start with second \?
+	...	inc	r4			;yes - ignore that
+	clr	r1				;assume no wildcards/exact
+	clr	r5				;copy to output
+    repeat					;outer loop
+	movb	(r3)+,r2			;get the next
+	if	eq				;end of model
+		mov	r1,r0			;we won
+		exit	if ne			;wildcards seen
+		inc	r0			;assume end of target
+		exit	ifb (r4) eq		;end of target
+		exit	ifb (r4) eq #'(		;
+		com	r0			;not end of target
+	...	exit				;
+						;
+	ifb	(r4) eq #'(			;"("
+	 orb	(r4) eq #')			;")"
+		inc	r4			;skip
+	...	next				;
+						;
+	ifb	(r4) eq #rsqua.			;got ]
+	...	inc	r4			;ignore it
+						;
+	ifb	(r4) eq #lsqua.			;got [ in mode
+		mov	r4,r0			;a pointer to look for ]
+		whileb (r0) ne #rsqua.		;got ]
+			inc	r0		;skip to next
+		untilb (r0) eq 			;end of string
+		ifb	(r0) ne			;found it
+			inc	r4		;skip [
+			whileb	(r4) ne #rsqua.	;end of it
+				clr	r0	;assume failure
+				exit	ifb (r4) le ;we failed
+				call	hl$wil	;try again
+				exit	if r0 ne;we matched the rest
+				inc	r4	;do the next
+			end			;
+	...	...	inc	r4		;skip ]
+						;
+	ifb	r2 eq #astrx.			;* in model
+		dec	r1			;wildcard seen
+		repeat				;
+			call	hl$wil		;try again
+			exit	if r0 ne	;we matched
+			exit	ifb (r4) le	;failed
+			inc	r4		;do the next
+	...	end				;
+						;
+	leave	ifb (r4) le			;failed
+	movb	(r4)+,r0			;get the next character
+	ifb	r0 his #lowa.			;lower-case
+	 andb	r0 los #lowz.			;
+	...	add	#uprA.-lowA.,r0		;make it upper
+	next	ifb r0 eq r2			;got it
+						;
+	leave	ifb r2 ne #perct.		;not single character match
+	dec	r1				;wildcard seen
+	next	ifb (r3) ne			;not end of model
+	next	ifb (r4) le			;last % matches only eos
+    endless					;
+	clr	r0				;failed
+  end						;
+code	HL$FST	Point at first keyword
+
+;	Out	r0=0		no keywords
+;		r0 ->		first keyword
+
+  proc	hl$fst
+	trace	hl$fst
+	mov	hl.cnt(r5),r0			;check for null
+	exit	if r0 eq			;forget it
+	mov	hl.hea(r5),r0			;get the first
+	mov	r0,hl.key(r5)			;setup next
+  end
+
+code	HL$NXT	Point at next keyword
+
+;	Out	r0=0		no more keywords
+;		r0 ->		next keyword
+
+ proc	hl$nxt	
+	trace	hl$nxt
+	mov	hl.key(r5),r0			;get the keyword
+	...	whileb	(r0)+ gt		;skip the string
+	cmpb	(r0)+,(r0)+			;skip rest of it
+	if	r0 his hl.end(r5)		;at the end
+		clr	r0			;no more
+	...	exit				;
+	mov	r0,hl.key(r5)			;save it
+  end
+code	HL$PSH	Push frame
+
+;	In	r5 ->		parent frame
+;
+;	Out	r5 ->		new frame
+;		hl.byt		byte in block of menu
+;		hl.blk		block in file
+;		hl.cnt		index count
+;		hl.bod		offset to body
+
+  proc	hl$psh	<r0,r1,r2,r3,r4>
+	trace	hl$psh
+	mov	r5,r4			;r4 -> previous frame
+					;
+	mov	h$ldyn,r5		;r5 -> new frame
+	addi3	#hlgam.,r5,r2		;
+	if	r2 hi h$ltop		;too far
+	...	hlfat$	#e$rmem		;
+	mov	r2,h$ldyn		;reset dynamic
+					;
+	call	hl$clr	r5,#hlgam.	;clear it
+	mov	r4,hl.pre(r5)		;setup predecessor
+					;
+	mov	hl.key(r4),r0		;get key that selected us
+	whileb	(r0) gt			;skip string
+	...	inc	r0		;
+
+;	Move in the byte and block
+
+	movb	(r0)+,r1		;get the high order block/byte
+	movb	(r0)+,r2		;low order block
+	movb	(r0)+,r3		;low order byte
+	call	hl$cvt r1,r2,r3		;convert to byte/block
+	mov	r0,hl.blk(r5)		;
+	mov	r1,hl.byt(r5)		;
+	if	r0 eq 			;check undefined
+	 and	r1 eq			;its undefined
+		bis	#hlund$,(r5)	;remember that
+		clr	hl.cnt(r5)	;no menu
+	...	exit			;and quit
+	call	hl$hea			;read in header
+	inc	h$llev			;up level
+  end
+
+code	HL$POP	Pop frame
+
+  proc	hl$pop
+	trace	hl$pop
+	clr	r0			;assume last
+	exit	if r5 eq h$ldir		;is last - i.e. first
+	mov	hl.pre(r5),r5		;get predecessor
+	mov	hl.dyn(r5),h$ldyn	;reset dynamic
+	dec	h$llev			;up level
+	mov	sp,r0			;fine
+  end
+code	HL$HEA	Read header
+
+;	In	r5 ->		current frame
+;
+;	Out	infile		positioned at body
+
+  proc	hl$hea	<r0,r1,r2,r3,r4>
+	trace	hl$hea
+	mov	h$ldyn,r4			;get a pointer
+	mov	r4,hl.hea(r5)			;remember it
+						;
+	call	hl$see	hl.blk(r5),hl.byt(r5)	;seek for it
+	clr	hl.cnt(r5)			;init count
+	call	hl$idx				;read the first index
+	call	hl$pos				;get the position
+	mov	r0,hl.bbl(r5)			;store the block
+	mov	r1,hl.bby(r5)			;and the byte
+    repeat					;indirect headers
+	leave	if r3 eq			;were no keywords
+	leave	ifb (r3) ne #atsgn.		;not @
+	leave	ifb byte.(r3) pl		;not @label
+	mov	r3,r4				;reset pointer
+	dec	hl.cnt(r5)			;remove it from count
+	inc	r3				;skip @
+	movb	(r3)+,r0			;get the address
+	movb	(r3)+,r1			;
+	movb	(r3)+,r2			;
+	call	hl$cvt	r0,r1,r2		;convert it
+	call	hl$see	r0,r1			;seek to it
+	call	hl$idx				;add the index
+    end
+	mov	r4,hl.end(r5)			;remember end of keywords
+	inc	r4				;round it up
+	bic	#1,r4				;
+	mov	r4,h$ldyn			;reset dynamic
+	mov	r4,hl.dyn(r5)			;save it for resets
+  end
+
+code	HL$IDX	Read index
+
+;	In	r4 ->		dynamic 
+;		r5 ->		frame
+;
+;	Out	r3 ->		last option
+;		r4 ->		dynamic
+
+  proc	hl$idx
+	clr	r3				;assume none
+	call	hl$get				;get another
+	movbi	r0,r2				;extend it
+	add	r2,hl.cnt(r5)			;update index count
+	while	r2 ne				;more to go
+		dec	r2			;got another
+		if	r4 his h$llim		;too far
+		...	hlfat$	#e$rmem		;memory exhausted
+		mov	r4,r3			;remember last index
+		repeat				;
+			call	hl$get		;get another
+			movb	r0,(r4)+	;store it
+		until	mi			;end of text
+		call	hl$get			;two more needed
+		movb	r0,(r4)+		;
+		call	hl$get			;one more needed
+		movb	r0,(r4)+		;
+	end					;
+  end
+code	HL$DIS	Display help frame
+
+  proc	hl$dis
+	call	hl$hom				;setup the page
+	exit	if r5 eq h$ldir			;top level
+	if	#hlund$ seton (r5)		;or undefined
+		call	hl$tit			;display title
+		call	hl$pnl			;and newline
+	...	exit				;
+	call	hl$bod				;display body
+  end						;
+
+code	HL$TIT	Display title
+
+  proc	hl$tit	
+	exit	if r5 eq h$ldir			;top level
+	call	hl$pth	#0			;build the path
+	call	hl$pln	h$lpth			;put the path name
+  end
+
+code	HL$PTH	Build path string
+
+;	In	ter=-1		elide last element of path
+;	Out	r0 ->		path string
+
+  proc	hl$pth	<r1,r2>
+	p1	ter				;terminator character
+	mov	h$ldir,r1			;get the first
+	mov	h$lpth,r0			;build it here
+	while	r1 lo r5			;
+		mov	hl.key(r1),r2		;r2 -> keyword
+		mov	hl.dyn(r1),r1		;r1 -> next frame
+		if	ter(sp) eq #-1		;syntax terminator
+		 and	r1 his r5		;and next is last
+		...	leave			;
+		ifb	(r2) eq #bslas.		;got \ at start
+		...	inc	r2		;skip it
+		ifb	(r2) eq #bslas.		;got second \ at start
+		...	inc	r2		;skip it
+;		...	next	if r1 lo r5	;not the last - skip it
+						;
+		whileb	(r2) gt			;more to do
+		...	movb	(r2)+,(r0)+ 	;
+						;
+		leave	if r1 his r5		;no more
+		ifb	@hl.key(r1) ne #slash. 	;not /
+		...	movb	#space.,(r0)+	;so it needs a space
+	end					;
+	if	r0 ne h$lpth			;got something
+	 andb	ter(sp) ne			;and got a terminator
+	  andb	ter(sp) ne #-1			;and not level terminator
+	...	movb	ter(sp),(r0)+		;
+	clrb	(r0)				;terminate it
+  end
+code	HL$BRF	Display brief
+
+;	DIRECTORY	Display directory contents.
+;	 /OUTPUT	Creates output file.
+;	 /ALLOCATE	Allocates space for file.
+;	 /PRINTER	Displays output at printer.
+
+  proc	hl$brf	<r1>
+	call	hl$hdr				;display header
+	call	hl$loc	#hebod.,#0		;locate the body
+	if	r0 eq				;failed
+		call	hl$pnl			;terminate display
+	...	exit				;and quit
+	clr	r1				;no period yet
+						;r0 = first character
+	ifb	r0 ne #heinc.			;not include statement
+		call	hl$sen	r0		;display the sentence
+		call	hl$pnl			;put new line
+	...	exit				;
+
+;	Process include
+
+	call	hl$cal				;call new and save current
+	call	hl$get				;skip menu count
+	call	hl$sen	#0			;try for sentence
+	mov	r0,r1				;save terminator
+	call	hl$ret				;return to previous
+	ifb	r0 eq #hepar.			;got parameter?
+	...	call	hl$sen	#0		;display parameter
+	call	hl$pnl				;and quit
+  end
+
+code	HL$SEN	Display a sentence
+
+;	Out	r0	
+
+  proc	hl$sen	<r1>
+	p1	cha,r0				;initial character
+	clr	r1				;
+	repeat					;do the rest
+		if	r0 eq			;need another
+		...	call	hl$get		;get another
+		leave	ifb r0 le		;end of something
+		leave	ifb r0 lo #space.	;lf or something
+		ifb	r1 eq #dot.		;got a dot
+		 andb	r0 eq #space.		;and a space
+		...	leave			;
+		mov	r0,r1			;save it for next time
+		call	hl$put	r0		;display it
+		clr	r0			;force next
+	end					;
+  end
+
+code	HL$LOC	Locate a section of a body
+
+;	Out	r0=0		end of module - not found
+;		r0=n		first character of section
+
+  proc	hl$loc
+	p1	l1
+	p2	l2
+	call	hl$see	hl.bbl(r5),hl.bby(r5) 	;seek to body
+	repeat					;search for body
+		call	hl$get			;get next
+		ifb	r0 eq #heeom.		;end of module
+			clr	r0		;forget it
+		...	exit			;
+		leave	ifb r0 eq l1(sp)	;got the first
+		leave	ifb r0 eq l2(sp)	;or the second
+	end					;
+	call	hl$get				;got it - get next
+  end
+code	HL$HDR	Display header & indent for brief
+
+  proc	hl$hdr	<r1,r2,r3,r4>
+	mov	h$ldir,r1			;get the first
+	clr	r3				;clear the level
+	while	r1 lo r5			;
+		mov	h$lpth,r0		;build it here
+		mov	r3,r4			;fill in spaces
+		while	r4 ne			;
+			movb	#space.,(r0)+	;two spaces
+		count	r4			;count them
+						;
+		mov	hl.key(r1),r2		;get the next
+		ifb	(r2) eq #bslas.		;starts with \
+		...	inc	r2		;skip it
+		ifb	(r2) eq #bslas.		;starts with second \
+		...	inc	r2		;skip it
+		whileb	(r2) gt			;more to do
+		...	movb	(r2)+,(r0)+ 	;
+		clrb	(r0)			;terminate it
+		ifb	#hldsp$ setoff (r1)	;not displayed before
+		 or	hl.dyn(r1) eq		;or this is the last
+			call	hl$pst	h$lpth	;then display it
+			bisb	#hldsp$,(r1)	;remember it
+			if	hl.dyn(r1) lo r5;not the final
+		...	...	call	hl$pnl	;a newline
+		inc	r3			;next level
+		mov	hl.dyn(r1),r1		;next frame
+	end					;
+	if	#hlsyn$ seton h$lflg		;need syntax too
+	...					;
+	if	h$lcol hi #16.			;too far
+	...	call	hl$pnl			;indent on next line
+	while	h$lcol lo #17.			;indent now
+		call	hl$put	#space.		;
+	end					;ready for text
+  end
+code	HL$BOD	Display body
+
+;	All body displays (except syntax & format) are indented.
+
+  proc	hl$bod	<r1,r2>
+	call	hl$see	hl.bbl(r5),hl.bby(r5) 	;seek to body
+	clr	r0				;no character yet
+	repeat					;do the rest
+		if	r0 eq			;last character done
+		...	call	hl$get		;get another
+		ifb	r0 gt			;a data character
+		 orb	r0 eq #lf.		;or blank line
+			call	hl$txt	r0,#2	;put indented text
+		...	next			;
+		leave	ifb r0 eq #heeom. 	;end of module
+		ifb	r0 eq #hesyn.		;got syntax
+		  if	h$lcas ne		;cascading style
+			call	hl$pth	#-1	;build path minus last
+		  ...	call	hl$pst	h$lpth	;put that
+			call	hl$txt	#0,#0	;put text
+		...	next			;
+		ifb	r0 eq #hefmt.		;format
+			call	hl$txt	#0,#0	;put text
+		...	next			;skip token
+		ifb	r0 eq #hebod.		;this is the body
+			call	hl$pnl		;end syntax
+			call	hl$pnl		;and another
+			clr	r0		;get another
+		...	next			;
+		ifb	r0 eq #heinc.		;include
+			call	hl$inc		;include it
+		...	next			;r0 is next character
+		clr	r0			;ignore others
+	end					;
+	call	hl$pnl				;another newline
+	if	#hlque$ seton h$lflg		;in query mode
+		call	hl$con			;ask to continue
+	...	clr	h$lhom			;no longer at home
+  end
+code	HL$INC	Include section
+
+;	Out	r0		next character
+
+  proc	hl$inc	<r1,r2,r3,r4,r5>
+	call	hl$cal				;call new position
+	mov	r0,r1				;save include terminator
+	call	hl$get				;skip the parameter count
+						;
+	ifb	r1 eq #hepar.			;parameter line
+		call	hl$txt	#hepar.,h$lidt	;display line with last indent
+		call	hl$ret			;return to original
+		repeat				;display the parameter
+			call	hl$get		;get the next
+			leave	ifb r0 le	;all over
+			call	hl$put	r0	;display it
+		untilb	r0 eq #lf.		;end of it
+		clr	r0			;no character
+	...	exit				;and quit
+						;
+	clr	r0				;no character yet
+	mov	#4,r1				;default indent
+	repeat					;
+		if	r0 eq			;need another
+		...	call	hl$get		;get another
+		ifb	r0 eq #helit.		;literal section
+			mov	#2,r1		;normal indent
+			clr	r0		;force next
+		...	next			;do the next
+		ifb	r0 eq #hebod.		;this the body?
+		 orb	r0 eq #lf.		;or newline
+			call	hl$pnl		;yes - put newline
+			clr	r0		;get next 
+		...	next			;
+		ifb	r0 eq #hefmt.		;
+		 orb	r0 eq #hesyn.		;or syntax
+			call	hl$txt	#0,#2	;indent it
+		...	next			;
+		leave	ifb r0 le		;end of it
+		call	hl$txt	r0,r1		;indent
+	end					;
+	call	hl$ret				;return to original
+						;restores original r0
+  end
+code	HL$TXT	Put text line with indent
+
+;	Out	r0		next character
+
+  proc	hl$txt	<r1,r2>
+	p1	cha,r0				;initial character
+	p2	idt,r1				;indent
+	mov	r1,h$lidt			;save the indent
+	ifb	r0 eq #lf.			;just a newline
+		call	hl$pnl			;display it
+		clr	r0			;force next
+	...	exit				;
+						;
+	while	r1 ne				;more to indent
+		dec	r1			;count it
+		call	hl$put	#space.		;a space
+	end					;
+						;
+	clr	h$lcol				;reset column to relocate tabs
+	mov	cha(sp),r0			;initial character
+	ifb	r0 eq #hepar.			;this is a parameter
+	...	clr	r0			;no initial character
+	repeat					;now output the line
+		ifb	r0 eq			;need another
+		...	call	hl$get		;get another
+		movb	r0,r1			;get a copy
+		leave	if le			;end of it
+		ifb	cha(sp) eq #hepar.	;this is a parameter
+		 andb	r0 eq #lf.		;and line feed
+		...	exit			;quit
+		call	hl$put	r0		;display it
+		clr	r0			;need another
+	until	r1 eq #lf.			;all done
+  end
+code	HL$CMD	Process command
+
+  proc	hl$cmd	<r0,r1>
+	p1	chn
+	clr	h$lhom			;not at home anymore
+	mov	h$lcmd,r4		;reset command pointer
+	clrb	(r4)			;no command yet
+					;
+	call	hl$flu			;flush everything
+	clr	h$lstp			;and clear stopped output
+	if	r5 eq h$ldir		;at directory
+		mov	#h$ltpc,r1	;use topic prompt
+	else				;
+	...	mov	#h$lsub,r1	;use subtopic prompt
+	call	hl$pth	#space.		;build the title path
+	repeat				;
+		movb	(r1)+,(r0)+	;move another
+	until	le			;
+					;
+	mov	chn(sp),r0		;
+	if	r0 ne			;got chain command
+	andb	(r0) ne			;
+		mov	h$lcmd,r1	;
+		repeat			;
+		  movb	(r0)+,(r1)+	;move another
+		until	eq		;
+	else				;
+	...	call	hl$gtl	h$lcmd,h$lpth ;get line with path prompt
+  end
+
+code	HL$MEN	Display menu
+
+  proc	hl$men	<r1,r2,r3>
+	call	hl$fst			;get the first index
+	exit	if r0 eq		;are none
+;	clrb	@h$lrep			;no reply
+	call	hl$inf			;say which info
+	call	hl$pnl			;and another line
+
+	call	hl$fst			;get the first index
+	exit	if r0 eq		;are none
+	clr	r3			;no slash yet
+	repeat				;r0 -> index
+		ifb	(r0) eq #bslas.	;got a \
+			inc	r0	;skip it
+		...	call	hl$pnl	;newline
+		ifb	(r0) eq #bslas.	;got a second \
+			inc	r0	;skip it
+		...	call	hl$pnl	;newline
+;		movb	(r0),r1		;
+;		ifb	r1 ne #slash.	;not a slash
+;		...	mov	#1,r1	;remember that
+;		if	r1 ne r3	;different
+;		  and	r3 ne		;and not first
+;		...	call	hl$pnl	;newline
+;		mov	r1,r3		;save it
+		call	hl$pfd	r0,#16.	;display this one
+		call	hl$nxt		;get next index
+	until	r0 eq			;indexes done
+	if	h$lcol ne		;
+	...	call	hl$pnl		;get the newline out
+	call	hl$pnl			;another newline
+  end
+
+code	HL$INF	Put "info" line
+
+  proc	hl$inf	<r1>
+	if	r5 ne h$ldir		;not directory
+		call	hl$pln	#h$lavl	;additional info
+	...	exit			;
+
+	call	hl$loc	#hesyn.,#hefmt.	;locate format or syntax
+	clr	r1			;r0<>0 is first character
+	whileb	r0 gt #space.		;not done
+		inc	r1		;remember it
+		call	hl$put	r0	;display it
+		call	hl$get		;get next
+	end				;
+	if	r1 ne			;got something
+		call	hl$put #space.	;put a space
+		call	hl$put	#lowi.	;information
+	else				;
+	...	call	hl$put	#uprI.	;Information
+	call	hl$pln	#h$linf		;nformation available
+  end
+code	HL$SKP	Skip whitespace
+
+;	In	r4 ->		line
+;
+;	space. or tab.		skip
+;	!!			terminate line
+
+  proc	hl$skp
+    repeat
+	ifb	(r4) eq #space.		;got a space
+	 orb	(r4) eq #tab.		;or tab
+		inc	r4		;skip it
+	...	next			;
+	ifb	(r4) eq #xclam.		;possible comment
+	 andb	(r4) eq #xclam.		;
+	...	clrb	(r4)		;terminate line
+    endless
+  end
+
+code	HL$CLR	Clear area
+
+  proc	hl$clr	<r0,r1>
+	p1	src,r0
+	p2	cnt,r1
+	repeat				;too bloody silly
+		clrb	(r0)+		;to screw a driver
+	count	r1			;ride a bike
+  end
+
+code	HL$UPR	Convert string to uppercase
+
+  proc	hl$upr	<r0,r1>
+	p1	str,r1
+	whileb	(r1) ne			;do string
+		movb	(r1),r0		;get a character
+		call	hl$alp	r0	;convert to uppercase
+		if	r0 ne		;got one
+		...	movb	r0,(r1)	;replace it
+		inc	r1		;next
+	end				;
+  end
+
+code	HL$ALP	Check and convert alpha
+
+  proc	hl$alp
+	p1	cha,r0			;the character
+	ifb	r0 his #uprA.		;
+	 andb	r0 los #uprZ.		;
+	...	exit			;
+	ifb	r0 his #lowA.		;
+	 andb	r0 los #lowZ.		;
+		add	#uprA.-lowA.,r0	;convert it
+	...	exit			;
+	ifb	r0 his #dig0.		;digit
+	 andb	r0 los #dig9.		;
+	...	exit			;
+	exit	ifb r0 eq #dolar.	;
+	exit	ifb r0 eq #dot.		;
+	exit	ifb r0 eq #under.	;
+	clr	r0			;not alpha
+  end
+
+code	HL$SLN	Get string length
+
+  proc	hl$sln	r1
+	p1	str,r1
+	clr	r0
+	whileb	(r1)+ ne
+		inc	r0
+	end
+  end
+code	HL$CAL	Call new thread
+
+;	Out	file		new thread
+;		r0		last character from previous thread
+;		h$lblk etc	previous thread address
+
+  proc	hl$cal	<r1,r2,r3>
+	call	hl$adr				;get address from file
+	mov	r0,r2				;save block
+	mov	r1,r3				;save byte
+						;
+	call	hl$get				;get possible parameter
+	movb	r0,h$lcha			;save parameter indicator
+						;
+	call	hl$pos				;get current position
+	mov	r0,h$lblk			;save it
+	mov	r1,h$lbyt			;
+	call	hl$see	r2,r3			;seek to new section
+	mov	h$lcha,r0			;return terminator
+  end
+
+code	HL$RET	Return to previous thread
+
+;	Out	file		at previous thread
+;		r0		next character
+
+  proc	hl$ret
+	call	hl$see	h$lblk,h$lbyt		;restore it
+	movb	h$lcha,r0			;return character
+  end
+
+
+code	HL$SEE	Seek in input file
+
+;	In	fi.blk		current block + 1
+
+  proc	hl$see	<r0,r1,r2,r5>		;r0 is not modified
+	trace	hl$see
+	p1	blk,r1			;the block
+	p2	byt,r2			;the byte in the block
+	assume	fiisz. eq 512.		;must be single block
+	mov	#h$lifl,r5		;input file
+	subi3	#1,fi.blk(r5),r0	;compute current block
+	if	r0 ne r1		;different block
+		mov	r1,fi.blk(r5)	;reset the block
+	...	call	hl$rea	r5	;read it
+	addi3	r2,fi.buf(r5),fi.pnt(r5);point at the byte
+	subi3	r2,fi.siz(r5),fi.cnt(r5);setup counter
+  end
+code	HL$POS	Return thread position
+
+;	Out	r0		current block
+;		r1		byte in block
+
+  proc	hl$pos	<r5>
+	mov	#h$lifl,r5			;get the input file
+	assume	fiisz. eq 512			;current size
+	subi3	#1,fi.blk(r5),r0		;store body position
+	subi3	fi.cnt(r5),fi.siz(r5),r1	;determine the byte
+  end
+
+code	HL$ADR	Get address from file
+
+;	Out	r0		block number
+;		r1		byte number
+
+  proc	hl$adr	<r2,r3>
+	call	hl$get				;get the block
+	movb	r0,r1				;high order block/byte
+	call	hl$get				;
+	movb	r0,r2				;low order block
+	call	hl$get				;
+	movb	r0,r3				;low order byte
+	call	hl$cvt r1,r2,r3			;get block and byte
+  end
+
+code	HL$CVT	Convert block/byte sequence
+
+;	Out	r0		the block
+;		r1		the byte in the block
+
+  proc	hl$cvt	<r2,r3>
+	p1	hea
+	p2	blk
+	p3	byt
+	movbi	hea(sp),r2		;header byte
+	movbi	blk(sp),r0		;low block
+	movbi	byt(sp),r1		;low byte
+					;
+	if	#heby$p seton r2	;high order byte required
+	...	bis	#bit8$,r1	;do it
+	bic	#hebl$n,r2		;clean up high order block
+	swab	r2			;high order block
+	bis	r2,r0			;
+  end
+code	HL$GET	Get character
+
+  proc	hl$get	<r5>
+	mov	#h$lifl,r5			;get a plex
+	if	fi.cnt(r5) eq			;no more in buffer
+		call	hl$rea	r5		;read it
+	...	exit	if r0 eq		;forget it
+	movb	@fi.pnt(r5),r0			;get the next
+	dec	fi.cnt(r5)			;count it
+	inc	fi.pnt(r5)			;
+  end
+
+code	HL$REA	Read a block
+
+  proc	hl$rea	<r1,r5>
+	p1	fil,r5				;file block
+    repeat					;
+	mov	fi.siz(r5),r1			;get the size
+	asr$	1,r1				;make words
+	.readw	#h$lemt	fi.chn(r5), fi.buf(r5), r1, fi.blk(r5)
+						;r0 = words read
+	if	cc				;fine
+		mov	r0,r1			;calculate blocks
+		clrb	r1			;clear high order
+		swab	r1			;divide by 256.
+		add	r1,fi.blk(r5)		;next block
+		asl$	1,r0			;make byte count
+		mov	r0,fi.cnt(r5)		;setup the actual count
+		mov	fi.buf(r5),fi.pnt(r5)	;the pointer
+	...	exit				;fine
+	hlfat$	#e$rfie				;file input error
+    end						;try again
+  end
+
+code	HL$IRS	Reset input file
+
+  proc	hl$irs	<r5>
+	mov	#h$lifl,r5
+	clr	(r5)				;no flags
+	mov	#3,fi.chn(r5)			;first channel
+	mov	#fiisz.,fi.siz(r5)		;setup the size
+	clr	fi.cnt(r5)			;no input
+	clr	fi.blk(r5)			;first block
+	mov	fi.buf(r5),fi.pnt(r5)		;setup pointer
+  end
+code	PL$PFD	Put field
+
+;	Out	r0 ->		past string displayed
+
+  proc	hl$pfd	<r1,r2,r3>
+	p1	str			;string to display
+	p2	wid			;column width
+	exit	if h$lstp ne			;supressed
+	mov	str(sp),r0		;get the string
+	clr	r3			;get field size
+	whileb	(r0)+ gt		;
+	...	inc	r3		;count the string size
+	clr	r2			;
+	while	r2 lo h$lcol		;compute next position
+	...	add	wid(sp),r2	;
+	addi3	r2,r3,r0		;see if it will fit
+	if	r0 eq #80.		;exactly 80
+		mov	r0,r1		;
+		call	hl$sln str(sp)	;get string length
+		if	r0 his wid	;string is width
+			call	hl$pnl	;
+		...	clr	r2	;
+	elsif	r0 hi #80.		;got the space?
+		call	hl$pnl		;put new line
+	...	clr	r2		;we are there
+	while	h$lcol lo r2		;move to position
+	...	call	hl$put	#space.	;
+	call	hl$pst	str(sp)		;write the string
+					;r0 -> past string
+	if	h$lcol lo #78.		;not at end of line
+		call	hl$put	#space.	;put a space
+	else				;
+	...	call	hl$pnl		;otherwise a new line
+  end
+
+code	HL$PST	Put string
+
+;	Out	r0 -> 		past string
+
+  proc	hl$pst	<r1>
+	p1	lin,r0
+	exit	if h$lstp ne			;supressed
+	whileb	(r0) gt				;got more
+		movb	(r0)+,r1		;get it
+	...	call	hl$put	r1		;write it
+  end
+
+code	HL$PLN
+
+  proc	hl$pln	<r0>
+	p1	lin
+	call	hl$pst	lin(sp)			;display the line
+	call	hl$pnl				;put newline
+  end
+
+code	HL$PNL
+
+  proc	hl$pnl
+	exit	if h$lstp ne			;supressed
+	call	hl$put	#lf.			;put newline
+  end
+code	HL$PUT	Put a character
+
+;	All output runs through this routine
+;	Data is buffered a line at to avoid terminal hiccups
+;	The only control characters are linefeed, return and tab
+;
+;	0	1
+;	1	2
+;	2	3
+;	3
+;	4
+
+  proc	hl$put	r1				;write output
+	p1	cha,r1				;
+						;
+	if	h$lfrm eq			;not doing formfeeds
+		call	hl$pch r1		;so skip buffering
+	...	exit				;in interactive mode
+						;
+	if	h$llfp ne			;
+	  ifb	r1 ne #ff.			;not <lf><ff>
+	  ...	call	hl$pch	#lf.		;put pending lf
+	...	clr	h$llfp			;handled
+	ifb	r1 eq #lf.			;this a linefeed?
+		inc	h$llfp			;yep
+	...	exit				;
+	call	hl$pch	r1			;nope - write it
+  end
+
+  proc	hl$pch	<r0,r1,r2>
+	p1	cha,r1
+
+	ifb	r1 eq #lf.			;linefeed
+		call	hl$pch	#cr.		;force return
+	elsifb	r1 eq #cr.			;return is simple
+	elsifb	r1 eq #tab.			;a tab
+		repeat				;expand tabs
+			call	hl$pch	#space.	;a space
+		until	#7 setoff h$lcol	;all done
+		exit				;
+	elsifb	r1 eq #ff.			;
+	elsifb	r1 lo #space.			;not printing
+	...	exit				;forget it
+
+	mova	h$lpnt,r0			;point to pointer
+	movb	r1,@(r0)+			;write it
+	inc	-(r0)				;skip it
+	ifb	r1 eq #lf.			;end of line
+	 or	(r0) his h$lend			;end of buffer
+	...	call	hl$flu			;flush output
+
+;	Adjust position
+
+	ifb	r1 eq #cr.			;got return
+		clr	h$lcol			;no column
+	elsifb	r1 eq #lf.			;
+		inc	h$llin			;new line
+	elsifb	r1 his #space.			;printing
+	...	inc	h$lcol			;new column
+  end						;
+
+code	HL$FLU	Flush output
+
+  proc	hl$flu	<r0,r1>	
+	exit	if h$lpnt eq h$lbuf		;buffer empty
+						;
+	if	#fiter$ setoff h$lofl		;going to file
+	and	h$lstp eq			;
+		mov	h$lbuf,r1		;get the buffer
+		while	r1 lo h$lpnt		;not at end
+			movb	(r1)+,r0	;get the next
+			call	hl$wch	#h$lofl,r0 ;write to file
+		end				;
+;	else					;terminal
+	elsif	h$lstp eq			;
+		call	hl$pag			;check for new page
+		if	h$lstp eq		;
+			movb	#128.,@h$lpnt	;terminate it
+		...	.print	h$lbuf		;display it
+	end					;
+	mov	h$lbuf,h$lpnt			;reset it
+  end
+
+code	HL$CAN	Cancel output
+
+  proc	hl$can
+	mov	h$lbuf,h$lpnt			;reset pointer
+  end
+code	HL$PAD	Pad output file
+
+  proc	hl$pad	<r0,r5>
+	p1	fil,r5
+	exit	if #fiopn$ setoff (r5)		;not open
+	exit	if #fiter$ seton (r5)		;going to terminal
+	while	fi.cnt(r5) ne			;more to go
+	...	call	hl$wch	r5,#0		;put another
+	.close	fi.chn(r5)			;close it
+  end
+
+code	HL$WCH	Write character
+
+  proc	hl$wch	<r5>
+	p1	fil,r5
+	p2	cha				;
+	movb	cha(sp),@fi.pnt(r5)		;store the character
+	inc	fi.pnt(r5)			;next character
+	inc	fi.cnt(r5)			;count it
+	if	fi.cnt(r5) his fi.siz(r5)	;done enough
+	...	call	hl$wri	r5		;write it out
+  end
+
+code	HL$WRI	Write block
+
+  proc	 hl$wri	<r0,r1,r5>
+	p1	fil,r5
+	if	#fiopn$ seton (r5)		;is it open
+	 and	#fieof$ setoff (r5)		;and not end of file
+		mov	fi.cnt(r5),r1		;get the count
+		asr$	1,r1			;make words
+		.writw	#h$lemt,fi.chn(r5),fi.buf(r5),r1,fi.blk(r5)
+		if	cs			;some error
+			bis	#fieof$,(r5)	;remember it
+	...	...	hlerr$	#e$rfoe		;
+	clrb	r1				;get the block count
+	swab	r1				;
+	add	r1,fi.blk(r5)			;next block
+	mov	fi.buf(r5),fi.pnt(r5)		;
+	clr	fi.cnt(r5)			;
+  end
+
+code	HL$ORS	Reset output file
+
+  proc	hl$ors	<r5>
+	mov	#h$lofl,r5
+	clr	(r5)				;clear all flags
+	mov	#fiosz.,fi.siz(r5)		;setup buffer size
+	clr	fi.cnt(r5)			;no count
+	clr	fi.blk(r5)			;first block
+	mov	fi.buf(r5),fi.pnt(r5)		;setup pointer
+	.wait	#0				;got an output file?
+	if	cc				;yes
+		.cstat	#h$lemt,#0,#h$lcst	;
+		lotty$ = ^rtt			;terminal
+		if	h$lcst+ci.nam ne #lotty$;not the terminal
+			bis	#fiopn$,(r5)	;output file open
+	...	...	exit			;done
+	bis	#fiter$,(r5)			;use terminal
+  end
+code	HL$HOM	Screen home
+
+  proc	hl$hom
+	if	h$lfrm ne			;want form feeds
+	  exit	if h$llev ne #1			;
+	  if	h$lfrm pl			;first time
+		neg	h$lfrm			;skip it first time
+	  else					;
+	  ...	call	hl$put #ff.		;output form feed
+	...	exit				;
+	exit	if h$lpag eq			;not paging
+	exit	if h$lhom ne			;already done home
+	inc	h$lhom				;once only
+	clr	h$llin				;line zero
+	clr	h$lcol				;column zero
+	call	hl$typ	#h$l100			;set it up
+  end
+
+code	HL$PAG	Handle new page
+
+  proc	hl$pag	<r0>
+	exit	if h$llen eq			;no page length
+	subi3	#1,h$llen,r0			;work out last line
+	exit	if h$llin lo r0 		;not last line
+	clr	h$llin				;sic] stop loop back to us
+	call	hl$con				;prompt for more
+  end
+
+code	HL$CON	Prompt for continue
+
+  proc	hl$con
+	call	hl$gtl	h$lrep,#h$lcon		;ask to continue
+	if	@h$lrep eq #lowN.		;no
+	or	@h$lrep eq #uprN.		;No
+		call	hl$can			;cancel output
+	...	inc	h$lstp			;stop
+  end
+
+code	HL$GTL	Get line
+
+;	Out	lin ->		input line
+;		exit		if input is [ctrl/z]
+;
+;	Note	.GTLIN fails with stack arguments (e.g lin(sp))
+
+  proc	hl$gtl	<r0,r1,r2>
+	p1	lin,r1				;the buffer
+	p2	prm,r2				;the prompt
+	clr	h$llin				;zero line
+	bis	#jsgtl$,j$bjsw			;let various things thru
+	.gtlin	r1,r2				;get the command
+	bic	#jsgtl$,j$bjsw			;
+	call	hl$upr	r1			;force uppercase
+	ifb	(r1) eq #ctrlz.			;all over
+	...	call	hl$exi			;does not return
+	clr	h$llin				;zero line
+  end
+code	HL$ERR	Display error message
+
+  proc	hl$fat
+	p1	msg
+	call	hl$msg	#uprF.,msg(sp),#h$lfts,#esfat$	;fatal
+	.exit
+  end
+  proc	hl$err	
+	p1	msg
+	call	hl$msg	#uprE.,msg(sp),#h$lers,#eserr$	;error
+  end
+  proc	hl$war
+	p1	msg
+	call	hl$msg	#uprW.,msg(sp),#h$lwrs,#eswar$	;warning
+  end
+
+code	HL$PRT	Print string with newline
+
+  proc	hl$prt
+	p1	msg
+	call	hl$typ	msg(sp)
+	call	hl$new
+  end
+
+code	HL$TYP	Type string without newline
+
+  proc	hl$typ	<r0,r1>
+	p1	msg,r1
+	whileb	(r1) gt
+		movb	(r1)+,r0
+		call	hl$quo	r0
+	end
+  end
+
+code	HL$QUO	Quote character
+
+  proc	hl$quo	<r0>
+	p1	cha
+	call	hl$flu			;flush pending output
+	.ttyout	cha(sp)			;write it
+  end
+
+code	HL$NEW	Display newline
+
+  proc	hl$new	
+	call	hl$typ	#h$lnln
+  end
+code	HL$MSG	Display message
+
+  proc	hl$msg	<r0,r1>
+	p1	cha				;error severity character
+	p2	msg,r1				;message text
+	p3	cnt				;error counter address
+	p4	flg				;severity flag
+						;
+	call	hl$typ	#e$rfac			;HELP
+	call	hl$quo	cha(sp)			;severity
+	call	hl$quo	#minus.			;-
+	whileb	(r1) ne				;more to go
+		movbi	(r1)+,r0		;get the next
+		ifb	r0 eq #perct.		;got a parameter
+		 andb	(r1) ne			;and one coming
+			movb	(r1)+,r0	;get it
+			call	hl$arg	r0	;display it
+		...	next			;
+		call	hl$quo	r0		;
+	end					;
+	call	hl$new				;and a newline
+						;
+	inc	@cnt(sp)			;count it
+	bisb	flg(sp),j$bsev			;set exit severity
+  end
+
+code	HL$ARG	Display argument
+
+;	%l	label
+;	%m	module
+
+  proc	hl$arg	<r0,r1>
+	p1	arg,r0
+  end
+.sbttl	HL$REP	Report CSI error
+
+  proc	hl$rep
+	p1	msg
+	p2	obj
+	call	hl$typ	#e$rfac
+	call	hl$typ	msg(sp)
+	if	obj(sp) ne
+		call	hl$fmt	obj(sp),h$lcmd
+	...	call	hl$typ h$lcmd
+	call	hl$new
+;	if	h$lctc ne
+;		.exit
+;	else
+;	...	jmp	start
+  end
+
+  proc	hl$fmt	<r1,r2>
+	p1	spc,r2
+	p2	lin,r1
+	mov	(r2)+,r0
+	call	hl$r50
+	movb	#':,(r1)+
+	clrb	(r1)
+	exit	if (r2) eq
+	mov	(r2)+,r0
+	call	hl$r50
+	mov	(r2)+,r0
+	call	hl$r50
+	movb	#'.,(r1)+
+	mov	(r2)+,r0
+	call	hl$r50
+  end
+
+hl$r50:	pshs	<r5,r2>		;save them all
+	mov	r1,r2		;r2 -> output stream
+	mov	r0,r1		;r1 = value
+	mov	#100$,r5	;get the divisors
+20$:	mov	#-1,r0		;init the result
+30$:	clr	r0		;
+	div	(r5)+,r0	;get the next
+	tst	r0		;a null?
+	beq	90$		;yep, forget it
+	cmp	#^o33,r0	;nah?
+	blo	70$
+	beq	80$
+50$:	add	#^o56,r0
+70$:	add	#^o11,r0
+80$:	add	#^o11,r0
+	movb	r0,(r2)+	;store it
+90$:	tst	(r5)		;any more?
+	bne	20$		;yep
+	clrb	(r2)		;cleanup
+	mov	r2,r1		;r1 -> output
+	pops	<r2,r5>		;restore the others
+	return
+100$:	.word	40.*40.,40.,1.,0
+
+.end
+                                       

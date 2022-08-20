@@ -1,0 +1,1336 @@
+!!	BUILD
+!B	LI$UTL
+	BINDIF		UT$BIN
+	BOOT		UT$BOO
+	BUILD		UT$BUI!!	@@
+	CALC		UT$CLC
+	CLOCK		UT$CLK
+	CONSOL		UT$CON!!	???
+	DATIME		UT$DAT!!	???
+	DCL		UT$DCL
+	DRIVER		UT$DRV
+	DUMP		UT$DUM
+	ERASE		UT$ERA
+	HANDLE		UT$HAN
+	HELP		UT$HEL
+	IMPORT		UT$F11!!	???
+	KEYPAD		UT$KPD
+	MARK		UT$MAK
+	MD		UT$MDX
+	PATCH		UT$PAT
+	PROGRA		UT$PRO
+	RADIX		UT$RAD
+	RD		UT$RDX
+!!	RECORD		UT$REC
+	RUST		UT$RUS
+	SEARCH		UT$SEA
+	SETUP		UT$SUP
+	SORT		UT$SRT
+	SRCDIF		UT$SRC
+	SPLIT		UT$SPL
+	UNZIP		UT$UNZ
+	VIP		UT$VIP
+	VIR		UT$VIR
+	VUP		UT$VUP
+	VMOUNT		UT$VMT
+	VOLUME		UT$VOL
+	ZIP		UT$ZIP
+!F	Utilities
+RUST utilities.
+
+o Many RUST utilities recognise an undocumented "EXIT" command.
+!E
+!!	Assists
+!!
+!B	UT$HC
+!F	o This utility has its own HELP facility.
+!B	UT$FE
+!F	o For more information use HELP INSTALL/FEATURE
+!B	UT$SP
+!F	o For more information use HELP SPOOLER
+!B	UT$HL
+o For more information use HELP !!
+!E
+!!	BINDIF
+!!
+!B	UT$BIN
+!F	BINDIF [out-file=]file1,file2
+Implements the DCL DIFFER/BINARY command. Replaces BINCOM.
+
+File1,File2
+  Old and new files to compare
+Out-file
+  Output file or device. Default is terminal.
+
+CSI	DCL
+---	---
+/B      /BYTES
+/D	/DEVICE
+/E:n	/END=n
+/Q      /NOLOG (Quiet)
+/S:n	/START=n
+/X:n    /MAXIMUM=n
+
+!I	UT$HL DIFFER/BINARY.
+!E
+!!	BOOTING, SETUP, RUNTIME
+!!
+!!	BOOT
+!!
+!!??	Functions
+!!
+!B	UT$BOO
+	Operation	UT$BOO.OPR
+	Monitor		UT$BOO.MON
+!F	BOOT		
+RUST bootstrap manager.
+
+BOOT.SYS is a dual-purpose utility: You run it as an application
+to configure the bootstrap environment (see Commands).
+
+.r boot.sys		! run boot interactively
+.set image rust		! select the system image
+.exit			! er, exit
+
+BOOT's second function is to act as a proxy RT-11 bootstrap. See
+Operation and Monitor.
+
+.copy/boot boot dev:	! copy boot to device
+.boot dev:		! boot boot.sys
+
+!I	UT$HC	
+!E	
+
+!B	UT$BOO.CMD
+!F	BOOT Commands
+BOOT commands configure the bootstrap environment.
+
+Command		Operation
+-------		---------
+EXIT            Return to system
+HELP            Display this help frame
+IDENTIFY        Display image version information
+SHOW            Display bootstrap configuration
+SET IMAGE spec  Set bootstrap image filespec
+SET NOIMAGE     Clear bootstrap image filespec
+SET 50_HERTZ    Set bootstrap for 50 hertz clock
+SET 60_HERTZ    Set bootstrap for 60 hertz clock
+SET [NO]QUIET   Startup indentification is (not) displayed
+SET SUFFIX char Set default driver suffix (initially "V")
+SET NOSUFFIX    Clear default driver suffix
+!E
+
+!B	UT$BOO.OPR
+!F	BOOT Operation
+The RUST bootstrap takes place in a number of stages.
+
+1. BOOT.SYS is bootstrapped using the usual RT-11 bootsrap procedure.
+   BOOT.SYS is a tiny RT-11 operating system entirely contained in the
+   four-block RT-11 bootsrap disk area (blocks 2 to 5).
+
+2. BOOT.SYS activates the program specified by the SET IMAGE command.
+   This is usually RUST/SJ or RUST/XM but can be any program that
+   confines its activities to the EMTs etc provided by BOOT.SYS.
+
+3. RUST/SJ begins by determining its environment and then loading the
+   essential devices (TT:, SY: and clock). This process is controlled
+   by the [BOOTSTRAP] section of RUST.INI.
+
+4. The RUST/SJ monitor is relocated to high memory and activated. It's
+   first task is to execute the command file SY:RUST.COM which takes
+   care of loading additional devices etc.
+!E
+
+!B	UT$BOO.MON
+	Programming	UT$BOO.PRG
+!F	BOOT Monitor
+BOOT.SYS provides a subset RT-11 operating system environment. See
+Programming for a list of software facilities. BOOT prompts for a
+command when started with the NOIMAGE option, or when a program exits.
+You respond with the name of a program:
+
+BOOT> cpu		! run CPU.SAV, a test program
+
+BOOT supports these control keys:
+
+Control Key	Purpose
+-----------	-------
+CTRL-C		Interrupt program
+CTRL-H		Halt computer
+CTRL-Q		Restart output
+CTRL-R		Pass control to ROM boot (173000)
+CTRL-S		Suspend output
+!E
+
+!B	UT$BOO.PRG
+!F	BOOT Programming
+Programming facilities available from BOOT.
+
+o Standard RT-11 programs may be loaded. Overlays are supported.
+o The standard RMON database is present and the clock functions.
+o SY: supports .DSTATU, .CSTAT, .LOOKUP, .READ and .CLOSE.
+o The terminal supports .TTYIN, .TTYOUT, .GTLIN and .PRINT.
+o .DATE, .EXIT, .GJOB, .GVAL, .GTIM, .PEEK, .SETTOP are supported.
+o .DELETE, .ENTER, .RENAME, .SAVEST, .REOPEN, .WRITE, .SPFUN are invalid.
+o The remaining program requests are ignored (R0 unchanged, C=0).
+
+SY: is the only supported device. BOOT.SYS uses the bootstrap driver,
+usually located in block zero of a device, to access the system disk.
+The driver is swapped out of low memory when a program is running and
+swapped back to handle I/O operations.
+
+This small subset of RT-11 is sufficient for RUST/SJ and RUST/XM
+to get started and for test programs which use BOOT as a maintenance
+monitor.
+!E!!	BUILD
+!!
+!B	UT$BUI
+!F	BUILD		
+Extracts command files from source and creates text files.
+
+o Extracts embedded command files from source files.
+o Creates text files from command files.
+o Updates date, time and edit information in source files.
+o Updates a database with module change information.
+o Creates a command file to backup changed modules.
+
+!I	UT$HL	BUILD
+!E	
+
+
+!B	U.BU.DCL
+!F	BUILD DCL/CSI 
+
+CSI	DCL	
+---	---
+/B	/BACKUP	Create backup command file from BUILD database
+/C	Create BUILD database	
+/D	List BUILD database
+/L	Log filespec of source file at terminal
+/P	Prompt for parameter values
+Filetypes:	MAS	MAC	MAR	FOR	FTN	C	BUI
+
+!E
+
+!!	CALC
+!!
+!B	UT$CLC
+	Examples	U.CALC.EX
+!F	CALC [expression]
+A simple calculator.
+
+Expression	Operation
+----------	--------
+0..9		Signed 32-bit integers
++ - / *		Binary operations. The usual priorities apply
++ -		Unary operations.
+++ --		Prefix increment and decrement.
+( )		Parentheses
+C 		Clear entry
+D		Displays the expression parse tree (e.g. "d12*3").
+E or X		Exit
+
+o CALC implements the DISPLAY expression command.
+!E
+
+!B	U.CALC.EX
+!F	CALC Examples
+Single-line and interactive mode.
+
+.calc 2*2	! Single-line command operation
+4
+
+.r calc		! Interactive mode
+CALC> 4*40	! Start calculation - result is next prompt
+160> -30	! Continue expression: equivalent to "160-30"		
+130> 567*567	! Accumulator is cleared for new operation
+321489>
+
+Continued expressions interpret a leading "-" as subtract, not negate.
+Use the Clear (C) to start a new expression with a negative number.
+
+CALC> 4*40	! Start calculation - result is next prompt
+160> c-30*3	! Don't continue. New expression.
+-90>
+!E
+!!	CLOCK
+!!
+!B	UT$CLK
+!F	CLOCK
+Sets the system time using NF: or DD: to access a server.
+
+.clock		! set system time
+
+o CLOCK is usually inserted in the RUST startup command file.
+!E
+!!	CONSOL
+!!
+!B	UT$CON
+!F	CONSOL
+Alters the system terminal CSR and vector addresses.
+
+Switch		Operation
+-------		--------
+/C:n		Specifies the CSR address
+/L		Lists the current settings.
+/S		Saves the settings.;i
+/V:n		Specifies the vector address.
+
+.console                     ! switch using saved values
+.console /c:177600/v:310     ! explicit switch 
+.console /c:177600/v:310/s   ! save (don't switch)
+.console /l                  ! list (don't switch)
+?CONSOL-I-CSR=177600 Vector=310    
+
+o Operation under RUST/XM is quite different.
+!I	RepRT$	CONSOL.SAV.
+!!	DATIME
+!!
+!B	UT$DAT
+!F	DATIME
+Prompts for the date and time.
+
+.datime
+Date [dd-mmm-yyyy]? 2 march 2005
+Time [hh:mm:ss]? 9:54
+Startup File [filnam.typ]?
+
+o Accepts RUST DCL date/time syntax.
+!I	REPRT$	DATIME utility.
+!!	DCL
+!!
+!B	UT$DCL
+!F	DCL		
+The RUST DCL command interpreters.
+
+Image		System
+-----		------
+DCL.SAV		RUST/SJ
+DCL.SYS		RUST/XM
+
+o "R DCL" will hang RUST/SJ. Abort with double CTRL-C.
+!E	
+
+!!	Move some of this to the DCL area
+!!	DRIVER
+!!
+!B	UT$DRV
+	HELP		DRV.HL
+	SET		DRV.ST
+	SHOW		DRV.SH
+!F	DRIVER
+Configures RUST and RT-11 device drivers.
+
+Driver
+  The file name of the driver (not the device name).
+
+Command		 Operation
+--------	 --------
+EXIT		 Return to system
+IDENTIFY	 Display DRIVER image information
+HELP		 Display HELP frame
+HELP driver	 Display driver SET item syntax
+SET driver items Configure device driver items
+ /UNIT=octal	 Specify unit for SET command
+ /[NO]config	 Set (clear) driver configuration flags
+SHOW driver	 Display known driver settings
+!!I	UT$HL SET DRIVER.
+!!!I	UT$HC
+!E	
+
+!B	DRV.ST
+	Items		DRS.IT
+	Options		DRS.CF
+!F	DRIVER SET driver/options [items]
+Configures a driver.
+
+SET driver items    ! Applies standard RT-11 SET items	
+SET driver/options  ! Configures Sysgen and RUST/XM parameters
+!E
+
+!B	DRS.IT
+	/UNIT		DRS.UN
+!F	DRIVER SET driver items
+Applies standard RT-11 or RUST SET items to a driver.
+
+Driver
+  The file name of the driver (not the device name).
+/UNIT=n
+  Selects a specific driver unit for the operation.
+Items
+  Valid SET items are defined by the selected driver.
+  Use HELP driver to see the valid items for a driver.
+
+DRIVER> set dl1:lpv csr=177500, vector=340
+!B	DRS.CF
+!F	DRIVER SET driver/options
+Configures a driver's status, SYSGEN or RUST/XM parameters.
+
+Status:
+
+/[NO]ABTIO	/[NO]FILST	/[NO]HANDLR	/[NO]RONLY
+/[NO]SPECL	/[NO]SPFUN	/[NO]VARSZ	/[NO]WONLY
+
+Sysgen:
+
+/[NO]ERLG	/[NO]MMGT	/[NO]TIMIT
+
+RUST/XM:
+
+/[NO]22BIT	/[NO]ABORT	/[NO]ABSOLUTE	/[NO]CACHE
+/[NO]EXTERNAL	/[NO]PAR6	/[NO]SERIALIZE 	/[NO]SINGLE
+/[NO]SYNCHRONOUS/[NO]TIMEOUT
+!B	DRS.UN
+!F	DRIVER SET driver/UNIT=n
+Use /UNIT to select a particular device unit for SET.
+
+DRIVER> set dup/unit=2 part=1		! set DU2: partition=1
+!E
+
+!B	DRV.SH
+!F	DRIVER SHOW driver
+Displays previous SET operations applied to a driver.
+
+RUST records the SET items you apply to a driver in a block that
+it appends to a driver. You display this information with the
+SHOW command. For example:
+
+DRIVER> show nfv
+SET NFV CSR=176520
+SET NFV VECTOR=330
+DRIVER>
+!B	DRV.HL
+!F	DRIVER HELP driver
+Use this form of the HELP command to display the SET items available
+in a selected driver. For example:
+
+DRIVER> help nfv
+SET NFW SHOW
+SET NFW RETRY=decimal
+SET NFW CSR=octal
+SET NFW VECTOR=octal
+SET NFW NAME=octal
+SET NFW TIMER=decimal
+SET NFW [NO]TIMIT
+DRIVER>
+!E									       `El
+!!	DUMP
+!!
+!B	UT$DUM
+!F	DUMP in-file=out-file/switches
+Displays the contents of binary files. Replaces DUMP.
+
+CSI	DCL			CSI	DCL
+---	---			---	---
+/B	/BYTES			/D	/DECIMAL
+/E:n	/END=n			/T	/FOREIGN
+/G	/IGNORE			/H	/NOOCTAL
+/I	/INSTRUCTION		/L	/DIRECTORY
+/M	/MACRO			/N	/NOASCII
+/O:n	/ONLY=n			/R:n	/RECORD_SIZE=n
+/S:n	/START=n		/W	/WORDS
+/V	/HEXADECIMAL		/X	/RAD50			
+/Y:n	/WINDOW=n
+
+.r dump
+*DK:out-file.DMP=DK:in-file.SAV/switches
+	
+!I	UT$HL	DUMP.
+!E	
+!!	ERASE
+!!
+!B	UT$ERA
+!F	ERASE device-or-file
+Erases the contents of files or devices. Erased information cannot 
+be restored.
+
+Device-or-file
+  The device or file to erase. No wildcards.
+
+CSI	DCL 		Operation
+---	----		---------
+/D	/DEVICE		Confirms intent to erase a device.
+/F	/FOREIGN	Doesn't check for system or protected files.
+/I	/IGNORE		Reports I/O errors without aborting.
+/Y	/NOQUERY	Doesn't query operations.
+/N	/RETAIN		Doesn't delete file after erasing.
+
+.r erase	! run erase
+*a.a		! erase and delete file A.A (default operation)
+*b.b/n		! erase but don't delete file B.B
+^C
+
+!I	UT$HL	ERASE
+!E	
+!!	HANDLE
+!!
+!B	UT$HAN
+!F	HANDLE driver		
+Analyses the configuration of device drivers.
+
+Driver
+  The file name of a driver.
+
+.r handle	! run handle
+*duv		! analyse RUST/SJ DU: driver
+Handler name    DK:DUV.SYS DU: RA80,RC25 MSCP disk
+Device status   filst$ spfun$ varsz$
+Device code     50
+.............
+SET modifies    image
+SET items       SET DU CSR=octal-value
+                SET DU VECTOR=octal-value
+                SET DU UNIT=decimal-value
+
+!I	UT$HL 	SHOW DRIVER
+!E	
+!!	HELP
+!!
+!B	UT$HEL
+!F	HELP		
+Provides on-line system information. Replaces HELP.
+
+CSI	DCL			CSI	DCL
+---	---			---	---
+/B	/BATCH			/C	/COMPILE	
+/D	/DOCUMENT		/F	/FORMFEEDS	
+/H	/NOPAGE			/K	/CASCADE	
+/N	/NOCASCADE		/L=n	/LENGTH=n	
+/P	/PAGE			/S	/SCROLL		
+/T	Topic in next line	/X	Exit on error (from DCL)
+
+.r help
+*lst-file=hlb-file/switches
+
+Lst-File
+  The output listing file. TT: is the default.
+Hlb-File
+  The HELP library. SY:SHARE.HLB is the default.
+
+!I	UT$HL	HELP
+!E	
+
+!B	UT.HLP.NOT
+o RUST HELP is the central RUST document.
+o RUST HELP replaces the standard RT-11 HELP utility.
+o HELP.SAV is also used to compile HELP files.
+!E
+
+!B	OLDHELP
+!F	OLDHELP
+CSI	DCL		Operation
+---	---		---------
+/B	/BATCH		Suppresses prompting.
+/C	/COMPILE	HELP compiler command.
+/D	/DOCUMENT	Establishes document defaults.
+/F	/FORMFEEDS	Enables formfeeds.
+/H	/NOPAGE		Hardcopy - don't page.
+/K	/CASCADE	Enables cascaded topic names.
+/N	/NOCASCADE	Disables cascaded topic names.
+/L=n	/LENGTH=n	Sets page length.
+/P	/PAGE		Explicit paging.
+/S	/SCROLL		
+/T			Topic specified in next line.
+!E
+!!	unused items below
+!!
+!!	F11
+!!
+!B	UT$F11
+	Examples	F11.EX
+	V11		F11.EM
+!F	IMPORT		
+Reads files from RT-11, RSX and VMS disk volumes. Specify directories
+with the USE command and with RSX/VMS square bracket syntax. 
+
+COPY files dev:          Copy (wildcard) files to device
+DIRECTORY[/SIZE] [files] List directory
+HELP                     List commands
+SET item                 Set COPY control flags
+ [NO]EXCLUDE             Do (not) exclude files with filetypes
+ [NO]HEADER              Do (not) copy F11 file header
+ [NO]LOG                 Do (not) log copy operations
+ [NO]QUERY               Do (not) confirm copy operations
+ [NO]MULTIVOLUME         Do (not) use multiple output volumes
+ [NO]REPLACE             Do (not) replace existing files
+SHOW                     Display volume and settings
+TYPE files               Display files at terminal
+USE dev:[dir]            Specify device and/or directory
+
+!I	UT$HC
+!E	
+
+!B	F11.EM
+!F	IMPORT V11 usage
+IMPORT commands available under the V11 emulator.
+
+MAKE log directory       Make Directory
+MOUNT log directory      Mount Directory
+
+Log 
+  A three-character logical name that will be defined for
+  both Windows and the emulator.
+Directory
+  The Windows name of the directory.
+
+o These commands are described for completeness only.
+!E
+
+!B	F11.EX
+!F	IMPORT Examples
+
+In the example below a Pro RSX volume is mounted on HD6:.
+The first command, USE, selects the directory. DIR, COPY 
+and most other commands apply only the selected directory.
+
+.IMPORT
+IMPORT> use hd6:[system.zzcomm]
+IMPORT> dir
+HD6:[SYSTEM.ZZCOMM]
+COMIN2.TSK      COMIN3.TSK      PHONEBOOK.PBK
+3 files
+IMPORT> copy comin3.tsk tmp:
+HD6:[SYSTEM.ZZCOMM]COMIN3.TSK (18 blocks)
+IMPORT>
+!!	KEYPAD
+!!
+!B	UT$KPD
+!F	KEYPAD [out-file]=[in-file]
+The RUST editor. 
+
+In-File
+  Input file specification.
+Out-file
+  Output file specification.
+  Defaults to the in-file name unless /Create specified.
+
+DCL		CSI	Operation
+---		---	--------
+/ALLOCATE=n	/A:n	Reserves space for the output file.
+/INSPECT	/I	Does not open an output file.
+/CREATE		/C	Creates a new file.
+
+.r keypad
+*myfile.txt
+...screen commands...
+*^C
+
+o See the main HELP KEYPAD article for more information.
+!!	MARK
+!!
+!B	UT$MAK
+	ADJUST		UT.MRK.ADJ
+!F	MARK command		
+A software stopwatch.
+
+Command		Operation
+-------		---------
+ADJUST		Adjusts runtime latency
+EXIT		Exit utility
+INIT		Clears internal counters
+RESTART		Combines STOP and START
+SHOW		Display counters
+START		Start timing
+STOP		Report elapsed time
+TELL		Extended SHOW command
+
+MARK measures the time taken to execute operations.
+
+.mark start		! start timing
+.@hls:rust		! compile RUST help
+.mark stop		! stop and report
+Elapsed time: 00:00:14.20	
+!E	
+
+!B	UT.MRK.ADJ
+!F	MARK ADJUST
+Compensate for the time required to run MARK.
+
+You use ADJUST to compensate for the overhead required to run MARK.
+Create and run the following command file to adjust:
+
+mark init		! clean up first
+mark start		! start timing
+mark adjust		! adjust for overhead
+mark start		! adjust a few times - MARK averages
+mark adjust		!
+mark start		! 
+mark adjust		!
+
+MARK will only provide consistent results on an otherwise inactive
+machine.
+!!	MD
+!!
+!B	UT$MDX
+!F	MD
+Creates a new directory.
+
+BETA: Specify the device name explicitly for compatibility with
+future releases. Does not function with NF:.
+
+CSI	DCL
+---	---
+/A:n	/ALLOCATE	
+/N:n	/SEGMENTS
+/Z:n	/EXTRA
+
+.cd sy:\test\
+
+!I	UT$HL MD.
+!E
+!!	PATCH
+!!
+!B	UT$PAT
+	DCL/CSI		U.PT.OPT
+	Single-Line	U.PT.SIN
+	Interactive	U.PT.INT
+	Control		U.PT.CON
+	Navigation	U.PT.NAV
+	Radix		U.PT.RAD
+	Variables	U.PT.VAR
+!F	PATCH		
+Examines and modifies binary files.
+
+o Patches files of up to a megabyte.
+o Modifications are usually not applied to the file until you exit.
+  The /IMMEDIATELY option modifies this behaviour.
+o You can patch process memory and system memory with PATCH.
+o Replaces the (retired) RT-11 PATCH utility.
+
+!I	UT$HL	PATCH
+!E	
+
+!B	U.PT.OPT
+!!	Single-Line	U.PT.SIN
+!!	Interactive	U.PT.INT
+!F	PATCH Options
+PATCH DCL/CSI command options.
+
+DCL		CSI	PATCH	Operation
+---		---	-----	---------
+/ASCII		/A	^A	Display ascii data
+/BYTES		/B	^B	Display bytes
+/DECIMAL	/D	^D	Display decimal values
+/IMMEDIATELY	/F		Update file immediately
+/HEXADECIMAL	/H	^H	Display hexadecimal
+/MEMORY		/M		Patch memory
+/INSPECT	/N		Do not alter file
+/INSTRUCTION	/I	^I	Display PDP-11 instructions
+/OCTAL		/O	^O	Display octal (default)
+		/R	^R	Display rad50
+/RAD50		/X		Display rad50
+/WORDS		/W	^W	Display words (default)
+!E
+
+!B	U.PT.SIN
+!F	PATCH Single-Line Commands
+Patching a file with a single command.
+
+The command below:
+
+.patch sy:myprog 400?355=1777.e
+
+Expands to the following sequence:
+
+.patch sy:mprog
+000000	000000	| 400		! open location 400
+000400	000355	| ?355		! make sure it's 355
+000400	000355	| =1777		! change it
+000402	000456	| .e		! exit and make change permanent
+!E
+
+!B	U.PT.INT
+!F	PATCH Interactive Session
+PATCH interactive session dialogue.
+
+PATCH commands have the syntax below. Commands are terminated with
+[return]  or [linefeed]: 
+
+address	content	| command	
+1000	104035	| 
+
+You abort a PATCH session with CTRL-C. PATCH asks for confirmation if 
+modifications have been made.
+!E
+
+
+!B	U.PT.NAV
+!F	PATCH Navigation Commands
+Navigating through the PATCH image.
+
+[enter]	Display next location
+nnn	Display location N
+/	Reopen current location
++	Display next location
++nnn	Add N to address
+-	Display previous location
+-nnn	Subtract N from address
+=v	Deposit value V
+@	Display indirect location
+_	Display relative location
+%	Display branch destination
+?	Verify contents of location
+$a=nnn	Sets variable value
+!E
+
+!B	U.PT.CON
+!F	PATCH Control Commands
+General-purpose control of PATCH 
+
+.a	Advance by words in instruction mode
+.c	Combine instruction & numeric mode
+.e	Exit, update file with changes
+.i	Advance by instructions
+.j	Jump to instruction destination
+.n	Enable/disable EMT display
+.o	Use with ^I to alternately change display format
+.p	Use with .j, returns to the pre-branch location
+.q	Quit, do not write changes out
+.sv,s,e	Search for Value, between Start & End
+.s	Search for next occurence
+.u	Update changes, continue patching
+
+!B	U.PT.RAD
+!F	PATCH Radix Commands
+Controls PATCH display and input.
+
+^A	Display ascii
+^B	Display bytes
+^H	Display hexadecimal
+^I	Display MACRO instructions 
+^O	Display octal - default
+^R	Display rad50
+^W	Display words - default
+!E
+
+!B	U.PT.VAR
+!F	PATCH Variables
+PATCH makes 26 variables A..Z available.
+
+
+000000	040000	| $a=54000	! store value 54000 in A
+000000	040000	| a		! open location in A
+054000	120333	|
+!E
+!!	PROGRA
+!!
+!!	PROGRA.SAV
+!!
+!B	UT$PRO
+	Items		UT.PRO.ITM
+!F	PROGRA		
+Analyses RT-11 and RSX executable images.
+
+Marks RT-11 images for special operation under RUST/XM.
+
+CSI	DCL		Operation
+---	---		---------
+!!/F	/FULL
+/C:k			Clear option
+/J:n	/JSW=n		Set JSW
+/K[:n]	/LIMIT=n	Set (no) program limit	
+/L[:k]			List all or specific item
+!!/T:RSX	/RSX
+/S:k			Set items
+/Y	/NOQUERY	Don't confirm 
+/Z			Reset items
+
+!I	UT$HL	SET PROGRAM and ANALYSE PROGRAM
+!E	
+
+!B	UT.PRO.ITM
+!F	PROGRA Items
+PROGRA set/clear/list items:
+
+CSI	DCL		  	CSI	DCL
+---	---		  	---	---
+CTF	/CTRLF		  	CTT	/CTRLT		
+CTY	/CTRLY		  	CTZ	/CTRLZ		
+FPU	/FPU		  	IOP	/IOPAGE		
+LOO	/LOOKUPS	  	LOW	/LOWER		
+MMU	/MMU		  	NAP	/NOPATHS		
+NTR	/NOTRACE	  	RTM	/REALTIME		
+RTA	/RT11A		  	RTS	/RT11S		
+TRP	/TRAPS		  	UNM	/UNMAPPED		
+UPP	/UPPER		
+!E
+!!	RD
+!!
+!B	UT$RDX
+!F	MD
+Removes a directory
+
+BETA: Specify the device name explicitly for compatibility with
+future releases. Does not function with NF:.
+
+CSI	DCL
+---	---
+/Y	/NOQUERY
+
+.rd \ian\
+
+!I	UT$HL RD.
+!E
+!B	UT$RE
+!F	RE:		
+Implements a record-locking system for RUST/XM (and RT-11).	
+
+Installation:	
+
+. load re	! You can use /external
+!E	
+!!	RECORD
+!!
+!B	UT$REC
+!F	RECORD		
+Displays the contents of the RE: record-lock tables.
+
+!I	UT$HL	SHOW RECORDS
+!E	
+!!	RADIX
+!!
+!B	UT$RAD
+!F	RADIX
+Converts octal, decimal, hexadecimal etc values.	
+
+Format	Operation		Format	Operation
+------	---------		-------	---------
+^A	Ascii			^H	Hexadecimal
+^B	Binary			^O	Octal
+^D	Decimal (default)	^R	Rad50
+EX	Exit
+
+o ^A without a value displays the ascii chart.
+o ^E without a value displays the eightbit ascii characters.
+
+.radix
+RADIX> ^aZ		! convert ascii Z 
+RADIX> ex		! exit
+
+!I	UT$HC
+!E	
+!!	RUST
+!!
+!B	UT$RUS
+	SJ		UT$RSJ
+	XM		UT$RXM
+!F	RUST		
+The RUST system images.
+
+System		Image		DCL 
+------		-----		---
+RUST/SJ		RUST.SAV	DCL.SAV
+RUST/XM		RUSTX.SAV	DCL.SYS
+
+Both are usually activated by the bootstrap process however you may also
+activate either image directly under any RT-11 system except RUST/XM:
+
+.rust		! start RUST/SJ
+.rustx		! start RUST/XM
+
+The file SY:RUST.INI configures RUST/SJ.
+!E	
+
+!B	UT$RSJ
+	Switches	UT$RSJ.CCL
+	.INI		UT$RSJ.INI
+	.COM		UT$RSJ.COM
+!F	RUST/SJ RUST.SAV
+The RUST/SJ system image RUST.SAV.
+
+The general startup flow of RUST/SJ: 
+
+RUST.SAV:
+1. Process command switches, if present
+2. Process RUST.INI
+3. Perform initialisation 
+4. Pass control to RUST.COM
+
+RUST.COM:
+1. LOAD/AUTO EIS if required
+2. LOAD/AUTO other drivers
+3. SET EDIT
+!E
+
+!B	UT$RSJ.CCL
+!F	RUST/SJ Switches
+RUST/SJ switches are processed when RUST is run directly.
+
+.rust[/switch]
+
+Switch		Operation
+------		---------
+/V		Prompts for continue after each installation step.
+!E
+
+!B	UT$RSJ.INI
+!F	RUST/SJ RUST.INI
+The RUST/SJ initialization file RUST.INI.
+
+[rust]
+  The RUST/SJ division
+[boot]
+  The RUST/SJ bootstrap section
+hertz=50|60
+  Sets the clock rate. 
+memory=decimal
+  Kiloword size of kernel memory (20 to 28).
+startup=file-spec
+  Specifies the name of the startup command file.
+terminal=csr,vector
+  Sets the terminal CSR and vector addresses.
+verbose=on|OFF
+  Displays the progress of the bootstrap operation.
+verify=on|OFF
+  Prompts for continue after each installation check.
+  Also displays the .INI file values.
+warnings=on|OFF
+  Displays bootstrap warning messages.
+xmlimit=decimal
+  Kiloword limit on extended memory size.
+!E
+
+!B	UT$RSJ.COM
+!F	RUST/SJ RUST.COM
+The RUST/SJ startup command file RUST.COM.
+
+SY:RUST.COM is the default startup command file. The distributed 
+version is:
+
+!E
+
+!B	UT$RXM
+!F	RUST/XM RUST.SYS
+To be supplied.
+!E
+!!	SEARCH
+!B	UT$SEA
+!F	SEARCH	in-file	
+Searches files for specified text strings.	
+
+In-files
+  A single input file specification. Supports wildcards.
+
+CSI	DCL	 	   	CSI	DCL
+---	---	    		---	---
+--	/ANY or /OR
+/A	/ALL  or /AND
+/E	/EXACT
+/N	/NONE or /NOR
+/M	/NOHEADING
+/S	/SOME or /NAND
+/P	/PASSALL
+/Q	/QUIET
+
+
+.r search			! run search
+*myfile.txt			! specify file
+Strings? "fred"			! specify search string
+...				! SEARCH reports located strings
+^C				! exit
+
+!I	UT$HL	SEARCH
+!E	
+!!	SETUP
+!!
+!B	UT$SUP
+!!	Items		UT$SUP$ITM
+!F	SETUP [device] [command] [items]
+Configures VT100 terminals. Replaces RT-11 SETUP.SAV.
+
+BETA: RUST SETUP.SAV is vastly incomplete.
+
+Device
+   The name of a device: TERMINAL, PRINTER or CLOCK.
+Command
+   A command name: EXIT,
+Item
+  The name of the setup item.
+
+.setup terminal vt52	! configure as VT52 terminal
+!E
+!!	SHAPE
+!!
+!B	UT$SHP
+!F	SHAPE		
+Customizes RUST/XM start-up database.
+
+!I	UT$HC
+!I	SY$XM
+!E	
+!!	SORT
+!B	UT$SRT
+!F	SORT out-file=in-file
+Sorts a text file.
+
+In-file
+  Input file. Must be a disk file.
+Out-file
+  Output file. Required.
+
+CSI	DCL
+---	---
+/A	/DICTIONARY
+/D	/DIBOL
+/K:D	/DESCENDING
+/L:n.	/RECORD_SIZE
+/P	/PAD
+/S	/STATISTICS
+
+!I	UT$HL	SORT
+o Use the SORT.SAV /H switch to see further options.
+o SORT.SAV is a modified DECUS library program.
+!E
+!!	SPLIT
+!!
+!B	UT$SPL
+!F	SPLIT out-files=in-file
+Splits an input file into a number of output files. Any output file
+may be omitted.
+
+Switch		Operation
+------		---------
+/2		Splits a file in two.
+/B:n:m		Specifies block boundaries.
+/H		Displays help.
+
+If M is a file of 20 blocks, then:
+
+*A,B,C=M/B:5:10  A = M[0..4]
+                 B = M[5..9]
+                 C = M[10..19]
+
+*A,B=M/2         A = M[0..9]
+                 B = M[10..10]
+
+!I	REPRT$	SPLIT utility.
+!E
+!!	SRCDIF
+!!
+!B	UT$SRC
+!F	SRCDIF [out-file=]file1,file2
+Compares files. Replaces SRCCOM. See HELP DIFFERENCES.
+
+File1,File2
+  Old and new files to compare
+Out-file
+  Output file or device. Default is terminal.
+
+CSI	DCL			CSI	DCL
+---	---			---	---
+/A	/AUDIT			/B	/BLANKLINES
+/C[:c]	/[NO]COMMENTS[=c]	/D	/CHANGEBAR
+/E	/EIGHTBIT		/F	/FORMFEEDS
+/G	/NOLOG			/H[:v]	/VERIFY[=v]
+/I[:v]	/CASE[=EXA|GEN]		/K[:n]	/WINDOW[=n]
+/L[:n]	/MATCH[=n]		/M[:n]	/MERGED[=n]
+/N	/NONUMBERS		/O	/NOOUTPUT
+/P[:n]	/PARALLEL[=n]		/R	/EDITED
+/S	/NOSPACES		/T	/NOTRIM
+/V[:v]	/CHANGEBAR		/W[:n]	/WIDTH[=n]
+/X[:n]	/MAXIMUM		/Z	/SPACES
+!E
+!B	UT$UNZ
+	Implementation	UT$ZPI
+!F	UNZIP in-file out-file
+Decompresses a file compressed by ZIP.
+
+In-file
+  Full input file specification. No defaults.
+Out-file
+  Full output file specification. No defaults.
+
+.unzip mydisk.z mydisk.dsk
+.dir \mydisk\
+
+o UNZIP is a binary-mode only version of the DECUS LZDCM program.
+o See ZIP for compression.
+o WinZip can decompress (with difficulty). The file type must be .Z.
+o www.sfu.ca/acs/windows/unix.htm has a Windows utility (use -b 12).
+!E
+!!	VIP
+!!
+!B	UT$VIP
+!F	VIP		
+Performs copy, delete and rename file operations. Replaces PIP.
+
+!!/M:RSX	/?:RSX
+CSI	  DCL			CSI	  DCL
+---	  ---			---	  ---
+/A	  /ASCII		/B	  /BINARY
+/C:date	  /DATE			/D	  /DELETE		
+/E	  /WAIT			/F	  /PROTECT
+/G	  /IGNORE		/H	  /VERIFY
+/I:date	  /SINCE		/J:date	  /BEFORE
+/K:count  /COPIES		/M:n	  /POSITION
+/N	  /NOREPLACE		/N:SQU	  /SQUEEZE/SOFT
+/O	  /PREDELETE		/P	  /EXCLUDE
+/P:m	  /PROTECTION		/Q	  /QUERY
+/Q:g:m	  /BY_OWNER		/R	  /RENAME
+/S	  /SLOWLY		/S:n	  /BLOCK_SIZE
+/T:date	  /SETDATE		/U	  /CONCATENATE
+/U:g:m 	  /UIC			/V	  /MULTIVOLUME
+/W[:all]  /LOG			/X	  /INFORMATIONAL
+/X:fmt	  /CONVERT		/Y	  /SYSTEM
+/Z	  /NOPROTECT
+!E	
+!!	VIR
+!!
+!B	UT$VIR
+	Extensions		UT$VIR$EXT
+!F	VIR		
+Displays directories. Replaces DIR.
+
+CSI	DCL			CSI	DCL
+---	---			---	---
+/A	/ALPHABETIZE		/B	/BLOCKS/POSITION
+/B	/SIZE (network)		/C:n	/COLUMNS
+/D	/NEWFILES		/D:n	/DATE
+/E	/FULL			/F	/BRIEF/FAST
+/G	/BEGIN			/J:n	/SINCE
+/K:n	/BEFORE			/L:LIS	/LIST
+/M	/FREE			/N	/SUMMARY
+/O	/OCTAL			/P	/EXCLUDE
+/Q	/DELETED		/R	/REVERSE
+/S:k	/ORDER/SORT		/T	/PROTECTION
+/U	/NOPROTECTION		/V[:onl]/VOLUMEID
+/W	/WAIT
+!E
+
+!B	UT$VIR$EXT
+!F	VIR Extensions
+More extended VIR switches:
+
+CSI	DCL			CSI	DCL
+---	---			---	---
+/L:MOD	/MODIFIED		/L:NHD	/NOHEADERS
+/L:ORG	/ORGANISATION		/L:TIM	/TIME
+/L:UIC	/UIC			/L:VER	/VERSION
+
+/Q:TEN	/TENTATIVE		/Q:u:g	/BY_OWNER
+
+/S:DAT	/DATE			/S:NAM	/NAME
+/S:POS	/POSITION		/S:PRO	/PROTECTION
+/S:SIZ	/SIZE			/S:TIM	/TIME
+/S:TYP	/TYPE			/S:UIC	/UIC
+/S:VER	/VERSION
+!E	
+!!	VMOUNT
+!!
+!B	UT$VMT
+!F	VMOUNT
+Mounts, dismounts and displays logical disks.
+
+CSI	DCL
+---	---
+--	MOUNT
+/D	DISMOUNT
+/L	SHOW SUBSETS
+
+!I	UT$HL	MOUNT and DISMOUNT.
+!E
+!!	VOLUME	
+!!
+!B	UT$VOL
+!F	VOLUME		
+Displays detailed information about system volumes.
+
+CSI	DCL		Operation
+---	---		---------
+!!/L			Default
+!!/B	/BRIEF		Default	
+/F	/FULL		Display detailed listing
+!!/R			
+/V	/VERIFY		Check structure without display
+!!/Y	/NOQUERY	
+
+.r volume
+sy:/v		! verify system disk okay
+
+!I	UT$HL	SHOW VOLUME and ANALYSE VOLUME
+!E	
+!!	VUP
+!!
+!B	UT$VUP
+!F	VUP
+Performs device operations. Replaces DUP.
+
+CSI	  DCL			CSI	  DCL
+---	  ---			---	  ---
+/B[:ret]  /BADBLOCKS		/C[:k]	  CREATE
+/D	  /RESTORE		/E:n	  /END/TRUNCATION
+/F	  /FILES		/G	  /IGNORE
+/G:n	  /START		/H	  /VERIFY
+/I	  COPY/DEVICE		/K	  DIR/BAD
+/L	  /LOG			/N:n	  /SEGMENTS/SIZE
+/O	  BOOT			/Q	  /FOREIGN
+/R[:ret]  /REPLACE		/S	  SQUEEZE
+/T:n	  /END/EXTENSION	/U	  COPY/BOOT
+/V[:onl]  /VOLUMEID		/W	  /WAIT
+/X	  /NOBOOT		/Y	  /NOQUERY
+/Z	  INITIALIZE		/Z:n	  /EXTRA
+/Z:3	  /RT11X
+
+o /B and /S not implemented.
+!I	UT$HL BOOT, COPY/BOOT/DEVICE, INIT & SQUEEZE.
+!E
+!!	ZIP
+!!
+!B	UT$ZIP
+	Implementation	UT$ZPI
+	Logical_Disks	UT$ZPL
+!F	ZIP in-file out-file
+Compresses a file.
+
+In-file
+  Full input file specification. No defaults.
+Out-file
+  Full output file specification. No defaults.
+
+.zip mydisk.dsk mydisk.z
+
+o Use logical disk files as containers for multiple files.
+o ZIP is a binary-mode only version of the DECUS LZCMP program.
+o See UNZIP for decompression.
+!E
+
+!B	UT$ZPL
+!F	ZIP Logical Disks
+Zipping multiple files as logical disks.
+
+The standard form of distribution for RT-11 is to package files into
+logical disks. This is also the best way to handle multiple files with
+ZIP and UNZIP. Here's the basic procedure:
+
+.md \dist\/allocate=200	! create logical disk as sub-directory
+.erase \dist\		! clear it to optimise compression
+.init \dist\		! reinitialize logical disk
+.copy prj:*.* \dist\*.*	! copy files to the directory
+.zip dist.dsk dist.z	! zip it
+.rd \dist\		! clean up
+
+o The sub-directory must be created on RT-11 media.
+o Another way to optimise is to compute the minimum logical disk size.
+!E
+
+!B	UT$ZPI
+!F	ZIP/UNZIP Implementation
+
+ZIP and UNZIP are adapted versions of the DECUS LZCMP/LZDCM utilities,
+which in turn are based on the UNIX COMPRESS/UNCOMPRESS programs. ZIP
+and UNZIP default to binary mode and 12-bit codes.
+
+UNIX		DECUS		RUST
+----		-----		----
+COMPRESS	LZCMP.SAV	ZIP.SAV
+UNCOMPRESS	LZDCM.SAV	UNZIP.SAV
+
+o The recommended file type for ZIP files is .Z.
+o Compression averages around 35%. Higher for logical disks.
+o LINUX and most UNIX systems support COMPRESS/DECOMPRESS (Use -b 12).
+o www.sfu.ca/acs/windows/unix.htm has a Windows utility (use -b 12).
+o WinZip can decompress files if they have the filetype .Z.
+  WinZip asks for a filename and then places the file in a directory.
+o Technically, ZIP and UNZIP are misnomers, but convenient names.
+o The more recent LINUX/UNIX GZIP format is not compatible. 
+

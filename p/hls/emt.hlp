@@ -1,0 +1,1318 @@
+!!	RT-11 Program Requests
+!!
+!!	%build
+!!	compile/help hls:emt/output:hlb:emt
+!!	%end
+!A	hls:scall	
+!!
+!B	EMTS
+	.ABTIO		.ABTIO
+	.CALLK		.CALLK
+	.CDFN		.CDFN
+	.CHAIN		.CHAIN
+	.CHCOPY		.CHCOPY
+	.CLOSE		.CLOSE
+	.CLOSZ		.CLOSZ
+	.CMKT		.CMKT
+	.CNTXSW		.CNTXSW
+	.CSIGEN		.CSIGEN
+	.CSISPC		.CSISPC
+	.CSTAT		.CSTAT
+	.DATE		.DATE
+	.DELETE		.DELETE
+	.DEVICE		.DEVICE
+	.DSTATUS	.DSTATUS
+	.ENTER		.ENTER
+	.EXIT		.EXIT
+	.FETCH		.FETCH
+	.FPROT		.FPROT
+	.GFDAT		.GFDAT
+	.GFINF		.GFDAT
+	.GFSTA		.GFSTA
+	.GTIM		.GTIM
+	.GTJB		.GTJB
+	.GTLIN		.GTLIN
+	.GVAL		.GVAL
+	.HERR		.HERR
+	.HRESET		.HRESET
+	.LOCK		.LOCK
+	.LOOKUP		.LOOKUP
+	.MFPS		.MFPS
+	.MTPS		.MTPS
+	.PEEK		.PEEK
+	.POKE		.POKE
+	.PRINT		.PRINT
+	.PROTECT	.PROTECT
+	.PURGE		.PURGE
+	.PVAL		.PVAL
+	.QSET		.QSET
+	.RCVDx		.RCVDx
+	.READx		.READx
+	.RELEAS		.RELEAS
+	.RENAME		.RENAME
+	.REOPEN		.REOPEN
+	.RSUM		.RSUM
+	.SAVESTATUS	.SAVESTATUS
+	.SCCA		.SCCA
+	.SDATx		.SDATx
+	.SDTTM		.SDTTM
+	.SERR		.SERR
+	.SETTOP		.SETTOP
+	.SFDAT		.SFDAT
+	.SFINF		.SFINF
+	.SFSTA		.SFSTA
+	.SFPA		.SFPA
+	.SPCPS		.SPCPS
+	.SPFUN		.SPFUN
+	.SPND		.SPND
+	.SYNCH		.SYNCH
+	.TLOCK		.TLOCK
+	.TRPSET		.TRPSET
+	.TTYINx		.TTYINx
+	.TTYOUTx	.TTYOUTx
+	.TWAIT		.TWAIT
+	.UNLOCK		.UNLOCK
+	.UNPROTECT	.UNPROTECT
+	.WAIT		.WAIT
+	.WRITEx		.WRITEx
+	PLAS		PLAS
+	RUST/XM		RUSTXM
+	Template	EMT-TEM
+!F	Program Requests
+RT-11 and RUST Program Requests
+
+BETA: This is very much a hastily prepared Work-In-Progress.
+
+HELP entries summarise the arguments and layout of program requests. 
+See TEMPLATE for an explanation of entry layout.
+!E
+
+
+!B	EMT-TEM
+!F	Entry Template
+The example describes the HELP entry format:
+
+.LOOKUP	area chan dblk [seqnum]	! Specifies argument order
+Open a file or a device		! Brief description
+
+0|chan	EMT 375 (3)		! EMT subcode|chan; (3) is area word size
+!I	EM-CHN			! Defines each entry in EMT area
+!I	EM-DBLK
+!I	EM-SEQ
+
+R0	File size in blocks	! EMT R0 result; undefined if not specified
+R0=0	Non-file structured...	! Specific R0 return value
+!I	0-OPN			! Possible error codes in @#53
+!I	1-FNF
+!I	2-INV
+!I	5-INS
+!E
+
+!B	PLAS
+	.CRAW	.CRAW
+	.CRRG	.CRRG
+	.ELAW	.ELAW
+	.ELRG	.ELRG
+	.GMCX	.GMCX
+	.MAP	.MAP
+!F	PLAS EMTS
+!E
+!B	EM-NSP
+!F	o Not supported by RUST
+!B	EM-375
+!F	EMT 375, code !!
+!B	EM-374
+!F	EMT 374, code !!
+!B	EM-CHN
+!F	chan =	Channel number
+!E
+!B	EM-WDB
+!F	addr->	Window definition block (WDB)
+!B	EM-RDB
+!F	addr->	Region definition block (RDB)
+!B	EM-DBLK
+!F	dblk ->	4-word rad50 file spec
+!B	EM-SEQ
+!F	seqnum=	File sequence number (tape)
+!B	EM-OFF
+!F	offse|0	Directory entry offset (must be even)
+!B	EM-RES
+!F	0	Reserved
+!B	EM-VAL
+!F	value =	Value to set
+!B	0-OPN
+!F	0	Channel open
+!B	1-FNF
+!F	1	File not found
+!B	2-INV
+!F	2	Invalid operation or device
+!B	3-PRT
+!F	3	File is protected
+!!B	EM-PRT
+!!F	3	Protected file with same name already exists
+!B	4-SNF
+!F	4	Sequence number not found
+!B	5-INS
+!F	5	Null file spec or invalid sequence number
+!E
+
+!B	3-ARG
+!F	3	Invalid EMT argument value
+!B	.ABTIO
+!F	.ABTIO chan
+Abort I/O on a channel
+
+13|chan	EMT 374
+chan	Channel to abort
+
+o No errors are returned
+o Ignored on RUST/SJ
+!E	
+!B	.CALLK
+!F	.CALLK [dest] [pic]
+Call a routine in kernel mode
+
+	EMT 373
+dest ->	Kernel routine
+	Default is stack top
+pic	If specified MACRO expands to position independent code
+
+BETA: RUST support not defined
+!E
+
+
+
+!B	.CDFN
+!S	.CDFN	area addr num
+Define upto 255 channels	
+
+15|0	EMT 375 (3)
+addr ->	start of new channel area
+num =	number of channels
+
+!!I	EM-R0U
+0	Not enough channels
+
+o /FILE_LIMIT sets maximum channels for RUST/XM processes	
+!E	
+
+!B	.CHAIN
+!S	.CHAIN
+Chain to another program
+
+10|0	EMT 374
+500:507	4-word rad50 filename of program
+510:777	Chain information area
+	Target program must place stack above this area
+
+!!I	EM-NIL
+
+o Chain bit (jsCHN$) is set in JSW	
+!E	
+
+!B	.CHCOPY
+!S	.CHCOPY area chan ochan [jobblk]
+Copy a channel from another job	
+
+13|chan	EMT 375 (3)
+chan  	Channel to setup
+ochan	Channel to copy from
+jobblk	Address of 3-word ascii logical job name
+
+!!I	EM-R0U
+0	Can't access other channel
+1	Channel already open
+
+!I	EM-NSP
+!E	
+
+!B	.CLOSE
+!S	.CLOSE chan
+Closes channel, makes new files permanent	
+
+6|chan	EMT 374
+!I	EM-CHN
+
+!I	3-PRT
+	Result is two files with same name
+
+o .ENTER files are truncated to size specified by CH.USE	
+o CH.USE=0 is interpreted as a purge by network operations	
+o Existing file with same name is deleted. RUST/XM defers deletion
+  until all channels open to the existing file are closed
+!E	
+
+!B	.CLOSZ
+!F	.CLOSZ area chan size
+Close and truncate file
+
+45|cha	EMT 375 (2)
+!I	EM-CHN
+size =	Size of permanent file in blocks
+
+1	Size is larger than tentative file size
+2	Channel not opened with .ENTER
+3	Protected file with same name exists
+!E
+
+
+!B	.CMKT
+!S	.CMKT	area id [time]
+Cancel marktime request
+
+23|0	EMT 375 (3)
+!!I	EM-TID
+	0 => cancel all user requests
+time->	2-word area to receive remaining time
+	0 => no time returned
+
+0	Marktime id not found
+!E	
+
+!B	.CNTXSW
+!S	.CNTXSW	area addr
+Specify context switch list
+
+33|0	EMT 375 (2)
+addr->	Zero-terminated list of addresses
+
+0	Invalid address in list
+
+!I	EM-NSP
+!E	
+
+!B	.CSIGEN
+	Options	EM-OPT
+!S	.CSIGEN	devspc defext cstrng [linbuf]
+Get CSI command and open files
+
+	EMT 344 (stack)
+devspc	Device handler load area
+defext	4-word rad50 area, default file types
+cstrng	Asciz command string
+	0 => get terminal or command-file command
+linbuf	Recieves asciz command line
+	0 => no line buffer
+
+R0 ->	Past loaded handlers (from DEVSPC)
+SP ->	Option information
+0	Invalid command
+1	Invalid device
+2	Protected file already exists
+3	Device full
+4	File not found
+!E	
+
+!B	.CSISPC
+	Result-area	EM-RSL
+	Options	EM-OPT
+!S	.CSISPC	outspc defext cstrng [linbuf]
+Get CSI command and open files
+
+	EMT 344 (stack)
+outspc	39-word result area
+defext	4-word rad50 area, default file types
+cstrng	Asciz command string
+	0 => get terminal or command-file command
+linbuf	Recieves asciz command line
+	0 => no line buffer
+
+R0 ->	Past loaded handlers (from DEVSPC)
+SP ->	Option information
+0	Invalid command
+1	Invalid device
+!E	
+
+!B	EM-RSL
+!F	.CSISPC result area
+.CSISPC result area
+???
+!E	
+
+!B	EM-OPT
+!F	.CSIxxx option area
+.CSIxxx option area
+
+o First word is option count	
+o 
+sp ->	option count
+	option 1
+	option 2
+!E
+!B	.CSTAT
+	Status_Block	.CSTAT.STA
+!F	.CSTAT area chan addr
+Get channel status
+
+27|chan	EMT 375 (2)
+!I	EM-CHN
+addr ->	6-word status block
+
+0	Channel not open
+!E
+
+!B	.CSTAT.STA
+!F	Status Block
+Status Block:
+
+     0	Channel status word (CSW)
+     2	File start block
+     4	File size in blocks
+     6	Highest block written
+    10	Device unit
+    12	Rad50 physical device name and unit
+
+Channel Status Word (CSW):
+
+100000	Channel open		   200	Tentative file
+ 40000	Sub-directory		   100	Directory walk
+ 20000	End-Of-File		    76	Device index
+ 10000	Nopurge (RUST/XM)	     1	Hard error
+  4000	Spool file (RUST/XM)
+  2000	Nophysical I/O (RUST/XM)
+  1000	Nowrite (RUST/XM)
+   400	Noread (RUST/XM)
+!E
+!B	PL-E0
+!F	0	Window alignment error
+!B	PL-E1
+!F	1	Too many windows
+!B	PL-E2
+!F	2	Invalid region ID
+!B	PL-E3
+!F	3	Invalid window ID
+!B	PL-E4
+!F	4	Region offset & window size missmatch
+!B	PL-E6
+!F	6	Region control blocks exhausted
+!B	PL-E7
+!F	7	Not enough memory (R0 returns largest slot)
+!B	PL-E10
+!F	10	Invalid region size
+
+!B	.CRAW
+!S	.CRAW	area addr
+Create virtual address window
+
+!I	EM-375	36/2
+!I	EM-WDB
+
+!I	PL-E0
+!I	PL-E1
+!I	PL-E2
+!I	PL-E4
+
+o Window is optionally mapped
+!E	
+
+
+!B	.CRRG
+!S	.CRRG	area addr
+Create an extended memory region
+
+!I	EM-375	36
+!I	EM-WDB
+
+!I	PL-E6
+!I	PL-E7
+!I	PL-E10
+!E	
+
+!B	.ELAW
+!S	.ELAW	area addr
+Eliminate address window
+
+!I	EM-375	36/3
+!!I	EM-WDR
+
+!I	PL-E3
+!E	
+
+!B	.ELRG
+!S	.ELRG	area addr
+Eliminate extended memory region
+
+!I	EM-375	36/1
+!I	EM-RDB
+
+!I	PL-E2
+!E	
+
+!B	.GMCX
+!S	.GMCX	area addr
+Get window mapping context
+
+!I	EM-375	36/6
+!I	EM-WDB
+
+!I	PL-E3
+!E	
+
+!B	.MAP
+!S	.MAP	area addr
+Map a previously defined window
+
+!I	EM-375	36/4
+!I	EM-WDB
+
+!I	PL-E2
+!I	PL-E3
+!I	PL-E4
+!E	
+
+!B	.DATE
+!F	.DATE
+Get date
+
+12|0	EMT 374
+
+R0	RT-11 date
+R0=0	Date not setup
+!E
+
+!B	.DELETE
+!F	.DELETE	area chan dblk [seqnum]
+Delete file
+
+0|chan	EMT 375 (3)
+!I	EM-CHN
+!I	EM-DBLK
+!I	EM-SEQ
+
+!I	0-OPN
+!I	1-FNF
+!I	2-INV
+!I	3-PRT
+!E
+
+!B	.DEVICE
+!F	.DEVICE area addr [link]
+Set device values on exit
+
+14|0/1	EMT 375 (2)
+0/1	Set to 1 if <link> specified
+addr ->	List of 2-word descriptors
+	0   address
+	2   value to place in address
+addr=0	Cancels previously declared list
+!E
+
+!B	.DSTATUS
+	Status_Block	.DSTAT.STA
+!F	.DSTATUS addr dnam	
+Get device status
+
+	EMT 342 (stack)
+addr ->	4-word device status block
+dnam ->	1-word rad50 device name
+
+0	No such device
+	Not returned when NF: is the catch-all device
+!E
+!B	.DSTAT.STA
+!F	Device Status
+Device Status Block:
+
+     0	Device status word (DSW)
+     2	Driver size
+     4	Driver LQE address (0 => not loaded)
+     6	Device size in blocks (0 for variable size)
+    
+Device Status Word (DSW):
+
+100000	RT11A file structure
+ 40000	Read-only
+ 20000	Write-only
+ 10000	Special Directory
+  4000	Driver abort
+  2000	SPFUN supported
+  1000	Generic abort supported
+   400	Variable size device
+   377	Device code
+!E
+!B	.ENTER
+!F	.ENTER	area chan dblk len [seqnum]
+Create a new file
+
+0|chan	EMT 375 (3)
+!I	EM-CHN
+!I	EM-DBLK
+len	File size to allocate
+!I	EM-SEQ
+
+R0	File size in blocks
+R0=0	Non-file structured or sequential device
+!I	0-OPN
+!I	1-FNF
+!I	2-INV
+!I	3-PRT
+!I	4-SNF
+!I	5-INS
+!E
+
+!B	.EXIT
+!F	.EXIT
+Exit program
+
+R0=0 	.HRESET is executed after exit
+	EMT 350
+
+To exit to a DCL command:
+
+510	Command byte count
+512:777	Asciz command line. No CR or LF.
+JSW	Bit11	Indicates chain to command
+	Bit5	Don't exit current command file
+
+BETA: Unclear whether command file is ever popped
+!B	.FETCH
+!F	.FETCH addr dnam	
+Fetch a device driver
+
+	EMT 343 (stack)
+addr ->	Load address for driver
+dnam ->	1-word rad50 device name
+
+R0 ->	Past the fetched driver
+0	No such device
+!E
+
+
+
+!B	.FPROT
+!F	.FPROT	area chan dblk [seqnum]
+Set file protection
+
+0|chan	EMT 375 (3)
+!I	EM-CHN
+!I	EM-DBLK
+prot	File protection
+	0   Unprotect file
+	1   Protect file
+
+!I	0-OPN
+!I	1-FNF
+3	Invalid operation
+
+o Not implemented for NF: files
+!E
+!B	.GFDAT
+	Implementation	.SFINF-IMP
+!F	.GFDAT area chan dblk
+Get file date
+
+44|chan	EMT 375 (4)
+!I	EM-DBLK
+!I	EM-RES
+14|0	E.DATE offset in high byte
+
+R0	RT-11 date from file
+
+!I	0-OPN
+!I	1-FNF
+!I	2-INV
+!I	3-ARG
+!E
+
+!B	.GFINF
+	Implementation	.SFINF-IMP
+!F	.GFINF area chan dblk offse [type]
+Get directory entry info
+
+44|chan	EMT 375 (4 or 5)
+!I	EM-DBLK
+!I	EM-RES
+!I	EM-OFF
+
+R0	Retrieved value
+
+!I	0-OPN
+!I	1-FNF
+!I	2-INV
+!I	3-ARG
+
+o Logical name translation is always performed.
+!E
+
+!B	.GFSTA
+	Implementation	.SFINF-IMP
+!F	.GFSTA area chan dblk
+Get directory entry status word
+
+44|chan	EMT 375 (4)
+!I	EM-DBLK
+!I	EM-RES
+0|0	E.STAT offset in high byte
+
+R0	Directory entry status
+
+!I	0-OPN
+!I	1-FNF
+!I	2-INV
+!I	3-ARG
+!E
+
+!B	.GTIM
+!F	.GTIM	area addr
+Get time
+
+21|0	EMT 375 (2)
+addr ->	2-word time block
+	0   high-order time
+	2   low-order time
+
+o Time is represented as the clock ticks since midnight
+o RUST supports midnight rollover
+!E
+
+!B	.GTJB
+	Status_Block	.GTJB.STA
+!F	.GTJB area addr [jobblk]
+Get job status
+
+20|0	EMT 375 (3)
+addr ->	8 or 12-word status block
+	EVE block may follow (RUST/XM)
+jobblk->3-word ascii job name  
+	8 words returned if omitted or is -3
+
+0	No such job
+1	Maximum job number exceeded (RUST/XM only)
+!E
+!B	.GTJB.STA
+!F	Job Status Block
+Job Status Block:
+
+				RUST/SJ		RUST/XM
+				-------		-------
+     0	Job number * 2		0		Process Id
+     2	High memory limit	Valid		Valid
+     4	Low memory limit	0		0
+     6	Channel area address	Valid		Process area
+    10	Job impure address	0		0
+    12	Terminal number		0		Terminal Id
+    13	Unused
+    14	Virtual high limit	0		PLAS only
+ 16-20	Unused			Not returned
+ 20-27	Ascii job name		Not returned	Process name
+!E
+
+!B	.GTLIN
+!F	.GTLIN	linbuf [prompt] [type]
+Get command line
+
+	EMT 345 (stack)
+linbuf->80-character asciz line buffer (CR/LF not stored)
+prompt->Ascii prompt
+type	Forces input from terminal if present
+
+0	Input line too long
+!E
+
+!B	.GVAL
+!F	.GVAL area offset	
+Get monitor value
+
+34|0	EMT 375 (2)
+offset=	Monitor offset
+
+R0 =	Monitor value
+0	Offset to big
+!E
+!B	.HERR
+!F	.HERR
+Returns control of hard errors to the system.
+
+5|0	EMT 374
+!E
+
+!B	.HRESET
+!F	.HRESET
+Aborts all I/O and issues .SRESET.
+
+	EMT 357
+
+BETA: RUST/SJ closes all channels but does not abort I/O.
+
+o RUST/SJ does not issue a hardware RESET instruction.
+!B	.LOCK
+!F	.LOCK
+Lock the USR in memory
+
+	EMT 346
+
+o Ignored by RUST/SJ and RUST/XM
+!E
+
+!B	.LOOKUP
+!F	.LOOKUP	area chan dblk [seqnum]
+Open an existing file or a device
+
+0|chan	EMT 375 (3)
+!I	EM-CHN
+!I	EM-DBLK
+!I	EM-SEQ
+
+R0	File size in blocks
+R0=0	Non-file structured or sequential device
+!I	0-OPN
+!I	1-FNF
+!I	2-INV
+!I	5-INS
+!E
+!B	.MFPS
+!F	.MFPS [addr]
+Get the PSW value
+
+addr ->	Location or register to store the PSW
+	If not specified the PSW is returned on the stack
+
+o Only the priority field is valid
+o This request does not use an EMT
+!E
+
+!B	.MRKT
+!F	.MRKT area time crtn id
+Issue mark time request
+
+22|0	EMT 375 (4)
+time ->	2-word time block
+	0   high order time
+	2   low order time
+ctrn ->	Completion routine
+id =	Non-zero id used in .CMKT
+	May not be in range 177000-177777
+
+0	No queue element available
+!E
+
+!B	.MTPS
+!F	.MTPS [addr]
+Store value in PSW
+
+addr->	Location with new PSW 
+	Default is stack top
+
+o Only the priority field is valid
+o This request does not issue an EMT
+!E
+!B	.PEEK
+!F	.PEEK area addr
+Get the value of a specified kernel location
+
+34|1	EMT 375 (2)
+addr ->	Address of kernel location
+
+R0	Value from location
+!E
+
+!B	.POKE
+!F	.POKE area addr value
+Store value in kernel location
+
+34|3	EMT 375 (3)
+addr ->	Address of kernel location
+value =	Value to store
+
+R0	Previous contents of location
+
+o RT-11 V5.5 (BIC,BIS,MOV) feature not supported
+o RT-11 V5.5 modify PS feature not supported
+!E
+
+!B	.PRINT
+!F	.PRINT addr
+Displays string at terminal
+
+	EMT 351 (stack)
+addr ->	Asciz string to display
+	Terminate with zero for a newline.
+	Terminate with octal 200 to supress newline.
+
+!E
+!B	.PROTECT
+!F	.PROTECT area addr
+Protect a kernel 2-word vector
+
+31|0	EMT 375 (2)
+addr ->	Vector to protect
+	Must be multiple of four and below 500
+
+0	Vector already protected
+1	Invalid address
+
+o RUST/XM only
+!E
+
+!B	.PURGE
+!F	.PURGE chan
+Closes a channel without making a new file permanent.
+
+3|chan	EMT 374
+chan	The channel to purge
+
+0	Channel not open
+!E
+
+!B	.PVAL
+!F	.PVAL area offsetr value
+Set monitor value
+
+34|0	EMT 375 (2)
+offset=	Monitor offset
+value =	Value to set
+
+R0 =	Monitor value
+0	Offset to big
+!E
+
+!B	.QSET
+!F	.QSET addr len
+Specify additional I/O queue elements
+
+	EMT 353 (stack)
+addr ->	New queue elements
+len 	Number of new queue elements
+	RT-11/SJ/FB: 7-word queue element
+	RT-11/XM:    10-word queue element
+
+o This request is ignored by RUST
+o RUST/SJ has four queue elements by default
+o RUST/XM kernel queue elements are allocated by SHAPE.SAV
+!E
+!B	.RCTRLO
+!F	.RCTRLO
+Reset CTRL-O
+
+	EMT 355
+o .RCTRLO also causes the monitor to reflect JSW changes
+!E
+
+!B	.RCVDx
+!F	.RCVDx area buf wcnt [crtn]
+Receive data from another process
+
+26|0	EMT 375 (5)
+unused=	n/a
+buf ->	Message buffer
+wcnt =	Word size of buffer
+crtn ->	Completion routine (.RCVDC only)
+
+0	No other process active
+
+o Ignored by RT-11/SJ and RUST/SJ
+!E
+
+!B	.READx
+!F	.READx area chan buf wcnt blk [crtn]
+Read data from a channel
+
+10|chan	EMT 375 (5)
+!I	EM-CHN
+unused=	n/a
+buf ->	I/O buffer
+wcnt =	Word size of buffer
+crtn ->	Completion routine (.READC only)
+
+R0	Words transferred
+	Less than <wcnt> signifies EOF during read
+1	Hard error
+2	Channel not open
+
+0	No other process active
+!E
+
+!B	.RELEAS
+!F	.RELEAS dnam
+Unload a device driver
+
+	EMT 343 (stack)
+dnam ->	1-word rad50 device name
+
+0	Invalid device name
+!E
+
+!B	.RENAME
+!F	.RENAME	area chan dblk
+Rename a file
+
+4|chan	EMT 375 (3)
+!I	EM-CHN
+dblk ->	8-word name area
+	00-06  Old file name
+	10-16  New file name
+
+!I	0-OPN
+!I	1-FNF
+!I	2-INV
+!I	3-PRT
+!E
+
+!B	.REOPEN
+!F	.REOPEN	area chan cblk
+Restore a channel saved with .SAVESTATUS
+
+6|chan	EMT 375 (2)
+cblk ->	5-word channel block
+
+0	Channel is open
+!E
+
+!B	.RSUM
+!F	.RSUM
+Reactivate process mainline suspended with .SPND
+
+2|0	EMT 374
+!E
+!B	.SAVESTATUS
+!F	.SAVESTATUS area chan cblk
+Save channel block and purge channel
+
+6|chan	EMT 375 (2)
+cblk ->	5-word channel block
+
+0	Channel is not open
+1	Channel open with .ENTER or tape channel
+
+o RUST/SJ might encode additional information in the saved channel block
+!E
+
+!B	.SCCA
+!F	.SCCA area addr
+Disable double CTRL-C aborts and access abort flag
+
+35|0	EMT 375 (2)
+addr ->	Terminal status word
+	Address of zero reenables  CTRL-C abort
+
+o Bit 15 of the terminal status word is set when double CTRL-C
+  is detected. The system does not clear the flag.
+!E
+
+!B	.SFDAT
+	Implementation	.SFINF-IMP
+!F	.SFDAT area chan dblk [date]
+Set file date
+
+44|chan	EMT 375 (4)
+!I	EM-DBLK
+date =	Date value to set (default is zero)
+14|0	E.DATE offset in high byte
+
+R0	RT-11 date from file
+
+!I	0-OPN
+!I	1-FNF
+!I	2-INV
+!I	3-ARG
+!E
+
+!B	.SFINF
+	Implementation	.SFINF-IMP
+!F	.SFINF area chan dblk value type offse ucode
+Get or modify directory entry word
+
+44|chan	EMT 375 (4 or 5)
+!I	EM-DBLK
+!I	EM-VAL
+off|typ	Offse: Specifies the offset in the directory entry
+	Type:  GET=0 BIC=1 BIS=2 MOV=3 USER=UCODE
+
+R0	Previous value
+!I	0-OPN
+!I	1-FNF
+!I	2-INV
+!I	3-ARG
+4	Invalid value
+!E
+
+!B	.SFINF-IMP
+!F	File Info Implementation
+.GFxxx/.SFxxx implementation:
+
+o .GFINF/.SFINF may access and modify extra directory entry words
+o User operation codes not supported by RUST
+o Supression of logical name translation not supported
+
+.SFINF Implementation:
+
+o File size can be truncated
+o Size can be extended if a sufficiently long empty follows entry
+!E
+
+!B	.SFSTA
+	Implementation	.SFINF-IMP
+!F	.SFSTA area chan dblk value type ucode
+Set directory entry status word
+
+44|chan	EMT 375 (4 or 5)
+!I	EM-DBLK
+!I	EM-VAL
+0|type	Type specifies the operation (GET,BIC,BIS,MOV,USER):
+	GET=0 BIC=1 BIS=2 MOV=3 USER=UCODE
+
+R0	Previous directory entry status
+!I	0-OPN
+!I	1-FNF
+!I	2-INV
+!I	3-ARG
+!E
+
+
+!B	.SDATx
+!F	.SDATx area buf wcnt [crtn]
+Send data to another process
+
+25|0	EMT 375 (5)
+unused=	n/a
+buf ->	Message buffer
+wcnt =	Word size of buffer
+crtn ->	Completion routine (.SDATC only)
+
+0	No other process active
+
+o Ignored by RT-11/SJ and RUST/SJ
+!E
+
+!B	.SDTTM
+!F	.SDTTM area addr
+Set date and time
+
+40|0	EMT 375 (2)
+addr ->	3-word date/time block
+	0  RT-11 date (-1 to leave unchanged)
+	2  High order time (-1 to leave unchanged)
+	4  Low order time
+
+!E
+
+!B	.SERR
+!F	.SERR
+Inhibits image aborts on serious errors.
+
+5|0	EMT 374
+
+Errors are returned in byte location 52
+
+-1   USR called from AST	-12  (Trap to 4) 
+-2   Device not loaded		-13  (Trap to 10)
+-3   Directory I/O error	-14  Invalid directory
+-4   .FETCH error		-15  Invalid XM fetch	
+-5   Overlay read error		-16  (FPU error)
+-6   Directory full (.ENTER)	-17  (Partity error)
+-7   Invalid address		-20  (MMU error)
+-10  Invalid channel number	-21  
+-11  Invalid EMT code		-22
+!E
+
+!B	.SETTOP
+!F	.SETTOP addr
+
+	EMT 354
+addr ->	High word location requested
+
+R0	Highest word allocated
+
+o Specify the address of the last word to be used. Thus
+   to acquire the area up to 100000 you specify 77776.
+!E
+
+
+!B	.SFPA
+!F	.SFPA area addr
+Set floating point exception AST
+
+30|0	EMT 375 (2)
+addr ->	Exception AST
+
+!E
+
+!B	.SPCPS
+!F	.SPCPS area addr
+Set the mainline PC and PS
+
+41|0	EMT 375 (2)
+addr ->	3-word control block
+	0   New PC
+	2   Old PC
+	4  Old PS
+
+0	Call issued from mainline
+1	Pending .SPCPS request
+
+o Not supported by RUST
+!E
+
+!B	.SPFUN
+!F	.SPFUN area chan func buf wcnt blk [crtn]
+Issue special function to channel
+
+32|chan	EMT 375 (6)
+!I	EM-CHN
+blk =	Block number
+buf ->	I/O buffer
+wcnt =	Word size of buffer
+crtn ->	Completion routine
+fun|377	Special function code
+crtn	Optional completion routine
+
+0	End of file
+1	Hard error
+2	Channel not open
+!E
+
+!B	.SPND
+!F	.SPND 
+Suspend process mainline
+
+1|0	EMT 373
+o
+!E
+
+!B	.SRESET
+!F	.SRESET
+Reset process
+
+o Waits for I/O to complete
+o Purges open channels
+o Unloads .FETCHED drivers
+  RUST/SJ calls driver RELEASE server routines. RT-11 does not.
+o Cancels .CDFN 
+o Cancels .MRKT requests
+o Rebuilds process I/O queue
+!E
+
+!B	.SYNCH
+!F	.SYNCH area [pic]
+Permits interrupt routines to execute code at mainline level.
+
+area ->	7-word synch block
+pic	Creates position independant code if specified
+
+R0	Contains synch block id (word 5)
+R0/R1	Available for use
+
+o .SYNCH is fudged on RT-11/SJ and RUST/SJ
+o .SYNCH is not supported in the RUST/XM kernel
+o This request does not issue an EMT
+!E
+
+!B	.TLOCK
+!F	.TLOCK
+Locks the USR if possible
+
+7|0	EMT 374
+
+C=1	USR was not locked
+
+o The USR is always locked in RUST/SJ and RUST/XM
+!E
+
+!B	.TRPSET
+!F	.TRPSET area addr
+Passes traps to 4 (bus) and 10 (cpu) to address specified
+
+3|0	EMT 375 (2)
+addr	Address of trap routine
+	Trap routine cancelled if zero
+
+o On routine entry C=0 indicates trap to 4, C=1 trap to 10
+!E
+
+!B	.TTYINx
+!F	.TTYIN/.TTINR [char]
+Get a character from the terminal
+
+	EMT 340
+char	Optional location to store character
+	Default is R0
+
+.TTYIN	EMT 340	    Waits for input
+	BCS .-4
+
+.TTINR	EMT 340	   Does not wait
+
+o RUST .TTYIN/.TTINR retrieves characters from command files
+!E
+
+!B	.TTYOUTx
+!F	.TTYOUT/.TTOUTR [char]
+Send a character to the terminal
+
+	EMT 341
+char =	Character
+	Default is R0
+
+.TTYOUT	EMT 341	    Waits for output to succeed
+	BCS .-4
+
+.TTOuTR	EMT 341	   Does not wait
+
+o RUST/SJ has a one-character output ring
+!E
+
+!B	.TWAIT
+!F	.TWAIT area addr
+Waits for the specified period
+
+24|0	EMT 375 (2)
+addr ->	2-word time block
+	0   High order time
+	2   Low order time
+
+0	No queue element available 
+!E
+!B	.UNLOCK
+!F	.UNLOCK
+Unlocks the USR
+
+	EMT 347
+!E
+
+!B	.UNPROTECT
+!F	.UNPROTECT area addr
+Unprotects a kernel vector
+
+31|1	EMT 375 (2)
+addr ->	2-word kernel vector
+	Must be multiple of four and below 500
+
+1	Invalid address
+
+o RUST/XM only
+!E
+
+!B	.WAIT
+!F	.WAIT chan
+Wait for I/O on channel to complete
+
+0|chan	EMT 374
+!I	EM-CHN
+
+0	Channel not open
+1	Hardware error on previous request
+!E
+
+
+!B	.WRITEx
+!F	.WRITEx area chan buf wcnt blk [crtn]
+Write data to a channel
+
+11|chan	EMT 375 (5)
+!I	EM-CHN
+unused=	n/a
+buf ->	I/O buffer
+wcnt =	Word size of buffer
+crtn ->	Completion routine (.WRITC only)
+
+R0	Words transferred
+	Less than <wcnt> signifies EOF during write
+
+0	Attempt to write past EOF
+1	Hard error
+2	Channel not open
+
+0	No other process active
+!E
+
+
