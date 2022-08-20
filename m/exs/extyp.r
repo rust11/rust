@@ -1,15 +1,12 @@
 file	extyp - expat type command
 include rid:rider	; Rider/C header
-include	rid:dcdef
-include	rid:fidef
-include	rid:vfdef	; VF virtual file system
+include	rid:dcdef	; dcl
 include rid:fidef	; files
-If Win			; Windows
-include rid:stdef	; strings (stdef exhausts DECUS-C memory)
-End
-include	exb:exmod
+include rid:stdef	; strings
+include	rid:vfdef	; virtual file system
+include	exb:exmod	; expat
 
-code	type
+code	type command
 
 ;	TYPE/DATE/LOG/PAUSE/QUERY/BEFORE/DATE/SINCE src
 ;
@@ -19,11 +16,12 @@ code	type
 	dcl : * dcTdcl
   is	src : * vfTobj~ = &Isrc		; source object
 	ent : * vfTent~			; destination object
-	lin : int = ctl.Qpau ? 0 ?? -1	; pause - for cl_mor
 	cha : int~			; some character
 	err : int = 0			; error flag
 	cnt : LONG = 1			; files found count
 
+	ctl.Vpag = ctl.Qpag ? 0 ?? -1	; count page lines
+					;
 	vf_alc (src)			; setup source object
 	cu_gdt ()			; setup /before/date/newfile/since
     begin
@@ -42,8 +40,8 @@ code	type
 	   while (cha = vf_get (src)) ne EOF
 	      next if !cu_asc (cha)	; not an ascii character
  	      PUT("%c", cha) if cha ne	; get a byte/put a byte
-	      if (cha&255) eq '\n'		;
-	   .. .. quit if !cu_pau(<>,&lin); /pause
+	      if (cha&255) eq '\n'	;
+	   .. .. quit ++err if !cu_pag(); /page
 	.. quit if err
     end block
 	cu_prg ()			; purge open channels

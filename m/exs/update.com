@@ -9,25 +9,25 @@
 !
 loop$:
 hdr$ exmod
-mac$ eximg
+!ac$ eximg
 rid$ expat
 rid$ exdcl
 rid$ excop
 rid$ exdir
-rid$ extyp
+rid$ exdel
 rid$ exxdp
 !
 mrg$
 log$ EXPAT.SAV
 link:
-touch exs:eximg.mac
+@@exs:eximg
 link/exe:exp:expat/map:exp:expat/cross/bottom=4000/prompt
 exp:expat,exp:eximg!	root
 exp:exdcl,lib:crt/o:1!	region 1: DCL
 ctb:vfdrv,lib:crt/o:1!	      or: VF
 exp:excop,lib:crt/o:2!	region 2: copy
 exp:exdir,lib:crt/o:2!		  directory
-exp:extyp,lib:crt/o:2!		  type
+exp:exdel,lib:crt/o:2!		  type
 exp:exxdp,lib:crt/o:2!		  xxdp
 lib:crt
 //

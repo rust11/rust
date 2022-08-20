@@ -1,15 +1,27 @@
+;	ctl.Vcnt
+;	dr_scn retuns maximum filename size
+
+;	Windows LPT
+;	readme.txt
+;	/OWNER
+;???	/PASSALL
+;???	/page
+;???	/OUTPUT TT: LP:
+;???	TOUCH/DATE/[UN]PROTECT
+;???	Redo listing formats
+;???	Native file check
+;???	PRINT command
+;???	CX_DIS has cu_opt()--not generic
 ;???	Pause after "error accessing"
 ;???	Need free blocks
 ;???	DIR/WINDOWS format
 ;???	/DRS, file count
-;???	/EXCLUDE=...
 ;???	Add descriptions for monitors and drivers
 ;???	DIR/XXDP="string"
 ;???	DIR/VOLUME shows BOOT.VOL, HOME, BOOT2, DIR
 ;???	DIR/VOLUME shows BOOT.SYS, MFD1, MFD2, DIR, BOOT2
 ;???	dcSTR should have option to include "/" and strip quotes
 ;???	COPY must check input errors
-;???	COPY must copy date and support /SETDATE
 ;???	Windows vs RT block size
 ;???	obj->Pbuf
 ;???	missing files
@@ -104,7 +116,7 @@
 ;
 ;	o Runs under RT-11, RUST and Windows
 ;	o Runs under RSX using RUST/RTX
-;	o Supports XXDP, RT-11, RUST volumes
+;	o Supports DOS11, XXDP, RT-11, RUST, RSX and VMS volumes
 ;	o Supports Windows directories when running under Windows
 ;	  or when using V11 to run RUST under Windows.
 ;
@@ -139,251 +151,149 @@
 ;
 ;	EXPAT> dir \disks\xxdp\xxdl82\	! => "DK:\DISKS\XXDP\XXDL82.DSK"
 ;	EXPAT> dir [1,54]\xxdl82\	! => "[1,54]XXDL82.DSK"
-data	EXPAT implementation
-
-;	--------------------
-;	EXPAT implementation
-;	--------------------
-;
-;	EXPAT is developed simultaneously for the PDP-11 and Windows using
-;	the C front-end language Rider/C and an extensive shared library.
-;	The C compiler I use for the PDP-11 is DECUS-C, which lacks full
-;	function prototypes and other features. Rider/C irons out these
-;	differences.
-;
-;	EXPAT runs under any RT-11 or Windows system. It can also run under
-;	RSX using RUST/RTX (an RT-11 environment that runs on RSX).
-;
-;	The sources for EXPAT itself are fairly short because most of the
-;	functionality resides in libraries.
-;
-;	--------------
-;	User Interface
-;	--------------
-;	The EXPAT user interface is driven by a DEC-style DCL interpreter.
-;	The function below is all that is required to initiate the DCL 
-;	interpreter.
-;
-;	  func	start
-;	  is	dcl : * dcTdcl			; DCL control object
-;		im_ini ("EXPAT")		; image init for messages
-;		dcl = ctl.Pdcl = dc_alc ()	; allocate DCL object
-;		dc_eng (dcl, cuAdcl, "EXPAT> ")	; pass control to DCL
-;	  end
-;
-;	The equivalent C-code output by Rider/C follows. Note that <start()>
-;	is called by a library <main ()> routine.
-;
-;	start()
-;	{ dcTdcl *dcl;
-;	  im_ini ("EXPAT");
-;	  co_ctc (coENB);
-;	  cu_ini ();
-;	  dcl = ctl.Pdcl = dc_alc ();
-;	  dcl->Venv |= dcCLI_|dcCLS_;
-;	  dc_eng (dcl, cuAdcl, "EXPAT> ");
-;	} 
-;
-;	The DCL interpreter is table-driven, as shown in this excerpt:
-;
-;	  init	cuAdcl : [] dcTitm
-;	; level symbol		task	P1	  V1  	type|flags
-;	  is
-;	     1,	"EX*IT",	dc_exi, <>,	   0, 	dcEOL_
-;	     1,	"HE*LP",	dc_hlp, cuAhlp,	   0, 	dcEOL_
-;	  
-;	     1,	"CO*PY",	dc_act, <>,	   0,	dcNST_
-;	      2,  <>,		dc_fld, Isrc.Aspc, 32,	dcSPC
-;	      2,  <>,		dc_fld, Idst.Aspc, 32,	dcSPC
-;	      2,  <>,		cu_cop, <>, 	   0, 	dcEOL_
-;
-;	     1,	"DI*RECTORY",	dc_act, <>,	   0, 	dcNST_
-;	      2,  <>,		dc_fld, Isrc.Aspc, 32,	dcSPC|dcOPT_
-;	      2,  <>,		cu_dir, <>, 	   0, 	dcEOL_
-;	      2,  "BR*IEF",	dc_set, &ctl.Qbrf, 1,	dcOPT_
-;	     0,	 <>,		<>,	<>,	   0, 	0
-;	  end
-;
-;	Container file notation
-;	-----------------------
-;	
-;
-;	Directory and file operations
-;	-----------------------------
-;	All directory and file operations are implemented by "VF", a 
-;	long-planned Virtual File system that was finally implemented in
-;	parallel with EXPAT.
-;
-;	VF handles the following tasks:
-;
-;	o Automated file system detection
-;	o Scanning directories
-;	o File open, close, read, write, rename, delete, etc.
-;
-;	VF currently handles XXDP, RT-11 and Windows file systems. DOS11,
-;	RSX and (early) VMS are in preparation.
-;
-;	VF hides the specific details of each of the file systems.
-;
-;	o File specifications are ascii strings.
-;	  (PDP-11 6.3 Rad50 specs are hidden)
-;	o Device and file locations are long 32-bit byte values.
-;	o Device and file lengths are long 32-bit byte values.
-;	 (PDP-11 block numbers and 16-bit block number limits are hidden)
-;	 (DECUS-C does not support unsigned longs, effectively limiting
-;	  longs to a 31-bit range arithmetically. However, that still
-;	  handles the largest disks available to PDP-11s).
-;
-;	Essentially, VF conforms to standard 32-bit C I/O practice.
-;
-;	------------
-;	VF interface
-;	------------
-;	Using VF is also relatively simple. The Rider/C excerpt below 
-;	implements a bare-bones directory function.
-;
-;	  func	cu_dir
-;		dcl : * dcTdcl
-;	  is	obj : * vfTobj = &Isrc		; VF object
-;		ent : * vfTent			; VF directory entry
-;		fine if !vf_acc (obj)		; access directory
-;		fine if !vf_scn (obj)		; scan the directory
-;		ent = &obj->Pscn->Ient		; entry
-;	        while vf_nxt (obj) ne		; get next entry
-;		   PUT("%s\n", ent->Anam)	; output file name
-;	        end
-;		fine
-;	  end
-;
-;	The equivalent C code reads as:
-;
-;	cu_dir(dcl)
-;	  dcTdcl *dcl;
-;	{ vfTobj *obj;
-;	  vfTent *ent;
-;	  obj = &Isrc;
-;	  vf_alc (obj);
-;	  if (!vf_acc (obj)) return 1;
-;	  if (!vf_scn (obj)) return 1;
-;	  ent = &obj->Pscn->Ient;
-;	  while (vf_nxt (obj) != 0) {
-;	    printf("%s\n", ent->Anam);
-;	  } 
-;	  return 1;
-;	} 
-;
-;	File export
-;	-----------
-;	File import is relatively easy. I have written file import software
-;	for DOS11, XXDP, RT-11, RSX and VMS in the past.
-;
-;	File export can be more complex. 
-;
-;	RT-11:
-;	I already have a Rider/C library that fully manages RT-11 disk
-;	volumes.
-;
-;	DOS11/XXDP:
-;	The XXDP file system is largely derived from the DOS11 file
-;	system. The export functionality is relatively simple.
-;
-;	RSX/VMS:
-;	VMS is largely an extension of the RSX file system. I've already
-;	have a file import utility for RSX/VMS which will act as a 
-;	template for VF import. Export will be more complex, particularly
-;	since RSX/VMS use an ornate system of file record types.
-;
-;	Windows:
-;	Windows support for EXPAT exists only when EXPORT runs under
-;	Windows, where I can use native Windows system calls for all
-;	functionality.
 data	local definitions
-include rid:rider	; Rider/C header
-include rid:codef	; console
-include	rid:dcdef	; DCL interface
+include rid:rider	; rider
+include	rid:cldef	; command line
+include	rid:codef	; command line
+include	rid:dcdef	; DCL
 include rid:fidef	; files
 include rid:fsdef	; file specs
 include rid:imdef	; image
 include rid:medef	; memory
-include rid:mxdef	; maximums
+include rid:mxdef	; maxima
 include rid:tidef	; time
-include	rid:vfdef	; VF virtual file system
-include	exb:exmod
-If Win			; Windows
-include	rid:cldef	; command line
-include rid:rxdef	; rad50
-include rid:stdef	; strings (stdef exhausts DECUS-C memory)
+include	rid:vfdef	; virtual files
+include	exb:exmod	; expat
+If Win			; windows
+include rid:stdef	; strings (exhausts DECUS-C memory)
 End
 
-data	Local structures
-
-;	See EXMOD.D for EXPAT definitions
+data	local structures
 
 	Isrc  : vfTobj = {0}	; source object instance
 	Idst  : vfTobj = {0}	; destination object instance
 
 	ctl   : cuTctl = {<>, &Isrc, &Idst}
 
-;	EXPAT help frame
-
-  init	cuAhlp : [] * char
-  is   "PDP-11 file exchange program EXPAT.SAV V1.0"
-       " "
-       "COPY path path	 Copy files    /ASCII/LOG/QUERY"
-       "DIRECTORY path	 List files    /BRIEF/FULL/LIST/OUTPUT=path/PAUSE"
-       "TYPE path	 Display files /LOG/PAUSE/QUERY"
-       "Date options:   /BEFORE:date/DATE:d"
-
-       "EXIT		 Exit EXPAT"
-       "HELP		 Display this help"
-	<>
-  end
-code	start
-
-;	EXPAT mainline
-
-	ex_dcl : ()
-	ex_dco : ()
+code	start - expat mainline
 
   func	start
-  is	;dcl : * dcTdcl~			; DCL context
-					;
-	im_ini ("EXPAT")		; image name for messages
-	co_ctc (coENB)			; enable ctrl/c abort
-					;				;
-	ex_dcl ()
-
-;	dcl = ctl.Pdcl = dc_alc ()	; allocate DCL control block
-;	dcl->Venv = dcCLI_|dcCLS_	; DCL as CLI and single line command 
-;					;
-;	dc_eng (dcl, cuAdcl, "EXPAT> ")	; DCL does all command processing
+  is	im_ini ("EXPAT")	; image name for messages
+	co_ctc (coENB)		; enable ctrl/c abort
+	cu_dcl ()		; process DCL command
   end
+code	overlay thunks
 
-code	overlay thunks
-
-;	For RUST/SJ the DCL engine and command modules are located
+;	For RUST/SJ the DCL engine and VF driver are located in the
 ;	same overlay region. Thus to return to DCL we must first reload
-;	the DCL overlay, which we do with EX_DCO() (see RLS:DCMOD.R).
+;	the DCL overlay, which we do with CU_OVL() (see EXDCL.R).
+
+;	ctl.Vlin = ctl.Qlin ? 0 ?? -1	; count page lines
 
   func	cv_cop
 	dcl : * dcTdcl
-  is	cm_cop (dcl)
-	ex_dco ()
+  is	ctl.Vflg = cuACC_|cuFNF_
+	fine cu_dis (dcl, &cm_cop)
+  end
+
+  func	cv_del
+	dcl : * dcTdcl
+  is	ctl.Vflg = cuFNF_|cuNAT_|cuQUE_
+	fine cu_dis (dcl, &cm_del)
+  end
+
+  func	cu_dir
+	dcl : * dcTdcl
+  is	cv_xdp (dcl) if ctl.Qxdp
+	cv_dir (dcl) otherwise
 	fine
   end
 
   func	cv_dir
 	dcl : * dcTdcl
-  is	cm_xdp (dcl) if ctl.Qxdp|ctl.Qdrs|ctl.Qpas
-	cm_dir (dcl) otherwise
-	ex_dco ()
-	fine
+  is	ctl.Vflg = cuFNF_|cuOPT_|cuSUB_
+	fine cu_dis (dcl, &cm_dir)
+  end
+
+  func	cv_xdp
+	dcl : * dcTdcl
+  is	ctl.Vflg = cuFNF_|cuOPT_
+	fine cu_dis (dcl, &cm_xdp)
+  end
+
+  func	cv_prt
+	dcl : * dcTdcl
+  is	ctl.Vflg = cuFNF_|cuLPT_|cuOPT_
+	fine cu_dis (dcl, &cm_prt)
+  end
+
+  func	cv_tou
+	dcl : * dcTdcl
+  is	ctl.Vflg = cuFNF_|cuNAT_
+	++ctl.Qdat
+	fine cu_dis (dcl, &cm_tou)
   end
 
   func	cv_typ
 	dcl : * dcTdcl
-  is	cm_typ (dcl)
-	ex_dco ()
+  is	ctl.Vflg = cuFNF_|cuOPT_|cuPAG_
+	fine cu_dis (dcl, &cm_typ)
+  end
+code	cu_dis - generic dispatcher
+
+; type	cmTfun : (*vfTobj, *vfTent) int	; file processor function
+
+	FLG(x) := (ctl.Vflg & (x))
+
+  func	cu_dis
+	dcl : * dcTdcl
+	fun : * (*vfTobj, *vfTent) int	; literal cmTfun for DECUSC
+  is	src : * vfTobj~ = &Isrc		; source object
+	ent : * vfTent~			; destination object
+	err : int = 0			; error flag
+	flg : int = ctl.Vflg		; context flags
+					;
+	ctl.Vflg |= cuINI_		; flag init to command routine
+	ctl.Vcnt = 0			; init file count
+	ctl.Vtot = 0			; total blocks
+	ctl.Vcol = 0			; directory column zero
+					;
+	vf_alc (src)			; setup source object
+	cu_gdt ()			; setup /before/date/newfile/since
+					;
+      begin				; completion block
+	quit if !vf_att (src)		; attach directory
+					;
+	if FLG(cuNAT_)			; must be native directory
+	.. quit if !cu_nat (src)	;
+					;
+	quit if !vf_scn (src)		; scan the directory
+	ent = &src->Pscn->Ient		; entry
+					;
+	cu_opn ()			; open listing file
+					;
+	while vf_nxt (src) ne		; get next entry
+	   st_low (ent->Anam)		; lower case name
+					;
+	   if !FLG(cuSUB_)		;
+	   .. next if cu_sub (ent->Anam); ignore subdirectories
+	   next if !cu_cdt (ent)	; /BEFORE/DATE/NEWFILES/SINCE
+					;
+	   ++ctl.Vcnt			; another file found
+	   next if !cu_que (ent->Anam)	; /query
+	   cu_log (ent->Anam)		; /log
+					;
+	   if FLG(cuACC_)		; access file
+	   .. quit ++err if !vf_acc(src);
+					;
+	   (*fun)(src, ent)		; call the file processor
+	   quit ++err if !that		; failed
+	end
+      end block
+	cu_clo ()			; close any listing file
+	cu_prg ()			; purge open channels
+	cu_fnf () if FLG(cuFNF_)	; check file not found
+	cu_ovl ()			; reread DCL overlay
 	fine
   end
 code	qualifiers
@@ -423,17 +333,17 @@ code	cu_log - /log log filename
   end
 
 
-code	cu_pau - /pause output every 24 lines
+code	cu_pag - /page output every 24 lines
 
 ;	flush directory/type output before prompt
 
-  func	cu_pau
-	opt : * FILE~
-	cnt : * int~
-  is	fine if *cnt lt			; counting disabled
-	if *cnt+1 ge 24			; about to prompt "More? "
-	.. fi_flu (opt) if opt ne	; flush output 
-	reply cl_mor (cnt)		; count and prompt
+  func	cu_pag
+	()  : int
+  is	lin : * int~ = &ctl.Vlin	;
+	fine if *lin lt			; counting disabled
+	if ctl.Vopt && *lin+1 ge 24	; need to flush output?
+	.. fi_flu (ctl.Hopt)		; flush output 
+	reply cl_mor (lin)		; count and prompt
   end
 
 
@@ -452,7 +362,26 @@ code	cu_que - /query operation
   end
 code	utilities
 
-code	cu_fmt - format file spec for directory display
+code	cu_f63 - format 6.3 file name
+
+  func	cu_f63
+	nam : * char~
+	fmt : * char~
+  is 	ptr : * char~ = fmt
+	col : int = 0
+	while col lt 10
+	   if (*nam eq '.') && (col lt 6)
+	   .. next *ptr++ = ' ', ++col
+	   *ptr++ = *nam++ if *nam
+	   *ptr++ = ' ' otherwise
+	   ++col
+	end
+	*ptr = 0
+	st_upr (fmt)
+  end
+
+
+code	cu_fmt - format long file name
 
   func	cu_fmt
 	spc : * char~
@@ -469,8 +398,7 @@ code	cu_fmt - format file spec for directory display
 code	cu_fnf - check file not found
 
   func	cu_fnf
-	cnt : LONG
-  is	fine if cnt ne
+  is	fine if ctl.Vcnt ne
  	im_rep ("E-No files found: %s", Isrc.Aspc)
  end
 
@@ -484,23 +412,43 @@ code	cu_len - normalize block length
   end
 
 
-code	cu_opt - default /ouput file
+code	cu_nat - check native file
 
-  func	cu_opt
-	typ : * char			; default type
-	()  : * FILE
-  is	opt : * char = ctl.Aopt		; output spec
-	if Idst.Aspc[0]			; if we have /output file
-	   fi_def (Idst.Aspc, typ, opt)	; default file type
-	else				;
-	.. st_cop ("TT:", opt)		; default output to terminal
-	ctl.Hopt = fi_opn (opt, "w","")	; open (non-binary) output
-	reply that			;
+  func	cu_nat
+	obj : * vfTobj
+  is	fine if obj->Vsys eq vfNAT	; is native path
+	im_rep ("E-Incompatible operation [%s]\n", obj->Apth)
+	fail
   end
 
-code	cu_prg - purge files
 
-;	Purge files at command completion
+code	cu_opn - open listing file
+
+  func	cu_opn
+  is	opt : * char~ = ctl.Aopt	; output spec
+					;
+	ctl.Vlin = -1			; assume not paging
+	if ctl.Qpag || FLG(cuPAG_)	;
+	&& !ctl.Qnpg			;
+	.. ctl.Vlin = 0			; wants paging
+					;
+	st_cop ("LP:", opt) if FLG(cuLPT_) ; select device
+	st_cop ("TT:", opt) otherwise	;
+					;
+	if Idst.Aspc[0]			; if we have /output file
+	.. fi_def (Idst.Aspc,"DK:.LST",opt); default it
+					;
+	ctl.Hopt = fi_opn (opt, "w","")	; open (non-binary) output
+	reply that ne
+  end
+
+  func	cu_clo
+  is	fi_clo (ctl.Hopt,"") if ctl.Hopt;
+	ctl.Hopt = <>		;
+  end
+
+
+code	cu_prg - purge object files
 
   func	cu_prg
   is	vf_prg (&Isrc)
@@ -522,13 +470,11 @@ code	cu_res - form resultant file spec
 
 code	cu_sub - check for subdirectory
 
-;	COPY and TYPE ignore RUST/Windows etc sub-directories
-
   func	cu_sub
 	sub : * char
   is	reply st_fnd (".DIR", sub) ne	; subdirectory?
   end
-code	dates
+code	dates and /exclude
 
 ;	/BEFORE/DATE/NEWFILES/SINCE 
 
@@ -589,113 +535,4 @@ code	cu_cdi - check date item
 	fine if dif lt && cas lt; /since
 	fail
   end
-If Win
-code	cu_exe - /execute=command SHE command
-
-;	directory/execute:"... %p %s ..."
-;
-;	%p	replaced by path
-;	%s	replaced by filespec
-;
-;	she command path-spec entry-filespec
-
-  func	cu_exe
-	obj : * vfTobj
-	ent : * vfTent
-  is	cmd : [mxLIN] char
-	fine if !ctl.Aexe[0]		; no command string
-					;
-	st_unq (ctl.Aexe, cmd)		; unquote the string
-	st_rep ("%p", obj->Apth, cmd)	; replace "%p" with path
-	st_rep ("%s", ent->Anam, cmd)	; replace "%s" with file spec
-	st_quo (cmd, cmd)		; add quotes to the "command"
-					;
-	im_exe ("root:she.exe", cmd, 0)	; execute command
-	reply that ge			; negative is an error
-  end
-End
-code	cx_dis - generic dispatcher
-
-; type	cxTfun : (*vfTobj, *vfTent) int	; file processor function
-
-  func	cx_dis
-	dcl : * dcTdcl
-	fun : * (*vfTobj, *vfTent) int	; literal cxTfun for DECUSC
-  is	src : * vfTobj~ = &Isrc		; source object
-	ent : * vfTent~			; destination object
-	err : int = 0			; error flag
-	cnt : LONG = 1			; files found count
-
-	vf_alc (src)			; setup source object
-	cu_gdt ()			; setup /before/date/newfile/since
-					;
-      begin				; completion block
-	quit if !vf_att (src)		; attach directory
-	quit if !vf_scn (src)		; scan the directory
-	cnt = 0				; count files now
-	ent = &src->Pscn->Ient		; entry
-	cu_opt (".LST")			; open output file
-	pass fail			;
-					;
-	while vf_nxt (src) ne		; get next entry
-	   next if cu_sub (ent->Anam)	; ignore subdirectories
-	   next if !cu_cdt (ent)	; /BEFORE/DATE/NEWFILES/SINCE
-	   st_low (ent->Anam)		; lower case name
-;	   cu_fmt (ent->Anam, fmt)	; format file spec
-
-	   ++cnt			; another file found
-	   next if !cu_que (ent->Anam)	; /query
-	   cu_log (ent->Anam)		; /log
-	   quit ++err if !vf_acc (src)	; access file
-					;
-	   (*fun)(src, ent)		; call the file processor
-	   quit ++err if !that		; failed
-	end
-      end block
-	cu_prg ()			; purge open channels
-	cu_fnf (cnt)			; check file not found
-	fine
-  end
-end file
-
-ANALYSE
-MOVE
-SEARCH
-TOUCH
-
-
-CONVERT
-/DETAB
-/ENTAB
-/LOWER
-/UPPER
-/ASCII	remove padding
-
-/BEFORE
-/AFTER
-/NEWFILES
-/LATER
-/EARLIER
-/DELETE
-/PREDELETE
-/EXCLUDE
-/IGNORE
-/WARNING
-/INFORMATION
-/PREDELETE
-/PROTECT
-/REPLACE
-/SETDATE
-/SINCE
-/SYSTEM
-/WAIT
-/VERIFY
-
-MOVE
-/ASCII
-/STF	Stream to formatted
-/FTS	Formatted to stream
-/NEWFILES/BACKUP=path
-
-TOUCH/DATE=
 
