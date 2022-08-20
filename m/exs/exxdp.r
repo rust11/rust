@@ -28,8 +28,6 @@ include	exb:exmod	; expat
 	LIN	     	  := TYP("\n")	      	   ; newline	
 code	cm_xdp - XXDP directory
 
-	cu_f63 : (*char, *char)-
-
   func	cm_xdp
 	src : * vfTobj
 	ent : * vfTent~
