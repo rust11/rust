@@ -1,0 +1,305 @@
+.title	display command
+.pass
+.mcall	.csigen,.writw,.close,.sreset,.ttyout
+set	pause 1
+test=1
+
+calc:	mov	r0,r5		;
+	edit	<W=1>
+	edit	<^Z"r calc "*~$>
+	jmp	build		;
+
+display::tst	(sp)+		;we never return
+	mov	r5,r0		;
+	cmpb	(r0),#32.	; got a space?
+	bne	4$		;
+	inc	r0
+4$:	cmpb	(r0),#'-	;
+	beq	calc		;
+	cmpb	(r0),#'0	;
+	blo	2$		;
+	cmpb	(r0),#'9	;
+	blos	calc		;
+
+2$:	setup	$display	;setup for our switches
+	edit	<X%?|X=1>	;crash recursion attempts
+	edit	<x=1T=".COM"x=0>;setup the type
+	scan	<^M>		;see if we get any switches
+	edit	<^XO%_O"="O=0a=0> ;steal a file name
+	edit	<x=1T=0x=0>	;reset the type
+
+	cmpb	(r5),#'"	;is it a literal string?
+	beq	5$		;yes
+	cmpb	(r5),#''	;is it a literal string?
+	beq	5$		;yes
+	tstb	(r5)		;is there a command coming?
+	bne	1$		;yes
+	scan	<Q="Command? ">	;pickup the command then
+1$:	mov	r5,xcomman	;remember where it starts
+	clrb	@$column	;clean up what we changed
+	jmp	continue	;and just continue
+
+				;literal string
+5$:;	clr	-(sp)		;setup a bumper
+;	psh	r5		;our second chance
+;	world			;get the input line
+;	mov	$line(r0),r5	;and get the orginal input
+	edit	<! >		;skip space
+6$:	cmpb	(r5),#''	;is this the field start?
+	beq	7$		;yes
+	cmpb	(r5),#'"	;second chance
+	beq	7$		;yes
+	tstb	(r5)+		;no, get the next
+	bne	6$		;keep looking
+	edit	<?>		;
+;	pop	r5		;not there use the upper case version
+7$:	mov	$text,r4	;get the output pointer
+	movb	(r5)+,r1	;save the alternate
+
+10$:	cmpb	(r5),r1		;end of string?
+	bne	15$		;nope
+	cmpb	(r5)+,(r5)	;double?
+	bne	40$		;nope
+
+15$:	tstb	1(r5)		;end of string?
+	beq	20$		;
+	cmpb	r1,#'"		;double quotes?
+	bne	20$		;nope
+	cmpb	(r5),#''	;
+	bne	20$		;nope
+	inc	r5		;
+	br	30$		;next is literal
+20$:	call	disnum		;look for display number
+	bcs	30$		;
+	movb	r0,(r4)+	;store it
+	br	10$		;
+
+30$:	movb	(r5)+,(r4)+	;move it
+	bne	10$		;get the next
+;	pop	r5		;another alternate?
+;	bne	7$		;yes
+35$:	edit	<?>		;illegal command
+
+40$:	call	100$		;skip spaces
+	tstb	(r5)		;end of string?
+	beq	45$		;yes
+	cmpb	(r5),#'\	;continuation?
+	bne	43$		;nope
+	cmpb	(r5),#'|	;continuation?
+	bne	45$		;nope
+43$:	inc	r5		;
+	call	100$		;skip spaces
+	cmpb	(r5),#'"	;validity checks
+	beq	44$		;
+	cmpb	(r5),#''	;
+	bne	35$		;
+44$:	movb	#cr,(r4)+	;
+	movb	#lf,(r4)+	;
+	br	6$		;get another line
+
+45$:	edit	<C0> 80$	;check for query option			;?241+
+
+;	DISPLAY/PAUSE/QUERY
+
+	movb	#200,(r4)+	;terminate it
+	.print	$text		;print the string
+	mov	sysptr,r1	;get the system
+	psh	statwd(r1)	;save statwd
+	bis	#100000,statwd(r1) ;force input from the terminal
+	.ttyin	r2		;get the first
+	br	55$		;get the rest
+50$:	.ttyin			;get the rest
+55$:	cmpb	r0,#lf		;this the last?
+	bne	50$		;nope
+	pop	statwd(r1)	;replace this
+	edit	<c0> 60$	;was it /QUERY?
+	cmpb	r2,#'y		;is this a yes?
+	beq	60$		;yes - continue
+	cmpb	r2,#'Y		;really?
+	beq	60$		;yes
+	world			;get the world
+	clr	$jobc(r0)	;stop the command file
+60$:	jmp	kmon		;fine
+
+; not /pause/query
+
+80$:	movb	#cr,(r4)+	;end it up
+	movb	#lf,(r4)+	;thus
+	clrb	(r4)+		;and clean it up
+	mov	r4,$text+2	;save the end
+;	clrb	(r4)+
+	br	expand		;and go expand it
+
+100$:	cmpb	(r5),#32.	;got a space
+	bne	110$		;nope
+	inc	r5		;
+110$:	return
+
+$display:
+option	TERMINAL	1 _	null
+option	OUTPUT		1 _	null	output	l=0
+option	PRINTER		1 _	null	printer l=0
+option	ALLOCATE	1 _	null	allocate l=0
+option	QUERY		1 _	pause	d.query  
+option	PAUSE		1 _	pause
+option	EVERYTHING	1 _	null	d.every
+option	NOTHING		1 _	null	d.nothing
+.if ne test
+option	DEBUG		1 _	null	d.debug
+.endc
+option
+d.query:edit	<c=1>		;get the little one
+	return
+
+d.every:call	eol		;display/continuous
+	mov	sysptr,r0	;get statwd
+	bis	#ifall,statwd(r0) ;and turn on everything
+	jmp	kmon
+d.noth:	call	eol		;display/nocontinuous
+	mov	sysptr,r0	;
+	bic	#ifall,statwd(r0) ;and turn us off
+	jmp	kmon
+
+expand::mov	mon,r0		;turn off dcls mode
+	bic	#$dcls,statwd(r0) ;turn off dcls
+	mov	$text+2,r2	;get the end of it
+	cmpb	-(r2),#co	;end of dcls code?
+	bne	10$		;nope
+	clrb	(r2)		;yes, remove it
+10$:
+.if ne test
+	cmpb	@$expand,#2	;is it a debug?
+	beq	debug		;yes
+.endc
+	cmpb	@$expand,#1	;is this going to the terminal?
+	bne	15$		;nope, we have to write it
+	world			;coming from a command file?
+;	tst	$jobc(r0)	;well?
+;	bne	14$		;command files get carriage return
+	movb	#200,(r2)	;rubout last lf for elegance
+14$:	.print	$text		;this ones easy
+	br	40$		;now exit to kmon
+15$:	.sreset			;clean up channels
+	.csigen	#types,#types,$expand ;get the filename
+	bcs	20$		;oops, bad file name
+	mov	$text+2,r1	;get the end
+	clrb	(r1)+		;even up to a word
+	sub	$text,r1	;get the bytes
+	asr	r1		;make it words
+	.writw	#area,#0,$text,r1,#0 ;write out the command file
+	bcc	30$		;its o.k.
+20$:	.sreset			;we got an error
+	type	<?DCL-E-File not created >
+	mov	$expand,r1
+25$:	tstb	(r1)+
+	bne	25$		;get the end
+	movb	-(r1),-(r1)	;remove the '='
+	.print	$expand
+	jmp	setfat
+30$:	.close	#0		;close the file
+	.sreset			;and clean up the rest 
+40$:	jmp	kmon		;we're done
+types:	.rad50	/xxxcomxxxxxx/	;the default filetypes
+area:	.blkw	5
+.sbttl	debug
+
+.if ne test
+d.debug:edit	<X=2>		;change it to us
+	return
+
+.mcall	.ttyout
+debug::	.print	$text		;print it
+	mov	#line,r5	;get the line
+5$:	mov	#-5,@$verify	;our null pattern 
+	bis	#$$cas,jsw	;enable lower case
+	.print	r5		;print it
+	.print	#70$		;prompt them
+	mov	#60$,r1		;to get the string
+10$:	.ttyin			;get the next
+	cmpb	r0,#cr
+	beq	10$
+	cmpb	r0,#lf
+	bne	20$
+	clr	r0
+20$:	movb	r0,(r1)+
+	bne	10$
+	clrb	(r1)+
+	bic	#1,r1		;even it up
+	mov	#207,(r1)+
+	tstb	60$		;null line?
+	beq	40$		;yep
+	call	50$
+	call	thump
+	br	5$
+40$:	jmp	kmon
+
+50$:	jsr	r3,text
+	.ascii	/v=/
+60$:	.blkw	40
+70$:	.ascii	/edit	v=/<200>
+	.even
+
+thump::	mov	$verify,r1	;get the string
+	cmpb	(r1),#-5	;our null pattern
+	beq	50$		;yep, nothing doing
+	tstb	(r1)		;got anything?
+	bne	10$		;nope
+	movb	#'0,(r1)	;change it
+10$:	movb	(r1)+,r0	;get the next
+	beq	40$		;done
+	bpl	20$		;more of the same
+	call	40$		;feed it
+	br	10$
+20$:	cmpb	r0,#9.		;a digit?
+	bhi	30$		;nope
+	bis	#'0,r0		;make it ascii
+30$:	.ttyout
+	br	10$
+40$:	.ttyout	#cr
+	.ttyour	#lf
+50$:	return
+.endc
+.sbttl	get a number
+
+;	display "...<0123>"
+;
+;	nnn	decimal number
+;	0nnn	octal number
+;
+;	r5 ->	input stream
+;	r1/r4	don't change
+
+disnum:	cmpb	(r5),#'<	;possible number?
+	bne	30$		;nope
+	clr	r2		;
+	mov	#9.,r3		;assume decimal
+	inc	r5		;
+	cmpb	(r5),#'0	;want octal?
+	bne	12$		;
+	mov	#7,r3		;octal
+10$:	inc	r5		;
+12$:	movb	(r5),r0		;
+	beq	40$		;oops
+	sub	#'0,r0		;
+	bmi	20$		;
+	cmpb	r0,r3		;this a digit?
+	bhi	20$		;
+	asl	r2		;
+	psh	r2		;
+	asl	r2		;
+	asl	r2		;
+	cmp	r3,#9.		;want decimal?
+	beq	15$		;yep
+	clr	(sp)		;nope
+15$:	add	(sp)+,r2	;
+	add	r0,r2		;
+	br	10$		;
+20$:	cmpb	(r5)+,#'>	;correct ending?
+	bne	40$		;nope - syntax
+	movb	r2,(r4)+	;store it
+	tst	(pc)+		;
+30$:	sec			;no cigar
+	return
+40$:	edit	<?>		;
+
+.end

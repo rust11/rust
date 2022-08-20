@@ -1,0 +1,150 @@
+;+++;	DCS:OVERLA - to library with edits
+.title	overla
+.include "dcs:dcl.mac"
+$ehdef		;expert header
+$erdef		;error codes
+$esdef		;error severity
+$imdef		;image
+$jbdef		;job constants
+
+
+;	DCL RT-11 overlay handler
+;
+;	%build
+;	macro	dcs:overla /object=dcb:overla
+;	%end
+;	%date
+;	<16-Apr-2003 25:32:36.00>
+;	%edit
+;	<8    >
+;
+;	DCL is often aborted and could abort part way thru
+;	an overlay read. These routines maintain information
+;	about the integrity of the overlay system.
+;
+;	DCL is usually open on the image channel. Some operations
+;	must close DCL. Network connections may lose contact with
+;	DCL. These routines attempt a lookup to SY:DCL.SYS after
+;	an overlay error. Thus, DCL will succeed after a SHAREnet 
+;	host boot, but probably not during a SHAREnet host boot.
+;
+;	If the overlay handler does not find or read DCL.SYS it
+;	displays the message:
+;
+;	?SHARE-F-Error accessing SY:DCL.SYS
+;
+;	The RT-11 overlay handler clears all overlay memory on the
+;	first call. This takes a good deal of time for the large
+;	DCL area. DCL avoids this by clearing the guard word for
+;	each overlay.
+;
+;	Read the LINK chapter in the RT-11 utility guide for
+;	information on the overlay handler structures. They are not
+;	documented here. A hack is a hack and documentation cannot
+;	change that. In the unlikely event that they change the
+;	overlay handler this code will certainly break. So will
+;	a couple of hundred other programs out there.
+
+.save
+.psect	$otabl,d,gbl,ovr
+o$vtab:					;get the overlay table address
+.restore
+o$vint:	.word	1			;set when overlays not integral
+o$vare:	.blkw	5			;request area
+o$vnam:	.rad50	"sy dcl   sys"		;
+o$verr:	.asciz	"?SHARE-F-Error accessing SY:DCL.SYS"
+	.even
+o$vbuf:	.blkb	j$bied+word		;enough space to read in edit level
+
+;	Initialize overlay structures
+;
+;	Grab overlays from RT-11
+;	See if we need to clear overlay id's
+
+ov$ini::mov	#137,$ovrh		;steal the handler
+	mov	#ov$han,$ovrh+word	;jmp @#ov$han
+	fall	ov$tst			;test integrity and return
+
+;	Test and/or clear the overlay idents
+;
+;	ov$tst checks the o$vint integrity flag
+;	ov$clr unconditionally clears the flags
+;	o$vint is initially set to clear the idents
+;
+;	c=0	overlays were not cleared
+;	c=1	overlays were cleared
+
+	.enabl	lsb			;
+ov$tst:	tst	o$vint			;is the flag set?
+	beq	10$			;no - no reason to clear
+ov$clr:	clr	o$vid1-word		;clear the overlay flags
+	clr	o$vid2-word		;
+	clr	o$vid3-word		;
+	clr	o$vid4-word		;
+	sec				;signal error
+ov$zap:	mov	#0,o$vint		;reset integrity flag
+10$:	return				;
+	.dsabl	lsb			;
+.sbttl	overlay handler
+
+;	RT-11 compatible overlay handler
+;
+;	Test for overlay integrity
+;	Ignore read if overlay already in place
+;	Otherwise read overlay in
+
+ov$han:	pshs	<r2,r1,r0>		;save the registers
+	call	ov$tst			;test overlay integrity
+	mov	(r5),r1			;get the overlay number
+	add	#o$vtab-6,r1		;get the table address
+	mov	(r1)+,r2		;get the overlay address
+	cmp	(r5)+,(r2)		;already got it?
+	beq	ov$don			;yes - go there
+	call	ov$rea			;read the file
+	bcc	ov$don			;fine - quit
+
+;	Error reading overlay
+;
+;	Try to open and read DCL.SYS again
+;	Check DCL.SYS STB date to make sure its the same version
+
+	mov	k$mwor,r0		;point to expert header
+	clr	eh.kma(r0)		;we are not resident
+	.purge	#imchn.			;purge it first
+	.lookup	#o$vare,#imchn.,#o$vnam,#0 ;lookup SY:DCL.SYS
+	bcs	ov$err			;a distinct error
+	.readw	#o$vare,#imchn.,#o$vbuf,#<j$bied+word>/word,#0 ;read in stb
+	bcs	ov$err			;access error
+	cmp	o$vbuf+j$bisd,#stbdat	;same STB?
+	bne	ov$err			;no - just report error
+	cmp	o$vbuf+j$bied,j$bied	;same edit level?
+	bne	ov$err			;no - just report error
+	call	ov$rea			;and try the read again
+	bcc	ov$don			;succeeded with read
+ov$err:	bisb	#esfat$,j$bsev		;return the severity
+	.print	#o$verr			;print the error message
+	.hard	erovl.*256		;.byte	0,373
+
+;	Return to calling program
+
+ov$don:	pops	<r0,r1,r2>		;restore these
+	mov	(r5),r5			;get the entry point
+	rts	r5			;and go there
+
+;	Read overlay
+;
+;	r2 	buffer address
+;	2(r1)	word count
+;	0(r1)	block number
+;
+;	c=0	fine
+;	c=1	error - overlay flags cleared
+
+	.enabl	lsb			;
+ov$rea:	inc	o$vint			;set the integrity flag
+	.readw	#o$vare,#imchn.,r2,2(r1),(r1)	;read in the overlay
+	bcs	ov$clr			;error 
+	br	ov$zap			;just clear the flag
+
+.end
+                                                                                                                                                                                                                                                                            

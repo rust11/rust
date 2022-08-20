@@ -1,0 +1,924 @@
+;???;	DCS:INSTER - virtual terminal support switched off
+solo=0
+vir100=0
+.title	inster
+.include "dcs:dcl.mac"
+.psect	inster
+include getval
+
+;	DCL INSTALL/TERMINAL commands
+;
+;	%build
+;	macro	dcs:ins(ter+tin+tun) /object=dcb:inster
+;	%end
+;	%date
+;	<16-Apr-2003 25:29:31.10>
+;	%edit
+;	<166  >
+
+$dhdef		;dh terminal
+$dzdef		;dz terminal
+$fndef		;filename
+$opdef		;output
+$podef		;pool
+$prdef		;pcr
+$scdef		;scheduler wait & priority
+$sidef		;signal
+$srdef		;system rights
+$tcdef		;terminal config
+$tedef		;terminal
+$ttdef		;terminal types
+$vedef		;
+
+;	???		Operator rights
+;
+;	T00:		callers terminal
+;	T01:		console terminal
+;	T02: T99:	assigned terminals
+;	DZCUU:		DZ controller and unit
+;
+;	install/terminal/csr:n/vector:n			! DL unit
+;	install/terminal/csr:n/vector:n DZcuu:		! DZ controller
+;	install/terminal dzcuu:				! DZ unit
+;
+;	remove/terminal Tn:				! Remove DL:
+;	remove/terminal dza4:				! Remove DZ unit
+;	remove/terminal dza:				! Remove DZ controller
+
+.macro	tcall	s a b c
+	jsr	r0,tcall
+	.word	s-.,a-.,b-.,c-.
+.endm
+.macro	tjump	s a b c
+	jsr	r0,tjump
+	.word	s-.,a-.,b-.,c-.
+.endm
+.sbttl	set
+
+;	set terminal
+;	set tt
+;	console=n		Invalid
+;	FB			^B, ^F, ^X  - irrevelant
+;
+;	[NO]PAGE = TTSYNC	VMS TTSYNC option
+;	PAGE=n			PAGE length
+;	HOLD			Same as VMS
+;
+;	CRLF = WRAP		VMS WRAP option
+;	FB			^B, ^F, ^X - ignored
+;	NOFORM			Same as VMS
+;	SCOPE			Same as VMS
+;	TAB			Same as VMS
+;	WIDTH			Same as VMS
+;
+;	Expert options
+;
+;	LOWER			Same as VMS
+;	CTRLF			Unused
+;	CTRLY			SET CONTROL=(T,Y) (show control)
+;
+;	SET DEBUG		Removed - redundant
+;	SET EDIT		Removed - redundant
+;
+;	COMMAND			Setup command file TTYIN 
+;	SET VERIFY		Removed - redundant
+;	SET QUIET		SET QUIET Implemented
+;
+;	IDENTIFY		Removed - redundant
+;
+;	Generic SET options
+;
+;	QUIET	VERIFY	COMMAND	DISPLAY
+;
+;	SET INPUT COMMAND/IND/NOIND
+;
+;	SL=ON USR=NOSWAP KMON=IND EXIT=NOSWAP
+;
+;	Basic = All				None/Basic	
+;	Error = Error				Warning/None
+;	Spool = Identify			Nolog
+;	Edit  = KED, /lines=4			<editor>
+;	UIC = [10,20]
+;	Protection = S:RWED O:RWED G:RWED W:RE
+;	Wildcards = Implicit			Explicit
+;	Cli = DCL				User command
+;	Ucl = none				User name
+;
+;	Debug		No Trace	Quiet		Verify
+;	Basic = All	Error = Error	Spool = Log	
+;
+;	SL = On		Kmon = Ind	Usr = No Swap	Exit = No swap
+;	TT = Quiet	
+.sbttl	process command
+
+acts:	.word	inster,remter,setter
+actflg:	.word	1,-1,0
+
+attach::
+	mov	acts(r0),act	;act=6 - remember act
+	mov	actflg(r0),action ;the flag
+	asl	r0		;times four for task
+	mov	r0,task		;remember the task
+	call	clear		;
+.if ne solo
+	movb	d$cver,inssol	;setup SHAREsolo flag
+.endc
+	clrb	@$input		;some feeder routines screw this
+	tst	action		;what is it?
+	bmi	7$		;remove
+	bne	6$		;install
+	bis	#set$,setopt	;remember its a set
+	br	8$		;
+6$:	mov	#tecds$,conset	;default con for install
+	br	8$		;
+7$:
+8$:;	rights	<u.sopr>	;must have operator rights
+	cright	#sropr.		;must have operator rights
+				;reset the image header
+
+;	Setup some defaults
+
+	mov	#1,tstop	;stop bits
+	mov	#8.,tsize	;eight character bits
+	mov	#9600.,tspeed	;default 9600 baud rate
+	mov	#16,trate	;default baud rate pattern
+	mov	#scpti.,tipri	;input priority
+	mov	#scpto.,topri	;output priority
+	mov	#80.,twidth	;width
+	mov	#24.,tlength	;length
+	mov	#tedlt.,ctype	;assume dl controller
+	mov	#te7b$m,tmask	;assume 7-bit
+
+	setup	$attach,i.lex	;set it up
+	scan	<D=0^M>		;skip the command
+	mov	opts,majopt	;save the major options
+
+10$:	mov	majopt,opts	;reset the major options
+15$:	edit	<Q="">		;Assume install which does not force prompt
+	cmp	act,#remter	;is this remove?
+	bne	20$		;no
+	edit	<Q="Terminal? ">;yes - must specify a terminal
+20$:	scan	<E=1^IF=1>	;get next extended device
+	psh	r5		;save it
+	mov	$input,r5	;$input -> ascii device name
+	call	getter		;get terminal or controller
+	pop	r5		;get r5 back
+	tstb	(r5)		;anymore there?
+	bne	15$		;yes
+	call	valpar		;validate parameters
+	call	@act		;call install or remove
+	jmp	kmon		;nope
+
+i.lex:	edit	<r,r=" ">	;replace commas with spaces
+	return
+.sbttl	options
+
+set	con 1, dev 2 
+
+.macro	tmap c,d,e
+	map c,d,e
+	opt'c = opts
+.endm
+
+;	opts
+
+tmap	contr$,,1	;/controller
+tmap	devic$,,2	;/device
+tmap	csr$,,4		;/csr
+tmap	vecto$,,10	;/vector
+tmap	cname$,,20	;controller name
+tmap	tname$,,40	;terminal name
+tmap	cunit$,,100	;controller unit
+tmap	proce$,,200	;/process
+tmap	virtu$,,400	;/virtual
+tmap	conso$,,1000	;/console
+
+;	setopt
+
+.macro	tmap c d e
+	map c,d,e
+	opt'c = setopt
+.endm
+;
+tmap	speed$,,1	;/speed
+tmap	size$,,2	;/size
+tmap	stop$,,4	;/stop
+tmap	parit$,,10	;/parity
+tmap	iprio$,,20	;/input_priority
+tmap	oprio$,,40	;/output priority
+tmap	width$,,100	;/width
+tmap	lengt$,,200	;/page_length
+tmap	model$,,400	;/vt100
+tmap	type$,,1000	;/type
+tmap	mask$,,2000	;/seven/eight
+;
+tmap	set$,,100000	;this is a set
+;
+insset = speed$!size$!stop$!parit$!iprio$!oprio$
+insset = insset!width$!lengt$!model$!type$!mask$
+;
+map	nopar.,,0	;/noparity
+map	odd.,,1		;/odd
+map	even.,,2	;/even
+;
+; objects
+;
+map	dlobj.,,0	;DL
+map	dzobj.,,2	;DZ
+map	dhobj.,,4	;DH
+
+$attach:					;
+option	CSR		1 _	null	t.csr	;CSR address
+option	VECTOR		1 _	null	t.vect	;vector address
+option	CONSOLE		1 _	null	t.cons	;system console
+option	VIRTUAL		1 _	null	t.virt	;virtual terminal
+option	CONTROLLER	1 _	dev	t.cont	;/controller
+option	MODEL		1 _	null	t.mode	;/model:name
+option	LABEL		1 _	null	t.mode	;/label:name
+;
+$setter:
+option	SPEED		1 _	null	t.spee	;/speed:baud-rate
+option	SIZE		1 _	null	t.size	;/size:bits
+option	STOP_BITS	1 _	null	t.stop	;/stop_bits:1,2
+option	PARITY		1 _	null	t.pari	;/parity:none,odd,even
+option	NOPARITY	1 _	null	t.npar	;/noparity
+option	EVEN_PARITY	1 _	null	t.even	;/even_parity
+option	ODD_PARITY	1 _	null	t.oddp	;/odd_parity
+
+option	INPUT_PRIORITY	1 _	null	t.ipri	;/input_priority=n
+option	OUTPUT_PRIORITY	1 _	null	t.opri	;/output_priority=n
+;option	OWNER		1 _	null	t.owne	;/owner=name
+option	PROCESS_ID	1 _	null	t.proc	;/proc=n
+;option	OWNER_UIC	1 _	null	t.owne	;/owner_uic:[g,m]
+;option	PROTECTION	1 _	null	t.prot	;/protection=[s:rwed,g:rwed...]
+;option	SYSTEM		1 _	null	t.syst	;system access	
+;option	GROUP		1 _	null	t.grou	;group access
+
+; VMS options
+
+option	BROADCAST	1 _	null	t.broa	;/broadcast
+option	NOBROADCAST	1 _	null	t.nbro	;/nobroadcast
+option	CRFILL		1 _	null	t.crfi	;/crfill:formula
+option	NOCRFILL	1 _	null	t.ncrf	;/nocrfill
+option	ECHO		1 _	null	t.echo	;/echo
+option	NOECHO		1 _	null	t.nech	;/noecho
+option	ESCAPE		1 _	null	t.esca	;/escape
+option	NOESCAPE	1 _	null	t.nesc	;/noescape
+option	FORM		1 _	null	t.form	;/form
+option	NOFORM		1 _	null	t.nfor	;/noform
+option	FULLDUPLEX	1 _	null	t.full	;/fulldup
+option	NOFULLDUPLEX	1 _	null	t.nful	;/nofulldup
+option	HALFDUPLEX	1 _	null	t.half	;/halfdup
+option	NOHALFDUPLEX	1 _	null	t.nhal	;/nohalfdup
+option	HARDCOPY	1 _	null	t.hard	;/hardcopy
+option	NOHARDCOPY	1 _	null	t.nhar	;/nohardcopy
+option	HOLD_SCREEN	1 _	null	t.hold	;/hold_screen
+option	NOHOLD_SCREEN	1 _	null	t.nhol	;/nohold_screen
+option	HOSTSYNC	1 _	null	t.host	;/hostsync
+option	NOHOSTSYNC	1 _	null	t.nhos	;/nohostsync
+option	INTERACTIVE	1 _	null	t.inte	;/interactive
+option	NOINTERACTIVE	1 _	null	t.nint	;/nointeractive
+option	LA36		1 _	null	t.la36	;/la36
+option	LA120		1 _	null	t.l120	;/la120
+option	LFFILL		1 _	null	t.lffi	;/lffill=formula
+option	LOWERCASE	1 _	null	t.lowe	;/lowercase
+option	NOLOWERCASE	1 _	null	t.nlow	;/nolowercase
+option	PAGE_LENGTH	1 _	null	t.page	;/page_length=n
+option	PASSALL		1 _	null	t.pass	;/passall
+option	NOPASSALL	1 _	null	t.npas	;/nopassall
+option	REMOTE		1 _	null	t.remo	;/remote
+option	NOREMOTE	1 _	null	t.nrem	;/noremote
+;option	PERMANENT	1 _	null	t.perm	;/permanent
+option	READSYNC	1 _	null	t.rsyn	;/readsync
+option	NOREADSYNC	1 _	null	t.nrsy	;/noreadsync
+option	SCOPE		1 _	null	t.scop	;/scope
+option	NOSCOPE		1 _	null	t.nsco	;/noscope
+option	TAB		1 _	null	t.tab	;/tab
+option	NOTAB		1 _	null	t.ntab	;/notab
+option	TTSYNC		1 _	null	t.tsyn	;/ttsync
+option	NOTTSYNC	1 _	null	t.ntsy	;/nottsync
+option	TYPE_AHEAD	1 _	null	t.type	;/type_ahead
+option	NOTYPE_AHEAD	1 _	null	t.ntyp	;/notype_ahead
+option	UNKNOWN		1 _	null	t.unkn	;/unknown
+option	VT05		1 _	null	t.vt05	;/vt05
+option	VT52		1 _	null	t.vt52	;/vt52
+option	VT100		1 _	null	t.v100	;/vt100
+option	VT101		1 _	null	t.v101	;/vt101
+option	VT125		1 _	null	t.v125	;/vt125
+option	VT200		1 _	null	t.v200	;/vt200
+option	VT300		1 _	null	t.v300	;/vt200
+option	HAZELTINE	1 _	null	t.haze	;/hazeltine
+option	WIDTH		1 _	null	t.widt	;/width=n
+option	WRAP		1 _	null	t.wrap	;/wrap
+option	NOWRAP		1 _	null	t.nwra	;/nowrap
+
+option	EIGHT_BIT	1 _	null	t.eigh	;/eight	    ;V4: was eightbit
+option	NOEIGHT_BIT	1 _	null	t.seve	;/noeightbit
+option	LFFILL		1 _	null	t.lffi	;/lffill
+option	NOLFFILL	1 _	null	t.nlfi	;/nolfill
+option	ADVANCED_VIDEO	1 _	null	t.adva	;/advanced video
+option	NOADVANCED_VIDEO 1 _	null	t.nadv	;/advanced_video
+option	ANSI_CRT	1 _	null	t.ansi	;/ansii
+option	NOANSI_CRT	1 _	null	t.nans	;/noansii
+option	AUTOBAUD	1 _	null	t.auto	;/autobaud
+option	NOAUTOBAUD	1 _	null	t.naut	;/noautobaud
+option	BLOCK_MODE	1 _	null	t.bloc	;/block_mode
+option	NOBLOCK_MODE	1 _	null	t.nblo	;/noblock_mode
+option	DEC_CRT		1 _	null	t.decc	;/dec_crt
+option	NODEC_CRT	1 _	null	t.ndec	;/nodec_crt
+;
+option	FT1		1 _	null	t.ft1	;/ft1
+option	FT2		1 _	null	t.ft2	;/ft2
+option	FT3		1 _	null	t.ft3	;/ft3
+option	FT4		1 _	null	t.ft4	;/ft4
+option	FT5		1 _	null	t.ft5	;/ft5
+option	FT6		1 _	null	t.ft6	;/ft6
+option	FT7		1 _	null	t.ft7	;/ft7
+option	FT8		1 _	null	t.ft8	;/ft8
+option
+.sbttl	option routines
+
+t.consol:				;console terminal
+	mov	#177560,tcsr		;set it up
+	mov	#60,tvec		;
+	bis	#csr$!vecto$,opts	;got a CSR
+	return				;
+					;
+t.virt:					;virtual terminal
+	bis	#csr$!vecto$!virtu$,opts;virtual terminal
+.if ne vir100
+	call	t.v100			;setup VT100 characteristics
+.endc
+	return				;
+
+t.csr:					;/csr:address
+	bis	#csr$,opts		;remember we got one
+	call	getoct			;get an octal csr
+	mov	r0,tcsr			;
+10$:	return
+
+t.vect:					;/vector:address
+	bis	#vecto$,opts		;remember got one
+	call	getoct			;get vector address
+	mov	r0,tvec			;
+	return
+
+t.proc:
+	bis	#proce$,opts		;remember we got a process
+	call	getval			;get process number
+	mov	r0,tpid
+	return
+
+t.cont:					;/controller
+	bis	#contr$,opts		;remember its a controller
+	return
+
+t.oddp:	bis	#parit$,setopt		;
+	mov	#odd.,tparit		;/odd
+	return
+
+t.even:
+t.pari:	bis	#parit$,setopt		;
+	mov	#even.,tparit		;/even
+	return
+
+t.npar:	bis	#parit$,setopt		;
+	clr	tparit			;/noparity
+	return
+
+t.size:	bis	#size$,setopt
+	jsr	r3,t.gval		;/length
+	.word	tsize
+	return
+
+t.spee:	bis	#speed$,setopt
+	jsr	r3,t.gval		;/speed
+	.word	tspeed			;
+	return
+
+t.stop:	bis	#stop$,setopt
+	jsr	r3,t.gval
+	.word	tstop			;/stop_bits
+	return
+
+t.widt:	bis	#width$,setopt
+	jsr	r3,t.gval
+	.word	twidth
+	return
+
+t.page:	bis	#lengt$,setopt
+	jsr	r3,t.gval
+	.word	tlengt
+	return
+
+t.ipri:	bis	#iprio$,setopt
+	jsr	r3,t.gval		;/input_priority
+	.word	tipri
+	return
+
+t.opri:	bis	#oprio$,setopt
+	jsr	r3,t.gval		;/output_priority
+	.word	topri
+	return
+
+; ???	ignore if no value
+;
+t.gval:	call	getval			;get a value
+	mov	r0,@(r3)+		;
+10$:	rts	r3
+
+t.mode:	call	getmnm
+	mov	r0,tmodel		;store it
+	mov	r1,tmodel+2		;
+	bis	#model$,setopt		;remember we did it
+	return
+
+getmnm:	psh	r4
+	psh	r5		;now, we must get something here
+	edit	<^Ox=1!:|?>	;get the colon
+	mov	r4,r1		;for the convert
+	edit	<(@\@@@@@\!@~>	;get the name
+	cmp	r5,(sp)+	;did we move?
+	bne	30$		;yes
+	edit	<?>		;nope, bomb them
+30$:	call	conar		;get the first
+	psh	r0		;
+	call	conar		;get the second
+	mov	r0,r1		;swap them
+	pop	r0		;get back the first
+	pop	r4		;
+	return
+.sbttl	terminal types
+
+;	Handle the terminal type commands such as /VT100
+;	These use VMS defaults
+
+.macro	dset c d e f g h i j k l m n o p
+	jsr	r2,d.set
+.irp	x,<c d e f g h i j k l m n o p>
+	.word	tt'x'.
+.endr
+	.word	-1
+.endm
+
+.macro	dclear c d e f g h i j k l m n o p
+	jsr	r2,d.clear
+.irp	x,<c d e f g h i j k l m n o p>
+	.word	tt'x'.
+.endr
+	.word	-1
+.endm
+
+meta	<ttype	c d e=-1 f=0><jsr r1,t.ptyp><.rad50 &d&><.word c,e,f>
+
+
+.enabl	lsb
+d.clea:	mov	#tclear,r3
+	br	10$
+d.set:	mov	#tset,r3
+10$:	movb	(r2)+,r0	;word in table
+	movb	(r2)+,r1	;bit in word
+	add	r3,r0		;add in table base
+	bis	w$bits(r1),(r0)	;set it
+	cmp	(r2),#-1	;was that all?
+	bne	10$		;no
+	tst	(r2)+		;yes
+	rts	r2		;
+.dsabl	lsb
+
+t.ptyp:	bit	#model$,setopt	;overriding model name?
+	bne	5$		;yes
+	mov	(r1),tmodel	;the model rad50 name
+	mov	2(r1),tmodel+2	;
+5$:	cmp	(r1)+,(r1)+	;skip the model
+	bis	#model$!type$,setopt
+
+	mov	(r1)+,ttype	;the terminal type
+	cmp	(r1),#-1	;this foreign?
+	beq	10$		;yes - no more
+	bis	#lengt$!width$,setopt
+	mov	(r1)+,tlength	;/page_length
+	mov	(r1)+,twidth	;/width
+10$:	pop	r1		;
+	return
+.sbttl	define terminal types
+
+t.unkn:	ttype	tdunk.	<unknwn> -1,0	;/unknown
+t.ft1:	ttype	tdf01.	<ft1   > -1,0	;/ft1
+t.ft2:	ttype	tdf02.	<ft2   > -1,0	;/ft2
+t.ft3:	ttype	tdf03.	<ft3   > -1,0	;/ft3
+t.ft4:	ttype	tdf04.	<ft4   > -1,0	;/ft4
+t.ft5:	ttype	tdf05.	<ft5   > -1,0	;/ft5
+t.ft6:	ttype	tdf06.	<ft6   > -1,0	;/ft6
+t.ft7:	ttype	tdf07.	<ft7   > -1,0	;/ft7
+t.ft8:	ttype	tdf08.	<ft8   > -1,0	;/ft8
+
+;	fuldup is the default
+
+t.la36:					;/la36
+	dset	low tsy wra
+	dclear	nec 8bt mff hld pas rsy mht nta
+	ttype	tl036.	<la36  > 8.,132.
+
+t.l120:	dset	mff low tsy wra		;/la120
+	dclear	nec 8bt hld hsy pas rsy mht nta
+	ttype	tl120.	<la120 > 8.,132.;/la120
+
+t.vt05:	dset	tsy wra
+	dclear	nec 8bt esc mff hld hsy low pas rsy mht nta
+	ttype	tv005.	<vt05  > 20.,72.;/vt05
+
+t.vt52:	dset	low mht tsy wra		;hsy
+	dclear	nec 8bt mff pas rsy nta  hsy
+	ttype	tv052.	<vt52  > 24.,80.;/vt52
+
+t.v240:
+t.v221:
+t.v100:	dset	low mht tsy wra ans dec  ;hsy
+	dclear	nec 8bt mff pas rsy nta   hsy
+	ttype	tv100.	<vt100 > 24.,80.;/vt100
+
+t.haze:	dset	low mht tsy wra 
+	dclear	nec 8bt mff pas rsy nta   hsy
+	ttype	tdhaz.	<hazel > 24.,80.;/hazeltine
+
+t.v101:	dset	low mht tsy wra ans dec  ;hsy
+	dclear	nec 8bt mff pas rsy nta   hsy
+	ttype	tv101.	<vt101 > 24.,80.;/vt101
+
+t.v125:	dset	low mht tsy wra ans dec  ;hsy
+	dclear	nec 8bt mff pas rsy nta   hsy
+	ttype	tv125.	<vt125 > 24.,80.;/vt125
+
+t.v200:	dset	low 8bt mht tsy wra ans dec  ;hsy
+	dclear	nec mff pas rsy nta   hsy
+	ttype	tv200.	<vt200 > 24.,80.;/vt200
+
+t.v300:	dset	low 8bt mht tsy wra ans dec  ;hsy
+	dclear	nec mff pas rsy nta   hsy
+	ttype	tv300.	<vt300 > 24.,80.;/vt300
+.sbttl	terminal characteristics
+meta	<tclear c><jsr r1,t.clear><.word c>
+meta	<tset c><jsr r1,t.set><.word c>
+
+t.clea:	movb	(r1)+,r0	;r0 = word in table
+	movb	(r1),r1		;r1 = bit in word
+	bis	w$bits(r1),tclear(r0) ;setup the bit to clear
+	bic	w$bits(r1),tset(r0) ;remove default sets
+	pop	r1
+	return
+
+t.set:	movb	(r1)+,r0	;r0 = word in table
+	movb	(r1),r1		;r1 = bit in word
+	bis	w$bits(r1),tset(r0) ;setup the bit to clear
+	bic	w$bits(r1),tclear(r0) ;remove default clears
+	pop	r1
+	return
+
+t.broa:	tclear	ttnbc.	;/broadcast	
+t.nbro:	tset	ttnbc.	;/nobroadcast
+t.crfi:	tset	ttcrf.	;/crfill
+t.ncrf:	tclear	ttcrf.	;/nocrfill	
+t.echo:	tclear	ttnec.	;/echo
+t.nech:	tset	ttnec.	;/noecho
+t.esca:	tset	ttesc.	;/escape	
+t.nesc:	tclear	ttesc.	;/noescape
+t.form:	tset	ttmff.	;/form
+t.nfor:	tclear	ttmff.	;/noform
+t.nhal:			;/nohalfduplex
+t.full:	tclear	tthlf.	;/fullduplex
+t.half:			;/halfduplex
+t.nful:	tset	tthlf.	;/nofullduplex
+t.nsco:
+t.hard:	tclear	ttsco.	;/hardcopy
+t.scop:
+t.nhar:	tset	ttsco.	;/nohardcopy
+t.hold:	tset	tthld.	;/hold_screen
+t.nhol:	tclear	tthld.	;/nohold_screen
+
+t.host:	tset	tthsy.	;/hostsync
+t.nhos:	tclear	tthsy.	;/nohostsync
+
+t.lowe:	mov	v$eemt,r0 ;get emt vector
+	bis	#tc0lm$,-(r0) ;set it in ttcnfg
+	tset	ttlow.	;/lowercase
+t.nlow:	mov	v$eemt,r0 ;get emt vector
+	bic	#tc0lm$,-(r0) ;clear it in config
+	tclear	ttlow.	;/nolowercase
+t.nint:			;/nointeractive
+t.pass:	tset	ttpas.	;/passall	
+t.inte:			;/interactive
+t.npas:	tclear	ttpas.	;/nopassall
+t.remo:	tset	ttrem.	;/remote
+t.nrem:	tclear	ttrem.	;/noremote
+t.rsyn:	tset	ttrsy.	;/readsync
+t.nrsy:	tclear	ttrsy.	;/noreadsync
+t.tab:	tset	ttmht.	;/tab
+t.ntab:	tclear	ttmht.	;/notab
+t.tsyn:	tset	tttsy.	;/ttsync
+t.ntsy:	tclear	tttsy.	;/nottsync
+t.type:	tclear	ttnta.	;/typeahead
+t.ntyp:	tset	ttnta.	;/notypeahead
+t.wrap:	tset	ttwra.	;/wrap
+t.nwra:	tclear	ttwra.	;/nowrap
+
+t.eigh:	bis	#mask$,setopt
+	mov	#te8b$m,tmask
+	tset	tt8bt.	;/eightbit
+t.seve:	bis	#mask$,setopt
+	mov	#te7b$m,tmask
+	tclear	tt8bt.	;/noeightbit
+t.lffi:	tset	ttlff.	;/lffill
+t.nlfi:	tclear	ttlff.	;/nolffill
+;
+t.adva:	tset	ttavo.	;/advanced_video
+t.nadv:	tclear	ttavo.	;/noadvanced_video
+t.ansi:	tset	ttans.	;/ansii
+t.nans:	tclear	ttans.	;/noansii
+t.auto:	tset	ttaut.	;/autobaud
+t.naut:	tclear	ttaut.	;/noautobaud
+t.bloc:	tset	ttblk.	;/blockmode
+t.nblo:	tclear	ttblk.	;/noblockmode
+t.decc:	tset	ttdec.	;/dec_crt
+t.ndec:	tclear	ttdec.	;/nodec_crt
+.sbttl	errors
+
+er$itn:	message	<Invalid terminal number>
+er$ipn:	message	<Invalid process number>
+er$its:	message	<Invalid terminal specification>
+er$npt:	message	<Process does not have a terminal>
+er$tns:	message	<Terminal not specified>
+er$dai:	message	<Terminal already installed>
+er$uai:	message	<Terminal unit already installed>
+er$pna:	message	<Process does not exist>
+er$pht:	message	<Process already has terminal>
+er$tmf:
+er$nsa:	message	<Maximum number of terminals already installed>
+er$vao:	message	<Terminal vector occupied>
+er$ccf:	message	<Terminal CSR check failed>
+er$ips:	message	<Insufficient system memory>
+er$dib:	message	<Terminal is busy>
+er$dim:	message	<Terminal is attached>
+er$dnm:	message	<Terminal not attached>
+er$cai:	message	<Terminal controller already installed>
+er$cnf:	message <Terminal controller not found>			;	??
+er$cni:	message	<Terminal controller not installed>
+er$ics:	message	<Invalid terminal controller specification>
+er$mts:	message	<Incomplete terminal specification>
+er$dni:	message	<Terminal not installed>
+er$dmp:	message	<wTerminal detach now pending>
+er$isp:	message	<Invalid SET value>
+	jmp	kmon
+.sbttl	validate parameters
+
+;	Handle all preliminary validation of parameters
+;	All of these will succeed by default
+;
+;	tpid	validated by kernel routine
+;	tcsr	validate - ensure vector too
+;	tvec	validate - ensure csr too
+;	tipri	validate - reduce and warn
+;	topri	validate - reduce and warn
+;	tparit	always valid
+;	tsize	validate - rarely changed
+;	tspeed	validate - terminal dependant
+;	tstop	validate - rarely changed
+
+valpar:
+
+; CSR and Vector
+
+20$:	bit	#csr$!vecto$,opts ;specified either?
+	beq	100$		;no
+	bit	#virtu$,opts	;is this a virtual terminal?
+	bne	100$		;yes - no csr or vector
+	mov	tcsr,r0		;get the csr
+	bne	30$		;fine
+25$:	message	<CSR not specified>
+30$:	bit	#7,r0		;is this a valid address
+	bne	40$		;no
+	cmp	r0,#160000	;really?
+	bhi	50$		;yes
+40$:	message	<Invalid CSR address> rou=oct par=tcsr
+50$:	mov	tvec,r0		;get the vector
+	bne	60$		;fine
+	message	<Vector not specified>
+60$:	bit	#7,r0		;valid vector?
+	beq	80$		;yes
+70$:	message	<Invalid vector address> rou=oct par=tvec
+;80$:	cmp	r0,#500		;in range?
+				;
+80$:	cmp	r0,#600		;in range?
+	bhi	70$		;no
+90$:	mov	r0,vecs		;setup to test it
+	add	#4,r0		;
+	mov	r0,vecs+2	;
+	fall	100$		;
+
+;	Input and output priority
+
+100$:	cmp	tipri,#31.		;too high?
+	blos	110$			;no
+	mov	#scpti.,tipri		;yes - use default
+	message	<rwInput> txa=#150$
+
+110$:	cmp	topri,#31.		;too high?
+	blos	120$			;no
+	mov	#scpto.,topri		;yes - use default
+	message	<rwOutput> txa=#150$
+120$:	br	200$
+150$:	.asciz	/priority reduced to default/
+	.even
+
+;	Speed and stop-bits
+;	Parity is always o.k.
+
+200$:	mov	tspeed,r0		;get the speed
+	mov	#dspeed,r1		;speed list
+	call	compar			;get it
+	bcc	205$			;fine
+	message	<Invalid terminal speed> rou=dec par=tspeed
+205$:	mov	r1,trate		;save it
+
+210$:	mov	tstop,r0
+	mov	#dstop,r1
+	call	compare
+	bcc	230$
+	message	<Invalid number of stop bits> rou=dec par=tstop
+
+230$:	mov	tsize,r0
+	mov	#dsize,r1
+	call	compare
+	bcc	240$
+	message	<Invalid character size> rou=dec par=tsize
+240$:	return
+
+;	validation tables
+
+dstop:	.word	1,	2		;stop bits
+	.word	-1
+							;baud rate
+dspeed:	.word	50.,		75.,		110.,		134.
+	.word	150.,		300.,		600.,		1200.
+	.word	1800.,		2000.,		2400.,		3600.
+	.word	4800.,		7200.,		9600.,		19200.
+	.word	38400.
+	.word	-1
+
+dsize:	.word	5,	6,	7,	8.
+	.word	-1
+
+;	r0	value
+;	r1 ->	list, -1, error code
+
+compar:	
+	mov	r1,r2			;
+10$:	cmp	r0,(r1)			;this it?
+	beq	20$			;yes
+	tst	(r1)+			;no
+	cmp	(r1),#-1		;this the last?
+	bne	10$			;no
+	br	30$			;signal error
+20$:	sub	r2,r1			;make an index
+	asr	r1			;r1 = index
+	tst	(pc)+
+30$:	sec
+	return
+.sbttl	decode names
+
+;	tname	terminal name
+;	tnum	terminal number (0 is invalid, 1 is reserved for CO0:)
+;	tslot	terminal slot
+;	tnum	terminal number (also tid)
+;	cname	controller name
+;	cunit	controller unit
+;
+;	$input	= Tnn
+
+getter:
+	mov	$input,o$pmes	;setup default message
+	psh	r5		;save this
+	mov	$input,r5	;point to it
+	mov	r5,r1		;
+	call	large		;
+	tstb	(r5)		;got anything at all?
+	bne	30$		;yes
+	cmp	act,#remter	;is this remove?
+	bne	80$		;no - use default
+	br	90$		;oops - no name specified
+30$:	cmpb	(r5),#'D	;this a controller?
+	beq	getcon		;yes
+	bis	#tname$,opts	;
+	edit	<!*=T>,,100$	;must be a t or T
+	edit	<!#\#:>,,100$	;must be one or two digits
+	edit	<*> 100$	;must be all
+	mov	$input,r5	;get it back
+	inc	r5		;skip the T
+	call	getden		;get the terminal number
+	mov	r0,tnum		;remember the terminal number
+	beq	100$		;zero is invalid
+	asl	r0		;
+	mov	r0,tslot	;save the slot number
+	mov	$input,r1	;get the rad50 name
+	call	conar		;convert it
+	mov	r0,tname	;terminal rad50 name
+80$:	pop	r5
+	return
+
+90$:	jmp	er$tns		;terminal not specified
+100$:	jmp	er$its		;invalid terminal specification
+
+getcon:				;get controller
+	tst	setopt		;is this a SET?
+	bmi	100$		;yes - do not accept controller
+	bis	#cname$,opts	;we have a controller
+	cmpb	(r5)+,#'D	;got a D?
+	bne	100$		;no
+	cmpb	(r5)+,#'Z	;got a Z?
+	bne	20$		;no
+	mov	#tedzt.,ctype	;setup the controller type
+	mov	#dzobj.,object	;DZ
+	br	30$		;
+20$:	cmpb	-1(r5),#'H	;got an H
+	bne	100$		;no
+	mov	#tedht.,ctype	;
+	mov	#dhobj.,object	;
+30$:	cmpb	(r5),#'A	;this valid?
+	blo	100$		;no
+	cmpb	(r5)+,#'Z	;really?
+	bhi	100$		;no
+	edit	<!:>		;strip possible controller colon
+	tstb	(r5)		;got a unit?
+	beq	40$		;no
+	bis	#cunit$,opts	;yes
+	edit	<!#\#:>,,100$	;must be one or two digits
+	edit	<*> 100$	;must be all
+
+40$:	mov	$input,r1	;
+	call	conar		;get it in rad50
+	mov	r0,cname	;save it
+
+	bit	#cunit$,opts	;got a unit?
+	beq	50$		;no
+	mov	$input,r5	;
+	add	#3,r5		;
+	call	getden		;get the unit
+	mov	r0,cunit	;save the unit number
+50$:	pop	r5
+	return
+
+100$:	jmp	er$ics		;invalid controller specification
+.sbttl	install
+
+;	install/terminal
+;
+;	install/terminal/csr:n/vector:n controller
+;	install/terminal/csr:n/vector:n
+
+inster:					;install kernel handler
+
+;	Check for controller installation
+
+	bis	#insset,setopt		;set all options
+	bit	#csr$!vecto$,opts	;specified a controller?
+	beq	30$			;no
+	bit	#contr$!cname$,opts	;got a controller name?
+	bne	20$			;yes
+
+;	Device installation
+
+10$:	bis	#devic$,opts		;assume dl installation
+	call	calker			;call the kernel
+	jmp	kmon
+
+;	Controller installation
+
+20$:	tjump	object,insdlc,insdzc,insdhc
+
+;	Unit installation
+
+30$:	bit	#contr$!cname$,opts	;specified a controller
+	beq	40$			;no - invalid command
+	tcall	object,buidlp,buidzp,buidhp
+	call	calker
+	jmp	kmon
+
+40$:	jmp	er$mts			;missing elements
+.sbttl	remove
+
+setter:	br	calker		;[sic] must be different address to remter
+remter:	fall	calker		;remove terminal
+
+; call kernel
+;
+;	r0	address of kernel routine
+
+calker:				;call the kernel
+	clr	result		;init the result
+	$cmkrnl	#area, #20$ pic=yes	;call the kernel
+	mov	result,r0	;did we get an error?
+	beq	10$		;nope
+	call	(r0)		;call the error routine
+10$:	return
+20$:	jmp	in$beg		;
+

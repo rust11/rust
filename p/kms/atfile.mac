@@ -1,0 +1,312 @@
+quo$c=1
+.title	atfile - command files
+.pass
+.mcall	.csigen,.lookup
+$size=$csw+<3*5*2>+4
+
+comfil::call	fix
+	mov	$text,r4	;get the output area
+	mov	mon,r3		;point to the monitor
+	bit	#$$cha!spxit$,r1;was it a chain?			;?316
+	bne	chain		;yep
+	world			;get the world
+	add	#$power,r0	;point to the power flag
+	tst	(r0)		;powerup or startup?
+;	bmi	powerup		;yep
+	bmi	startup		;
+
+slave:	clr	(r0)		;stop it looping
+.if ne 0
+	tst	k$mrus		;this rust				;V4
+	bne	exeunt		;yep - no mesg...
+	mov	$mesg-$power(r0),r5 ;must be a slave
+5$:	movb	(r5)+,r0	;look for the space
+	beq	exeunt		;oops, nothing doing
+	cmpb	r0,#40		;got a space?
+	bne	5$		;nope
+10$:	movb	(r5)+,(r4)+	;move it in
+	bne	10$		;keep moving
+	movb	#cr,-1(r4)
+	movb	#lf,(r4)+
+	br	exeunt
+.endc
+
+chain:	mov	#510,r5		;get the input
+	mov	(r5),r3		;get the count
+	clr	(r5)+		;paranoia
+10$:	dec	r3		;count it
+	bmi	20$
+	movb	(r5)+,(r4)	;move them it
+	cmpb	(r4),#3		;a ^C?
+	bne	15$		;nope
+	movb	#'^,(r4)+	;yep
+	movb	#'C,(r4)
+15$:	tstb	(r4)+		;an end of line?
+	bne	10$		;nope
+	movb	#cr,-1(r4)
+	movb	#lf,(r4)+
+	br	10$
+20$:	jmp	build
+
+exeunt:	psh	r4		;save this a second			;?236+
+	mov	$text,r5	;get this one
+	edit	<!*=S*=E*=T*= *=T*=T*= >,,40$
+20$:	edit	<!*=Q*=U*=I*=E*=T>,,40$
+	movb	#'!,@$text	;comment out first line
+	mov	sysptr,r0	;point to the system
+	bis	#ifeko$,statwd(r0) ;make the world silent
+40$:	pop	$text+2		;					;?236.
+	jmp	command
+.sbttl	powerup, startup
+
+.if ne 0
+powerup:
+	inc	(r0)		;this a start-up?		;?205+	;?237+
+	beq	startup		;yes
+	tst	k$msys		;is this share?
+	bne	10$		;nope - a satellite
+	clr	r0		;force show news
+;	jmp	news		;catch the command file next
+10$:	print	<?DCL-I-Power up>;				;?205.	;?237.
+.endc
+
+startup:clr	(r0)		;turn off flag
+	tst	k$mrus		;this rust?
+	bne	60$		;yep
+	edit	<"@SY:VRT">	;yes
+	br	atfil1		;
+
+60$:	.lookup	#70$,#0,#80$	;got a startup file?
+	bcs	65$		;nope - ignore it
+mov	#line,r4	;
+	edit	<"@SY:RUSTSJ">	;yep
+	br	atfil1		;
+65$:	.exit			;
+70$:	.blkw	4		;
+80$:	.rad50	/sy rustsjcom/	;
+
+.if ne 0
+;	tst	$skip		;is the host slot count right?
+;	beq	15$		;yes
+;	type	<?DCL-W-Too >
+;	tst	$skip		;too many or too few?
+;	bpl	5$		;too many
+;	type	<few>
+;	br	10$		;
+;5$:	type	<many>
+;10$:	print	< host slots created>
+
+	tst	$skip		;host slot count right?
+	beq	15$		;yes
+	bpl	15$		;ignore too many
+	print	<?DCL-W-Not all host slots available>
+
+15$:	mov	#line,r4	;
+	tst	k$mrus		;this rust?
+	bne	60$		;yep
+	tst	k$msat		;share or star?				;?206+
+	beq	30$		;share
+	edit	<"@SY:STA">	;star - fill it in
+	movb	k$msat,r0	;get the satellite number		;?208.
+	movb	k$mjob,r1	;got a job number?
+	bne	20$		;yes
+	edit	<"R">		;
+	br	40$		;skip shares
+20$:	cmpb	r0,#10.		;this less than S10?
+	bhis	45$		;nope
+	edit	<"0">		;yes - put in leading zero
+	br	45$		;and do the rest
+30$:	movb	k$mjob,r0	;get the job number			;?208
+;	tst	k$mrus		;this rust?
+;	bne	60$		;yep
+	tst	k$mvrt		;is this VRT?
+	beq	35$		;nope
+	edit	<"@SY:VRT">	;yes
+	br	40$
+35$:	edit	<"@SY:SHARE">	;set it up				;?206.
+40$:	clr	r1		;signal no job
+45$:	cmpb	r0,#10.		;is it a big one?
+	blo	50$		;nope
+	edit	<"1">		;put in a one
+	sub	#10.,r0		;and adjust
+50$:	add	#'0,r0		;make it the character
+	edit	<_r>		;fill it in
+	mov	r1,r0		;STAssJ?
+	bne	40$		;yes
+	br	atfil1		;join common stuff
+.endc
+.sbttl @file, call, comfil
+
+call::	call	fix		;we are in memory
+	movb	#'@,(r5)	;fudge a '@'
+	br	atfcom		;and join the common stuff
+atfile::case	<call,comfil>	;dispatch it
+atfil1:	mov	#line,r5	;get the start of line
+atfcom:	mov	$text,r1	;the output area
+5$:	movb	(r5)+,(r1)	;get the next
+	cmpb	(r1)+,#'@	;this our @ indicator?
+	bne	5$		;nope, it must come
+	clrb	-(r1)		;terminate the string
+	bit	#1,r1		;is this an odd address?
+	beq	7$		;nope, we're o.k.
+	movb	#177,(r1)+	;shove in a rubout
+7$:	mov	#name,r4	;get the name
+	edit	<(\@@@\:)(@\@@@@@\|?)(.\@@@\)>
+	call	getpar		;look for parameters			;?99
+10$:	.csigen	#work,#type,#name;sigen> do it
+	bcc	20$		;o.k.
+	decb	err		;ill dev is 1
+	beq	15$		;its illdev
+	emt	fat		;oops
+	string	<&<306>&ile not found>,200
+15$:	emt	fat
+	string	<&<344>&evice>,200
+20$:	clr	-(sp)		;read> done=wait
+	mov	mon,r0		;get the monitor base
+	psh	$size(r0)	;read> get the file size
+	bgt	25$		;its file structured			;
+	mov	#4.,(sp)	;guess at 1k words maximum		;
+25$:	swab	(sp)		;read> count
+	mov	(sp),r3		;read> establish end of buffer
+	add	(sp),r3		;read> in bytes
+	psh	r1		;read> save our work address
+	add	r1,r3		;read> address end of buffer
+				; check size here
+	clr	(r3)		;read> and terminate it
+	clr	r0		;read> r0 = block
+	emt	203		;read> .read 3
+	bcc	edit		;read> reads o.k.
+	.abort	<Command file I/O error>
+name:	.ascii	/AAA:BBBCCC.DDDX/<-1><0>				;?116
+	.even
+type:	.rad50	/COM/		;default file type
+.sbttl	edit
+
+edit:	mov	$text,r5	;get the text beginning
+	mov	r5,r4		;and r4
+5$:	clr	r1		;turn on copy mode
+10$:	movb	(r5)+,r0	;get the next
+	beq	40$		;oops, no more
+	call	putpar		;check for a parameter			;?99
+	bcc	10$		;it got it, continue			;?99
+	cmpb	r0,#177		;rubout?
+	beq	10$		;yes, ignore it
+	cmpb	-1(r4),#'C	;doing ^C?
+	bne	12$		;nope
+	cmpb	-2(r4),#'^	;really?
+	beq	15$		;yep, stop copying
+12$:	cmpb	r0,#'!		;a comment?
+	bne	20$		;nope
+15$:	mov	sp,r1		;turn off copy mode
+20$:	tst	r1		;are we copying
+	beq	25$		;yep
+	cmpb	r0,#cr		;end of blank line?
+	bne	30$		;nope
+	tstb	-1(r4)		;was it a null line?
+	bmi	30$		;yep, forget it
+	cmpb	-1(r4),#lf	;still looking for blank lines
+	beq	30$		;it was blank
+	clr	r1		;re-enable copying
+25$:	movb	r0,(r4)+	;move it in
+30$:	cmpb	r0,#lf		;was it end of line?
+	beq	5$		;yes, turn copy back on
+	br	10$		;keep going in current mode
+40$:	clrb	(r4)		;power> turn it off
+	cmp	r4,$text	;edit> was it null?
+	beq	24$		;edit>  yes, ignore it
+	jmp	exeunt		;go build the command
+24$:	jmp	kmon		;forget it
+.sbttl	parameter support
+
+;	P0 		reserved for command options			;?99++
+;	P1 ... P9		;parameter names
+;	'P1'			;replace 'P1' in output
+;	r5	->	input string
+
+getpar:				;pick up any parameters
+	edit	<W=1>		;permit wildcards			;?151
+	mov	#pars,r4	;get the parameter list
+10$:	tstb	(r5)		;end of line?
+	beq	40$		;oops, all done
+	cmpb	(r5),#'!	;this a comment?
+	beq	40$		;yes
+20$:	clrb	(r4)		;make room for another
+	clrb	1(r4)		;stop line-to-long errors
+	edit	<! > 30$	;stop on a space
+	edit	<*> 20$		;copy anything else across
+30$:	clrb	(r4)+		;terminate it
+	br	10$		;look for the next
+40$:	movb	#-1,(r4)+	;mark the end of them
+	return			;and return
+	
+
+;	r0	character	saved on no-insert
+;	r1	copy flag	must be saved
+;	r2	free
+;	r3	free
+;	r4	output pointer	updated if inserted
+;	r5	input pointer	updated on insert
+;
+;	c=0	we did it
+;	c=1	you do it
+
+putpar:				;output parameters
+	psh	r0		;for failures
+	psh	r1		;save r1 for this
+	bne	200$		;forget it in no-copy mode
+	cmpb	r0,#''		;a parameter?
+	bne	200$		;nope
+.if ne quo$c
+	cmpb	(r5),#''	;''?
+	bne	3$
+	mov	r5,r0
+2$:	movb	1(r0),(r0)+
+	bne	2$
+	br	200$
+.endc
+3$:	cmpb	(r5),#'p	;a 'p' ?
+	beq	4$		;yup, so far, so good
+	cmpb	(r5),#'P	;a 'P' ?
+	bne	200$		;nope
+4$:	psh	r4		;save this
+	edit	<^r!@!#>	;get the stuff we need
+	pop	r4		;restore it
+	bcs	200$		;oops, not for us
+	cmpb	(r5),#''	;closing parameter mark?
+	bne	5$		;nope
+	inc	r5		;yes, skip it
+5$:	sub	#'0,r0		;get the digit
+	mov	#pars,r2	;search for the parameter
+10$:	tstb	(r2)		;end of parameters?
+	bmi	190$		;yep, this guy is null
+	dec	r0		;is this the parameter?
+	bmi	30$		;yep
+20$:	tstb	(r2)+		;nope, skip to next
+	bgt	20$		;thus wise
+	br	10$		;and look again
+30$:	mov	r2,r3		;setup to find length
+40$:	tstb	(r3)+		;goto end of parameter
+	bgt	40$		;must be found
+	dec	r3		;back off one for length
+	sub	r2,r3		;now we have the length
+	beq	190$		;defensive check for null string
+	mov	r5,r0		;get another copy of this
+50$:	tstb	(r5)+		;go to end of command file
+	bne	50$		;thus wise
+	add	r5,r3		;get a pointer to move
+60$:	movb	-(r5),-(r3)	;move in the space
+	cmp	r5,r0		;down to the old position?
+	bne	60$		;nope
+	mov	r3,r5		;update r5
+70$:	movb	(r2)+,(r4)+	;now copy out the text
+	tstb	(r2)		;any more?
+	bgt	70$		;till we're done
+190$:	tst	(pc)+		;return good stuff
+200$:	sec			;did not work
+	pop	r1		;restore this
+	pop	r0
+	return
+
+pars:	.blkb	204.		;room for some parameters
+work:				;dummy for csigen
+.end

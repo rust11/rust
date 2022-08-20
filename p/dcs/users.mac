@@ -1,0 +1,340 @@
+;+++;	DCS:USERS - Definitions failed after manual editing. Fixed.
+;	It wasn't checking both character cases (legacy code)
+;	I was working on this bug ten years ago
+
+def$c=0		; .DEF file compatility -- see META.MAC
+usr$c=rxm$c
+.title	users
+.psect	users
+.pass
+.include "lib:share.mac"
+$ehdef
+space = 40
+
+.if ne def$c
+	ucBLK = 12.
+.iff
+	ucBLK = 8.
+.endc
+
+;	+-------------------------------+
+;	| Used by KMS:KMON		|
+;	+-------------------------------+
+;
+; ???	show symbols - deleted
+; ???	show commands 
+;
+;	Translate user defined command
+;
+;	Read in commands if not loaded
+;	Command names are cached
+;
+; input	r5	-> input text line
+; uses	r4	-> $text
+;	r1	-> $metas
+;
+;	name := string
+;	\	newline
+;	^	parameters
+;	\<nl>	don't insert ^
+;	'	quote any character
+;	[]	default
+;	^1	selected parameter
+;
+;	^	string
+;	^n	selected argument
+;	^[..]	default value (string or argument)
+;		default may contain quote (for ])
+;
+;	cmd x 	:= ...		=> ... x
+;	cmd x	:= ... ^ ...	=> ... x ...
+
+;	nl = 134		; \
+	nl = 174		; |
+
+	.enabl	lsb
+uc$fnd::call	uc$loa		;load them
+	bcs	55$		;
+	br	5$		;
+users::	world			;get the address
+	mov	$metas(r0),r1	; r1 = meta list
+	beq	55$		;not installed
+5$:	edit	<W=0>		;reset the wildcard flag
+	movb	(r5),r0		;get the first
+	call	alpha		;this a alphabetic?
+	bcs	55$		;no - not for us
+	mov	$text,r4	; r4 = output
+				;
+;	Isolate command name
+
+10$:	clr	r3		;clear the found flag
+	mov	r5,r2		;point to the entry
+20$:	tstb	(r1)		;this the end?
+	ble	55$		;
+	cmpb	(r1),#space	;got the end of it?
+	beq	25$		;yes - flag it found
+	cmpb	(r1),#'=	;got an equals?
+	beq	25$		;yes
+	cmpb	(r1),#':	;got a colon?
+	beq	25$		;yes
+	cmpb	(r1),#'*	;found abbreviation?
+	bne	30$		;nope
+	inc	r1		;yes - skip it
+25$:	inc	r3		;flag found
+
+;	Search for command
+
+30$:	movb	(r2),r0		;get the next
+	call	alpha		;check for alphabetic
+	bcs	40$		;end of model, check for found
+	inc	r2		;skip the character
+	cmpb	r0,(r1)+	;check the next
+	beq	20$		;got one, try the next
+	psh	r0		;
+	movb	-1(r1),r0	;
+	call	alpha		;
+	cmpb	r0,(sp)+	;still different?
+	beq	20$		;yep
+	clr	r3		;flag a missmatch
+40$:	tst	r3		;did we find it?
+	bne	found		;we found it
+50$:	tstb	(r1)+		;skip to next entry
+	bmi	55$		;oops - over the end
+	bne	50$		;get the last
+	tstb	(r1)		;end of table?
+	bpl	10$		;nope, keep looking
+55$:	return			;end of table, not found
+	.dsabl	lsb
+
+;	Found command, skip to definition
+
+found:	tstb	(r1)		;shouldn't happen
+	beq	40$		;but
+	movb	(r1)+,r0	;find the first non-ascii
+	call	alpha		;keep looking
+	bcc	found		;this aint it
+	cmpb	(r1),#space	;
+	bne	10$		;
+	inc	r1		;
+10$:	cmpb	(r1),#'=	;this an equals?
+	beq	20$		;yep
+	cmpb	(r1),#':	;this a colon?
+	bne	30$		;nope
+20$:	inc	r1		;skip the next
+30$:	cmpb	(r1),#'=	;got another equals
+	beq	20$		;yes, skip it
+	cmpb	(r1),#space	;got a space?
+	bne	40$		;
+	inc	r1		;skip the space
+
+;	Interpret the string
+;
+;	r1 ->	user defined command
+;	r2 ->	parameters
+;	r3	parameter inserted flag
+;	r4 ->	output string
+
+40$:	cmpb	(r2),#space	;got leading space?
+	bne	50$		;nope
+	inc	r2		;skip it
+50$:	clr	r3		;nothing substituted yet
+	call	parse		;parse and substitute
+				;
+	tst	r3		;already inserted parameter?
+	bne	60$		;yep
+	clr	r0		;nop
+	cmp	r4,$text	;output anything so far?
+	beq	55$		;nope
+	movb	#32.,(r4)+	;put a wee space in between
+55$:	call	subs		;insert at end (r1 -> 0)
+
+60$:	edit	<}>		;put in a cr/lf
+	mov	$text,r5	;
+	jmp	build		;and build a quiet command file
+.sbttl	parse and substitute
+
+parse:	cmpb	(r1)+,#''	;literal?
+	beq	50$		;yep
+	cmpb	-(r1),#nl	;this a new line?
+	bne	10$		;no
+	inc	r1		;
+	tstb	(r1)		;anything else coming?
+	beq	5$		;nope
+	edit	<}>		;insert cr/lf
+	br	parse		;
+5$:
+;	tstb	(r1)		;anything else coming?
+;	bne	parse		;yep
+	inc	r3		;we have \<nl> - inhibit ^
+	br	50$		;finish
+;	br	parse		;
+				;
+10$:	cmpb	(r1),#'^	;this the parameter?
+	bne	50$		;no
+	cmpb	1(r1),#'C	;^C?
+	beq	50$		;
+	inc	r1		;
+	psh	r2		;save the parameters
+	movb	(r1),r0		;look for a digit
+	sub	#'0,r0		;
+	cmp	r0,#9.		;this a selected argument?
+	blos	15$		;yep
+	clr	r0		;move whole string
+	br	45$		;
+15$:	inc	r1		;skip the digit
+20$:	dec	r0		;find the substring
+	beq	40$		;found it
+30$:	tstb	(r2)		;skip a little
+	beq	40$		;oops - no substring found
+	cmpb	(r2)+,#space	;got the separator?
+	bne	30$		;nope
+	br	20$		;yes
+40$:	mov	#space,r0	;setup terminator
+45$:	call	subs		;substitute it
+	pop	r2		;
+	br	parse		;
+
+50$:	movb	(r1)+,(r4)+	;move one more
+	bne	parse		;more
+	cmpb	-(r1),-(r4)	;backup
+	return
+
+;	r0=0	substitute the lot
+;	r0=32	substitute single argument
+;	r1	default argument
+;	r2	string to insert
+;	r4	output 
+
+subs:	inc	r3		;remember we inserted
+	tstb	(r2)		;anything to substitute?
+	bne	10$		;yes
+	mov	sp,r0		;copy
+	br	30$		;do the default
+10$:	movb	(r2),(r4)+	;move them in
+	beq	20$		;
+	cmpb	(r2)+,r0	;terminator?
+	bne	10$		;
+20$:	dec	r4		;back off
+	clr	r0		;don't copy default
+
+;	Copy or skip default
+
+30$:	cmpb	(r1),#'[	;got a default?
+	bne	70$		;nope
+	inc	r1		;
+40$:	cmpb	(r1)+,#''	;quoted?
+	beq	50$		;yep
+	cmpb	-(r1),#']	;end of it
+	bne	50$		;yes
+	inc	r1		;
+	br	70$		;
+50$:	tstb	(r1)		;end of it?
+	beq	70$		;yep
+	tst	r0		;copying?
+	beq	60$		;nope - skipping
+	movb	(r1),(r4)+	;store another
+60$:	inc	r1		;
+	br	40$		;
+70$:	return
+
+alpha:	psh	r0		;save in case of failure
+	cmpb	#'$,r0		;
+	beq	10$		;
+	cmpb	#'_,r0		;underline?
+	beq	10$		;yep
+	cmpb	r0,#'0		;a digit?
+	blo	5$		;nope
+	cmpb	r0,#'9		;truly?
+	blos	10$		;yes
+5$:	bic	#'a-'A,r0	;try for a lower case alpha
+	cmpb	r0,#'A		;got an A?
+	blo	20$		;nope
+	cmpb	r0,#'Z		;under Z?
+	bhi	20$		;nope
+	mov	r0,(sp)		;yep, use this
+10$:	tst	(pc)+		;
+20$:	sec			;
+	pop	r0		;get the result
+	return			; c=?
+.sbttl	c$loa - load UCL definitions
+
+.if ne rsj$c
+u$cspc:	.rad50	/sy rust  ucl/
+.iff
+u$cspc:	.rad50	/homrust  ucl/
+.endc
+u$clen:	.word	0
+
+uc$loa::
+.if ne usr$c
+	mov	k$mwor,r0	;
+	mov	eh.use(r0),u$cspc+2
+	mov	eh.use+2(r0),u$cspc+4
+.endc
+	mov	k$mwor,r0	;
+	mov	$text,r1	; free space
+	inc	r1		;
+	bic	#1,r1		;
+add	#2048.,r1	; space for new command
+	.purge	#3
+	.lookup	#area,#3,#u$cspc,#0
+	bcs	10$		; no such thing
+	cmp	r0,#ucBLK	; above max?
+	bhi	30$		; yep
+	call	 uc$clr		;
+	mov	r0,r2		;
+	swab	r2		;
+	.readw	#area,#3,r1,r2,#0
+	bcs	20$		;
+	asl	r2		;
+	mov	r2,u$clen	;
+	.purge	#3		;
+	call	uc$cmp
+	clc
+10$:	return
+20$:	fatal	<Error reading UCL data file>
+30$:	fatal	<Invalid UCL data file>
+
+uc$clr:	pshs	<r2,r1,r0>
+10$:	mov	#512./8.,r2
+20$:	clr	(r1)+
+	clr	(r1)+
+	clr	(r1)+
+	clr	(r1)+
+	dec	r2
+	bne	20$
+	dec	r0
+	bne	10$
+	mov	#-1,(r1)
+	pops	<r0,r1,r2>
+	return
+
+;	compress
+
+uc$cmp:	pshs	<r0,r1,r2,r3,r4,r5>
+	mov	r1,r0
+	mov	r1,r2		;
+;	add	#8.*512.,r2	;
+	add	u$clen,r2	;
+10$:	cmpb	(r0),#-1	; end of it?
+	beq	40$		; yes
+	tstb	(r0)		; end of it
+	beq	30$		;
+	cmp	r0,r2		; all over?
+	bhis	40$		; yep
+	cmpb	(r0),#cr	; return?
+	beq	20$		; yes
+	movb	(r0)+,(r1)+	;
+	br	10$		;
+20$:	cmpb	(r0)+,(r0)+	; skip cr/lf
+	clrb	(r1)+		; replace with zero
+	tstb	(r0)		; more
+	bne	10$		; yes
+30$:	clrb	(r1)+		;
+	cmp	r1,r0
+	blo	30$
+40$:	pops	<r5,r4,r3,r2,r1,r0>
+	return
+
+.end
+

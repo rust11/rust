@@ -1,0 +1,87 @@
+.sbttl	command hook
+set	$$gl 10			;getline bit
+set	stat 366-$top
+set	ifcon$ 40000		;dcl continuation
+set	co =-4
+
+job:	call	init		;get the things we need
+	tst	-(r4)		;have we been zapped?
+	bne	hat		;nope, get a character
+over:	bic	#$dcls!ifcon$,stat(r5)	;turn off dcls
+	mov	pc,(r5)		;remove us
+	add	#jobz-.,(r5)	;and remove us
+	bic	#177400,-(r4)	;its all over, clear the echo flag
+	mov	-(r4),-(r4)	;unhook from sam
+nope:	sec			;c=1, means no character supplied
+yep:	return			;return to ttyin
+adjust:	mov	(r4),r3		;adjust syslow
+	bic	#1,r3		;even addresses only
+	cmp	-(r3),-(r3)	;leave us some room (^C, fortran)
+	mov	r3,(r5)		;shove it into $top==$usr
+	cmp	(r4),$job-$jobc(r4);was it the last?
+	bne	yep		; nope, return happy, c=0
+	clr	(r4)		; yes, clear the buffer adress
+	br	over		;and zap it
+go:	incb	-(r4)		;re-enable echo
+	incb	(r4)		;adjust for decb
+off:	decb	-(r4)		;disable echo
+	inc	r4		;pop back
+hat:	movb	@(r4)+,r0	;get a byte
+	bpl	4$		;not cr
+	movb	#cr,r0		;make it a cr
+	incb	@-(r4)		;lf next time around
+	dec	(r4)+		;adjust for following inc
+4$:	mov	r0,r2		;ttyin wants it in r2
+	bne	5$		;not lf
+	movb	#lf,r0		;supply the lf
+5$:	cmpb	r0,#'C-'@	;check for ^C&$$gtlin
+	bne	1$		;nope
+	bit	#$$gl,@#jsw	;inhibiting us?
+	beq	15$		; nope, it gets thru
+	mov	-(r4),r0	;get the pointer
+	inc	r0		;skip ourself
+	cmpb	(r0)+,#co	;in a dcls?
+	bne	nope		;nope, forget it
+	cmp	r0,$job-$jobc(r4);was it the last?
+	beq	nope		;yep, forget it
+	movb	(r0),-2(r0)	;ripple it around
+	movb	#co,(r0)
+	movb	#'C-'@,-(r0)	;so
+	bic	#$dcls!ifcon$,stat(r5)	;turn us off
+	br	hat
+15$:	neg	r0		; r0<0 => ^C
+1$:	inc	-(r4)		;step up pointer
+	psh	stat(r5)	;get the dcls status
+	tstb	(sp)		;is it ifall$ mode?
+	bpl	3$		;nope
+	clr	(sp)		;yes - force print
+3$:	bic	#^c<ifeko$!$dcls!ifcon$>,(sp) ;save the print status
+	cmpb	@(r4),#co	;is this the end of dcls?
+	bne	10$		;nope
+	inc	(r4)		;yes
+	bic	#$dcls!ifcon$,stat(r5)	;turn us off
+10$:	call	adjust		;adjust us
+	tst	r0		;r0<0 => ^C ?
+	bmi	11$		; yes
+	tst	(sp)+		;are we mute?
+	bne	2$		; yes
+	bit	#$$stt,@#jsw	;in special mode?
+	bne	2$		;yep, no echo
+	.ttou			; no, echo it
+2$:	clr	r1		; >> r1=0, c=0
+	return			; r0=sign, r2=sign%(lf=0)
+11$:	tst	(sp)+		;should we echo it?
+	bne	12$		;nope
+	print	<^C>		;echo it
+12$:	mov	sp,r0		;make sure its quiet
+	.exit			;and go away
+
+init:	mov	@#sysptr,r5	;point r5 and r4
+	add	#$top,r5	;get the usr adress
+	mov	(pc)+,r4
+net$:	.word	0		;birth
+	add	#$power,r4	;pic
+	return
+jobz:
+work:				;work space for com.mac
+.end

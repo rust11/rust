@@ -1,0 +1,130 @@
+.sbttl	device
+.pass
+.include "lib:share.mac"
+
+; common device subroutines
+
+.mcall	.dstat	.trpset	.purge	.lookup	.serr	.herr	.ttyout
+.mcall	.readw	.csispc
+meta	<wardev a,d><.iif nb <d>,psh d><jsr r1,wardev><string <a>,200>
+meta	<fatdev a><jsr r1,fatdev><string <a>,200>
+meta	<infdev a><jsr r1,infdev><string <a>,200>
+set	$csw 4, c.unit 11, indx$m 76
+
+set	syunit 274, syindx 364, pnptr 404
+set	ty.dma 1, ty.rem 2, ty.dmx 4, ty.syn 10
+set	ty.spo 20, ty.tim 40, ty.abo 100, ty.nsh 200
+set	h.siz 52, h.dvsz 54, h.dsts 56, h.gen 60
+set	c.sblk 2, ronly$ 40000, wonly$ 20000
+set	$usrlc 266, usrloc 352
+set	filst$ 100000, specl$ 10000, spfun$ 2000, varsz$ 400
+
+indexes:psh	r2		;save this
+	psh	r0		;
+	mov	#$unam1,r2	; << r0 = index				;?88
+	mov	#.unam1,r0	;our slot table				;?88
+10$:	mov	(r2)+,(r0)	;move it in
+	add	r1,(r0)+	;offset to slot
+	cmp	r0,#.type	;just done the last?
+	blo	10$		;nope
+	mov	-2(r0),(r0)	;do this by hand
+	add	$slots,(r0)	;SHARE only
+	pop	r0
+	pop	r2
+	mov	r1,.index	;remember current index
+	tst	(r1)+		;point to next slot
+	cmp	$slots,r1	;too far?
+	return			;c=0 => not last; c=1 => oops
+
+.unam1:	.word	0							;?88+
+.syassg:.word	0
+.unam2:	.word	0							;?88-
+.pname:	.word	0	;pointers to current slot
+.hentry:.word	0
+.stat:	.word	0
+.dvrec:	.word	0
+.hsize:	.word	0
+.dvsize:.word	0
+.type:	.word	0
+.index:	.word	0
+
+; << R5 -> string; >> R0 = .rad50 of device name
+
+getphy:	mov	(pc)+,(pc)+
+getdev:	clr	(pc)+
+phynam:	.word	0
+	psh	r4		;keep r4 clean
+	psh	r3		;
+	psh	r2		;
+	psh	r1		;and r1
+	edit	<^b(@\@@!:\|?)(! |*=,|?)> ;make sure its simple
+	mov	r4,$begin+2	;remember the end for errors
+	clr	r3
+	clr	drname		;assume no name with suffix
+	mov	$begin,r2	;check for suffix
+	clr	r0		;
+10$:	tstb	(r2)		;
+	beq	20$
+	cmpb	(r2),#':	
+	beq	20$
+	inc	r0
+	inc	r2
+	br	10$
+20$:	psh	r0		;save count
+	mov	$begin,r1	;
+	call	conar		;
+	mov	r0,name
+	tst	phynam
+	beq	25$
+	call	conlp
+	bcs	25$		;not a logical name
+	mov	r0,name		;use logical
+	clr	(sp)		;can't have suffix
+
+25$:	cmpb	(sp)+,#3	;got a suffix?
+	bne	30$		;nope
+	mov	r0,drname	;save name with suffix	
+	movb	-(r2),r3	;save suffix
+	clrb	(r2)		;make 2-char name
+	mov	$begin,r1	;get 2-char name
+	call	conar
+	movb	r3,(r2)		;restore for errors
+30$:	mov	r0,dvname	;device name
+40$:	pop	r1		;
+	pop	r2
+	pop	r3
+	pop	r4		;restore r4
+;	mov	name,r0		;return the name
+	return
+
+infdev:	tst	(sp)+
+	type	<?DCL-I->
+	br	comdev
+wardev:	tst	(sp)+		;pop a level
+	bisb	#warn$,userrb	;don't pop a level
+	type	<?DCL-W->
+	br	comdev
+fatdev:	psh	#setfat		;go back via setfatal
+fatcom:	type	<?DCL-F->
+comdev:	.print	r1
+	type	< >
+typedev:psh	r1		;save this
+	mov	$begin,r1	;point to the device name
+	call	bold		;print it in large characters
+	print	<:>		;and terminate it
+	pop	r1
+	return
+
+$dummy:	.word	0
+area:	.blkw	7		;reserve some space
+types:	.word	0,0,0,0		;no default types
+out:	.blkw	5*3		;the output files
+	.blkw	1
+name:	.blkw	2		;for the start of the name
+type:	.word	0		;and the filetype
+	.blkw	4*5		;the other input files
+device:	.blkw	5		;for the device space
+dname:	.rad50	/sy xxx   sys/	;device name for install
+drname:	.rad50	/   /		;driver name with suffix
+dvname:	.rad50	/   /		;device name - minus suffix
+

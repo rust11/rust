@@ -1,0 +1,620 @@
+Y2K=1
+.title	batch
+.include "dcs:dcl.mac"
+.psect	batch
+
+;	DCL batch commands
+;
+;	SUBMIT file
+;		/[NO]NOTIFY			
+;		/[NO]IDENTIFY
+;		/LOG_FILE[=filespec]
+;		/PRINTER
+;		
+;	DELETE/JOB=n
+;	START/BATCH_QUEUE
+;	STOP/BATCH_QUEUE
+;	STOP/BATCH_QUEUE/NEXT
+;	SYNCHRONISE
+;	SYNCHRONISE/JOB=n
+;	SET BATCH [NO]ACCOUNT,VERIFY,NOTIFY,IDENTIFY
+;
+;	Not done:
+;		/QUEUE		
+;
+;	%build
+;	macro	dcs:(batch+shotim) /object=dcb:batch
+;	%end
+;	%date
+;	<27-Feb-2008 23:47:07.11>
+;	%edit
+;	<144  >
+
+$badef		;batch control file
+$evdef		;eva
+$fndef		;filename
+$kcdef		;kernel control
+$opdef		;output
+$srdef		;system rights
+includ	getval
+.sbttl	submit
+
+batch::						;
+	clr	b$aseb				;
+	clr	b$aclb				;
+	call	ba$avl				; check for batch available
+	case	<ba$sho,ba$syn,ba$dej,ba$sta,ba$sto> ;
+ba$sub:	clr	b$aque+fn.fil			; clear queue name
+	clr	b$aalc				; allocated size
+	setup	b$asub				; setup
+	scan	<^M>				;
+	scanend	<D="HOM:"T=".COM"^IF=1Q="File? ">; get the file
+	mov	#b$afil,r4			; get the input
+	mov	$input,r5			; get input name
+	edit	<*~>				; copy filename
+	call	ba$opn				; open batch - handles errors
+	.gtjb	#area, #b$agjb, #-1		; get process information
+	mov	#b$actl,r1			; get control buffer
+	tstb	ba.fre(r1)			; got a free record?
+	bne	40$				; yes
+	call	ba$fdb				; free database
+	fatal	<BATCH queue full>		;
+40$:	mov	ba.bpi(r1),b$abpi		; save batch pid
+	psh	ba.ctl(r1)			; save control word
+	decb	ba.fre(r1)			; one less
+	incb	ba.act(r1)			; one more active
+	mov	ba.ins(r1),r2			; get insert pointer
+	add	#ba.bbs,ba.ins(r1)		; point to the next
+	cmp	ba.ins(r1),ba.top(r1)		; time to wrap?
+	blo	50$				; nope
+	mov	ba.bot(r1),ba.ins(r1)		; yes - wrap around
+50$:	bis	b$aseb,b$abat			; set the bits
+	bic	b$aclb,b$abat			; explicit NO
+	add	#b$actl,r2			; relocate pointer
+	inc	ba.seq(r1)			; next sequence number
+	mov	ba.seq(r1),b$acnt		; save this
+	mov	ba.seq(r1),(r2)+		; put sequence number
+	mov	b$abat,(r2)			; setup control
+	bic	#^c<banot$!baver$!baacc$>,(r2)	; clear all but used
+	bis	#bapen$,(r2)+			; pending entry
+	mov	b$apid,(r2)+			; setup pid
+	mov	b$auic,(r2)+			; get the uic
+	mov	b$anam,(r2)+			;
+	mov	b$anam+2,(r2)+			;
+	mov	#b$afil,r1			; get batch filename
+	mov	r2,r0				; destination address
+	mov	r2,r4				;
+	call	cv$caf				; convert ascii to filename
+	add	#fn.bbs,r2			; point past filename
+	.date					; get the date
+	mov	r0,(r2)+			; put in the date
+	.gtim	#area, #b$atim			; put in the time
+	mov	b$atim,(r2)+			;
+	mov	b$atim+2,(r2)+			;
+	edit	<e0>,80$			; log file specified?
+	mov	#b$alog,r1			; get filename
+	mov	(r1)+,(r2)+			;get the disk
+	bne	60$				;
+	mov	#^rHOM,-2(r2)			;use default
+60$:	tst	(r1)				;got a filespec?
+	bne	70$				;yes
+	mov	r4,r1				;
+	tst	(r1)+				; get command file name
+	mov	(r1)+,(r2)+			; filename
+	mov	(r1)+,(r2)+			;
+	mov	#^rLOG,(r2)+			;
+	br	90$				;
+70$:	mov	(r1)+,(r2)+			; store specified name
+	mov	(r1)+,(r2)+			; store specified name
+	mov	(r1)+,(r2)+			;
+	br	90$				;
+80$:	clr	(r2)+				; clear logfile name
+	clr	(r2)+				;
+	clr	(r2)+				;
+	clr	(r2)+				;
+90$:	mov	b$aalc,(r2)+			; allocated file size
+	call	ba$cls				; close the file
+	assume	basto$ eq 200			;
+	tstb	(sp)				; batch queue stopped?
+	bmi	100$				; yes - do not start
+	assume	basus$ eq 100000		;
+	tst	(sp)				; batch suspended?
+	bpl	100$				; nope
+	$wake	#area, #b$abpi, #0		;
+100$:	tst	(sp)+				; skip control word
+	bit	#baide$,b$abat			; identify required?
+	beq	110$				; nope
+	output	clr				;
+	type	<?DCL-I->			;
+	output	fil par=r4			;
+	type	< submitted to >		;
+	output	nam par=#b$aque+fn.fil, ctl=#tit;
+	type	< Job >				;
+	output	dec par=b$acnt			;
+	print					;
+110$:	jmp	kmon				; we are done
+	
+b$asub:
+option	NOTIFY		1 _	null	s.noti	; /notify
+option	NONOTIFY	1 _	null	s.nono	; /nonotify
+option	IDENTIFY	1 _	null	s.iden	; /identify
+option	NOIDENTIFY	1 _	null	s.noid	; /noidentify
+option	LOG_FILE	1 _	null	s.logf	; /log_file[=name]
+option	NOLOG_FILE	1 _	null	s.nolo	; /nolog_file
+option	VERIFY		1 _	null	s.veri	; /verify
+option	NOVERIFY	1 _	null	s.nove	; /noverify
+option	ACCOUNTING	1 _	null	s.acco	; /accounting
+option	NOACCOUNTING	1 _	null	s.noac	; /noaccounting
+;option	QUEUE		1 _	null	s.queu	; /queue=name
+option	PRINTER		1 _	null	s.prin	; /printer[=dev]
+option	ALLOCATE	1 _	null	s.alloc	;
+option
+
+
+meta	<setbit val><bis val,b$aseb><return>
+meta	<clrbit val><bis val,b$aclb><return>
+
+s.noti:	setbit	#banot$				;/notify
+s.nono:	clrbit	#banot$				;/nonotify
+s.iden:	setbit	#baide$				;/identify
+s.noid:	clrbit	#baide$				;/noidentify
+s.veri:	setbit	#baver$				;/verify
+s.nove:	clrbit	#baver$				;/noverify
+s.acco:	setbit	#baacc$				;/accounting
+s.noac:	clrbit	#baacc$				;/noaccounting
+s.logf:	edit	<e=1>				; /log_file
+	clr	b$alog				;
+	edit	<!:>,,10$			; got a label?
+	edit	<D="HOM:"T=".LOG">		;
+	edit	<^O>				; point to output
+	call	file				; get file spec
+	mov	#b$alog,r0			;
+	mov	$out,r1				; get input string
+	call	cv$caf				; get file spec
+	bcs	20$				; oops
+10$:	return					;
+20$:	edit	<?>				;
+
+s.nolo:	edit	<e=0>				; /nolog_file
+	return					;
+
+s.prin:	edit	<e=1>				; got a filespec
+	psh	#^rLP				; assume lp:
+	edit	<!:>,,10$			; no label - use default
+	mov	r5,r1				;
+	call	cv$arf				; convert to rad50
+	psh	r0				;
+	beq	20$				; oops
+10$:	pop	b$alog				; setup device
+	return					;
+20$:	edit	<?>				;
+
+s.allo:	call	getval				; get the value
+	bcs	10$				; not found
+	mov	r0,b$aalc			; save it
+10$:	return					;
+
+;s.queu:edit	<!:>,,10$			; got a label?
+;	mov	#b$aque+fn.fil,r2		; get the queue name
+;	mov	r5,r1				; point to the string
+;	call	cv$arf				; do two words
+;	mov	r0,(r2)+			; store first
+;	call	cv$arf				;
+;	mov	r0,(r2)+			; store second
+;	edit	<!@~>				; skip the rest
+;10$:	return					;
+.sbttl	show batch
+
+; SHAREplus V2.2 Batch queue  23-Feb-87 18:14:45.96  Uptime 0 02:08:39.62
+; RUST/XM V2.2 Batch queue on 23-Feb-87 18:14:45.96  Uptime 0 02:08:39.62
+;  Job   Control   Pid    User    File           Date         Time
+;     4  Current  000002  EWALD   SY:BATFIL.COM  23-Feb-1987  17:24:36.40
+;    24  Pending  000002  EWALD   SY:BATFIL.COM  23-Feb-1987  17:24:36.40
+;   114  Hold     000002  EWALD   SY:BATFIL.COM  23-Feb-1987  17:24:36.40
+; 23114  Hold     000002  EWALD   SY:BATFIL.COM  23-Feb-1987  17:24:36.40
+; Batch is active with 12 jobs queued and 234 free slots
+; Batch is stopped with 12 queued jobs, 234 free slots
+; Batch is suspended with no queued jobs, 234 free slots
+
+ba$sho:
+	output	clr				;
+	call	ba$opn
+	call	ba$fdb				; free database
+	mov	#b$actl,r5			; get the database
+	clr	b$ahdr				;
+	clr	b$acnt				;
+	bisb	ba.act(r5),b$acnt		; get number of active files
+	beq	100$				; all done
+	mov	ba.rem(r5),r4			; point to the entries
+10$:	mov	r4,r3				; get a copy
+	add	#b$actl,r3			; add in the base
+	tst	b$ahdr				; header done?
+	bne	12$				; yes
+	call	ba$hdr				;
+12$:	output	dec par=(r3)+ ctl=#rig cnt=#5	;
+	type	<  >				;
+	call	ba$ctl				; get control bits
+	output	oct par=(r3)+ ctl=#zer cnt=#6	; pid
+	type	<  >				;
+	tst	(r3)+				; skip UIC
+	output	nam par=r3 ctl=#upr cnt=#8.	;
+	cmp	(r3)+,(r3)+			;
+	output	fil par=r3 ctl=#upr cnt=#15.	;
+	add	#fn.bbs,r3			; pop past name
+	psh	r4				;
+	call	ba$dat				;
+	pop	r4				;
+	print					;
+15$:	add	#ba.bbs,r4			; point to the next
+	cmp	r4,ba.top(r5)			; time to wrap?
+	blo	20$				; nope
+	mov	ba.bot(r5),r4			; yes - wrap
+20$:	dec	b$acnt				; any more?
+	bne	10$				; yes
+100$:	type	<Batch is >			;
+	bit	#basto$,ba.ctl(r5)		;
+	beq	110$				;
+	type	<stopped>			;
+	br	130$				;
+110$:	bit	#baact$,ba.ctl(r5)		;
+	beq	120$				;
+	type	<active>			;
+	br	130$				;
+120$:	bit	#basus$,ba.ctl(r5)		;
+	beq	130$				;
+	type	<suspended>			;
+130$:	type	< with >			;
+	movb	ba.act(r5),r0			; get active entries
+	bne	140$				; yes
+	type	<no>				;
+	br	150$				;
+140$:	output	dec par=r0			;
+150$:	type	< job>				;
+	cmpb	ba.act(r5),#1			; singular?
+	beq	155$				; yes
+	type	<s>				;
+155$:	type	< and >				;
+	movb	ba.fre(r5),r0			;
+	bne	160$				;
+	type	<no>				;
+	br	170$				;
+160$:	output	dec par=r0			;
+170$:	type	< free slot>			;
+	cmpb	ba.fre(r5),#1			; singular?
+	beq	180$				; yes
+	type	<s>				;
+180$:	print					;
+	.purge	#0				;
+	jmp	kmon				;
+
+ba$ctl:
+	mov	#140$,r0			;
+	bit	#badel$,(r3)			; deleted?
+	beq	5$				; nope
+	mov	#130$,r0			;
+	br	90$				;
+5$:	bit	#bacur$,(r3)			; this current?
+	beq	10$				;nope
+	mov	#100$,r0			;
+	br	90$
+10$:	bit	#bapen$,(r3)			; pending?
+	beq	90$				;nope
+	mov	#110$,r0			;  assume not hold
+	bit	#basto$,ba.ctl(r5)		; queue hold
+	beq	90$				; not hold
+	mov	#120$,r0			;
+90$:	output	str par=r0			;
+	tst	(r3)+				; skip this
+	return					;
+
+100$:	.asciz	_Current  _			;
+110$:	.asciz	_Pending  _			;
+120$:	.asciz	_Hold     _			;
+130$:	.asciz	_Deleted  _
+140$:	.asciz	_         _
+	.even
+
+ba$hdr:	pshs	<r5,r4,r3>			;
+	call	gettim				; get the time
+	type	<RUST/XM V>			; the header
+	output	dec par=s.yver			;
+	type	<.>				;
+	output	dec par=s.yupd			;
+.if eq Y2K
+	type	< Batch queue  >		;
+.iff
+	type	< Batch queue on >		;
+.endc
+	call	dattik				;
+.if eq Y2K
+	type	<  Uptime >
+.iff
+	type	< Uptime >
+.endc
+	call	uptime				;
+	print
+	print < Job   Control   Pid    User    File           Date         Time>
+	inc	b$ahdr				;
+	pops	<r3,r4,r5>			;
+	return					;
+b$ahdr:	.word	0				;
+.sbttl	synchronize
+
+;	wait for the batch job
+
+ba$syn:						; synchronize/job=n
+	mov	#-1,b$ajob			; init job number
+	setup	b$ajot				; table in ba$dej
+	scan	<^M>				; get the options
+	.gtjb	#area, #b$agjb, #-1		; get our pid
+	call	ba$opn				; open the batch file
+	edit	<e0>,10$			; search for last job
+	call	ba$fnd				; find the job
+	br	20$				; we found it
+10$:	call	ba$lst				;
+20$:	bcc	25$				; fine
+	fatal	<No such batch job>		;
+						;
+25$:	bit	#basyn$,ba.rct(r4)		; already got one?
+	beq	30$				; nope
+	cmpb	b$apid,ba.rct(r4)		; this ourself?
+	beq	30$				; yes
+	fatal	<Synchronize already issued for this job>
+						;
+30$:	bis	#basyn$,ba.rct(r4)		; setup synch required
+	bisb	b$apid,ba.rct(r4)		; set it up
+	call	ba$cls				; close and release
+	.spnd					; wait for them
+	jmp	kmon				;
+.sbttl	delete/job
+
+ba$dej:						; delete/job=n
+	mov	#-1,b$ajob			; init job number
+	setup	b$ajot				;
+	scan	<^M>				; get the options
+	.gtjb	#area, #b$agjb, #-1		; get our pid
+	call	ba$opn				; open the file
+	mov	#b$actl,r4			; get the buffer
+	mov	ba.bpi(r4),b$abpi		; get batch pid
+	call	ba$fnd				; find the entry
+	bcc	10$				; fine
+	fatal	<No such batch job>		;
+						;
+10$:	cmp	ba.uic(r4),b$auic		; this our job?
+	beq	20$				; yes - fine
+	cright	#sropr.				; needs oper rights
+20$:	bis	#badel$,ba.rct(r4)		;
+	bit	#bacur$,ba.rct(r4)		; currently running?
+	beq	30$				; nope
+	$forcx	#area, #b$abpi, #0		; force exit on this entry
+30$:	call	ba$cls				; close batch file
+	jmp	kmon				;
+
+b$ajot:
+option	JOB			1 _	null	b.jobn ; /job=n
+option
+
+b.jobn:
+	edit	<e=1>				;
+	call	gv$dec				; get decimal value
+	bcs	10$				; oops
+	mov	r0,b$ajob			; save job number
+	return					;
+10$:	fatal	<No job number>			;
+.sbttl	start/stop queue
+
+ba$sta:						; start/batch_queue
+	call	ba$opn				; open the batch file
+	bic	#basto$,ba.ctl+b$actl		; remove the stop flag
+	call	ba$cls				; close the file
+	mov	ba.bpi+b$actl,b$acnt		; get the pid
+	beq	10$				; not setup
+	$resume	#area, #b$acnt, #0		; wake up the process
+10$:	jmp	kmon				;
+
+ba$sto:						; stop/batch_queue
+	setup	b$asto				;
+	scan	<^M>				; get the options
+	call	ba$opn				;
+	bis	#basto$,ba.ctl+b$actl		;
+	edit	<e1>,10$			;
+	mov	ba.bpi+b$actl,b$acnt		; get the pid
+	beq	10$				; not setup
+	$suspnd	#area, #b$acnt, #0		;suspend the process
+10$:	call	ba$cls				;
+	jmp	kmon				;
+
+b$asto:
+option	BATCH_QUEUE	1 _	null	s.retu	;
+option	NEXT		1 _	null	s.next	; stop/queue/next
+option
+
+s.next:	edit	<e=1>				;
+s.retu:	return
+.sbttl	open batch file
+
+ba$opn:
+	tst	b$aque+fn.fil			; got a filename?
+	bne	10$				; yes
+	mov	#^rBAT,b$aque+fn.fil		;
+	mov	#^rCH,b$aque+fn.nam		;
+10$:	mov	b$aque+fn.fil,b$afcn+fn.fil	;
+	mov	b$aque+fn.nam,b$afcn+fn.nam	;
+	call	ba$ldb				; lock database
+	.purge	#0				; free the channel
+	.lookup	#area, #0, #b$aque		; lookup the queue file
+	bcc	20$				; fine
+	call	ba$fdb				; free database
+	fatal	<BATCH control file missing>	;
+20$:	.readw	#area, #0, #b$actl, #<bablk.*256.>, #0	; read the control file
+	bcc	30$				; fine
+	call	ba$fdb				; free database
+	fatal	<I/O error on BATCH control file> ;
+30$:	return					;
+
+ba$cls:	.writw	#area, #0, #b$actl, #<bablk.*256.>, #0	; write it back
+	.close	#0				; close the file
+	call	ba$fdb				; free database
+	return					;
+
+;	Find job whose number is in b$ajob	
+
+ba$fnd:	mov	b$actl+ba.bot,r4		; get the file
+	add	#b$actl,r4			; offset it
+	mov	#bacnt.,r3			; get a counter
+10$:	assume	ba.ent eq 0			;
+	cmp	(r4),b$ajob			;
+	beq	20$				;
+15$:	add	#ba.bbs,r4			; point to the next
+	sob	r3,10$				; search for more
+	br	30$				;
+20$:	bit	#badel$,ba.rct(r4)		; is it deleted?
+	bne	30$				; yes - ignore it
+	tst	(pc)+				; we found it
+30$:	sec					; no such job
+	return					;
+
+;	Find last job for current process
+
+ba$lst:	mov	b$actl+ba.bot,r4		; get the file
+	add	#b$actl,r4			; offset it
+	mov	#bacnt.,r3			; get a counter
+	clr	r0				; assume not found
+	clr	-(sp)				; for entry number
+10$:	assume	ba.ent eq 0			;
+	tst	(r4)				; this in use?
+	beq	20$				; nope
+	bit	#badel$,ba.rct(r4)		; deleted?
+	bne	20$				; yes
+	cmp	ba.pid(r4),b$apid		; this ours?
+	bne	20$				; nope
+	cmp	(r4),(sp)			; higher job number?
+	blo	20$				; nope
+	mov	(r4),(sp)			; yes - use this
+	mov	r4,r0				; send back address
+20$:	add	#ba.bbs,r4			; point to the next
+	sob	r3,10$				; more entries
+	mov	r0,r4				; setup the address
+	tst	(sp)+				; did we find one?
+	beq	30$				; no job found
+	tst	(pc)+				;
+30$:	sec					;
+	return					;
+.sbttl	date
+
+ba$dat:	mov	(r3),r1		;day
+	asl	r1		;r1 = day
+	asl	r1
+	asl	r1
+	swab	r1
+	bic	#^c<37>,r1
+	output	dec par=r1 ctl=#zer cnt=#2
+	type	<->		;
+
+	mov	(r3),r1		;month
+	asr	r1		;r1 = month
+	swab	r1
+	asr	r1		;
+	bic	#^c<17>,r1	;clean up			;Y2k fix
+	dec	r1		;remove month zero
+	cmp	r1,#11.		;in range ?
+	blos	10$		;yes
+5$:	mov	#12.,r1		;
+10$:	asl	r1		;
+	asl	r1		;
+	add	#20$,r1		;point to the month
+	output	str par=r1	;
+	type	<->		;
+	
+.if eq Y2K
+	mov	(r3)+,r1	;year
+	bic	#^c<37>,r1	;r0 = year
+.iff
+	psh	(r3)
+	swab	(sp)
+	asr	(sp)
+	bic	#^c<140>,(sp)
+	mov	(r3)+,r1	;year
+	bic	#^c<37>,r1	;r0 = year
+	bis	(sp)+,r1	;
+.endc
+	add	#1972.,r1	;year
+	output	dec par=r1	;
+	type	<  >		;
+	mov	r3,r2		;
+	add	#4,r3		;
+	psh	#opmil$		;
+	jmp	comtim		;
+	return
+
+20$:	.irp	$,<Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec,Bad>
+	.asciz	&$&
+	.endr
+	.even
+
+.sbttl	check for batch initialized
+
+ba$avl:	psh	r0				; save case
+	$cmkrnl	#area, #100$, pic=yes
+	bcc	10$				; oops
+	fatal	<Batch queue not initialized>	;
+10$:	mov	r0,b$abat			; save batch options
+	pop	r0				; restore cae
+	return					;
+
+100$:	bit	#kcbat$,@#s$ykc0		; batch initialized?
+	beq	110$				; nope
+	mov	@#p$hbat,rp.r0(r5)		; send back batch setting
+	return					;
+110$:	.soft	0				; report the error
+.sbttl	record locking
+
+ba$ldb:						; lock the database
+	.purge	#1				;
+	$init	#1				; open for record locking
+	bcs	20$				; no locking
+	$file	#b$afcb, #1, #b$afcn		; lock this file
+	bcs	10$				; oops
+	$lock	#b$afcb, #0, #-1		; lock whole file
+	bcc	20$				; we faile
+10$:	fatal	<Error locking database>	;
+20$:	return					;
+
+ba$fdb:						; free database
+	$free	#b$afcb				; free the file
+	$quit					;
+	return					;
+.sbttl	kernel routine
+
+ba$sup:	mova	b$alog,r0			; get filespec
+	mov	@#p$hdsk,(r0)+			; select login device
+	mov	@#p$hnam,(r0)+			; process name
+	mov	@#p$hnam+2,(r0)+		;
+	mov	#^rLOG,(r0)			; default filetype
+	return					;
+.sbttl	data
+
+b$aque:	.rad50	/SY BATCH BAQ/			; name of batch file
+b$alog:	.blkb	fn.bbs				; logfile name
+b$afcn:	.rad50	/RE0prcnamSYS/			; lock filename
+b$afcb:	.blkw	12.				; re: file control
+b$abat:	.word	0				; batch setting
+b$aseb:	.word	0				;
+b$aclb:	.word	0				;
+b$acnt:	.word	0				;
+b$abpi:	.word	0				;
+b$ajob:	.word	0				;
+b$aalc:	.word	0				; allcated size
+b$atim:	.blkw	2				;
+b$afil:	.blkb	16.				; ascii filename
+b$agjb:	.blkw	12.				; .gtjb return
+	$evbeg					;
+	$evgro	gpr				;
+	$evcal	pid word lab=b$apid		; get pid
+	$evcal	usn long lab=b$anam		; user name
+	$evcal	uic word lab=b$auic		; uic
+	$evcal	dsk word lab=b$adsk		; protection
+	$evend					;
+b$actl:	.blkw	bablk.*256.			; batch file buffer
+;	fall through to SHOTIM			;
+

@@ -1,0 +1,162 @@
+.title	fortran
+.include "dcs:dcl.mac"
+.psect	fortra
+$jbdef
+$pgdef
+$rmdef
+
+;	DCL FORTRAN/F77 commands
+;
+;	%build
+;	macro	dcs:(fortra+files) /object=dcb:fortra
+;	%end
+;	%date
+;	<24-Jul-2003 18:07:10.40>
+;	%edit
+;	<18   >
+
+set	.fortra 1
+set	.f77	2
+$fort=1				;offset to fortran 
+$$for=0
+$$f77=1
+f77flg:	.word	0		;f77 command
+
+fortra::mov	r0,f77flg	;0=>fortran, 2=>f77
+				;
+	setup	$fortran,f.lex	;setup for macro
+	tst	f77flg		;explicit f77?
+	bne	4$		;yes
+	call	f77		;check F77
+	bcs	5$		;not F77
+4$:	mov	#$f77,table	;yes - use that instead
+5$:;	movb	$fort(r0),r0	;get the fortran flag
+	edit	<x=2D="LP:">	;setup the listing default
+	scan	<^M>		;get the command switches
+	psh	$switch+2	;save the front end guys
+	edit	<l0x=2D="DK:"x=0> ;change to DK: if not generic list
+	mov	f77flg,r0	;explicit f77?
+	bne	6$		;yes
+	call	f77		;
+	inc	r0		;1=fort, 2=f77
+6$:	edit	<C0C=r>		;set it if still implicit
+	edit	<^Z(C1"R FORTRA"}|C2"R F77"})> ;run the compiler
+	mov	r4,$text	;save the pointer
+
+10$:	scan	<F=6^IQ="Files? "> ;get the files
+	edit	<x=1o0f0^f_D_a>	;setup the object name
+	edit	<x=2l%f0^f_D_a>	;setup the listing name
+	edit	<^Zx=1_f(x=2f%","_f)x=0"="_I_S}>;put out the command line
+	mov	r4,$text	;save the pointer
+	tstb	(r5)		;anymore coming
+	beq	30$		;nope, go build the command
+
+	mov	(sp),$switch+2	;restore the front end pointer
+	clrb	@$switch+2	;and terminate it
+	edit	<o1|o=0>	;reset the noobject flag
+	edit	<l1|l=0>	;reset the list flag
+	edit	<x=1i1?|i=0f=0>	;clean up the object file
+	edit	<x=2i1?|i=0f=0>	;and the listing file
+	edit	<K=1>		;backup to goto column 2
+	br	10$		;and do another pass
+
+30$:	edit	<^Z"^C"}>	;kill the compiler
+	jmp	build		;go copy it out
+
+$fortran:
+option	FORTRAN		1 _	.fortra	f.fort
+option	F77		1 _	.f77	f.f77
+option	OBJECT		1 _	null	object	l=0
+option	NOOBJECT	1 _	null	noobject
+option	LIST		1 _	null	list	l=0
+option	NOLIST		1 _	null
+option	ALLOCATE	1 _	null	allocate l=0
+
+option	STATISTICS	1 A
+option	ONDEBUG		1 D
+option	EXTEND		1 E
+option	UNITS		1 N	null	value.
+option	RECORD		1 R	null	value.
+option	I4		1 T
+option	SWAP		1
+option	NOSWAP		1 U
+option	SHOW		1 L	null	value
+
+option	LINENUMBERS	1 _	.fortra	
+option	NOLINENUMBERS	1 S	.fortra
+option	VECTORS		1 _	.fortra
+option	NOVECTORS	1 V	.fortra
+option	OPTIMIZE	1 P	.fortra	value
+option	NOOPTIMIZE	1 M	.fortra	value
+option	WARNINGS	1 W	.fortra
+option	HEADER		1 O	.fortra
+option	DIAGNOSE	1 B	.fortra	value
+option	CODE		1 I	.fortra	value
+option
+
+$f77:
+option	FORTRAN		1 _	.fortra	f.fort
+option	F77		1 _	.f77	f.f77
+option	OBJECT		1 _	null	object	l=0
+option	NOOBJECT	1 _	null	noobject
+option	LIST		1 _	null	list	l=0
+option	NOLIST		1 _	null
+option	ALLOCATE	1 _	null	allocate l=0
+option	STATISTICS	1 A
+option	ONDEBUG		1 D
+option	EXTEND		1 E
+option	SHOW		1 L	null	value
+option	UNITS		1 N	null	value.
+option	RECORD		1 R	null	value.
+option	I4		1 T
+option	SWAP		1
+option	NOSWAP		1 U
+
+option	SYMBOLIC	1 B	.f77
+option	CONTINUATIONS	1 C	.f77	value.
+option	WORKFILE	1 F	.f77	value.
+option	BOUNDS		1 I	.f77
+option	SAVE		1 K	.f77
+option	OPTIMIZE	1
+option	NOOPTIMIZE	1 O	.f77
+option	WIDE		1 Q	.f77
+option	DIAGNOSE	1 S	.f77	value
+option	VERSION		1 V	.f77
+option	WARNINGS	1
+option	NOWARNINGS	1 W	.f77
+option	NOF77		1 X	.f77
+option	STANDARD	1 Y	.f77	value
+option	READ_ONLY	1 Z	.f77
+option	LINENUMBERS	1 _	.f77
+option	NOLINENUMBERS	1 S	.f77
+option
+
+f.lex:	edit	<r,r= |r+r=,>	;convert + to , and , to space.
+	return
+
+f.fort:	mov	#$fortran,table	;swap tables
+	return
+f.f77:	mov	#$f77,table	;swap tables
+	return
+
+
+f77:	mov	@#j$bsys,r0	;
+	cmpb	rm.for(r0),#pgf77.
+	bne	10$		;
+	world			;get database
+	movb	#1,$fort(r0)	;
+10$:	world			;
+	movb	$fort(r0),r0	;got f77?
+	bne	20$		;yep - c=0
+	sec			;
+20$:	return
+
+noobject:edit	<o1|o=K>	;remember it (only once)
+	return
+
+object:	edit	<r=1>		;set it up
+	br	complex		;and go handle it
+list:	edit	<r=2l1|l=K>	;doing list, setup the flag
+	fall	complex		;and fall into the files handler
+				;FILES.MAC follows here.
+

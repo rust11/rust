@@ -1,0 +1,474 @@
+.title	conver - conversions
+.include "dcs:dcl.mac"
+.psect	conver
+$rpdef		;rp
+
+;	DCL 
+;
+;	%build
+;	macro	dcs:conver /object=dcb:conver
+;	%end
+;	%date
+;	<20-Jul-1989 15:21:24.11>
+;	%edit
+;	<32   >
+;
+;	conar		convert ascii to rad50
+;		(r1)	ascii string
+;	>>	r0	radix 50
+;		(r1)	past ascii string
+;		c=1	no translation
+;
+;	conra		convert rad50 to ascii
+;		r0	rad50 value
+;		(r1)	ascii output string
+;	>>	(r1)	past zero terminated ascii output
+;		c=1	null translation
+;
+;	conle		convert logical to equivalence
+;		r0	logical name
+;	>>	r0	equivalence name
+;		c=1	no translation
+;
+;	conlp	r0	logical name
+;	>>	r0	translated name
+;;	r1	r1	device status word
+;		c=1	no translation
+;
+;	conlpp		convert logical to physical/penultimate
+;		r0	logical name
+;	>>	r0	translated name
+;		r1	penultimate translation
+;		c=1	no translation
+;
+;	bold		type uppercase message
+;	upper		convert character to uppercase
+.sbttl	convert ascii to rad50
+
+;	Convert ascii to rad50
+;
+;	r1 ->	ascii string
+;
+;	r0 =	result rad50
+;	r1 ->	past ascii string
+;
+;	octal	0000000011111111222222223333333344444444
+;		0123456701234567012345670123456701234567
+;	MACRO	~abcdefghijklmnopqrstuvwxyz$.?0123456789
+;	MACROX	~abcdefghijklmnopqrstuvwxyz$._0123456789
+;
+;	RT11A	~abcdefghijklmnopqrstuvwxyz?%*0123456789
+;	RT11X	_abcdefghijklmnopqrstuvwxyz$%*0123456789
+;	decimal	0000000000111111111122222222223333333333
+;		0123456789012345678901234567890123456789
+;
+;	~	space
+;	?	undefined
+;
+;	_	137-137	[ ]	40-40	0
+;			A:Z	101:132	1:32
+;			$	44-11	33
+;	%	45-11	.	56-22	34
+;	*	52-15	free		35
+;			0:9	60:71-22 36:47
+;	?				50+
+
+cv$arf::			;ascii to rad50, filename set
+conar::				;convert ascii to rad50
+	psh	r4		;save this
+	psh	r3
+	psh	r2
+	psh	r1		;save for the compare
+	clr	r0		;clear the output
+	mov	#3,r3		;get a counter
+11$:	mov	#30$,r4		;get the states list
+12$:	movb	(r4)+,r2	;get the next offset
+	beq	13$		;forget it
+	bpl	12$		;skip range parameters
+	cmpb	(r4)+,(r1)	;check the range
+	bhi	12$		;its too low
+	cmpb	(r4)+,(r1)	;too high
+	blo	12$		;
+	movb	(r1)+,r4	;accept the character
+	add	r4,r2		;and compute the present value
+13$:	asl	r0		;*2
+	asl	r0		;*4
+	asl	r0		;*8
+	add	r0,r2		;add it in
+	asl	r0		;*16
+	asl	r0		;*32
+	add	r2,r0		;+*8+new value
+	dec	r3
+	bne	11$		;do another sign
+20$:	cmp	r1,(sp)+	;did we move?
+	beq	25$		;yes
+	sec			;no
+25$:	pop	r2
+	pop	r3
+	pop	r4		;restore this
+	return			;and quit
+30$:	.byte	-11,'%,'%,-15,'*,'*,-137,'_,'_
+	.byte	27.-'$,'$,'$,28.-'%,'%,'%
+40$:	.byte	-22,'0,'9,-100,'A,'Z,-140,'a,'z,0
+	.even
+.sbttl	convert ascii to filename
+
+;	cv$caf	convert ascii to filename
+;
+;		dev:filnam.typ
+;
+;		dev:[g,m]filnam.typ;1
+;
+;	r0 ->	output block
+;	r1 ->	input stream
+;
+;	c=0	filename present
+;	c=1	no filename found
+;
+;	r0 ->	output block (unchanged)
+;	r1 ->	past string
+;
+;	csigen	should not accept wildcards
+;	space	non-standard '_' representation
+
+cv$caf::			;get a filename
+	pshs	<r2,r0>		;save these
+				;r1 -> string
+	mov	r0,r2		;r2 -> area
+	call	50$		;get the name
+	beq	30$		;nothing found - dont accept null device
+	cmpb	(r1),#':	;got a colon?
+	bne	10$		;nope
+	mov	(r2),-(r2)	;yes - move in the device
+	call	40$		;now get the name
+10$:	call	50$		;get the second half
+	call	cv$ska		;skip alphanumeric characters
+	cmpb	(r1),#'.	;got a dot coming?
+	bne	20$		;nope
+	call	40$		;yes - get the type
+20$:	tst	(pc)+		;we got something
+30$:	sec			;nothing there
+	pops	<r0,r2>		;restore these
+	return
+
+40$:	inc	r1		;skip colon or dot
+50$:	tst	(r2)+		;next word
+	call	cv$arf		;get the word
+	mov	r0,(r2)		;store it
+	return
+.sbttl	convert rad50 spec to ascii
+
+;	cv$rsu	convert rad50 spec to ascii (upper)
+;	cv$rsl	convert rad50  specto ascii (lower)
+;
+;	(r0)->	rad50 spec
+;	r1 ->	output
+;
+;	r1 ->	past output at zero byte
+;
+cv$rsu::tst	(pc)+
+cv$rsl::sec
+	pshs	<r3,r2>
+	bic	r3,r3
+	adc	r3
+	asl	r3
+	add	#cv$rfu,r3
+	mov	r0,r2
+	mov	(r2)+,r0
+	call	(r3)
+	movb	#':,(r1)+
+	tst	(r2)		;just a device name
+	beq	10$		;
+	mov	(r2)+,r0
+	call	(r3)
+	mov	(r2)+,r0
+	call	(r3)
+	movb	#'.,(r1)+	;
+	mov	(r2)+,r0
+	call	(r3)
+10$:	pops	<r2,r3>
+	return
+.sbttl	convert rad50 to ascii
+
+;	conra	convert rad50 to ascii (upper)
+;	conral	convert rad50 to ascii (lower)
+;
+;	r0	rad50 value
+;	r1 ->	output
+;
+;	r0	number of characters output
+;	c=1	no characters output
+;	r1 ->	past output at zero byte
+;
+
+
+conra::
+cv$rfu::tst	(pc)+		;\rad50 to ascii upper case
+cv$rfl::			;/rad50 to ascii lower case
+conral::sec			;
+	pshs	<r3,r2>		;
+	ror	-(sp)		;(sp) <0 => lower
+	clrb	(sp)		;(sp) = characters output
+	mov	#100$,r2	;get the divisors
+20$:	mov	#-1,r3		;init the result
+30$:	inc	r3		;next character
+	sub	(r2),r0		;this it?
+	bcc	30$		;nope
+	add	(r2),r0		;bump back
+
+	tst	r3		;a null?
+	beq	80$		;yep, forget it
+	cmp	r3,#50		;this out of range?
+	blo	50$		;no
+	mov	#50,r3		;yes
+50$:	tst	(sp)		;want lower case?
+	bmi	60$		;yes
+	movb	200$(r3),(r1)+	;upper case
+	br	70$		;
+60$:	movb	300$(r3),(r1)+	;lower case
+70$:	incb	(sp)		;count it
+80$:	tst	-(r2)		;any more?
+	bne	20$		;yep
+	pops	<r0,r2,r3>	;restore it
+	clrb	(r1)		;terminate the string
+	tst	r0		;got any?
+	bne	97$		;yes
+	sec			;no
+97$:	return
+
+	.word	0,1,50
+100$:	.word	50*50
+
+200$:	.ascii	&_ABCDEFGHIJKLMNOPQRSTUVWXYZ$%*0123456789?&
+300$:	.ascii	&_abcdefghijklmnopqrstuvwxyz$%*0123456789?&
+.sbttl	conle, conlp, conlpp
+
+;	conlp
+;
+;	convert logical to permanent
+;
+;	r0	logical name
+;
+;	r0	permanent name
+;	c=1	invalid name or no translation
+;
+;	conlpp	logical to permanent/penultimate
+;
+;	r0	logical name
+;
+;	r0	permanent name
+;	r1	penultimate translation
+;	c=1	invalid name or no translation
+;
+;	conle	convert logical to equivalence
+;
+;	r0	logical name
+;
+;	r0	equivalence name
+;	r1	logical name
+;	c=1	invalid name or no translation
+
+cv$lpn::
+conlp::	psh	r1		;save this
+	call	conlpp		;get both
+	pop	r1		;restore r1
+	return
+
+.if ne rsj$c
+cv$lpp::
+conlpp::
+	clr	-(sp)		;working space
+10$:	mov	r0,(sp)		;save current name
+	call	conle		;convert one step
+	bcc	10$		;do it again
+	pop	r1		;get the previous name
+	cmp	r0,r1		;did we translate?
+	beq	20$		;yes
+	sec			;nope
+20$:	return
+
+cv$len::
+conle::				;logical to equivalence
+	psh	r1		;save this
+	mov	$unam2,r1	;point to the pname table
+10$:	cmp	r0,(r1)		;this it?
+	beq	20$		;yes
+	tst	(r1)+		;nope
+	cmp	r1,$pname	;end of them?
+	bne	10$		;nope
+	br	30$		;invalid name
+20$:	sub	$unam2,r1	;get the offset
+	add	$unam1,r1	;point to the status words
+	mov	(r1),r0		;get the name
+	bne	40$		;fine - c=0
+				;device name was null
+30$:	sec			;oops
+40$:	pop	r1		;
+	return
+.iff
+.enabl	lsb
+cv$lpp::
+conlpp::
+	psh	#na$clp		;convert logical to permanent
+	br	10$		;
+
+cv$len::
+conle::				;convert logical to equivalence
+	psh	#na$tle		;logical to equivalence
+
+10$:	mov	r0,r1		;r1 = logical name
+	$cmkrnl	#40$ rtn=#20$ p0=(sp)+ pic=yes ;call them
+	return
+
+20$:	mov	rp.r1(r5),r0	;get the name
+	mov	r0,r1		;for default return
+	call	(r3)		;r3=p0 - call the routine
+	mov	r0,rp.r0(r5)	;return r0
+	mov	r1,rp.r1(r5)	;return r1
+	bcc	30$		;fine
+	.soft	0		;report error
+30$:	return
+40$:	.word	0,0,0,0,0,0,0	;call area
+.dsabl	lsb
+.endc
+.sbttl	bold, upper
+.mcall	.ttyout
+
+;	display upper case string
+;
+;	r1 ->	string
+
+cv$duc::			;display upper case string
+bold::	movb	(r1)+,r0	;get the next
+	bitb	#177,r0		;all over?
+	beq	20$		;yes
+	call	cv$alp		;convert it
+	.ttyout			;display it
+	br	bold
+20$:	return
+
+;	convert string to upper case
+;
+;	r1 ->	asciz string
+
+cv$asu::			;ascii string to upper
+large::
+	psh	r0		;
+10$:	movb	(r1),r0		;get the next
+	bitb	#177,r0		;all over?
+	beq	20$		;yes
+	call	cv$alp		;convert it
+	movb	r0,(r1)+	;store it
+	br	10$		;
+20$:	pop	r0		;
+	return
+
+.if ne 0
+;	Convert to upper case character
+;
+;	c=0	it is an alphabetic
+
+cv$acu::			;ascii character to upper
+upper::	cmpb	r0,#'a		;this lower?
+	blo	10$		;nope
+	cmpb	r0,#'z		;really?
+	bhi	10$		;nope
+	sub	#'a-'A,r0	;convert to upper case
+10$:	return
+.endc
+
+;	Convert to upper case
+; 
+;	r0 = 	character
+;	call	ut$cas
+;	r0 =	character converted to upper case
+;	c=0	character is alphabetic
+; 
+;	mer rcl rsi rte
+
+upper::				;conver to upper case
+cv$acu::			;convert to upper case
+cv$alp::.enabl	lsb		;test for alpha
+	cmpb	r0,#'$		;a dollar?
+	beq	50$		;yep - that counts
+	psh	#10$		;return at 10$
+	psh	#<'z*256.>!'a	;check lowercase
+	br	30$		;check them
+10$:	bcs	20$		;not lower case
+	bic	#'a-'A,r0	;strip case
+20$:	psh	#<'Z*256.>!'A	;compare ascii
+	br	30$		;check limits
+cv$dig::psh	#<'9*256.>!'0	;check digit
+30$:	cmpb	r0,(sp)		;is it to low?
+	bcs	40$		;yes
+	cmpb	1(sp),r0	;is it too high?
+40$:	inc	(sp)+		;skip this
+50$:	return			;c=0 => within limits
+	.dsabl	lsb
+
+;	Skip alphanumeric characters
+; 
+;	r1 ->	asciz stream
+;	call	ut$ska
+;	r1 ->	next non-alphanumeric
+; 
+;	mna rsi - ??? remove
+
+cv$ska::psh	r0		;save this
+10$:	movb	(r1)+,r0	;get the next
+	call	cv$alp		;make it an upper
+	bcc	10$		;get another
+	call	cv$dig		;this a digit?
+	bcc	10$		;yes
+	dec	r1		;nope
+	pop	r0		;
+	return
+.sbttl	number
+
+;	r0 = number
+;	r1 -> string
+
+cv$dec::mov	#deci,radix
+	br	cv$num
+cv$oct::mov	#octa,radix
+	fall	cv$num
+
+cv$num:	psh	r0
+	psh	r1
+	psh	r2
+	psh	r3
+	psh	r4
+	mov	r1,r3		;output
+	mov	r0,r1		;number
+	clr	r0		;set number flag
+	mov	radix,r4	;get the exponent
+3$:	mov	#-1,r2		;look for a digit
+4$:	inc	r2		;step up dividend
+	sub	(r4),r1		;subtract
+	bcc	4$		;go again
+	add	(r4)+,r1	;bumb it back to positive
+	tst	r2		;now look at format
+	bne	5$		;something to do
+	mov	r0,r2		;leading blanks ?
+	beq	7$		;nope nothing
+	br	6$		;put in output stream
+5$:	mov	#'0,r0		;no more blanks
+	add	r0,r2
+6$:	movb	r2,(r3)+	;output it
+7$:	tst	(r4)		;any more to do ?
+	bne	3$		;yes
+	add	#'0,r1		;generate last digit
+	movb	r1,(r3)+	;do the last digit
+	clrb	(r3)		;
+	pop	r4
+	pop	r3
+	pop	r2
+	pop	r1
+	pop	r0
+	return
+radix:	deci
+deci:	10000.,1000.,100.,10.,0
+octa:	100000,10000,1000,100,10,0
+
+.end
+

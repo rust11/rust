@@ -1,0 +1,333 @@
+.title	logger
+.include "dcs:dcl.mac"
+.psect	logger
+
+;	Control logging
+;
+;	SET LOGGER
+;
+;	SET NOLOGGER
+;
+;	OPEN	log	filespec
+;
+;	CLOSE	log
+;
+;
+;	START/LOGGER
+;
+;	STOP/LOGGER
+;
+; SHOW PROCESS/LOGGER
+; Pid: 000002   Process: EWALD    User: EWALD    UIC: [100,002]
+; Priority: 4/31 Image: DCL      Input: T02:    Disk: EWD
+;
+; Status:	File_open File_output Close_pending I/O_error File_full
+;		Write_active 
+;		Terminal_output Output_pending
+;		fonew$ foast$ fotto$, foact$
+; Filename:	HOM:EWALD.LOG
+; Filesize:	234
+; Blocks used:	3
+;
+;	Logger buffer
+;
+;	allocated file size
+;	File name
+;	Block number
+;
+;	%build
+;	macro	dcs:logger /object=dcb:
+;	%end
+;	%date
+;	<16-Apr-2003 25:30:24.00>
+;	%edit
+;	<77   >
+
+$chdef		;
+$fndef		;filename
+$fodef		;
+$iodef		;
+$rpdef		;request package
+includ	getval	;
+
+map	fobsz.,,512.
+.sbttl	set logger
+
+
+logger::
+	case	<lo$snl,lo$opn,lo$cls,lo$res,lo$sus>
+lo$slo:				;set logger
+	call	eol		;
+	call	lo$son		;
+	jmp	kmon		;
+
+lo$son:	call	lo$chk		;is it setup
+	bcc	10$		;yes
+	mov	#fo.bbs,r1	;no - create it
+	mov	#dplog.,r0	;
+	call	dp$adj		;build it
+10$:	call	lo$ena		;enable it
+	return			;
+.sbttl	set nologger
+
+lo$snl:	call	eol		;check end of line
+	call	lo$clf		;close the file
+	call	lo$sof		;set it off
+10$:	jmp	kmon		;
+
+lo$sof:	call	lo$chk		;are we running?
+	bcs	10$		;no - ignore this
+	clr	r1		;remove it
+	mov	#dplog.,r0	;
+	call	dp$adj		;
+10$:	call	lo$dis		;disable it
+	return			;
+.sbttl	open logfile
+
+;	open log filename/alloc
+
+lo$opn:
+	clr	l$osiz			;setup output size
+	setup	l$oopn			;
+	scan	<^M>			;
+	scan	<D=""T=""^IF=1Q="Log name? ">	;
+	tstb	(r5)			; filespec following?
+	beq	5$			;
+	scanend	<D="DK:"T=".LOG"^OF=1Q=""> ;
+5$:	call	lo$son			;set logger on
+	call	lo$lnm			;get logical name
+	call	lo$fnm			;get filename
+	call	lo$clf			;close possible file
+7$:	call	lo$chn			;r0 = logger channel
+	mov	r0,r4			;save channel
+	.enter	#area, r4, #l$ofnm, l$osiz, #0
+	bcs	10$
+	mov	r0,r1			;save filesize
+	$cmkrnl	#area, #100$, pic=yes
+	tst	r4			;buffer available?
+	beq	20$			;nope
+	assume	fo.con eq 0		;
+	clr	(r4)+			;no status - unused
+	assume	fo.cnt eq 2		;
+	clr	(r4)+			;no characters
+	assume	fo.alc eq 4		;
+	mov	r1,(r4)+		;allocacted size
+	bne	80$			;fine
+	dec	-2(r4)			;assume non-file
+80$:	assume	fo.blk eq 6		;
+	clr	(r4)+			;
+	assume	fo.fil eq 10		;
+	mov	#l$ofnm,r0		;
+	mov	#4,r1			;
+8$:	mov	(r0)+,(r4)+		;copy the filename
+	sob	r1,8$			;
+	jmp	kmon			;
+10$:	jsr	r0,warex		;
+	string	<Can't create logfile>	;
+20$:	fatal	<Log buffer lost>	;
+
+100$:	bic	#foerr$!foful$!foclo$,@#p$hlos	;clear error bits
+	bis	#fofil$!foopn$,@#p$hlos	;
+	bis	#fofio$,@#p$hlof	;force logger
+	mov	@#p$hlob,rp.r4(r5)	;get the logfile buffer
+110$:	return
+
+l$oopn:
+option	ALLOCATE	3 _	null	lo$all
+option
+
+lo$all:	call	getval			;get the value
+	bcs	10$			;oops
+	mov	r0,l$osiz		;setup the size
+10$:	return				;
+.sbttl	close logfile
+
+lo$cls:					;close logfile
+	setup	$dummy			;setup dummy table
+	tstb	(r5)			;this the default close command?
+	beq	10$			;yes
+	scan	<^M>			;skip key options
+	scanend	<D=""T=""^IF=1Q="Log name? ">	;
+	call	lo$chk			;logger active?
+	bcs	20$			;nope
+	call	lo$lnm			;check logical name
+	call	lo$clf			;close the file
+	bit	#foclo$,r0		;error?
+	bne	30$			;yes - report
+	bit	#foful$,r0		;was the file full?
+	bne	40$			;nope
+	bit	#foerr$,r0		;error?
+	bne	50$			;yes - report error
+10$:	jmp	kmon			;
+
+20$:	fatal	<Logger not enabled>	;
+30$:	fatal	<Error closing logfile>	;
+40$:	jsr	r0,warex		;
+	string	<Log file full, output truncated>
+50$:	jsr	r0,warex		;
+	string	<Output error on log file>
+
+
+;	Close the log file
+
+lo$clf:	$cmkrnl	#area, #100$, pic=yes	;do the kernel stuff
+	return				;	
+
+;	Kernel routine
+
+100$:	mov	@#p$hlos,rp.r0(r5)	;return the status
+	bic	#^c<foerr$!foful$>,rp.r0(r5) ;
+	bit	#fofil$!foopn$,@#p$hlos	;are we logging?
+	beq	130$			;no
+	bic	#fofil$!foopn$,@#p$hlos	;we were
+	bit	#foerr$!foful$,@#p$hlos	;had an error or eof?
+	bne	130$			;yes - just close it
+
+	mov	@#p$hlob,r4		;get the logfile buffer
+	beq	130$			;we just lost it
+	sub	@#p$hktc,r4		;r4 -> buffer
+	movi	fo.buf,r4,r1		;r1 -> buffer
+	mov	fo.cnt(r4),r2		;get the count
+	beq	120$			;buffer is empty
+	mov	r2,r3			;
+	add	r1,r3			;r3 -> last in buffer
+110$:	cmp	r2,#512.		;all done?
+	bhis	120$			;yes
+	inc	r2			;no
+	clrb	(r3)+			;no - clear another
+	br	110$			;
+120$:	mov	sp,r1			;save the stack
+	clr	-(sp)			;io.com - wait i/o
+	psh	#iowri$!iouim.		;io.mod - write user mode
+	psh	#fobsz./word		;io.wct - word count
+	psh	@#p$hlob		;io.buf - user buffer address
+	add	#fo.buf,(sp)		;	- skip buffer header
+	psh	fo.blk(r4)		;get the block
+	clr	-(sp)			;iochn
+	bisb	@#p$hchs,(sp)		;get channel count
+	dec	(sp)			;highest channel number
+	mov	sp,r0			;point to the emt area
+	emt	373			;execute it
+	mov	r1,sp			;get the stack back
+	bcc	130$			;fine
+	mov	#foful$,r0		;assume file full
+	tstb	@#p$herr		;eod of file?
+	beq	125$			;yes
+	mov	#foerr$,r0		;nope - some kind of error
+125$:	bis	r0,rp.r0(r5)		;return error
+130$:	clr	r1			;construct channel number
+	bisb	@#p$hchs,r1		;
+	dec	r1			;
+	.close	r1			;close the file
+	bcc	140$			;fine
+	bis	#foclo$,rp.r0(r5)	;close failed
+	.purge	r1			;in case the close failed
+140$:	clr	fo.cnt(r4)		;clear the count
+	clr	fo.alc(r4)		;clear allocated size
+	clr	fo.blk(r4)		;reset block count
+	mov	#4,r2			;
+150$:	clr	(r4)+			;clear out filename
+	sob	r2,150$			;until done
+	bis	rp.r0(r5),@#p$hlos	;setup final status
+	return				;
+.sbttl	resume logger
+
+lo$res:					;
+	setup	l$ocon			;
+	scanend	<^M>			;see lo$sus
+	edit	<e0>,10$		;ignore
+	call	lo$chk			;logger active?
+	bcs	10$			;nope
+	$cmkrnl	#area, #100$, pic=yes
+10$:	jmp	kmon			;
+
+100$:	bit	#foopn$,@#p$hlos	;got a file open?
+	beq	110$			;nope ignore
+	bis	#fofil$,@#p$hlos	;setup for file logging
+110$:	return				;
+.sbttl	suspend logger
+
+lo$sus:					;
+	setup	l$ocon			;
+	scanend	<^M>			;
+	edit	<e0>,10$		;ignore
+	call	lo$chk			;logger active?
+	bcs	10$			;nope
+	$cmkrnl	#area, #100$, pic=yes
+10$:	jmp	kmon			;
+
+100$:	bic	#fofil$,@#p$hlos	;setup for file logging
+	return				;
+
+l$ocon:
+option	LOG		1 _	null	lo$log
+option	
+
+lo$log:	edit	<e=1>			;
+	return				;
+.sbttl	enable/disable/test logger
+
+lo$chk:	$cmkrnl	#area, #100$, pic=yes
+	return
+100$:	tst	@#p$hlob	;got a buffer?
+	bne	10$		;yes
+	.soft	0		;no - report it
+10$:	return
+
+
+lo$ena:	$cmkrnl	#area, #100$, pic=yes
+	return
+100$:	mov	#fofio$,@#p$hlof ;enable logger
+	return
+
+lo$dis:	$cmkrnl	#area, #100$, pic=yes
+	return
+100$:	clr	@#p$hlof	;disable logger
+	return
+
+lo$chn:	$cmkrnl	#area, #100$, pic=yes	; get channel number
+	return				;
+100$:	mov	@#p$hchs,rp.r0(r5)	; get channel number
+	dec	rp.r0(r5)		; highest channel -> count - 1
+	return				;
+.sbttl	pickup filename
+
+;	LO$FNM - Pickup filename
+;
+;	$input	ascii string
+;	l$ofnm	file name
+;	r0 ->	l$ofnm (from cv$caf)
+
+lo$fnm:					;get the string
+	$cmkrnl	#area, #lo$ker, pic=yes	;setup default
+	mov	$out,r1			;get the string
+	tstb	(r1)			;got a string?
+	beq	10$			;nope - use default
+	mov	#l$ofnm,r0		;get output spec
+	call	cv$caf			;convert ascii to filename
+	bcs	20$			;oops
+10$:	return
+20$:	fatal	<Invalid file specification>
+
+;	LO$LNM
+;
+;	Get logical filename, must be LOG for logger
+
+lo$lnm:	mov	$input,r1		;get logical name
+	call	cv$arf			;ascii to rad50
+	cmp	r0,#^rlog		;this okay?
+	bne	10$			;nope
+	return				;
+10$:	fatal	<Invalid log filename>
+
+lo$ker:	mova	l$ofnm,r0		;get filename string
+	mov	#^rDK,(r0)+		;default disk
+	mov	@#p$hnam,(r0)+		;
+	mov	@#p$hnam+2,(r0)+	;
+	mov	#^rlog,(r0)		;
+	return				;
+
+l$ofnm:	.rad50	/dk loggerlst/		;
+l$osiz:	.word	0			;filesize
+.end
+

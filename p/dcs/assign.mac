@@ -1,0 +1,483 @@
+.title	assign, deassign
+.pass
+.include "lib:share.mac"
+$jbdef		;job
+$imdef		;image
+$nadef		;names
+$rmdef		;rmon
+$rpdef		;rp
+$srdef		;system rights
+set cdev 0, cpath 1, cform 2, cspool 3	
+set	aprc 1, agrp 2, asys 3, apth 4, acom 5
+
+;	%build
+;	r macro
+;	dcb:assign=dcs:kp,device,trans,unpack,assign
+;	^C
+;	%end
+;	%date
+;	<03-Dec-2003 21:28:55.48>
+;	%edit
+;	<69   >
+;
+;	assign
+;	define
+;	deassign	/process/group/system/path/permanent/network
+;	show logical
+;	show translation
+;	show permanent
+;	show equivalence
+;
+;	assign		eqv log
+;			eqv log,log,log
+;	assign/path	pth eqv
+;	define		log eqv
+;	define/path	eqv pth
+;			pth eqv,eqv,eqv
+;
+;	deassign/path
+;	show paths
+;
+;	Device? Log name?
+;	Log name? Equ name?
+;
+;	May not use SHARE/plus STB.
+.sbttl	assign, define
+
+;	assign E L[,L...]
+;	define L[,L...] E
+;
+;	assign/path L E,E,E
+;	define/path L E,E,E
+;
+;	assign	equ log,log,log
+;	define log,log,log equ
+;	define/path log equ,equ,equ
+
+assign::psh	r0		;save this
+	mov	r5,r1		;get the command
+	call	large		;make it all uppercase for messages
+	pop	r0		;another copy of the case
+	mov	r0,r1		;
+	clr	allopt		;no /all
+	clr	supopt		;no superseded message
+	clr	comopt		;no /command
+	case	<deassign,define,undefine>	
+
+;	Assign
+
+	setup	$assign;,a.lex	;set it up
+	scan	<D=0^M>		;no device, no switches
+defpth:	scan	<^O(F=1C4Q="Path name? "|F=1Q="Equivalence?  ">
+	movb	#64.,@$files	;up to 64 names for assign
+	scanend	<^I(C4F=4Q="Logical names? "|Q="Logical names? ">
+	br	assdef		;join the common stuff
+
+define:	setup	$define;,a.lex	;set it up
+	scan	<D=0^M>		;no device, no switches
+	edit	<C4> defpth	;handle define/path
+	tst	comopt		;this a command?
+	beq	10$		;no
+	jmp	as$com		;define command
+10$:	movb	#64.,@$files	;up to 64 names for define
+	scan	<^I(C4F=4Q="Logical names? "|Q="Logical name? ">
+	scanend	<^O(F=1C4Q="Path name? "|F=1Q="Equivalence?  ">
+	fall	assdef		;
+
+;	^I	logical names
+;	^O	equivalence name
+
+assdef:	movb	@$cusp,r0	;get the dispatch value
+	asl	r0		;
+	jmp	@20$(r0)	;and dispatch it
+20$:	.word	as$prc		;assign/process is default
+	.word	as$prc		;assign/process
+	.word	as$grp		;assign/group
+	.word	as$sys		;assign/system
+	.word	as$pth		;assign/path
+
+a.lex:	edit	<r,r=" ">	;replace comma with space
+	return			;(used by deassign)
+
+$define:
+option	COMMAND		1 _	acom	o.com
+
+$deassi:
+option	ALL		1 _	null	o.all
+$assign:
+;
+option	TRANSLATED	1 _	null		;ignore translated
+option	PERMANENT	1 _	asys		;permanent is system
+option	NOLOG		1 _	null		;ignored
+option	LOG		1 _	null	o.log	;log superseded 
+;
+option	PROCESS		1 _	aprc
+option	GROUP		1 _	agrp
+option	SYSTEM		1 _	asys
+option	PATH		1 _	apth
+option
+
+o.all:	inc	allopt		;/all
+	return
+o.log:	inc	supopt
+	return
+o.com:	inc	comopt		;/command
+	return
+
+supopt:	.word	0
+comopt:	.word	0
+allopt:	.word	0		;deassign/all
+.sbttl	define command
+
+;	DEFINE/COMMAND name :== string
+
+as$com:	mov	sysptr,r3	;get the system
+	add	#rm.ucf,r3	;point to ucl filename
+	tst	(r3)		;do we have one?
+	bne	10$		;yes
+	mov	#^rsy,(r3)+	;no - define it
+	mov	#^rucl,(r3)+	;
+	clr	(r3)+		;
+	mov	#^rsav,(r3)+	;
+	mov	#j$bcfn,r1	;get the chain filename area
+	sub	#4*2,r3		;backup
+10$:	mov	#j$bcfn,r1	;get the chain filename area
+	mov	(r3)+,(r1)+	;copy the name
+	mov	(r3)+,(r1)+	;
+	mov	(r3)+,(r1)+	;
+	mov	(r3)+,(r1)+	;
+
+	tstb	@$expand	;this a display?
+	beq	105$		;no
+	type	<UCL >		;yes
+	.print	xcomman		;display it
+	jmp	kmon		;
+
+105$:	mov	#j$bcct,r1	;r1 -> j$bcct
+	mov	r1,r2		;r1 -> counter
+	clr	(r2)+		;r2 -> string
+110$:	inc	(r1)		;count it
+	movb	(r5)+,(r2)+	;move it
+	bgt	110$		;done
+
+120$:	$imgact	#area img=#j$bcfn ctl=#imcha$!imucl$!imchs$ sta=#0 par=#0
+	edit	<?>		;
+.sbttl	assign/process/group/etc
+
+;	assign process, group, system
+;
+;	$input	logical name
+;	$out	equivalence name
+
+as$prc:	mov	#naprc.,r0	;setup the table flags
+	br	as$nam		;join the general stuff
+
+as$grp:	cright	#srgna.		;group name rights required
+	mov	#nagrp.,r0
+	br	as$nam		;
+
+as$sys:	cright	#srsna.		;must have system name
+	mov	#nasys.,r0	;
+	fall	as$nam
+
+as$nam:	psh	$input		;save input pointer
+	psh	r0		;save the table
+5$:;	mov	$input,r5	;check this
+	mov	2(sp),r5	;get next logical
+	edit	<^L@\@@:\|?>	;
+	cmpb	(r5),#',	;comma coming?
+	bne	6$		;no
+	inc	r5		;yes - skip it
+6$:	mov	r5,2(sp)	;save it again
+	mov	$linker,r5	;logical name
+	call	chknam		;
+	mov	$out,r5		;and this
+	call	chknam		;
+	$crelog	#area, tbl=(sp), log=$linker, equ=$out, acm=#0
+	bcc	10$		;fine
+	assume	nasup. eq 0	;
+	mov	$input,r0	;supply the name
+	movb	errbyt,r1	;get the error code
+	bne	trnerr		;oops
+				;superseded
+	tst	supopt		;want information?
+	beq	10$		;no
+	type	<?DCL-I-Previous logical name assignment replaced >
+	mov	$linker,r1	;
+	call	bold		;
+	print
+
+10$:	tstb	@2(sp)		;more names?
+	bne	5$		;yes
+	cmp	(sp)+,(sp)+	;skip r0,r5
+
+;	cmp	(sp)+,#naprc.	;was this for the process?
+;	bne	30$
+;	mov	$input,r1	;check for DK:
+;	call	conar		;get rad50
+;	cmp	r0,#^rdk	;this DK:?
+;	bne	30$		;no
+;
+;	mov	$out,r1		;yes
+;	call	conar		;get rad50
+;	mov	r0,r1		;save it
+;	$cmkrnl	#area, rtn=#20$, pic=yes ;
+;	br	30$		;
+;
+;20$:	mov	rp.r1(r5),@#p$hdsk ;setup the default disk
+;	return
+
+30$:	return
+40$:	.word	0		;
+
+;	r5 ->	name
+
+chknam:	psh	r5		;save it
+	edit	<!@\@@:\> ,20$	;no good
+10$:	pop	r0		;supply the name
+	br	invnam		;and tell them
+20$:	pop	r5		;fine
+	return
+
+invnam:	mov	#naivn.,r1	;force invalid name
+trnerr:				;r1 = error code
+	psh	r0		;(sp) -> name
+	type	<?DCL-E->	;
+	cmp	r1,#6		;in range?
+	blo	10$		;yes
+	mov	#6,r1		;force system error
+10$:	asl	r1
+	.print	50$(r1)
+	pop	r0		;get the name
+	beq	20$		;is none
+	type	< >		;
+	.print			;display it
+20$:	jmp	kmon		;never fatal
+
+50$:	.word	100$,101$,102$,103$,104$,105$,106$
+100$:	.ascii	_Superseded existing name_<200>
+101$:	.ascii	_Logical name not found_<200>
+102$:	.ascii	_Invalid logical name_<200>
+103$:	.ascii	_Invalid table_<200>
+104$:	.ascii	_Insufficient rights_<200>
+105$:	.ascii	_Insufficient memory - table full_<200>	
+106$:	.ascii	_System error_<200>
+	.even
+.sbttl	assign/paths
+
+;	Assign path
+;
+;	F=4 checks number of path names
+
+as$pth:	mov	#40$,r2		;collect the names first
+	mov	r2,r1		;save another pointer
+	mov	$input,r5	;point to the names
+20$:	call	getdevice	;get the name
+	mov	r0,(r2)+	;store it
+	clr	(r2)		;make sure its terminated
+	tstb	(r5)		;any more?
+	bne	20$		;yep
+	mov	$out,r5		;new path name
+	call	r.path		;remove the path
+	tst	r2		;did we find a slot?
+	beq	50$		;no room
+	mov	r0,(r2)+	;move in the path name
+30$:	mov	(r1)+,(r2)+	;move them in
+	bne	30$		;thus
+	return			;done
+40$:	.word	0,0,0,0,0	;to collect names
+
+50$:	mov	$input,r0	;supply the name
+	mov	#nainm.,r1	;insufficient memory
+	jmp	trnerr		;
+.sbttl	assign permanent
+
+as$prm:				;handle system assignment for DK: or SY:
+	mov	$out,r5		;get the output name
+	call	getdev		;translate it
+	psh	r0		;(sp) = equivalence
+	mov	$input,r5	;get the logical name
+	call	getdev		;translate it
+	mov	r0,r4		;r4 = logical
+;	rights	<u.sopr>	;operator rights
+	cright	#sropr.		;operator rights
+	cmp	r4,#^rBO	;this the boot device?
+	bne	5$		;oops
+	mov	sysptr,r0	;point to this stuff
+	movb	phslot,syindx(r0) ;save the index
+	movb	phunit,syunit+1(r0) ;save the unit
+	jmp	kmon		;and quit
+
+5$:	mov	$syassg,r0	;point to the system assignment
+	cmp	r4,#^rSY	;check for SY:?
+	bne	10$		;nope
+	mov	(sp),(r0)	;reassign it
+	br	15$		;
+10$:	cmp	r4,#^rDK	;check for DK:?
+	bne	20$		;nope
+	mov	(sp),-(r0)	;reassign it
+15$:	jmp	kmon
+20$:	mov	$input,r0	;name
+	mov	#naivn.,r1	;error
+	jmp	trnerr		;
+phslot:	.byte	0
+phunit:	.byte	0
+.sbttl	deassign command
+
+;	DEASSIGN without parameters undefines all process logicals
+;	(for compatibility with RT-11 command files)
+;	Everything else requires /ALL 
+;	UNDEFINE requires /ALL for process logicals as well
+;
+;	deassign	deassign all process names
+;	deassign/path	deassign all paths
+;	deassign/group	prompt for group name
+;	deassign/system	prompt for system names
+;	deassign/perm	prompt for permanent name
+
+undefine::
+	setup	$deassign,a.lex	;same as for assign
+	clr	allopt		;reset /all
+	scan	<D=0^M>		;advance past space
+	tst	allopt		;undefine/all?
+	bne	undall		;yep
+	br	single		;nope
+
+deassign::
+	setup	$deassign,a.lex	;same as for assign
+	clr	allopt		;reset /all
+	scan	<D=0^M>		;advance past space
+
+	tstb	(r5)		;got anything?
+	bne	single		;yes - do single deassigns
+	edit	<C%> single	;
+
+;	Dispatch /all
+
+undall:	movb	@$cusp,r0	;get the dispatch variable
+	asl	r0		;
+	jmp	@20$(r0)	;call them
+20$:	.word	da$prc		;/process is default
+	.word	da$prc		;/process
+	.word	da$grp		;/group
+	.word	da$sys		;/system
+	.word	da$pth		;/path
+;	.word	da$prm		;/permanent
+
+;	Singles
+
+single:	scan	<F=1^IQ="Logical names? "> ;get the specification
+	psh	r5		;
+	movb	@$cusp,r0	;get the dispatch variable
+	asl	r0		;
+	call	@20$(r0)	;call them
+	pop	r5		;get this back
+	tstb	(r5)		;got any more?
+	bne	single		;yes
+	jmp	kmon		;no
+
+20$:	.word	de$prc		;/process is default
+	.word	de$prc		;/process
+	.word	de$grp		;/group
+	.word	de$sys		;/system
+	.word	de$pth		;/path
+;	.word	de$prm		;/permanent
+.sbttl	deassign process/group/system
+
+;	deassign
+
+da$prc:	inc	allopt		;force /all
+de$prc:	mov	#naprc.,r0	;process name
+	br	de$nam		;
+
+da$grp:	tst	allopt		;got /all?
+	bne	de$grp		;
+	jmp	single		;
+de$grp:	mov	#nagrp.,r0	;group name
+	br	de$nam		;
+
+da$sys:	tst	allopt		;got /all?
+	bne	de$sys		;yes
+	jmp	single		;no - force prompt
+de$sys:	mov	#nasys.,r0	;system name
+	fall	de$nam
+
+de$nam:	psh	r0		;save the table
+	clr	r2		;assume delete all
+	tst	allopt		;should we delete them all?
+	bne	10$		;yes
+	mov	$input,r5	;check the name
+	mov	r5,r2		;for the system call
+	call	chknam		;check the name
+10$:;	$dellog	#area, tbl=(sp)+, log=r2, acm=#0
+	$dellog	#area, tbl=(sp), log=r2, acm=#0
+	bcc	20$		;fine
+	mov	r2,r0		;supply the name
+	movb	errbyt,r1	;error code
+	jmp	trnerr		;display it
+20$:	cmp	(sp)+,#naprc.	;was this for process?
+	bne	40$		;nope
+	mov	$input,r1	;check for DK:
+	call	conar		;convert it to rad50
+	cmp	r0,#^rdk	;this dk:?
+	beq	30$		;nope
+	tst	r2		;/all specified?
+	bne	40$		;nope
+30$:	$cmkrnl	#area, rtn=#100$, pic=yes ;reset login assignment
+40$:	return
+
+;	setup login defaul disk
+
+100$:	mov	@#p$hdsk,@#p$hequ ;setup the disk
+	mov	#^rdk,@#p$hlog	;and logical name
+	return			;
+.sbttl	deassign/path
+
+;	deassign/path path_name
+
+de$pth:	mov	$input,r5	;point to the name
+	call	r.path		;go look for it
+	tst	r3		;did they find it?
+	bne	10$		;yep
+	wardev	<Path name not found>,#10$
+10$:	return
+
+;	Remove path name utility
+;
+;	r5 ->	name to remove
+;		assign/define use $out
+;		deassign uses $input
+
+r.path:	world			;get the path list
+	clr	r2		;return the slot pointer
+	clr	r3		;points to the one we deleted
+	mov	$paths(r0),r4	;get the list
+	beq	50$		;no paths
+	call	getdevice	;get physical device
+10$:	cmp	(r4),#-1	;any more slots?
+	beq	50$		;nope
+	cmp	(r4),r0		;is this the guy?
+	bne	30$		;nope
+	mov	r4,r3		;copy the pointer
+20$:	clr	(r3)+		;and clear them
+	tst	(r3)		;till the gap
+	bne	20$
+30$:	tst	(r4)		;is this slot free?
+	bne	40$		;nope
+	tst	r2		;already got one?
+	bne	40$		;yep
+	mov	r4,r2		;nope - use this one
+40$:	add	#path*2,r4	;point to next
+	br	10$		;look for the next
+50$:	return			;r3=0 => not found
+
+
+da$pth:	world			;point to the tables
+	mov	$paths(r0),r0	;get the list
+	beq	30$		;are none
+10$:	clr	(r0)+		;clear all paths
+	cmp	(r0),#-1	;thus
+	bne	10$
+30$:	return
+.end
+

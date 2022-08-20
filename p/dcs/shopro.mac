@@ -1,0 +1,785 @@
+Y2K=1
+.title	shopro
+.include "dcs:dcl.mac"
+.psect	shopro
+include	getval
+
+;	DCL SHOW PROCESS commands
+;
+;	%build
+;	macro	dcs:sho(pro+pr1+pr2)/object=dcb:shopro
+;	%end
+;	%date
+;	<27-Feb-2008 23:47:27.41>
+;	%edit
+;	<394  >
+
+$apdef		;acp
+$cfdef		;command file
+$cxdef		;context switch
+$eddef		;edit
+$fndef		;filename
+$fodef		;formatted output
+$icdef		;image control
+$indef		;ind
+$jbdef		;job
+$jsdef		;job status word
+$mmdef		;mmu
+$opdef		;output
+$pqdef		;quotas
+$prdef		;process
+$rpdef		;rp
+$scdef		;scheduler
+$sidef		;signal
+$srdef		;system rights
+$stdef		;state
+$tedef		;terminal
+$tidef		;time
+$txdef		;text
+$xmdef		;xm
+
+;	show process
+;	show system
+;	show uic
+;	show protection
+;	show rights
+;
+;	show process
+;
+;	show process [name]
+;		/identification:n
+;		/full or /all
+;
+;	/accounting
+;	/all	/full
+;	/continuous
+;	/id	/identification
+;	/memory
+;	/rights	/privileges
+;	/quotas
+;	/subprocesses
+;	/errors		(missing rights & quotas)
+;	/plas
+;	/state
+;	/logger
+;
+;	We get process information by using kernel mode to map
+;	the target header into kernel par6.
+;
+;	opts
+;
+map	loacc$,,1	;/accounting
+map	loall$,,2	;/all
+map	locon$,,4	;/continuous
+map	loide$,,10	;/identification
+map	lomem$,,20	;/memory
+map	lorig$,,40	;/rights
+map	loquo$,,100	;/quotas
+map	losub$,,200	;/subprocesses
+map	loprt$,,400	;/protection
+map	losta$,,1000	;/state
+map	lopla$,,2000	;/plas
+map	lolog$,,4000	;/logger
+
+shopro::			;show process
+	clr	opts		;no options
+	clr	nopts		;no no options
+	mov	r0,casx		;remember what we are doing
+	case	<shosys,shouic,shoprt,shojob,shorig>
+	br	shoprc		;default command
+
+shorig:	bis	#lorig$,opts	;show rights
+	fall	shoprc		;
+
+shoprc:	setup	$shopro		;catch the options
+	edit	<W=1>		;wildcards are o.k.
+	clr	pid		;no pid
+	clr	name		;no name
+	clr	prcnax		;rad50 process name
+	clr	target		;flag not show system
+	tstb	(r5)		;any more coming?
+	beq	10$		;no
+	scan	<^M>		;yes get the remaining options
+10$:	tstb	(r5)		;any more
+	beq	20$		;no - simple show process
+	scanend	<^ID=0F=1Q="Process? ">
+	edit	<*?>		;one only
+	bic	nopts,opts	;remove NO options
+	mov	$input,r5	;
+	call	getnam		;get the name
+20$:	call	dispro		;display it
+	jmp	kmon		;
+
+;	/accounting
+;	/all	/full
+;	/continuous
+;	/id	/identification
+;	/memory
+;	/rights	/privileges
+;	/quotas
+;	/subprocesses
+
+$shopro:
+option	ALL		1 _	null	s.all
+option	FULL		1 _	null	s.full
+option	IDENTIFICATION	1 _	null	s.iden
+;
+option	ACCOUNTING	1 _	null	s.acco
+option	MEMORY		1 _	null	s.memo
+option	RIGHTS		1 _	null	s.righ
+option	PRIVILEGES	1 _	null	s.priv
+option	QUOTAS		1 _	null	s.quot
+option	SUBPROCESSES	1 _	null	s.subp
+option	PROTECTION	1 _	null	s.prot
+option	STATE		1 _	null	s.stat
+option	CONTINUOUS	1 _	null	s.cont
+;
+option	NOACCOUNTING	1 _	null	n.acco
+option	NOMEMORY	1 _	null	n.memo
+option	NORIGHTS	1 _	null	n.righ
+option	NOPRIVILEGES	1 _	null	n.priv
+option	NOQUOTAS	1 _	null	n.quot
+option	NOSUBPROCESSES	1 _	null	n.subp
+option	NOPROTECTION	1 _	null	n.prot
+option	NOSTATE		1 _	null	n.stat
+option	NOCONTINUOUS	1 _	null	n.cont
+option	PLAS		1 _	null	s.plas
+option	NOPLAS		1 _	null	n.plas
+option	LOGGER		1 _	null	s.logg
+option	NOLOGGER	1 _	null	n.logg
+option
+
+s.acco:	bis	#loacc$,opts	;/accounting
+	return
+s.memo:	bis	#lomem$,opts	;/memory
+	return
+s.righ:
+s.priv:	bis	#lorig$,opts	;/rights /privileges
+	return
+s.quot:	bis	#loquo$,opts	;/quotas
+	return
+s.subp:	bis	#losub$,opts	;/subprocesses
+	return
+s.prot:	bis	#loprt$,opts	;/protection
+	return
+s.stat:	bis	#losta$,opts	;/state
+	return
+s.cont:	bis	#locon$,opts	;/continuous
+	return
+s.plas:	bis	#lopla$,opts	;/plas
+	return
+s.logg:	bis	#lolog$,opts	;/logger
+	return			;
+
+n.acco:	bis	#loacc$,nopts	;/accounting
+	return
+n.memo:	bis	#lomem$,nopts	;/memory
+	return
+n.righ:
+n.priv:	bis	#lorig$,nopts	;/rights /privileges
+	return
+n.quot:	bis	#loquo$,nopts	;/quotas
+	return
+n.subp:	bis	#losub$,nopts	;/subprocesses
+	return
+n.prot:	bis	#loprt$,nopts	;/protection
+	return
+n.stat:	bis	#losta$,nopts	;/state
+	return
+n.cont:	bis	#locon$,nopts	;/continuous
+	return
+n.plas:	bis	#lopla$,nopts	;/noplas
+	return
+n.logg:	bis	#lolog$,nopts	;/nologger
+	return
+
+s.full:
+s.all:	mov	#-1,opts	;all of them
+	return
+s.ident:call	getoct		;get the pid
+	mov	r0,pid		;save it
+	return
+.sbttl	show process
+
+;	12-Apr-84 12:12:12.12  Pid: 000003  Process: IAN    Input: T03:
+;	Priority: 04 12 32   Image: MACRO      User: IAN      UIC: [200,200]
+;
+;Pid: 000003     Process: IAN     User: IAN     Image: DCL     Uic: [200,200]
+;Uic: [200,200]  Priorty: 12/24   Disk: SHP:    Input: T03:
+;Cpu: 0 12:12:12.12 Time: 12-Apr-84 12:02:12.12 Files: 0
+;
+;	Priority: 12/24 Image: DCL    Input: T03:   Disk: SHP:
+;	Priority: 0    Image: DCL    Input: T03:   Disk: SHP:
+;	Interactive.   State: INP     Time: 12-Apr-84 12:12:12:.12    
+;
+;	Pid: 000003   Process: IAN     User: IAN     Uic: [200,200]
+;	Priority: 12/24 Image: DCL    Input: T03:   Disk: SHP:
+;	Priority: 0    Image: DCL    Input: T03:   Disk: SHP:
+;	Interactive.   State: INP     Time: 12-Apr-84 12:12:12:.12    
+;
+;
+;Pid: 000003  Process: IAN     User: IAN     Input: T03:  Uic: [200,200]
+;Disk: SHP:     Image: MACRO    Pri: <10,20,30>     12-Apr-84 12:12:12.12
+;
+;Pid: 000003  Process: IAN     User: IAN     Input: T03:    Uic: [200,200]
+;Wed 12-Apr-84 12:12:12.12     Disk: SHP:    Image: MACRO   Pri: 04:12:32    
+;					     		  State: INP
+;	allocated
+;	mounted
+;	quotas
+;	accounting
+;	privileges
+;	memory
+;	subprocesses
+
+dispro:				;dispatch it
+	call	getker		;get the kernel information
+
+	type	<Pid: >
+	call	prcpid		;pid
+	type	<  >
+
+	type	< Process: >
+	call	prcnam		;process name
+	type	<   >
+
+	type	<User: >	;
+	call	usenam		;user
+	type	<  >
+
+	type	<Uic: >
+	call	fuluic		;full uic
+	type	<  >
+
+	print
+
+	type	<Priority: >	;
+	call	baspri		;
+	type	</> 
+	call	toppri
+	type	< >		;
+
+
+	type	<Image: >
+	call	imgnam
+	type	<  >
+
+	type	<Input: >	;
+	call	prcinp		;
+	type	<   >
+
+	type	<Disk: >	;
+	call	prcdsk		;
+	print
+
+50$:	bit	#loprt$,opts	;/protection?
+	beq	100$		;no
+	type	<Protection: >
+	call	prcprt		;yes
+	print
+
+100$:				;allocated
+150$:				;mounted
+200$:				;quotas				
+	bit	#loquo$,opts	;/quotas or /all?
+	beq	250$		;no
+	call	shoquo		;yes
+
+250$:				;accounting
+	bit	#loacc$,opts	;/accounting?
+	beq	300$		;no
+	call	shoacc		;yes
+
+300$:				;rights
+	bit	#lorig$,opts	;/rights or /privileges or /all
+	beq	350$		;no
+	call	shoprv
+
+350$:	bit	#losta$,opts	;/state?
+	beq	400$		;no
+	call	shosta		;yes
+
+400$:	bit	#lomem$,opts	;/memory?
+	beq	450$		;no
+	call	shomem		;yes
+
+450$:	bit	#lopla$,opts	;/plas?
+	beq	460$		;no
+	call	shopla		;yes
+				;
+460$:	bit	#lolog$,opts	;/logger
+	beq	470$		;no
+	call	sholog		;yes
+				;
+470$:				;/subprocesses?
+
+500$:	return
+.sbttl	show system
+
+;	Show system
+;
+;	SHOW SYSTEM/OWNERS	Display subprocess owners
+;	SHOW JOBS		
+;	SHOW SYSTEM/TERMINALS	Display terminal information
+
+shojob::
+shosys::			;show system
+	clr	name		;no name
+	output	clr		;clean up output
+	call	initab		;setup for tables
+	call	gettim		;get the date & time
+	mov	#1,pid		;get basic information
+	call	getker		;
+
+	type	<RUST/XM >
+	call	sysver		;4 character version
+
+	tst	s.ynod		;got a node name?
+	beq	5$		;no
+	type	< >		;
+	output	nam par=#s.ynod cnt=#6 ctl=<#low!tit>
+	type	<    on >	;
+	br	6$		;
+5$:
+.if eq Y2K
+	type	< Processes on >;
+.iff
+	type	< Processes on >;
+.endc
+6$:	call	dattik
+	type	<  Uptime >
+	call	uptime
+	print
+	call	shotah		;display the header
+
+	mov	#100377,target	;flag wild
+10$:	incb	target		;get the next
+	movb	target,pid	;look for it
+	call	getker		;get kernel information
+	bcc	20$		;fine
+	jmp	kmon		;done
+20$:	call	shotar		;show the target
+	br	10$
+
+shotah:
+	cmp	casx,#sho.jo	;this show jobs?
+	beq	10$		;yes
+print < Pid   Process User   Image    UIC  State Pri Dir. I/O     CPU      Mem>
+	br	20$		;
+10$:
+print < Pid   Process User   Image    UIC  State Pri Disk Term    CPU      Mem>
+20$:	return
+
+;	r4 ->	pcr
+
+shotar:	call	prcpid		;pid
+	type	< >		;
+
+	call	prcnam		;process name
+	type	<  >
+
+	call	usenam		;user
+	type	< >
+
+	call	imgnam		;image
+	type	< >
+
+	call	abruic		;uic without []
+	type	< >
+
+	call	prcwai		;process wait
+	type	<   >		;
+
+	call	prcpri		;priority
+	type	< >		;
+
+	cmp	casx,#sho.jo	;this show jobs?
+	beq	80$		;yes
+	type	<  >		;ident two
+	call	diorig		;right justified diocnt
+;	type	< >		;
+	type	<  >		;
+	br	90$		;no
+
+80$:	call	prcdsk		;disk
+	type	< >		;
+	call	prcter		;terminal
+	type	< >		;
+
+90$:	call	cputim		;cpu time
+;	type	< >		;
+
+	call	memuse		;get memory used
+	print
+	return
+.sbttl	show uic, protection
+
+shouic::			;show uic
+	$cmkrnl	#area, #10$ pic=yes
+	br	20$		;got it
+10$:	mov	@#p$huic,rp.r1(r5) ;return it in r1
+	return
+20$:	output	clr		;clean up
+	type	<Uic: >		;
+	output	uic par=r1	;display it
+	print			;
+	jmp	kmon		;and quit
+
+shoprt::			;show protection
+	$cmkrnl	#area, #10$ pic=yes
+	br	20$		;
+10$:	mov	@#p$hpro,rp.r1(r5) ;r1 = protection
+	return
+20$:	psh	r1		;save the protection
+	output	clr		;clear it first
+	type	<Protection: >	;
+	output	prt par=(sp)+ ctl=#opsgn$ ;
+	print			;
+	jmp	kmon		;
+.sbttl	show accounting
+
+shoacc:
+	print
+	print	<Accounting information:>	
+	print
+	type	<Account name:       >
+	call	acnnam
+	print
+
+	type	<Direct I/O count:   >
+	call	diocnt
+	print
+
+	type	<Buffered I/O count: >
+	call	biocnt
+	print
+
+	type	<Mounted volumes:    >
+	output	dec par=p.havo
+	print
+
+	type	<Images executed:    >
+	output	dec par=p.haim
+	print
+
+	type	<Elapsed CPU time:   >
+	call	cpuday
+	print
+
+	type	<Connect time:       >
+	call	contim
+	print
+	return
+.sbttl	show privileges
+
+shoprv:				;show privileges
+	output	clr		;
+	print	
+	print	<Process rights:>
+	print
+
+	mov	#privs,r2	;privileges
+	clr	r5		;flag it
+10$:	movb	(r2)+,r3	;get the word offset
+	movb	(r2)+,r4	;get the bit number
+	mov	#1,r5		;1 => we have it
+	bit	100$(r4),p.hpr0(r3) ;do we have it?
+	bne	20$		;yes
+	clr	r5		;0 => neither
+	bit	100$(r4),p.hmr0(r3) ;is it missing?
+	beq	30$		;no
+	dec	r5		;-1 => missing
+20$:	output	str par=r2 cnt=#12.
+	tst	r5		;was this missing or what?
+	bpl	25$		;not missing
+	type	<missing - may not >
+	br	30$		;
+25$:	type	<may >
+30$:	tstb	(r2)+		;skip it
+	bne	30$		;
+	tst	r5		;display meaning?
+	beq	50$		;nope
+	output	str par=r2	;display the rest of it
+	print			;
+
+50$:	tstb	(r2)+		;skip it
+	bne	50$		;
+	inc	r2		;
+	bic	#1,r2		;
+	cmp	(r2),#-1	;anymore?
+	bne	10$		;yes
+	return
+
+100$:	.word	1,2,4,10,20,40,100,200,400,1000
+	.word	2000,4000,10000,20000,40000,100000
+
+.macro	priv c d e
+	.word	sr'c'.
+	.asciz	/d/
+	.asciz	&e&
+	.even
+.endm 
+
+privs: 
+priv	nac	ACNT	<disable accounting>	;NOACNT
+priv	asp	ALLSPOOL <allocate spooled device>
+priv	pri	ALTPRI	<set any priority value>		;SETPRI
+;priv	bug	BUGCHK	<make bug check entries>
+priv	byp	BYPASS	<bypass UIC checking>
+;priv	cme	CMEXEC	<change mode to executive>
+priv	cmk	CMKRNL	<change mode to kernel>
+priv	det	DETACH	<create detached processes>
+;priv	dia	DIAGNOSE <diagnose devices>
+priv	quo	EXQUOTA	<exceed quota>
+priv	grp	GROUP	<affect other processes in same group>
+priv	gna	GRPNAM	<insert in group logical name table>
+priv	lio	LOG_IO	<do logical I/O>
+priv	mnt	MOUNT	<execute mount ACP functions>
+;priv	nmb	NETMBX	<create network device>
+priv	opr	OPER	<perform operator functions>
+priv	pfn	PFNMAP	<map to specific physical pages>
+priv	pio	PHY_IO	<do physical I/O>
+;priv	peb	PRMCEB	<create permanent common event clusters>
+;priv	pgb	PRMGBL	<create permanent global sections>
+;priv	pmb	PRMMBX	<create permanent mailbox>
+priv	swp	PSWAPM	<change process swap mode>
+priv	prv	SETPRV	<set any system right>
+;priv	shm	SHMEM	<create & delete objects in shared memory>
+;priv	sgb	SYSGBL	<create system wide global sections>
+;priv	slk	SYSLCK	<lock system wide resources>
+priv	sna	SYSNAM	<insert in system logical name table>	
+priv	sys	SYSPRV	<access objects via system protection>
+;priv	tmb	TMPMBX	<create temporary mailbox>
+priv	vol	VOLPRO	<override volume protection>
+priv	wor	WORLD	<affect other processes in the world>
+.word	-1
+.sbttl	show quotas
+
+;	Process quotas:
+;
+;			Quota	Usage				Quota	Usage
+;	CPU time:     2	12:12 1	12:12:12.12	Direct I/O:	24	2
+;	Byte count:	20kb	0kb		Buffered I/O:	20	0
+;	Timer queue:	8	0		Open files:	17	15
+;	Enqueue:	8	0		Subprocess:	8	1
+;	Working set:	128	128		User AST:	6	0
+;	Working set default:	128		Page file:	128	128
+;	Working set extent:	128		Page fault cluster:	16
+
+shoquo:				;quotas
+	print
+	print	<Process quotas:>
+	print
+	print	<		Quota	Usage			Quota	Usage>
+	type	<CPU time:	Infinite	>                
+;	pq.cpu
+
+	type	<Direct I/O:	>
+	mov	#pq.dio,r5	
+	call	quotas	
+	print
+
+	type	<Byte count:	>
+	mov	#pq.byt,r5
+	call	quotas
+	type	<	>
+
+	type	<Buffered I/O:	>
+	mov	#pq.bio,r5
+	call	quotas
+	print
+
+	Type	<Timer queue:	>
+	mov	#pq.tqe,r5
+	call	quotas
+	type	<	>
+
+	type	<Open file:	>
+	mov	#pq.fil,r5
+	call	quotas
+	print
+
+	type	<Enqueue:	>
+	mov	#pq.enq,r5
+	call	quotas
+	type	<	>
+
+	type	<Subprocess:	>
+	mov	#pq.prc,r5
+	call	quotas
+	print
+
+	type	<Working set:	>
+	output	dec par=p.hquo+pq.wsq	;the quota
+	type	<	>		;
+	call	wsused			;get the working set usage
+	output	dec par=r1		;usage
+	type	<	>
+
+	type	<User AST:	>
+	mov	#pq.ast,r5
+	call	quotas
+	print
+
+	type	<Working set default:	>
+	output	dec par=p.hquo+pq.wsd
+	type	<	>
+
+	type	<Page file:	>
+	mov	#pq.pgf,r5
+	call	quotas
+	print
+
+.if eq 1
+	type	<Working set extent:	>
+	output	dec par=p.hquo+pq.wse
+	type	<	>
+	print	<Page fault cluster:	0>
+.endc
+	return
+
+quotas:	output	dec par=p.hquo(r5)	;the quota
+	type	<	>
+	mov	p.hquo(r5),r1		;the limit
+	sub	p.hlim(r5),r1		;decremented for use
+	output	dec par=r1		;used
+	return
+.sbttl	show process memory
+
+;	Show process memory structures.
+;
+;		Start	End	Bytes	Words
+;	Image
+;
+;	Free
+;
+;	Control	
+;	 input	
+;	 editor
+;	 symbol
+;	 output
+;	 device
+;
+;	Header
+;	 rmon
+;	 expert	
+;	native
+;	Total	
+
+shomem:				;show process memory
+	output	clr		;clean up
+	print
+	print	<Process memory:>	
+	print
+	print	<	 Start	   End	 Bytes	 Words>
+
+	type	<Image	>	
+	clr	r2		;start address
+	mov	p.htop,r3	;the size
+	call	shpmem		;display it
+
+;	print
+	type	<Free	>
+	mov	p.htop,r2	;top address
+	mov	p.hctl,r3	;control areaa
+	sub	r2,r3		;
+	call	shpmem		;
+
+;	print
+	type	<Control	>
+	mov	p.hctl,r2	;
+	mov	p.hrmc,r3	;
+	sub	r2,r3		;
+	call	shpmem
+
+	type	< Input	>	
+	clr	r3		;
+	mov	p.hjoc,r2	;address of it
+	beq	80$		;not there
+	mov	p.hjob,r3	;get the end of it
+	sub	r2,r3		;get the remainder
+80$:	call	shpmem
+
+	type	< Symbol	>
+	clr	r3
+	mov	p.hmet,r2	;start address
+	beq	100$		;none there
+	mov	p.hmel,r3	;
+100$:	call	shpmem
+
+	type	< Edit	>
+	clr	r3
+	mov	p.hedb,r2	;edit buffers
+	beq	200$		;not there
+	mov	p.heds,r3	;number of lines
+	mul	#edlbs.,r3	;line size
+200$:	call	shpmem
+
+	type	< Output	>
+	clr	r3
+	mov	p.hlob,r2	;buffer
+	beq	300$		;not there
+	mov	#fo.bbs,r3	;fixed size
+300$:	call	shpmem		;
+
+	type	< Names	>
+	mov	p.hrmc,r2	;get rmon
+	mov	#ph.mon-ph.equ,r3 ;adjust to addresses
+	sub	r3,r2		;
+	call	shpmem		;
+
+;	print
+	type	<Header	>
+	mov	p.hrmc,r2	;
+	mov	#ph.bbs,r3	;
+	call	shpmem
+
+	type	< RT-11	>
+	mov	p.hrmc,r2	;
+	mov	#ph.net-ph.mon,r3
+	call	shpmem
+
+	type	< Expert	>
+	mov	p.hrmc,r2	;
+	add	#ph.net,r2	;
+	mov	#ph.ksb-ph.net,r3
+	call	shpmem
+
+	type	< Native	>
+	mov	p.hrmc,r2	;
+	add	#ph.ksb,r2	;
+	mov	#ph.bbs-ph.ksb,r3
+	call	shpmem
+
+;	print
+	type	<Total	>
+	clr	r2		;
+	mov	p.hrmc,r3	;start of 
+	add	#ph.bbs-ph.mon,r3
+	bne	500$		;fine
+	dec	r3		;make it minus one
+500$:	call	shpmem		;hope it doesn't overflow
+	return
+
+;	r2 =	base
+;	r3 =	bytes
+
+shpmem:
+	output	oct par=r2 cnt=#6 ctl=#rig
+	type	<	>
+	add	r3,r2		;get the top address
+	bne	10$		;no overflow
+	tst	r3		;was this a null size?
+	beq	10$		;yes - no overflow
+	type	<200000>	;top address
+	br	20$		;
+10$:	output	oct par=r2 cnt=#6 ctl=#rig
+20$:	type	<	>
+	output	dec par=r3 cnt=#6 ctl=#rig
+	type	<	>
+	clc
+	ror	r3		;
+	output	dec par=r3 cnt=#6 ctl=#rig
+	print
+	return
+

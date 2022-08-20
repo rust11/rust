@@ -1,0 +1,862 @@
+ucl$c=1	;new UCL dispatch
+.iif ndf rsj$c, rsj$c=0
+.title	main - dcl mainline
+.include "dcs:dcl.mac"
+.psect	main
+$ehdef		;expert header
+$jbdef		;jsw
+$jsdef		;jsw
+$txdef		;text
+set ovly$ 1000			;move to sg
+synch=324
+statwd=366
+ifind=4
+b$rnam=4740
+
+;	+-------------------------------+
+;	| (Not) Used by KMS:KMON	|
+;	+-------------------------------+
+;
+;	DCL mainline
+;
+;	%build
+;	macro	dcs:main /object=dcb:main
+;	%end
+;	%date
+;	<01-Mar-2008 20:28:47.15>
+;	%edit
+;	<150  >
+
+.asect				;
+.=20				;
+	.word	iotpro,0	;catch SHARE-eleven traps
+.=jsw
+	.word	jsttl$		;lower case mode
+.=2000
+kstack::			;put the stack at 2000
+.psect	imginf
+.psect	main
+.sbttl	dcl interpreter
+.macro xxx cha
+;	psh	#''cha
+;	call	xxx
+.endm
+
+
+xxx:	psh	r0
+	mov	4(sp),r0
+	.ttyout
+	pop	r0
+	pop	(sp)
+	return
+
+;	RUST/XM DCL interpreter
+;
+;	Called from kernel with following parameters:
+;
+;	r0	CLI flags from image activator
+;
+;	0	nothing special
+;	<>0	command file of some sort
+
+	.enabl	lsb			;
+once:
+xxx a
+;bpt
+.if ne rsj$c
+	psh	r5		;r5 from rmon (bit0 may be set by SK.MAC)
+	cmp	r5,#^rRSJ	;new startup?
+	bne	1$		;nope
+	mov	r4,(sp)		;yes - r4 has flag
+1$:	tst	(sp)		;
+	bne	2$		;yes
+	clr	@#j$bcct	;clear count
+2$:	clr	-(sp)		;no flags
+	clr	-(sp)		;no line
+	clr	-(sp)		;not second time
+	br	5$
+.iff
+	psh	r0			;r0 from activator
+	clr	-(sp)			;no line yet
+	clr	-(sp)			;not second time
+	cmp	r5,#^rshp		;is this RUST/XM?
+	beq	5$			;yes
+	.exit				;no - ignore it
+.endc
+					;
+twice::	mov	j$busp,sp		;reset the stack
+xxx b
+	clr	-(sp)			;no flags
+	psh	r5			;save command line address
+	psh	pc			;second time
+	stack	flg r5 pc
+
+;	0(sp)	second time flag
+;	2(sp)	command line address
+;		0=>system command coming
+;	4(sp)	startup flags
+
+5$:	call	ov$ini			;init overlays
+	clr	$watch			;we are not watching
+	call	op$clr			;cleanup output
+	call	os$har			;revert to hardcopy mode
+
+;	Setup restart address
+
+	mov	sysptr,r0		;
+	mov	synch(r0),r0		;get inten
+	mov	-2(r0),r0		;get the table address
+	mov	r0,k$mwor		;system address
+	mov	#once,$km(r0)		;remember we're here
+	tst	2(sp)			;got a line so far?
+	bne	6$			;yes - TWICE entry
+	mov	$line(r0),2(sp)		;save the command address
+6$:	movb	@2(sp),@$line(r0)	;reset the first byte
+
+;	Set quiet if noverify is set
+
+	mov	sysptr,r5		;get rmon
+	bic	#$dcls,statwd(r5) 	;and clean out the dcls bit
+					;
+	tst	$jobc(r0)		;got a command file?
+	bne	20$			;nope - leave this alone
+	bit	#te.nov,$terms(r0) 	;is NOVERIFY active?
+	beq	10$			;no
+	bis	#ifeko$,statwd(r5) 	;yes - set quiet
+	br	20$			;
+10$:	bic	#ifeko$,statwd(r5) 	;no - set noquiet
+					;
+20$:	clr	j$bupc			;ignore attempts to reenter
+	mov	#jsttl$!jsovr$,jsw 	;setup overlays and lowercase
+	clrb	j$berr			;clean up user errors (?)
+;?	clrb	j$bsev			;
+					;
+	call	host			;get the host tables
+;	mov	$line(r0),r5		;get the input pointer
+	mov	2(sp),r5		;get the line address
+	tst	(sp)			;this the second time
+	bne	25$			;yes
+	call	entries			;get our variables setup
+25$:	mov	#line,r4		;point to the output
+
+;	Check for special command file
+
+	tst	(sp)+			;second time flag
+	pop	r5			;get the command line
+	pop	r1			;startup flags	
+	beq	30$			;nothing unusual
+	jmp	comfil			;its a command file
+
+;	Store the input line
+
+30$:	call	store			;store the first line
+
+xxx c
+;bpt
+;	Check for command file
+
+	world				;get the world
+	cmpb	@$line(r0),#'$		;start with a dollar?
+	beq	first			;yes - IND escape
+	mov	#line,r5		;get our line
+	cmpb	(r5)+,#'@		;this an AT?
+	bne	first			;no - not IND
+	cmpb	(r5),#'@		;is this @@file?
+	beq	first			;yes - use BUILD
+	mov	sysptr,r0		;check for IND
+	bit	#ifind,statwd(r0) 	;IND?
+	beq	first			;nope
+	edit	<^Z"R IND"}>		;this is also the IND command
+	edit	<*~}>			;copy the rest
+xxx d
+	jmp	build			;and send it to IND
+	.dsabl	lsb			;
+.sbttl	restart dcl
+
+;	DCL restart
+
+	.enabl	lsb
+restart:mov	j$busp,sp	;setup the stack
+xxx e
+;bpt
+	mov	$console,r5	;setup to collect
+	bis	#jsttl$,j$bjsw	;
+	.gtlin	r5,r3		;get an additional line
+	call	store		;store it
+watchx:	clr	o$pmes		;no default message
+	call	entries		;clean up again
+
+;	Check a user defined symbol
+
+first:	psh	#line		;get a copy of this guy
+xxx f
+
+;	Check for factors
+
+	mov	(sp),r5		;get the line again
+	edit	<!`(>,,10$	;got any factors?
+	call	float		;remember we're floating
+	call	factor		;yep, expand the factors
+
+;	Setup default devices
+
+10$:	pop	r5		;get the line again
+	mov	#3,r0		;setup all default devices
+20$:	edit	<x=rD="DK:">	;setup the default device
+	dec	r0		;and do them all
+	bpl	20$		;more to do
+
+contin::psh	r5		;save this again
+xxx g
+
+;	Check for device name or label
+
+30$:	mov	r5,(sp)		;reset the address
+;bpt
+	edit	<!+~>		;skip past alpha's			;V4
+	cmpb	(r5),#'.	;this a filetype?
+	beq	35$		;yes
+	cmpb	(r5)+,#':	;this the colon?
+	bne	40$		;no
+	cmpb	(r5),#'=	;this a symbol?
+	beq	40$		;yes - dont treat as device or label
+	edit	<! > 30$	;skip the label
+35$:
+xxx h
+;bpt
+	jmp	130$		;process CCL command
+
+;	Check for command symbol definition
+
+40$:	mov	(sp),r5		;get back the string
+xxx i
+	cmpb	(r5)+,#'_	;this for our system?
+	beq	50$		;nope
+	dec	r5		;					;RXM
+	edit	<W=1!+~\ \*==*==>,45$ ;dispatch user defined command	;RXM
+	edit	<W=1!+~\ \*=:*==>,,60$ ;dispatch user defined command	;V4
+45$:	pop	r5		;restore the pointer
+	clr	r0		;its a meta
+	jmp	usrsym		;define a symbol
+
+;	Check for command file
+
+50$:	mov	r5,(sp)		;skip the underline
+xxx j
+60$:	mov	(sp),r5		;get it back
+	cmpb	(r5)+,#'@	;this a command file?
+	bne	90$		;no
+	cmpb	(r5),#'@	;got another?
+	beq	70$		;yes - its build
+	world			;get the world
+	cmpb	@$line(r0),#'$	;start with a dollar?
+	beq	80$		;yes - avoid IND
+	mov	sysptr,r0	;check for IND
+	bit	#ifind,statwd(r0) ;IND?
+	beq	80$		;nope
+	edit	<^Z"R IND"}>	;yup
+	edit	<*~}>		;copy the rest
+	jmp	build		;and send it to IND
+70$:
+xxx k
+	jmp	buildc		;do the build command
+
+80$:	clr	r0		;flag command line input
+	jmp	atfile		;get the command file
+
+;	Check for command symbol reference
+
+90$:	mov	(sp),r5		;get back the string
+	cmpb	-1(r5),#'_	;was there an underline?
+	beq	100$		;yes - not for user symbols
+	call	users		;check for a user command
+
+;	Get a system command symbol
+
+100$:	edit	<W=0>		;not a user command
+	mov	(sp),r5		;no - get the pointer back
+	movb	(r5),r0		;get the character
+	beq	kmonex		;we hit end of line
+	cmpb	r0,#'a		;perhaps its lower case?
+	blo	110$		;nope
+	sub	#'a-'A,r0	;make it upper
+110$:	sub	#'A,r0		;is it in range?
+	bmi	140$		;nope
+	cmp	r0,#'Z-'A	;really?
+	bhis	140$		;nope
+	asl	r0		;get an offset
+	mov	symbol(r0),table;get the symbol table
+	call	search		;go get em
+	bcs	140$		;nothing found
+;	cmpb	(r5),#':	;this a filespec?
+;	beq	140$		;yes - ccl command
+	call	float		;remember we're floating
+	tst	(r2)+		;skip the flag
+	mov	(r2)+,r0	;get the value
+	bpl	120$		;fine
+	bic	#100000,r0	;remove the flag
+	cmpb	@$expand,#1	;display command?
+	beq	invdis		;oops - this won't work
+
+120$:	call	@(r2)+		;now call the routine
+
+kmonex::call	fix		;we're still here
+	mov	sp,r0		;make sure its soft
+	.exit			;and go upstairs awhile
+
+.if ne ucl$c
+140$:	mov	(sp),r5		;
+	call	uc$fnd		;try ucl
+130$:	pop	r5		;reset the pointer
+	clr	r0		;fudge the dispatch offset
+	jmp	other		;handle default case
+.iff
+130$:	pop	r5		;reset the pointer
+140$:	clr	r0		;fudge the dispatch offset
+	jmp	other		;handle default case
+.endc
+	.dsabl	lsb
+
+invdis:	fatal	<Invalid command for display>
+
+fix::	mov	(pc)+,(pc)+	;remember we're o.k.
+float::	clr	(pc)+		;remember we're floating
+fixed:	.word	1		;we start off intact
+	return
+.sbttl	store string
+
+;	Store command line
+;
+;	r5 ->	input
+;	r4 ->	output
+;
+;	Cleanup and store line
+;	Remove spaces/tabs following commas
+
+store:	mov	#line,r2	;we need this frequently
+10$:	clrb	(r4)		;make sure its terminated
+	movb	(r5)+,r0	;get the next
+	cmpb	r0,#'"		;got a quote?
+	bne	30$		;nope
+	movb	r0,(r4)+	;yes - move it
+20$:	movb	(r5),(r4)+	;move another
+	beq	30$		;oops - end of string
+	cmpb	(r5)+,#'"	;got another?
+	bne	20$		;nope - keep going
+	br	10$		;and start again
+				;
+30$:	edit	<r!r=z>		;'!' replace by zero
+	edit	<r	r= >	;replace tabs with spaces
+	cmpb	r0,#ff		;is it a formfeed?
+	beq	10$		;yes, ignore it
+	cmpb	r0,#space	;is it a space?
+	bne	50$		;nope
+	cmp	r4,r2		;start of line?
+	beq	10$		;yes, skip it
+
+;	Remove spaces between punctuation
+				;
+	movb	-1(r4),r1	;get previous character
+	cmpb	r1,#'@		;last an atsign?
+	beq	10$		;yes - skip it
+	cmpb	r1,#',		;last a comma?
+	beq	10$		;yes - skip space
+	cmpb	r1,#'/		;last a slash?
+	beq	10$		;yes
+	cmpb	r1,#'=		;last an equals sign?
+	beq	10$		;yes
+				;
+40$:	cmpb	-(r4),#space	;was the last a space
+	beq	50$		;yes, forget the space
+	inc	r4		;nope, keep the last guy
+50$:	cmpb	r0,#'$		;dollar sign?
+	bne	60$		;nope
+	cmp	r4,r2		;at start of line?
+	beq	10$		;yep, ignore it
+60$:	tstb	r0		;is it end of line?
+	beq	70$		;yes, its already there
+	call	s.put		;store the character
+	br	10$		;and get another
+70$:	tstb	(r2)		;is it a null line?
+	beq	kmonex		;yep, forget the whole thing
+80$:	clrb	(r4)		;terminate the line for loop
+	cmpb	-(r4),#space	;end with a space?
+	beq	80$		;remove it
+	cmpb	(r4),#'-	;continuation?
+	bne	130$		;nope, thats it
+
+	clr	r3		;no prompt
+	mov	k$mwor,r0	;get the world
+	add	#eh.dot,r0	;get the prompt
+	bitb	#177,(r0)	;is this a null prompt?
+	beq	120$		;yes - no prompt
+	mov	#140$,r1		;the prompt string
+	movb	#cr,(r1)+	;force a [return]
+90$:	movb	(r0),(r1)	;store the next
+	bitb	#177,(r0)	;was this the last?
+	beq	100$		;yes
+	cmpb	(r0)+,#space	;is this non-printing?
+	blo	90$		;yes
+	inc	r1		;no - its o.k.
+	br	90$		;
+100$:	cmpb	-(r1),#space	;was the last a space?
+	beq	110$		;yes - overwrite it
+	inc	r1		;no - leave it alone
+110$:	movb	#'_,(r1)	;replace the last character
+	mov	#140$,r3		;and prompt with it
+120$:	jmp	restart		;now restart it all
+130$:	return
+
+140$:	.blkb	12.		;fine
+.sbttl	scan
+
+;	Scan a command segment
+
+scan::	clrb	@$assume	;clear the first file name (why?)
+more::	call	nonest		;clear the string stack
+	incb	@$column	;get the next column
+	tstb	(r5)		;anymore coming?
+	bne	item		;yes, use it
+	mov	$query,r3	;for the test (and print later)
+	mov	r3,r1		;get another copy
+	tstb	(r1)		;is it optional?
+	beq	dupe		;yes, forget it
+	movb	#space,(r5)+	;no, step past it
+	mov	r5,r4		;and setup to collect more
+10$:	tstb	(r1)+		;skip to the end
+	bne	10$		;keep skipping
+	movb	#200,-(r1)	;and terminate it
+	jmp	restart		;and restart it
+dupe::	return			;dupe must remain a clean return!
+
+item:	call	lexical		;translate next into r0
+	add	r0,pc		;dispatch it
+	br	s.space
+	br	s.option
+	br	s.comma
+	br	s.file
+
+s.space:call	pull		;forget diversions
+	tstb	(r5)		;is it end of line?
+	beq	10$		;yes, dont skip it
+	inc	r5		;field done, skip the space
+10$:	return			;and return to caller
+
+s.file:	decb	@$files		;count the file
+	bmi	10$		;oops, too many files
+	call	file		;get the file spec
+	br	item		;and get the next thing
+10$:	fatal	<Too many files>
+
+;	After search:
+;
+;	r2 ->	.byte	column
+;		.byte	switch
+
+s.option:inc	r5		;skip the slash
+	call	search		;search for option
+	bcs	illopt		;no good
+	cmpb	(r2)+,@$column	;in the right column?
+	bhi	invpos		;nope, too early
+
+	movb	(r2)+,r0	;got a switch
+	cmpb	r0,#'0		;this a local switch?
+	bne	10$		;nope
+	clr	r0		;yes, signal it
+				;
+10$:	psh	r0		;save it
+	beq	20$		;nope
+	mov	r4,(sp)		;save us instead
+	call	address		;swap to the address
+	bcs	syserr		;theoretically impossible
+	psh	r1		;save the update pointer
+	mov	6(r1),r4	;and use the updated pointer
+				;
+20$:	movb	(r2)+,r0	;get the switch
+	cmpb	r0,#'_		;is it a null?
+	beq	30$		;yes, forget it
+	edit	<"/"_r>		;dump the switch
+				;
+30$:	movb	(r2)+,r0	;get the cusp
+	beq	40$		;zero, forget it
+	edit	<C=r>		;and shove it in
+				;
+40$:	mov	(r2),r2		;get the routine address
+	beq	50$		;no routine
+	call	s.white		;check for space/option
+	call	(r2)		;handle the action
+				;
+50$:	pop	r1		;get the return slot
+	beq	item		;we didnt push
+	mov	r4,6(r1)	;update the pointer
+	pop	r4		;and return r4
+	br	item		;and look for more
+syserr::fatal	<System error>
+
+s.comma:inc	r5		;skip the comma
+	call	pull		;check for a push
+	movb	#',,r0		;and duplicate the comma
+	call	s.put		;dump it
+	br	item		;and return
+
+pull::	mov	nest,r0		;did we push?
+	beq	nonest		;nope
+	mov	r0,r4		;go back to it
+nonest:	clr	nest		;now turn off the flag
+	clrb	@$index		;and revert to standard defaults
+	clrb	@$prior		;no previous filename
+nofile:	clr	pna		;no allocate allowed
+	return
+
+push::	tst	nest		;already pushed?
+	bne	nofile		;forget it
+	mov	r4,nest		;save it
+	br	nofile
+
+eol::	tstb	(r5)		;any more coming?
+	bne	illegal		;yes
+	return			;nope - ok
+
+s.white:cmpb	(r5)+,#space	;next a space?
+	bne	10$		;no
+	cmpb	(r5),#'/	;followed by an option?
+	beq	20$		;yes - skip the space
+10$:	dec	r5		;no
+20$:	return
+
+invpos::fatal	<Invalid option position>
+illegal::fatal	<Invalid command>
+illopt::fatal	<Invalid option>
+optnot::fatal	<Option not in system>
+.sbttl	lexical
+
+;	Decode next lexical state
+;
+;	Decode next state and test transition matrix.
+;	Handle input/output/checking of commas
+;	Commas are copied to the output stream
+;
+;	 n		    n+1
+;	 	col1	space	file	option	comma
+;	space	yes	no*	yes	no	no
+;	option	yes	yes	no	yes	yes
+;	comma	no	no	yes	no	no
+;	file	no	yes	no	yes	yes
+;
+;	 * impossible condition
+
+set .space 10, .file 4, .option 2, .comma 1, .col1 400
+
+; state		[.space/$$space][$space]
+;		[  10  /  40   ][ 0  /mask]
+meta <state c d e f><.byte c,d><.word $*400!e><$=$+2>
+
+states:	$=0
+state	40	.space	.option!.comma
+state	57	.option	.file
+state	54	.comma	.col1!.space!.option!.comma
+state	0	.file	.col1!.file		;must be last
+meta state
+
+colum1::incb	@$column	;force column 1
+	mov	#.option!.comma,state ;setup space state
+	return			;
+
+lexical:call	s.white		;skip space before slash
+	movb	(r5),r0		;get the character
+	call	@bypass		;let them modify it
+	mov	#states-4,r1	;now look for it
+10$:	cmp	(r1)+,(r1)+	;get the next one
+	tst	r0		;end of line?
+	beq	20$		;yes, its the first in list
+	tstb	(r1)		;look at the state
+	beq	20$		;we're at file
+	cmpb	r0,(r1)		;got it?
+	bne	10$		;nope, keep looking
+20$:	inc	r1		;skip the character
+	bitb	(r1)+,state	;is this transition legal?
+	bne	50$		;nope, illegal command
+	movb	(r1)+,state	;get the new state
+	movb	(r1)+,r0	;get the col1 bit and offset
+	asr	r0		;column 1 test required?
+	bcc	30$		;nope
+	cmpb	@$column,#1	;is this column 1?
+	beq	50$		;yes, its illegal
+30$:	asl	r0		;and shift it for word offset
+	return			; >> r0 = word offset
+50$:	jmp	illegal		;it bombs
+
+;	Setup table, bypass, flags
+
+setup::	mov	(r3)+,table	;save the table address
+	mov	(r3)+,bypass	;and the lexical bypass
+	tst	(r3)+		;???
+	clr	state		;and reset the state
+	call	fix		;remember we're in memory
+	rts	r3		;and return
+
+stcol1::incb	@$column	;force column 1
+
+
+endline::edit	<! |?>		;must have end of line
+	edit	<C0C=1>
+	mov	$switch+2,r4	;pick the end of line switches
+	return
+.sbttl	search
+
+;	Search for a symbol
+;
+;	This is one of the tight loops in DCL.
+;
+;	table -> symbol table
+;	r5 -> 	string
+;
+; 	c=0 =>	r2 -> points to entry plex
+;	c=1 =>	string not found
+
+search::psh	r5		;save the start
+	clr	-(sp)		;for the result
+	call	110$		;store the string
+	psh	r5		;save the end of the string
+	clr	r3		;best character count
+	mov	table,r1	;get the current symbol table
+
+10$:	mov	r1,r2		;get the plex pointer
+	tst	(r1)		;end of list?
+	beq	60$		;yes
+	add	#6,r1		;advance to the ascii stuff
+	mov	#130$,r5	;get the string
+20$:	movb	(r5)+,r0	;get the next
+	beq	40$		;end of it
+	tstb	(r1)		;overrun?
+	beq	50$		;yep, skip it
+				;
+30$:	cmpb	r0,(r1)+	;got a match?
+	beq	20$		;yes
+	br	50$		;and ignore it
+				;
+40$:	sub	#130$,r5	;get the length
+	beq	50$		;zero length
+	cmp	r5,r3		;this longer?
+	blo	50$		;nope
+	beq	80$		;oops, its ambiguous
+	mov	r5,r3		;swap count
+	mov	r2,2(sp)	;and result in r0
+	tstb	(r1)		;exact match?
+	beq	60$		;yes, use it now
+50$:	tstb	(r1)+		;skip till the end of it
+	bne	50$		;zero must be found
+	inc	r1		;
+	bic	#1,r1		;even it up
+	br	10$		;do it again
+
+60$:	pop	r5		;get the end
+	clc			;assume found
+	pop	r2		;get the result
+	bne	70$		;fine
+	sec			;not fine
+	mov	(sp),r5		;return the start
+70$:	bit	r0,(sp)+	;cleanup
+	return
+
+80$:	type	<?DCL-E-Ambiguous > ;ambiguous 
+	cmp	table,#symbot	;command or option?
+	bhi	90$		;optio
+	type	<command >	;
+	br	100$		;
+90$:	type	<option />	;
+100$:	.print	#130$		;
+	jmp	setfat		;and quit
+
+;	Store the alphanumeric part of the string in upper case
+
+110$:	psh	r4		;save the output stream
+	mov	#130$,r4	;put it here
+120$:	edit	<@~>		;copy alphanumerics out
+	mov	#130$,r1	;get it again
+	call	large		;convert it to upper case
+	pop	r4		;restore it
+	return
+
+130$:	.blkb	80.		;the string
+	.word	-1		;the bumper
+.sbttl	errors
+
+error::	bcs	fatal		;c=1 => fatal
+	call	even		;skip the message
+	rts	r1		;return
+even::	tstb	(r1)+		;step it up
+	bgt	even		;till it ends
+	inc	r1		;even it up
+	bic	#1,r1		;thuswise
+	return
+
+;	error exits
+;
+;	inform	<text>,str
+;	warn	<text>,str
+;	severe	<text>,str
+;
+;	mov	#stradr,r1
+;	jsr	r0,infex
+;
+;	4(sp)	text
+;	2(sp)	message
+;	0(sp)	severity
+
+infex::	clr	r1		;no item
+infexi::psh	r1		;item
+	psh	r0		;message
+	psh	#'I		;information
+	br	comexi		;
+
+warex::	clr	r1		;no item
+warexi::psh	r1		;item
+	psh	r0		;message
+	psh	#warn$*256.!'W	;warning
+	clr	$watch		;
+	br	comexi		;
+
+fatal::	mov	r1,r0		;r1 is message
+fatex::	clr	r1		;no item
+fatexi::psh	r1		;item
+	psh	r0		;string
+				;
+	mov	k$mwor,r0	;get the net table
+	clr	$km(r0)		;fatal errors clear kmon flag
+				;
+	psh	#error$*256.!'E	;fatal
+	clr	$watch		;
+	fall	comexi		;
+
+comexi:	type	<?DCL->		;the prefix
+	.ttyout	(sp)		;the character
+	type	<->		;
+	clrb	(sp)		;remove it
+	bis	(sp)+,errbyt	;setup userrb
+	.print	(sp)+		;the message
+	pop	r0		;got an item?
+	beq	kmon		;no
+	.print			;yes
+	br	kmon		;
+
+setfat::bisb	#sever$,userrb	;set fatal
+setwar::bisb	#warn$,userrb	;set warning
+	clr	$watch		;
+	fall	kmon
+
+kmon::	cmp	@$expand,#2	;is it in debug mode?
+	bne	10$		;nope
+	jmp	debug		;during debug only
+10$:	tst	$watch		;are we watching?
+	bne	watcher		;yes
+	jmp	kmonex
+
+;	Wait for [ctrl/c]s to terminate display
+;	Second word of SCCA area flags SCCA enabled
+;	We collect the [ctrl/c]s afterwards but
+;	do not loop around insisting on [ctrl/c].
+
+watcher:call	os$clp		;clear to end of screen
+	tst	sccact		;already setup?
+	bne	10$		;yes
+	clr	bomb		;no abort
+	.scca	#scca,#bomb	;no - set it up
+10$:	tst	bomb		;did they abort?
+	bne	20$		;yes
+	.twait	#70$, #80$	;1 second
+	tst	bomb		;
+	bne	20$		;did they abort?
+	call	50$		;get a character
+	cmp	r0,#ctrlz	;this a terminator?
+	beq	30$		;yes
+	call	os$ini		;reset the mode
+	call	os$hom		;
+	mov	stk,sp		;
+	jmp	watchx		;restart it
+
+20$:	call	50$		;get ctrl/c
+	call	50$		;and another
+30$:	.scca	#scca, #0	;clear [ctrl/c] ast
+	jmp	kmonex		;
+
+
+50$:	psh	j$bjsw		;save job status word
+	bis	#jstts$!jsttr$,j$bjsw ;set the noecho bit
+	.ttinr			;get first [ctrl/c]
+	bcc	60$		;fine
+	bic	r0,r0		;nothing
+60$:	pop	j$bjsw		;reset it
+	return			;
+
+70$:	.word	0,0		;
+80$:	.word	0		;hot
+$watch::.word	0		;lot - frequency
+
+scca:	.byte	0,35		;emt code
+sccact:	.word	0		;address of status word
+bomb:	.word	0		;status word
+
+save::	psh	r4
+	psh	r3
+	psh	r2
+	psh	r1
+	psh	r0
+	psh	r5
+	mov	14(sp),r5
+	call	@(sp)+
+	pop	r0
+	pop	r1
+	pop	r2
+	pop	r3
+	pop	r4
+	pop	r5
+	return
+.sbttl	kmon emts
+
+;	meta <string a,t=0><.ascii &a&<t>><.even>
+;	meta <.ttin><call ttin.>
+;	meta <.feed><call feed.>
+;	meta <.ttou a><.iif nb,a,movb a,r0><emt 341>
+;	
+;	meta <print s><jsr r1,print.><string <s>>
+;	meta <type s><jsr r1,type.><string <s>,200>
+
+km$abo::mov	k$mwor,r0	;get the table
+	clr	$km(r0)		;zap it
+;??	clr	$job(r0)	;and the command file
+	clr	$jobc(r0)	;and the command file
+km$fat::jmp	fatal		;same as fatal
+
+km$fee::jsr	r1,km$pri	;print it
+	.byte	cr,lf,200,0	;display newline
+	return
+km$typ::
+km$pri::call	km$dis		;display it
+	rts	r1		;and return
+
+km$dis::psh	r0		;save this
+10$:	movb	(r1)+,r0	;get the next
+	tstb	r0		;what is this?
+	beq	30$		;end of line
+	bpl	20$		;a character
+	bic	#177600,r0	;end of line?
+	beq	40$		;yes
+20$:	.ttyout
+	br	10$
+30$:	call	km$fee		;new line
+40$:	inc	r1
+	bic	#1,r1
+	pop	r0		;
+	clc			;
+	return
+
+km$tti::.ttyin			;get one
+	cmpb	r0,#cr		;this a cr?
+	beq	km$tti		;yes
+	cmpb	r0,#lf		;this a lf?
+	bne	km$exi		;no
+	clr	r0		;yes
+km$exi:	clc			;return happy
+	return
+.end	once

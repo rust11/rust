@@ -1,0 +1,800 @@
+.if ndf rxm$c
+rsj$c=0
+rxm$c=1
+.endc
+.title	goto
+.include "dcs:dcl.mac"
+.psect	goto
+$cfdef		;command files
+$cndef		;config
+$didef		;device status
+$ehdef		;expert header
+$esdef		;error severity
+$fndef		;filename
+$jbdef		;job
+$jidef		;job information
+$npdef		;name paths
+$rmdef		;rmon
+.if ne rxm$c
+$mmdef		;mmu
+$pedef		;process enables
+$prdef		;pcr
+$rpdef		;pcr
+$ttdef		;terminal map
+.endc
+
+;	RUST/XM DCL IF, THEN, GOTO commands
+;
+;	%build
+;	macro	dcs:goto /object=dcb:goto
+;	%end
+;	%date
+;	<12-Jul-2021 21:19:50>   
+;	%edit
+;	<16   >
+;
+;	IF command
+;
+; ???	IF/OPTIONS command THEN statement
+;
+;	if/error dir sy:a.a then display "file not found"
+; exist	if/device=filespec		is device loaded
+; exist	if/feature=name			is feature installed
+; exist	if/file=filespec		does file exist
+; exist	if/logical=aaa:			is logical name defined
+; exist	if/process=spool		is process installed
+;	if/root				does username = processname
+;	if/batch			is this a batch process?
+;	if/terminal			does process have terminal
+;	if/remote			does terminal = remote
+; exist	if/terminal=t03:		does terminal t03 exist
+; ???	if/image=name			does this program run on any process
+;	if/rtx				running under RTX
+;	if/v11				running under V11
+;
+; 	if/current/process=name		is currentprocessname = name
+; 	if/current/terminal=name	
+;	if/current/node=name
+
+i$finx:	.word	0		;ind status
+i$fctl:	.word	0		;
+map	ifnot$,,1		;/not
+map	ifsuc$,,2		;/success
+map	ifwar$,,4		;/warning
+map	iferr$,,10		;/error
+map	ifque$,,20		;/query
+map	ifcur$,,40		;/current
+map	iftru$,,40000		;true
+map	iffal$,,100000		;false
+
+map	ifchn.,,0		;channel number
+i$fare:	.blkw	10.		;emt area
+i$ffnm:	.blkb	fn.bbs		;filename
+i$fdst:				;dstatus
+i$fgji:	.blkb	ji.bbs		;get job
+.sbttl	IF command
+
+;	IF command
+
+if::	clr	i$fctl			;clear the flags
+	clr	i$ffnm			;clear the filename
+	mov	j$bsys,r0		;point to the system
+	movb	rm.inx(r0),i$finx	;get the flags
+	clrb	rm.inx(r0)		;and clear it
+					;
+	setup	i$fopl			;get the options
+	scan	<^M>			;look for options
+					;
+	bit	#iffal$!iftru$,i$fctl	;already got the answer?
+	bne	if$tst			;yes - just test it
+	bit	#ifsuc$!ifwar$!iferr$,i$fctl
+	bne	if$tst			;/success/warning/error
+	bit	#ifque$,i$fctl		;/query?
+	bne	if$que			;yep
+	jmp	if$cnd			;IF x cnd y
+					;
+if$que:					;/query
+	call	if$fmt			;format the display
+	bcc	if$tru			;it was yes
+	br	if$fal			;it was false
+					;
+if$fal:	bis	#iffal$,i$fctl		;it was false
+	br	if$tst			;
+if$tru:	bis	#iftru$,i$fctl		;it was true
+if$tst:	mov	i$fctl,r0		;get the control word
+	bit	#ifnot$,r0		;got /not?
+	beq	10$			;no
+	com	r0			;got it
+10$:	tst	r0			;got it?
+	bpl	20$			;yes
+	jmp	kmon			;ignore remainder of command
+
+;	r5 ->	remainder of command
+
+20$:	jmp	then			;continue with command
+
+if$cnd:	edit	<^I>			;left
+	call	if$scn			;scan it
+
+	mov	r5,r2			;for backup
+	edit	<^R>			;
+	call	if$scn			;
+	mov	#200$,r0		;list to search
+	mov	$rest,r1		;goto/then/display
+	call	if$kwd			;check for keyword
+	bcs	10$			;nope
+	mov	r2,r5			;backup
+	tstb	@$input			;got more
+	beq	20$			;nope - ignore it
+	br	30$			;yes - do then
+
+10$:	edit	<^O>			;get right hand
+	call	if$scn			;
+
+	mov	$input,r0		;
+	mov	$out,r1			;
+	clr	-(sp)			;assume same
+	call	if$cmp			;compare them
+	adc	(sp)			;(sp)=1 = ne
+	mov	#100$,r0		;
+	mov	$rest,r1		;
+	call	if$kwd
+	pop	r1			;
+	bcs	40$			;oops
+	cmp	r0,r1			;success?
+	beq	30$			;yes
+
+20$:	jmp	kmon
+30$:	jmp	then
+40$:	edit	<?>			;
+
+100$:	.asciz	/EQ/			;0
+110$:	.asciz	/NE/			;1
+	.byte	0
+	.even
+200$:	.asciz	/THEN/
+	.asciz	/GOTO/
+	.asciz	/DISP/
+	.asciz	/DISPL/
+	.asciz	/DISPLA/
+	.asciz	/DISPLAY/
+	.byte	0
+	.even
+
+;	Just remove quotes
+
+if$scn:	psh	r1
+	movb	#32.,r1			;
+	cmpb	(r5),#'"		;quoted?
+	bne	10$			;
+	movb	(r5)+,r1		;
+10$:
+20$:;	clrb	(r4)			;terminate string
+	movb	(r5)+,r0		;get the next
+	beq	40$			;end of it
+	cmpb	r0,r1			;end of string?
+	beq	35$			;yes
+	cmpb	r0,#''			;this a literal?
+	bne	30$			;no
+	tstb	(r5)			;anymore coming
+	beq	30$			;nope
+	movb	(r5)+,r0		;
+30$:	edit	<_r>			;movb r0,(r4)+
+;	movb	r0,(r4)+		;
+	br	20$			;
+35$:	cmpb	(r5),#32.		;trailing space?
+	bne	50$
+	cmpb	(r5)+,(r5)+		;skip it
+40$:	dec	r5
+50$:	pop	r1
+	return
+
+if$kwd:	clr	-(sp)			;return index
+10$:	call	if$cmp			;
+	bcc	30$			;same
+	inc	(sp)			;next
+20$:	tstb	(r0)+
+	bne	20$
+	tstb	(r0)
+	bne	10$
+	sec
+30$:	pop	r0
+	return
+
+;	r0 -> left
+;	r1 -> right
+
+if$cmp:	psh	r1			; save that
+	psh	r0			;
+	call	km$cvt			;
+	mov	r1,r0			;
+	call	km$cvt			;
+	mov	(sp),r0
+10$:	cmpb	(r0),(r1)		;different?
+	bne	20$			;yes
+	inc	r0			;
+	tstb	(r1)+			;
+	bne	10$			;more
+	tst	(pc)+			;
+20$:	sec				;
+	pop	r0			;
+	pop	r1			;
+	return
+
+km$cvt::psh	r1			;
+	psh	r0			;
+	mov	r0,r1			;
+10$:	movb	(r1),r0			; get next
+	beq	20$			;
+	call	km$upr			;
+	movb	r0,(r1)+		; change it
+	br	10$			;
+20$:	pop	r0			;
+	pop	r1			;
+	return
+
+km$upr::cmpb	r0,#'a			; is it a lower case?			;?100+
+	blo	10$			; nope
+	cmpb	r0,#'z			; really?
+	bhi	10$			; nope
+	sub	#'a-'A,r0		; make it upper case
+10$:	return
+.sbttl	IF options and primitives
+
+i$fopl:
+option	NOT		1 _	null	if$not
+option	SUCCESS		1 _	null	if$suc
+option	WARNING		1 _	null	if$war
+option	ERROR		1 _	null	if$err
+option	QUERY		1 _	null	if$qry
+option	BLANK		1 _	null	if$blk		;/blank='p1'
+option	CURRENT		1 _	null	if$cur		;/current
+
+option	DEVICE		1 _	null	if$dev		;/device=
+option	FEATURE		1 _	null	if$fea		;/feature=
+option	FILE		1 _	null	if$fil		;/file=
+option	LOGICAL		1 _	null	if$log		;/logical=
+option	PATH		1 _	null	if$pth		;/path=
+option	PROCESS		1 _	null	if$prc		;/process=
+option	TERMINAL	1 _	null	if$ter		;/terminal=
+option	IMAGE		1 _	null	if$ima		;/image=
+option	NODE		1 _	null	if$nod		;/node
+.if ne rxm$c
+option	BATCH		1 _	null	if$bat		;/batch
+option	REMOTE		1 _	null	if$rem		;/remote
+option	ROOT		1 _	null	if$roo		;/root
+option	EIS		1 _	null	if$tru		;/eis
+option	SJ		1 _	null	if$sfa		;/sj
+option	XM		1 _	null	if$str		;/xm
+.iff
+option	BATCH		1 _	null	if$sfa		;/batch
+option	REMOTE		1 _	null	if$sfa		;/remote
+option	ROOT		1 _	null	if$sfa		;/root
+option	EIS		1 _	null	if$eis		;/eis
+option	SJ		1 _	null	if$str		;/sj
+option	XM		1 _	null	if$sfa		;/xm
+.endc
+option	RTX		1 _	null	if$rtx		;/rtx
+option	V11		1 _	null	if$v11		;/v11
+option
+
+if$not:	bis	#ifnot$,i$fctl
+	return
+if$suc:	bis	#ifsuc$,i$fctl
+	bitb	#essuc$,i$finx		; SUCC$
+	beq	if$sfa
+;	bne	10$			; explicit success
+;	bitb	#^c<essuc$!esinf$>,i$finx ;any errors at all?
+;	bne	if$sfa			;no set false
+10$:	return
+
+if$war:	bis	#ifwar$,i$fctl
+	bitb	#eswar$!eserr$!esfat$!esunc$!240,i$finx
+	beq	if$sfa			;set false
+	return
+if$err:	bis	#iferr$,i$fctl
+	bitb	#eserr$!esfat$!esunc$!240,i$finx
+	beq	if$sfa			;set false
+	return
+if$str:	bis	#iftru$,i$fctl		;false
+	return
+if$sfa:	bis	#iffal$,i$fctl		;false
+	return
+if$qry:	bis	#ifque$,i$fctl
+	return
+if$cur:	bis	#ifcur$,i$fctl		;
+	return
+.sbttl	IF object tests
+
+;	Test objects
+;
+;	/blank='p1'
+
+if$blk:	edit	<:>
+	cmpb	(r5),#32.		;is this blank?
+	beq	30$			;yes
+10$:	tstb	(r5)			;end of line?
+	beq	20$			;yes
+	cmpb	(r5)+,#32.		;space
+	bne	10$			;
+	dec	r5			;backup
+20$:	jmp	if$sef			;
+30$:	jmp	if$set			;
+
+;	/device:filespec
+
+if$dev:	call	if$dvn			;get the filename
+	.dstat	#i$fdst,#i$ffnm		;get device status
+	bcs	if$sef			;not found
+	tst	di.ent+i$fdst		;handler loaded?
+	bne	if$set			;c=0 yes
+	br	if$sef			;nope - set false
+
+;	tst	(r0)+			;skip device
+;	clr	(r0)+			;clear remainder
+;	clr	(r0)+			;clear remainder
+;	clr	(r0)+			;clear remainder
+;	br	if$loo			;look it up
+
+;	/feature=name
+
+if$fea:	call	if$fnm			;get the feature name
+	.if ne rxm$c
+	mov	#^rvm,(r0)		;force device
+	mov	#^rfex,fn.typ(r0)	;force type
+	br	if$loo			;and look it up
+	.iff
+	jmp	if$sef			;always false
+	.endc
+
+;	/file=name
+
+if$fil:	call	if$fnm			;get the filename
+if$loo:	.serr				;soft errors
+	.purge	#ifchn.			;purge a channel
+	.lookup	#i$fare,#0,#i$ffnm,#0	;lookup the name
+	call	if$set			;set up result
+if$prg:	.purge	#ifchn.			;purge the channel
+	.herr				;hard errors
+	return				;
+
+;	/path=name
+
+if$pth:	call	if$dvn			;get the device name
+	mov	r0,r1			;get the path device name
+	beq	30$			;should not occur
+	world				;get the database
+	mov	eh.pth(r0),r0		;get the paths
+10$:	cmp	(r0),#npeot.		;this the end of them?
+	beq	30$			;yes
+	cmp	(r0),r1			;this the path?
+	beq	20$			;yes
+	add	#np.ebs,r0		;no - look at the next
+	br	10$			;
+20$:	tst	(pc)+			;found it
+30$:	sec				;not found
+	jmp	if$set			;set it up
+
+;	/logical=name
+
+	.if ne rxm$c
+if$log:	call	if$nam			;get the string
+	$trnlog	#i$fare,$input,#0,#0,#0,#0,#0 ;translate it
+	br	if$tse			;setup result
+	.iff
+if$log:	call	if$nam	;dvn		;get device name
+	mov	r0,r1			;save it
+	call	conle			;translate as logical name
+	bcc	10$			;is a logical name
+	mov	r1,r0			;
+	call	dl$fnd			;find as directory name
+10$:	jmp	if$set			;setup result
+	.endc
+
+	.if ne rsj$c
+if$eis:	mov	@#j$bsys,r0		;get system
+	bit	#cnEIS$,rm.cfg(r0)	;
+	beq	if$stt			;has EIS
+	br	if$sef			;doesn't have it
+	.endc
+.sbttl	more IF object tests
+
+;	IF$SET - Setup the results
+;
+;	c=0	indicates set true
+;	c=1	indicates set false
+
+if$stt:	tst	(pc)+			;c=0
+if$sef:	sec				;force false
+if$set:	bcs	10$			;false
+	bis	#iftru$,i$fctl		;true
+	br	20$			;
+10$:	bis	#iffal$,i$fctl		;false
+20$:	return
+
+;	[/current]/process=name
+
+if$prc:	call	if$nam			;get a string
+	.if ne rxm$c
+	bit	#ifcur$,i$fctl		;requesting current process?
+	bne	if$cpr			;yes
+	.gtjb	#i$fare,#i$fgji,$input	;
+if$tse:	br	if$set			;setup result
+
+;	/current/process=name
+
+if$cpr:	call	if$ker			;get kernel info
+	mov	$input,r1		;
+	call	cv$arf			;convert first part to rad50
+	cmp	r0,p.hnam		;this the same?
+	bne	if$sef			;nope, set false
+	call	cv$arf			;convert second part
+	cmp	r0,p.hnam+2		;check second part
+	beq	if$set			;same - set true
+	br	if$sef			;set false
+	.iff
+	br	if$sef
+	.endc
+
+;	/root
+
+	.if ne rxm$c
+if$roo:	call	if$ker			;get kernel info
+	cmp	p.hnam,p.husn		;this the same?
+	bne	if$sef			;no - set false
+	cmp	p.hnam+2,p.husn+2	;try second
+	beq	if$set			;yes - set true
+	br	if$sef			;no - set false
+	.endc
+
+;	/batch
+
+	.if ne rxm$c
+if$bat:	call	if$ker			;get kernel info
+	bit	#pebat$,p.hpe0		;
+	.endc
+if$pol:	beq	if$sef			;
+	br	if$stt			;set true
+
+;	/remote
+
+	.if ne rxm$c
+if$rem:	$cmkrnl	#i$fare, #if$rek, pic=yes ;
+	br	if$set			;
+	.endc
+
+if$rtx:	tst	k$mrtx
+	br	if$pol
+if$v11:	tst	k$mv11
+	br	if$pol
+.sbttl	more IF tests
+
+;	/terminal[=name]
+
+if$ter:	call	if$nap			;get possible name
+	.if ne rxm$c
+	bcc	10$			;we have one
+	call	if$ker			;get kernel information
+	tst	p.hter			;got a terminal?
+	beq	if$sef			;no - set false
+	br	if$set			;yes - set true
+
+10$:	mov	$input,r0		;get the string
+	cmpb	(r0),#'T		;this a terminal name?
+	beq	20$			;yes
+	cmpb	(r0),#'t		;or lower case?
+	bne	if$itn			;nope - invalid terminal name
+20$:	tstb	(r0)+			;skip character
+	call	if$dig			;get a digit
+	bcs	if$itn			;invalid terminal specification
+	mul	#10.,r1			;*10
+	mov	r1,r2			;save it
+	call	if$dig			;
+	bcs	if$itn			;invalid
+	add	r1,r2			;add it in
+	$cmkrnl	#i$fare, #if$ket, p0=i$fctl, pic=yes
+	jmp	if$set			;setup the result
+	.iff
+	jmp	if$sef
+	.endc
+
+;	/image=name
+
+if$ima:	call	if$fnm			;get the filename
+	.if ne rxm$c
+	mov	#i$ffnm,r0		;
+	mov	#i$fken,r1		;
+	mov	#fn.bbs/2,r2		;
+10$:	mov	(r0)+,(r1)+		;copy the name
+	sob	r2,10$			;the whole name
+20$:	$cmkrnl	#i$fare, #if$kei, pic=yes ;
+	jmp	if$set
+	.iff
+	jmp	if$sef
+	.endc
+
+;	/current/node=name
+
+if$nod:	call	if$fnm			;get the filename
+	.if ne rxm$c
+	call	if$ker			;get kernel information
+	cmp	i$ffnm+fn.fil,s.ynod	;same node?
+	bne	10$			;no
+	cmp	i$ffnm+fn.nam,s.ynod+2	;really?
+	bne	10$			;
+	jmp	if$set			;same
+10$:	jmp	if$sef			;different
+	.iff
+	jmp	if$sef
+	.endc
+
+;	Invalid terminal name specified
+
+	.if ne rxm$c
+if$itn:	fatal	<Invalid terminal name>	;
+	.endc
+.sbttl	get IF strings
+
+;	IF$NAP - Pickup possible name, c=1 if no string
+;
+;	IF$NAM - Pickup ascii name
+;
+;	$input	ascii string
+;	Ignore file spec following
+
+if$nap:	mov	(pc)+,-(sp)
+if$nam:	clr	-(sp)
+	edit	<!:>,,20$		;must have string
+10$:	edit	<^I>			;get it in input
+	edit	<(@\@@@@@!@~|?)>	;get the name - required
+	edit	<!(::)>			;skip colon
+	edit	<!@~>			;skip the name
+	edit	<!.\@@@>		;get type
+	tst	(sp)+
+	clc
+	return				;string in $input
+20$:	tst (sp)+
+	beq	30$					
+	sec
+	return
+30$:	edit	<?>			;
+	.dsabl	lsb			;
+					;
+;	IF$FNM - Pickup filename
+;
+;	$input	ascii string
+;	i$ffnm	file name
+;	r0 ->	i$ffnm (from cv$caf)
+
+if$fnm:					;get the string
+	edit	<!:>,,10$		;must have equals
+	edit	<^I>			;point to $input
+	call	file			;get the file specification
+	mov	#i$ffnm,r0		;point to the output
+	mov	#^rdk,(r0)		;fill in the device
+	clr	fn.typ(r0)		;remove the type
+	mov	$input,r1		;point to the string
+	call	cv$caf			;get a file specification
+	bcs	10$			;oops
+	return				;
+10$:	edit	<?>			;an error
+
+;	Device name
+
+if$dvn:	call	if$nam
+	mov	$input,r1		;
+	call	cv$arf			;convert to rad50 in r0
+	mov	r0,i$ffnm		;
+	clr	i$ffnm+2
+	clr	i$ffnm+4
+	clr	i$ffnm+6
+	return
+
+;	Get digit from input stream
+;
+;	r0 ->	input stream
+;	
+;	c=0	r1  = digit
+;	c=1	no digit
+
+if$dig:	movb	(r0)+,r1		;get the digit
+	sub	#'0,r1			;deascii it
+	bmi	10$			;not a digit
+	cmpb	r1,#9.			;
+	bhi	10$			;not a digit
+	tst	(pc)+			;we have one
+10$:	sec				;failed
+	return
+.sbttl	kernel IF tests
+.if ne rxm$c
+
+;	Check remote terminal
+
+if$rek:	mov	@#p$hter,r0		;get the terminal
+	beq	10$			;has none
+	bit	#ttrem$,tt.rem(r0)	;is it remote?
+	beq	10$			;nope
+	return				;
+10$:	.soft	0			;it's not remote
+
+;	Get kernel information
+
+if$ker:	$cmkrnl	#i$fare, #10$ pic=yes	;get kernel information
+	return				;
+10$:	mov	@#p$hter,p.hter		;return terminal
+	mov	@#p$hnam,p.hnam		;process name
+	mov	@#p$hnam+2,p.hnam+2	;
+	mov	@#p$husn,p.husn		;process name
+	mov	@#p$husn+2,p.husn+2	;
+	mov	@#p$hpe0,p.hpe0		;process enables
+	mov	@#s$ynod,s.ynod		;node name
+	mov	@#s$ynod+2,s.ynod+2	;
+	return				;
+
+;	Get kernel info about terminal
+
+if$ket:
+	mov	rp.r2(r5),r1		;get terminal number
+	cmp	r1,@#t$etes		;vaild terminal number?
+	bhi	20$			;nope
+	asl	r1			;get it times two
+	mov	t$emap(r1),r2		;get the ter pointer
+	beq	20$			;not there
+	bit	#ifcur$,rp.p0(r5)	;check for current?
+	beq	10$			;nope
+	cmp	r2,@#p$hter		;this our terminal?
+	bne	20$			;nope
+10$:	return				;
+20$:	.soft	0			;
+
+;	Check if image is active
+;
+;	Device=DK: defaults to a wildcard
+;	Type=0 defaults to a wildcard
+
+if$kei:	psh	@#m$kip6		;save current par6
+	mov	#p$rprs,r4		;get the pointer
+	mov	(r4)+,r3		;r3 = process count
+10$:	mov	(r4)+,r1		;get next process
+	beq	40$			;not in use
+	mov	pr.phd(r1),@#m$kip6	;map the phd
+	mov	#p$himg+mmp62.,r1	;get the actual image
+	mova	i$fken,r2		;get address of record
+20$:	cmp	(r2)+,(r1)+		;this the same?
+	beq	25$			;yes
+	cmp	-word(r2),#^rdk		;default?
+	bne	40$			;no
+25$:	cmp	(r2)+,(r1)+		;same filename?
+	bne	40$			;no
+	cmp	(r2)+,(r1)+		;really?
+	bne	40$			;
+	tst	(r2)			;wild filetype?
+	beq	30$			;yes
+	cmp	(r2)+,(r1)+		;same type?
+	bne	40$			;no
+30$:	pop	@#m$kip6		;restore par6
+	return				;we are done
+					;
+40$:	sob	r3,10$			;do the next
+	pop	@#m$kip6		;restore par6
+	.soft	0			;image not found
+
+p.hter:	.word	0			;terminal 
+p.hnam:	.word	0,0			;process name
+p.husn:	.word	0,0			;user name
+p.hpe0:	.word	0			;process enables
+s.ynod:	.word	0,0			;node name
+
+i$fken:	.blkb	fn.bbs			;
+.endc
+.sbttl	then goto
+
+;	THEN
+
+then::	edit	<! >		;skip any space
+	call	entries		;cleanup for new command
+	clr	@$column	;reset the column
+	jmp	continue	;keep going with command
+
+;	GOTO command
+;
+;	GOTO label
+
+goto::	edit	<! >		;skip white space
+	edit	<^I@~>		;copy label to $input
+	edit	<*?>		;that should be end of line
+	mov	$input,r1	;point to the label
+	tstb	(r1)		;did we get anything?
+	beq	50$		;no - just ignore it
+	call	large		;get uppercase label
+10$:	mov	$out,r1		;point to output area
+	call	peecom		;peek at command file
+	bcs	60$		;label not found
+	mov	r1,r2		;save update pointer
+	mov	$out,r1		;point to the line
+	call	large		;make it lower case
+	mov	$input,r0	;get the label
+	mov	$out,r1		;and the current line
+	cmpb	(r1),#'$	;leading dollar sign?
+	bne	15$		;noi					;V4
+	inc	r1		;yes - skip it
+15$:	cmpb	(r1),#space	;$ label:
+	bne	20$		;no
+	inc	r1		;yes					;V4
+	br	15$		;skip leading spaces
+20$:	tstb	(r0)		;end of model?
+	beq	30$		;yes - check for colon
+	tstb	(r1)		;end of string?
+	beq	40$		;yes - skip this one
+	cmpb	(r0)+,(r1)+	;get the next
+	beq	20$		;got more
+	br	40$		;does not match
+30$:	cmpb	(r1),#':	;got a colon?
+	beq	50$		;yes - exit
+40$:	mov	r2,r1		;skip past this line
+	call	skpcom		;skip the command file line
+	br	10$		;
+50$:	jmp	kmon		;
+60$:	mov	$input,r1	;
+	jsr	r0,fatexi	;
+	.ascii	"Label not found "<200>
+	.even			;
+.sbttl	ask
+
+;	Display prompt and wait for reply
+;
+;	Get display string into $text
+;
+;	r5 ->	input line
+;
+;	r5 ->	past quoted string
+;	r4 ->	at last character of display
+
+if$fmt:	edit	<! >		;skip any space
+	cmpb	(r5),#''	;is this the field start?
+	beq	10$		;yes
+	cmpb	(r5),#'"	;second chance
+	beq	10$		;yes
+	edit	<?>		;invalid command
+10$:	mov	$text,r4	;get the output pointer
+	movb	(r5)+,r1	;save the alternate
+20$:	cmpb	(r5),r1		;end of string?
+	bne	30$		;nope
+	cmpb	(r5)+,(r5)	;double?
+	bne	40$		;nope - we are done
+30$:	movb	(r5)+,(r4)+	;move it
+	bne	20$		;get the next
+	edit	<?>		;invalid command
+40$:	movb	#200,(r4)	;terminate the question
+	fall	if$ask		
+
+;	Ask the question
+;
+;	r5 ->	past quoted string
+;	r4 ->	final byte of prompt
+;		cleared at completion
+;
+;	c=0	reply was yes
+;	c=1	reply was not yes
+
+if$ask::movb	#200,(r4)+	;terminate it
+	.print	$text		;print the string
+	mov	j$bsys,r1	;get the system
+	psh	rm.cfs(r1)	;save statwd
+	bis	#cfdcl$,rm.cfs(r1) ;force input from the terminal
+	.ttyin	r2		;get the first
+	br	20$		;get the rest
+10$:	.ttyin			;get the rest
+20$:	cmpb	r0,#lf		;this the last?
+	bne	10$		;nope
+	pop	rm.cfs(r1)	;replace this
+	cmpb	r2,#'y		;is this a yes?
+	beq	30$		;yes - continue
+	cmpb	r2,#'Y		;really?
+	bne	40$		;no
+30$:	tst	(pc)+		;yes
+40$:	sec			;no
+	bicb	(r4),(r4)	;clear out the 200 for other text
+	return
+.end
+

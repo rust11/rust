@@ -1,0 +1,258 @@
+;	DCL macro library
+;
+;	%build
+;	library/macro dcb:dclmac dcs:dclmac
+;	%end
+;	%date	
+;	<16-Dec-1986 20:09:28.21>
+;	%edit
+;	<9    >
+;
+;	map	remove - conflict
+;	.cond	remove - redundant
+;	.pass	remove - redundant
+;
+.MACRO	INCLUDE MODUL
+.include "dcs:MODUL'.mac"
+.ENDM
+;
+.MACRO	DCLVAL
+set	tmp %0, cha %0, num %1, src %2
+set	dst %3	str %4, dev %4, csw %4 qel %5
+set	cr 15, lf 12
+set	path 6
+set	$csw 4, $con 300, $top 266
+set	test 0
+.ENDM
+;
+.MACRO	SET C D E F G H I J K L M N
+	c=d
+	.iif nb <e>,set e f g h i j k l m n
+.ENDM	
+;
+.MACRO	BL C,D,E
+	.iif b <c>,d
+	.iif nb <e>,bl c,<e>
+.ENDM	
+;
+.MACRO	NB C,D,E
+	.iif nb <c>,d
+	.iif nb <e>,nb c,<e>
+.ENDM
+;
+.MACRO	.BLANK N
+	.rept n
+	.byte 0
+	.endr
+.ENDM
+;
+.MACRO	POP A
+	.iif b <a>,mov (sp),(sp)+
+	.iif nb <a>,mov (sp)+,a
+.ENDM	
+;
+.MACRO	SAVE
+	jsr r5,save
+.ENDM	
+;
+.MACRO	RESTORE
+	jsr r5,restore
+.ENDM	
+;
+.MACRO	ON A B C D E
+	.iif ne a,b c d e
+.ENDM	
+;
+.MACRO	NO A,B C D E
+	.iif eq a,b c d e
+.ENDM	
+;
+;.MACRO	.COND
+;	.enabl lc,gbl
+;	.nlist ld,cnd,bex
+;	.list ttm
+;.ENDM	
+;
+.MACRO	IMOV A,B,C
+	mov b,c
+	add #a,c
+.ENDM	
+;
+.MACRO	STRING A,T=0
+	.ascii &a&<t>
+	.even
+.ENDM
+;
+.MACRO	.TTIN
+	call km$tti
+.ENDM
+;
+.MACRO	.FEED
+	call km$fee
+.ENDM
+;
+.MACRO	.TTOU A
+	.ttyout a
+.ENDM
+;
+;.MACRO	PRINT S
+;	jsr r1,km$pri
+;	string <s>
+;.ENDM
+;;
+;.MACRO	TYPE S
+;	jsr r1,km$typ
+;	string <s>,200
+;.ENDM
+;
+.MACRO	.ABORT S,L
+	jsr r1,km$abo
+	.iif nb l,l==.
+	string <s>
+.ENDM
+;
+.MACRO	.FATAL S,L
+	jsr r1,km$fat
+	.iif nb l,l==.
+	string <s>
+.ENDM
+;
+.MACRO	.TTYIN C
+	emt	340
+	bcs .-2
+	.iif nb <c>,mov r0,c
+.ENDM
+;
+.MACRO	.PROCEED
+	mov sp,r0
+	.exit
+.ENDM
+;
+.MACRO	WORLD C=R0
+	mov k$mwor,c
+.ENDM
+;
+;.MACRO	MAP N,S=0,P=2
+;	nb n,<n=$>
+;	nb n,<$=s*p+$>
+;	bl n,<$=.>
+;.ENDM
+;.MACRO	.PASS
+;	.cond
+;.ENDM
+;
+.MACRO	ALPHA A
+	.asciz &a&
+	.even
+.ENDM
+;	Option structure:
+;
+;	.byte	c,'l
+;	.byte	's,p
+;	.word	y
+;	.asciz	"option"
+;	.even
+;
+;	.byte	column,local-char
+;	.byte	switch-char,program-number
+;	.word	action-routine
+;
+;	column		minimum column valid for option
+;	local		default is 'S - ^S for switchs
+;			use l=0 to put switchs in command stream
+
+;.MACRO	OPT N,C,S,P,Y,L
+;	.word ''l*400!c,p*400!''s,y
+;	.asciz &n&
+;	.even
+;.ENDM
+.MACRO	OPTION N,C=0,S=_,P=0,Y=0,L=S
+.if b <n>
+	.word	0
+	.mexit
+.endc
+	.byte	c,''l,''s,p
+	.word	y
+	.asciz	&n&
+	.even
+;	.iif nb <n>,opt n c s p y l
+;	.iif b <n>,0
+.ENDM
+.MACRO	SETUP C=0,D=DUPE,E=DUPE
+	jsr r3,setup
+	.word c,d,e
+.ENDM
+.MACRO	SCAN A
+	jsr r3,text
+	.asciz &a&
+	.even
+	call scan
+.ENDM
+.MACRO	SCANEND A
+	jsr r3,text
+	.asciz &a&
+	.even
+	call scan
+	call endline
+.ENDM
+.MACRO	EDIT A G H
+	jsr r3,text
+	.asciz &a&
+	.even
+	.iif nb <g>,bcc g
+	.iif nb <h>,bcs h
+.ENDM
+.MACRO	CHECK A G H
+	jsr r3,check
+	.asciz &a&
+	.even
+	.iif nb <g>,bcc g
+	.iif nb <h>,bcs h
+.ENDM
+.MACRO	ERROR A
+	jsr r1,error
+	alpha <a>
+.ENDM
+.MACRO	FATAL A
+	jsr r1,fatal
+	alpha <a>
+.ENDM
+.MACRO	CASE M,?A,?B
+	jmp @a(r0)
+a:	.word b,m
+b:
+.ENDM
+.MACRO	STRIP C
+	.iif nb <c>,mov c,r4
+	call strip
+.ENDM
+.MACRO	RIGHTS C
+	jsr r5,right
+	.word c
+.ENDM
+.MACRO	DEBUG C
+	.word bpt,<^rsys>
+	.ascii _c_<200>
+	.even
+.ENDM
+.MACRO	REPORT C
+	.word bpt,<^rsys>
+	.ascii _c_<200>
+	.even
+.ENDM
+.MACRO	NODEBUG
+	meta <debug c>
+.ENDM
+.MACRO	TRIGHT C
+	psh c
+	call tright
+.ENDM
+.MACRO	CRIGHT C
+	psh c
+	call cright
+.ENDM
+.MACRO	KERNEL C
+	psh c
+	call chmker
+.ENDM
+

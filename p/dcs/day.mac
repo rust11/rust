@@ -1,0 +1,421 @@
+;???;	DCS:DAY DATE command does not support extended dates 
+Y2K=1
+V4=1
+.title	day
+.pass
+;.include "sps:share.mac"
+.include "lib:rust.mac"
+.if ndf rxm$c
+	rxm$c=1
+.endc
+.enabl	mcl
+.mcall	.gtim	.date
+.if ne rxm$c
+$srdef		;system rights
+meta	<system c><.word iot,^rsys,c>
+.endc
+sy.pti=-2
+config=300
+clk50=40
+
+;	RUST/XM DCL SET DATE command
+;
+;
+;	Accepts U.S. or International date formats
+;
+;	mm/dd/y
+;	mon/dd/y
+;
+;	dd-mm-yy
+;	dd-mon-yy
+;
+;	y	dd	82
+;		dddd	1982
+;
+;	Accepts/produces AM/PM specifications
+
+setdat::			;set day
+.if ne rxm$c
+	cright	#sropr.		;need oper
+;	cright	#srlio.		;and logical_io
+.endc
+	mov	#baddat,dattim	;setup the error path
+	call	gettim		;go get the date and time
+	mov	r0,oldate	;save the old date
+	clr	r4		;accumulate date here
+	call	skip		;skip the space
+	mov	r5,r1		;get a copy
+	call	alpha		;
+	mov	r1,r5		;restore r5
+	bcc	30$		;month first
+10$:	cmpb	(r1),#'/	;u.s. format?
+	beq	30$		;yes
+	tstb	(r1)+		;at the end?
+	bne	10$		;yes
+
+20$:	call	gday		; INTERNATIONAL
+	call	gmonth
+	br	gyear		;and do the year
+
+30$:	call	gmonth		; U.S.
+	call	gday		;get the day
+	br	gyear
+
+gday:	jsr	r3,field	;get a null day
+	.word	^c1740		;day field
+	bcc	10$		;got it
+	jsr	r4,number	;get the day
+	.word	1,31.		;the limits
+	call	pday		;nope
+10$:	return
+
+gmonth:	jsr	r3,field	;get the month
+	.word	^c36000		;					;V4
+	bcc	40$		;
+	jsr	r4,param	;try for numeric month
+	br	10$		;not numeric
+	.word	1.,12.		;
+	br	30$		;got it
+10$:	mov	#month,r2	;get the month
+	mov	#3,r1		;count them
+15$:	call	alpha		;get the month name
+	bcs	baddat		;oops
+	movb	r0,(r2)+	;find
+	dec	r1		;any more
+	bne	15$		;yes
+16$:	call	alpha
+	bcc	16$		;skip the remainder
+	mov	#months,r0	;get the month list
+	clr	r1		;accumulate a year
+20$:	inc	r1		;next month
+	tstb	(r0)		;month not found?
+	beq	baddat		;yep
+	mov	r0,r2		;point to this month
+	add	#3,r0		;advance for next
+	mov	#month,r3	;
+	cmpb	(r2)+,(r3)+
+	bne	20$		;not this one
+	cmpb	(r2)+,(r3)+
+	bne	20$		;not this one
+	cmpb	(r2)+,(r3)+
+	bne	20$		;not this one
+30$:	call	pmonth		;dump it
+40$:	return
+
+baddat:	fatal	<Invalid date>
+
+gyear:	jsr	r3,field	;do default year
+	.word	^c140037	;the year mask			;Y2K
+	bcc	30$		;done
+	jsr	r4,number	;get the year
+.if eq Y2K
+	.word	73.,1999.	;thats how it goes
+	cmp	r1,#99.		;long format?
+	blos	20$		;nope
+	sub	#1900.,r1	;adjust for our size
+	bmi	baddat		;oops
+20$:	sub	#72.,r1		;take out the constant
+	bmi	baddat		;
+.iff
+;Y2K	.word	73.,1999.	;thats how it goes
+;	.word	73.,2003.	;Y2K  thats how it goes
+;	.word	73.,2099.	;Y2K  thats how it goes		;Y2K
+	.word	0,2099.		;Y2K  thats how it goes		;Y2K
+	cmp	r1,#72.		;
+	bhis	10$		;
+	add	#2000.,r1	;
+10$:	cmp	r1,#99.		;long format?
+	blos	20$		;nope
+	sub	#1900.,r1	;adjust for our size
+	bmi	baddat		;oops
+20$:	sub	#72.,r1		;take out the constant
+	bmi	baddat		;
+	mov	r1,r0		;				;Y2K
+	bic	#177740,r1	;isolate low order		;Y2K
+	bis	r1,r4		;add in the year
+	bic	#^c<140>,r0	;				;Y2K
+	asl	r0		;				;Y2K
+	swab	r0		;				;Y2K
+	bis	r0,r4		;				;Y2K
+.endc
+
+30$:	tstb	(r5)		;must be end of line
+	bne	baddat		;oops
+	mov	r4,gdate	;setup the new date
+	mov	#-1,gtimeh	;dont change the time
+	call	sdttm		;and go set them
+	return			;return to dcl
+
+.enabl	lsb
+pmonth:	swab	r1		;get it up 8 places
+	br	10$
+pday:	asl	r1		;shift it
+	asl	r1
+	asl	r1
+10$:	asl	r1
+	asl	r1		;
+	bis	r1,r4		;set in the date
+	call	skipd		;skip a delimiter
+	bcs	baddat		;oops
+	return
+.dsabl	lsb
+
+field:
+	call	skipd		;got a delimiter coming?
+	bcs	10$		;nope
+	mov	oldate,r1	;yes
+	bic	(r3),r1		;mask it
+	bis	r1,r4		;set it in
+	tst	(pc)+
+10$:	sec
+	bit	(r3),(r3)+
+	rts	r3
+
+skipd:	mov	(pc)+,-(sp)	;skip the delimiter
+testd:	clr	-(sp)		;check delimiter
+	tstb	(r5)		;end of line?
+	beq	25$		;yes
+	cmpb	(r5),#40	;got a space?
+	beq	20$		;yes - we very forgiving
+	cmpb	(r5),#'-	;-?
+	beq	20$		;yes
+	cmpb	(r5),#'.	;got a dot?
+	beq	20$		;yes
+	cmpb	(r5),#'/	;/?
+	bne	30$		;nope
+20$:	tst	(sp)		;should we skip it?
+	beq	25$		;nope
+	inc	r5
+25$:	tst	(pc)+		;c=0 => delimiter found
+30$:	sec			;c=1 => not found
+	bit	(sp),(sp)+	;remove the flag
+	return
+
+
+alpha:	movb	(r5),r0		;get the next
+	cmpb	r0,#'a		;lower case?
+	blo	20$		;nope
+	cmpb	r0,#'z		;really
+	bhi	30$		;no chance
+	sub	#'a-'A,r0	;make it lower case
+20$:	cmpb	r0,#'A		;alphabetic?
+	blo	30$		;nope
+	cmpb	r0,#'Z		;really?
+	bhi	30$
+	inc	r5		;skip it
+	tst	(pc)+
+30$:	sec
+	return
+
+months:	.asciz	/JANFEBMARAPRMAYJUNJULAUGSEPOCTNOVDEC/
+	.even
+.if ne 0
+days:	.word	31.,29.,31.,30.,31.,30.,31.,31.,30.,31.,30.,31.
+day:	.word	0
+month:	.word	0
+year:	.word	0
+.endc
+
+month:	.ascii	/mon /
+area:	.blkw	5
+oldate:	.word	0
+
+gdate:	.word	0		;date
+gtimeh:	.word	0		;time
+gtimel:	.word	0		;time low order
+.sbttl	set time
+.mcall	.twait
+set	until 1	
+
+; wait command
+
+wait.::	setup	$wait		;do a scan for options
+	scan	<^M>		;get the options
+	mov	#48.,hourlimit	;setup the hour limit
+	call	acctim		;get the time
+	mov	r1,20$		;high order
+	mov	r2,20$+2	;low order
+	edit	<C0> 10$	;not until
+	mov	20$,30$		;save time for check
+	mov	20$+2,30$+2	;low order, too
+5$:	call	gettim		;go get the current time
+	add	#2,r2		;get there a couple of ticks early
+	sub	r2,20$+2	;subtract low order
+	sbc	20$		;
+	sub	r1,20$		;and the high order
+	bmi	15$		;already done
+	bne	10$		;its not null
+	tst	20$+2		;completely null?
+	beq	15$		;yes - we're done
+10$:	.twait	#area,#20$	;wait for it
+;+ ew				;
+	edit	<C0> 15$	;not until
+	mov	30$,20$		;get specified time again
+	mov	30$+2,20$+2	;and low order, too
+	br	5$		;and check if time is reached
+;-
+15$:	return
+20$:	.word	0,0		;time to wait
+30$:	.word	0,0		;copy of specified time
+$wait:
+option	UNTIL		1 _	until
+option
+
+settim::
+.if ne rxm$c
+	cright	#sropr.		;oper
+;	cright	#srlio.		;logical_io
+.endc
+	mov	#24.,hourlimit	;setup the hourlimit
+	call	acctim
+	mov	r0,gdate	;setup the date & time
+	mov	r1,gtimeh	;
+	mov	r2,gtimel	;
+	call	sdttm		;
+	return
+
+hourlimit:.word	24.		;48. for waits
+
+acctim:	mov	#badtim,dattim	;set up error jump
+	call	skip		;skip the space
+	clr	r3		;high order
+	clr	r4		;low order
+	call	gtime		;get time parameter
+	cmp	r1,hourlimit	;too high?
+	bhi	badtim		;yes
+	blo	5$		;underneath
+	clr	r4		;24 = 0
+5$:	call	ntime
+	call	ntime
+	call	ampm		;check for am/pm
+	mov	#59.,r2		;assume 60 cycles
+	mov	sysptr,r0
+	bit	#clk50,config(r0) ;got 50 cycles?
+	beq	10$		;nope
+	mov	#49.,r2		;yes
+10$:	call	mult		;go set it up
+	call	gettim		;get the date and time
+	mov	r3,r1		;replace time
+	mov	r4,r2		;thus
+	return
+
+badsyn:	jmp	@(pc)+		;oops
+dattim:	badtim
+badtim:	fatal	<Invalid time>	;
+
+ntime:	cmpb	(r5),#':	;trailing colon?
+	bne	gtime		;nope
+	inc	r5		;yes - skip it
+gtime:	mov	#59.,r2		;multiplier
+	call	mult		;multiply it
+	tstb	(r5)		;end of line?
+	beq	10$		;yes
+	cmpb	(r5),#':	;got a colon?
+	beq	10$		;yes
+	jsr	r4,digits	;get the digits
+	.word	0,59.		;the limits
+	add	r1,r4		;low order
+	adc	r3
+10$:	return
+
+midday=12.*60.*60.		;seconds in 12:00:00
+thirteen=13.*60.*60.
+
+ampm:	call	skip
+	tstb	(r5)		;end of line?
+	beq	15$		;yes
+	call	20$
+	cmp	r1,#"PM		;this a PM?
+	bne	10$		;nope
+	cmp	r4,#thirteen	;too high?
+	bhis	badsyn		;yes
+	cmp	r4,#midday	;past 12:00 ?
+	blo	5$		;yes
+	sub	#midday,r4	;get morning time
+	br	15$
+5$:	tst	r3		;check high order
+	bne	badsyn		;
+	add	#midday,r4	;add in 12 hours
+	adc	r3		;double precision
+	br	15$		;fine
+
+10$:	cmp	r1,#"AM		;an AM?
+	bne	badsyn		;oops
+15$:	return
+
+.mcall	.ttyout
+20$:	call	(pc)
+	call	alpha
+	bcs	badsyn
+	clrb	r1
+	bisb	r0,r1
+	swab	r1
+50$:	return
+.sbttl	utilities
+
+.enabl	lsb
+number:	clr	r1		;init the number
+	call	digit		;must be a number
+	bcs	badsyn		;fine
+	br	10$
+param:				;get a number in r1
+	clr	r1		;set it up
+	call	digit		;get the first
+	bcs	40$		;not a number
+	tst	(r4)+		;skip alpha return
+	br	10$
+
+digits:	clr	r1		;get a number
+10$:	call	digit		;get a digit
+	bcc	10$		;fine
+20$:	cmp	r1,(r4)+	;too low?
+	bmi	badsyn		;yes
+	cmp	r1,(r4)
+	bhi	badsyn		;too high
+	tst	(pc)+		;set the flag
+30$:	sec			;out of limits
+	bit	(r4),(r4)+	;skip the paramter
+40$:	rts	r4		;and return
+.dsabl	lsb
+
+digit:	cmpb	(r5),#'0	;is it a digit?
+	blo	10$		;nope
+	cmpb	(r5),#'9	;really?
+	bhi	10$		;nope
+	movb	(r5)+,r0	;get it
+	sub	#'0,r0		;deascify it
+	asl	r1		;assemble number
+	add	r1,r0		;
+	asl	r1
+	asl	r1
+	add	r0,r1		;
+	bcs	10$		;number overflowed
+	tst	(pc)+
+10$:	sec
+	return
+
+mult:	mov	r3,r0		;
+	mov	r4,r1		;get the current size
+10$:	add	r1,r4		;
+	adc	r3
+	add	r0,r3
+	dec	r2		;
+	bne	10$		;thus
+	return
+
+skip:	cmpb	(r5)+,#40	;got a space?
+	beq	10$		;yes
+	dec	r5		;nope
+10$:	return
+
+gettim:	.gtim	#area,#20$
+	.date
+	mov	20$,r1
+	mov	20$+2,r2
+	return
+20$:	.word	0,0
+
+sdttm:	.sdttm	#area,#gdate	;set the date & time
+	call	gettim		;and refresh ourselves
+	return
+.end

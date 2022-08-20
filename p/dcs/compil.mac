@@ -1,0 +1,118 @@
+.title	compile command
+.pass
+set .macro 1, .fortra 2, .dibol 3, .help 4
+set .cusp 1
+;compil	compil=i:kp/p:1,compil,files
+
+compile::setup	$compile,c.lex	;setup for macro
+	edit	<x=2D="LP:">	;setup the listing default
+	scan	<^M>		;get the command switches
+	psh	@$cusp		;and remember the program type
+	psh	$switch+2	;save the front end guys
+	edit	<l0x=2D="DK:"x=0> ;change to DK: if not generic list	;?293
+
+10$:	scan	<F=6^IQ="Files? "> ;get the files
+	edit	<x=1o0f0^f_D_a>	;setup the object name
+	edit	<x=2l%f0^f_D_a>	;setup the listing name
+	call	getcusp		;go get a cusp
+	mov	$switch+2,r4	;get the end of line switches
+	edit	<C2u%"/S">	;fortran /S for nolinenumbers
+	edit	<C3u%"/O">	;dibol /O for nolinenumbers
+	edit	<C2w%"/W">	;fortran /W for warnings
+	edit	<C3q%"/W">	;dibol /W for nowarnings
+	edit	<C4"/C">	;HELP /C
+	edit	<^Z"R "(C1"MACRO"|C2"FORTRA"|C3"DICOMP"|"HELP")}> ;program
+;;	edit	<^Z"R "(C1"MACRO"|C2"FORTRA"|"DICOMP")}> ;program name
+	edit	<x=1_f(x=2f%","_f)x=0"="_I_S}>;put out the command line
+	edit	<"^C"}>		;terminate the command
+	mov	r4,$text	;save the pointer
+
+	tstb	(r5)		;anymore coming
+	beq	30$		;nope, go build the command
+	mov	(sp),$switch+2	;restore the front end pointer
+	clrb	@$switch+2	;and terminate it
+	mov	2(sp),@$cusp	;restore the default program
+	edit	<o1|o=0>	;reset the noobject flag
+	edit	<l1|l=0>	;reset the list flag
+	edit	<u1|u=0>	;reset the nolinenumbers flag
+	edit	<w1|w=0>	;reset the warning flag
+	edit	<q1|q=0>	;reset the nowarning flag
+	edit	<x=1i1?|i=0f=0>	;clean up the object file
+	edit	<x=2i1?|i=0f=0>	;and the listing file
+	edit	<K=1>		;backup to goto column 2
+	jmp	10$		;do another pass
+
+30$:	jmp	build		;go copy it out
+.sbttl	symbol table and switch handlers
+
+$compile:
+option	OBJECT		1 _	null	object	l=0
+option	NOOBJECT	1 _	null	noobject
+option	LIST		1 _	null	list	l=0
+option	NOLIST		1 _	null
+option	ALLOCATE	1 _	null	allocate l=0
+
+option	MACRO		1 _	.macro
+option	FORTRAN		1 _	.fortran
+option	DIBOL		1 _	.dibol
+option	HELP		1 _	.help
+
+;dibol,fortran,macro
+option	LINENUMBERS	1
+option	NOLINENUMBERS	1 _	null	nolinenumbers	;fortra/S dibol/O
+option	WARNINGS	1 _	null	warning		;fortran/W
+option	NOWARNINGS	1 _	null	nowarning	;dibol/W
+option	ONDEBUG		1 D				;macro: Bad switch
+option	CROSSREFERENCE	1 C	null	value		;fortran: bad switch
+;fortran
+option	SHOW		1 L	null	value		;dibol bad switch
+option	SWAP		1
+option	NOSWAP		1 U				;dibol/macro bad switch
+option	VECTORS		1 _	.fortra
+option	NOVECTORS	1 V	.fortra
+option	OPTIMIZE	1 P	.fortra	value
+option	NOOPTIMIZE	1 M	.fortra	value
+option	EXTEND		1 E	.fortra
+option	STATISTICS	1 A	.fortra
+option	UNITS		1 N	.fortra	value.
+option	HEADER		1 O	.fortra
+option	DIAGNOSE	1 B	.fortra	value
+option	CODE		1 I	.fortra	value
+option	I4		1 T	.fortra
+option	RECORD		1 R	.fortra	value.		;		;?257
+;macro
+option	ENABLE		1 E	.macro	value
+option	DISABLE		1 D	.macro	value
+option	LIBRARY		2 M	.macro		l=0
+option	PASS		2 P	.macro	value.	l=0
+;dibol
+option	BUFFERING	1 B	.dibol
+option	LOG		1 G	.dibol
+option	PAGE		1 P	.dibol	value.
+option	TABLES		1 S	.dibol
+;help
+option	INFORMATION	1 I	.help
+option	NOINFORMATION	1 _	.help
+option	OUTPUT		1 _	.help	object	l=0
+option	NOOUTPUT	1 _	.help	noobject
+option
+
+c.lex:	edit	<r,r= |r+r=,>	;convert + to , and , to space.
+	return
+
+nolinenumbers:
+	edit	<u0u=K>		;remember no linenumbers
+	return
+warnings:edit	<w0w=K>		;remember warnings
+	return
+nowarnings:edit	<q0q=K>		;remember no warnings	
+	return
+
+noobject:edit	<o1|o=K>	;remember it (only once)
+	return
+object:	edit	<r=1>		;set it up
+	br	complex		;and go handle it
+list:	edit	<r=2l1|l=K>	;doing list, setup the flag
+	fall	complex		;and fall into the files handler
+				;FILES.MAC follows here.
+

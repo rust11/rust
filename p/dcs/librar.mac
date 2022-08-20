@@ -1,0 +1,104 @@
+.title	library command
+.pass
+set	libr 1
+
+library::setup	$library	;set it up
+	edit	<x=1D="">	;no default object device yet		;?71
+	edit	<x=2D="LP:">	;setup the listing default
+	scan	<^M>		;get the command switches
+	edit	<l0x=2D="DK:"x=0> ;change to DK: if not generic list	;?293
+	scan	<^LF=1Q="Library? ">
+	edit	<s0M="Files  ? "> ;default to insert
+	edit	<e%x=1f%M=0>	;e> no prompt if/extract/obj:name
+	edit	<^IF=6Q=M>	;get the files
+	call	more		;go get the files
+	edit	<s1l%o=1>	;kill object file for /list only
+	mov	$input,r5	;get it again
+	edit	<M=Ie%!`,!^M*~>	;and delete the first filename
+	edit	<x=1e%I%f%?>	;e> two object files bombs
+	mov	$input,r5	;point at the input
+	edit	<e%f0I%^f%~>	;e> complex, but its still not clean
+	edit	<e%M=0>		;remove second name			;?316
+10$:	mov	$linker,r5	;get the object default device
+	edit	<x=1D0^D(\@@@\:|"DK:")> ;plug in default device name	;?71
+	edit	<c2x=1o0f0^f_L> ;macro retains the file-type
+	edit	<c2|x=1o0f0^f_D_a>;setup the object name
+	edit	<x=2l%f0^f_D_a>	;setup the listing name
+	edit	<x=0c%L=0>	;clear the library file for create
+	edit	<^Z"R LIBR"}>	;run the librarian
+	edit	<x=1_f(x=2f%","_f)x=0"="_L(u%"/G")(M%,_M)_S}>;the command line
+	edit	<"^C"}>		;terminate it
+	jmp	build		;and go build it
+
+$library:
+option	OBJECT		1 _	null	object	l=0
+option	NOOBJECT	1 _	null	noobject
+option	ALLOCATE	1 _	null	allocate l=0
+
+option	INSERT		1 _	libr	insert		;Files? lib=lib,first
+option	REMOVE		1 _	libr	remove		;		;?254
+option	DELETE		1 D	libr	count		;None   lib=lib,first
+option	PROMPT		1 /	libr	count		;
+option	LIST		1 _	null	list	l=0	;
+option	NOLIST		1 _	null 
+option	CREATE		1 _	libr	create		;Files? lib=first,
+option	MACRO		1 M	libr	macro		;
+option	EXTRACT		1 E	libr	extract		;File? first=lib
+
+option	REPLACE		2 R	libr	count	l=0	;file associated
+option	UPDATE		2 U	libr	count	l=0	;
+
+option	ABSOLUTE	1 A	libr			;V4
+option	MODULES		1 N	libr			;V4
+option	PSECTS		1 P	libr			;V4
+option	WIDE		1 W	libr			;V4
+option	MULTIPLE	1 X	libr			;V4
+option
+
+remove:	edit	<u=1>		;remember this for later
+	br	count		;and count it
+macro:	call	value		;get the undocumented value
+	edit	<c=2>		;c=2 => macro create
+	br	insert
+create:	edit	<c=1>		;remember its create
+insert:	edit	<M="Files  ? ">	;setup the query
+count:	inc	@.switchs	;count the switch
+	return
+
+extract:edit	<e=1>		;remember its extract
+	edit	<M="File   ? ">	;and setup the question
+	br	count		;now count it
+
+noobject:edit	<o=1>		;remember it (only once)
+	return
+object:	edit	<r=1>		;set it up
+	br	complex		;and go handle it
+list:	call	count		;count the switch
+	edit	<r=2l=1>	;doing list, setup the flag
+	fall	complex		;and fall into the files handler
+.sbttl	complex filenames
+
+; handle complex and forced filenames
+
+complex:;edit	<!:>		;forget it without a colon
+	psh	@$index		;save the index
+	psh	r4		;save the output pointer
+	edit	<x=r>		;get the bugger
+	edit	<K1!:!D="DK:">	;Default device is DK: if filename
+	mov	$device,r4	;and try for a device
+	edit	<(\@@@\:|d=0>	;that gets the device
+	mov	$name,r4	;now get the name
+	edit	<@\@@@@@.@@@|n=0> ;remember it
+
+	edit	<d%D=dd=0>	;remember default devices
+	edit	<n%i%?>		;catch attempts to define multiple names
+	edit	<n%i=1>,,10$	;remember we have a name
+	mov	(sp),r4		;for the push operation
+	edit	<^f_D_n{>	;setup the name
+	cmp	(sp)+,(sp)+	;forget the old stream
+	return
+10$:	pop	r4		;restore the pointer
+	pop	@$index		;and the index
+	return			;that was all
+.end
+

@@ -1,0 +1,83 @@
+V4=0
+.title	delete command
+.pass
+set pip 1, filex 2, spool 3, symb 4	 			;?220	;?239
+
+;V5	Noted - /QUERY logic is wierd and redundant
+
+;-------------------------------;
+; delete			;
+;-------------------------------;
+delete::case	<rename,print,type,press,protec,unprot>
+	setup	$delete
+	world			;get the net table
+	movb	$card(r0),r0	;get the wildcard setting
+	edit	<W=1r0N="*"T=".*"> ;default name and type
+	scan	<^M>		;get the command options
+	edit	<C4> 10$	;delete symbol				;?239
+	scanend	<^IF=6Q="Files? "> ;get the files
+	call	vax		;check for vax				;?288
+	edit	<q3|C1W3"/Q">	;/query for pip
+	edit	<"/D">
+;V4	edit	<V1C="VIP"|C2C="FILEX"|C="PIP">				;?284
+	edit	<V1C="VIP"|C2C="FILEX"|C="VIP">				;?284
+	jmp	program
+;-------------------------------;
+; delete/command		;
+;-------------------------------;
+.if ne V4
+	mov	#del.met,r0	;signal delete meta
+	jmp	meta		;and delete it
+.iff
+10$:	edit	<c1> 20$	;is it all?				;?239+
+	tstb	(r5)		;got a symbol coming?
+	bne	15$		;yes - don't prompt
+	scanend	<^IF=1Q="Command? ">	
+15$:	edit	<!\ >		;strip the space off
+	mov	#del.met,r0	;signal delete meta
+	jmp	meta		;and delete it
+;-------------------------------;
+; delete/command/all		;
+;-------------------------------;
+20$:	world			;get the symbol table
+	mov	$metas(r0),r0	;get the list
+	beq	40$		;ignore it - there are none
+30$:	clrb	(r0)+		;clear the next
+	cmpb	(r0),#-1	;this the end of them?
+	bne	30$		;yes
+40$:	jmp	kmon		;and exit				;?239.
+.endc
+
+$delete:
+option	QUERY		1 Q	pip	noquery
+option	NOQUERY		1 _	null	noquery
+option	LOG		1 W	pip	noquery
+option	SYSTEM		1 Y	pip
+option	NEWFILES	1 C	pip
+option	EXCLUDE		1 P	pip
+option	POSITION	2 M	pip	value.	l=0
+option	DOS		2 S	filex		l=0
+option	INTERCHANGE	2 U	filex		l=0
+option	WAIT		1 E	pip
+option	ENTRY		2 M	null	optnot
+option	NAME		1 _	null	optnot
+;ption	SYMBOLS		1 S	symb					;?239
+option	COMMANDS	1 S	symb					;?239
+option	ALL		1 A	symb	all				;?239
+option	VAX		1 _	null	d.vax				;?284
+;
+option	DATE		1 C	pip	value.
+option	SINCE		1 I	pip	value.
+option	BEFORE		1 J	pip	value.
+option	INFORMATION	1 X	pip
+option
+
+;query:	edit	<q=1>		;remember query
+;	return
+noquery:edit	<q=3>		;remember noquery
+	return
+all:	edit	<c=1>		;remember /ALL				;?239
+	return
+d.vax:	edit	<V=1>		;					;?284
+	return
+.end

@@ -1,0 +1,592 @@
+.title	output
+.include "lib:share.mac" 
+.psect	output
+$esdef		;error severity
+$jbdef		;job & syscom
+$opdef		;output
+$txdef		;text
+
+;	DCL output & messages
+;
+;	%build
+;	macro	dcs:output /object=dcb:output
+;	%end
+;	%date
+;	<16-Apr-2003 25:32:48.00>
+;	%edit
+;	<115  >
+;
+;	output	rtn par ctl cnt
+;
+;	rtn.dn	Three character routine specifier.
+;	par.dv	Parameter value or address.
+;	ctl.dv	Control flags.
+;	cnt.dv	Field width count variable.
+;
+;	r0	passes the count & control variable
+;	r1	passes the parameter value or address
+;
+;	zer	Fill with zeroes.
+;	sgn	Display signed number.
+;	rig	Right justify.
+;	low	Display lowercase.
+;	upr	Display upper case.
+;	tit	Display Title.
+;	com	Follow with comma
+;
+;	clr -	Clear the output buffer.
+;	col v	Advance to column N.
+;	new -	Newline - dump string.
+;
+;	str a	ASCIZ string. -1 signals dump line.
+;	cha v	Character.
+;	oct v	Octal number.
+;	dec v	Decimal number.
+;	r50 v	Rad50 value.
+;	dev v	Device name.
+;	fil a	Filename.
+;	nam a	Two word rad50 name.
+;	uic v	UIC.
+;		zer	No braces.
+;	prt v	Protection.
+;		sgn	Long names.
+;
+;	log	force output to terminal
+;
+;	med	set message default
+;	mer	reset message
+;
+;	type	<string>
+;	jsr	r1,op$typ
+;	.asciz	string
+;
+;	print	<string>
+;	print
+.sbttl	message preprocessing
+
+;	Messages
+;
+;	message	txt rou par ctl cnt txa
+;
+;	txt	Mute	Do not set error word
+;		Return	Return after message
+;
+;		Inform	Information
+;		Warn	Warning
+;		Error	Error - default
+;		Fatal	Fatal
+;
+;	txa	address of additional text or null
+;
+;	rou	ordinary output stuff
+;	ctl
+;	ctl
+;
+;	o$pmes	default message string
+;
+;	mov	#txa,r0
+;	jsr	r5,of$mes
+;	.asciz	/txt/
+;	<coroutine>
+;	call	@(sp)+
+
+op$mes::clr	r0		;no TXA text address
+of$mes::pshs	<r4,r1,r0>	;save these
+	stack	txa,r1,r4,r5	;
+	clr	r4		;clear message control
+	output	clr		;clean up
+	type	<?DCL->		;
+
+	clr	r0		;assume no indirection
+	tst	(r5)		;got anything at all?
+	bne	90$		;yes
+	tst	(sp)		;got a TXA?
+	beq	90$		;no
+	mov	r5,r0		;save routine address
+	mov	(sp),r5		;use TXA as control string
+	clr	(sp)		;once only
+90$:	psh	r0		;stack TXT flag
+	stack	txt,txa,r1,r4,r5;
+				;
+100$:	cmpb	(r5),#'m	;muted?
+	bne	110$		;no
+	bis	#100000,r4	;yes - remember it
+	inc	r5		;skip it
+110$:	cmpb	(r5),#'r	;return?
+	bne	120$		;no
+	inc	r5		;
+	bis	#200,r4		;yes - remember it
+	br	100$		;and look for muted again
+120$:	mov	#200$,r0	;get the list
+130$:	cmpb	(r5),(r0)	;is this it?
+	beq	140$		;yes
+	cmp	(r0)+,(r0)+	;no - look again
+	tst	(r0)		;any more?
+	bne	130$		;yes
+	cmp	-(r0),-(r0)	;no - error is default
+	dec	r5		;backup
+140$:	inc	r5		;skip severity
+				;
+	tst	r4		;should we set the error?
+	bmi	150$		;no
+	bisb	2(r0),j$blev	;yes
+150$:	movb	1(r0),r1	;get the severity
+	output	cha par=r1	;severity
+155$:	type	<->		;-
+	tstb	(r5)		;got a message?
+	ble	160$		;no - dont put a space out
+	output	str par=r5	;display the remainder
+	type	< >		;plus a space
+				;
+	stack	txt txa r1 r4 r5;
+160$:	pop	r0		;were we using TXA instead of TXT?
+	stack	txa r1 r4 r5	;
+	beq	161$		;no
+	mov	r0,r5		;yes - get TXT back
+161$:	tstb	(r5)+		;
+	bne	161$		;
+	inc	r5		;
+	bic	#1,r5		;
+				;
+	stack	txa r1 r4 r5	;
+	mov	(sp),r1		;got a TXA secondary string?
+	beq	165$		;no
+	output	str par=r1	;yes
+	type	< >		;and another space
+165$:	psh	r4		;save our control
+	stack	ctl txa r1 r4 r5;
+	tst	o$pmes		;got a default message?
+	beq	170$		;no
+	output	str par=o$pmes	;yes
+	type	< >		;
+				;
+170$:	mov	r5,r0		;r0 -> co-routine
+	mov	sp,r5		;point to it
+	add	#sp.r1,r5	;point to the r1
+	mov	(r5)+,r1	;restore callers registers
+	mov	(r5)+,r4	;
+	mov	(r5),r5		;
+	call	(r0)		;call them back
+	print			;display the message
+	pop	r0		;r0 = return address (coroutine)
+				;
+	stack	ctl txa r1 r4 r5;
+	tstb	(sp)+		;(sp)=r4 = message control
+	bpl	175$		;dont return
+	tst	(sp)+		;forget their txa
+	pops	<r1,r4,r5>	;restore these
+	jmp	(r0)		;and continue
+175$:	jmp	kmon		;and quit
+
+200$:	.byte	'i,'I
+	.word	0
+	.byte	'w,'W
+	.word	eswar$
+	.byte	'f,'F
+	.word	esfat$!eserr$!eswar$
+	.byte	'e,'E
+	.word	eserr$!eswar$
+	.word	0
+
+o$pmes::.word	0		;default message string
+.sbttl	preprocess
+
+;	Common preprocessing
+;
+;	This single entry point is used to dispatch to the routines.
+;	The remaining routines are defined in a data section to reduce
+;	the entries in, and thus size of, the overlay tables.
+;
+;	r0	format
+;	r1	parameter (value or pointer)
+;	jsr	r5,op$com
+;
+;	r0	parameter
+;	r1	parameter
+;	r2	parameter
+;	r3	pointer
+;	r4	format
+
+.psect	output
+stack	r0 r1 r2 r3 r4 r5 ret
+op$com::clr	r0		;no format
+of$com::pshs	<r5 r4,r3,r2,r1,r0> ;save the rest
+	mov	@sp.ret(sp),r5	;routine
+	add	#2,sp.ret(sp)	;pop past it
+	mov	r0,r4		;r4 = format
+	mov	r1,r0		;r0 = parameter
+				;r1 = parameter
+	mov	r1,r2		;r2 = parameter
+	clr	o$pfln		;clear the field length
+	mov	#o$pfld,r3	;r3 -> field
+	call	(r5)		;call the routine
+	clrb	(r3)		;terminate it
+	jmp	op$fmt		;
+
+
+o$plpt::.word	o$plin
+o$pfpt::.word	o$plin
+o$pfln::.word	0		;field length output
+o$plin::.blkb	88.
+o$pfld::.blkb	88.
+.sbttl	format field and copy to line
+.psect	outdat d
+
+;	Called by output routines.
+;
+;	r3 ->	last byte in field
+;	(sp) =	format
+
+stack	r0 r1 r2 r3 r4 r5 ret
+
+op$fmt:				;format field
+;	tst	(sp)		;check for formatting?
+;	beq	70$		;none - just move the string
+
+;	Count and convert to upper or lower
+
+	mov	#o$pfld,r1	;point to the field
+	mov	r3,o$pfln	;compute length
+	sub	r1,o$pfln	;return field length
+10$:	movb	(r1),r0		;get the character
+	beq	60$		;that was the last
+	cmp	r1,#o$pfld	;is this the first?
+	bne	20$		;no
+	bit	#optit$,(sp)	;do we want a Title?
+	bne	30$		;yes - force upper case
+20$:	bit	#opupr$,(sp)	;do we want upper case?
+	beq	40$		;no
+30$:	cmpb	r0,#'a		;is this lower case?
+	blo	50$		;no
+	cmpb	r0,#'z		;really?
+	bhi	50$		;no
+	sub	#'a-'A,r0	;yes - convert it
+	br	50$
+40$:	bit	#oplow$,(sp)	;force lower case?
+	beq	50$		;no
+	cmpb	r0,#'A		;is this lower case?
+	blo	50$		;no
+	cmpb	r0,#'Z		;really?
+	bhi	50$		;no
+	add	#'a-'A,r0	;yes - convert it
+50$:	movb	r0,(r1)+	;put it back
+	br	10$		;and get the next
+
+; Left or right justify
+
+60$:	sub	#o$pfld,r1	;r1 = length
+	movb	(sp),r2		;get the specified width
+	sub	r1,r2		;r2 = fill size
+	ble	70$		;ignore fill
+	mov	(sp),r4		;r4 = ctl
+	bit	#oprig$!opzer$,(sp) ;is it right justified?
+	beq	80$		;no - put them out afterward
+	call	op$pad		;fill it out
+70$:	call	op$mov		;move the field
+	br	90$		;done
+80$:	call	op$mov		;move the field
+	call	op$pad		;
+90$:	pops	<r0,r1,r2,r3,r4,r5>
+	return
+
+op$pad:	movb	#space,r0	;assume a space fill
+	bit	#opzer$,r4	;is this a zero fill?
+	beq	20$		;no
+	movb	#'0,r0		;yes
+20$:	dec	r2		;count them
+	bmi	30$		;done
+	call	op$out		;dump a fill character
+	br	20$		;
+30$:	return
+
+op$mov:	pshs	<r1,r0>		;save these
+	mov	#o$pfld,r1	;get the field
+	call	op$dmp		;move them in
+	pops	<r0,r1>		;get them back
+	return
+.sbttl	string & character
+.psect	output
+
+;	These routines work directly with the output line.
+;
+;	jsr	r1,op$typ
+;	.asciz	/string/
+;	.even
+
+op$typ::call	op$dmp		;dump it
+	inc	r1		;even up
+	bic	#1,r1		;
+	rts	r1		;and quit
+
+;	r1 ->	string
+;
+;	-1 =	terminate & print
+;	0,200	terminate without newline
+;		supports eight-bit output
+
+op$dmp:				;dump the string in r2
+	psh	r0		;save this
+10$:	movb	(r1)+,r0	;get the next
+	beq	30$		;end of it all
+	bpl	20$		;
+	cmpb	r0,#200		;end of line?
+	beq	30$		;yes
+	cmpb	r0,#-1		;force newline?
+	bne	20$		;no
+	call	op$new		;yes
+	br	10$		;check for more
+20$:	call	op$out		;display it
+	br	10$		;more
+30$:	pop	r0		;
+	return
+
+;	New line
+
+.enabl	lsb
+op$new::call	os$cli		;clear to end of line
+	br	10$		;leave end of line blank
+op$log::movb	#200,@o$plpt	;no new line
+10$:	psh	r0		;print the existing line
+	.print	#o$plin		;print the line
+	pop	r0		;
+op$clr::clrb	o$plin		;start again
+	mov	#o$plin,o$plpt	;
+op$clf:	clrb	o$pfld		;zero the field
+	return
+.dsabl	lsb
+
+op$col::			;advance to a particular column
+	psh	o$plpt		;get the pointer
+	sub	#o$plin,(sp)	;get the size
+	cmp	(sp)+,r1	;far enough?
+	bhis	10$		;yes
+	mov	#space,r0	;no
+	call	op$out		;do it
+	br	op$col		;
+10$:	return
+
+;	Output character
+;
+;	r0 =	character
+;
+;	c=1	no space
+
+op$out::			;single character out
+	psh	r0		;
+	cmpb	r0,#ht		;this a tab?
+	bne	20$		;no
+10$:	movb	#space,r0	;yes
+	call	op$out		;do it again
+	bcs	40$		;no space
+	psh	o$plpt		;work out where we are
+	sub	#o$plin,(sp)	;
+	bit	#7,(sp)+	;done a tab?
+	bne	10$		;no
+	br	30$		;yes
+
+20$:	cmp	o$plpt,#o$plin+84.
+	bhis	40$		;forget it
+	movb	r0,@o$plpt	;store the character
+	inc	o$plpt		;
+	clrb	@o$plpt		;terminate it
+30$:	tst	(pc)+		;fine
+40$:	sec			;fail - overflow
+	pop	r0
+	return
+.sbttl	rad50
+.psect	outdat
+
+;	Radix 50
+;
+;	r0 =	format
+;	r1 =	value
+
+	.enabl	lsb		;
+op$nam::call	(pc)		;do it twice
+op$wor:	tst	r2		;got an address?
+	beq	10$		;no - forget this
+	mov	(r2)+,r0	;get the next
+op$r50::mov	r3,r1		;get the pointer
+	call	conra		;move it in
+	mov	r1,r3		;replace the pointer
+	br	op$tms		;terminate the string
+
+op$dev::tst	r1		;do we have a value?
+	beq	10$		;no
+	call	op$r50		;display the device
+	movb	#':,(r3)+	;plus a colon
+10$:	br	op$tms		;terminate it
+	.dsabl	lsb		;
+
+op$fil::tst	r2		;got an address?
+	beq	10$		;no
+	tst	(r2)		;got anything?
+	beq	10$		;no
+	call	op$wor		;dev
+	movb	#':,(r3)+	;
+	tst	(r2)		;got a name?
+	beq	10$		;no name
+	call	op$nam		;filnam
+	movb	#'.,(r3)+	;plus a dot
+	call	op$wor		;type
+10$:	br	op$tms		;terminate it
+
+;	String copy
+
+op$str::			;move string
+	tst	r1		;got a string?
+	beq	20$		;no
+	movb	r4,r0		;get the count
+	bne	10$		;
+	decb	r0		;make it very large
+10$:	movb	(r1)+,(r3)	;copy it in
+	bitb	#177,(r3)+	;this the last?
+	beq	20$		;
+	sob	r0,10$		;anymore?
+20$:	clrb	(r3)		;yes
+	br	op$tms		;terminate it
+
+;	Output character
+;
+;	r0 =	character
+
+op$cha::movb	r1,(r3)+	;store it
+	bne	op$tms		;something real
+	dec	r3		;elide nulls
+op$tms:	clrb	(r3)		;terminate it
+	return
+.sbttl	decimal, octal, value
+
+;	opsgn$	signed number
+;	opdot$	trailing dot
+;
+;	octal/decimal/hexadecimal
+;	signed, unsigned
+;	nofill, fill-space, fill-zero
+;
+;	Decimal
+
+op$dec::mov	#o$pdec,r5	;decimal base
+	br	op$val		;dump it
+
+;	Octal
+
+op$oct::mov	#o$poct,r5	;octal base
+	fall	op$val		;
+
+;	Value
+;
+;	r0	parameter
+;	r1	parameter
+;	r2	parameter
+;	r3	pointer
+;	r4	format
+
+op$val:	clr	r2		;flag digit seen
+	bitb	#opsgn$,r4	;is this signed?
+	beq	10$		;nope
+	tst	r1		;a negative number?
+	bpl	10$		;nope
+	neg	r1		;yep, make it positive
+	movb	#'-,(r2)+	;put a minus sign
+
+10$:	clr	r0		;clear high order
+	div	(r5)+,r0	;get the next digit
+	bpl	15$		;positive reply
+	neg	r0		;adjust special case 1ooooo/100000
+15$:	bne	20$		;yes - digits from now on
+	tst	r2		;already done one?
+	bne	20$		;yes - do more
+	tst	(r5)		;this the last one?
+	bne	10$		;no - try again
+20$:	mov	#-1,r2		;get all remaining digits
+30$:	add	#'0,r0		;make a digit
+	movb	r0,(r3)+	;store it
+40$:	tst	(r5)		;any more to do ?
+	bne	10$		;yes
+	br	op$tms		;terminate it
+
+o$pdec:	10000.,1000.,100.,10.,1,0
+o$poct:	100000,10000,1000,100,10,1,0
+.sbttl	uic
+
+;	Display a UIC
+;
+;	r1 =	uic
+;	r3 ->	output
+;	r4 =	format
+;
+;	opzer$	without braces
+
+op$uic::bit	#opzer$,r4	;got braces?
+	bne	10$		;no
+	movb	#'[,(r3)+	;yes
+10$:	swab	r1		;high byte first
+	call	op$oby		;get an octal byte
+	movb	#',,(r3)+	;a commo
+	swab	r1		;low byte
+	call	op$oby		;
+	bit	#opzer$,r4	;braces?
+	bne	20$		;no
+	movb	#'],(r3)+	;yes
+20$:	clrb	(r3)		;terminate it
+	return
+
+op$oby:	mov	#111,r2		;their once was a glichette named brigette
+10$:	clr	r0		;who fancied the occassional fidget
+20$:	aslb	r1		;well, its fetch a bit here
+	rol	r0		;and fudge a bit there
+	aslb	r2		;when it itches, ya just find ya digit
+	bcc	20$		;keep fiddling
+	add	#'0,r0		;make a digit
+	movb	r0,(r3)+	;move a digit
+	tst	r2		;done all digits ?
+	bne	10$		;nope, go scritch it
+	return
+.sbttl	protection
+
+;	Protection
+;
+;	r1 =	protection
+;	r3 ->	output stream
+;	r4 =	format
+;
+;	op$sgn	Use long names
+
+op$prt::			;protection
+	com	r1		;make it a positive
+	mov	#100$,r2	;S,O,G,W)
+
+20$:	bit	#opsgn$,r4	;is this long?
+	beq	28$		;not
+25$:	movb	(r2)+,(r3)+	;move the remainder
+	bne	25$		;more
+	cmpb	-(r2),-(r3)	;back up
+	movb	#':,(r3)+	;S:
+
+28$:	tstb	(r2)+		;skip to end of string
+	bne	28$		;
+	mov	#110$,r0	;get the characters
+30$:	asr	r1		;R?
+	bcc	40$		;
+	movb	(r0),(r3)+	;S:RWED
+40$:	tstb	(r0)+		;skip the character
+	tstb	(r0)		;anymore?
+	bne	30$		;yes
+	tstb	(r2)		;any more?
+	beq	50$		;no
+	movb	#',,(r3)+	;yes
+	br	20$		;
+50$:	clrb	(r3)		;terminate it
+	return			;
+
+100$:	.asciz	/System/	;
+	.asciz	/ Owner/	;
+	.asciz	/ Group/	;
+	.asciz	/ World/	;
+	.byte	0
+
+110$:	.asciz	/RWED/		;minor stuff
+	.even
+.end
+                                                                                                                                                                                                                                                                                                                                                                                                                 

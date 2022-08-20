@@ -1,0 +1,477 @@
+.title	pool
+.enabl	lc,gbl
+.mcall	$defma	$defbu	$defsc
+$defma	
+$defbu
+$defsc
+meta	<system c><.word iot,^rsys,c>
+meta	<$peek c><mov c,r0><system sy.pee>
+meta	<$poke c,d><mov c,r1><mov d,r0><system sy.pok>
+meta	<$table><system sy.tab>
+meta	<octal c><mov c,r1><call octal>
+meta	<decimal c><mov c,r1><call decimal>
+meta	<unpack c><mov c,r1><call unpack>
+
+;	show kernel
+;	show pool
+
+; type a system map
+;
+;		start	words	cumulative
+;unmapp	impure
+;	kernel
+;	handlers	
+;	unused	
+;
+;mapped	total	
+;	jobs
+;	unused
+
+m$abeg:
+m$amjn::.word	0	;maximum job number
+m$atot::.word	0	;memory size in pages
+m$afps::.word	0	;free pages
+m$aims::.word	0	;impure byte size
+
+m$akes::.word	0	;last byte of kernel static
+m$apro::.word	0	;last byte of native
+m$aspo::.word	0	;last byte of spoolers
+
+m$aker::.word	0	;kernel last byte
+m$ahan::.word	0	;handler last byte
+m$aimp::.word	0	;impure last byte
+m$admb::.word	0	;dynamic memory - bottom
+m$admt::.word	0	;dynamic memory - top
+m$ajob::.word	0	;job last page
+m$ajsm::.word	0	;jsm last page
+m$aend:
+.sbttl	show memory
+
+pool::	tst	k$msha		;must be share
+	bne	5$		;fine
+	jmp	optnot		;no way
+5$:	case	<showpool>
+	mov	#m$abeg,r1	;point to the table
+	$table			;get the table address
+	$peek	r0		;get the table address
+	mov	r0,r2		;point to it
+10$:
+	$peek	r2		;get the next
+	add	#2,r2		;advance the pointer
+	mov	r0,(r1)+	;store the value
+	cmp	r1,#m$aend
+	blo	10$		;get another
+
+;ewald	call	gethnd		;get the handler table set up
+
+print	<	start address	size>;			start address	size>
+print	<	k words	octal	words>;		handler	k words octal	words>
+
+	type	<kernel	>
+	mov	m$akes,r1	;do the kernel sizes
+	call	words
+
+;	type	<native	>
+	type	<pool	>
+	mov	m$admt,r1
+	call	words
+
+.if eq 1
+	type	<spool	>
+	mov	m$aspo,r1
+	call	words
+
+	type	<handler	>
+	mov	m$ahan,r1
+	call	words
+
+	type	<impure	>
+	mov	m$aimp,r1	;get the job start
+	call	words
+
+	type	<buffer	>
+	mov	m$admt,r1	;get the top
+	call	words
+
+.endc
+	mov	base,r1		;get top address
+	call	wtop		;get the page address
+	mov	r1,base		;and now use page base
+
+	type	<jobs	>
+	mov	m$ajob,r1	;last job page
+	call	kwords		;print it
+
+	type  <monitor	>
+	mov	m$ajsm,r1	;jsm size
+	call	kwords
+
+	type	<unused	>
+	mov	m$atot,r1	;get the last
+	bne	20$
+	mov	#100000,r1	;make it maximum
+20$:	call	kwords		;and print them
+
+	type	<total	>	;do the memory size
+	mov	m$atot,r1	;get the total size
+	call	ptok		;get a k size
+	call	decimal		;print it
+	type	<k		>
+	call	nxthnd
+
+;	type	<			>
+;	call	nxthnd
+	print
+
+	type	<jobs	>
+	decimal	m$amjn		;the number of jobs
+	type	<		>
+	call	nxthnd
+
+	type	<impure	>
+	mov	m$aims,r1
+	asr	r1
+	decimal	r1
+	type	<w		>
+30$:	call	nxthnd
+;	bcs	40$		;all done
+;	type	<			>
+40$:	jmp	kmon
+
+;	base = start of region
+;	r1 = end of region
+
+base:	.word	0
+
+words:	save
+	clc			;make it a word address
+	ror	r1		;thus
+	psh	r1		;and again
+	mov	base,r1
+	call	wtok		;do the k address
+	call	decimal
+	type	<k	>	;
+	mov	base,r1
+	asl	r1		;get the byte address
+	call	octal		;
+	type	<	>	;
+	mov	(sp),r1		;get the top page address
+	sub	base,r1		;get the number of words
+	call	decimal
+	type	<w>
+	pop	base		;reset base
+	call	nxthnd
+	return
+
+btok:	clc	
+	ror	r1	;11.
+wtok:	.rept	4	;10.
+	asr	r1
+	.endr
+btop:	clc
+	ror	r1	;6 
+ptok:
+wtop:			;5
+	.rept	5
+	asr	r1
+	.endr
+	return
+
+kwords:	save		;
+	psh	r1
+	mov	base,r1
+	call	ptok
+	call	decimal
+	type	<k		>
+
+	mov	(sp),r1
+	sub	base,r1
+	call	ptok
+	cmp	r1,#-1		;this the special case?
+	bne	10$		;nope
+	clr	r1		;yes
+10$:	call	decimal
+	type	<k>
+	call	nxthnd
+	pop	base
+	return
+.sbttl	handlers
+	pnptr	=	404
+
+.if eq 1
+gethnd:
+	$peek	#sysptr		;get the system
+	psh	r0		;save this
+	add	#pnptr,r0	;get it
+	mov	r0,r1
+	$peek	r1		;get it
+	mov	r0,r1		;get this address
+	add	(sp)+,r1	; r1 -> $pname
+	mov	#31.,r2		;
+	mov	#slots,r3	;get our table
+10$:	$peek	r1		;get the name
+	cmp	r0,#^rtt	;this the terminal?
+	beq	20$		;yes - forget it
+	mov	r0,2(r3)	;this one there?
+	beq	20$		;nope
+	add	#31.*2,r1	;get the entry point
+	$peek	r1
+	sub	#31.*2,r1	;
+	mov	r0,(r3)		;got an entry point?
+	beq	20$		;nope
+	sub	#6,(r3)		;back off to the start of the handler
+	cmp	(r3)+,(r3)+	;
+20$:	add	#2,r1		;point to the next
+	dec	r2
+	bne	10$		;
+	mov	#-1,(r3)	;terminate the list
+
+	clr	r5		;the remainder to print
+	mov	#hands,r1	;put them here
+30$:	mov	#slots,r3	;get the list again
+	mov	#-1,r2		;record the highest
+	clr	r4		;the result
+40$:	cmp	(r3),#-1	;
+	beq	60$		;end of it
+	tst	(r3)		;empty slot?
+	beq	50$		;yes
+	cmp	(r3),r2		;this one lower?
+	bhis	50$		;nope
+	mov	(r3),r2		;yes - get it
+	mov	r3,r4		;and remember where it was
+50$:	add	#4,r3		;advance
+	br	40$		;and look again
+
+60$:	tst	r4		;did we get one?
+	beq	80$		;nope - all done
+	tst	r5		;got a remainder to do?
+	beq	70$		;nope
+	mov	(r4),(r1)	;get it
+	sub	r5,(r1)		;get the remainder
+	clc
+	ror	(r1)+
+70$:	mov	(r4),r5		;get it next time
+	mov	2(r4),(r1)+	;store it
+	mov	(r4),(r1)+	;
+
+	clr	(r4)		;take this one out
+	clr	2(r4)
+	br	30$		;and go again
+
+80$:	mov	m$ahan,(r1)	;get last byte of handlers
+	sub	r5,(r1)+	;
+	mov	#-1,(r1)+	;put it in
+	mov	m$ahan,(r1)
+90$:	return
+.endc
+
+nxthnd:
+	print
+	sec
+	return
+.if eq 1
+	mov	nhand,r4	;point to them
+	beq	30$		;all done
+	type	<		>
+	cmp	(r4),#-1	;this the last
+	beq	10$		;
+	unpack	(r4)		;nope
+10$:	type	<	>	;
+	mov	2(r4),r1
+	clc
+	ror	r1
+	call	wtok		;
+	decima	r1		;print it
+	type	<k	>	;tab over
+	octal	2(r4)		;the octal address
+	cmp	(r4),#-1	;is this the last?
+	beq	20$		;yes - no more
+	type	<	>	;
+	decima	4(r4)		;decimal size
+	type	<w>
+	br	40$		;quit
+20$:	clr	nhand		;that was the last
+30$:	print
+	sec
+	return
+
+40$:	print
+	add	#6,nhand
+	clc
+	return
+
+slots:	.blkw	32.*2		;
+	.word	-1,-1
+
+nhand:	.word	hands
+hands:	.blkw	32.*3		;three numbers per
+	.word	-1,-1,-1	;
+.endc
+.sbttl	show pool
+
+bu$adr:	.word	0		;where we are
+bu$lnk:	.word	0		;link to the next
+bu$bbs:	.word	0		;byte size
+bu$job:	.word	0		;job
+bu$nam:	.word	0		;name
+
+showpool:
+	$table			;get the table
+	tst	(r0)+		;its the second word
+	$peek	r0		;get the pool header
+	$peek	r0		;and get the first one (always at least one)
+	mov	r0,r2		;point to the first
+	print
+	print   <Address	Name	Size>
+10$:	mov	#bu$adr,r3	;setup our pointers
+	mov	r2,(r3)+	;save the address
+	mov	#4,r4		;count them
+20$:	$peek	r2		;get the next
+	add	#2,r2		;point to the next
+	mov	r0,(r3)+	;store it
+	dec	r4		;any more?
+	bne	20$		;nope
+				; address
+	octal	bu$adr		;address
+	type	<	>
+				; name
+	tst	bu$nam		;got a name?
+	bne	30$		;yes
+	type	<free>		;nope
+	br	40$
+30$:	call	names		;check for something special
+	bcc	40$		;it was special
+	unpack	bu$name		;name
+40$:	type	<	>	;
+				;size
+	mov	bu$bbs,r1	;size
+	sub	#bu.bs,r1	;remove the header overhead
+	clc
+	asr	r1
+	call	decimal		;
+	type	<w>
+				; job
+	movb	bu$job,r1	;get the job number
+	beq	50$		;its a system element
+	type	<	owner=j>
+	call	decimal
+	br	60$
+50$:
+60$:	call	drives		;check for a handler
+	print
+	mov	bu$lnk,r2	;get the next
+	bne	10$		;theres more
+	jmp	kmon		;done
+
+names:	cmp	bu$nam,#^rpke	;this the kernel?
+	bne	10$		;nope
+	type	<kernel>	;yes
+	br	100$
+10$:	cmp	bu$nam,#^rpsp	;the spoolers?
+	bne	20$		;nope
+	type	<spool>		;yes
+	br	100$
+20$:	br	110$
+100$:	tst	(pc)+
+110$:	sec
+	return
+
+drives:	tst	bu$nam		;is this empty?
+	beq	60$		;yes
+	clr	r1		;search for the index
+10$:	cmp	r1,$hosts	;too far?
+	blos	60$		;yes
+	call	indexes		;look for it
+	cmp	@.pname,bu$nam	;nah?
+	bne	10$		;nope
+20$:	type	<	>	;indent
+	mov	@.type,r5	;get the type
+	bit	#ty.dma!ty.dmx,r5	;this mapped?
+	bne	25$			;yes
+	type	</unmapped>		;nope
+25$:	mov	#200$,r4
+30$:	bit	(r4)+,r5		;got this one?
+	beq	40$			;nope
+	.print	r4			;yes
+40$:	tstb	(r4)+
+	bpl	40$
+	inc	r4
+	bic	#1,r4
+	tst	(r4)
+	bne	30$
+
+; noshare
+
+50$:	tstb	r5			;
+	bpl	60$			;
+	type	</noshare>		;
+	$peek	#2000+pnptr		;get pname
+	add	#2566,r0		;point to the $type table
+	add	.index,r0		;get the index
+	system	sy.pee			;peek it
+	swab	r0			;get the job number
+	beq	60$			;no one owns it
+	type	<:j>			;
+	movb	r0,r1			;pick up the number
+	call	decimal			;
+60$:	return
+
+meta	<types c,d><.word c><.ascii _d_<200>><.even>
+200$:	types	ty.dma	</mapped>
+	types	ty.dmx	</22bit>
+	types	ty.rem	</remote>
+	types	ty.syn	</synchronous>
+	types	ty.abo	</abort>
+	.word	0
+.sbttl	number
+
+;	r1 = number
+
+decimal:mov	#deci,radix
+	br	number
+octal:	mov	#octa,radix
+	fall	number
+
+number:	psh	r0
+	psh	r1
+	psh	r2
+	psh	r3
+	psh	r4
+	clr	r0		;set number flag
+	mov	radix,r4	;get the exponent
+	mov	#num.a,r3	;set up destination
+3$:	mov	#-1,r2		;look for a digit
+4$:	inc	r2		;step up dividend
+	sub	(r4),r1		;subtract
+	bcc	4$		;go again
+	add	(r4)+,r1	;bumb it back to positive
+	tst	r2		;now look at format
+	bne	5$		;something to do
+	mov	r0,r2		;leading blanks ?
+	beq	7$		;nope nothing
+	br	6$		;put in output stream
+5$:	mov	#'0,r0		;no more blanks
+	add	r0,r2
+6$:	movb	r2,(r3)+	;output it
+7$:	tst	(r4)		;any more to do ?
+	bne	3$		;yes
+	add	#'0,r1		;generate last digit
+	movb	r1,(r3)+	;do the last digit
+	movb	#200,(r3)
+	mov	#num.a,r1	;output
+8$:	movb	(r1)+,r0
+	bmi	9$
+	.ttyout
+	br	8$
+9$:	pop	r4
+	pop	r3
+	pop	r2
+	pop	r1
+	pop	r0
+	return
+radix:	deci
+deci:	10000.,1000.,100.,10.,0
+octa:	100000,10000,1000,100,10,0
+num.a:	.byte	0,0,0,0,0,0
+.end
+

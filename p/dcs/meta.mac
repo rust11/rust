@@ -1,0 +1,678 @@
+def$c=0		; .def file compatility -- see users.mac
+dyn$c=rsj$c
+usr$c=rxm$c	; ??? user names only for rustx
+dbg$c=0
+;v4=1
+.title	meta
+.include "dcs:dcl.mac"
+.pass
+.include "lib:share.mac"
+.weak	gt
+$ehdef
+
+;	+-------------------------------+
+;	| used by kms:kmon		|
+;	+-------------------------------+
+
+;	nl = 134		; \
+	nl = 174		; |
+.if ne def$c
+	ucblk = 12.
+.iff
+	ucblk = 8.
+.endc
+
+$metal = 62
+
+space	= 40
+
+metbas:	.word	0
+metuse:	.word	0
+metreq:	.word	0
+metrem:	.word	0
+metdat:	.word	0
+mettot:	.word	0
+
+u$crst:	.word	0		; :=
+u$cloc:	.word	0		; ==
+u$cucl:	.word	0		; :==
+
+eraze:	.word	0		;meta delete in progress
+found:	.word	0		;meta was found
+.if ne rsj$c
+u$cspc:	.rad50	/SY RUST  UCL/
+.iff
+u$cspc:	.rad50	/HOMRUST  UCL/
+.endc
+nofind:	.ascii	/?DCL-I-Command name not found /<200>
+	.even
+
+usrsym::
+meta::	case	<showmeta,gt,delmeta>
+	clr	eraze		;assume not an eraze
+	br	format		;
+delmeta::
+	mov	sp,eraze	;this is an eraze
+;	call	xx$del		;handle the deletes
+
+;	string definitely has ":=", "==" or rt-11 ":=="
+
+format:				;force upper case; space at end of name
+	clr	u$cloc		;not local ==
+	clr	u$crst		;not rust :=
+	clr	u$cucl		;not rt-11 ucl :==
+	mov	r5,r4		;get another copy
+	clr	found		;assume not found
+10$:	cmpb	(r5),#'a	;this lower case?
+	blo	15$		;nope
+	cmpb	(r5),#'z	;really?
+	bhi	15$		;nope
+	bicb	#40,(r5)	;yes - make it upper case
+15$:	tstb	(r5)		;at the end?
+	beq	25$		;yes - must be a delete
+	movb	(r5)+,r0	;get next
+	beqw	eraze,20$	;this an erase?
+	bneb	r0,#space,10$	;not end
+	br	uc$loc		;
+20$:	bneb	r0,#'=,21$	;==
+	inc	u$cloc		;it's local
+	br	22$		;
+21$:	bneb	r0,#':,10$	;:=
+	inc	u$crst		;rust
+	bneb	1(r5),#'=,22$	;:==
+	inc	r5		;
+	clr	u$crst		;
+	inc	u$cucl		;rt-11 ucl
+22$:	inc	r5		;skip last '='
+	tstb	(r5)		;at the end?
+	bne	30$		;nope
+25$:	inc	eraze		;and that's an erase
+30$:	bnew	u$cloc,uc$loc	;local case
+
+uc$fil:	call	uc$fet		;fetch them
+	call	find		;
+	bnew	eraze,10$	;
+	call	uc$ins		;ucl insert
+10$:	call	uc$sto		;store them
+	jmp	kmon		;
+
+uc$loc:	call	getmet		;get locals
+	call	find		;look and delete
+;	bnew	eraze,10$	;done
+	call	insert		;
+10$:	jmp	kmon		;
+				; r4 -> new symbol
+				; r5 -> symbol table
+find:	tstb	(r5)		;end of symbol table?
+	beq	20$		;yes
+	call	compare		;nope - compare the names
+	bcc	delete		;got it - delete it
+10$:	tstb	(r5)+		;skip this one then
+	bne	10$		;till it ends
+	br	find		;and look at the next
+				;
+20$:	tst	eraze		;not found - deleting?
+	beq	delete		;nope
+	tst	u$crst		;x := ?
+	bne	30$		;no error for that
+	.print	#nofind		;inform them
+	.print	r4		;and the meta
+30$:	jmp	kmon		;
+
+delete:	mov	r5,r0		;get another pointer
+20$:	tstb	(r0)+		;skip to end of old string
+	bne	20$		;must be found
+	tstb	(r0)		;was this the last?
+	beq	40$		;yes - nothing to move
+30$:	movb	(r0)+,(r5)+	;move the next down
+	bne	30$		;and look again
+	tstb	(r0)		;any more?
+	bne	30$		;yes - move it
+40$:	cmpb	(r5),#-1	;got more?
+	beq	50$		;nope
+	clrb	(r5)+		;clear it
+	br	40$		;
+50$:	return			;
+
+insert:	tst	eraze		;doing delete?
+	bne	40$		;yes		
+	call	metdim		;get the dimensions
+	mov	r4,r0		;get the new string
+10$:	tstb	(r0)+		;
+	bne	10$		;
+	sub	r4,r0		;required length
+	cmp	r0,metrem	;got the space?
+	blo	25$		;yes
+.if ne dyn$c
+	mov	#64,r0
+.iff
+	mov	mettot,r0	;
+	add	#64.,r0		;expand it
+.endc
+	call	mt$adj		;expand the space
+	call	getmet		;get the new base
+25$:	call	metdim		;get the dimensions again
+	mov	metbas,r5	;
+	add	metuse,r5	;
+30$:	movb	(r4)+,(r5)+	;move the string in
+	bne	30$		;
+
+	clrb	(r5)+		;setup the end
+	br	60$		;
+
+40$:	clrb	(r5)+		;delete done
+	clrb	(r5)+		;
+	call	metdim		;get dimensions now
+	cmp	metrem,#128.-3	;getting bloated?
+	blos	60$		;nope
+.if ne dyn$c
+	mov	#-64,r0
+.iff
+	mov	mettot,r0	;
+	sub	#64.,r0		;truncate it
+.endc
+	call	mt$adj		;truncate it
+60$:	return			;
+
+.if eq dyn$c
+mt$adj:	mov	r0,r1
+	mov	#dpuse.,r0
+	callr	dp$adj
+.iff
+mt$adj:	mov	r0,d$madj
+	call	10$		; remove terminator
+	clrb	(r0)		; zero it
+	mov	#^rUCF,d$mtyp	; adjust
+	clr	d$mrep
+	call	dm$adj
+10$:	mov	#^rucf,r0	; get element
+	call	dm$ptr		;
+	add	(r0),r0		;
+	movb	#-1,-(r0)	; terminate it
+	return
+.endc
+
+compare:			;compare the names in r4/r5
+	mov	r5,r3		; >> r3 -> past name if found
+	mov	r4,r2		; >> r2 -> past new name
+	clr	r1		; r1 signals match
+10$:	cmpb	(r2),(r3)	; aa = aa got the same thing?
+	bne	40$		;nope - handle other case
+	inc	r3		;skip one of them
+	cmpb	(r2)+,#':	;this at the end?
+	beq	15$		;yes
+	cmpb	-1(r2),#'=	;likewise
+	beq	15$		;
+	cmpb	-1(r2),#space	;is this the end?
+	bne	10$		;nope - look again
+15$:	inc	found		;got one
+	return			; c=0 - match found
+
+40$:	cmpb	(r3)+,#'*	; aa* = aa - this an asterix
+	beq	50$		;yes, possibly ambiguous
+	dec	r3		;nope - back up
+	cmpb	(r2)+,#'*	; aa = aa* - this an asterix?
+	bne	60$		;nope - they are different
+50$:	mov	sp,r1		;flag abbreviation found
+	br	10$		;and continue comparing
+
+60$:	clr	-(sp)		;check for the end
+	cmpb	-(r2),#space	;did we hit the end of the new guy?
+	beq	61$		;yes - ambiguous without abbreviation
+	cmpb	(r2),#':	;got a colon instead?
+	beq	62$		;yes
+61$:	inc	(sp)
+62$:	cmpb	(r3),#space	;what about this one?
+	beq	63$		;yep
+	cmpb	(r3),#':	;got a colon instead?
+	bne	64$		;nope
+63$:	tst	(sp)+		;was the other also at the end?
+	bne	15$		;yes - we found it
+	br	65$		;nope - they are ambiguous
+64$:	tst	(sp)+		;pop the counter (redundant)
+	tst	r1		;were they ambiguous?
+	beq	70$		;nope
+65$:	fatal	<Command name is ambiguous>
+70$:	sec			;they are different
+80$:	return
+.sbttl	show commands
+
+x$xall:	.word	0
+
+showmeta:
+xx$sho:	setup	x$xsho
+	edit	<! >		;skip spaces
+	clr	x$xall		;not all
+	tstb	(r5)		;do we have any input?
+	bne	30$		;yes
+	inc	x$xall		;all
+	clrb	@$input		;
+	call	xx$sea		;
+	br	40$		;
+
+30$:	movb	#1,@$dollar	;permit '$' in names
+	scan	<^IW=1D=0F=1Q="Names? ">
+	psh	r5		;save this
+	call	xx$sea		;search for it
+	pop	r5		;restore the pointer
+	tstb	(r5)		;any more coming?
+	beq	40$		;no
+	print			;yes - separate them
+	br	30$		;
+40$:	jmp	kmon		;and quit
+
+x$xsho:	option
+
+xx$sea:	call	getmet		;test and point
+	call	xx$lst		;
+	call	uc$fet
+	call	xx$lst
+	beqw	x$xall	10$	;not all
+	call	uc$fre
+10$:	jmp	kmon
+
+xx$lst:	tstb	(r5)		;any at all?
+	beq	40$		;nope
+	mov	$input,r1	;
+	call	cv$asu		;uppercase it
+10$:	mov	$input,r0	;
+	tstb	(r0)		;doing them all?
+	beq	20$		;yep
+	mov	r5,r1		;
+	call	xx$mat
+	bcs	30$		;didn't match
+20$:	.print	r5		;print the first
+30$:	tstb	(r5)+		;skip to the next
+	bne	30$		;skip it too
+	tstb	(r5)		;any more there?
+	bne	10$		;yes
+40$:	return
+
+;	wilmat	match lognam with entry
+;
+;	r0 ->	input model with wildcards
+;	r1 ->	model to check
+;	r2	burnt
+
+xx$mat:
+100$:	movb	(r0)+,r2		;get the next
+	cmpb	r2,#'*			;wild?
+	bne	120$			;nope
+	tstb	(r0)			;terminating *
+	beq	150$			;yes - we match
+110$:	psh	r1
+	psh	r0
+	call	140$
+	pop	r0
+	pop	r1
+	bcc	150$			;we matched
+	inc	r1			;try from next position
+	tstb	(r1)			;this done?
+	bne	110$			;nope - continue
+	br	170$			;we failed
+
+120$:	cmpb	(r1),#32.		;end of name?
+	ble	170$			;yep
+	cmpb	(r1)+,#'*		;wildcard in target?
+	beq	120$			;yes - skip that
+	dec	r1			;backup
+	cmpb	r2,(r1)+		;is this similiar?
+	beq	140$			;yes
+;;;	call	uc$sam			;are they the same?
+;;;	bcc	140$			;apparently not
+	cmpb	r2,#'%			;got a percent?
+	bne	170$			;yes - that succeeds
+
+140$:	tstb	(r0)			;end of string?
+	bne	100$			;nope
+	cmpb	(r1),#32.		;end of name?
+	bgt	170$			;nope
+150$:	tst	(pc)+
+170$:	sec
+	return
+
+uc$fre:	mov	r5,r1		;count free bytes
+50$:	cmpb	(r1)+,#-1	;till a -1			;V4
+	bne	50$		;must be found
+	sub	r5,r1		;get the number
+	sub	#3,r1		;adjust for the end
+	call	number
+	print	< free bytes>
+	return
+
+;	uc$sam - compare using free case
+;
+;	r2 	left
+;	(r1)	right - popped past
+
+uc$sam:	beqb	r2,(r1),10$ 
+br 20$
+	blob	r2,<#'A>,10$		; not alpha
+	bhib	r2,<#'Z>,10$		;
+	psh	r2
+	bis	#'a-'A,(sp)
+	bneb	r2,(sp)+,20$
+10$:	tst	(pc)+
+20$:	sec
+	inc	r1
+	return
+.sbttl	load/store definitions
+
+;	RUST.UCL is usually stored as an 8-block text file.
+;	The size can change if the file is manually altered.
+;	In such cases the file is recreated as an 8-block file.
+;	Exceeding eight blocks is not supported.
+
+u$clen:	.word	0
+u$cptr:	.word	0
+uc$fet:
+.if ne usr$c
+	mov	k$mwor,r0	;
+	mov	eh.use(r0),u$cspc+2
+	mov	eh.use+2(r0),u$cspc+4
+.endc
+	mov	$text,r5	;
+	add	#1000,r5
+	inc	r5		;
+	bic	#1,r5		;
+	mov	r5,u$cptr
+	call	uc$clr		; clear buffer
+	.purge	#3
+	.lookup	#area,#3,#u$cspc,#0
+	bcs	uc$mak		; no such thing
+	cmp	r0,#ucBLK	; too long?
+	bhi	20$		; yes
+	mov	r0,r1		; length
+	swab	r1		; word count
+	mov	r1,u$clen	; for the write
+	.readw	#area,#3,r5,r1,#0
+	bcs	10$		;
+.if ne def$c
+	asl	r1		; byte size
+	add	r5,r1		;
+	mov	#-1,(r1)	;
+.endc
+	call	uc$cmp
+	mov	u$cptr,r5	;
+	return
+10$:	fatal	<Error reading UCL data file>
+20$:	fatal	<UCL data file too long>
+
+uc$mak:	call	uc$clr
+	.enter	#area,#3,#u$cspc,#ucBLK,#0
+	bcs	20$			; oops
+	call	uc$clr
+	.writw	#area,#3,r5,#ucBLK*256.,#0
+	bcs	20$			; oops
+	.close	#3
+	.lookup	#area,#3,#u$cspc,#0
+	bcs	20$		
+	mov	#ucBLK*256.,u$clen
+	return
+20$:	fatal	<Can't create UCL data file>
+
+uc$clr:	mov	r5,r1
+	mov	#ucBLK*256.,r0
+10$:	clr	(r1)+			;
+	sobw	r0,10$
+.if ne def$c
+	movb	#-1,(r1)+
+	movb	#-1,(r1)+
+.iff
+	movb	#-1,-(r1)
+	movb	#-1,-(r1)
+.endc
+	return
+
+uc$sto:	call	uc$exp
+	.writw	#area,#3,u$cptr,u$clen,#0
+	bcs	10$
+	.close	#3
+	call	uc$cmp
+	return
+10$:	fatal	<Error writing UCL data file>
+.sbttl	insert definition
+
+;	Prior definition already deleted
+;	Localize RT-11 definition
+;	Ensure sufficient space for definition
+;	Search for alphabetic location
+;	Move up remainder
+;	Insert string
+
+uc$ins:	mov	r4,r0		;the new string
+	mov	u$cptr,r1	;
+	tstb	(r1)		;empty?
+	beq	20$		;yes
+10$:	tstb	(r1)+		;skip to the next
+	bne	10$		;skip it too
+	tstb	(r1)		;any more there?
+	bne	10$		;yes
+20$:	tst	u$cucl		;rt-11?
+	beq	15$		;nope
+	cmpb	(r0),#'\	;line separator?
+	bne	15$		;nope
+	movb	#nl,(r0)	;cheap replacement
+15$:	movb	(r0)+,(r1)+
+	bne	20$
+				;
+	tst	u$cucl		;rt-11 :==?
+	beq	23$		;nope
+	dec	r1		;back to null
+	cmpb	-1(r1),#nl	;ended with '\?
+	bne	21$		;nope - force one
+	cmpb	-2(r1),#nl	;got two of them?
+	bne	22$		;nope
+	cmpb	-(r1),-(r1)	;yep - drop one
+21$:	movb	#nl,(r1)+	;
+22$:	clrb	(r1)+		;
+23$:	clrb	(r1)+		;
+25$:	sub	u$cptr,r1
+	cmp	r1,#8.*512.
+	bhis	30$
+	return
+30$:
+uc$ful:	fatal	<UCL data file full>
+.sbttl	dimensions, get metas
+
+metdim:	call	getmet		;
+	mov	r5,r0		;
+	tstb	(r0)		; any used at all?
+	beq	15$		; nope
+10$:	tstb	(r0)+		; skip entries
+	bne	10$		;
+	tstb	(r0)		;
+	bne	10$		;
+15$:	mov	r0,r1		;
+	sub	r5,r1		;
+	mov	r1,metuse	;
+20$:	cmpb	(r0)+,#-1	; end of it?
+	bne	20$		;
+	sub	r5,r0		; total
+	mov	r0,mettot	;
+	sub	#3,r0		;
+	mov	r0,metdat	; data space
+	sub	r1,r0		;
+	mov	r0,metrem	; remaining data space
+	world			;
+	tst	$metal(r0)	; got a length?
+	bne	30$		; yep
+	mov	mettot,$metal(r0) ; set it up
+30$:
+	return
+
+.if ne rxm$c
+getmet:	world			;get the world
+	mov	$metas(r0),r5	; r5 -> metas
+	bne	10$		;fine
+
+	mov	#dpuse.,r0	;create them
+	mov	#128.,r1	;length
+	call	dp$adj		;adjust and create
+	world			;
+	mov	$metas(r0),r5	; r5 -> metas
+	bne	10$		;fine
+	fatal	<Option not installed>
+10$:	return
+.iff
+getmet:	psh	r0		;
+	world			;get the world
+	mov	$metas(r0),r5	; r5 -> metas
+	bne	10$		;fine
+	fatal	<Option not installed>
+10$:	mov	r5,metbas	;
+	pop	r0		;
+	return
+.endc
+.sbttl	number
+
+number:	save
+	clr	r3
+	mov	#divs,r2
+5$:	clr	r0
+1$:	sub	(r2),r1
+	bcs	2$
+	inc	r0
+	br	1$
+2$:	add	(r2)+,r1
+	tst	(r2)
+	beq	3$
+	tst	r0
+	bne	3$
+	tst	r3
+	beq	4$
+3$:	inc	r3
+	bis	#'0,r0
+	.ttyout
+4$:	tst	(r2)
+	bne	5$
+6$:	return
+divs:	10000.,1000.,100.,10.,1.,0
+.dsabl	lsb
+;???;	DCS:META - uc$exp - support any combination of CR/LF
+;	To handle unix text files etc
+.sbttl	expand and compress metas
+
+;	expand metas replacing zero bytes with cr/lf during writing
+;	compress metas replacing cr/lf with zero byte
+
+uc$exp:	mov	u$cptr,r0
+	mov	r0,r1
+	add	u$clen,r1	; max buffer size
+	sub	#4,r1		; some safety
+	clr	r2		; line count
+	tstb	(r0)		; anything at all
+	beq	60$		; nope
+10$:	cmp	r0,r1		; all over?
+	bhis	70$		; yes - overflow
+	cmpb	(r0),#-1	; end of ends
+	beq	70$
+	tstb	(r0)		; more in this line?
+	beq	20$		; end of line
+	inc	r0		;
+	br	10$		;
+20$:	inc	r2		; count line
+	inc	r0		; step past line
+	tstb	(r0)		; got another line?
+	bne	10$		; yes
+
+	add	r0,r2		; r2 -> end of expanded buffer
+	clrb	(r2)		; terminator
+	dec	r2		;
+	dec	r0		;
+
+40$:	cmp	r0,u$cptr	; back to the start?
+	blos	60$		;
+	movb	#lf,(r2)	; fill in cr/lf
+	movb	#cr,-(r2)	;
+50$:	cmp	r0,u$cptr	; back to the start?
+	blos	60$		;
+	movb	-(r0),-(r2)	; move in line
+	beq	40$		;
+	br	50$		; yes
+60$:	return
+70$:	jmp	uc$ful
+
+uc$cmp:	mov	u$cptr,r0	;
+	mov	r0,r1		;
+	mov	r1,r2		;
+	add	u$clen,r2	;
+10$:	cmpb	(r0),#-1	; end of it?
+	beq	40$		; yes
+	tstb	(r0)		; end of it
+	beq	30$		;
+	cmp	r0,r2		; all over?
+	bhis	40$		; yep
+	cmpb	(r0),#cr	; return?
+	beq	20$		; yes
+	movb	(r0)+,(r1)+	;
+	br	10$		;
+20$:	cmpb	(r0)+,(r0)+	; skip cr/lf
+	clrb	(r1)+		; replace with zero
+	tstb	(r0)		; more
+	bne	10$		; yes
+30$:	clrb	(r1)+		;
+	cmp	r1,r0
+	blo	30$
+40$:	return
+
+.end
+ e n d
+
+
+
+.sbttl	meta debug
+
+
+.if ne dbg$c
+metsho:	save
+	type	<Symbols: Used=>
+	call	metdim
+	mov	metuse,r1
+	call	number
+	type	< Remainder=>
+	mov	metrem,r1
+	call	number
+	type	< Data=>
+	mov	metdat,r1
+	call	number
+	type	< Total=>
+	mov	mettot,r1
+	call	number
+	print	<>
+
+	world
+	mov	r0,r2
+	type	<Command: Start=>
+	mov	$jobc(r2),r1
+	mov	r1,r3
+	call	number
+	type	< End=>
+	mov	$job(r2),r1
+	call	number
+	type	< Size=>
+	mov	$job(r2),r1
+	sub	r3,r1
+	call	number
+	print	<>
+	return
+.endc
+showmeta:
+	jmp	xx$sho
+	print
+	call	getmet		;test and point
+	call	uc$lst		;
+	call	uc$fet
+	call	uc$lst
+	call	uc$fre
+	jmp	kmon
+
+uc$lst:	tstb	(r5)		;any at all?
+	beq	40$		;nope
+20$:	.print	r5		;print the first
+30$:	tstb	(r5)+		;skip to the next
+	bne	30$		;skip it too
+	tstb	(r5)		;any more there?
+	bne	20$		;yes
+40$:	return
+

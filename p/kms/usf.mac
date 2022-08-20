@@ -1,0 +1,597 @@
+.sbttl lookup, enter
+usf:				;.title usf, file-structured section	
+				;remove collect, add filtim & extwrd	;?100
+				;add code for local special devices	;?200
+d.loo:	special	look.		;					;?200
+	call	search		;look for the file
+	bcs	err1		;file not found
+;	call	collect		;see if the user wants us		;?100
+	br	mapfile		;go map the channel
+
+d.ent:	special	entr.		;					;?200
+    sam	clr	@#chkey		;force a new directory
+1$: usr	mov	#sizes,r0	;get the size list
+	mov	qa2(qel),(r0)+	;set up the flag
+	bpl	5$		; =0 => half
+	inc	-(r0)		; <0 => biggest
+	com	(r0)+		; >0 => exact
+5$:	clr	(r0)+		;no biggest
+	clr	(r0)+		;no next best
+	call	search		;check the file/length
+10$:	bcs	20$		;not found; goto pass 2
+	call	protect		;check for protection
+	call	more		;do the whole directory
+	br	10$		;
+20$:usr	mov	#sizes,r0	;get the size list
+	mov	qa2(qel),(qel)	;assume exact
+	tst	(r0)+		;what sort was it?
+	bmi	24$		;the biggest
+	bne	25$		;exact or biggest
+	ror	(r0)		;divide the biggest
+	cmp	(r0)+,(r0)	;which is larger
+	blo	24$		;the second best is			
+	tst	-(r0)		;half the biggest is
+24$:	mov	(r0),(qel)	;get the size
+25$:	tst	(r0)		;did we get anything at all?
+	beq	err1		;nope; device full
+	call	volume		;get the directory again
+30$:	bcs	40$		;next segment
+	bit	#empty,(r2)	;is this it?
+	beq	40$		;no way
+	cmp	e.leng(r2),(qel);is this it?
+	bhis	50$		;yep
+40$:	call	next		;nope, get the next entry
+	br	30$		;and look again
+50$:	call	expand		;go make space for us
+	bcs	1$		;we just split, start again
+	mov	r2,r1		;get another copy
+	mov	#tent,(r1)+	;e.stat
+	mov	(r3)+,(r1)+	;e.name
+	mov	(r3)+,(r1)+	;
+	mov	(r3)+,(r1)+	;
+	mov	(qel),(r1)+	;e.leng
+	movb	qch(qel),(r1)+	;e.chan
+	clrb	(r1)+		;e.jnum
+    sam	mov	@#$date,(r1)+	;e.date
+;	call	collect		;see what the user wants		;?100
+	add	d$extr,r1
+	sub	(qel),e.leng(r1);negotiate length
+	call	update		;write it out
+	bis	#dwrit$,(csw)	;make it an enter channel
+mapfile:mov	dstrt,c.sblk(csw) ;get the start block
+	mov	e.leng(r2),c.leng(csw) ;setup the size
+	mov	e.leng(r2),qr0(qel) ;return the file size
+	return			;good exit
+
+sizes:	.word	0		;size flag
+	.word	0		;biggest or exact
+	.word	0		;next biggest
+.sbttl	delete, rename, close
+
+	gtim	=	21*400	;define .gtim emt code
+
+err1:	fatalp	1		;error 1
+err2:	fatalp	2		;error 2
+
+
+d.pur:	special	clos.,200	;clean up				;?200
+	br	d.prg		;force a purge				;?200
+d.del:	special	dele.,200	;					;?200
+	call	search		;find it first
+	bcs	err1		;file not found
+d.dlt:	call	protect		;go check protection
+	call	remove		;delete, compact & update
+d.prg:	clr	(csw)		;purge the channel
+	return			;good exit
+
+d.ren:	special	renm.,200	;
+	call	search		;find old name
+	bcs	err1		;file not found		
+	mov	dstrt,(qel)	;save the start block
+	add	#10,r3		;now look for the new name
+	call	search		;look for new name
+	bcs	40$		;no prior version of new name
+	cmp	dstrt,(qel)	;same file?
+	beq	50$		;yep, special case
+	call	protect		;nope, check protection
+	call	remove		;delete, compact and update
+40$:	sub	#10,r3		;point back to the first
+	call	search		;find it again
+	bcs	err1		;this should never happen, but.
+50$:	imov	qa6,qel,r0	;point again
+	imov	e.name,r2,r1
+	call	mov3		;move three words
+	mov	qx2(qel),r0	;check for protection			
+	bmi	60$		;
+	beq	70$		;retain the date			;?100
+;	bne	55$		;					;?100
+;	mov	$date,r0	;date is null				;?100
+55$:	mov	r0,e.date(r2)	;put in the date
+	br	70$		;
+60$:	asl	(r2)		;remove old protection
+	asr	r0		;get new protection
+	ror	(r2)		;move in new protection
+70$:;	call	collect		;check for user stuff			;?100
+	call	update		;go update us
+d.prg2:	br	d.prg		;purge and exit
+d.dl1:	br	d.dlt		;
+
+d.clo:	special	clos.,200	;check special directory
+	tstb	(csw)		;opened by enter?
+	bpl	d.prg		;nope, forget it (SM clears csw)
+	mov	c.sblk(csw),(qel) ;get the block
+	clr	c.sblk(csw)	;make it non-file structured
+	mov	#-1,c.leng(csw)	;non-file structured length
+	psh	(csw)		;create index
+	bic	#^cindx$m,(sp)	;clean it up
+	movb	c.unit(csw),1(sp);get the unit
+	pop	index		;this was about the last usr bug
+	call	volume		;get the directory
+10$:	bcs	d.prg2		;not found, ignore it
+	cmp	(r2),#tent	;this a tentative file?			
+	bne	20$		;nope - look again
+	cmpb	e.chan(r2),qch(r5) ;on our channel?
+	bne	20$		;nope - look again			
+	cmp	dstrt,(qel)	;is it the same file?
+	beq	30$		;nope
+20$:	call	next		;get the next entry
+	br	10$		;try the next
+30$:	mov	#perm,(r2)	;make it permanent
+
+; get file time in 3-second units
+
+	psh	r2		;save some registers			;?100+
+	psh	r3
+	psh	r4		;
+	psh	r5
+	clr	-(sp)		;
+	mov	#gtim,-(sp)	;
+	mov	sp,r0
+	mov	r0,2(sp)	;
+	emt	375		;
+	psh	#32.		;get a counter
+	sp.low	=	4	;offset to low order time
+	sp.hig	=	2	;offset to high order
+	sp.cnt	=	0	;offset to counter
+	clr	r0		;init result
+	clr	r1
+	clr	r2
+	clr	r3		;
+	mov	ti$frq,r4	;get frequency
+	clr	r5		;init
+31$:	asl	r0		;
+	asl	sp.low(sp)	;low order time
+	rol	sp.hig(sp)	;
+	rol	r2
+	rol	r3		;
+	cmp	r3,r5		;
+	blt	33$		;
+	bne	32$		;
+	cmp	r2,r4		;
+	blt	33$		;
+32$:	sub	r4,r2		;
+	sbc	r3		;
+	inc	r0		;
+33$:	dec	(sp)		;
+	bne	31$		;
+	add	#6,sp		;get rid of the data
+	pop	r5		;get the register back
+	pop	r4
+	pop	r3
+	pop	r2		;
+	bis	#100000,r0	;flag valid time
+	mov	r0,e.chan(r2)	;and store the time			;?100-
+	
+	imov	e.leng,r2,r0	; r0 -> e.leng
+	sub	c.used(csw),(r0);get the used blocks
+	mov	r2,r1		;get a copy
+	add	d$extr,r1	;add in the extra words
+	add	(r0),l.entry+e.leng(r1) ;update the empty
+	mov	c.used(csw),(r0);fix the permanent length
+	imov	qbs+10,qel,r3	;get some temporary space		
+	mov	-(r0),-(r3)	; e.name+4
+	mov	-(r0),-(r3)	; e.name+2
+	mov	-(r0),-(r3)	; r3 -> filename
+	mov	dstrt,(qel)	;save the start block for checks
+	call	compress	;compact and update the segment
+	call	search		;find our name
+40$:	bcs	d.prg2		;no more, forget it
+	cmp	dstrt,(qel)	;the same block?
+	bne	d.dl1		;nope, go delete it
+	call	more		;keep looking
+	br	40$		;and check for delete
+
+ti$frq:	.word	50.*3		;clock frequency*3
+.sbttl	search, more, match, protect, collect
+
+.enabl	lsb
+search:	call	volume		;get the directory
+10$:	call	match		;is it the same
+	bcc	yep		;got the same guy
+more:	call	next		;continue search past match
+	bcc	10$		;more to come
+	return
+.dsabl	lsb
+
+match:	call	record		;look for the .enter size
+	bit	#perm,(r2)	;is this permanent?
+	beq	nope		;oops, nope
+	imov	e.name,r2,r0	;get the entry name
+	mov	r3,r1		;our target name
+	cmp	(r0)+,(r1)+	;the same?
+	bne	nope		;nope
+	cmp	(r0)+,(r1)+
+	bne	nope
+	cmp	(r0)+,(r1)+
+	bne	nope
+	return			;c=0; found				
+
+record:				;track .enter file sizes
+	bit	#empty,(r2)	;this an empty?
+	beq	20$		;nope, forget it
+    usr	mov	#sizes,r0	;get the list
+	tst	(r0)+		;what are we doing?
+	ble	10$		;biggest or half
+	tst	(r0)+		;exact; already got one?
+	bne	20$		;yes, use it
+	cmp	e.leng(r2),qa2(qel) ;this o.k.?
+	bhis	15$		;yes, record it
+	br	20$		;exit
+10$:	cmp	e.leng(r2),(r0)	;a new high?
+	blo	20$		;nope
+	mov	(r0)+,(r0)	;yep, move it up
+15$:	mov	e.leng(r2),-(r0);and save the new high
+20$:	return
+
+protect:tst	(r2)		;is it protected?			
+	bpl	nope		;nope					
+	fatalp	3		;protected file error			
+
+.if ne 0								;?100+
+collect:psh	r1		;save this guy				
+	mov	qbs(qel),r1	;get the emt dispatch stack
+	mov	16(r1),r0	;get the emt pc
+	cmp	-(r0),#emt+375	;new style?
+	bne	10$		;nope, forget it
+	mov	2(r1),r0	;get the users r0
+	bit	#1,2(r0)	;is it in collect mode?
+	beq	10$		;nope
+	mov	r2,r1		;get the current entry
+	add	#e.date,r1	;point to the date
+	psh	10(r0)		;get the address			
+	bic	#1,(sp)		;even it up (logical bypass flag)	
+	call	@(sp)+		;and call them				
+;	call	@10(r0)		;call them
+10$:	pop	r1		;restore this guy
+	return			;					
+.endc									;?100-
+
+.sbttl	volume, segment, update, first, next, entry 
+
+.enabl	lsb
+volume:	mov	#1,r0		;force the block number
+	br	5$		;skip the segment entry
+segment:mov	d$next,r0	;get the next segment number
+5$:	beq	nope		;oops
+    sam	cmp	@#chkey,index	;same device?
+	bne	10$		;nope, reread
+    sam	cmp	@#blkey,r0	;same block?
+	beq	15$		;yep, use it
+10$:sam	mov	r0,@#blkey	;set it up
+reread:	movb	#n.read,di.area+1;the function				
+	call	transfer	;go do it
+15$:	call	compact		;elide double empties
+first:	mov	d$strt,dstrt	;renovate this guy
+    usr	mov	#d$first,r2	;point to the entry
+yep:	tst	(pc)+
+nope:	sec
+	return
+.dsabl	lsb
+
+remove:	mov	#empty,(r2)	;delete this entry			
+compres:call	compact		;compact the segment			
+update:	movb	#n.writ,di.area+1;write the segment			
+transfer:			;read/write segment
+    usr	mov	#di.blk,r0	;point to the block
+    sam	mov	@#blkey,(r0)	;get the segment
+	asl	(r0)		;(r0)=segment*2
+	add	#4,(r0)		;block=segment*2-2+6
+	dec	r0		;skip back past subcode			
+	movb	qch(qel),-(r0)	;setup channel				
+    sam	clr	@#chkey		;avoid limbo
+	emt	375		;do the job
+	bcs	di.diro		;oops, i/o error
+    sam	mov	index,@#chkey,4	;update chkey
+    sam	cmp	@#blkey,#1	;first segment?
+	bne	yep		;nope
+	mov	d$high,dhigh	;yep, save the high block
+	br	yep		;return with c=0
+di.diro:fatalp	diri$o		;comes out Directory I/O error
+di.did:	fatalp	diri$e		;comes out as Illegal directory
+
+next:	call	entry		;get the next
+	bne	segment		;get the next segment
+	return			;c=1, failure
+entry:	add	e.leng(r2),dstrt;remember where we are
+	add	#l.entry,r2	;point to the next
+	add	d$extr,r2	;add in the extra words
+	bit	#endblk,(r2)	;is it the last?
+	return			;and go back
+
+di.area:.word	n.read*400	;directory read area
+di.blk:	.word	0		;the block number
+   usr	.word	d$buffer o=0	;the buffer
+	.word	1000,0		;wordcount and completion
+
+dstrt:	.word	0		;current block number
+dhigh:	.word	0		;last segment number in use
+d$last:	.word	0		;address of last entry
+.sbttl	compact
+
+.enabl	lsb
+compact:			;merge contiguous empties
+	call	first		;get the first one
+	mov	r2,r1		;get the current guy
+	psh	r3		;save this
+	mov	r2,r3		;get another copy
+	call	elide		;check for empty
+30$:	mov	r2,r0		;get a copy
+	call	entry		;point to the next
+	mov	r1,r3		;save start of entry
+40$:	mov	(r0)+,(r1)+	;move it in
+	cmp	r0,r2		;all done?
+	blo	40$		;nope
+	mov	r1,d$last	;remember last slot
+;	bit	#endblk,-l.entry(r1) ;
+;	bne	90$
+	bit	#endblk,(r3)	;was this the last?
+	bne	70$		;yep
+50$:	call	elide		;check for empty
+	bit	#empty,(r2)	;is it empty?
+	beq	30$		;nope
+;	bit	(r2),-l.entry(r1) ;was the last empty too?
+	bit	(r2),(r3)	;was the last empty too?
+	bne	60$		;yes
+;	bit	#perm,-l.entry(r1) ;is last a permanent?
+	bit	#perm,(r3)	;is the last permanent?
+	beq	30$		;nope
+	tst	e.leng(r2)	;is this an empty empty?
+	bne	30$		;nope
+60$:;	add	e.leng(r2),-l.entry+e.leng(r1) ;yep, compact
+	add	e.leng(r2),e.leng(r3) ;yep, compact
+	call	entry		;get the next guy
+	br	50$		;and ignore one
+70$:	pop	r3
+	return
+
+elide:				;elide hanging tentatives
+	bit	#tent,(r2)	;a forgotten tentative?
+	beq	90$		;nope, we forget it
+	movb	e.chan(r2),r0	;compute the csw
+	cmpb	r0,#17.		;channel in range?
+	bhi	80$		;nope, claim it
+	asl	r0
+	psh	r0
+	asl	r0
+	asl	r0
+	add	(sp)+,r0	;channel offset
+    sam	add	#$csw+2,r0	;point to csw+2
+	bitb	-(r0),-(r0)	;open, with enter?
+	bpl	80$		;nope - claim it
+	psh	(r0)		;get the index
+	bic	#^cindx$m,(sp)	;figure the index
+	movb	c.unit(r0),1(sp);get the unit
+	cmp	index,(sp)+	;same device?
+	bne	80$		;nope, claim it
+	cmp	csw,r0		;is a .close in progress?
+	beq	90$		;yep, ignore it
+	cmp	c.sblk(r0),dstrt;same start block? (*)
+	beq	90$		;yes, leave it alone
+80$:	mov	#empty,(r2)	;make it empty
+90$:	return
+.dsabl	lsb
+
+; (*) channel identity instead of block identity is insufficient;
+; there could be multiple hanging tentatives for the same channel
+.sbttl	expand
+
+expand:				;make space for a tentative
+	psh	r3		;get a register				;?100
+5$:				;					;?100
+    usr	cmp	#d$limit,d$last	;too many?
+	blos	split		;yep, go split it
+10$:	mov	d$last,r0	;get the last
+	mov	r0,r1		;get another copy
+	add	#l.entry,r0	;point further up
+	add	d$extr,r0	;add in the extra words
+	mov	r0,d$last	;remember it
+20$:	mov	-(r1),-(r0)	;move an entry
+	cmp	r1,r2		;just moved our guy?
+	bne	20$		;nope
+   usr	cmp	r2,#d$first	;is this the first?			
+	beq	30$		;yes, then no previous
+;	bit	#tent,-l.entry(r2) ;is previous an empty?		;?100+
+	mov	r2,r3		;get a copy
+	sub	d$extr,r3	;back up to previous guy
+	bit	#tent,-l.entry(r3) ;is previous an empty?		;?100-
+	beq	30$		;nope
+	mov	e.leng(r2),e.leng(r0) ;move the length
+	clr	e.leng(r2)	;clear the current guy
+	mov	r0,r2		;bump up to the next
+;	br	expand		;and do it again			;?100
+	br	5$		;and do it again			;?100
+				;c=0 => no split
+30$:	pop	r3		;restore register
+	return			;r1,r2 -> tent, r0 -> empty
+
+split:				;split a full segment in two
+	pop	r3		;restore register from expand		;?100
+	cmp	dhigh,d$tota	;any more segments available?		
+	blo	5$		;yep
+	fatalp	dovr$e		;nope, directory overflow
+5$:	call	first		;get set up
+10$:	call	entry		;get the next
+    usr	cmp	r2,#d$middle	;hit the middle yet?
+	blo	10$		;nope
+	bit	#empty,(r2)	;this an empty?
+	bne	10$		;yep, dont split here
+	psh	r2		;save the middle marker
+    sam	psh	@#blkey		;save the segment number
+    usr	mov	#d$first,r1	;get the first guy
+20$:	mov	(r2)+,(r1)+	;move them down
+	cmp	r2,d$last	;this the last word?
+	blo	20$		;nope
+	mov	dstrt,d$strt	;setup the new start
+	inc	dhigh		;allocate the next segment
+    sam	mov	dhigh,@#blkey,4	;point to the new guy
+	call	update		;write new segment
+	call	volume		;get the first
+	inc	d$high		;update the highest used
+	call	update		;update first segment
+    sam	pop	@#blkey		;get original segment
+	call	reread		;read it in
+	pop	r2		;get the split-point back
+	mov	#endblk,(r2)	;make it an empty
+	mov	dhigh,d$next	;setup the new link
+	call	update		;rewrite current truncated segment
+	sec			;c=1 => we split
+50$:	return			;
+.sbttl	loader
+.mcall	.fetch
+usrend:
+meta <reloc c><mov #rel.'c,r1><call relocate>
+				; r4 = sysptr
+getusr::call	gslots		;go get the slots
+	psh	r3		; r3 = high address
+	psh	r5		; r5 => -1=unload, 0=NFS, >0=FS
+	ble	5$		;NFS, NDS or unload			
+	sub	#usrfs*2,r3	; r3 -> syslow
+5$:	sub	#usrnf*2,r3	;assume non-file
+	mov	r3,r0		;get the current base
+	sub	#usr,r0		;compute usr relocation
+	reloc	usr
+	mov	r4,r0		;rmon relocation
+	reloc	sam
+	world			;net relocation
+	reloc	net
+6$:	psh	r3
+	clr	chkey(r4)	;zap the current segment
+	clr	@ttks(r4)	;stop aborts here
+	call	pshcom		;save the command file
+	mov	#usr,r0		;get us
+	pop	r3		;get the load address back
+	mov	r3,r1		;get another copy
+	mov	#usrnf,r2	;the non-file word count
+	mov	@#sysptr,r4	;get the monitor
+	tst	(sp)		;what kind of load is it?		
+	ble	10$		;NFS, NDS or unload			
+	add	#usrfs,r2	;file-structured size
+10$:	mov	(r0)+,(r1)+	;move it in
+	dec	r2		;count them
+	bne	10$		;nope
+40$:	world			;get the net table
+	mov	@#sysptr,r4	;get the monitor
+; get frequency for file creation time
+	mov	#50.*3,ti$frq	;assume 50 cycle clock
+	bit	#clk50$,config(r4) ;this a 50-cycle clock
+	bne	42$		;yes
+	mov	#60.*3,ti$frq	;put in the 60 hertz value
+42$:
+.if ne 0
+	mov	r3,$us(r0)	;now link up
+.endc
+	tst	(sp)		;what kind of load is it?		
+	ble	45$		;NFS, NDS or unload			
+	sub	#2000,r3	;point to the buffer
+45$:
+.if ne 0
+	mov	r3,$usrlc(r4)	;adjust rmon
+.endc
+50$:	mov	$object+2,r1	;get the fetch list
+55$:	mov	(r1)+,r2	;any more?
+	beq	70$		;nope
+	.fetch	r2,r1		;yep
+	bcc	56$		;fine
+	.abort	<System input error>
+56$:	tst	(r1)+		;skip the name
+	mov	(r2)+,r3	;get the vector
+	bpl	65$		;a straight vector
+	asl	r3		;a vector table
+	add	r3,r2		;the first
+60$:	mov	(r2)+,r3	;get the next
+	ble	55$		;the last
+	call	vector		;protect the vectors
+	cmp	(r2)+,(r2)+	;skip to next
+	br	60$		;and do it again
+65$:	call	vector		;protect it
+	br	55$		;do the next device
+70$:	mov	sysptr,r4	;get the system pointer
+	tst	(sp)+		;leave usr resident?			
+	bpl	80$		;yep
+	world			;nope, remove it
+.if ne 0
+	clr	$us(r0)		;clear the usr loaded flag
+	mov	(sp),$usrlc(r4)	;reset the high address
+.endc
+80$:	tst	(sp)+		;get rid of sysadr
+.if ne 0
+	sub	#2,$usrlc(r4)	;adjust syslow for fortran
+.endc
+	mov	#100,@ttks(r4)	;re-enable aborts
+	call	host		;rework the tables
+	call	popcom		;get any command file back
+	jmp	kmon		;get out of here			
+.sbttl	data, protect, relocate
+
+set	usrsize =usrend-usr		;globalize the size
+set	usrnf usf-usr/2, usrfs usrend-usf/2
+set	$ usr-2000			;buffer first like rt
+set	d$buff $,	 d$tota $+d.tota, d$next $+d.next
+set	d$high $+d.high, d$extr $+d.extr, d$strt $+d.strt
+d$first=$+l.hdr				;the first entry
+d$count=<2000-l.hdr>/l.entry		;maximum number of entries
+d$middle=d$first+<d$count-2/2*l.entry>	;the splitting point
+;d$last					;the last found in compress
+d$limit=d$first+<d$count-4*l.entry>	;the highest entry possible
+
+vector:	call	(pc)		;protect two vectors
+	mov	r3,r4		; << r3 = vector
+	asr	r4		;get a byte offset
+	mov	r4,r5		;
+	bic	#^c7,r4		;the bit
+	asr	r5		;the byte
+	asr	r5
+	asr	r5
+	add	@#sysptr,r5	;get the monitor part
+	bisb	bits(r4),lowmap(r5) ;set the bits
+	tst	(r3)+		;point at the next
+	return
+bits:	.byte	200,100,40,20,10,4,2,1	;protection bits
+
+relocat:mov	(r1)+,r2	;get the next
+	beq	20$		;no more
+	add	r0,(r2)		;relocate it
+	br	relocate	;and go again
+20$:	return
+
+gslots:	mov	#$slots,r1	;get the list
+	mov	#20$,r2		;get the list
+10$:	mov	(r1)+,@(r2)+	;move them in
+	cmp	r2,#30$		;all done?
+	bne	10$		;nope
+	return			;exit
+20$:	.word	slots,hosts,local,$unam1,syassg,$unam2,$pname,$hentry
+	.word	$stat,$dvrec,$hsize,$dvsize
+30$:
+$unam2:
+$unam1:
+syassg:	.word	0
+
+meta <rel c><$=0><rel2 c><.word 0>
+meta <rel2 c><.rept c'x><rel3 c,\$><.endr>
+meta <rel3 c,d><.word c'd><$=$+1>
+rel.usr:rel	usr
+rel.sam:rel	sam
+rel.net:rel	net
+.end
+

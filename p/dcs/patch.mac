@@ -1,0 +1,74 @@
+.title	patch
+.pass
+set	ptch 1, sipp 2, pat 3, slp 4	
+
+patch::
+	setup	$patch		;the table and lexical bypass
+	scan	<F=0^M>		;zero files into major
+	edit	<q1> 20$	;check for /memory
+	edit	<F=1Q="File? "> ;default question
+	edit	<(C3|C4||)> ,,10$
+	edit	<C3Q="Source file? ">
+	edit	<C4Q="Object  file? ">
+10$:	scan	<^I>		;get the input file
+	edit	<F=1C3|C4> ,,20$;
+	edit	<C3Q="Update file? ">
+	edit	<C4Q="Command file? ">
+	scan	<^J>		;correction or command file
+	edit	<O%> 20$	;done - we have an output file
+	edit	<C3Q="Output file? ">
+	edit	<C4Q="Output  file? ">
+	scan	<^OF=1>
+20$:;	edit	<*?>		;check end of line
+	edit	<c=C>		;remember this
+	edit	<C2C="SIPP"|C3C="PAT"|C4C="SLP"|C="PATCH">	
+	edit	<^Z"R "_C}_O,_L"="_I(J%,_J)_S_M}> ;build csi line
+	edit	<! >		;skip blanks
+	tstb	(r5)		;got a command line?
+	beq	25$		;no
+	edit	<*~}>		;yes - copy it out
+;	edit	<c2> 30$	;SIPP doesn't get ctrl/c
+25$:	edit	<"^C"}>
+;	edit	<(c0|c1|c3|c4||)"^C"}> ;^C for pat & slp
+30$:	jmp	build		;and build it
+
+$patch:
+option	PAT		1 _	pat
+;option	PATCH		1 _	ptch
+option	SIPP		1 _	sipp
+option	SLP		1 _	slp
+option	ALL		1 A	null
+option	CHECKSUM	1 C	null	value	l=0
+option	SHOW_CHECKSUM	1 D	null
+option	OVERLAYED	1 O	null
+option	NOMODIFY	1 L	sipp
+option	NOAUDIT		1 A	slp
+option	SPACES		1 B	slp
+option	DOUBLESPACED	1 D	slp
+option	LINESIZE	1 L	slp	value.
+option	COLUMN		1 P	slp	value.
+option	TRAILSIZE	1 S	slp	value.
+option	BLANKS		1 T	slp
+option	OUTPUT		1 _	null	output
+option	LIST		1 _	slp	p.list	l=0
+
+option	BYTES		1 B	ptch
+option	IMMEDIATELY	1 F	ptch
+option	HEXADECIMAL	1 H	ptch
+option	INSTRUCTION	1 I	ptch
+option	MEMORY		1 M	ptch	p.mem	
+option	WORDS		1 W	ptch
+option	RAD50		1 X	ptch
+option	INSPECT		1 N	ptch
+option	DECIMAL		1 D	ptch
+option	OCTAL		1 O	ptch
+option	QUIET		1 Q	ptch
+option	WORD		1 W	ptch
+option
+
+p.list:	edit	<^L!:|?>
+	call	file		;get /LIST:filespec
+	return
+p.mem:	edit	<q=1>		;/memory has no filename
+	return
+.end

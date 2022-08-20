@@ -1,0 +1,235 @@
+Y2K=1
+V4=1
+.title	clock
+;.pass
+.mcall	.date,.gtim,.print,.exit
+.mcall	.sreset,.ttyout
+.include "dcs:dcl.mac"
+$jbdef
+$esdef
+
+;macro	clock=ap/p:1,clock
+;	@clock recompiles all 'clock' user programs
+
+meta	<month c d e f g h><c=$><$=$+1><.iif nb d,month d e f g h>
+$=0
+month	jan	feb	mar	apr	may	jun
+month	jul	aug	sep	oct	nov	dec
+meta	<output a><movb a,r0><emt 341><bcs .-2>
+map	$date,,262
+map	rmon,,54
+map	config,,300
+map	clk50,,40
+map	spc,,40
+
+;set	$date 262, rmon 54, config 300, clk50 40, spc 40
+
+.enabl	lsb
+;clock2::mov	r0,date		;set the date
+;	mov	r1,time		;high order
+;	mov	r2,time+2	;low order
+;	mov	sp,crlf		;no crlf
+;	br	clock3		;join the common
+
+clock1::mov	(pc)+,(pc)+	; 1=> no cr/lf
+clock::	clr	(pc)+		; 0=> cr/lf
+crlf:	.word	0		;
+	mov	#gtim,r0	;else get time
+	emt	375		;do it before the date
+	.date			;get date in r0
+.if eq Y2K
+clock3:	mov	r0,r5		;copy it
+	beq	nod
+	mov	r0,r2		;and again
+	beq	5$		;whoops! no date!
+	asl	r5		;isolate day in r5
+	asl	r5
+	asl	r5
+	swab	r5
+	bic	#^c<37>,r5
+	asr	r2		;isolate month in r2
+	swab	r2
+	bic	#^c<37*2>,r2
+	bic	#^c<37>,r0	;and year in r0
+	sub	#2,r2		;get r2=<month*2> -2
+	cmp	r0,#99.-72.	;in range ?
+	bhi	bad		;nope
+	cmp	r2,#12.*2	;in range ?
+	bhi	bad		;nope
+	cmp	r5,days(r2)	;day in range ?
+	bhi	bad		;nope
+	mov	r0,-(sp)	;r0=year, save it
+				;(sp)	year-72
+	add	#72.,@sp	;(sp)	year
+
+.iff
+clock3:	mov	r0,r5		;copy it
+	beq	nod
+	mov	r0,r2		;and again
+	beq	5$		;whoops! no date!
+	asl	r5		;isolate day in r5
+	asl	r5
+	asl	r5
+	swab	r5
+	bic	#^c<37>,r5
+	asr	r2		;isolate month in r2
+	swab	r2
+	bic	#^c<17*2>,r2	;month				;Y2K fix
+	psh	r0		;get the era			;Y2K
+	swab	(sp)		;right shift 9			;Y2K
+	asr	(sp)		;				;Y2K
+	bic	#^c<140>,(sp)	;era in place and clean		;Y2K
+	bic	#^c<37>,r0	;and year in r0	
+	bis	(sp)+,r0	; or in era			;Y2K
+	sub	#2,r2		;get r2=<month*2> -2
+;Y2K	cmp	r0,#99.-72.	;in range ?
+;	cmp	r0,#103.-72.	;Y2K in range ?
+	cmp	r0,#199.-72.	;Y2K in range ?
+	bhi	bad		;nope
+	cmp	r2,#12.*2	;in range ?
+	bhi	bad		;nope
+	cmp	r5,days(r2)	;day in range ?
+	bhi	bad		;nope
+	mov	r0,-(sp)	;r0=year, save it
+;Y2K	add	#72.,@sp
+	add	#1972.,@sp	;Y2K
+.endc
+
+	mov	r2,-(sp)	;r2=month
+	mov	r5,-(sp)	;r5=day
+	mov	r0,-(sp)	;save year
+	dec	r0		;r0	year-72-1
+	asr	r0		;r0	(year-72-1)/2
+	asr	r0		;r0	(year-72-1)/4
+	add	@sp,r0		;r0	year+((year-72-1)/4)
+	inc	r0		;r0	year+((year-72-1)/4)+1
+	add	r0,r5		;r5	year+((year-72-1)/4)+day
+	bit	#3,(sp)+	;leap year?
+	bne	21$		;nope - skip correction
+	cmp	#2,r2		;after february?
+	adc	r5		;r5	year+((year-72-1)/4)+day+1
+21$:	add	months(r2),r5	;r5	year+((year-72-1)/4)+day+1+(year_days)
+22$:	sub	#7,r5		;cheapo modulo 7
+	bpl	22$
+	asl	r5		;*4 for table index
+	mov	days(r5),r5
+24$:	output	(r5)+
+	tstb	(r5)
+	bne	24$
+;	output	#spc
+.ttyout #32.
+	br	7$
+.sbttl	more date and time
+
+bad:	mov	#badate,r0
+	br	19$
+nod:	mov	#nodate,r0
+19$:	bisb	#eswar$,@#j$bsev ;set the warning bit
+	.print
+	br	5$
+
+7$:	mov	(sp)+,r1	;convert day
+	call	cvt2
+	mov	(sp)+,r3	;get <month*2>-2
+	asl	r3		;  <month*4>-4
+	add	#month,r3
+	mov	#5,r2
+30$:	output	(r3)+
+	dec	r2
+	bne	30$
+	mov	(sp)+,r1	;get year
+.if eq Y2K
+	call	cvt2		;and convert to ascii
+.iff
+	call	cvt4		;and convert to ascii
+.endc
+5$:	.ttyout	#32.
+	mov	time,r4		;(r4,r5) = time of day
+	mov	time+2,r5	;  in ticks past midnight
+	mov	@#rmon,r0	;point at rmon
+;	tst	config(r0)	;kw11l clock present?
+;	bpl	4$		;nope - no time to output
+	mov	#50.,r3		;assume 50 cycle clock
+	bit	#clk50,config(r0) ;50 or 60 cycle?
+	bne	3$		;50 cycle is right
+	mov	#60.,r3		;else 60 cycles per second
+3$:	call	div		;discard ticks
+	call	div60		;r1 = seconds
+	mov	r1,-(sp)
+	call	div60		;r1 = minutes
+	mov	r1,-(sp)
+	call	div60		;r1 = hours
+	mov	r1,hour		;the hour required sometimes
+	call	cvt2		;convert hours to ascii
+	output	#':
+	mov	(sp)+,r1	;get minutes
+	call	cvt2		;and convert to ascii
+	output	#':
+	mov	(sp)+,r1	;get seconds
+	call	cvt2		;and convert them
+4$:	.dsabl	lsb
+	tst	crlf		;do we want cr/lf?
+	bne	70$		;nope
+	output	#cr
+	output	#lf
+70$:	return
+	.sbttl	time utilities
+;
+.if ne Y2K
+cvt4:	mov	#divtab+2,r4	;setup for four digits
+	br	cvt
+.endc
+cvt2:	mov	#divtab+6,r4	;set up for two digits
+	br	cvt
+cvt10:	clc
+	ror	r1
+	mov	#divtab,r4	;adrs of division table
+cvt:	movb	#'0-1,r3
+2$:	inc	r3
+	sub	@r4,r1
+	bhis	2$
+	add	(r4)+,r1
+	output	r3
+	tst	@r4
+	bne	cvt
+	return
+divtab:	.word	10000.,1000.,100.,10.,1,0
+
+; divides number in (r4,r5) by r3, returning remainder in r1.
+
+div60:	mov	#60.,r3		;divide by 60
+div:	clr	r1		;init remainder
+	mov	#32.,-(sp)	;shift count
+1$:	asl	r5		;shift and subtract
+	rol	r4
+	rol	r1
+	cmp	r1,r3
+	blo	2$
+	sub	r3,r1
+	inc	r5
+2$:	dec	@sp
+	bne	1$
+	tst	(sp)+
+	return
+
+hour::	.word	0		;some need the hour
+gtim:	.word	21*400,time
+time:	.blkw	2
+months:	.word	-1,30.,58.,89.,119.,150.,180.,211.,242.,272.,303.,333.
+month:	.asciz	/-Jan-Feb-Mar-Apr-May-Jun-Jul-Aug-Sep-Oct-Nov-Dec-/
+	.word	sat,sun,mon,tue,wed,thu,fri
+days:	.word	31.,29.,31.,30.,31.,30.,31.,31.,30.,31.,30.,31.
+
+sat:	.asciz	/Saturday/
+sun:	.asciz	/Sunday/
+mon:	.asciz	/Monday/
+tue:	.asciz	/Tuesday/
+wed:	.asciz	/Wednesday/
+thu:	.asciz	/Thursday/
+fri:	.asciz	/Friday/
+
+nodate:	.ascii	/No date/<200>
+badate:	.ascii	/Bad date/<200>
+	.even
+	.end
+

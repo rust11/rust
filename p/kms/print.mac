@@ -1,0 +1,115 @@
+prs$c=0	; press command
+.title	print, type and press
+.pass
+set	pip 1, runoff 2
+
+;PRINT V4 [NO]FLAG ignored	;we could write a spooler!
+
+.enabl	lsb
+type::	setup	$type		;set up options
+	edit	<m=1>		;m=1 => TYPE (not print)
+	br	10$		;goto common section
+
+print::	setup	$print		;set it up
+10$:	world			;get the net table
+	movb	$card(r0),r0	;get the wildcard setting
+	scan	<W=1T=".LST"r0N="*">;setup defaults
+	edit	<C2W=0T=".RNO"N=""> ;Setup RUNOFF types			;?251+
+	scanend	<^IF=6Q="Files? ">;define the question
+	call	vax		;check for vax				;?288
+	bcs	30$		;not VAX
+	edit	<"/A">		;force /ASCII for VIP			;?295
+	edit	<m1"/S">	;force /single for type			;?295
+
+30$:	edit	<O0m1O="TT:*.*">;TT: is default for TYPE
+;V4	edit	<O0m0C2O="RNO:">;RNO: is default for PRINT/RUNOFF
+	edit	<O0O="LP:*.*">	;LP: is default for all others
+
+	edit	<C1l0W3"/W">	;if wild and not mute then /log
+	edit	<c1C1"/E"|c1"/W">;if wait pip=/E, others=/W
+;	edit	<C1c1"/E">	;PIP style /WAIT
+;	edit	<C2c1"/W">	;RUNOFF style /WAIT
+;	edit	<C2C="RUNOFF"|V1C="VIP"|C="PIP"> ;define the cusp	;?251.
+	edit	<C2C="RUNOFF"|V1C="VIP"|C="VIP"> ;define the cusp	;V4
+	jmp	program		;and output the command
+.dsabl	lsb
+
+$print:
+option	FLAGPAGE	1 _	null
+option	NOFLAGPAGE	1 _	null
+option	PROMPT		1 _	null	optnot
+option	NAME		1 _	null	optnot
+
+$type:
+option	LOG		1 W	pip
+option	NOLOG		1 _	pip	nolog
+option	QUERY		1 Q	pip	nolog
+option	COPIES		1 K	pip	value.
+option	DELETE		1 D	pip
+option	NEWFILES	1 C	pip
+option	WAIT		1 _	null	p.wait				;?251+
+option	OUTPUT		1 _	null	output	l=0
+option	VAX		1 _	null	p.vax				;?288
+
+option	RUNOFF		1 _	runoff
+option	START		1 B	runoff	value.
+option	END		1 E	runoff	value.
+option	FORMFEED	1 F	runoff	value.
+option	HYPHEN		1 _	runoff	p.hyp
+option	NOHYPHEN	1 _	runoff	p.nohyp
+option	UNDERLINE	1 _	runoff	p.under
+option	NOUNDERLINE	1 _	runoff	p.nounder
+option	VERSION		1 V	runoff
+option	HELP		1 I	runoff
+
+option	DATE		1 C	pip	value.
+option	SINCE		1 I	pip	value.
+option	BEFORE		1 J	pip	value.
+option	INFORMATION	1 X	pip
+option	
+
+p.wait:	edit	<c=1>		;remember wait
+	return
+p.vax:	edit	<V=1>
+	return
+p.hyp:	edit	<"/H:YES">
+	return
+p.nohyp:edit	<"/H:NO">
+	return
+			;/UNDER:BACKSPACE:NONE:SIMULATE
+p.under:edit	<!:!"/U:"@\!@@@@@@@>
+	return
+p.nound:edit	<"/U:N">
+	return		;						;?251.
+
+nolog:	edit	<l=1>
+	return
+
+.sbttl	press
+
+.if ne prs$c
+set pres 2
+
+press::	setup	$press		;press
+	scan	<T=".DOC">	;setup the type
+	scanend	<^IF=1Q="File? ">
+	edit	<C="PRESS">	;define the program
+	jmp	program		;and generate it
+
+$press:
+option	DOUBLE		1 _	pres	double
+option	MARGIN		1 L	pres	value.
+option	TRIPLE		1 _	pres	triple
+option	QUADRUPLE	1 _	pres	quad
+option
+
+double:	edit	<"/I:2">
+	return
+triple:	edit	<"/I:3">
+	return
+quad:	edit	<"/I:4">
+	return
+.iff
+press::	jmp	kmon
+.endc
+.end

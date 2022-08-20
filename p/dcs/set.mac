@@ -1,0 +1,1585 @@
+.title	set command
+.include "dcs:dcl.mac"
+.psect	set
+include getval	
+
+;	RUST/XM SET commands
+;
+;	%build
+;	r macro
+;	dcb:set=ses:mpl/m,dcs:kp,set
+;	^C
+;	%end
+;	%date
+;	<05-Feb-2004 16:34:40.00>
+;	%edit
+;	<314  >
+
+$badef		;batch
+$cndef		;config
+$eddef		;editor
+$ehdef		;expert header
+$jbdef		;job
+$fodef		;formatted output
+$indef		;ind bits
+$kcdef		;kernel control
+$prdef		;pcr
+$rmdef		;rmon
+$rpdef		;rp
+$sedef		;set
+$srdef		;system rights
+$tidef		;time
+$tcdef		;terminal config
+$tedef		;terminal
+$ttdef		;terminal setting
+calls$
+
+map	oplow$,,400	;lower case
+map	opupr$,,1000	;upper case
+map	optit$,,2000	;title
+map	oprig$,,4000	;right justify
+map	opzer$,,10000	;zero fill number
+map	opsgn$,,20000	;signed number
+
+$$ked==23
+$$k52=24
+$$kex=25
+$$edit==26
+$$teco=27
+$$keyp=30
+
+$fort=1		;offset to fortran 
+$$for==0
+$$f77==1
+
+maxoff==442
+ifcon$=40000
+te.edi=2000
+syunit=274
+syindx=364
+
+set	errlev 376, config 300
+set	uncon$ 20, fatal$ 10, error$ 4, warn$ 2, succs$ 1
+set	sever$ 20
+;set	fatal$ 20, sever$ 10, error$ 4, warn$ 2, succs$ 1
+
+set	warn. warn$!error$!fatal$!uncon$
+set	error. error$!fatal$!uncon$
+set	fatal. fatal$!uncon$
+set	sever. uncon$
+set	none. 200				;!uncon$
+
+set	hwtab$ 1, form$ 4, ht 11
+.sbttl	set command
+
+;	SET command
+;
+;	The generalized set table header is as follows:
+;
+; 	[value]			;supplied in r1
+;	[action]
+;	[action]
+
+set::	case	<setshow,showte>;dispatch SHOW SET (from SHOW)
+
+;	SET/nothing	
+
+	setup	$dummy		;no options
+	scan	<^M>		;make sure
+
+;	SET parameter	
+
+	mov	#$setsp,settable ;remember our table
+	edit	<^MD=0>		;no switches on the command
+	psh	r5		;save the input pointer
+	edit	<^I*=T*=T!*=:> 5$ ;set tt: item
+	mov	(sp),r5		;restore the input pointer
+	edit	<^I(@\@~|?)>	;get the major field
+				;setup the option table
+5$:;	tst	(sp)+		;
+	call	action		;find the entry
+	bcs	30$		;set option not found
+	tst	(sp)+		;skip r5 pointer
+	edit	<! |?>		;get the space
+
+;	SET parameter item,item
+
+10$:	edit	<! >		;skip space
+	edit	<^I(@\@~|?)>	;get the option
+	call	action		;and find it
+	bcs	ill		;illegal operation
+	call	set.tt		;some things are done twice
+	edit	<! >		;skip space
+	cmpb	(r5)+,#',	;is the next a comma?
+	beq	10$		;get another
+	tstb	-(r5)		;bump back again
+	bne	ill		;'he came to a bad end'
+	return
+
+;	SET device
+
+30$:	pop	r5		;point to device name
+	jmp	sd$han		;try for SET dd item
+
+unsupp:	jmp	optnot
+ill:	jmp	illegal		;bad command
+
+; Default routine to setup item symbol table	
+
+$table:	mov	r1,settable	;remember the table
+	return
+
+;	Action routine	
+;
+;	$input	has the option name
+;	find the item
+;	call the address routine
+;	call the item routine
+
+action:	mov	settable,table	;use our table
+	psh	r5		;save the string
+	mov	$input,r5	;get the input
+	call	search		;look for it
+	mov	#$dummy,table	;restore the dummy table
+	pop	r5		;get back the string
+	bcs	20$		;hopeless
+	mov	r2,setopt	;remember who we are for some
+	psh	(r2)+		;save the value
+	mov	(r2)+,r1	;get the value
+	call	@(r2)+		;call the address
+	clc			;c=0 => set, c=1 => test
+	call	@(sp)+		;call the action
+	clc
+20$:	return
+settable:.word	$set
+setopt:	.word	0		;current set option
+.sbttl	translate terminal set options
+
+;	Translate terminal options
+;
+;	This reestablishs the process options
+;
+;	set tt [no]tab
+;	set tt [no]form
+;	set edit class
+;	set tt [no]ctrly
+;	set tt [no]ctrlf
+;	set tt [no]ctrlh
+;	set tt [no]ctrlt
+
+set.tt:	call	$$ttcnfg	;get the config address
+	mov	(r0),r1		;point in r1
+	world			;point to our table
+	movb	#ht,$tab(r0)	;assume SET TT NOTAB
+	bit	#hwtab$,r1	;hwtab$=0 => NOTAB
+	beq	10$		;correct
+	clrb	$tab(r0)	;wrong, SET TT TAB
+10$:	clrb	$formf(r0)	;assume SET TT NOFORM
+	bit	#form$,r1	;form$=0 => NOFORM
+	bne	20$		;correct
+	movb	#ff,$formf(r0)	;wrong, SET TT FORM
+20$:
+	call	$$edtr		;get the edit type
+	movb	(r0),r0		;get the type
+	mov	sysptr,r1	;get the other type
+	movb	150$(r0),maxoff(r1) ;move in the edit type
+
+;	Map [ctrl/y] and [ctrl/h] & [ctrl/t] to terminal record
+
+	$cmkrnl	#area, #100$, pic=yes
+	return			;
+
+100$:	mov	@#p$hter,r3	;get the terminal
+	beq	130$		;it has none
+	mov	te.pco(r3),r2	;construct control word
+	bic	#tecty$!tecth$!tectt$!tectf$!tectb$,r2 ;assume none
+	mova	200$,r1		;get the list
+110$:	bit	(r1)+,@#p$hset	;this one set?
+	beq	120$		;no
+	bis	(r1),r2		;yes - remember it
+120$:	tst	(r1)+		;skip it
+	tst	(r1)		;get the next
+	bne	110$		;more
+	mov	r2,te.con(r3)	;record them
+	mov	r2,te.pco(r3)	;and the permanent options
+130$:	return
+
+
+150$:	.byte	0, $$edit, $$teco, $$ked, $$k52, $$ked, $$keyp
+	.even
+
+200$:	.word	setcf$,		tectb$!tectf$
+	.word	setct$,		tectt$
+	.word	setcy$,		tecty$
+	.word	setdb$,		tecth$
+;	.word	setcp$,		tectp$
+;	.word	setcc$,		tectc$
+;	.word	setcx$,		tectx$
+;	.word	setco$,		tecto$
+;	.word	setcs$,		tects$
+	.word	0
+.sbttl	set tables
+meta <entry n,v=0,x=dupe,y=dupe><.word y,v,x><.asciz &n&><.even>
+meta <yesno c,d,e,f><entry c,d,e,$bis><entry NO'c,d,e,$bic>
+meta <yesnok c,d,e,f><entry c,d,e,$bisk><entry NO'c,d,e,$bick>
+
+;		 name		value	address	action
+$setsp:
+	entry	UIC		0	setuic
+	entry	PROTECTION	0	setprt
+	entry	NODE		0	snode		;NODE before NODEFAULT
+	entry	NONODE		0	snnode
+	entry	DEFAULT		0	setdef
+	entry	NODEFAULT	0	snodef
+	entry	CLI		0	setcli
+	entry	NOCLI		0	setnocli
+	entry	UCL		0	setucl
+	entry	NOUCL		0	setnoucl
+	entry	PASSWORD	0	spassw
+	entry	PROCESS		0	sprocess
+	entry	PROGRAM		0	sprogram
+	entry	DEVICE		0	sdevice
+	entry	DRIVER		0	sdriver
+	entry	HANDLER		0	sdriver
+	entry	PROMPT		0	sprompt
+	entry	NOPROMPT	0	snprompt
+
+	entry	NATIVE		0	snativ
+	entry	NONATIVE	0	nnativ
+	entry	FEATURE		0	sfeatu
+	entry	NOFEATURE	0	nfeatu
+	entry	STEP		0	sstep
+	entry	NOSTEP		0	nstep
+	entry	TRACE		0	strace
+	entry	NOTRACE		0	ntrace
+	entry	LOGGER		0	slogger
+	entry	NOLOGGER	0	nlogger	
+	entry	DEBUG		0	sdebug
+	entry	NODEBUG		0	ndebug
+	entry	VERIFY		0	sverify
+	entry	NOVERIFY	0	nverify
+;	entry	TERMINAL	..tt	$table
+	entry	TERMINAL	..tt	stermi
+	entry	FILE		0	setfil
+	entry	KERNEL		..kern	$table
+	entry	HOST		0	shost
+
+$set:	entry	TT		..tt	$table
+	entry	SL		..sl	$table
+	entry	USR		..usr	$table
+	entry	EXIT		..exit	$table
+	entry	ERROR		..error	$table
+	entry	STATUS		..stat	$table
+	entry	KMON		..kmon	$table
+	entry	EDIT		..edit	$table	sedit
+	entry	NOEDIT		te.edi	$$term	nedit
+	entry	BASIC		..bas	$table
+	entry	WILD		..wild	$table
+	entry	SPOOL		..spoo	$table
+	entry	CLOCK		..cloc	$table
+;	entry	CTRLC		..ctc	$table
+	entry	BATCH		..batc	$table
+fort..:	entry	FORTRAN		..fort	$table
+	.word	0
+
+debu..:
+	entry	VERIFY		..veri	$table
+	entry	DEBUG		..debu	$table
+	entry	TRACE		..trac	$table
+	entry	STEP		..step	$table
+	entry	LOGGER		..logg	$table
+	entry	
+	.word	0
+..tt:
+	entry	COMMAND		ifrt	$$stat	$bic
+	entry	NOCOMMAND	ifrt	$$stat	$bis
+	entry	CONSOLE		0	dupe	unsupported
+	entry	CRLF		0	dupe	unsupported
+	entry	NOCRLF		0	$$term	$bic	;a dummy for show
+	yesno	CTRLF		te.ctf	$$term	$bis
+	yesno	CTRLT		setct$	$$term	$bis
+
+	losym$ = incgl$*256.
+	entry	CTRLC		losym$	$$inx	$bick
+	entry	NOCTRLC		losym$	$$inx	$bisk
+
+ctyopt=.
+	yesno	CTRLY		te.cty	$$term	$bis
+	yesno	DEBUG		te.dbx	$$term	$bis
+	entry	EDIT		te.edi	$$term	scedit
+	entry	NOEDIT		te.edi	$$term	ncedit
+	entry	FORM		form$	$$ttcnf	$bis
+	entry	NOFORM		form$	$$ttcnf	$bic
+	entry	HOLD		133	dupe	tt.hold	;ascii '['
+	entry	NOHOLD		134	dupe	tt.hold	;ascii '\'
+	entry	LOWER		tc0lm$	$$ttcnf	slower
+	entry	NOLOWER		tc0lm$	$$ttcnf	snolow
+;
+	yesno	IDENTIFY	te.ide	$$term	$bis
+	entry	PAGE		0	dupe	dupe
+	entry	NOPAGE		0	dupe	unsupported
+	entry	PAUSE		1376	$$pause	$move	;bne .-4
+	entry	NOPAUSE		nop	$$pause	$move
+..qui:	entry	QUIET		ifeko$	$$statwd $bis
+	entry	NOQUIET		ifeko$	$$statwd $bic
+tt..:	entry	SCOPE		100000	$$ttcnf	$bis
+	entry	NOSCOPE		100000	$$ttcnf	$bic
+	yesno	TAB		hwtab$	$$ttcnf	$bis
+	entry	NOVERIFY	te.nov	$$term	$bis
+	entry	VERIFY		te.nov	$$term	$bic
+	entry	WIDTH		0	dupe	unsupported
+	.word	0
+..sl:	entry	ON		te.edi	$$term	scedit
+	entry	OFF		te.edi	$$term	ncedit
+	entry	ASK		0	dupe	dupe
+	entry	LEARN		0	dupe	dupe
+	entry	NOLEARN		0	dupe	dupe
+	entry	LET		0	dupe	dupe
+	entry	NOLET		0	dupe	dupe
+	entry	SYSGEN		0	dupe	dupe
+	entry	NOSYSGEN	0	dupe	dupe
+	entry	TTYIN		0	dupe	dupe
+	entry	NOTTYIN		0	dupe	dupe
+	entry	VT52		0	dupe	dupe
+	entry	VT62		0	dupe	dupe
+	entry	VT100		0	dupe	dupe
+	entry	VT101		0	dupe	dupe
+	entry	VT102		0	dupe	dupe
+	entry	WIDTH		0	dupe	dupe
+	.word	0
+..debu:	yesno	DEBUG		te.dbx	$$term	$bis
+	.word	0
+..trac:	yesno	TRACE		te.trx	$$term	$bis
+	.word	0
+..step:	yesno	STEP		seste$	$$term	$bis
+	.word	0
+..cloc:	entry	50_HERTZ	50.	$$clock	$sclock
+	entry	60_HERTZ	60.	$$clock	$sclock
+	.word	0
+
+..spoo:	yesno	IDENTIFY	te.ide	$$term	$bis
+	.word	0
+..veri:	entry	NOVERIFY	te.nov	$$term	$bis
+	entry	VERIFY		te.nov	$$term	$bic
+	.word	0
+..batc:
+	yesnok	VERIFY		baver$	$$bat	$bisk
+	yesnok	IDENTIFY	baide$	$$bat	$bisk
+	yesnok	NOTIFY		banot$	$$bat	$bisk
+	yesnok	ACCOUNTING	baacc$	$$bat	$bisk
+	.word	0
+;	yesno	VERIFY		setbv$	$$term	$bis
+;	yesno	IDENTIFY
+;	yesno	NOTIFY
+;	.word	0
+..logg:	entry	LOG		setlo$	$$term	$bis
+	entry	NOLOG		setlo$	$$term	$bic
+	.word	0
+..edit:	entry	EDIT		1	$$edtr	$movb
+	entry	TECO		2	$$edtr	$movb
+	entry	KED		3	$$edtr	$movb
+	entry	K52		4	$$edtr	$movb
+	entry	KEX		5	$$edtr	$movb
+	entry	KEYPAD		6	$$edtr	$movb
+	entry	$$LINES		0	xdedit	xsedit	;show lines
+	.word	0
+..fort:	entry	FORTRAN		0	$$forr	$movb
+	entry	F77		1	$$forr	$movb
+	.word	0
+..error:entry	WARNING		warn.	$$errl	$movb
+	entry	ERROR		error.	$$errl	$movb
+	entry	SEVERE		sever.	$$errl	$movb
+	entry	FATAL		fatal.	$$errl	$movb
+	entry	NONE		none.	$$errl	$movb
+	.word	0
+..stat:	entry	ERROR		error$	$$errs	$serrs
+	entry	WARNING		warn$	$$errs	$serrs
+	entry	SUCCESS		succs$	$$errs	$serrs
+	entry	NONE		0	$$errs	$serrs
+	.word	0
+..wild:	entry	IMPLICIT	0	$$card	$movb
+	entry	EXPLICIT	1	$$card	$movb
+	.word	0
+..usr:	entry	SWAP		0	$$conf	$bis	;blindly ignore unlocks
+	entry	NOSWAP		bit9	$$conf	$bis
+	.word	0
+..exit:	entry	SWAP		xitsw$	$$con2	$bic	;always set noswap
+	entry	NOSWAP		xitsw$	$$con2	$bis
+	.word	0
+..kmon:	entry	IND		ifind	$$stat	$bis
+	entry	NOIND		ifind	$$stat	$bic
+	.word	0
+..bas:	entry	ALL		101	$$bas	$movb	;A
+	entry	NONE		116	$$bas	$movb	;N
+	entry	BASIC		0	$$bas	$movb
+	.word	0
+
+	losym$ 	= kccon$!kcint$!kcrem$
+..kern:	entry	INTERACTIVE	losym$	$$ker0	$bisk
+	entry	NOINTERACTIVE	losym$	$$ker0	$bick
+	entry	CONSOLE		kccon$	$$ker0	$bisk
+	entry	NOCONSOLE	kccon$	$$ker0	$bick
+	entry	LOCAL		kcint$	$$ker0	$bisk
+	entry	NOLOCAL		kcint$	$$ker0	$bick
+	entry	REMOTE		kcrem$	$$ker0	$bisk
+	entry	NOREMOTE	kcrem$	$$ker0	$bick
+
+	entry	LOGINS		kclgi$	$$ker0	$bisk
+	entry	NOLOGINS	kclgi$	$$ker0	$bick
+	entry	LOGOUT		kclgo$	$$ker0	$bisk
+	entry	NOLOGOUT	kclgo$	$$ker0	$bick
+	entry	PROTECTED	kcpro$	$$ker0	$bisk
+	entry	NOPROTECTED	kcpro$	$$ker0	$bick
+	entry	MAINTENANCE	kckmm$	$$ker0	$bisk
+	entry	NOMAINTENANCE	kckmm$	$$ker0	$bick
+	entry	BOOT		kcboo$	$$ker0	$bisk
+	entry	NOBOOT		kcboo$	$$ker0	$bick
+	.word	0
+
+;	losym$ = incgl$*256.
+;..ctc:	entry	ON		losym$	$$inx	$bick
+;	entry	OFF		losym$	$$inx	$bisk
+;	.word	0
+.sbttl	address routines
+
+$$ttcnf:mov	30,r0		;get the emt vector
+	tst	-(r0)		;drop back to ttcnfg
+	return
+$$card:	world			;get the net table
+	add	#$card,r0	;point to the wildcard flag
+	return
+$$edtr:	world			;get the net table
+	add	#$edit,r0	;and point to the edit flag
+	return
+$$forr:	world			;get the net table
+	add	#$fort,r0	;and point to the fortran flag
+	return
+$$conf:	mov	sysptr,r0	;get the monitor
+	add	#config,r0	;address the config word
+	return
+$$con2:	mov	sysptr,r0	;get the monitor
+	add	#confg2,r0	;address the config word
+	return
+$$statwd:mov	sysptr,r0	;get the monitor
+	add	#statwd,r0	;and relocate it
+	return
+$$errl:	mov	sysptr,r0	;get the monitor
+	add	#errlev,r0	;form the address
+	return
+$$errs:	mov	sysptr,r0	;get the monitor
+	add	#rm.inx,r0	;get the status byte
+	return
+$$net:	world			;get the net table
+	tst	(r0)+		;its the second entry
+	return
+$$bas:	world			;get the net
+	add	#$bas,r0	;point to $bas
+	return
+$$term:	world			;get the table
+	add	#$terms,r0	;point to the word
+	return
+$$pause:world
+	mov	$reset(r0),r0	;point to reset
+	tst	-(r0)		;back off to pause
+	return
+$$ker0:	cright	#sropr.		;check operator rights
+	mov	#s$ykc0,r0	;setup kco address
+	return
+$$inx::	mov	#p$hinx,r0	;get address of global [ctrl/c] flag
+	return			;
+$$bat:	mov	#p$hbat,r0	;get address of batch control word
+	return
+
+$$cloc:	return			;
+.sbttl	action routines
+
+$bis:	bcs	10$		;this is a test entry
+	cmp	setopt,#ctyopt	;setting ctrl/y?
+	bne	5$		;nope
+;	rights	<u.scty>	;check this one
+	cright	#srcty.		;check the rights
+5$:	bis	r1,(r0)		;set the bit
+	return
+$bistst=.
+10$:	bit	r1,(r0)		;is it setup?
+$bists2=.
+	bne	20$		;mmm
+	tst	(pc)+		;change eq to ne
+20$:	sez			;change ne to eq
+	return			;
+
+$bisk:	psh	r2		;save this
+	mov	r0,r2		;setup the address
+	bcs	10$		;a test entry
+	kernel	#100$		;set it
+	pop	r2		;
+	return			;
+10$:	kernel	#110$		;get it
+	pop	r2		;restore r2
+	bit	r1,r0		;is it set
+	br	$bists2		;
+100$:	bis	rp.r1(r5),@rp.r2(r5)
+110$:	mov	@rp.r2(r5),rp.r0(r5) ;return it
+	return		
+
+$bic:	bcs	10$		;its a test entry
+	bic	r1,(r0)		;clear the bit
+	return
+$bictst=.
+10$:	bit	r1,(r0)		;set eq or ne
+	return
+
+$bick:	psh	r2		;save this
+	mov	r0,r2		;setup the address
+	bcs	10$		;a test entry
+	kernel	#100$		;set it
+	pop	r2		;
+	return			;
+10$:	kernel	#110$		;get it
+	pop	r2		;restore r2
+	bit	r1,r0		;is it set
+	return			;
+100$:	bic	rp.r1(r5),@rp.r2(r5)
+110$:	mov	@rp.r2(r5),rp.r0(r5) ;return it
+	return		
+
+$move:	bcs	10$		;a test entry
+	mov	r1,(r0)		;move the word
+	return
+10$:	cmp	r1,(r0)		;set eq or ne
+ignore:	return
+$movb:	bcs	10$		;test entry
+	movb	r1,(r0)		;move the byte
+	return
+10$:	cmpb	r1,(r0)		;check it out
+	return
+
+$serrs:	bcs	10$		;move and set byte
+	movb	r1,(r0)		;set it up
+	movb	r1,j$bsev	;setup exit severity
+	return			;
+10$:	tstb	r1		;is this none?
+	bne	15$		;no
+	cmpb	r1,(r0)		;yes - test it
+	br	30$		;
+15$:	bitb	r1,(r0)		;is it set?
+	bne	20$		;mmm
+	tst	(pc)+		;change eq to ne
+20$:	sez			;change ne to eq
+30$:	return
+
+.mcall	.print
+tt.hold:bcs	notset		;SHOW entry
+	movb	r1,10$+1	;put in the code
+	.print	#10$		;print the string
+	return
+10$:	.byte	33,0,0,0	;the escape string
+
+notset:	clz
+	return			;done
+.sbttl	set the clock rate
+
+$sclock:			;set clock
+	psh	r1		;save this
+	ror	-(sp)		;remember what it was
+	$cmkrnl	#area, #100$, p0=#0 pic=yes
+	rol	(sp)+		;set or show?
+	bcs	20$		;show
+	cmp	(sp),r0		;this the same?
+	beq	10$		;yes - no change
+	cright	#sropr.		;need to be operator
+;	cright	#srlio.		;and need logical I/O
+	$cmkrnl	#area, #100$, p0=(sp) pic=yes
+	bcc	5$		;fine
+	fatal	<Missing rights>
+5$:	.gtim	#area, #40$	;and recalibrate
+10$:	tst	(sp)+		;
+	return
+
+20$:	cmp	(sp)+,r0	;compare them
+30$:	return
+40$:	.word	0,0		;
+
+100$:	tst	r3		;get or set?
+	bne	120$		;want to set it
+	mov	@#t$ifre,rp.r0(r5) ;just inspecting it
+110$:	return			;return with it
+
+120$:	cmp	r3,@#t$ifre	;this the same?
+	beq	210$		;yes - ignore it
+	$cmsch			;stop a second
+	cmp	r3,#50.		;this 50 herz?
+	bne	160$		;no
+	mov	#ti50h.,@#t$ih24
+	mov	#ti50l.,@#t$il24
+	mov	#50.,@#t$ifre	
+	bis	#cn50h$,@#r$mcfg ;change kernel config
+	bis	#cn50h$,@#p$hcfg ;change our process too
+	br	200$		;and quit
+160$:	mov	#ti60h.,@#t$ih24
+	mov	#ti60l.,@#t$il24
+	mov	#60.,@#t$ifre
+	bic	#cn50h$,@#r$mcfg ;change kernel config
+	bic	#cn50h$,@#p$hcfg ;change our process too
+200$:	$cmpro			;
+210$:	return
+.sbttl	show terminal
+.mcall	.ttyout
+set	act 0, lvalue 2, address 4
+
+s.hfor='a-'A			;to make lower case
+s$hfor:	.word	0		;format
+s$hwid:	.word	6		;column width
+s$hcol:	.word	0		;current column
+
+;	r3=0	no commas
+;	r4 ->	terminal table
+;	col	current column
+;	cols	number of columns
+;	width	column width
+;	pic	0=RT-11, 1=hammo
+
+showterm:			;
+	mov	#s.hfor,s$hfor	;setup to format
+	mov	#16.,s$hwid	;16 characters wide
+	mov	#..tt,r4	;terminal table
+10$:	print			;one to start
+	clr	s$hcol		;column zero
+20$:	cmp	s$hcol,#5	;just done the fifth?
+	beq	10$		;yes
+	mov	#1,r3		;no comma
+	call	sh$ent		;do the next entry
+	tstb	(r4)		;got any more?
+	bne	20$		;yes
+	tst	s$hcol		;need another lf?
+	beq	30$		;nope
+	print
+30$:	jmp	kmon		;done
+.sbttl	show set
+
+setshow::			; list the set tables
+	clr	s$hfor		;no format
+	mov	#6,s$hwid	;width of formatted item
+	mov	#$set,r5	;get the major table
+10$:	tst	(r5)		;any more?
+	bne	20$		;yes
+	tst	(r5)+		;skip it
+	cmp	r5,#debu..	;this debug?
+	bne	50$		;nope
+20$:	mov	r5,r2		;get it temporary
+	call	s.even		;get the next
+	mov	r1,r5		;and update ours
+	mov	lvalue(r2),r4	;get the address
+	cmp	addres(r2),#$table ;is it a valid entry?
+	bne	10$		;nope
+	call	thumpf		;type the name
+	cmp	r2,#fort..	;space for a space?
+	beq	25$		;no
+	type	< >
+25$:	type	<is set >	;give an indicator
+	mov	#1,r3		;for comma control
+	cmp	r4,#..tt	;is this TT?
+	bne	30$		;nope
+	mov	#..qui,r4	;yes - QUIET only
+30$:	cmp	r4,#tt..	;this the end of quiets?
+	beq	32$		;yes
+	tst	(r4)		;this the end of the entries?
+	beq	32$		;nope
+	call	sh$ent		;yes
+	br	30$		;
+32$:	print
+	br	10$		;and look at the next major heading
+50$:	call	showcli		;show the current cli
+	call	showucl		;show current ucl
+	call	shprom		;show the prompt
+	jmp	kmon
+.sbttl	show entry etc.
+
+sh$ent:
+35$:	mov	r4,r2		;for the advance
+	call	s.even		;get the next
+	mov	r1,r4		;update the pointer
+	cmp	addres(r2),#dupe;this in use?
+	beq	50$		;nope, ignore it
+	mov	lvalue(r2),r1	;setup the value
+	call	@address(r2)	;get the address
+	sec			;now call the testing routine
+	call	@act(r2)	;
+	bne	50$		;this aint for us
+	dec	r3		;is it the first?
+	beq	40$		;yes
+	type	<, >		;give a comma
+40$:	call	thump		;put it out
+50$:	return
+
+s.even:	mov	r2,r1		; roundup to next entry
+	add	#6,r1		;skip the header
+	call	even		;call even in kmon.mac
+	return
+
+thumpf:	psh	s$hwid		;this many at least
+	br	thucom
+thump:	clr	-(sp)		;dont care
+thucom:	mov	r2,r1		; type the option name
+	add	#6,r1		;point to the string
+	tst	s$hfor		;is this formatted?
+	beq	20$		;nope
+	mov	s$hwid,(sp)	;
+	inc	s$hcol		;count the column
+	cmp	(r1),#"NO	;is this a NO?
+	bne	10$		;no
+	type	<No >		;must be formatted
+	tst	(r1)+		;skip the no
+	sub	#3,(sp)		;reduce the count
+10$:	.ttyout	(r1)+		;the first in upper
+	dec	(sp)		;and count it
+20$:	movb	(r1)+,r0	;get the next
+	add	s$hfor,r0	;make it lower for some
+	.ttyout
+	dec	(sp)		;
+	tstb	(r1)		;any more?
+	bne	20$		;yes
+30$:	dec	(sp)		;any more?
+	bmi	40$		;nope
+	.ttyout	#space		;yes
+	br	30$
+40$:	tst	(sp)+
+	return
+.sbttl	set terminal, process, default & verify
+
+;	SET PASSWORD
+
+spassw:	jmp	setpwd		;
+
+;	SET TERMINAL
+
+stermi:	psh	r5		;check for an option
+10$:	bitb	#177,(r5)	;any more coming?
+	beq	20$		;no - its the old style
+	cmpb	(r5)+,#'/	;is it the new style?
+	bne	10$		;no
+	pop	r5		;new style
+	mov	#set.atc,r0	;set terminal
+	jmp	attach		;
+20$:	pop	r5		;old style
+	jmp	$table		;
+
+;	SET TERMINAL LOWER	;
+
+slower:	psh	r0		;save address
+	bcs	10$		;it's a test entry
+	kernel	#100$		;set it in terminal map
+10$:	pop	r0		;restore address
+	jmp	$bis		;set the bit
+100$:	mov	@#p$hter,r3	;get the terminal
+	beq	110$		;it has none
+	bis	#ttlow$,tt.low(r3) ;set the bit
+110$:	return			;
+
+;	SET TERMINAL NOLOWER	;
+
+snolow:	psh	r0		;save the address
+	bcs	10$		;it's a test entry
+	kernel	#100$		;set it in terminal map
+10$:	pop	r0		;get address back
+	jmp	$bic		;set the bit
+100$:	mov	@#p$hter,r3	;get the terminal
+	beq	110$		;it has none
+	bic	#ttlow$,tt.low(r3) ;set the bit
+110$:	return			;
+
+;	SET PROCESS
+
+sproce:	clr	r0		;case variable
+	jmp	setpro		;
+
+;	SET DEFAULT device
+
+setdef:	setup	$setdef		;no options
+	edit	<! >		;remove any space
+	scanend	<^IF=1Q="Directory? ">
+	mov	$input,r5	;get the string
+	call	20$		;check for UIC
+	bcc	10$		;all done
+	edit	<^O@\@@!::|?>	;remove colon to force recursive assign
+	edit	<^Z"define DK: "_O}> ;
+	call	20$		;get uic
+	jmp	build		;
+10$:	jmp	kmon		;UIC only
+
+20$:	cmpb	(r5),#'[	;got a UIC?
+	bne	30$		;no
+	call	getuid		;yes - get it
+	mov	r0,r1		;supply it
+	$cmkrnl	#area, #100$ pic=yes
+	tst	(pc)+		;done
+30$:	sec			;
+	return
+100$:	mov	rp.r1(r5),@#p$huif ;store it
+	return
+
+$setdef:.word	0
+
+;	SET NODEFAULT
+
+snodef:	edit	<^Z"deassign dk"}>
+	$cmkrnl	#area, #100$ pic=yes
+	jmp	build
+100$:	clr	p$huif
+	return
+
+;	SET VERIFY	
+
+sverify:call	eol		;test for eol
+	call	$$stat		;get stat word
+	bic	#ifeko$,(r0)	;turn us on
+	call	$$term		;get terms
+	bic	#te.nov,(r0)	;turn NOVERIFY off
+	jmp	kmon		;go to kmon
+
+;	SET NOVERIFY	
+
+nverify:call	eol		;check for end of line
+	call	$$stat		;get stat word
+	bis	#ifeko$,(r0)	;turn this off
+	call	$$term		;get $terms
+	bis	#te.nov,(r0)	;turn this on
+	jmp	kmon		;and quit
+.sbttl	logger
+
+;	SET LOGGER
+;	SET NOLOGGER
+;	SET LOGGER/FILE=filespec/ALLOCATE
+;	SET NOLOGGER/CLOSE
+
+slogger:			;set logger
+	bcc	20$		;not a test entry
+	mov	r1,r5		;reset r5
+	mov	#..logg,r1	;do the usual edit routine
+	jmp	$table		;and continue
+20$:
+	mov	#slo.log,r0	;
+	jmp	logger		;dcs:logger
+;	call	eol		;check end of line
+;	call	clogger		;is it setup already?
+;	bcc	30$		;yes
+;	mov	#fo.bbs,r1	;no - create it
+;	mov	#dplog.,r0	;
+;	call	dp$adj		;build it
+;	call	elogger		;enable it
+;30$:	jmp	kmon		;
+
+nlogger:bcs	10$		;
+	mov	#snl.log,r0
+	jmp	logger		;
+;	call	eol		;check end of line
+;	call	clogger		;are we running?
+;	bcs	10$		;no - ignore this
+;	clr	r1		;remove it
+;	mov	#dplog.,r0	;
+;	call	dp$adj		;
+;	call	dlogger		;disable it
+10$:	jmp	kmon		;
+
+;clogger:$cmkrnl	#area, #100$, pic=yes
+;	return
+;100$:	tst	@#p$hlob	;got a buffer?
+;	bne	10$		;yes
+;	.soft	0		;no - report it
+;10$:	return
+;
+;
+;elogger:$cmkrnl	#area, #100$, pic=yes
+;	return
+;100$:	mov	#fofio$,@#p$hlof ;enable logger
+;	return
+;
+;dlogger:$cmkrnl	#area, #100$, pic=yes
+;	return
+;100$:	clr	@#p$hlof	;disable logger
+;	return
+.sbttl	edit
+
+;	SET EDIT editor
+;	SET [NO]EDIT/LINES=n
+;
+;	This is the action routine for EDIT.
+;	Determine whether a terminal editor command.
+
+slines:.word	0
+
+sedit:
+	bcs	10$		;a test entry
+	clr	slines		;assume no lines
+	mov	r5,r1		;to back up
+	edit	<! >		;skip any space
+	cmpb	(r5),#'/	;got an option coming?
+	beq	30$		;yes - must be terminal editor
+	tstb	(r5)		;anymore coming?
+	beq	20$		;nope - set terminal editor on
+	clc			;
+10$:	mov	r1,r5		;reset r5
+	mov	#..edit,r1	;do the usual edit routine
+	jmp	$table		;and continue
+
+;	SET EDIT
+;
+;	If its already loaded just set the bit.
+;	Otherwise load it with two last line buffers.
+
+20$:	mov	#kmon,(sp)	;return here
+	mov	#2,slines	;default to two
+	call	getedt		;get the editor stuff in r4
+	bcc	enbedt		;we have it already - just turn it on
+	br	insedt		;go install it
+
+;	SET EDIT/LINES=N
+;
+;	The first is for the last line buffer.
+;	The last is for the save buffer unless there is only one.
+;	Ignore it if we have the same number of lines.
+
+30$:	mov	#kmon,(sp)	;return here
+	setup	$sedit		;setup for it
+	scanend	<^M>		;get the options
+
+	call	getedt		;get the editor parameters
+	bcs	insedt		;not there - go set up
+	cmp	slines,r1	;same number of lines?
+	bne	insedt		;no - install it again
+	br	enbedt		;just turn it on
+
+insedt:	mov	slines,r1	;get the number of lines
+	cmp	r1,#2		;big enough?
+	bhis	10$		;yes
+	mov	#2,r1		;no
+10$:	mul	#edlbs.,r1	;get the number of bytes
+	mov	#dpedt.,r0	;edit type
+	call	dp$adj		;adjust the pool
+	br	enbedt		;and set us on
+
+$sedit:
+option	LINES		1 _	null	s.line
+option
+s.line:	call	getval		;get the number
+	mov	r0,slines
+	return
+
+.enabl	lsb
+enbedt:	clr	r0		;
+	mov	#seted$,r1	;
+	br	10$
+dsbedt:	mov	#seted$,r0
+	clr	r1
+	br	10$
+
+getedt:				;return the number of buffers in r1
+	clr	r0		;
+	clr	r1		;
+10$:	mov	r0,r2		;
+	$cmkrnl	#area, #20$, pic=yes ;change mode
+	tst	r1		;is it set up?
+	bne	15$		;yes - we have lines
+	sec			;no
+15$:	return
+20$:	bic	rp.r2(r5),@#p$hset ;disable
+	bis	rp.r1(r5),@#p$hset ;enable
+	movb	@#p$heds,rp.r1(r5) ;return the count
+	return
+.dsabl	lsb
+.sbttl	set noedit
+
+;	This is fairly simple
+;	We just remove the buffers
+
+nedit:	bcc	10$		;not a test
+	return			;ignore test
+
+10$:	call	eol		;must have eol
+	mov	#dpedt.,r0	;type
+	clr	r1		;size
+	call	dp$adj		;adjust us
+	call	dsbedt		;disable us
+	jmp	kmon
+
+;	SET TERMINAL EDIT
+;	SET TERMINAL NOEDIT
+;
+;	These just manipulate the flags
+
+scedit:	bcs	10$		;its a test entry
+	psh	pc		;flag start
+	br	loacom		;and set the bit
+10$:	jmp	$bistst		;go test it
+
+;	set terminal noedit
+
+ncedit:	bcs	10$		;its a test
+	clr	-(sp)
+	br	loacom
+10$:	jmp	$bictst
+
+;	edit is set ked /lines=6
+
+xsedit:	bcc	10$		;ignore sets
+	call	getedt		;get the count
+	tst	r1		;got any?
+	beq	10$		;no
+	psh	r1		;
+	type	< /LINES=>	;yes
+	call	op$com		;
+	.word	op$clr		;
+	pop	r1		;
+	call	op$com		;
+	.word	op$dec		;
+	call	op$log		;display it
+10$:	clz			;and report no
+xdedit:	return
+.sbttl	trace & debug
+
+;	SET [NO]STEP
+;	SET [NO]TRACE
+;	SET [NO]DEBUG
+;	SET DEBUG/[NO]KERNEL
+;	SET [NO]NATIVE
+;	SET [NO]FEATURE
+;
+;	We only need to set a single bit.
+
+sstep:	psh	(pc)+
+nstep:	clr	-(sp)
+	mov	#seste$,r1	;flag us
+	br	loacom		;load common
+strace:	psh	(pc)+
+ntrace:	clr	-(sp)
+	mov	#te.trx,r1	;flag us
+	br	loacom		;load common
+sdebug:	psh	(pc)+
+ndebug:	clr	-(sp)
+	mov	#te.dbx,r1	;flag us
+	br	loacom
+snativ:	psh	(pc)+
+nnativ:	clr	-(sp)
+	mov	#setnt$,r1	;flag us
+	br	loacom
+sfeatu:	psh	(pc)+
+nfeatu:	clr	-(sp)
+	mov	#setft$,r1	;flag us
+	br	loacom
+
+
+loacom:	call	eol		;must have end of line
+	call	$$term		;set this up
+	tst	(sp)+		;start or stop?
+	beq	10$		;stop
+	bis	r1,(r0)		;set us on
+	br	20$
+10$:	bic	r1,(r0)		;set us off
+20$:	jmp	kmon
+.sbttl	set cli
+.mcall	.gtlin
+
+;	SET CLI command
+;	SET NOCLI
+
+setcli:				;
+10$:;	rights	<u.scli>	;set cli
+	cright	#srcli.		;check the rights
+	world			;check to see if we exist
+	tst	$force(r0)	;do we?
+	beq	60$		;option not in system
+
+	edit	<W=1>		;permit wildcards
+	edit	<! >		;remove any space
+	tstb	(r5)		;do we have something or do we prompt?
+	beq	70$		;we prompt
+	edit	<^I\*~>		;get it all
+	br	90$		;do the common stuff
+70$:	.gtlin	$input,#cliprompt;and get a line
+	edit	<I%>,,70$	;must get something
+90$:	mov	$input,r5	;point to the message
+	edit	<! ~>		;skip spaces
+	edit	<!*=D*=C*=L > 50$;its DCL
+				;
+15$:	mov	#fline,r4	;get the command line
+20$:	movb	(r5)+,(r4)+	;move it in
+	beq	30$		;nope
+	cmpb	(r4),#-1	;is it too long?
+;	tstb	(r4)		;is it too long?
+	bpl	20$		;
+	fatal	<CLI line too long>	;
+30$:	mov	#fline,r1	;get the input
+	world			;get the monitor
+	mov	$force(r0),r2	;get the string
+40$:	movb	(r1)+,(r2)+	;
+	bne	40$		;
+	br	jkmon2		;goto kmon
+50$:	world			;get the map
+	clrb	@$force(r0)	;turn off the cli
+	br	jkmon2		;goto kmon
+60$:	jmp	optnot		;option not in system
+
+setnocli:
+50$:	world			;get the map
+	mov	$force(r0),r0	;get it
+	beq	jkmon2		;forget it
+	clrb	(r0)		;delete it
+jkmon2:	jmp	kmon		;go to kmon
+
+showcli:			;display the CLI
+	type	<CLI    is set >;print something
+	world			;point
+	mov	$force(r0),r1	;get it
+	beq	10$		;option not in system
+	tstb	(r1)		;is it enabled?
+	bne	10$		;yes
+	mov	#20$,r1		;nope - use default
+10$:	.print	r1		;and the string
+	return			;and exit
+
+20$:	.asciz	/DCL/	
+
+cliprompt:.ascii /Command? /<200>	
+fline:	.blkb	16
+	.word	-1
+.sbttl	set ucl
+
+;	SET UCL filespec
+;	SET NOUCL
+
+setnoucl:			;set noucl
+	edit	<*?>		;
+	mov	sysptr,r0	;point to it
+	clr	rm.ucf(r0)	;clear the filename
+	br	jkmon2		;
+
+;	Set UCL filespec
+
+setucl:	setup	$ucl		;set us up
+	edit	<! >		;skip whitespace
+	mov	#60$,r0		;
+	mov	#^rsy,(r0)+	;setup default
+	mov	#^rucl,(r0)+	;
+	clr	(r0)+		;
+	mov	#^rsav,(r0)+	;
+	tstb	(r5)		;got a filespec?
+	beq	20$		;no - use default
+	scanend	<^IF=1D="DK:"T=".SAV"Q="Image? ">
+	mov	$input,r5	;point to the filename
+	mov	#60$,r1		;
+	mov	#^rdk,(r1)
+	clr	2(r1)
+	mov	#^rsav,6(r1)
+	pshs	<r2,r1>		;
+	mov	r1,r2		;r2 -> area
+	call	50$		;get the name
+	beq	30$		;nothing found - dont accept null device
+	cmpb	(r5),#':	;got a colon?
+	bne	10$		;nope
+	mov	(r2),-(r2)	;yes - move in the device
+	call	40$		;now get the name
+10$:	call	50$		;get the second half
+	edit	<@~>		;skip trailing alphanumerics
+	cmpb	(r5),#'.	;got a dot coming?
+	bne	20$		;nope
+	call	40$		;yes - get the type
+20$:	mov	#60$,r0		;
+	mov	sysptr,r1	;
+	add	#rm.ucf,r1	;
+	mov	(r0)+,(r1)+	;
+	mov	(r0)+,(r1)+	;
+	mov	(r0)+,(r1)+	;
+	mov	(r0)+,(r1)+	;
+	jmp	kmon		;
+30$:	edit	<?>		;invalid filename
+
+40$:	inc	r5		;skip colon or dot
+50$:	tst	(r2)+		;next word
+	mov	r5,r1		;
+	call	conar		;get the rad50
+	mov	r1,r5		;
+	mov	r0,(r2)		;store it
+	return
+60$:	.blkw	4
+$ucl:	option			;
+
+showucl:
+	type	<UCL    is set >;print something
+	mov	sysptr,r3	;get the system
+	add	#rm.ucf,r3	;point to the spec
+	tst	(r3)		;got a spec?
+	bne	10$		;yes
+	print	<NOUCL>		;
+	br	20$		;and quit
+10$:	mov	#30$,r1		;output area
+	mov	(r3)+,r0	;
+	call	conra		;
+	movb	#':,(r1)+	;
+	mov	(r3)+,r0	;
+	call	conra		;
+	mov	(r3)+,r0	;
+	call	conra		;
+	movb	#'.,(r1)+	;
+	mov	(r3)+,r0	;
+	call	conra
+	clrb	(r1)		;
+	.print	#30$		;and print it
+20$:	return
+30$:	.asciz	/DEV:FILNAM.TYP/	
+	.even
+.sbttl	set host & node
+
+;	SET HOST node
+;
+;	Pass command to JOIN
+
+shost:	mov	#joi.oth,r0	;dispatch it
+	jmp	other		;
+
+;	SET NODE NAME ID		
+;
+;	Node	Quark 001::
+;
+;	Alpha	six character node name
+;	Numeric	three digit node number (1:255)
+;
+;	Set NONODE - clear node name and id
+
+snnode:
+	cright	#sropr.		;check operator rights
+	edit	<*?>		;
+	$cmkrnl	#area, #100$ pic=yes
+	jmp	kmon
+100$:	clr	@#s$ynod	;clear the node name
+	clr	@#s$ynod+2	;
+	clrb	@#s$ynid	;clear the node id
+	return
+
+;	SET NODE NAME ID
+
+snode:	setup	$node		;set us up
+	cright	#sropr.		;check operator rights
+	edit	<! >		;skip whitespace
+10$:	scan	<^IF=1D=""T=""Q="Node? ">
+	psh	r5		;save r5
+	call	20$		;do the next
+	pop	r5		;
+	tstb	(r5)		;any more?
+	bne	10$		;yes
+	jmp	kmon		;no
+
+;	Get node name
+
+20$:	mov	$input,r5	;check type
+	edit	<!#> 30$	;digit is node id
+	mov	$input,r1	;point to the filename
+	call	conar		;convert two
+	mov	r0,r2		;store the first
+	beq	50$		;invalid command
+	call	conar		;
+	mov	r0,r3		;
+	clr	r1		;
+	br	40$		;
+
+;	Get node id
+
+30$:	mov	$input,r5	;point to the string
+	call	getden		;get the value
+	mov	r0,r1		;r1 = node id
+	beq	50$		;
+	cmp	r1,#255.	;too high?
+	bhis	50$		;yes
+	clr	r2		;no node name
+40$:	$cmkrnl	#area, #100$ pic=yes
+	return
+50$:	fatal	<Invalid node specification>
+
+100$:	mov	rp.r1(r5),r0	;name or id?
+	beq	110$		;no id
+	movb	r0,@#s$ynid	;node id
+110$:	mov	rp.r2(r5),r0	;
+	beq	120$		;nope
+	mov	r0,@#s$ynod	;name
+	mov	rp.r3(r5),@#s$ynod+2
+120$:	return
+
+$node:	option			;
+.sbttl	set prompt
+
+;	SET PROMPT
+;	SET PROMPT string
+;	SET PROMPT "string"
+;	SET PROMPT/PROCESS
+
+snprompt:mov	k$mwor,r0	;get the monitor
+	add	#eh.dot,r0	;advance to it
+	mov	#cr+<lf*256.>,(r0)+ ;fill in default
+	mov	#'.+100000,(r0)+;
+	jmp	kmon		;
+
+;	Upto eight characters followed by space and 200.
+
+sprompt:setup	$$prom		;get our options
+	edit	<W=1>		;permit wildcards
+	cmpb	(r5),#'/	;got an option coming?
+	bne	5$		;no
+	scan	<^M>		;yes - pick them up
+5$:	edit	<! >		;skip any space?
+	tstb	(r5)		;any coming?
+	beq	snprompt	;no - revert to RT-11
+	psh	r5		;save this
+	mov	#8.,r3		;count them
+10$:	movb	(r5)+,r0	;get the next
+	beq	30$		;that was all
+	cmpb	r0,#'"		;this a quote?
+	beq	10$		;yes
+	cmpb	-1(r5),#40	;a control?
+	blo	30$		;yes - stop here
+	dec	r3		;any more space?
+	bne	10$		;yes
+	fatal	<Prompt too long>
+30$:;	cmp	r3,#8.		;got any at all?
+	clrb	-(r5)		;terminate it
+	pop	r5		;	
+	mov	k$mwor,r1	;
+	add	#eh.dot,r1	;
+	mov	r1,r2		;check for null string
+	cmp	r3,#8.		;this a null prompt?
+	beq	40$		;yes - no cr
+	tst	r3		;is this the maximum size?
+	beq	40$		;yes
+	movb	#cr,(r1)+	;no - push in a [return] first
+40$:	movb	#200,(r1)	;in case we crash
+	movb	(r5)+,r0	;get the next
+	cmpb	r0,#'"		;this a quote?
+	beq	40$		;yes
+	movb	r0,(r1)+	;move it in
+	bne	40$		;
+	dec	r1		;
+	cmp	r1,r2		;is this the null string?
+	beq	50$		;yes - no space
+	cmpb	-1(r1),#'.	;this a dot?
+	beq	50$		;yes - use RT-11 rules
+	cmpb	-1(r1),#40	;did they specify a space already?
+	beq	50$		;yes - forget ours
+	movb	#40,(r1)+	;
+50$:	movb	#200,(r1)	;terminate it
+	jmp	kmon		;and quit
+
+$$prom:
+option	PROCESS		1 _	null	p.proc
+option				;
+
+p.proc:	call	eol		;force end of line
+	$cmkrnl	#area, #100$ pic=yes
+	mov	#300$,r1	;point to them
+	movb	#cr,(r1)+	;start with return
+	mov	200$,r0		;get the process name
+	call	conral		;get a lower case name
+	mov	200$+2,r0	;
+	call	conral		;get the next
+	movb	#'>,(r1)+	;finish up
+	movb	#space,(r1)+	;
+	movb	#200,(r1)+	;
+	clrb	(r1)		;
+	movb	300$+1,r0	;get the first
+	call	upper		;make it upper case
+	movb	r0,300$+1	;put it back
+	mov	#300$,r0	;
+	mov	k$mwor,r1	;
+	add	#eh.dot,r1	;
+10$:	movb	(r0)+,(r1)+	;put it in
+	bne	10$		;
+	jmp	kmon		;
+
+100$:	mov	@#p$hpcr,r4	;get the pcr
+	mov	pr.nam(r4),200$	;get the name
+	mov	pr.nam+2(r4),200$+2
+	return
+200$:	.rad50	/prcnam/	;the process name
+300$:	.ascii	/Prcnam> /<200>	;
+	.blkb	2		;
+	.even
+
+shprompt:			;display the prompt
+	type	<PROMPT is set "> ;
+	mov	k$mwor,r1	;get the prompt
+	add	#eh.dot,r1	;
+	mov	#7,r2		;maximum of 7
+10$:	movb	(r1)+,r0	;get the next
+	bitb	#177,r0		;all done?
+	beq	20$		;yes
+	cmpb	r0,#40		;this a printer?
+	blo	10$		;no
+	.ttyout			;yes
+	dec	r2		;more?
+	bne	10$		;yes
+20$:	print	<">		;
+	return
+.sbttl	set program
+set prog 1
+
+;	SET PROGRAM filnam/option
+
+sprogram:setup	$setprg		;setup for it
+	scan	<^M>		;skip the options
+	scanend	<^IF=1Q="Program? ">
+	edit	<e0>,10$	;no options specified
+	edit	<C="PROGRA">	;
+	jmp	progra		;build it
+10$:	jmp	kmon		;
+
+$setprg: 
+option	LIMIT		1 K	prog	s.lim	;/limit:kwords.
+option	NOLIMIT		1 K	prog	s.nol	;/nolimit
+option	IOPAGE		1 S	prog	s.iop	;/iopage
+option	NOIOPAGE	1 C	prog	s.iop
+option	LOOP		1 S	prog	s.loo	;/loop
+option	NOLOOP		1 C	prog	s.loo
+option	LOWER		1 S	prog	s.upp	;/lowercase
+option	NOLOWER		1 C	prog	s.upp
+option	CTRLY		1 S	prog	s.cty	;/ctrly
+option	NOCTRLY		1 C	prog	s.cty
+option	CTRLT		1 S	prog	s.ctt	;/ctrlt
+option	NOCTRLT		1 C	prog	s.ctt
+option	CTRLF		1 S	prog	s.ctf	;/ctrlf
+option	NOCTRLF		1 C	prog	s.ctf
+option	FPU		1 S	prog	s.fpu	;/fpu
+option	NOFPU		1 C	prog	s.fpu
+option	RT11A		1 S	prog	s.rta	;rt11a normalized
+option	NORT11A		1 C	prog	s.rta
+option	RT11S		1 S	prog	s.rts	;rt11s normalised
+option	NORT11S		1 C	prog	s.rts
+option	TRACE		1 C	prog	s.ntr	;/trace
+option	NOTRACE		1 S	prog	s.ntr	;/notrace
+option	TRAPS		1 S	prog	s.trp	;/traps
+option	NOTRAPS		1 C	prog	s.trp	;/notraps
+option	PATHS		1 C	prog	s.nap	;/paths
+option	NOPATHS		1 S	prog	s.nap	;/nopaths
+option	JSW		1 J	prog	s.jsw	;/jsw:n
+option	CTRLZ		1 S	prog	s.ctz	;/ctrlz
+option	NOCTRLZ		1 C	prog	s.ctz	;/noctrlz
+option	MMU		1 S	prog	s.mmu	;/mmu
+option	NOMMU		1 C	prog	s.mmu	;/nommu
+option	UNMAPPED	1 S	prog	s.unm	;/unmapped
+option	NOUNMAPPED	1 C	prog	s.unm	;/nounmapped
+option	REALTIME	1 S	prog	s.rtm	;/realtime
+option	NOREALTIME	1 C	prog	s.rtm	;/norealtime
+option 
+
+s.jsw:	call	value			;get octal value
+	br	s.e1			;
+s.lim:	call	value.			;get decimal value
+	br	s.e1			;
+s.nol:	edit	<":0">			;put out the value
+	br	s.e1			;
+s.iop:	edit	<":iop">
+s.e1:	edit	<e=1>
+	return
+s.upp:	edit	<":upp">
+	br	s.e1
+s.loo:	edit	<":loo">
+	br	s.e1
+s.cty:	edit	<":cty">
+	br	s.e1
+s.ctt:	edit	<":ctt">
+	br	s.e1
+s.ctf:	edit	<":ctf">
+	br	s.e1
+s.ctz:	edit	<":ctz">
+	br	s.e1
+s.fpu:	edit	<":fpu">
+	br	s.e1
+s.rta:	edit	<":rta">
+	br	s.e1
+s.rts:	edit	<":rts">
+	br	s.e1
+s.ntr:	edit	<":ntr">
+	br	s.e1
+s.sys:	edit	<":sys">
+	br	s.e1
+s.trp:	edit	<":trp">
+	br	s.e1
+s.nap:	edit	<":nap">
+	br	s.e1
+s.mmu:	edit	<":mmu">
+	br	s.e1
+s.unm:	edit	<":unm">
+	br	s.e1
+s.rtm:	edit	<":rtm">
+	br	s.e1
+.sbttl	set device, driver
+
+;	SET DEVICE/OPTIONS device
+;
+;	Pass it to SETDEV module
+
+sdevice:jmp	setdev			;quite simple
+
+
+;	SET DRIVER/OPTIONS filespec item=condition,
+;
+;	r driver
+;	set/options spec item=conditions
+;	^C
+
+sdriver:	
+	edit	<^Z"r driver"}>		;run the utility
+	edit	<"set ">		;issue the command
+	edit	<! >			;skip redundant space
+	edit	<*~>			;copy out the remainder
+	edit	<}>			;a new line
+	edit	<"^C">			;and terminate it
+	jmp	build			;go build it and exit
+.sbttl	uic, protection
+
+;	SET UIC [g,m]
+;	SET PROTECTION=(,,,)
+;	SET PROTECTION/DEFAULT	???
+;
+;	SET UIC requires cmkrnl rights.
+
+setuic: 
+	setup	$setui		;dummy table
+	tstb	(r5)		;should we prompt?
+	bne	5$		;yes
+	scan	<Q="Uic? ">
+5$:	edit	<! >		;skip the space
+	call	getuid		;get uic
+	mov	r0,r1		;r1 = uic
+	edit	<*?>		;
+	cright	#srcmk.		;need change mode to kernel
+	$cmkrnl	#area, #20$ pic=yes
+	bcc	10$		;fine
+	fatal	<Missing rights> ;cmkrnl
+10$:	jmp	kmon		;
+
+20$:	bit	#srcmk$,@#p$hsr0+sr.cmk ;do they have the right
+	beq	30$		;no
+	mov	rp.r1(r5),@#p$huix ;visible uic
+	mov	rp.r1(r5),@#p$huic ;invisible uic
+	mov	@#p$hpcr,r4	;get the pcr
+	mov	rp.r1(r5),pr.uic(r4) ;pcr uic
+	return
+30$:	bis	#srcmk$,@#p$hmr0+sr.cmk ;remember it was missing
+	.soft	0		;no right
+$setui:	.word	0		;dummy table
+
+setprt:	setup	$seprt		;option table
+	tstb	(r5)		;should we prompt?
+	bne	10$		;no
+	scan	<Q="Protection? ">
+
+10$:	call	getdpr		;get protection
+	mov	r0,r1		;r1 = protection
+	edit	<*?>		;
+	$cmkrnl	#area, #20$ pic=yes
+	jmp	kmon		;
+
+20$:	mov	rp.r1(r5),@#p$hpro ;change the protection
+	return
+
+$seprt:	
+option	DEFAULT		1 _	null
+option
+.end 

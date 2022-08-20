@@ -1,0 +1,439 @@
+.title	dump
+.include "dcs:dcl.mac"
+.psect	dump
+
+;	+---------------------------
+;	| Also used by KMS:
+;	+---------------------------
+;
+;	DCL dump command
+;
+;	%build
+;	macro	dcs:dump+dcs:files /object=dcb:dump
+;	%end
+;	%date
+;	<27-May-2011 22:50:46.32>
+;	%edit
+;	<25   >
+
+set	.dump 1
+
+dump::	setup	$dump		;set it up
+	scan	<^M>		;get the command switches
+	scanend	<F=3^IQ="Device or file? ">;get the files
+	edit	<O0O="TT:">	;default output specification
+	edit	<C="DUMP">	;the file specification
+	jmp	program		;go build it
+
+$dump:
+option	ASCII		1 _	.dump
+option	NOASCII		1 N	.dump
+option	WORDS		1 W	.dump
+option	BYTES		1 B	.dump
+option	RAD50		1 X	.dump
+option	ONLY		1 O	.dump	value
+option	START		1 S	.dump	value
+option	END		1 E	.dump	value
+option	IGNORE		1 G	.dump
+option	TERMINAL	1 _	.dump	terminal l=0	
+option	PRINTER		1 _	.dump	printer	 l=0
+option	OUTPUT		1 _	.dump	output	 l=0
+option	ALLOCATE	1 _	.dump	allocate l=0
+option	FOREIGN		1 T	.dump
+option	RECORD_SIZE	1 R	.dump	value.
+option	WINDOW		1 Y	.dump	value.
+
+option	DECIMAL		1 D	.dump	
+option	MACRO		1 M	.dump
+option	INSTRUCTION	1 I	.dump
+option	DISASSEMBLE	1 U	.dump
+option	SKELETON	1 K	.dump
+option	DIRECTORY	1 L	.dump
+option	LDA		1 F	.dump
+option	HEXADECIMAL	1 V	.dump
+option	NOOCTAL		1 H	.dump
+option
+.sbttl	differences
+fil$c=1
+
+set	srccom 1, bincom 2
+;V4 BINCOM options; SIPP not finished
+
+differences::
+	setup	$differ,d.lex	;setup for it
+	world			;get the net table
+	movb	$card(r0),r0	;get the wildcard setting
+	edit	<W=1r0N="*">;T="">;default name and type
+	edit	<x=2D="DK:"x=1>	;slp/sipp default		;?316
+	scan	<^M>		;get the command switches
+	scan	<^IF=5Q="File 1? ">;get the command
+	edit	<",">		;supply the comma
+	scanend	<Q="File 2? ">	;get the second file
+
+.if ne fil$c
+	edit	<C0C=1>
+	edit	<C1^Z"R SRCDIF"$>	;run the app
+	edit	<C2^Z"R BINDIF"$>	;run the app
+	edit	<x=1o0f0^f"TT:">	;setup the object name
+	edit	<x=2l%f0^f_D_a>		;setup the listing name
+	edit	<^Zx=1_f(x=2f%","_f)x=0"="_I_S$>;put out the command line
+	edit	<^Z"^C"}>		;kill the app
+	jmp	build
+.iff
+	edit	<O0O="TT:">	;default output specification
+	mov	$out,r5		;get the output string
+	edit	<^J(\@@@:@@@@@@.@@@\)> ;copy I to T (elide size)
+	edit	<","_P>		;copy the rest
+	edit	<O=J>		;swap these
+
+	edit	<C1C="SRCDIF"|C="BINDIF"> ;define the cusp
+	jmp	program		;go do the command
+.endc
+
+$differ:
+option	TERMINAL	1 _	null	terminal l=0
+option	PRINTER		1 _	null	printer	 l=0
+option	OUTPUT		1 _	null	object	 l=0
+option	NOOUTPUT	1 O	srccom	noobject
+option	ALLOCATE	1 _	null	allocate l=0
+
+option	SLP		1 _	srccom	list	l=0
+option	SIPP		1 _	bincom	list	l=0
+;option	SLP		1 _	srccom	di.slp	l=0
+;option	SIPP		1 _	bincom	di.sip	l=0
+
+option	COMMENTS	1 C	srccom			;/C 	
+option	NOCOMMENTS	1 _	srccom	di.com		;/C=n	
+option	SPACES		1 Z	srccom
+option	NOSPACES	1 S	srccom
+option	BLANKLINES	1 B	srccom
+option	FORMFEED	1 F	srccom
+option	MATCH		1 L	srccom	value.
+option	TRIM		1 _	srccom
+option	NOTRIM		1 T	srccom
+option	CHANGEBAR	1 D	srccom	di.chg	
+option	AUDITTRAIL	1 A	srccom
+option	LOG		1 H	null	value
+option	NOLOG		1 G	null
+option	NOEIGHT_BIT	1 _	srccom
+option	EIGHT_BIT	1 E	srccom
+option	CASE		1 I	srccom	value
+option	EXACT		1 _	srccom	
+option	NOEXACT		1 I	srccom
+option	MAXIMUM		1 X	null	value.
+option	WIDTH		1 W	srccom	value.
+option	NUMBERS		1 _	srccom
+option	NONUMBERS	1 N	srccom
+option	MERGED		1 M	srccom	value.
+option	PARALLEL	1 P	srccom	value.
+option	WINDOW		1 K	srccom	value.
+option	EDITED		1 R	srccom
+option	DIFFERENT	1 _	srccom	di.dif
+option	SAME		1 _	srccom	di.sam
+option	SKELETON	1 J	srccom
+
+option	BINARY		1 _	bincom
+option	BYTES		1 B	bincom
+option	START		1 S	bincom	value
+option	END		1 E	bincom	value
+option	QUIET		1 Q	bincom
+option	ALWAYS		1 O	bincom
+option	DEVICE		1 D	bincom
+option
+
+d.lex:	edit	<r,r= >		;replace comma with space
+	return
+
+.if eq fil$c
+di.slp:	edit	<x=2T=".SLP">
+	br	sipslp
+di.sip:	edit	<x=2T=".COM">
+sipslp:	edit	<!:>,,10$
+	edit	<^P>
+	call	file
+10$:	edit	<x=1>
+	return
+.endc
+
+di.dif:	edit	<"/O:DIF">		;/different
+	return
+di.sam:	edit	<"/O:SAM">		;/same
+	return
+
+;	r5 ->	next character - lexical state
+;	r4 ->	output string
+
+	.enabl	lsb
+di.chg:	edit	<!:>,,10$		; no value coming
+	clr	r1			;not in quotes
+	movb	(r5)+,r0		;get the next
+	
+	beq	30$			;end of it
+	edit	<"/V">			;
+	cmpb	r0,#'"			;this a string
+	bne	30$			;no
+	call	di.chx
+	bcs	10$			;
+	call	di.chx
+	bcs	10$			;
+	cmpb	(r5)+,#'"		;closing quote?
+	bne	30$			;nope
+10$:	return
+
+di.chx:	movb	(r5)+,r0		;get the next
+	beq	30$			;forget it
+	cmpb	r0,#'"			;
+	beq	20$			;null
+	mov	$linker,r1		;
+	call	cv$oct			;
+	edit	<":"_L>			;
+	tst	(pc)+			;
+20$:	sec
+	return
+30$:	edit	<?>			;
+	.dsabl	lsb
+
+;	/NOCOMMENTS[="C"]
+
+di.com:	edit	<!:>,,30$		;no value coming
+	movb	(r5)+,r0		;get the next
+	beq	20$			;premature
+	cmpb	r0,#'"			;this a string
+	bne	30$			;no
+	movb	(r5)+,r0		;
+	beq	20$			;oops
+	cmpb	r0,#'"			;empty string?
+	beq	30$			;yes - ignore it
+	cmpb	(r5)+,#'"		;got closing quote?
+	bne	20$			;nope
+	mov	$linker,r1		;
+	call	cv$oct			;
+	edit	<"/C:"_L>		;
+10$:	return
+20$:	edit	<?>			;
+30$:	edit	<"/C">			; /C or /C=""
+	return
+
+noobject:edit	<o1|o=K>	;remember it (only once)
+	return
+
+object:	edit	<r=1>		;set it up
+	jmp	complex		;and go handle it
+list:	edit	<r=2l1|l=K>	;doing list, setup the flag
+	jmp	complex		;and fall into the files handler
+.sbttl	search
+
+;	SEARCH filespec patterns
+;
+;	Have to parse mixed patterns and options.
+;	Use lexical routine to acquire everything that is not an option.
+
+.search::setup	$search			;ind command
+	movb	$card(r0),r0		;get the wildcard setting
+	edit	<W=1r0N="*"T=".*"> 	;default name and type
+	scan	<^M>			;get options
+	scan	<^IF=6Q="Files? "> 	;get a command
+	mov	#s.lex,bypass		;setup a bypass
+	clr	state			;turn off state checking
+	scanend	<^JF=0Q="Strings? ">	;get the patterns
+	edit	<O0O="TT:">		;default output
+	edit	<^Z"R SEARCH"}>		;run search
+	edit	<_U_O"="_I_S_M}>	;supply command
+	edit	<_J}>			;supply strings
+	edit	<"^C"}>			;terminate it
+	jmp	build			;and build it
+
+;	r5 ->	next character - lexical state
+;	r4 ->	output string
+
+s.lex:	clr	r1			;not in quotes
+20$:	movb	(r5)+,r0		;get the next
+	beq	60$			;end of it
+	cmpb	r0,#''			;this a literal?
+	bne	40$			;no
+	edit	<_r>			;write that out
+	movb	(r5)+,r0		;get the next
+	beq	60$			;forget it
+30$:	edit	<_r>			;output r0
+	br	20$			;look again
+40$:	cmpb	r0,#'"			;this a quote?
+	bne	50$			;no
+	com	r1			;yes - change quote flag
+	br	30$			;and store it
+50$:	tst	r1			;in quoted section?
+	bne	30$			;yes - dont look at options
+	cmpb	r0,#'/			;this an option?
+	bne	30$			;no - store it
+60$:	dec	r5			;backup r5 for lexical stuff
+	return				;
+
+$search:
+option	TERMINAL	1 _	null	terminal l=0	
+option	PRINTER		1 _	null	printer	 l=0
+option	OUTPUT		1 _	null	output	 l=0
+option	NOOUTPUT	1 _	null	nooutput l=0
+;	allocate			;below since /ALL and /ALLOCATE
+
+option	EXACT		1 E	null
+option	NOEXACT		1 _	null
+option	ANY		1 _	null
+option	ALL		1 A	null
+option	NONE		1 N	null
+option	SOME		1 S	null
+option	EQUIVALENT	1 Q	null
+
+option	OR		1 _	null		;   - or, any
+option	AND		1 A	null		;/A - and, all
+option	NOR		1 N	null		;/N - nor, none
+option	NAND		1 S	null		;/S - nand, some
+option	XOR		1 X	null		;/X - xor - different
+option	NXOR		1 Q	null		;/E - equivalent
+
+option	BINARY		1 B	null		; search binaries for numbers
+;ption	EXCLUDE		1 C	null		; exclude files
+;ption	DATE		1 D	null	;date.?	; specify date
+;ption	PATTERN		1 G	null	??	; search pattern (/grep)
+option	NOHEADING	1 H	null		; /HEADER is default for /LINES
+option	NOWILD		1 I	null		; disable wildcards
+option	LINES		1 L	null	;opt val; display line content
+;ption	SINCE		1 J	null	;date	; since date
+;ption	BEFORE		1 K	null	;date	; before date
+option	MAXIMUM		1 M	null	value.	; maximum matches to consider
+option	NUMBERS		1 U	null		; display line numbers
+option	POSITION	1 O	null		; show position in file
+;ption	PASSALL		1 P	null		; /PASSALL(ignored)
+option	LIST		1 T	null		; list (matched) filenames only
+option	VERIFY		1 V	null		; display all file names
+option	WORDS		1 W	null		; match complete alphanum words
+
+
+option	ALLOCATE	1 _	null	allocate l=0
+option
+.sbttl	sort
+
+;	SORT in-file out-file
+;	/descending
+;	/alphanumeric
+;	/key=(-,1,20,,)
+;
+;	/key=(type,order,start,length)
+;	type =	A	Alpha (dictionary)
+;		B	Binary
+;		C	Character (default)
+;		N	Numeric -
+;		S	Signed binary
+;
+;
+;	/a	/alpha
+;	/k:d	/descending
+;	/d	/dibol
+;	!/e	/eightbit
+;	/l:n	/record_size=n
+;	!/k:...	/key
+;	/p	/pad
+;	/s	/statistics
+;	!/t	/tags
+
+sort::	setup	$sort		;the table and lexical bypass
+	world			;get the net table
+;	movb	$card(r0),r0	;get the wildcard setting
+;	edit	<W=1r0N="*"T=".*">;setup the defaults
+	scan	<F=0^M>		;zero files into major
+	scan	<F=1^IQ="From? ">;1 files into input
+	scanend	<F=1^OQ="To  ? ">;1 file into output
+;	edit	<O0O="TT:">	;default output specification
+	edit	<C="SORT">	;the file specification
+	jmp	program		;go build it
+
+$sort:
+option	ALLOCATE	1 _	null	allocate l=0
+option	DESCENDING	1 _	null	so$dsc
+option	DIBOL		1 D	null	value.
+option	DICTIONARY	1 A	null
+option	PAD		1 P	null	
+option	RECORD_SIZE	1 L	null	value.
+option	STATISTICS	1 S	null
+option
+
+so$dsc:	edit	<"/K:D">
+	return
+.sbttl	analyse
+
+;	ANALYSE PROGRAM/RSX XXX.EXE
+;
+;	VECTOR, RATE, MARK
+;	TERMINAL (BAUD, TYPE)
+
+analys::setup	an$opt,an$lex	; setup for the command
+	edit	<o=1>		; assume program with file
+	scan	<^M>		; get the command switches
+	scanend	<F=1^I>		;
+	edit	<o0> 10$	;
+	jmp	program		;
+10$:	edit	<^Z"R "_C}>	;build the R string
+	jmp	build
+
+an$opt:
+option	CPU		1 _	null	an$cpu
+option	DIRECTORY	1 _	null	an$dir
+option	DRIVER		1 _	null	an$drv
+option	ETHERNET	1 _	null	an$eth
+option	LIBRARY		1 _	null	an$lib
+option	MEMORY		1 _	null	an$mem
+option	MONITOR		1 _	null	an$mon
+option	MOUSE		1 _	null	an$mou
+option	PROGRAM		1 _	null	an$prg					;?242.
+option	MACRO		1 _	null	an$mac
+option	RT11		1 _	null	an$rtx
+option	RSX11		1 _	null	an$rsx
+option	SECTIONS	1 _	null	an$sec
+option	SLOTS		1 _	null	an$slt
+option	VOLUME		1 _	null	an$vol
+option	THIS		1 _	null	an$thi	; catch the obvious
+option	THAT		1 _	null	an$tha	; catch the obvious
+option
+
+an$lex:	edit	<c0r%r r="/"c=1>
+	return
+
+an$cpu:	edit	<C="CPU"o=0>
+	return
+an$dir:	edit	<C="SNOOP"Q="Directory? ">
+	return
+an$drv:	edit	<C="HANDLE"Q="Device? ">
+	return
+an$eth:	edit	<C="SNIFF"o=0>
+	return
+
+an$lib:	edit	<C="MLB"Q="Library? ">
+	return
+an$mem:	edit	<C="MEMORY"o=0>
+	return
+an$mon:	edit	<C="RMON"o=0>
+	return
+an$mou:	edit	<C="MOUSE"o=0>
+	return
+an$prg:	edit	<C="PROGRA"Q="Program? ">
+	return
+an$sec:	edit	<C="PSECT"Q="Map File? ">
+	return
+an$slt:	edit	<C="SLOTS"o=0>
+	return
+an$vol:	edit	<C="VOLUME"Q="Device? ">
+	return
+
+an$rtx:	edit	<"/T:RT11">	
+	return
+an$rsx:	edit	<"/T:RSX">
+	return
+an$mac:	return
+
+an$thi:	.print	#10$
+	jmp	kmon
+10$:	.asciz	/?DCL-I-That is not an option/
+	.even
+an$tha:	.print	#10$
+	jmp	kmon
+10$:	.asciz	/?DCL-I-This is not an option/
+	.even
+;sic]	.end		; complex.mac follows

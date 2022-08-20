@@ -1,0 +1,409 @@
+.title	process
+.include "dcs:dcl.mac"
+;.pass
+;.include "sps:share.mac"
+$pcdef		;process create
+$pqdef		;process quotas
+$prdef		;process definitions
+
+.include "dcs:getval.mac"
+
+;	run/options image
+;	create/process prcnam
+;	delete/process prcnam
+
+acts:	.word	creprc, delprc, runprc
+pnolog:	.word	0		;/nolog
+
+process::			;
+	mov	acts(r0),(pc)+	;act=6 - remember act
+act:	.word	0		;the major jump table
+				;
+	clr	pnolog		;
+	clr	p$cimg		;no image
+	clr	p$cinp		;no input
+	clr	p$cout		;no error
+	clr	p$cerr		;no output
+	clr	p$cpri		;no priority
+	$cmkrnl	#area, #phduic, pic=yes	;get the uic
+	mov	r0,p$cuic	;setup default detach UIC
+	clr	p$cmbx		;no mailbox
+	clr	p$csts		;no status
+	mov	#17.,p$qfil	;file limit
+	mov	#32.*4,p$qwsd	;default working set
+				;
+	setup	$proces		;set it up
+	scan	<D=0^M>		;skip the command
+	cmp	act,#runprc	;this a run command?
+	beq	20$		;yes
+	scanend	<^IF=1Q="Name? "> ;get the next name
+	mov	$input,r5	;get the process name
+	mov	#c$pnam,r4	;the output
+	edit	<@\@@@@@!@~>	;get the name
+	edit	<*?>		;oops
+	jmp	@act		;call them
+
+20$:	scanend	<^IF=1Q="Image? "> ;get the next name
+	mov	$input,r5	;get the process name
+	mov	#c$pimg,r4	;the output
+	mov	r4,p$cimg	;remember we got it
+	edit	<(@\@@\::|"SY:")(@\@@@@@!@~!\)(.\@@@\)>
+	edit	<*?>		;oops
+	jmp	creprc		;
+
+$proces:
+option	WORKING_SET	1 _	null	p.wsde	;/working_set:n
+option	FILE_LIMIT	1 _	null	p.file	;/file_limit:n
+;
+option	IMAGE		1 _	null	p.imag	;/image:string
+option	INPUT		1 _	null	p.inpu	;/input:file
+option	OUTPUT		1 _	null	p.outp	;/output:file
+option	ERROR		1 _	null	p.erro	;/error:file
+;
+option	PRIORITY	1 _	null	p.prio	;/priority:n
+option	TOP_PRIORITY	1 _	null	p.topp	;/top_priority:n
+option	UIC		1 _	null	p.uic	;/uic:[m,g]
+option	MAILBOX		1 _	null	p.mail	;/mailbox:n
+option	SUBPROCESS	1 _	null	p.subp	;/subprocess
+;
+option	HIBERNATE	1 _	null	p.hibe	;/hibernate
+option	NOHIBERNATE	1 _	null	p.nhib	;/nohibernate
+option	NOLOG		1 _	null	p.nlog	;/nolog
+;
+option	PROCESS		1 _	null	p.proc	;/process
+option	
+
+p.wsde:	call	getval			;get the allocation
+	mov	r0,p$qwsd		;set it up
+	return
+
+p.file:	call	getval			;/file_limit
+	mov	r0,p$qfil		;file limit
+	return
+
+.enabl	lsb
+p.inpu:	jsr	r3,10$			;/input:file
+	.word	c$pinp,p$cinp		;
+p.outp:	jsr	r3,10$			;/output:file
+	.word	c$pout,p$cout		;
+p.erro:	jsr	r3,10$			;/error:file
+	.word	c$perr,p$cerr		;
+p.imag:	edit	<D="SY:">		;default device
+	jsr	r3,10$			;/image:file
+	.word	c$pimg,p$cimg
+
+10$:	tst	(sp)+			;skip saved r3
+	edit	<!:>,,20$		;ignore it without a value
+	psh	r4			;/input:file
+	mov	(r3)+,r4		;get the pointer
+	mov	r4,@(r3)+		;and store a pointer to it
+	edit	<(@\@@\::|_D)(@\@@@@@!@~!\)(.\@@@\)>
+	edit	<D="">			;reset default device
+	pop	r4			;
+20$:	return
+.dsabl	lsb
+
+p.prio:	call	getval			;get priority
+	movb	r0,p$cpri		;store it
+	return
+p.topp:	call	getval			;get top priority
+	movb	r0,p$cpri+1		;set it
+	return
+
+p.uic:	call	getuic			;get the uic
+	mov	r0,p$cuic		;set it up
+	return
+p.mail:	call	getval			;get the mailbox number
+	mov	r0,p$cmbx		;store it
+	return
+p.subp:	clr	p$cuic			;uic = 0 flags subprocess
+	return				;
+
+p.hibe:	bis	#pchib$,p$csts		;hibernate
+	return
+p.nhib:	bic	#pchib$,p$csts		;nohibernate
+	return
+p.nlog:	inc	pnolog
+	return
+
+p.proc:	edit	<!:>,,20$		;ignore it without a value
+	psh	r4			;/input:file
+	mov	#c$pnam,r4		;
+	edit	<@\@@@@@!@~>	;get the name
+	pop	r4			;
+20$:	return				;
+
+phduic:	mov	@#p$huic,rp.r0(r5)	;return process UIC
+	return				;
+.sbttl	create process
+
+delprc:	$delprc	#p$care			;delete the process
+	jmp	kmon
+
+runprc:	nop				;[sic] nop must remain
+creprc:					;create process
+	assume	creprc-runprc ne 0	;must be different addresses
+	.serr				;
+	$creprc	#p$care			;create the process
+	bcc	30$			;fine
+	movb	errbyt,r0		;get the error code
+	bpl	20$			;fine
+	clr	r0			;system error
+20$:	asl	r0			;
+	call	@e$rmap(r0)		;do it
+	.herr
+	jmp	setfat			;
+
+30$:	.herr				;return to hard errors
+	tst	pnolog			;should we log?
+	bne	40$			;no
+	type	<?DCL-I-Identification of created process is >
+	mov	c$ppid,r1		;get the process id
+	call	octal
+	print
+40$:	jmp	kmon
+
+area:	.blkw	6	;
+
+series	pc,word	 chn pid img inp out err prv
+series	pc,word,,quo nam pri uic mbx sts bbs
+
+p$care:			;create process area
+	.word	1.*256.	;pc.chn, pc.cod
+p$cpid:	.word	c$ppid	;pc.pid
+p$cimg:	.word	0	;pc.img
+p$cinp:	.word	c$pinp	;pc.inp
+p$cout:	.word	0	;pc.out
+p$cerr:	.word	0	;pc.erd
+p$cprv:	.word	0	;pc.prv
+p$cquo:	.word	c$pquo	;pc.quo
+p$cnam:	.word	c$pnam	;pc.nam
+p$cpri:	.word	0	;pc.pri
+p$cuic:	.word	0	;pc.uic
+p$cmbx:	.word	0	;pc.mbx
+p$csts:	.word	0	;pc.sts
+
+c$ppid:	.word	0	;pid of created process
+			;
+c$pquo:	.word	pqwsd.	;wsd - block size
+p$qwsd:	.word	128.	;
+	.word	pqfil.	;fil - channels
+p$qfil:	.word	17.	;channels
+	.word	pqend.	;end of it
+
+set	fnabs. 16.	;ascii filename size
+
+c$pnam:	.blkb	fnabs.	;process name
+c$pinp:	.blkb	fnabs.	;input name
+c$pout:	.blkb	fnabs.	;output name
+c$perr:	.blkb	fnabs.	;error name
+c$pimg:	.blkb	fnabs.	;image name
+	.even
+.sbttl	errors
+
+meta	<err a><jsr r1,err><string <a>,200>
+
+err:	type	<?DCL-E->
+	.print	r1
+	print
+	tst	(sp)+
+	return
+
+e$rmap:
+	.word	e$rnop		;does not occur
+	.word	e$rdup		;duplicate name
+	.word	e$rexq		;exceeded quota
+	.word	e$ridm		;insufficient dynamic memory
+	.word	e$rivl		;invalid logical name
+	.word	e$rivq		;invalid quota list
+	.word	e$rivs		;invalid status flag
+	.word	e$rmsr		;missing system right
+	.word	e$rslo		;no process slot available
+	.word	e$ripm		;insufficient permanent memory
+	.word	e$racc		;access error
+	.word	e$rifn		;invalid filename
+
+e$rnop:	err	<System error (message=0)>
+e$rdup:	err	<Duplicate process name>
+e$rexq:	err	<Exceeded quota limit>
+e$ridm:	err	<Insufficient dynamic memory>
+e$rivl:	err	<Invalid logical name>
+e$rivq:	err	<Invalid quota list>
+e$rivs:	err	<Invalid status flag>
+e$rmsr:	err	<Missing system right>
+e$rslo:	err	<No process slot available>
+e$ripm:	err	<Insufficient permanent memory>
+e$racc:	err	<Access error>
+e$rifn:	err	<Invalid file name>
+
+.end
+.sbttl	check name
+
+;	run/process calls to fill in blank name
+
+maknam:
+4$:	$cmkrnl	#area, rtn=#10$, pic=yes ;change mode
+	bcc	5$		;fine
+	call	newnam		;make name unique
+	br	4$		;and try again
+5$:	return			;
+
+10$:	mov	@#p$hpcr,r4	;r4 -> pcr
+	call	chknam		;make sure we have a unique name
+	bcc	20$		;fine
+	.soft	0		;non-unique name
+20$:	return			;
+
+;	process name must be unique
+
+chknam:	$cmsch			;block everything
+	mov	#p$rprs,r1	;get the processes
+	mov	(r1)+,r0	;get a counter
+10$:	mov	(r1)+,r2	;get the next
+	beq	20$		;empty
+	cmp	r2,r4		;is this ourself?
+	beq	20$		;yes
+	cmp	pr.nam(r2),prcnam ;is this different?
+	bne	20$		;yes
+	cmp	pr.nam+2(r2),prcnam+2
+	beq	30$		;oops
+20$:	sob	r0,10$		;check them all
+	mov	prcnam,pr.nam(r4) ;setup the name
+	mov	prcnam+2,pr.nam+2(r4)
+	mov	prcnam,@#p$hnam	;process name
+	mov	prcnam+2,@#p$hnam+2
+	tst	(pc)+		;
+30$:	sec			;
+	rol	-(sp)		;save the result
+	$cmpro			;return to process state
+	ror	(sp)+		;report status
+	return			;
+.sbttl	new name
+
+; Construct a unique process name
+;
+;	Called when a process name is not unique.
+;
+;	Separate alphabetic & numeric fields.
+;	Increment numeric field and reassemble.
+;
+;	IAN	IAN1...IAN9...IAN10
+;
+;	Find the numeric part of the name.
+;	Increment it and put it back
+
+newnam:	mov	#tmpnam,r1	;get the name
+	mov	prcnam,r0	;
+	call	conra		;convert to ascii
+	mov	prcnam+2,r0	;
+	call	conra		;
+
+	mov	#tmpnam,r1	;get it again
+
+10$:	tstb	(r1)+		;find the end of it
+	bne	10$		;must be found
+	dec	r1		;backup
+20$:	movb	-(r1),r0	;get the previous
+	call	digchk		;is this a digit?
+	bcs	30$		;no - we have the start
+	cmp	r1,#tmpnam	;entirely numeric?
+	bhi	20$		;
+	dec	r1		;yes - adjust for pop
+30$:	inc	r1		;skip to first numeric
+	psh	r1		;save it
+	call	conad		;convert to decimal number
+	inc	r0		;get the next
+	mov	(sp),r1		;get back the start of numeric area
+	call	conda		;convert back to ascii
+
+	sub	#tmpnam+6,r1	;got enough space?
+	blos	50$		;we have enough space
+	neg	r1		;number missing
+	add	(sp),r1		;where they have to go
+	mov	(sp),r0		;source
+40$:	movb	(r0)+,(r1)+	;move them in
+	bne	40$		;
+
+50$:	tst	(sp)+		;clean up from here
+	mov	#tmpnam,r1	;
+	call	conar		;get the result name
+	mov	r0,prcnam	;
+	call	conar
+	mov	r0,prcnam+2	;
+	return
+
+digchk:	cmpb	r0,#'0		;this a digit?
+	blo	10$		;no
+	cmpb	r0,#'9		;
+	bhi	10$		;
+	tst	(pc)+		;
+10$:	sec			;
+	return
+
+;	convert ascii to decimal
+;
+;	r0 =	result
+;	r1 ->	source
+
+conad:	clr	-(sp)		;
+10$:	tstb	(r1)		;this the end?
+	beq	20$		;yes
+	movb	(r1)+,r0	;get the next
+	call	digchk		;this a digit?
+	bcs	20$		;no - we are done
+	asl	(sp)		;yes
+	psh	(sp)		;
+	asl	(sp)		;
+	asl	(sp)		;
+	add	(sp)+,(sp)	;
+	sub	#'0,r0		;
+	add	r0,(sp)		;
+	br	10$		;
+20$:	pop	r0		;
+	return
+
+;	convert octal to ascii
+;	convert decimal to ascii
+;
+;	r0	value
+;	r1 ->	output stream
+
+.enabl	lsb
+conoa:	jsr	r5,5$		;
+	.word	108$		;octal
+conda:	jsr	r5,5$		;
+	.word	110$		;
+5$:	pshs	<r3,r2>		;
+	mov	r1,r3		;r3 -> output
+	mov	r0,r1		;r1 = value
+	mov	(r5),r5		;r5 -> divisors
+	clr	r2		;no leading zeroes
+
+10$:	clr	r0		;clear high order
+	div	(r5)+,r0	;get the next digit
+	bpl	15$		;positive reply
+	neg	r0		;adjust special case 1ooooo/100000
+15$:	bne	20$		;yes - digits from now on
+	tst	r2		;already done one?
+	bne	20$		;yes - do more
+	tst	(r5)		;this the last one?
+	bne	10$		;no - try again
+20$:	mov	#-1,r2		;get all remaining digits
+30$:	add	#'0,r0		;make a digit
+	movb	r0,(r3)+	;store it
+40$:	tst	(r5)		;any more to do ?
+	bne	10$		;yes
+	clrb	(r3)		;terminate it
+	mov	r3,r1		;update pointer
+	pops	<r2,r3,r5>	;restore these
+	return
+
+
+110$:	10000.,1000.,100.,10.,1,0
+108$:	100000,10000,1000,100,10,1,0
+.dsabl	lsb
+
+prcnam:	.word	0,0,0		;rad50 name
+tmpnam:	.asciz	/FULNAM0123456789/ ;ascii name
+	.even
+

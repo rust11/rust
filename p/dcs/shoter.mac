@@ -1,0 +1,988 @@
+.title	shoter
+;.include "lib:share.mac" 
+.include "dcs:dcl.mac"
+.psect	shoter
+;.pass 
+$dzdef		;dz terminal
+$opdef		;output
+$prdef		;pcr
+$tedef		;terminal
+$ttdef		;terminal types
+;$tzdef		;dz terminal
+include device	;
+
+;	RUST/XM SHOW TERMINALS command
+; 
+;	%build
+;	macro dcs:shoter+dcs:shotim /object=dcb:shoter
+;	%end
+;	%date
+;	<27-Feb-2008 23:47:48.02>
+;	%edit
+;	<145  >
+;
+; note	This module is compiled with SHOTIM. SHOTIM must be in the same
+;	4kw window as the kernel server routine at the end.
+; 
+;	show terminal			summarize callers terminal
+;
+;	show terminal/system		display all terminals
+;	show terminal/system		show system display
+;	show terminal/all		display all terminals
+;	show terminal/full		display terminals in detail
+;					default is callers terminal
+; 
+;	Either controller or terminal names are accepted.
+; 
+;	show devices dev
+; 
+;	dev	logical name
+;	_dev	permanent name
+;	d	d*
+;	ddu	unit only
+;	dd	that device only
+;
+;	show terminal label
+
+shoter:: 
+	psh	r0		;
+	clr	frmcnt		;count display frames
+	clr	heaflg		;clear the header flag
+	clr	opts		;
+	output	clr		;clear it
+	clr	caller		;assume not just caller
+	pop	r0		;
+	case	<2$>		;show system/terminals
+
+	setup	$kernel,i.lex	;set it up
+	scan	<D=0^M>		;skip the command
+	tstb	(r5)		;end of line?
+	bne	10$		;we have more
+	br	3$		;
+
+2$:	mov	#all$!syste$,opts ;force /system
+3$:	clr	lognam		;no logical name
+	bit	#all$!syste$,opts ;this a wildcard search?
+	beq	5$		;no
+	bis	#wild$,opts	;make it all
+	br	6$		;
+5$:	inc	caller		;just the caller
+	mov	#-1,lognam	;and ignore the others
+6$:	call	cycdev		;get them all
+	jmp	kmon
+
+;	Show specific devices
+; 
+;	Logical names are translated, unless they start with '_'.
+
+10$:	clr	pernam		;
+	scan	<^IF=1Q="Device? "> ;get next device
+	psh	r5		;save input pointer for loop
+	mov	$input,r5	;$input -> ascii device name
+	call	getnam		;process the device name
+	bcs	20$		;invalid name
+	call	cycdev		;show one device
+20$:	pop	r5		;get this back
+	tstb	(r5)		;any more?
+	bne	10$		;yes
+	jmp	kmon		;nope
+
+i.lex:	edit	<r,r=" ">	;replace commas with spaces
+	cmpb	r0,#'_		;this a permanent device?
+	bne	10$		;no
+	inc	pernam		;yes
+	inc	r5		;skip it
+	movb	(r5),r0		;and replace it
+10$:	return
+
+$kernel: 
+;option	PROCESS_NAME	1 _	null	s.proc	;process
+;option	IDENTIFICATION	1 _	null	s.iden	;id=pid
+option	SYSTEM		1 _	null	s.syst	;/system
+option	FULL		1 _	null	s.full	;handler & volume
+option	CONTROLLER	1 _	null	s.cont	;controller
+
+option	ALL		1 _	null	s.all	;all devices
+option 
+
+meta	<subopt c d e><setopt d><c: bis #e,opts><return>
+meta	<setopt c><c=$><$=$*2>
+$=1 
+
+; following select what will be displayed 
+
+subopt	s.all	all$	all$			;/all
+subopt	s.full	full$	full$			;/full
+subopt	s.cont	contr$	contr$			;/controller
+subopt	s.syst	syste$	syste$			;/system
+
+setopt	wild$
+.sbttl	cycle thru devices
+
+;	Cycle thru the devices
+;
+;	Check each of the devices for a match
+;	Call the display routine
+
+meta	<infdev a><jsr r1,infdev><string <a>,200>
+
+cycdev:					;show them all
+	clr	unicnt			;
+	mov	#-1,nxtdev		;
+10$:	inc	nxtdev			;apparently not
+	call	seldev			;get the next device record
+	bcs	30$			;are no more
+	inc	devcnt
+.if eq 1
+	mov	#-1,nxtuni		;get the next unit
+20$:	inc	nxtuni			;select the next unit
+	call	seluni			;get it
+	bcs	10$			;no more
+	call	matuni			;is this for us?
+	bcs	25$			;no
+	call	shouni			;go show a unit
+	inc	unicnt			;
+25$:	bit	#full$,opts		;want them all?
+	bne	20$			;
+	bit	#contr$,opts		;is this /device only?
+	bne	10$			;yes - do the next device
+	br	20$			;no - try next unit
+.endc
+	call	matuni
+	bcs	10$
+	call	shouni
+	inc	unicnt
+	br	10$
+
+30$:	tst	unicnt			;did we get anything?
+	bne	40$			;yes
+	call	devnfd			;no - tell them
+	sec				;
+40$:	return
+.sbttl	match unit
+
+;	Match unit
+;
+;	Check name: default is all
+;	Check mode: /system/group/process
+;	Check status: /mounted/allocated
+
+matuni:
+	call	matnam			;check the name
+;	bcs	10$			;not for us
+10$:	return
+
+;	Match the device name
+
+matnam:					;match the device name
+	mov	ter+te.nam,r0		;get the device name
+	mov	#devnam,r1		;
+	call	conra			;get it in ascii
+	tstb	caller			;want the caller?
+	beq	5$			;no
+	tst	caller			;is this us?
+	bmi	20$			;yes
+
+5$:	mov	#lognam,r0		;logical name
+	mov	#devnam,r1		;device name
+10$:	tstb	(r0)			;all done?
+	beq	20$			;yes
+	cmpb	(r0)+,(r1)+		;is this it?
+	beq	10$			;yes
+	br	30$			;no match
+20$:	tst	(pc)+			;matchs
+30$:	sec				;no match
+	return
+.sbttl	get name
+
+;	Get name
+;
+;	c=1	invalid name
+
+getnam:	clr	lognam		;
+	mov	$input,r5	;get the input string
+	tstb	(r5)		;got anything at all?
+	beq	40$		;no - show all (show dev _)
+	mov	r5,r1		;get it upper case
+	call	large		;
+	mov	#lognam,r4	;and the output
+	edit	<@\@@!:> 20$ ; ,,10$	;get the name (with wildcards)
+;	edit	<!*> ,,20$	;must be the end
+10$:	br	invnam		;invalid name
+20$:	tst	pernam		;translation disabled?
+	bne	40$		;yes
+	mov	#32.,r1		;count this
+30$:	$trnlog	#area, #lognam, #0, #lognam, #0, #0, #0
+	bcs	40$		;we have the name
+	sob	r1,30$		;more
+	br	invnam		;infinite loop
+40$:	clc
+	return
+
+devnfd:	mov	#devnf,r1
+	call	locerr
+	sec
+	return
+
+invnam:	mov	#ivnam,r1	;
+	call	locerr
+	sec
+	return
+
+locerr:	output	clr
+	type	<?DCL-W->	;
+	asl	r1
+	output	str par=20$(r1)
+	type	< >		;
+	output	str par=$input
+	print
+	return
+
+20$:	.word	100$,101$,102$
+ivnam=0
+devnf=1
+norig=2
+100$:	.ascii	_Invalid device name_<200>
+101$:	.ascii	_Device not found_<200>
+102$:	.ascii	_Insufficient rights_<200>
+	.even
+.sbttl	brief description
+
+;	Summary display
+;
+;print <RUST/XM V1.1 Terminals on 13-Aug-1984 20:45:39.96  Uptime 1 20:45:33.42>
+;print <SHAREplus V1.1 Terminals on 13-Aug-84 20:45:39.96  Uptime 1 20:45:33.42>
+;print <Name Process Pid    Characteristics Type   Unit  Control   Input Output>
+;print <T03: IAN1    000003 sco bro         VT100  DL02: ^S^C^Y^O 233/11 233/10>
+;
+;/installation
+;
+;print <Name Process Pid    Characteristics Type   Unit  Control   Input Output>
+;print <T03: IAN1    000003 sco bro         VT100  DL02: ^S^C^Y^O 233/11 233/10>
+;
+;print <Slot Name   Process Pid   Characteristics Type   Unit  Control  In  Out>
+;print <T03: IAN    IAN1   000003 sco bro vir     VT100  DL02: ^S^C^Y^O 233 233>
+;
+;print <Name Unit  Type   CSR    Vector  Speed Par. Bits In Out Page Width>
+;print <T03: DZA1: VT100  177560 300/304 38123 none  7   11 10    24    80>
+
+shouni:	call	gettim			;get most recent time
+	bit	#syste$,opts		;this a system display?
+	bne	10$			;yes
+;	bit	#full$,opts		;is this a full display?
+;	beq	10$			;no
+	jmp	shoful			;show the entire unit
+
+10$:	call	shohea			;put up the header
+
+20$:	call	xname			;
+	type	< >
+	call	xmodel
+	type	< >
+	call	xproc
+;	type	<  >
+	type	< >
+	call	xpid
+	type	< >
+	call	xchars
+	call	xtype			;
+	type	< >
+	call	xdevice			;
+	type	< >
+	call	xcontr
+	type	< >
+	call	xin
+	type	< >
+	call	xout
+	print
+	return
+.sbttl	full description
+
+;Terminal T03:		 DL00:		 	12-Aug-84 20:47:57.08
+;
+;<-    15     -><-    14    -><-  10  -><-    15     -><    14     ->  
+;12345678901234567890123456789012345678901234567890123456789012345678
+;Page width 	            80		CSR address 	       177560
+;Page length                24		Vector address 	          310
+;Speed (baud) 	          9600 		Controller 	        DZA0:
+;Stop bits 		     2		Type 		        VT100
+;Parity 	          none		Model 		        VT101
+;Character size 	     8		Input priority	 	   11
+;Character mode		     7		Output priority		   10		
+;Process name            IAN12		Input ring 	           12
+;Process id             000010		Output ring 	          123
+;
+;Controls 	^C ^H ^Y
+;Signals	
+;12345678901234567890123456789012345678901234567890123456789012345678
+;
+;Characteristics 	
+;
+
+shoful:
+	bit	#full$,opts		;want the lot?
+	bne	10$			;yes
+	jmp	400$			;no
+10$:	type	<Terminal >
+	output	r50 par=ter+te.nam	;T03:
+	type	<:           > 
+	call	xdevice			;DL00: or DZA0:
+	type	<                  > 
+	call	dattik			;12-aug-84 20:47.57.08
+	print
+	print
+
+	type	<Page width     >
+	movb	ter+te.wid,r1
+	bic	#^c377,r1		;
+	output	dec par=r1 cnt=#14. ctl=#rig
+	  call	500$			;
+	type	<CSR address    >	;
+	output	oct par=ter+te.csr cnt=#14. ctl=#rig
+	  print
+
+	type	<Page length    >	;
+	movb	ter+te.len,r1		;
+	bic	#^c377,r1		;
+	output	dec par=r1 cnt=#14. ctl=#rig
+	  call	500$
+	type	<Vector address >	;
+	output	oct par=ter+te.vec cnt=#14. ctl=#rig
+	  print
+
+	type	<Speed (baud rate)>
+	output	dec par=tspeed cnt=#12. ctl=#rig
+	  call	500$
+	type	<Controller              >
+	call	xdevice
+	  print
+
+	type	<Stop bits      >
+	output	dec par=tstop cnt=#14. ctl=#rig
+	  call	500$
+	type	<Type           >	;
+	type	<        >
+	call	xrtype			;display the type
+	  print
+
+	type	<Parity                   >
+	tstb	tparit			;got parity?
+	bne	210$			;yes
+	type	<none>			;
+	br	240$			;
+210$:	bit	#2,tparit		;odd or even?
+	beq	220$			;odd
+	type	<even>			;
+	br	240$
+220$:	type	< odd>
+240$:	
+	  call	500$
+;	type	<Model          >	;
+	type	<Label          >
+	type	<        >
+	call	xrmode
+	  print
+
+	type	<Character size >
+	output	dec par=tsize cnt=#14. ctl=#rig
+	  call	500$
+
+	type	<Input priority >
+	movb	ter+te.ipr,r1
+	output	dec par=r1 cnt=#14. ctl=#rig
+	  print
+
+	type	<Character mode >	;
+	mov	#7,r1			;assume 7 bit
+	bitb	#200,ter+te.msk		;using 7 or 8 bits?
+	bne	290$			;7 bit
+	inc	r1			;
+290$:	output	dec par=r1 cnt=#14. ctl=#rig
+	  call	500$
+	type	<Output priority>
+	movb	ter+te.opr,r1
+	output	dec par=r1 cnt=#14. ctl=#rig
+	  print
+
+	type	<Process name   >	;
+	output	nam par=#pcr+pr.nam cnt=#14. ctl=#rig
+	  call	500$
+	type	<Input ring     >
+	output	dec par=ter+te.ict cnt=#14. ctl=#rig
+	  print
+
+	type	<Process Id     >
+	type	<        >
+	output	oct par=pcr+pr.prn cnt=#6 ctl=#rig
+	  call	500$
+	type	<Output ring    >
+	mov	ter+te.oct,r1
+	inc	r1			;adjust for -1 base
+	output	dec par=r1 cnt=#14. ctl=#rig
+	  print
+
+	call	allctl
+	call	allsig
+	br	450$
+
+400$:	type	<Terminal >
+	output	r50 par=ter+te.nam	;T03:
+	print	<:>
+
+450$:	  print	
+	call	allchars
+	 print
+	return
+
+500$:	type	<          >
+	return
+.sbttl	terminal characteristics
+
+meta	<tstring e><.asciz &e&><.even>
+meta	<tclear c,d><jsr r2,t.clear><.word c><tstring <d>>
+meta	<tset c,d><jsr r2,t.set><.word c><tstring <d>>
+
+t.clea:	movb	(r2)+,r0	;r0 = word in table
+	movb	(r2)+,r3	;r3 = bit in word
+	bit	w$bits(r3),ter+te.tc0(r0) ;is this clear?
+	beq	t.show		;yes - use it
+	br	t.skip		;no - ignore it
+
+t.set:	movb	(r2)+,r0	;r0 = word in table
+	movb	(r2)+,r3	;r3 = bit in word
+	bit	w$bits(r3),ter+te.tc0(r0) ;setup the bit to clear
+	bne	t.show		;yes - use it
+	br	t.skip
+
+t.show:	output	str par=r2 cnt=#17.
+	inc	colnum
+	cmp	colnum,#4.
+	blo	t.skip
+	print
+	clr	colnum
+t.skip:	tstb	(r2)+
+	bne	t.skip
+	inc	r2
+	bic	#1,r2
+	rts	r2
+
+allcha:
+	clr	colnum		;count columns
+	tclear	ttnbc.	<Broadcast>
+	tset	ttnbc.	<No Broadcast>
+	tset	ttcrf.	<Crfill>
+	tclear	ttcrf.	<No Crfill>
+	tclear	ttnec.	<Echo>
+	tset	ttnec.	<No Echo>
+	tset	ttesc.	<Escape>
+	tclear	ttesc.	<No Escape>
+	tset	ttmff.	<Form>
+	tclear	ttmff.	<No Form>
+	tclear	tthlf.	<Fullduplex>
+	tset	tthlf.	<Halfduplex>
+
+	tclear	ttsco.	<No scope>
+	tset	ttsco.	<Scope>
+	tset	tthld.	<Hold_screen>
+	tclear	tthld.	<No Hold_screen>
+	tset	tthsy.	<Hostsync>
+	tclear	tthsy.	<No Hostsync>
+	tset	ttlow.	<Lowercase>
+	tclear	ttlow.	<No Lowercase>
+;			<No Interactive>
+	tset	ttpas.	<Passall>
+;			<Interactive>
+	tclear	ttpas.	<No Passall>
+	tset	ttrsy.	<Readsync>
+	tclear	ttrsy.	<No Readsync>
+	tset	ttmht.	<Tab>
+	tclear	ttmht.	<No Tab>
+	tset	tttsy.	<TTsync>
+	tclear	tttsy.	<No Ttsync>
+	tclear	ttnta.	<Type_ahead>
+	tset	ttnta.	<No Type_ahead>
+	tset	ttwra.	<Wrap>
+	tclear	ttwra.	<No Wrap>
+	tset	tt8bt.	<Eightbit>
+	tclear	tt8bt.	<No Eightbit>
+	tset	ttlff.	<Lffill>
+	tclear	ttlff.	<No Lffill>
+
+;	tset	ttavo.	<Advanced_video>
+;	tclear	ttavo.	<No Advanced_video>
+	tset	ttans.	<Ansi_crt>
+	tclear	ttans.	<No Ansi_crt>
+	tset	ttaut.	<Autobaud>
+	tclear	ttaut.	<No Autobaud>
+	tset	ttblk.	<Blockmode>
+	tclear	ttblk.	<No Blockmode>
+	tset	ttdec.	<Dec_crt>
+	tclear	ttdec.	<No Dec_crt>
+	tset	ttrem.	<Remote>
+	tclear	ttrem.	<No Remote>
+	tst	colnum
+	beq	10$
+	print
+10$:	return
+.if ne 0	
+.sbttl	process terminal settings	
+
+;	Command		Debug		Edit	Quiet		Verify
+;	Set tt [no]command
+;	set tt [no]debug
+;	set tt [no]edit
+;	set tt quiet
+;	set [tt] verify
+;
+;	set spool [no]identify
+;
+;	Set terminal command
+;	Set terminal debug
+;	Set terminal edit
+;	Set noidentify
+;	Set quiet
+;	Set verify
+.endc
+.sbttl	controls & signals
+
+map	locts$,,100000
+meta	<flag c d><.word c><.asciz &d&><.even>
+
+.enabl	lsb
+allctl:	type	<Controls enabled    >
+	mov	ter+te.con,r3
+	br	20$
+allsig:	type	<Controls pending    >
+	mov	ter+te.sig,r3
+	tstb	ter+te.oco		;ctrl/o active?
+	beq	10$			;no
+	bis	#tecto$,r3		;yes
+10$:	tstb	ter+te.ocs		;ctrl/s active?
+	beq	20$			;no
+	bis	#locts$,r3		;yes
+20$:	mov	#100$,r2
+	call	shobit
+	return
+
+100$:	flag	locts$	<Ctrl/S >
+	flag	tecto$	<Ctrl/O >
+	flag	tectc$	<Ctrl/C >
+	flag	tecty$	<Ctrl/Y >
+	flag	tectt$	<Ctrl/T >
+	flag	tecth$	<Ctrl/H >
+	flag	tectb$	<Ctrl/B >
+	flag	tectf$	<Ctrl/F >
+	flag	tectp$	<Ctrl/P >
+	flag	tectx$	<Ctrl/X >
+	flag	tecat$	<Attach >
+	flag	tecli$	<Cli >
+	.word	0
+.dsabl	lsb
+
+shobit:
+	clr	-(sp)		;
+110$:	mov	#1,r4		;assume we count spaces
+	bit	(r2)+,r3	;is this one set?
+	beq	120$		;no
+	clr	r4		;dont count them
+	output	str par=r2	;yes
+120$:	tstb	(r2)+		;skip the string
+	beq	130$		;done
+	add	r4,(sp)		;accumulate unused
+	br	120$		;
+130$:	inc	r2		;
+	bic	#1,r2		;
+	tst	(r2)		;any more?
+	bne	110$		;yes
+140$:	pop	r2		;should we fill it?
+	beq	150$		;no
+	output	str par=#160$ cnt=r2
+150$:	print
+	return
+160$:	.byte	0,0		;
+Y2K=1
+.sbttl	display utilities
+meta	<bits c,d><.word c><.ascii _d_<200>><.even>
+
+shohea: 
+	tst	heaflg		;already done this?
+	bne	10$		;yes
+	inc	heaflg		;no
+	type	<RUST/XM V>
+	output	dec par=s.yver	
+	type	<.>
+	output	dec par=s.yupd
+.if eq Y2K
+	type	< Terminals on >
+.iff
+	type	< Terminals on >
+.endc
+	call	dattik
+	type	<  Uptime >
+	call	uptime
+	print
+;print <Name Process Pid    Characteristics Type   Unit  Control   Input Output>
+ print <Name Label  Process Pid   Characteristics Type   Unit  Control   In Out>
+10$:	return
+
+xslot:
+xname: 
+	output	dev par=ter+te.nam cnt=#4 ;display the name
+	return
+
+.enabl	lsb
+xrtype:	psh	#rig		;right formatted
+	br	10$
+xtype:	clr	-(sp)		;display model
+	tst	curmbx		;got a mailbox?
+	bne	50$		;yes - display process name
+10$:	mov	ter+te.typ,r1	;get the type code
+	bne	20$		;fine - we have one
+	mov	#tv100.,r1	;force VT100
+20$:	mov	#tvlist,r2	;get the list
+30$:	cmp	r1,(r2)+	;is this ours?
+	beq	40$		;yes
+	cmp	(r2)+,(r2)+	;no
+	cmp	(r2),#-1	;end of the list?
+	bne	30$		;no
+	mov	#100$,r2	;yes - invalid code
+40$:	output	nam par=r2 cnt=#6 ctl=(sp)
+	tst	(sp)+		;
+	return
+
+; Mailbox - display mbx process name instead
+
+50$:	output	nam par=#mbx+pr.nam cnt=#6 ctl=(sp)
+	tst	(sp)+
+	return
+
+100$:	.rad50	/wrong/
+.dsabl	lsb
+
+tvlist:	$ttdef char=NO code=LIST	
+	.word	-1
+
+.enabl	lsb
+xrmode:	psh	#rig		;
+	br	10$
+xmodel:	clr	-(sp)
+10$:	mov	#ter+te.mod,r1	;point to the model
+;	tst	(r1)		;got one?
+;	bne	20$		;yes
+;	mov	#100$,r1	;no
+20$:	output	nam par=#ter+te.mod cnt=#6 ctl=(sp)
+30$:	tst	(sp)+
+	return
+;50$:	output	oct par=#ter+te.mod cnt=#6 ctl=#rig!zer
+;	tst	(sp)+
+;	return
+;100$:	.rad50	/VT100 /	;The default
+.dsabl	lsb
+
+xdevice: 
+	tst	curmbx		;this a mailbox?
+	bne	50$		;yes
+	tst	ter+te.cor	;got a controller?
+	bne	10$		;yes
+	tst	ter+te.vec	;got a vector?
+	bne	5$		;yes
+	type	<VT>		;no - virtual terminal
+	br	6$		;
+5$:	type	<DL>		;
+6$:	mov	ter+te.nam,r1	;
+	sub	#<^rT  >,r1	;
+	output	r50 par=r1 cnt=#2 ctl=#zer
+	type	<:>		;
+	br	20$		;
+10$:	output	r50 par=cor+tz.con
+	movb	ter+te.uni,r1	;get the unit number
+	bic	#^c17,r1	;clean it up
+	output	dec par=r1 cnt=#1 ctl=#zer
+	type	<:>		;
+20$:	return			;
+
+50$:	output	oct par=mbx+pr.prn cnt=#5 ctl=#rig!zer
+	return			;
+
+;	We can put up 4 3-char characteristics
+; 
+;	opr	operator
+;
+;	roo	root process
+;	att	attached process
+;
+;	mtt	mtt attached process
+;
+;	mbx	mailbox connected
+;
+;	brd	accepts broadcast
+;
+;	sco	scope - otherwise printer
+
+xchars:				;characteristics
+	psh	#4		;count them
+	bit	#ttope$,ter+tt.ope ;this an operator?
+	beq	5$		;no
+	type	<opr >		;yes
+	dec	(sp)		;
+5$:	tst	ter+te.pcr	;got an owner?
+	beq	30$		;no
+	tstb	ter+te.roo	;does this have a root?
+	beq	10$		;no
+	cmpb	ter+te.roo,pcr+pr.prn ;is this the root?
+	bne	10$		;no
+	type	<roo >		;yes
+	br	15$		;
+10$:	cmp	pcr+pr.ter,curter ;are we a console?
+	bne	20$		;no - must be MTT
+	type	<att >		;attached terminal
+15$:	dec	(sp)		;
+20$:	bit	#ttpmt$,ter+te.par ;attached by multiterminal?
+	beq	25$		;no
+	type	<mtt >		;
+	dec	(sp)		;
+
+25$:	bit	#ttpct$,ter+tt.par ;connected to mailbox?
+	beq	30$		;no
+	type	<mbx >		;yes
+	dec	(sp)
+30$:	tst	(sp)		;all done?
+	beq	100$		;yes
+	bit	#ttnbc$,ter+tt.nbc ;got broadcast?
+	bne	40$		;no
+	type	<brd >		;yes
+	dec	(sp)		;
+40$:	tst	(sp)		;room for more?
+	beq	100$		;no
+	bit	#ttsco$,ter+tt.sco ;this a scope?
+	beq	50$		;no
+	type	<sco >		;yes
+	dec	(sp)
+50$: 
+100$:	dec	(sp)		;got room for more?
+	bmi	110$		;no
+	type	<    >		;yes
+	br	100$		;
+110$:	tst	(sp)+		;
+	return
+
+xpid:	tst	ter+te.pcr	;got a process?
+	bne	10$		;yes
+	type	<      >	;no
+	br	30$		;
+10$:	output	oct par=pcr+pr.prn cnt=#6 ctl=#zer
+30$:	return
+
+xproc:	tst	ter+te.pcr	;got a process?
+	bne	10$		;yes
+	type	<      >	;no
+	br	30$		;
+10$:	output	nam par=#pcr+pr.nam cnt=#6
+30$:	return
+
+xin:	output	dec par=ter+te.ict cnt=#3 ctl=#rig
+	return
+
+xins:	call	xin
+	type	</>
+	movb	ter+te.ipr,r1
+	output	dec par=r1 cnt=#2 ctl=#zer
+	return
+
+xout:	mov	ter+te.oct,r1	
+	inc	r1		;adjust for -1 base
+	output	dec par=r1 cnt=#3 ctl=#rig
+	return
+
+xouts:	call	xout
+	type	</>
+	movb	ter+te.opr,r1
+	output	dec par=r1 cnt=#2 ctl=#zer
+	return
+.sbttl	control states
+
+xcontr:				;controls
+	psh	#4.		;maximum four codes
+
+10$:	tstb	ter+te.ocs	;ctrl/s?
+	beq	20$		;no
+	dec	(sp)		;
+	type	<^S>		;yes
+
+20$:	tstb	ter+te.oco	;ctrl/o ?
+	beq	25$		;no
+	dec	(sp)		;
+	type	<^O>		;yes
+
+25$:	mov	#100$,r3	;get the list
+30$:	mov	(r3)+,r2	;get the next character
+	beq	50$		;all done
+	bit	(r3)+,ter+te.sig ;get the next
+	beq	30$		;nope
+
+	movb	#'^,r1		;the hat
+	output	cha par=r1	;
+	output	cha par=r2 	;the second
+
+	dec	(sp)		;count it
+	bne	30$		;more
+
+50$:	dec	(sp)		;space to fill?
+	bmi	60$		;no
+	type	<  >		;yes
+	br	50$		;
+
+60$:	tst	(sp)+
+	return
+
+100$:	.word	'C,tectc$
+	.word	'Y,tecty$
+	.word	'T,tectt$
+	.word	'H,tecth$
+	.word	'B,tectb$
+	.word	'F,tectf$
+	.word	'P,tectp$
+	.word	'X,tectx$
+	.word	0
+.sbttl	explode parameters
+
+;	te.par	byte	;0:1 parity, 2:3 bits, 4 stop bits
+;	te.spe	byte	;speed encoding
+
+explod:				;explode packed parameters
+	mov	ter+te.par,r0	;get line parameters
+
+	mov	r0,r1		;
+	bic	#^c3,r1		;parity
+	mov	r1,tparit	;
+	asr	r0		;
+	asr	r0		;
+
+	mov	r0,r1		;isolate size
+	bic	#^c3,r1		;
+	add	#5,r1		;
+	mov	r1,tsize	;character size
+	asr	r0		;
+	asr	r0		;
+
+	mov	r0,r1		;
+	bic	#^c1,r1		;
+	inc	r1		;stop bits
+	mov	r1,tstop	;
+	asr	r1		;
+
+	movb	ter+te.par+1,r1	;get the speed
+	bic	#^c17,r1	;
+	asl	r1		;
+	mov	speeds(r1),tspeed
+	clc
+	return
+
+speeds:	.word	50.,75.,110.,134.,150.,300.,600.,1200.,1800.,2000.
+	.word	2400.,3600.,4800.,7200.,9600.,19200.
+.sbttl	get kernel data
+
+seldev:	$cmkrnl	#area, #devsel, pic=yes
+	bcs	10$		;oops - not there
+	call	explode		;
+10$:	return			;
+				;
+devsel:	call	getclo		;get the clock
+	bic	#100000,caller	;assume not self
+	mov	nxtdev,r2	;get the next device
+				;
+	cmp	r2,@#t$etes	;this too high?
+	blo	20$		;no
+	.soft	0		;yes - report no more
+20$:	asl	r2		;
+	mov	t$emap(r2),r2	;get the device
+	bne	30$		;we have one
+	inc	nxtdev		;try for another
+	br	devsel		;
+30$:	mov	r2,curter	;save it
+	mova	ter,r3		;get our record address
+	mov	#te.bbs/2,r4	;get the length
+	call	100$		;move it back
+	mova	pcr,r3		;yes
+	mov	#pr.bbs/2,r4	;
+	mov	curter,r2	;get the ter
+	mov	te.pcr(r2),r2	;got a pcr?
+	mov	r2,curpcr	;save it
+	call	100$		;move or clear it
+				;
+50$:	clr	curmbx		;assume no mbx pcr
+	mov	curter,r3	;get the terminal again
+	clr	r2		;get the process number
+	bisb	te.ocs(r3),r2	;get the connected process
+	beq	60$		;not for us
+	cmpb	r2,#-1		;this a ctrl/s?
+	beq	60$		;yes
+	cmp	r2,@#p$rprs	;too high?
+	bhis	60$		;yes - ignore it
+	asl	r2		;
+	mov	p$rmap(r2),r2	;get the pcr
+	mov	r2,curmbx	;remember this
+	mova	mbx,r3		;yes
+	mov	#pr.bbs/2,r4	;
+	call	100$		;move or clear it
+				;
+60$:	mov	curter,r2	;
+	mov	te.cor(r2),r2	;got a controller?
+	mova	cor,r3		;
+	mov	#tz.bbs/2,r4	;
+	call	100$		;move or clear it
+80$:	cmp	@#p$hpcr,ter+te.pcr ;is this us?
+	bne	90$		;no
+	bis	#100000,caller	;yes
+90$:	return
+
+;	Move or clear area
+;
+;	r2 =	address - zero means clear it
+;	r3 ->	destination
+;	r4 =	word count
+
+100$:	tst	r2		;got it?
+	beq	120$		;no - clear it
+110$:	mov	(r2)+,(r3)+	;yes - move it in
+	sob	r4,110$		;more
+	br	130$		;
+120$:	clr	(r3)+		;clear it instead
+	sob	r4,120$		;more
+130$:	return			;
+.sbttl	data
+
+ter:	.blkb	te.bbs		;device record
+pcr:	.blkb	pr.bbs		;pcr
+mbx:	.blkb	pr.bbs		;mbx pcr
+cor:	.blkw	100.		;we must guess this
+
+opts:	.word	0		;command options
+class:	.word	0		;class of this device
+
+caller:	.word	0		;low-byte 1 => looking for self
+				;100000	=> this is self
+nxtdev:	.word	0
+nxtuni:	.word	0
+devcnt:	.word	0		;number found
+unicnt:	.word	0		;no comment
+
+curter:	.word	0		;current der
+curpcr:	.word	0		;
+curmbx:	.word	0		;
+heaflg:	.word	0		;header flag
+frmcnt:	.word	0		;count display frames
+
+tspeed:	.word	0		;input speed
+ospeed:	.word	0		;output speed
+tstop:	.word	0		;stop bits
+tparit:	.word	0		;0=none, 1=odd, 2=even
+tsize:	.word	0		;5,6,7,8
+
+
+pernam:	.word	0		;<>0 => permanent name
+lognam:	.byte	0,0,0,0,0,0	;
+devnam:	.byte	0,0,0,0,0,0	;
+
+colnum:	.word	0		;
+

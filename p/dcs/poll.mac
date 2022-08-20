@@ -1,0 +1,461 @@
+solo=0
+kerint=0
+strint=1
+.title	poll
+.include "dcs:dcl.mac"
+$dedef		;device
+$kcdef		;kernel control
+$mmdef		;mmu
+$prdef		;pcr
+$sidef		;signals
+$tedef		;terminal
+$ttdef		;terminal status
+$txdef		;characters
+$undef		;unit
+
+;	Poll for new terminal
+;
+;	%build
+;	r macro
+;	dcb:poll=dcs:poll
+;	^C
+;	%end
+;	%date
+;	<16-Apr-2003 25:33:00.00>
+;	%edit
+;	<66   >
+;
+;	CONTINUE
+;
+;	If line-input or command file, continue.
+;
+;	LOGOUT
+;
+;	If no terminal, logout and look for new terminal.
+;	If root process, logout and look for new terminal.
+;	If attached-process, return terminal to root and look for new terminal.
+;
+;	LOGIN	
+;
+;	If current terminal has input, use it.
+;	Poll terminals for active terminal waiting for process.
+;	If attached-process, use root process username for login.
+;	If root process, prompt for username.
+;
+;	c=1	no terminal - wait
+;	c=0	got a terminal
+;	p.husn<>p.husn = attach login username
+
+.sbttl	polout
+
+;	Logout calls here to get rid of the terminal
+;
+;	Attach the terminal back to the root if it has one
+;	Wait up to five seconds for terminal output to stop.
+
+polout::
+	mov	#55.*5,200$	;wait for output to complete
+10$:	$cmkrnl	#area, #100$ pic=yes
+	tst	200$		;wait any more?
+	beq	20$		;no
+	sub	#5,200$		;yes
+	.twait	#area, #40$	;wait five ticks
+	call	cantim		;cancel all timeouts
+	br	10$		;
+20$:	return			;
+40$:	.word	0,5		;wait interval
+
+;	Kernel routine
+;
+;	Check for a terminal
+
+100$:
+	$cmsch			;block it
+	mov	@#p$hter,r3	;get the terminal
+	bne	110$		;we have one
+	clr	200$		;dont wait any more
+	br	130$		;switch to login state
+
+;	Detach the terminal
+
+110$:	tst	200$		;are we waiting?
+	beq	120$		;no
+	tst	te.oct(r3)	;waiting for output?
+	bpl	140$		;yes - keep waiting
+	clr	200$		;wait no longer
+120$:	cmpb	te.fgd(r3),@#p$hprn ;is this the foreground terminal?
+	bne	121$		;no
+	clrb	te.fgd(r3)	;yes - dump it
+121$:	movb	te.roo(r3),r4	;remember the root
+	call	poldet		;detach us
+
+;	Attach terminal back to root
+
+	tst	r4		;got a root?
+	beq	130$		;none - strange - look for one
+	cmpb	r4,@#p$hprn	;is this us?
+	beq	130$		;yes - full logout
+	asl	r4		;
+	mov	p$rmap(r4),r4	;get the root process
+	beq	130$		;oops - we lost the root
+	bic	#prsus$,pr.sta(r4) ;and unsuspend it
+	bis	#prwak$,pr.sta(r4) ;
+	call	polatt		;attach terminal to root
+	clr	r3		;we no longer have this terminal
+				;
+130$:	call	pollog		;switch to login state
+140$:	$cmpro			;unblock it
+	return			;
+				;
+200$:	.word	55.*5		;wait for output
+.sbttl	poll
+
+;	Find a new terminal for this process
+;
+;	Look for a terminal every so often
+;	Quit if we have been aborted somehow.
+;
+;	c=0	attached terminal
+;		$input has username
+;	c=1	interactive terminal
+;		collect name from terminal
+;
+; ???	Autobaud terminal by examining first character in ring.
+
+poll::
+;;;	movb	d$cver,p$over		;remember solo version
+	$cmkrnl	#area, #100$ pic=yes 	;find a terminal for us to us
+
+;	Found a new terminal
+
+20$:	mov	p.husn,r0		;got an attach name?
+	beq	30$			;no - interactive login
+	mov	$input,r1		;yes
+	call	conra			;convert the first
+	mov	p.husn+2,r0		;
+	call	conra			;
+	tst	(pc)+			;attached
+30$:	sec				;interactive
+	return				;try again
+
+;	Kernel routine to find a terminal
+;
+;	We may have been attached by create/process.
+;
+;	Continue?
+
+100$:
+	clr	p.husn			;assume no process found
+
+;	Check for attach, queue for polling turn
+
+110$:	$float				;stop the world
+	tst	@#p$hsta		;are we aborting?
+	bmi	105$			;yes
+	mov	@#p$hpcr,r4		;get the pcr
+	tst	pr.sta(r4)		;are we aborting?
+	bmi	105$			;yes
+	tst	pr.ter(r4)		;have we been attached?
+	bne	130$			;yes
+	tst	@#s$ypol		;someone else polling?
+	beq	120$			;no - set us up
+	cmp	@#s$ypol,r4		;is this us that's polling?
+	beq	130$			;yes
+	clr	@#p$huse		;we do not have a user
+	clr	@#p$huse+word		;
+	clr	@#p$hdsk		;and no default disk
+	mova	110$,r1			;no - stall at 110$
+	$stall	r1, prwli.		;wait for it
+					;
+105$:	$cmsch				;block the scheduler
+	$land				;and land
+	call	220$			;check for a poll passon
+	.exit				;and quit for abort
+					;
+120$:	mov	r4,@#s$ypol		;remember we are polling
+	clr	@#p$huse		;we do not have a user
+	clr	@#p$huse+word		;
+	clr	@#p$hdsk		;and no default disk
+130$:	$cmsch				;stop scheduling
+	$land				;
+
+;	Loop thru the terminal map
+
+150$:	mov	@#p$hpcr,r4		;r4 -> our pcr
+	mov	pr.ter(r4),r3		;have we been attached?
+	bne	185$			;yes
+					;
+.if ne kerint
+	bit	#kcint$,@#s$ykc0	;interactive logins permitted?
+	beq	175$			;no - go to sleep
+.endc
+.if ne solo
+	cmpb	p$over,#'s		;this SHAREsolo?
+	bne	156$			;no - skip this
+	mov	#t$etes,r0		;get terminal map
+	mov	(r0)+,r1		;
+152$:	mov	(r0)+,r3		;get the next
+	beq	154$			;is none
+	tst	te.pcr(r3)		;already got a process
+	bne	175$			;yes - only one permitted
+154$:	dec	r1			;any more?
+	bne	152$			;yes
+.endc					;
+
+156$:	mov	#t$etes,r0		;look for a terminal
+	mov	(r0)+,r1		;r1 = number of slots
+					;
+160$:	mov	(r0)+,r3		;get the next
+	beq	170$			;is none
+	tst	te.pcr(r3)		;got a terminal?
+	bne	170$			;yes - ignore it
+	bit	#ttnbc$,tt.nbc(r3) 	;is broadcast disabled?
+	bne	170$			;yes - dont touch this guy
+	tst	te.ict(r3)		;waiting for service?
+	beq	170$			;nope
+	call	po$fil			;filter input
+	bcc	180$			;it's [ctrl/c] or [return]
+					;
+170$:	dec	r1			;anymore?
+	bne	160$			;yes
+175$:	$cmpro				;
+	.spnd				;wait awhile
+	jmp	100$			;and try again
+
+;	Attach process to new terminal
+;
+;	r3 ->	ter
+;	r4 ->	pcr
+
+180$:	tst	pr.ter(r4)		;were we attached?
+	bne	185$			;yes
+	call	polatt			;no - attach to new terminal
+					;
+185$:	mov	pr.ter(r4),r3		;get the terminal
+	mov	r3,@#p$hter		;remember we have it
+	movb	te.roo(r3),r2		;get the root name
+	bne	190$			;we have a root
+	movb	pr.prn(r4),te.roo(r3) 	;setup the root
+	br	200$			;and now log in
+
+;	Pickup root information
+
+	lodis. = m$mpa6-m$mpa2		;
+190$:	cmpb	r2,@#p$hprn		;is this ourself?
+	beq	200$			;yes - still need to login in
+	asl	r2			;get the pcr
+	mov	p$rmap(r2),r4		;r4 -> root pcr
+	psh	@#m$kip6		;
+	mov	pr.phd(r4),@#m$kip6 	;map the phd
+	mov	@#p$husn+lodis.,p.husn	;
+	mov	@#p$husn+lodis.+2,p.husn+2
+	pop	@#m$kip6		;
+					;
+200$:	mov	r3,@#p$hter		;remember the terminal
+	call	@#te$ini		;init it again
+
+;	Find the next process to poll something
+
+220$:	tst	@#s$ypol		;anyone polling?
+	beq	225$			;no - look for someone
+	cmp	@#p$hpcr,@#s$ypol	;were we polling?
+	bne	250$			;no
+	clr	@#s$ypol		;yes - free it
+					;
+225$:	mov	#p$rprs,r0		;look for a process
+	mov	(r0)+,r1		;r1 = number of slots
+230$:	mov	(r0)+,r4		;get the next
+	beq	235$			;is none
+	cmpb	pr.wai(r4),#prwli. 	;waiting for login?
+	beq	240$			;yes - start it up
+235$:	sob	r1,230$			;do them all
+	br	250$			;no more polling
+240$:	mov	r4,@#s$ypol		;set them up
+	$revive	pr.que(r4)		;revive them
+250$:	$cmpro				;
+260$:	return				;fine
+					;
+300$:	.blkw	5			;emt area
+310$:	.word	0,5.			;time to wait
+p$over:	.byte	'p			;assume sharePlus
+	.even
+
+;	Filter character in input ring
+;	Search for [return] or [ctrl/c]
+
+po$fil:
+10$:	call	po$gch			;get next character
+	bcs	30$			;no more characters
+	cmpb	r2,#ctrlc		;this on of ours?
+	beq	20$			;yes - login
+	cmpb	r2,#cr			;really?
+	beq	20$			;yes
+	cmpb	r2,#ctrlr		;or a [ctrl/r]?
+	bne	10$			;nope
+20$:	tst	(pc)+			;fine
+30$:	sec				;not our character
+	return				;
+
+;	Get a character from the ring
+
+po$gch:	$cmsch				;stop scheduler
+	tst	te.ict(r3)		;got a character?
+	beq	30$			;no
+	movb	@te.igt(r3),r2		;get the next character
+	bic	#^c177,r2		;get it in seven bits
+	cmp	te.igt(r3),te.ito(r3)	;time to wrap?
+	blo	10$			;nope
+	mov	te.ibo(r3),te.igt(r3)	;yes - wrap
+	br	20$			;
+10$:	inc	te.igt(r3)		;step it up
+20$:	dec	te.ict(r3)		;count it
+	tst	(pc)+			;got a character
+30$:	sec				;no character
+	$cmpro				;enable scheduler
+	return				;
+.sbttl	attach, detach
+
+;	Attach terminal to process
+;
+;	r3 ->	ter
+;	r4 ->	pcr
+
+polatt:
+	mov	r4,te.pcr(r3)		;put us in
+	mov	r3,pr.ter(r4)		;
+;	mov	r3,@#p$hter		;setup the terminal
+	cmp	pr.nam(r4),#^rlog	;is this LOGIN?
+	bne	10$			;no
+	cmp	pr.nam+2(r4),#^rin	;
+	bne	10$			;no
+	mov	#^ron,pr.nam+2(r4)	;yes - switch to logon state
+10$:	bis	#tecat$,te.sig(r3)	;
+	mov	#siter$,r0		;set the terminal signal
+	pshs	<r4,r3>
+	call	@#as$pms		;post a monitor signal
+	pops	<r3,r4>
+	return
+
+;	Detach terminal from this process
+;
+;	we may be moving back to the root
+
+poldet:
+	pshs	<r5,r4,r3,r2,r1,r0>
+	mov	@#p$hter,r3	;got one?
+	beq	10$		;no
+	mov	te.pcr(r3),r4	;got a process
+	beq	10$		;no
+	call	@#te$zap	;clean up the terminal
+	mov	#te$tiq,@#p$htti;make this one quiet
+	mov	#te$toq,@#p$htto;
+	clr	te.pcr(r3)	;
+	clr	pr.ter(r4)	;we have no terminal
+10$:	clr	@#p$hter	;
+	pops	<r0,r1,r2,r3,r4,r5>
+	return			;
+.sbttl	switch to login state
+
+;	The process is available.
+;	Clear out existing user information.
+;	Fill in login information
+;
+;	r3 ->	terminal record. 
+;	r3=0	no terminal
+
+pollog:	.enabl	lsb
+	tst	r3		;got a terminal?
+	beq	10$		;no
+	clrb	te.roo(r3)	;log terminal out completely
+	bic	#^c<tecdp$!tectc$>,te.con(r3) ;clear all but permanent
+	bic	#^c<tecdp$!tectc$>,te.pco(r3) ;clear all but permanent
+	clr	te.sig(r3)	;no signals
+	clr	p.husn		;no user name
+10$:	mov	@#p$hpcr,r4	;signal its login at work
+	mov	#^rlog,pr.nam(r4)
+	mov	#^rin,pr.nam+2(r4)
+	mov	#^rlog,@#p$hnam	;
+	mov	#^rin,@#p$hnam+2
+	mov	#^rlog,@#p$husn	;
+	mov	#^rin,@#p$husn+2;
+	return			;
+	.dsabl	lsb
+.sbttl	logout attached processes
+
+attout::			;logout attached processes
+	$cmkrnl	#area, #attdlc, pic=yes
+	return			;
+
+.if ne 0
+;	Kernel routine to logout attached processes
+
+100$:
+	psh	@#m$kip6	;save this guy
+110$:	$cmpro			;
+	$cmsch			;stop the lot
+	mov	#p$rprs,r5	;get the process count
+	mov	(r5)+,r2	;count them
+120$:	dec	r2		;any more?
+	bmi	130$		;no
+	mov	(r5)+,r4	;get the next
+	beq	120$		;not in use
+	cmp	pr.own(r4),@#p$hpcr ;do we own it?
+	bne	120$		;no
+	bis	#prdel$,pr.sta(r4) ;yes
+	mov	#siabt$,r0	;signal it
+	call	@#as$pms	;post the signal
+	br	110$		;and start over
+130$:	$cmpro			;back down
+	return
+.endc
+
+p.husn::.rad50	/usrnam/	;
+.sbttl	remove process allocations
+
+;	Deallocate devices
+;
+;	r4 ->	pcr
+;	r5 ->	rp
+
+attdlc:				;deallocate devices
+	mov	@#p$hpcr,r4	;r4 -> pcr
+.if ne 0
+	mov	pr.prn(r4),r2	;r2 = process number
+	mov	#t$etes,r0	;r0 -> terminals
+	mov	(r0)+,r1	;r1 = terminals
+10$:	mov	(r0)+,r3	;get the next
+	beq	20$		;not installed
+	cmpb	te.roo(r3),r2	;is this us?
+	bne	15$		;no
+	clrb	te.roo(r3)	;yes
+15$:	cmpb	te.fgd(r3),r2	;is this us?
+	bne	20$		;no
+	clrb	te.fgd(r3)	;yes
+20$:	sob	r1,10$		;done
+.endc
+
+;	Deallocate devices
+;
+;	Reflect all changes in that code in sps:sdp.mac
+;	and in dcs:setdev.mac
+
+	mov	#d$edes,r0	;r0 -> devices
+	mov	(r0)+,r1	;r1 = device count
+30$:	mov	(r0)+,r2	;r2 = device
+	beq	60$		;not loaded
+	psh	r1		;save device count
+	add	#de.unm,r2	;r2 -> device map
+	mov	#8.,r1		;r1 = units
+40$:	mov	(r2)+,r3	;get next unit
+	beq	50$		;not loaded
+	cmpb	pr.prn(r4),un.own(r3) ;owned?
+	bne	50$		;no
+	bic	#unalc$,un.con(r3) ;yes
+	clrb	un.own(r3)	;deallocate it
+50$:	sob	r1,40$		;more
+	pop	r1		;device count
+60$:	sob	r1,30$		;more devices
+	return
+
+.end
+

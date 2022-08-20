@@ -1,0 +1,564 @@
+fix$c=rxm$c
+dyn$c=rsj$c	;
+usr$c=1		;
+top$c=1		; leave settop to rmon
+.title	comman
+.include "kms:dcl.mac"
+.psect	comman
+$cfdef		;command files
+$jbdef
+$rmdef
+$metal = 62
+
+;	+-------------------------------+
+;	| Used by KMS:KMON		|
+;	+-------------------------------+
+;
+;	DCL comman command
+;
+;	%build
+;	macro	dcs:(kp+comman) /object=dcb:comman
+;	%end
+;	%date
+;	<01-Mar-2008 22:50:10.02>
+;	%edit
+;	<6    >
+;
+;	Peek at next line of command file
+;
+;	r1 ->	output area
+;
+;	r1 ->	last character in command file (passed to SKPCOM)
+;	c=1	no more data
+
+peecom::				;peek at command file
+	psh	r1			;save the pointer
+	call	getcom			;get the pointers
+	pop	r1			;get it back
+	tst	-(r4)			;got anything at all?
+	beq	30$			;no more there
+	mov	(r4),r0			;get the pointer
+10$:	movb	(r0)+,(r1)+		;get the next
+	cmp	r0,$job-$jobc(r4) 	;was this the last
+	bhis	20$			;that was the last
+	tstb	-(r1)			;got end of line?
+	ble	20$			;yes
+	cmpb	(r1)+,#3		;this a ^C?
+	bne	10$			;no
+	clrb	-(r1)			;yes - ignore that and quit
+20$:	clrb	(r1)			;terminate it
+	mov	r0,r1			;return the pointer
+	return				;fine
+30$:	sec				;no more data
+	return
+
+;	Skip next line in command file
+;
+;	r1 ->	past current line (returned by PEECOM)
+
+.enabl	lsb				;push command file for load etc.
+skpcom::psh	r1			;save pointer
+	call	getcom			;get the pointers
+	pop	r0			;get back updated pointer
+	tst	-(r4)			;have we been zapped
+	beq	20$			;yes
+	mov	r0,(r4)			;no - skip it all
+	br	15$			;and get out
+
+pshcom::clrb	@$expand		;display ignores this
+	mov	$text,$text+2		;reset the buffer
+	call	getcom			;get command file pointers
+	tst	-(r4)			;anything there?
+	beq	14$			;nope, that was fast
+10$:	movb	@(r4)+,(r1)+		;move them out
+	inc	-(r4)			;step it up
+	cmp	(r4),$job-$jobc(r4) 	;was this the last
+	blo	10$			;get it all
+14$:	mov	sysptr,r0		;point to the system
+	movb	statwd+1(r0),(r1)+ 	;save statwd status
+	mov	r1,$text+2		;save the end of text
+	psh	#mt$psh			;push metas
+15$:	mov	(r4),r0			;get another pointer
+	beq	20$			;nothing to remove
+	mov	$job-$jobc(r4),r0 	;get hook entry point
+	jmp	adjust-job(r0)		;and remove the hook
+
+getcom::call	fix			;the overlay is in
+	world	net$			;save us (install/load entry point)
+	call	init			;get set up
+	mov	$text+2,r1		;
+20$:	return				;
+	.dsabl	lsb
+
+popcom::
+.if ne dyn$c
+	clr	d$madj			;no adjustment
+.iff
+	clr	m$tsiz			;no meta size
+.endc
+popcmt:	call	getcom			;get the pointers
+	call	mt$pop			;pop metas
+	mov	sysptr,r0		;get the system
+	movb	-(r1),statwd+1(r0) 	;put back the status
+	call	popcox			;pop it all
+	mov	$text,$text+2		;reset the buffer
+	br	popcox			;and do the rest
+.sbttl	build command
+
+;	Build 
+
+buildq::psh	#cfcon$!cfdat$		;setup this up
+	br	buildc			;join the common
+program::edit	<^Z"R "_C}_U_O"="_I_S_M}"^C"}> ;build csi line
+build::	psh	#cfdcl$!cfdat$		;set the flags
+buildc:	mov	sysptr,r0		;build a command file
+	bis	(sp)+,statwd(r0)	;setup dcls
+	movb	#co,(r4)+		;terminate this mode then
+dispatch::				;
+	mov	$text+2,$text		;restore the start address
+	mov	r4,$text+2		;remember the end address
+comman::tstb	@$expand		;are we in display mode?
+	beq	15$			;nope
+	bmi	16$			;special expand - return to caller
+	jmp	expand			;yes, go expand it
+15$:	psh	#kmon			;force return to kmon exit
+16$:					;dont replace return address
+	call	getcom			;get pointers (pop command file back)
+popcox::cmp	r1,$text		;is it a null command?
+	beq	24$			;yep, forget it
+					;
+20$:	mov	-(r4),r2		;get the hander address
+	bne	22$			;we have a handler
+	mov	#jobz,r0		;r5 => end of hook
+	mov	(r5),r2			;r2 => syslow
+21$:	mov	-(r0),-(r2)		;move in the handler
+	cmp	r0,#job			;all moved?
+	bne	21$			;nope, keep moving
+	mov	r2,$job-$jobc(r4)	;and tell the monitor
+					;
+22$:	movb	-(r1),r0		;move the string
+	cmpb	r0,#cr			;got a cr?
+	beq	221$			;yep, ignore it
+	cmpb	r0,#lf			;got a lf?
+	bne	223$			;nope
+	movb	#-1,r0			;replace it
+223$:	cmpb	r0,#'C			;this a ^C sequence?
+	bne	222$			;nope
+	cmpb	-1(r1),#'^		;and the 'C?
+	bne	222$			;nope
+	movb	#3,r0			;replace it
+	dec	r1			;skip the ^
+	cmpb	(r2),#-1		;lf coming?
+	bne	222$			;nope
+	inc	r2			;skip the lf
+222$:	movb	r0,-(r2)		;move a character
+221$:	cmp	r1,$text		;all done?
+	bne	22$			;nope
+23$:;	cmp	r2,d$pmin		;are we too low?
+;	blos	25$			;yes
+	mov	r2,(r4)			;and adjust the stack
+	call	adjust			;set up $usr
+24$:	return
+
+;25$:	mov	$job-$jobc(r4),(r4) 	;wipe us out
+;	mov	(r4),r0			;get the start address
+;	call	adjust-job(r0)		;remove the command file
+;	fatal	<Command file too large>	
+.sbttl	command hook
+
+set	$$gl 10			;getline bit
+set	stat 366-$top
+set	ifcon$ 40000		;dcl continuation
+set	ifact$ 400		;command file active
+set	co =-4
+
+job:	br	10$			;
+	.word	jobz-job		;length of this hook
+10$:	call	init			;get the things we need
+	tst	-(r4)			;have we been zapped?
+	bne	hat			;nope, get a character
+over:	bic	#$dcls!ifact$!cfdat$!ifcon$,stat(r5) ;turn off dcls
+	mov	pc,(r5)			;remove us
+	add	#jobz-.,(r5)		;and remove us
+	bic	#177400,-(r4)		;its all over, clear the echo flag
+	mov	-(r4),-(r4)		;unhook from sam
+nope:	sec				;c=1, means no character supplied
+yep:;V4	bis	#ifact$!cfdat$,stat(r5) ;set command file active
+	bis	#ifact$,stat(r5) 	;set command file active
+	return				;return to ttyin
+adjust:	mov	(r4),r3			;adjust syslow
+	bic	#1,r3			;even addresses only
+	cmp	-(r3),-(r3)		;leave us some room (^C, fortran)
+	mov	r3,(r5)			;shove it into $top==$usr
+	cmp	(r4),$job-$jobc(r4)	;was it the last?
+	bne	yep			; nope, return happy, c=0
+	clr	(r4)			; yes, clear the buffer adress
+	br	over			;and zap it
+go:	incb	-(r4)			;re-enable echo
+	incb	(r4)			;adjust for decb
+off:	decb	-(r4)			;disable echo
+	inc	r4			;pop back
+hat:	movb	@(r4)+,r0		;get a byte
+	bpl	4$			;not cr
+	movb	#cr,r0			;make it a cr
+	incb	@-(r4)			;lf next time around
+	dec	(r4)+			;adjust for following inc
+4$:	mov	r0,r2			;ttyin wants it in r2
+	bne	5$			;not lf
+	movb	#lf,r0			;supply the lf
+5$:	cmpb	r0,#'C-'@		;check for ^C&$$gtlin
+	bne	1$			;nope
+	bit	#$$gl,@#jsw		;inhibiting us?
+	beq	15$			; nope, it gets thru
+	mov	-(r4),r0		;get the pointer
+	inc	r0			;skip ourself
+
+	cmpb	(r0)+,#co		;in a dcls?
+	bne	nope			;nope, forget it
+	cmp	r0,$job-$jobc(r4)	;was it the last?
+	beq	nope			;yep, forget it
+	movb	(r0),-2(r0)		;ripple it around
+	movb	#co,(r0)
+	movb	#'C-'@,-(r0)	;so
+	bic	#$dcls!ifcon$!cfdat$,stat(r5)	;turn us off	;V4
+	br	hat
+
+15$:	neg	r0			; r0<0 => ^C
+1$:	inc	-(r4)			;step up pointer
+	psh	stat(r5)		;get the dcls status
+	tstb	(sp)			;is it ifall$ mode?
+	bpl	3$			;nope
+	clr	(sp)			;yes - force print
+3$:	bic	#^c<ifeko$!$dcls!ifcon$!cfdat$>,(sp) ;save the print status
+	cmpb	@(r4),#co		;is this the end of dcls?
+	bne	10$			;nope
+	inc	(r4)			;yes
+	bic	#$dcls!ifcon$!cfdat$,stat(r5) ;turn us off	;V4 fix
+10$:	call	adjust			;adjust us
+	tst	r0			;r0<0 => ^C ?
+	bmi	11$			; yes
+;	bit	#ifeko$,(sp)+		;are we mute?
+	tst	(sp)+			;are we mute?
+	bne	2$			; yes
+	bit	#$$stt,@#jsw		;in special mode?
+	bne	2$			;yep, no echo
+	.ttyout				; no, echo it
+2$:	clr	r1			; >> r1=0, c=0
+	return				; r0=sign, r2=sign%(lf=0)
+11$:	tst	(sp)+			;should we echo it?
+	bne	12$			;nope
+	print	<^C>			;echo it
+12$:	mov	sp,r0			;make sure its quiet
+	.exit				;and go away
+
+init:	mov	@#sysptr,r5		;point r5 and r4
+	add	#$top,r5		;get the usr adress
+	mov	(pc)+,r4
+net$:	.word	0			;birth
+	add	#$power,r4		;pic
+	return
+jobz:
+work:					;work space for com.mac
+.if eq dyn$c
+.sbttl	push/pop metas
+
+;	r5 -> usr bottom
+
+m$tloc:	.word	0			; storage location
+m$tsiz::.word	0			; requested size
+m$tprv:	.word	0			; previous size
+m$tpsh:	.word	0			; <>0 => actually pushed
+
+mt$adj::save				;
+	inc	r0			;
+	bic	#1,r0			; must be even
+	mov	r0,m$tsiz		; set it up
+	mov	$text+2,$text		;
+	call	float			;
+	call	pshcom			;
+	call	popcmt			;
+	call	fix			;
+	return
+
+mt$psh:	save				;
+	world	
+	clr	m$tpsh			; not pushed yet
+	mov	r0,r3			; world
+	mov	$text+2,r1		;
+	mov	r1,m$tloc		; where we save them
+	mov	$metas(r3),r0		; look at them
+.if ne fix$c
+	beq	20$
+.endc
+	cmp	r0,@#sysptr		; in the monitor?
+	blo	10$			; nope
+	tst	m$tsiz			; want to change them?
+	beq	20$			; nope - leave them alone
+10$:	inc	m$tpsh			; we have pushed them
+	mov	$metal(r3),r2		; size of it
+	call	mt$mov			; move them
+	cmp	r0,@#sysptr		; in the monitor?
+	bhis	20$			; yep
+	mov	r0,(r5)			; nope - save end of them
+20$:	return
+
+mt$pop:	save				;
+	world				;
+	tst	m$tpsh			; did we push them?
+	beq	60$			; nope - don't pop them
+	mov	r0,r3			; world
+	mov	m$tloc,r0		;
+	mov	$metal(r3),r2		; previous size
+	mov	r2,r4			; r4 = previous size
+	mov	m$tsiz,r1		; something new?
+	beq	10$			; nope
+	mov	r1,r2			; yep
+10$:	sub	r2,(r5)			; claim the space
+	mov	(r5),r1			; get the destination
+					;
+	cmp	r2,r4			; expanding?
+	bhi	20$			; yep
+	call	mt$mov			; nope - same or contract
+	br	50$			;
+
+20$:	mov	r4,r2			; move previous lot first
+	call	mt$mov			;
+	clrb	-1(r1)			; remove old terminator
+	mov	m$tsiz,r2		; get it again
+	sub	r4,r2			;
+	beq	40$			; sickening
+30$:	clrb	(r1)+
+	dec	r2			;
+	bne	30$			;
+40$:	mov	m$tsiz,r2		; and get it again
+50$:	movb	#-1,-(r1)		; terminate it
+	mov	r2,$metal(r3)		; new size	
+	mov	(r5),$metas(r3)		; new location
+.if eq top$c
+	cmp	$text,$text+2		; gonna push a command file?
+	bne	60$			; yep
+	sub	#4,(r5)			; nope - do settop adjustment
+.endc
+60$:	return
+
+mt$mov:	
+	psh	r0
+	psh	r2
+	beq	20$
+10$:	movb	(r0)+,(r1)+		; 
+	dec	r2			;
+	bne	10$
+20$:	pop	r2
+	pop	r0
+	return
+.endc
+.if ne dyn$c
+.sbttl	dynamic memory
+
+map	dm.siz,,0	; byte size
+map	dm.typ		; member type (rad50)
+map	dm.dat,0	; data area -- in storage
+map	dm.ptr		; pointer   -- as result
+map	dm.bbs		;
+
+map	dn.sta,,0	; status/count
+;map	dn.blk		; start block
+;map	dn.len		; length
+map	dn.log		; logical name
+map	dn.dev		; host device name
+map	dn.sub,2*2	; sub-directory names
+
+map	cp.fst,,0	; corptr
+map	cp.lst		; last element
+map	cp.dir		; directory entries
+map	cp.csi		; csi entries
+map	cp.csx		; end of csi entries
+
+d$madj::.word	0	; adjustment, in bytes
+d$mtyp::.word	0	; type to adjust
+d$mrep::.word	0	; replacement
+
+d$mpsh:	.word	0	; pushed entries
+d$mtop:	.word	0	; top of pushed
+
+;	Get pointer to dynamic member
+;
+;	r0 = rad50 typ
+;
+;	c=0	r0 ->	high memory copy
+;	c=1	r0=0	not found
+
+dm$adj::save
+	mov	$text+2,$text	;
+	call	float		;
+	call	pshcom		;
+	call	popcmt		;
+	call	fix		;
+	return
+
+mt$psh:
+dm$psh:	save			;
+	call	dm$ini		;
+	assume	cp.fst eq 0	;
+	mov	(r3),r0		; corptr
+	mov	$text+2,r1	; get some temporary space
+	inc	r1		; even it up
+	bic	#1,r1		;
+	mov	r1,d$mpsh	; remember where we put them
+	mov	cp.lst(r3),r2	; end of dynamic pool
+10$:	mov	(r0)+,(r1)+	; copy them
+	blow	r0,r2,10$	;
+	mov	r1,d$mtop	; end of saved area
+	mov	r0,rm.usr(r5)	; update monitor
+	mov	r0,rm.usl(r5)	; twice
+	return
+
+mt$pop:
+dm$pop:	save
+	call	dm$ini		;
+	bnew	d$madj,10$	;
+	clr	d$mtyp		;
+	clr	d$mrep		;
+10$:	mov	d$mpsh,r0	; start of it
+	mov	d$mtop,r2	; end of it
+	sub	r0,r2		; current size
+	add	d$madj,r2	; add in adjustment
+	mov	rm.usr(r5),r1	; current usr location
+	sub	r2,r1		; make adjustment
+	assume	cp.fst eq 0	;
+	mov	r1,(r3)		; new corptr
+	mov	r1,rm.usr(r5)	; update monitor
+	mov	r1,rm.usl(r5)	; twice
+
+;	copy elements up
+
+20$:	beqw	(r0),80$	; all done
+	psh	r0		; compute start of next
+	add	(r0),(sp)	;
+	stack	nxt		; next element
+	cmp	dm.typ(r0),d$mtyp ; replace this?
+	beq	30$		; yes
+25$:	call	dm$mov		; nope - just move it
+	stack	nxt		; next element
+26$:	pop	r0		; r0 -> next
+	br	20$		;
+				;
+30$:	beqw	d$mrep,40$	; no replacement element
+	mov	d$mrep,r0	; get the replacement
+	br	25$		; move it instead
+				;
+40$:	mov	d$madj,r2	; get difference
+	bpl	50$		; expanding
+	add	r2,(r0)		; contracting it
+	br	25$		; move it
+				;
+50$:	psh	r1		; save pointer to header size
+	call	dm$mov		; move what we have
+	add	r2,@(sp)+	; update header size
+	asr	r2		; clear expanded area
+60$:	clr	(r1)+		;
+	sobw	r2,60$		;
+	br	26$		;
+				;	
+80$:	clr	(r1)+		; terminator
+	mov	r1,cp.lst(r3)	; save end of it
+				;
+	mov	#^rUCF,r0	; update pointers
+	call	dm$fnd		;
+;	bcs			;
+	mov	r0,$metas(r4)	; pointer
+	add	#dm.dat,$metas(r4)
+	mov	(r0),$metal(r4)
+	sub	#dm.dat,$metal(r4)
+
+	mov	#^rDLN,r0	; directory names
+	call	dm$fnd		;
+;	bcs			; system corrupted
+	movi	dm.dat,r0,cp.dir(r3)
+	add	(r0),r0		; point to end of them
+	movi	-2,r0,cp.csx(r3);
+	movi	-60.,r0,cp.csi(r3)
+	return
+
+;	Internal routines
+;
+;	Initialise for dynamic memory
+;
+;	r2 ->	first element
+;	r2 = 0	no elements
+
+dm$ini:	mov	@#j$bsys,r5	; r5 -> rmon
+	mov	k$mwor,r4	;
+	mov	rm.mpt(r5),r3	;
+	add	r5,r3		; r3 -> corptr
+	return
+
+;	Find dynamic member
+;
+;	r2 -> element
+
+dm$fnd:	mov	r0,r1		;
+	call	dm$ini
+	bcs	dm$sec		; nothing to find
+	mov	(r3),r0		; first element
+10$:	beqw	(r0),dm$sec	; no more members
+	beqw	r1,dm.typ(r0),dm$clc; found
+	add	(r0),r0		; point to next
+	br	10$		;
+dm$tst:	tst	(r0)		;
+dm$eql:	beq	dm$sec		;
+dm$clc:	tst	(pc)+		;
+dm$sec:	sec			;
+	return
+
+dm$ptr::save
+	stack	ret,r0
+	call	dm$fnd		; find it
+	mov	r0,sp.r0(sp)	; return pointer
+	return			; c=?
+
+dm$nxt::beqw	(r0),dm$sec	; trying to skip end
+	add	(r0),r0		; point to next
+	br	dm$tst		;
+
+;	r0 ->	element
+;	r1 ->	destination
+
+dm$mov::psh	r2
+	mov	(r0),r2
+	asr	r2
+	beq	20$
+10$:	mov	(r0)+,(r1)+
+	sobw	r2,10$
+20$:	pop	r2
+	return
+
+;	dl$fnd - find dln
+;
+;	r0 =	logical name
+;
+;  c=0	r0 ->	r0 -> dln
+;  c=1	r0	unchanged
+
+dl$fnd::psh	r0		; find DLN 
+	stack	r0		;
+	call	dn$ptr		;
+10$:	beqw	(r0),30$	; not found
+	beqw	(sp),dn.log(r0),20$ ; found
+	add	(r0),r0		; next
+	br	10$		;
+20$:	mov	r0,(sp)		;
+	tst	(pc)+		;
+30$:	sec			;
+	pop	r0		;
+	return
+
+$dmdef
+dn$ptr::mov	#^rDLN,r0	; find the table
+	call	dm$ptr		;
+	add	#dm.hdr,r0	; skip header
+	return
+
+.endc
+.end
+

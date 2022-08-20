@@ -1,0 +1,705 @@
+ldv$c=1
+.sbttl	install & remove
+.include "lib:share.mac"
+
+meta	<invdev a><jsr r1,invdev><string <a>,200>
+meta	<infdev a><jsr r1,infdev><string <a>,200>
+
+;	Install kernel device
+
+insker:					;install kernel handler
+	mov	#instsk,task		;setup the task
+	mov	sp,errsp		;save the stack for aborts
+	call	findev			;find it first
+	call	reahan			;read the handler
+	call	valnam			;check the name out
+	call	cladev			;classify device
+	call	valima			;validate image
+	call	prevec			;prepare the vector table
+	call	pathan			;patch the handler
+	call	filder			;fill device record
+	call	getcon			;get control bits
+	call	getacp			;get the acp
+	call	insext			;install external handler
+	call	calker			;call the kernel
+	call	clsext			;close external file
+	return
+
+;	Remove kernel device
+
+remker:					;remove kernel handler
+	mov	#remtsk,task		;
+	mov	sp,errsp		;save for aborts
+	call	findev			;try to find the device
+	bcc	10$			;its found
+	jmp	er$dni			;?KMON-I-Device not installed
+10$:	$cmkrnl	#area,#100$,pname,pic=yes ;find the device
+	bcc	20$			;fine
+	jmp	er$mis			;remove error
+20$:	call	calker			;call the kernel
+	call	remext			;remove external
+	return
+
+100$:	mov	#d$edes,r3		;point to the list
+	mov	(r3)+,r1		;get the count
+110$:	mov	(r3)+,r2		;get next device
+	beq	115$			;not loaded
+	cmp	de.dev(r2),rp.p0(r5)	;is this the device?
+	beq	120$			;yes
+115$:	sob	r1,110$			;more
+	br	130$			;ignore it
+120$:	bit	#deunl$,de.typ(r2)	;got utility call?
+	beq	130$			;no
+	add	#de.fnm,r2		;yes - point to name
+	sub	#6,sp			;an area
+	.purge	#0			;purge it
+	.lookup	sp,#0,r2,#0		;find it
+	bcc	130$			;fine
+	.soft	0			;
+130$:	jmp	@#em$exi		;quit
+
+;	call kernel
+
+calker:					;call the kernel
+	bit	#repla$,opts		;is this a replace?
+	beq	10$			;no
+	.purge	#15.			;yes - purge the overlay channel
+10$:	clr	result			;init the result
+	$cmkrnl	#area, #in$beg pic=yes	;call the kernel
+	mov	result,r0		;did we get an error?
+	beq	20$			;nope
+	call	(r0)			;call the error routine
+	call	prgext			;purge externed handler
+20$:	return
+.sbttl	mount & dismount
+
+loaker:	br	mouker			;must be different
+mouker:	assume	mouker-loaker ne 0	;must be different
+	mov	#moutsk,task		;setup the task
+	mov	sp,errsp
+	call	findev			;find the device
+	bcc	10$			;fine
+	jmp	er$dni			;?KMON-I-Device not installed
+10$:	br	calker			;
+
+unlker:	nop				;[sic]needs different address
+disker:	assume	disker-unlker ne 0	;must be different
+	mov	$input,r5		;get the device
+	call	escskp			;skip escape
+	edit	<!@\@@>,,10$		;nothing what we want
+	tstb	(r5)+			;end of line?
+	bne	10$			;nope
+	movb	#':,-1(r5)		;put the colon
+	clrb	(r5)			;terminate
+10$:	mov	discmd,r4		;already started the command?
+	bne	12$			;yes
+	edit	<^Z"r mount"}>		;build the command
+12$:	edit	<_I>			;get the device
+	edit	<"/D">			;put out the switch
+	cmp	act,#unlker		;unload the device unit?
+	bne	20$			;nope
+	edit	<":UNL">		;signal unload
+20$:	edit	<}>			;newline
+	mov	r4,discmd		;save and flag command
+	return
+
+disfin:	mov	discmd,r4		;get the command 
+	beq	10$			;were not processing a command
+	edit	<"^C"}>			;terminate the command
+	jmp	build			;
+10$:	return				;
+
+.if ne 0
+unlker:
+	br	disker			;[sic]
+disker:	assume	disker-unlker ne 0	;must be different
+	mov	#distsk,task		;setup the task
+	mov	sp,errsp
+	call	findev			;find the device
+	bcc	10$			;
+	jmp	er$dni			;
+10$:	br	calker
+.endc
+.sbttl	errors
+
+er$icf:	call	remext		;remove all external files
+	type	<?DCL-E-Installation check fail >
+	mov	$begin,r1
+	call	bold
+	type	<: >
+	mov	hanrea,r0	;got a reason?
+	beq	10$		;no
+	mov	#20$,r1		;yes
+	call	conra		;yes
+	mov	#20$,r1		;
+	call	bold		;display it
+10$:	print			;newline
+	jmp	setfat		;
+20$:	.asciz	/REA/		;reason
+
+er$dai::				;device already installed
+;	bne	10$			;ignore if autogen
+	bit	#norep$,opts		;was this a /noreplace?
+	beq	20$			;yes
+10$:	infdev	<Device already installed>
+	return
+20$:	invdev	<Device already installed>
+
+er$uti:	call	remext			;remove external 
+er$utr:	type	<?DCL-E-Driver utility error >
+	mov	$begin,r1
+	call	bold
+	type	<: >
+;	mov	utlerr,r1		;get the error number
+	print				;end of it
+	jmp	setfat			;and quit
+
+er$utl:	invdev	<Driver utility error>
+er$stb:	invdev	<Wrong RUST/XM release >
+er$nsa:	invdev	<No device slot available>
+er$vao:	invdev	<Vector already occupied>
+er$ccf:	invdev	<CSR check failed>
+er$ips:	invdev	<Insufficient pool space>
+er$dib:	invdev	<Device is busy>
+er$dnl:	invdev	<Device not loaded>
+er$dni:	invdev	<Device not installed>
+er$dim:	invdev	<Device is mounted>
+er$dnm:	invdev	<Device not mounted>
+er$dmp:	infdev	<Dismount now pending>
+er$mis:	invdev	<Device handler missing>
+	br	quidev
+
+errsp:	.word	0			;in case we continue
+invdev:					;invalid device
+	call	remprv			;remove system privilege
+	jmp	fatdev			;nope - its fatal
+
+10$:	call	fatcom			;display the message
+quidev:	mov	errsp,sp		;reset the stack
+	return				;and return
+
+infdev:	psh	r0
+	type	<?DCL-I->
+	call	comdev			;display the rest
+	pop	r0			;
+10$:	tstb	(r1)+			;skip the message
+	bgt	10$			;more
+	inc	r1			;
+	bic	#1,r1			;round up
+	rts	r1			;and return
+.sbttl	check permanent name syntax
+
+;	Permanent name must be DDn:
+
+chkprm:				;chec
+	mov	$input,r5	;get the pointer
+	call	escskp		;skip escape
+	edit	<!@@>,,20$	;invalid name
+	edit	<!#>		;optional digit
+	edit	<@> 20$		;invalid name
+	return
+
+20$:	invdev	<Invalid device name>
+.sbttl	find device
+
+;	Check to see if device already installed.
+;	Ensure installed device-type is applicable.
+;
+;	Check for VM: and TT:
+
+findev:	psh	r5		;save r5 for caller
+	clr	r1		;search for the index
+10$:	call	indexes		;look for it
+	bcs	110$		;oops, not found
+	cmp	@.pname,pname	;nah?
+	bne	10$		;nope
+
+	tst	-(r1)		;back off to our guy
+	mov	r1,slot		;remember the slot
+	mov	r1,gslot	;twice
+	cmp	r1,$hosts	;is it a utility device?
+	bhis	130$		;yes - invalid
+	bit	#ty.rem,@.type	;is this remote?
+	bne	120$		;yep
+	tst	(pc)+		;loaded
+110$:	sec			;not loaded
+	pop	r5
+	return			;and quit
+
+120$:	invdev	<Remote device>
+130$:	invdev	<Utility handler>
+.sbttl	reject some handlers
+
+;	Check for permanent devices
+
+perdev:	mov	pname,r0	;see if this is permanent
+	cmp	r0,#^rVM	;this VM:?
+	beq	10$		;yes
+	cmp	r0,#^rTT	;this TT:?
+	beq	10$		;yes
+;	cmp	r0,#^rCO	;this CO:?
+;	beq	10$		;yes
+	cmp	r0,#^rNL	;this NL:
+	beq	10$		;yes
+	cmp	r0,#^rT0	;this a terminal?
+	blo	20$		;no
+	cmp	r0,#^rT9	;really?
+	bhi	20$		;no
+10$:;	wardev	<Device is permanently mounted>
+	br	230$		;
+	br	250$		;and quit
+
+;	Check for unacceptable devices
+	
+20$:;	cmp	r0,#^rMQ	;This MQ:?
+;	beq	30$		;yes
+.if eq ldv$c
+	cmp	r0,#^rLD	;This LD:?
+	beq	30$		;yes
+.endc
+	cmp	r0,#^rBA	;This BATCH?
+	beq	30$		;yes
+	br	40$		;
+30$:;	wardev	<Device is not supported>
+	br	230$
+	br	250$		;
+
+40$:	cmp	r0,#^rTR	;This TRACE?
+	beq	50$		;yes
+	cmp	r0,#^rDB	;This the debugger?
+	beq	50$		;
+	cmp	r0,#^rSL	;Single line editor?
+	beq	50$		;
+	br	60$		;
+50$:;	wardev	<Utility handlers not supported>
+	br	230$
+	br	250$		;
+60$:	br	240$
+
+230$:	wardev	<Inappropriate device for operation>
+	br	250$
+
+240$:	tst	(pc)+		;fine
+250$:	sec			;ignore it
+	return
+.sbttl	read the handler
+
+;	read in the entire handler
+;	setup the device prefix
+
+reahan:
+	.purge	#0			;purge a channel
+	bit	#unmap$!mappe$,opts	;this special?
+	bne	5$			;yes
+	add	#<^r  P>,dname+2	;try the mapped version
+	.lookup	#area,#0,#dname,#0	;
+	bcc	30$			;got the real one
+	sub	#<^r  P>,dname+2	;try the mapped version
+5$:	bit	#unmap$,opts		;/unmapped?
+	bne	20$			;yes - don't try mapped
+	add	#<^r  X>,dname+2	;try the mapped version
+10$:	.lookup	#area,#0,#dname, #0	;
+	bcc	30$			;we have it with suffix
+	cmp	dname+2,#^rvms		;was this VM:?
+	beq	25$			;yes - it aint found
+	bit	#mappe$!bit22$,opts	;/mapped?
+	bne	25$			;yes
+	sub	#<^r  X>,dname+2	;
+20$:	.lookup	#area,#0,#dname, #0	;look it up
+	bcc	30$			;fine
+25$:	invdev	<Handler not found>	;
+					;should read 512. words		;???
+30$:	bit	#ndefa$,ctls		;/default
+	bne	100$			;forget it
+	mov	r0,r1			;get the last block
+	dec	r1			;
+	ble	100$			;forget it
+	.readw	#area,#0,#hand0,#256.,r1;read last block
+	bcs	110$			;forget it
+	mov	#hand0,r1		;
+	cmp	(r1),#^rhan		;this the signature?
+	bne	100$			;no
+	cmp	hr.gd1(r1),#^rdlr	;really?
+	bne	100$			;no
+	mov	hr.con(r1),defcon	;save de.con
+	mov	hr.typ(r1),deftyp	;and de.typ
+
+;	Muck around with some of them
+
+	mov	#ctls,r0		;ctls flags
+	mov	#deftyp,r1		;deftyp
+	bit	#nexte$,(r0)		;disable external?
+	beq	40$			;no
+	bic	#deext$!dep6h$,(r1)	;forget them
+	br	50$			;
+40$:	bit	#exter$,(r0)		;/extern or /par6?
+	bne	45$			;yes
+	bit	#deext$!dep6h$,(r1)	;got these setup?
+	beq	50$			;no
+45$:	bis	#exter$,(r0)		;remember it
+	bit	#dedmi$!dep6h$,(r1)	;need par6?
+	beq	50$			;no
+	bis	#par6$,(r0)		;yes
+50$:	bit	#nabor$,(r0)		;no abort
+	beq	55$			;no
+	bic	#deabo$,(r1)		;turn it off
+	br	60$			;
+55$:	bit	#deabo$,(r1)		;abort set?
+	beq	60$			;no	
+	bis	#abort$,opts		;yes
+
+60$:	mov	#opts,r0		;OPTS
+	bit	#detim$,(r1)		;timeout?
+	beq	65$			;no
+	bis	#timio$,(r0)		;yes
+65$:	bit	#desin$,defcon		;single?
+	beq	70$			;no
+	bis	#singl$,(r0)		;yes
+70$:	bit	#de22b$,defcon		;22bit device?
+	beq	75$			;no
+	bis	#bit22$,(r0)		;yes
+75$:
+
+100$:	.readw	#area,#0,#hand0,#256.,#0;read it in			;?34
+	bcc	120$			;fine
+110$:	invdev	<Handler input error>
+
+120$:	mov	#hand0,r5		;point to ourbuf
+	clr	entry			;no hentry yet
+	mov	h.dsts(r5),stat		;$stat
+	bic	fixed,stat		;/fixed_size adjustment
+	mov	sysptr,r0		;get the monitor
+	mov	c.sblk+4(r0),dvrec	;$dvrec	(will be wrong for vx)
+	inc	dvrec			;plus one
+	mov	h.siz(r5),hsize		;$hsize = size in bytes
+	mov	blocks,r0		;/size?
+	beq	130$			;nope
+	mov	r0,h.dvsz(r5)		;yes
+130$:	mov	h.dvsz(r5),dvsiz	;$dvsize
+	mov	h.gen(r5),sysgen	;sysgen
+	clr	dtype			;clear this up
+					;
+	psh	hsize			;get the size
+	clc				;a 16kw handler?
+	ror	(sp)			;get the word count
+	mov	(sp),handwc		;remember its word size
+	.readw	#area,#0,handu,(sp)+,#1	;read the handler
+	bcs	110$			;oops
+	mov	handu,r0		;get the handler
+	clr	ha.hol(r0)		;clear the hold flag
+	mov	ha.cqe(r0),h.acqe	;save the cqe flags
+	clr	ha.cqe(r0)		;clear nofetch flags
+	return				;
+.sbttl	validate handler
+
+;	Validate the name
+;
+;	The following devices are not permitted:
+;
+;	TT:	Monitor device.
+;	VM:	Monitor device.
+;
+;	LD:	Monitor device.
+;	SL:	RT-11 specific device.
+;
+;	Utility handlers are not supported.
+
+valnam:					;validate handler
+	mov	stat,r0			;get the dstat
+	bit	#noval$,opts		;/novalidate?
+	bne	10$			;yes - ignore this
+	bic	#^cronly$!wonly$,r0	;clean them out
+	cmp	r0,#ronly$!wonly$	;this a utility device?
+	beq	20$			;yes
+	mov	pname,r0		;get the name (redundant move?)
+10$:	return
+20$:	invdev	<Invalid kernel device>	;
+
+;	validate the image
+
+valima:					;validate the image
+	bit	#noima$,opts		;/noimage_check?
+	bne	10$			;yes
+	mov	#hand0,r5		;point at block zero
+	tst	h.siz(r5)		;must be non-zero
+	beq	100$			;its not
+	bmi	100$			;it cannot be 16k words long
+	mov	handu,r5		;point to block 1
+;	tst	h.cqe(r5)		;should be zero
+;	bne	100$			;its not
+	tst	h.lqe(r5)		;should be zero
+	bne	100$			;its not
+10$:	return				;
+100$:	invdev	<Invalid handler image>	;
+.sbttl	classify device
+
+cladev:
+;	clr	dtype			;clean it up
+	mov	deftyp,dtype		;collect default type
+	bit	#mmg$t,hand0+h.gen	;is this a mapped device
+	beq	150$			;nope
+
+;	Mapped device
+
+	bit	#unmap$,opts		;did they want it unmapped?
+	beq	110$			;nope
+	infdev	<Device handler is mapped>
+
+110$:	bis	#ty.dma,dtype		;yes - set the bit
+	cmp	hand0,#^r22b		;this a 22-bit handler?
+	beq	115$			;yes
+	bit	#bit22$,opts		;do they want it 22-bit?
+	beq	120$			;nope
+115$:	bis	#ty.dmx,dtype		;yes - set it 22-bit
+120$:	br	200$			;
+
+;	Unmapped device
+
+150$:	bit	#unmap$,opts		;explicit unmapped?
+	bne	160$			;yes
+	bit	#de22b$,defcon		;/22bit set in handler?
+	bne	160$			;yes
+	cmp	pname,#^rMB		;this MB?
+	beq	160$			;yes - its a virtual handler
+	infdev	<Device handler is unmapped>
+
+160$:	fall	200$
+
+200$:	bit	#synch$,opts		;/synchronous?
+	bne	210$			;yes
+	cmp	pname,#^rQU		;this QU:?
+	beq	210$			;yes
+	cmp	pname,#^rNL		;is this NL:?
+	beq	210$			;yes - always synchronous
+	cmp	pname,#^rVM		;VM?
+	beq	210$			;yes
+	cmp	pname,#^rRE		;RE:?
+	beq	210$			;yes
+	br	300$			;not synchronous
+210$:	bis	#ty.syn,dtype		;set it synchronous
+220$:	fall	300$			;
+					;
+300$:	bit	#abort$,opts		;does it support abort?
+	bne	310$			;yes - unconditional
+	bit	#nabor$,ctls		;/noabort?
+	bne	410$			;yes - disable abort
+	mov	handu,r0		;get the handler
+	tst	(r0)+			;skip the vector address
+	tst	(r0)			;got an ISR?
+	beq	410$			;no
+	add	(r0),r0			;point to the isr
+	cmp	-(r0),#207		;got an abort routine?
+	beq	410$			;no - dont set it up
+310$:	bis	#ty.abo,dtype		;yes - flag it
+
+;	Automate various options for various handlers
+;
+;	MU:	22bit
+;	MS:	22bit
+;	NQ:	22bit Single Abort Nocache Timeout
+;	NU:	22bit Single Abort Nocache Timeout
+;	DU:	22bit
+410$:	return				;
+.sbttl	prepare vector list
+
+;	Store handler CSR address
+;	Prepare a vector list for kernel installation code
+;
+;	Separate Pro/PDP CSR and vector information.
+;	Inhibit FETCH routine for handlers with dual hardware information.
+;	Setup DEV2H$ in dcont for de.con if two vector tables.
+
+prevec:	mov	#hand0+ha.csr,r1	;point to csr
+	call	v54csr			;get the real csr
+	mov	(r1),dcsr		;store the csr
+					;
+	mov	#vecs,r0		;point to the vector list
+	clr	2(r0)			;make sure second is also null
+	mov	handu,r1		;get the vector pointer
+	mov	(r1),r1			;get the vector list
+	beq	30$			;there are none
+	bmi	10$			;its a vector list	
+	mov	r1,(r0)			;single vector
+	beq	30$			;null vector
+	call	200$			;check it here
+	br	30$			;exit
+
+;	Process vector list
+;
+;	If mod2=v2 and first vector is 470 then use second list
+;	Validate vector list here - other routines assume its ok
+
+10$:	asl	r1			;vector list
+	add	handu,r1		;relocate the pointer
+	add	#2,r1			;rtfm
+	call	v54vec			;r1 -> real vector table
+	bcs	210$			;invalid vector structure
+
+;	Copy the vectors
+
+15$:	mov	#12.,r2			;count them
+20$:	mov	(r1),(r0)		;get the next
+	ble	30$			;that was the last
+	call	200$			;test it
+	add	#6,r1			;point to the next
+	dec	r2			;count the number of vectors
+	bne	20$			;fine
+	br	220$			;
+30$:	clr	(r0)			;terminate the list
+	return				;
+					;
+200$:	cmp	(r0),#600		;is this in range?
+	bhis	210$			;nope
+	bit	#1,(r0)+		;is this even?
+	bne	210$			;nope
+	clr	(r0)			;and terminate the list
+	return				;its ok
+210$:	invdev	<Invalid vector>	;
+220$:	invdev	<Too many vectors>	;
+.sbttl	patch magtape handler
+
+;	Magtape handlers require a patch for .SYNCH code
+;
+;	stat	device status
+;	handu	start of handler
+;	hsize	handler size
+
+pathan:	mov	stat,r0		;get the device status
+	bit	#npatc$,ctls	;/nopatch?
+	bne	20$		;yes - dont patch it
+
+;	Mapped MT: handlers
+
+	bit	#mmg$t,sysgen	;is it a mapped handler?
+	beq	20$		;no
+	cmpb	r0,#demtc.	;mt: ?
+	beq	10$		;yes
+	cmpb	r0,#demmc.	;mm: ?
+	beq	10$		;yes
+	cmpb	r0,#demsc.	;ms: ?
+	beq	10$		;yes
+	cmpb	r0,#demuc.	;mu: ?
+	bne	20$		;no
+10$:	mov	handu,r0	;yes - patch mt:
+	mov	r0,r1		;
+	add	hsize,r1	;
+	call	insdmt		;go patch it
+20$:	return			;
+.sbttl	prepare device record
+
+;	Setup prototype device record
+
+filder::				;build device record
+	mov	#der,r2			;r2 -> device record
+	mov	r2,r0			;get a copy
+	mov	#de.bbs/2,r1		;length
+10$:	clr	(r0)+			;clear it
+	sob	r1,10$			;
+	mov	#der,r2			;r2 -> device record
+
+;	Next four are reset after the install check
+
+	mov	stat,de.sta(r2)		;de.sta - rt-11 device status
+					;de.ent - entry point
+	mov	dvsiz,de.dsz(r2)	;de.dsz - setup the size
+	mov	hsize,de.hsz(r2)	;de.hsz - handler size
+	mov	sysgen,de.syg(r2)	;de.syg - sysgen
+
+	mov	dtype,de.typ(r2)	;de.typ - share type
+	mov	dcont,de.con(r2)	;de.con - share/plus control
+	bis	defcon,de.con(r2)	;	- default
+					;de.asp - address space
+					;de.act - acp type
+	mov	pname,de.dev(r2)	;de.dev - device name
+	mov	dname,de.fnm(r2)	;de.fnm - filename
+	mov	dname+fn.fil,de.fnm+fn.fil(r2)
+	mov	dname+fn.nam,de.fnm+fn.nam(r2)
+	mov	dname+fn.typ,de.fnm+fn.typ(r2)
+	mov	dcsr,de.csr(r2)		;de.csr - csr
+	mov	vecs,de.vec(r2)		;de.vec - vector
+	mov	vecs+2,de.ve2(r2)	;de.ve2	- second vector
+	mov	dpri,de.pri(r2)		;de.pri - priority
+					;de.que - scheduler queue
+					;de.ind - device index - byte
+					;de.han - handler start
+					;de.acc - acp access count
+					;de.ioc - i/o access count
+					;de.unm - point to the unit
+	return
+.sbttl	get control, get acp
+
+;	Setup addressing
+;
+;	de16b$	16-bit device - always true
+;	de18b$	18-bit device
+;	de22b$	22-bit device
+;	asvic$	virtual coverage
+;	devab$	virtual address device
+;	demap$	mapped addresses
+;	delog$	logical device
+;	desin$	single unit device
+;	deprc$	per process device
+;
+;	The initial computations are made before installation.
+;	They are recomputed after the installation check.
+
+	assume	de16b$ eq as16b$
+	assume	de18b$ eq as18b$
+	assume	de22b$ eq as22b$
+	assume	devab$ eq asvab$
+	assume	demap$ eq asmap$
+;	assume	delog$ eq aslog$
+	assume	desin$ eq assin$
+	assume	deprc$ eq asprc$
+
+getcon:				;compute de.con
+	mov	#der,r2		;point to it
+;	clrb	de.con(r2)	;clean it out
+	clrb	de.asp(r2)	;
+	bis	#de16b$,de.con(r2) ;this is always set
+	movb	#as16c$,de.asp(r2)
+	bit	#dedma$,de.typ(r2) ;this 18-bit?
+	beq	20$		;no
+	bis	#de18b$,de.con(r2)
+	movb	#as18c$,de.asp(r2)
+20$:	bit	#dedmx$,de.typ(r2) ;this 22-bit?
+	beq	30$		;no
+	bis	#de22b$,de.con(r2)
+	movb	#as22c$,de.asp(r2)
+30$:	bit	#virtu$,opts	;this virtual?
+	beq	40$		;no
+	bis	#devab$!de22b$!de18b$!de16b$,de.con(r2)
+	bisb	#asvab$!as22c$!as18c$,de.asp(r2)
+40$:	bit	#mmg$t,sysgen	;this a mapped handler?
+	beq	50$		;no
+	bis	#demap$,de.con(r2)
+	bisb	#asmap$,de.asp(r2)
+50$:	bit	#singl$,opts	;/single unit device?
+	beq	60$		;no
+	bis	#desin$,de.con(r2)
+60$:	bit	#reent$,ctls	;/reeentrant?
+	beq	70$		;no
+	bis	#deprc$,de.con(r2) ;yes
+	bis	#asprc$,de.asp(r2) ;yes
+70$:	bit	#aspfu$,ctls	;/all_spfun
+	beq	80$		;no
+	bis	#despf$,de.con(r2) ;yes
+80$:	bisb	de.con(r2),de.asp(r2) ;copy the constants
+	return
+
+;	These are set before we call the handler
+;	The handler modifies the code directly
+
+getacp:
+	mov	#der,r2		;get the der
+	tst	(r2)		;this file structured?
+	bpl	10$		;no
+	movb	#acrta.,de.act(r2) ;yes - set rt11a
+	br	100$		;
+10$:	bit	#specl$,(r2)	;special directory?
+	beq	20$		;no
+	movb	#acrts.,de.act(r2) ;yes
+	br	100$
+20$:	movb	#acrtn.,de.act(r2) ;non-file acp
+100$:	return
+

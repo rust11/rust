@@ -1,0 +1,133 @@
+.sbttl	show images
+.pass
+.include "lib:share.mac"
+$fedef		;feature
+$fndef		;filename
+$icdef		;image cache
+$mmdef		;mmu
+$opdef		;output
+
+;	SHOW IMAGES	Default to cache
+;
+;	SHOW IMAGES*	IMAGE SHOW*
+;
+;	/INSTALLED	IMAGE SHOW	
+;	/FULL		IMAGE SHOW/FULL
+
+shoimg::tstb	(r5)		;got anything coming?
+	beq	imgcac		;no
+	edit	<^Z"r image"}>	;r image
+	edit	<"show "*~}>	;
+	edit	<"^C"}>		;
+	jmp	build		;send to IMAGE.SAV
+
+;	List the images and hit rate
+
+imgcac::call	1000$		;get it
+	bcc	10$		;its loaded
+	jmp	kmon		;
+
+10$:	output	clr		;clean up
+print  <Image           Calls    Image           Calls    Image           Calls>
+20$:	clr	imgcnt		;
+30$:	clr	imgcol		;
+40$:	call	500$		;get the next
+	bcs	50$		;are no more
+	output	fil par=#imgnam cnt=#15. ;display the name
+	output	dec par=imgacc ctl=#rig cnt=#6
+	inc	imgcol		;count it
+	cmp	imgcol,#3	;done enough on this line?
+	beq	45$		;yes
+	type	<    >		;no
+	br	40$		;
+45$:	print			;yes
+	br	20$		;
+50$:	tst	imgcol		;partial line?
+	beq	60$		;no
+	print			;yes
+60$:	mov	imguse,r5	;point to the area
+	output	dec par=ic.clc+2(r5) ;calls
+	type	< calls, >
+	output	dec par=ic.htc+2(r5) ;hits
+	type	< hits, >	;
+	mov	ic.htc+2(r5),r0	;
+	mul	#100.,r0	;
+	div	ic.clc+2(r5),r0	;get the hit rate
+	mov	r0,r1		;r1 = quotient
+	output	dec par=r1	;
+	print	<% hit rate>	;
+	jmp	kmon		;
+
+;	Get the next entry from the cache
+
+500$:	mov	imguse,r1	;point to them
+	add	#ic.tab,r1	;point to the table
+	mov	#icens.,r2	;count them
+	clr	r3		;get the next
+	clr	r4		;
+510$:	tst	ic.vid(r1)	;this one in use?
+	beq	520$		;no
+	cmp	ic.acc(r1),r3	;this higher?
+	blo	520$		;no
+	mov	r1,r4		;yes - save it
+	mov	ic.acc(r1),r3	;get the new high
+520$:	add	#ic.bbs,r1	;point to the next
+	sob	r2,510$		;
+
+	tst	r4		;did we find one?
+	beq	530$		;no
+	mov	ic.vid(r4),r0	;yes - get the vid
+	clr	ic.vid(r4)	;once only
+	inc	imgcnt		;remember it
+	movb	r0,r1		;get the index
+	clrb	r0		;
+	swab	r0		;r0 = unit
+	add	$pname,r1	;point to the pnames
+	mov	(r1),r1		;get the name
+	add	r0,r1		;add in the unit
+	add	#<^r  0>,r1	;and rad50 0
+	mov	r1,imgnam	;setup the name
+	mov	ic.fil(r4),imgnam+fn.fil
+	mov	ic.nam(r4),imgnam+fn.nam
+	mov	ic.typ(r4),imgnam+fn.typ
+	mov	ic.acc(r4),imgacc
+	tst	(pc)+
+530$:	sec
+	return
+
+;	Copy the data back from the kernel
+
+1000$:	mov	$text,r2	;
+	inc	r2		;
+	bic	#1,r2		;
+	mov	r2,imguse	;remember it
+	$cmkrnl	#area, #1100$ pic=yes
+	return
+
+1100$:	mov	@#f$emap+<feimg.*2>,r0 ;get the feature
+	beq	1120$		;oops - not loaded
+	psh	@#m$kip6	;save this
+	mov	r0,@#m$kip6	;map it in par6
+	mov	@#m$mpa6+fe.bbs,r0 ;get the offset to the data
+	add	#m$mpa6-m$mpa1,r0  ;pointing at queue header etc.
+	mov	(r0)+,r2	;r2 is the number of bytes
+	asr	r2		;
+	mov	imguse,r1	;get the image area
+
+1110$:	psh	(r0)+		;get the next
+	mtpd	(r1)+		;store it
+	sob	r2,1110$	;do them all
+	pop	@#m$kip6	;
+	return			;
+1120$:	.soft	0		;nothing doing
+
+imgcol:	.word	0
+imgcnt:	.word	0
+imgnam:	.blkw	4
+imgacc:	.word	0
+imguse:	.word	0		;user image area
+
+$image:
+
+.end
+

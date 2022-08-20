@@ -1,0 +1,716 @@
+.title	other
+.include "dcs:dcl.mac"
+$ehdef		;expert header
+$imdef		;image
+$jbdef		;job
+$rmdef		;rmon
+.psect	other
+
+;	DCL other commands
+;
+;	%build
+;	macro	dcs:other /object=dcb:other
+;	%end
+;	%date
+;	<16-Apr-2003 25:32:19.10>
+;	%edit
+;	<27   >
+;
+;	CCL
+;	R	RUN	START	REENTER	GET	SAVE	CLOSE
+;	B	E	D	APL	BASIC	FOCAL	FILE
+;	PASCAL	EXIT	GAMMA	VAX	MAREE	IND	CLEAR
+;	MCR	ACCOUNT	MAIL	CONNECT	JOIN	UCL	TIL
+;
+;	examine	support EXAMINE as resident command
+;	deposit	support DEPOSIT as resident command
+;	base	store variable in rmon area
+;
+;	get	support GET as resident command
+;	close	support CLOSE as resident command
+;
+;	Mixed commands
+;
+;	r0	index into dispatch table
+
+other::	movb	#1,@$wild			;no checks for wildcards
+	jmp	@10$(r0)
+10$:	.word	default,r,run,start,reenter,get,save,close
+	.word	b,e,d,apl,basic,focal,file,pascal,exit,gamma
+	.word	vaxcom,maree,ind,clear,mcr,accoun,mail
+	.word	connect,join,ucl,til
+
+;	Unsupported commands
+
+get:
+save:	fatal	<Command not in system>	;unsupported commands get here
+					;
+exit:	mov	k$mwor,r0		;get the world
+	clr	$jobc(r0)		;stop the command file
+close:					;ignored
+start:					;resident DCL command
+reenter:				;resident DCL command
+forget:	jmp	kmon			;reset moved to login
+
+;	BASIC command
+;
+;	R BASIC
+;	A/N/*
+;	[run <command>]
+
+basic:	edit	<^Z"R BASIC"}>		;basic
+	mov	k$mwor,r0		;get pointer
+	movb	$bas(r0),r0		;anything special?
+	beq	20$			;nope
+	edit	<_r}>			;yep, ALL, NONE etc.
+	tstb	(r5)			;anything coming?
+	beq	10$			;nope
+	edit	<"RUN"*~}> 		;copy the rest
+10$:	jmp	buildq			;build a quiet file
+20$:	jmp	build			;build a loud file?
+
+;	PASCAL command
+;
+;	@SY:PASCAL command
+
+pascal:	edit	<^Z"@SY:PASCAL"*~}>	;run the pascal command file
+	jmp	build			;now execute it
+
+;	VAX command
+;
+;	VAX <command>	R VIP /I command
+;	VAX		R VIP /J
+
+vaxcom:	edit	<W=1>			;vax command
+	edit	<^Z"R VIP"}>		;use vip
+	edit	<!*> 20$		;got command
+	edit	<"/J">			;else multiple line mode
+	br	30$			;join common
+20$:	edit	<"/I"}*~>		;single command
+30$:	edit	<}"^C"}>		;
+	jmp	build			;
+.sbttl	maree
+
+;	MAREE command
+;
+;	MAREE/option module /macro-options
+;
+;	/rust			default - sy:maree.sav
+;	/compatibility	vms compatibility mode compiler - sy:vmscom.sav
+
+	set 	.shp 1, .com 2, .nat 3, .vms 4
+maree:	setup	$maree			;setup for options
+	scan	<^M>			;get the command options
+	edit	<C0C=1>			;default to RUST/XM
+	edit	<C1^Z"r maree"}>	;use RUST/XM compiler
+	edit	<C2^Z"r marcom"}>	;run VMS compatibility mode compiler
+	edit	<C3^Z"vax @mvs:marnat ">;use VMS native compiler
+	edit	<C4^Z"vax maree ">	;use VMS compiler
+	psh	r5			;save this
+	edit	<*~}>			;copy the rest
+	pop	r5			;get the pointer again
+	edit	<c1"vax ">		;send MACRO command to VAX
+	edit	<"macro "*~}>		;and the MACRO command
+10$:	jmp	build			;set it up
+
+$maree:	
+option	RUST		1 _	.shp		;/rust
+option	COMPATIBILITY	1 _	.com	m.vms	;/compatibility 
+option	NATIVE		1 _	.nat	m.vms	;/native
+option	VMS		1 _	.vms	m.vms	;/vms
+option
+
+m.vms:	edit	<c=1>			;remember VAX command
+	return
+
+.sbttl	apl, focal, gamma, file, account, mail, connect, clear
+
+;	APL, FOCAL, GAMMA, FILE
+;
+;	Just run the program concerned
+
+meta	<program n><jsr r0,program><.asciz /n/><.even>
+
+apl:	program	apl			;apl
+focal:	program	focal			;focal
+gamma:	program	gamma			;gamma
+file:	program	file			;file
+					;
+program:mov	r0,$temp		;point to program name
+	edit	<^Z"R "_t}>		;build the R string
+	jmp	build			;go run it
+
+;	Program or CCL
+;
+;	cusp			R CUSP
+;	cusp etc		R CUSP
+;				etc
+;				^C
+
+meta	<proccl n><jsr r0,proccl><.asciz /n/><.even>
+
+accoun:	proccl	accoun			;account
+
+proccl:	mov	r0,$temp		;point to the name
+	edit	<^Z"R "_t}>		;get the name
+	edit	<! >			;skip leading space
+	tstb	(r5)			;got any more coming?
+	beq	10$			;no - run interactively
+	edit	<*~}>			;yes - send it
+	edit	<"^C"}>			;
+10$:	jmp	build			;go do it
+
+connec:	call	cclcom
+	.rad50	/sy connecsav/
+
+.if ne 0
+	edit	<^Z"r connec">		;
+	edit	<! >			;skip space
+	tstb	(r5)			;more coming?
+	beq	10$			;no
+	edit	<" ">			;yes
+	edit	<*~>			;remainder
+10$:	edit	<}>			;new line
+	jmp	build			;
+.endc
+
+;	MAIL command
+
+mail:	edit	<^Z"R MAIL"}>		;run mail
+	edit	<! >			;skip spaces
+	tstb	(r5)			;interactive?
+	beq	10$			;yes
+	edit	<"send "*~}>		;no - send command
+	edit	<"^C"}>			;
+10$:	jmp	build			;
+
+;	CLEAR command
+;
+;	Clear the screen with 48 newlines
+
+clear:	.print	#10$			;clear the screen
+	jmp	kmon			;that's easy
+10$:	.rept	48.			;
+	.byte	15,12			;<cr><lf>
+	.endr				;
+	.byte	0			;
+	.even				;
+.sbttl	ind, join, til
+
+;	IND command
+;		/DELETE
+;		/NODCL
+;		/QUIET
+;		/TRACE
+;
+;	IND/options file parameters
+
+set	.ind 1
+ind::	setup	$ind		;ind command
+	scan	<^M>		;get options
+	edit	<C1> 10$	;option was specified
+	tstb	(r5)		;got any more coming?
+	beq	20$		;no
+10$:	scan	<^IF=1Q="File? "> ;get a command
+20$:	edit	<^Z"R IND"}>	;run ind
+	tstb	@$input		;got a spec?
+	beq	70$		;no
+	edit	<_I_S_M>	;yes
+	tstb	(r5)		;got more coming
+	beq	25$		;no
+	edit	<" ">		;yes
+25$:	edit	<*~}>		;
+.if ne 0
+	edit	<! >		;skip space
+	tstb	(r5)		;got more on line?
+	beq	60$		;no
+30$:	movb	(r5)+,r0	;get the next
+	beq	50$		;all done
+	cmpb	r0,#'\		;end of line?
+	beq	40$		;yes
+	edit	<_r>		;
+	br	30$		;
+
+40$:	edit	<}>		;yes
+	edit	<! >		;skip spaces
+	tstb	(r5)		;got more?
+	bne	30$		;yes
+	br	60$		;no - skip newline
+50$:	edit	<}>		;
+60$:
+.endc
+
+70$:	jmp	build		;and build it
+
+$ind:
+option	DELETE		1 D	.ind
+option	NODCL		1 N	.ind
+option	QUIET		1 Q	.ind
+option	TRACE		1 T	.ind
+option
+
+;	JOIN node command
+;
+;	/USERNAME
+;	/PASSWORD
+;
+;	r join
+;	node
+;	username
+;	password
+;	command
+;	^C
+;	logout
+
+set	.join 1
+join::	setup	$join		;ind command
+	scan	<^M>		;get options
+	scanend	<^IF=1Q="Node? "> ;get a command
+	edit	<^Z"R JOIN"}>	;run join
+	edit	<_I_S_M}"^C"}>	;build the command
+20$:	jmp	build		;and build it
+
+$join:
+option
+
+;	TIL	
+;
+;	CCL command without ^C
+
+til:	clr	j$bcct		;no count
+	tstb	(r5)		;anything coming?
+	beq	10$		;no
+	call	pasco2		;pass command area
+	movb	#-1,@$expand	;force return
+	call	build		;
+10$:	$imgact	#area img=#20$ ctl=#imcha$!imdcl$ sta=#0 par=#0
+	edit	<?>		;
+20$:	.rad50	/sy til   sav/	;
+.if ne 0
+.sbttl	CC compiler
+
+;	CC compiler
+;
+;	/list=spec	specify compiler listing
+;	/object=dev:	specifies object device		
+;	
+;	/assemble	Default calls assembler after compile.
+;	/delete		Default deletes AS source file.
+;	/eis
+; -f	/fpu
+; -p	/profile
+;	/verify
+;	/link		Link resulting file
+;
+;	CC		Equivalent to DCL R command.
+;	CC string	Interpret options
+;	link/cc		Adds C:SUPORT,C:CLIB/BOT:2000
+
+cc:	tstb	(r5)			;got a command for CC?
+	beq	20$			;no
+	setup	$cc			;
+	scan	<^M>			;get command options
+	scan	<^IF=1Q="File? ">	;source file
+	scanend	<^OF=1Q="">		;
+	edit	<_U_O"="_I_S_M>		;setup the command
+	edit	<c0"/A">		;assemble by default
+	edit	<}"^C"}>		;yes
+	br	30$			;
+20$:	edit	<^Z"R CC"}>		;just run it
+30$:	jmp	build			;send it to MCR
+
+$cc:
+option	ASSEMBLE	1 _		;assemble
+option	NOASSEMBLE	1 _	c.nass	;
+;option	NODELETE	1 _		;nodelete
+option	DEBUG		1 D		;debug
+option	EIS		1 E		;eis
+option	FPU		1 F		;fpu
+option	PROFILE		1 P		;profile
+option	VERIFY		1 V		;verify
+option
+
+c.nass:					;don't assemble
+	edit	<c=1>			;
+	return
+;c.ndel:				;don't delete source
+;	return
+.endc
+.sbttl	default command, run
+
+;	set [no]ind
+;	set [no]ccl
+;	set noucl		no UCL interface
+;	set ucl			ucl is SY:UCL.SAV
+;	set ucl myucl		_UCL := DK:MYUCL.SAV
+;	ucl command		pass command to UCL
+;
+;	my*com := ucl mycom
+;	mycom aaa bbb
+;	ucl mycom aaa bbb
+;
+;	510	byte count
+;	512	string minus verb and separator
+;
+;	ucf	ucf, jsw=chain, chain=data,  gtlin=0
+;	dcl	dcl, jsw=0, chain=data-verb, gtlin=data-verb*csi
+;	ccl	ccl, jsw=0, chain=data-verb, gtlin=data=verb*csi
+;	ucl	ucl, jsw=chain, chain=data,  gtlin=0
+;	showcom	dcl, jsw=0, chain=0, gtlin=tt:=
+;
+;	ucf	command and parameters
+;	dcl	does not apply
+;	ccl	parameters
+;	ucl	command and parameters
+
+default:
+ccl:				;check CCL
+	call	ccldev		;get dk or sy
+				;r0 = dk or sy
+	call	getnam		;get the filename
+	bcs	ucl		;invalid - try UCL
+	mov	k$mwor,r0	;
+	clr	eh.kma(r0)	;remove kmon from memory
+	.serr			;catch invalid devices
+	$imgact	#area, img=#filnam, ctl=#imact$!imget$, sta=#0, par=#0
+	ror	-(sp)		;save c-bit
+	.herr			;reenable hard errors
+	rol	(sp)+		;get c-bit back
+	bcc	10$		;fine
+	jmp	uclcal		;not found - call UCL
+				;
+10$:	tstb	@$expand	;is this a display?
+	beq	30$		;no
+	.purge	#15.		;yes
+	type	<CCL Run >	;
+	mov	xcomman,r1	;get the name
+	cmpb	(r1),#space	;got a space?
+	bne	22$		;no
+	inc	r1		;yes
+22$:	movb	(r1)+,r0	;get the next
+	ble	24$		;done
+	cmpb	r0,#space	;done?
+	beq	24$		;yes
+	.ttyout			;no
+	br	22$		;
+24$:	print			;
+	tstb	@$input		;got any input?
+	beq	26$		;no
+	mov	$text,r4	;
+25$:	movb	(r4)+,r0	;all done
+	ble	26$		;all done
+	.ttyout			;display it
+	br	25$		;
+26$:	jmp	kmon		;
+
+;	Build CCL command
+
+
+30$:	psh	#filnam		;address of filename
+	mov	#imopn$!imccl$!imcha$,r1
+	jmp	cclcha		;run it
+.sbttl	UCL commands
+
+;	UCL	command
+
+set	.ucl 1
+ucl::	setup	$ucl		;ucl command
+	mov	sysptr,r3	;get the system
+	add	#rm.ucf,r3	;point to ucl filename
+	tst	(r3)		;do we have one?
+	bne	10$		;yes
+	mov	#^rsy,(r3)+	;no - define it
+	mov	#^rucl,(r3)+	;
+	clr	(r3)+		;
+	mov	#^rsav,(r3)+	;
+	sub	#4*2,r3		;backup
+10$:	mov	#j$bcfn,r1	;get the chain filename area
+	mov	(r3)+,(r1)+	;copy the name
+	mov	(r3)+,(r1)+	;
+	mov	(r3)+,(r1)+	;
+	mov	(r3)+,(r1)+	;
+				;
+	clrb	j$bcct		;no command file
+	setup	$ucl		;ind command
+	scan	<^M>		;get options
+	edit	<C1> ucllst	;/LIST was specified
+	tstb	(r5)		;got any more coming?
+	bne	ucldef		;yes
+	br	uclrun		;no - just run UCL
+
+;	UCL/LIST=file	
+
+ucllst:	edit	<O0O="TT:">	;default listing device
+	edit	<^Z_O"="}>	;setup command
+	bisb	#200,@$expand	;force return
+	call	build		;push the command
+	bicb	#200,@$expand	;clear the flag
+uclrun:	$imgact	#area img=#j$bcfn ctl=#imcha$!imdcl$ sta=#0 par=#0
+	edit	<?>		;
+
+$ucl:
+option	LIST		1 _	.ucl	outopt	l=0
+option
+
+;	Call UCL command
+
+uclcal:	mov	#line,r5	;the input line
+	cmpb	(r5),#'_	;start with an underline?
+	bne	ucldef		;no
+	inc	r5		;yes - forget it
+
+ucldef:	mov	sysptr,r3	;get the system
+	add	#rm.ucf,r3	;point to ucl filename
+	tst	(r3)		;do we have one?
+	beq	130$		;no - forget it
+	tstb	@$expand	;this a display?
+	beq	105$		;no
+	type	<UCL >		;yes
+	.print	xcomman		;display it
+	jmp	kmon		;
+
+;	Build UCL command
+
+105$:	mov	#j$bcfn,r1	;get the chain filename area
+	mov	(r3)+,(r1)+	;
+	mov	(r3)+,(r1)+	;
+	mov	(r3)+,(r1)+	;
+	mov	(r3)+,(r1)+	;
+	mov	#j$bcct,r1	;r1 -> j$bcct
+	mov	r1,r2		;r1 -> counter
+	clr	(r2)+		;r2 -> string
+110$:	inc	(r1)		;count it
+	movb	(r5)+,(r2)+	;move it
+	bgt	110$		;done
+
+120$:	$imgact	#area img=#j$bcfn ctl=#imcha$!imucl$!imchs$ sta=#0 par=#0
+130$:	edit	<?>		;
+.sbttl	r, run, mcr
+
+;	run image string
+;	r image string
+
+run:	mov	#^rdk,r0	;default is DK:
+	cmpb	(r5),#'/	;this RUN/something?
+	bne	runcom		;no
+	mov	#pro.run,r0	;yes
+	jmp	process		;run detached job
+
+mcr:	sub	#3,r5		;backup to the filename
+	edit	<W=1^Z>		;setup
+	mov	#^rsy,r0	;device is sy:
+	br	mcrcom		;
+
+r:	mov	#^rsy,r0	;default is sy:
+	fall	runcom		;
+
+runcom:	psh	r0		;save default
+	edit	<W=1^Z! |?>	;setup for it
+	pop	r0		;restore default
+mcrcom:	call	getnam		;get the file
+	call	pascom		;pass the remainder of it
+	movb	#-1,@$expand	;force return
+	call	build		;
+120$:	$imgact	#area img=#filnam ctl=#imcha$!imdcl$ sta=#0 par=#0
+
+;	CCLCOM
+;
+;	call	cclcom
+;	.rad50	/sy prgnamsav/
+
+cclcom:	mov	#imccl$!imcha$,r1
+cclcha:	psh	r1		;save this
+	call	pascom		;pass the command
+	tstb	@$input		;got any input?
+	beq	10$		;no - nothing to build
+	movb	#-1,@$expand	;signal return to caller
+	call	build		;build the command
+10$:	pop	r1		;get back the flags
+	$imgact	#area, img=(sp)+, ctl=r1, sta=#0, par=#0
+	edit	<?>		;oops
+
+;	Work out CCL device
+; 
+;	Use DK: if assignment path DK: to SY: exists
+;	Otherwise use SY:
+
+path=6 
+
+ccldev:	world			;get the table
+	mov	$paths(r0),r1	;point to them
+	mov	#^rdk,r0	;assume dk:
+10$:	cmp	(r1),r0		;this the a dk path?
+	bne	20$		;no
+	mov	#path-2,r2	;check them all
+15$:	tst	(r1)		;all done?
+	beq	30$		;yes - use sy
+	cmp	(r1)+,#^rsy	;this going to sy?
+	beq	40$		;yes - use dk:
+	sob	r2,15$		;no
+	br	30$		;failed - use sy:
+20$:	add	#path*2,r1
+	cmp	(r1),#-1	;end of the table?
+	bne	10$		;no
+30$:	mov	#^rsy,r0	;no path - use sy:
+40$:	return
+.sbttl	pass command
+
+;	Pass command data
+;
+;	Setup command chain area
+;	Setup command file
+
+pascom:	psh	(pc)+		;with ^C
+pasco2:	clr	-(sp)		;no ^C
+	clrb	@$input		;assume no input
+	edit	<! >		;skip white space
+	mov	#j$bcct,r2	;r2 -> count
+	mov	r2,r3		;r3 -> output area
+	clr	(r3)+		;clear it
+	mov	r5,r0		;get another copy of it
+10$:	inc	(r2)		;count characters
+	movb	(r0)+,(r3)+	;get the next
+	bgt	10$		;
+20$:	edit	<^I>		;start the I field
+				;
+30$:	edit	<! > 40$	;stop on a space
+	edit	<*> 30$		;copy anything else
+40$:	edit	<^O\*~>		;get the O field
+	edit	<^Z(I%||)(O%_O"=")_I}>
+	tst	(sp)		;need ^C
+	beq	50$		;no
+	edit	<"^C"}>		;yes
+50$:	tst	(sp)+		;
+	return
+.sbttl	get file & get name
+
+;	Convert ascii to filename
+;
+;	r0 =	default device (SY:, DK:)
+;
+;	r5 ->	input stream (popped past)
+;	r1 ->	output block (defaults preset)
+;
+;	r5 ->	past string
+;	r1 ->	output block (unchanged)
+;	c=0	filename present
+;	c=1	no filename found
+
+getnam:
+	mov	#filnam,r1	;
+	mov	r0,(r1)		;
+	clr	2(r1)
+	mov	#^rsav,6(r1)
+	pshs	<r2,r1>		;
+	mov	r1,r2		;r2 -> area
+	call	50$		;get the name
+	beq	30$		;nothing found - dont accept null device
+	cmpb	(r5),#':	;got a colon?
+	bne	10$		;nope
+	mov	(r2),-(r2)	;yes - move in the device
+	call	40$		;now get the name
+10$:	call	50$		;get the second half
+	edit	<@~>		;skip trailing alphanumerics
+	cmpb	(r5),#'.	;got a dot coming?
+	bne	20$		;nope
+	call	40$		;yes - get the type
+20$:	tst	(pc)+		;we got something
+30$:	sec			;nothing there
+	pops	<r1,r2>		;restore these
+	return
+
+40$:	inc	r5		;skip colon or dot
+50$:	tst	(r2)+		;next word
+	mov	r5,r1		;
+	call	conar		;get the rad50
+	mov	r1,r5		;
+	mov	r0,(r2)		;store it
+	return
+filnam:	.blkw	4
+
+
+getfil:	edit	<(\@@@\:)@>,,nofile
+	edit	<(\@@@@@\!@~!)(.\@@@\)}> ;
+	edit	<! >		;remove the trailing space
+	return
+nofile:	fatal	<No file>
+.sbttl	examine, deposit and base
+
+meta <octal y,z=1><jsr r2,octal><.ascii <z>&y&>
+$base:	.word	0
+b:	octal	< >,0		;get a space and a number
+	mov	r0,$base	;and save it
+	br	bomb
+
+e:	octal	< >		;get a space and the number
+	mov	r0,r2		;save it
+	octal	<->		;get an octal number after a '-'
+	bne	bomb		;nope
+	mov	r0,r4		;save the end address
+10$:	mov	#8.,r5		;count eight per line
+20$:	mov	(r2)+,r1	;get the next
+	call	number		;and call it
+	type	< >		;type a space
+	cmp	r2,r4		;any more?
+	bhi	30$		;nope
+	dec	r5		;any more?
+	bne	20$		;yes
+	.feed			;feed
+	br	10$		;and get the next
+30$:	.feed
+	return
+
+d:	octal	< >		;get the address
+	bcs	bomb		;forget it
+	mov	r0,r2		;save the address
+	octal	<=>,0		;get the value
+	bcs	bomb		;forget it
+10$:	cmp	r2,sp		;too high?
+	blo	12$		;its o.k.
+	cmp	r2,top		;too low?
+	blo	30$		;yes, it bombs
+12$:	mov	r0,(r2)+	;store the value
+	octal	<,>,0		;get one with a comma
+	bcc	10$		;more
+15$:	br	bomb		;go check it
+30$:	fatal	<Address>
+
+bomb:	edit	<!*?>		;check end of line
+	return
+
+octal:	movb	(r2)+,r0	;get the flag
+	beq	100$		;no base required
+	mov	$base,r0	;needs base added
+100$:	cmpb	(r2)+,(r5)	;this it?
+	sec
+	bne	130$		;nope
+	inc	r5		;skip it
+	clr	r3		;start off zero
+110$:	cmpb	(r5),#'0	;check limits
+	blo	120$		;end of number
+	cmpb	(r5),#'7	;
+	bhi	120$		;bad things here
+	movb	(r5)+,r1	;get the number
+	sub	#'0,r1		;de-mystify it
+	asl	r3		;re-digitize it
+	asl	r3		;
+	asl	r3		;
+	add	r1,r3		;put the digit in
+	br	110$		;thats it
+120$:	add	r3,r0		;add it in
+130$:	bitb	(r5),(r5)	;check for end of line
+	rts	r2
+
+number:	mov	#111111,r3 ;there once was a glichette named brigette
+1$:	clr	r0	;who fancied the occassional fidget
+2$:	asl	r1	;well, its fetch a bit here
+	rol	r0	;and fudge a bit there
+3$:	asl	r3	;when it itches, ya just find ya digit
+	bcc	2$	;keep fiddling
+4$:	add	#60,r0	;start or continue printing
+	.ttou		;print the digit
+	tst	r3	;done all digits ?
+	bne	1$	;nope, go scritch it
+	return
+.end
+

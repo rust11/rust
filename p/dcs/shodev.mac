@@ -1,0 +1,1171 @@
+Y2K=1
+.title	shodev
+.include "lib:share.mac"
+.pass
+$asdef		;address space
+$dedef		;device
+$hadef		;handler
+$iqdef		;i/o queue
+$opdef		;output
+$prdef		;pcr
+$sgdef		;sysgen
+$undef		;unit
+
+;	SHOW DEVICES command
+;
+;	+----------------------------------------------------------------------+
+;	! This module is compiled with SHOTIM. SHOTIM must be in the same      !
+;	! 4kw window as the kernel server routine at the end.		       !
+;	+----------------------------------------------------------------------+
+;
+; ???	/ALL conflicts with /ALLOCATED
+;
+;	SHOW DEVICES/options dev
+;
+;	dev	logical name
+;	_dev	permanent name
+;
+;	d	d*
+;	ddu	unit only
+;	dd	that device only
+;
+;	/brief		summary line - default
+;	/full		device & volume
+;	/device		device section only
+;	/volume		volume section only
+;
+;	/process	only those owned by process root
+;	/group		only those in same group
+;	/mounted	only mounted devices
+;	/allocated	only allocated devices
+;	/owner		?
+;
+;	/files		files open on device
+;	/system		system files open on device
+;	/nosystem	only non-system files open on device
+
+shodev::
+	case	<shoass>	;show RT-11 assignments
+	clr	frmcnt		;count display frames
+	clr	heaflg		;clear the header flag
+	clr	opts		;
+	output	clr		;clear it
+
+	setup	$kernel,i.lex	;set it up
+	scan	<D=0^M>		;skip the command
+	tstb	(r5)		;end of line?
+	bne	10$		;we have more
+	bit	#wild$,opts	;is this a wildcard search?
+	bne	5$		;yes
+	bis	#wild$,opts	;make it all
+	call	eol		;yes
+5$:	clr	lognam		;no logical name
+	call	cycdev		;get them all
+	jmp	kmon
+
+;	Show specific devices
+;
+;	Logical names are translated, unless they start with '_'.
+
+10$:	clr	pernam		;
+	scan	<^IF=1Q="Device? "> ;get next device
+	psh	r5		;save input pointer for loop
+	mov	$input,r5	;$input -> ascii device name
+	call	getnam		;process the device name
+	bcs	20$		;invalid name
+	call	cycdev		;show one device
+20$:	pop	r5		;get this back
+	tstb	(r5)		;any more?
+	bne	10$		;yes
+	jmp	kmon		;nope
+
+i.lex:	edit	<r,r=" ">	;replace commas with spaces
+	cmpb	r0,#'_		;this a permanent device?
+	bne	10$		;no
+	inc	pernam		;yes
+	inc	r5		;skip it
+	movb	(r5),r0		;and replace it
+10$:	return
+
+$kernel:
+option	BRIEF		1 _	null	s.brie	;simple stuff
+option	FULL		1 _	null	s.full	;handler & volume
+option	DEVICE		1 _	null	s.devi	;device only
+option	VOLUME		1 _	null	s.volu	;volume only
+						;
+option	ALL		1 _	null	s.all	;all devices
+option	SYSTEM		1 _	null	s.syst	;system only
+option	GROUP		1 _	null	s.grou	;group only
+option	OWNER		1 _	null	s.owne	;owner uic devices
+option	PROCESS		1 _	null	s.proc	;only those for us
+option	MOUNTED		1 _	null	s.moun	;only mounted
+option	ALLOCATED	1 _	null	s.allo	;only allocated devices
+;
+;option	EXTERNAL	1 _	null	s.exte	;external only
+option	KERNEL		1 _	null	s.kern	;kernel only
+option	REMOTE		1 _	null	s.remo	;remote only - vamp/sharenet
+option	LOCAL		1 _	null	s.loca	;local only
+option	UTILITY		1 _	null	s.util	;utility only - ignored
+option	HOST		1 _	null	s.host	;host only - ignored
+option
+
+meta	<subopt c d e><setopt d><c: bis #e,opts><return>
+meta	<setopt c><c=$><$=$*2>
+$=1
+
+;	Following select what will be displayed
+
+s.all:
+s.brie:	return
+;subopt	s.brie	brief$	brief$			;/brief
+subopt	s.full	full$	full$!volum$!devic$	;/full
+subopt	s.volu	volum$	volum$			;/volume
+subopt	s.devi	devic$	devic$			;/device
+
+;	Following select which will be displayed
+
+subopt	s.syst	syste$	syste$			;/system
+subopt	s.grou	group$	group$			;/group
+subopt	s.proc	proce$	proce$			;/process
+subopt	s.owne	owner$	owner$			;/owner
+subopt	s.moun	mount$	mount$			;/mounted
+subopt	s.allo	alloc$	alloc$			;/allocated
+
+;	Following are ignored - used by SHARE-eleven only
+
+pseud$=0
+subopt	s.kern	kern$	kern$!local$!pseud$	;/kernel
+subopt	s.remo	remot$	host$!remot$		;/remote
+subopt	s.loca	local$	kern$!local$!pseud$	;/local
+subopt	s.util	util$	util$			;/utility
+subopt	s.host	host$	host$!remot$		;/host
+;subopt	s.syst	pseud$	pseud$!local$!kern$	;/pseudo
+
+wild$ = kern$!remot$!local$!util$!host$!pseud$
+mode$ = syste$!group$!owner$!proce$
+statu$ = mount$!alloc$
+load$ = syste$!group$!proce$!owner$!mount$!alloc$
+.sbttl	cycle thru devices
+
+;	Cycle thru the devices
+;
+;	Check each of the devices for a match
+;	Call the display routine
+
+meta	<infdev a><jsr r1,infdev><string <a>,200>
+
+cycdev:					;show them all
+	clr	unicnt			;
+	mov	#-1,nxtdev		;
+10$:	inc	nxtdev			;apparently not
+	call	seldev			;get the next device record
+	bcs	30$			;are no more
+	inc	devcnt
+	mov	#-1,nxtuni		;get the next unit
+	clr	uniloa			;unit is loaded
+20$:	inc	nxtuni			;select the next unit
+	call	seluni			;get it
+	bcs	26$			;no more
+	call	matuni			;is this for us?
+	bcs	25$			;no
+	inc	uniloa			;count the device
+	call	shouni			;go show a unit
+	inc	unicnt			;
+25$:	bit	#full$!volum$,opts	;want them all?
+	bne	20$			;
+	bit	#devic$,opts		;is this /device only?
+	beq	20$			;no
+
+26$:	tst	uniloa			;get a unit on this device?
+	bne	10$			;yes
+	bit	#load$,opts		;loaded units only?
+	bne	29$			;yes
+	call	matgen			;match the generic name
+	bcs	29$			;not matched
+28$:	inc	unicnt			;count it
+					;uniloa=0
+	call	shouni			;display the device only
+29$:	br	10$			;do the next
+
+30$:	tst	unicnt			;did we get anything?
+	bne	40$			;yes
+	call	devnfd			;no - tell them
+	sec				;
+40$:	return
+.sbttl	match unit
+
+;	Match unit
+;
+;	Check name: default is all
+;	Check mode: /system/group/process
+;	Check status: /mounted/allocated
+
+matuni:
+	call	matnam			;check the name
+	bcs	10$			;not for us
+	call	matmod			;check the mode
+	bcs	10$			;no for us
+	call	matsta			;check ownership
+10$:	return
+
+;	Match the device name
+
+matnam:	.enabl	lsb			;match the device name
+	movb	unr+un.uni,r0		;get the unit
+	add	#<^r  0>,r0		;
+	br	5$			;
+matgen:	clr	r0			;match generic name
+5$:	add	der+de.dev,r0		;get the device name
+	mov	#devnam,r1		;
+	clr	(r1)			;clean it up
+	clr	2(r1)			;
+	call	conra			;get it in ascii
+
+	mov	#lognam,r0		;logical name
+	mov	#devnam,r1		;device name
+10$:	tstb	(r0)			;all done?
+	beq	20$			;yes
+	cmpb	(r0)+,(r1)+		;is this it?
+	beq	10$			;yes
+	br	30$			;no match
+20$:	tst	(pc)+			;matchs
+30$:	sec				;no match
+	return
+	.dsabl	lsb
+
+;	/system	- all those mounted /system
+;
+;	/group	- those mounted for this group with /group
+;	/owner	- those with this processes group UIC
+;	/process/allocated - those allocated for this process
+;
+;	p.huic	uic of this process
+;	p.rpid	pid of allocator process
+;	p.rnam	name of allocator process
+
+matmod:					;match mode
+	bit	#mode$,opts		;specified a mode?
+	beq	50$			;no - take them all
+	bit	#syste$,opts		;want /system?
+	beq	10$			;no
+	bit	#unsys$,unr+un.con	;this mounted/system
+	bne	50$			;yes - take it
+10$:	bit	#group$,opts		;want /group?
+	beq	20$			;no
+;	bit	#ungrp$,unr+un.con	;got /group?
+;	beq	20$			;yes
+	cmpb	unr+un.uic+1,p.huic+1	;same group as us?
+	beq	50$			;yes
+20$:	bit	#owner$,opts		;want /owner?
+	beq	30$			;no
+	cmp	unr+un.uic,p.huic	;is this our uic?
+	bne	50$			;no
+30$:	bit	#proce$,opts		;want /process?
+	beq	60$			;no - this fails
+.if ne 0
+	tst	unr+un.pcr		;is this allocated anywhere?
+	beq	60$			;no - it fails
+	cmp	unr+un.pcr,p.hpcr	;is this our pcr?
+	beq	50$			;yes
+	cmp	unr+un.pcr,p.rown	;this belong to our owner?
+	bne	60$			;no
+.iff
+	tstb	unr+un.own		;this owned?
+	beq	60$			;no - it fails
+	cmpb	unr+un.own,p.rpid	;this us?
+	bne	60$			;no
+.endc
+50$:	tst	(pc)+
+60$:	sec
+	return
+
+;	Check mounted or allocated
+
+matsta:	bit	#statu$,opts		;want /mounted or /allocated?
+	beq	50$			;no
+	bit	#alloc$,opts		;want /allocated?
+	beq	10$			;no
+	tst	unr+un.pcr		;is this allocated?
+	bne	50$			;yes
+10$:	bit	#mount$,opts		;want /mounted?
+	beq	60$			;no
+	bit	#unmou$,unr+un.con	;is it mounted?
+	beq	60$			;no
+50$:	tst	(pc)+			;
+60$:	sec
+	return
+.sbttl	get name
+
+;	Get name
+;
+;	c=1	invalid name
+
+getnam:	clr	lognam		;
+	mov	$input,r5	;get the input string
+	mov	r5,r1		;get it upper case
+	call	large		;
+	mov	#lognam,r4	;and the output
+	clr	(r4)		;clean it up
+	clr	2(r4)		;
+	tstb	(r5)		;got anything at all?
+	beq	40$		;no - show all (show dev _)
+	edit	<@\@@!:> ,,10$	;get the name (with wildcards)
+	edit	<!*> ,,20$	;must be the end
+10$:	br	invnam		;invalid name
+20$:	tst	pernam		;translation disabled?
+	bne	40$		;yes
+	mov	#32.,r1		;count this
+30$:	$trnlog	#area, #lognam, #0, #lognam, #0, #0, #0
+	bcs	40$		;we have the name
+	sob	r1,30$		;more
+	br	invnam		;infinite loop
+40$:	clc
+	return
+
+devnfd:	mov	#devnf,r1
+	call	locerr
+	sec
+	return
+
+invnam:	mov	#ivnam,r1	;
+	call	locerr
+	sec
+	return
+
+locerr:	output	clr
+	type	<?DCL-W->	;
+	asl	r1
+	output	str par=20$(r1)
+	type	< >		;
+	output	str par=$input
+	print
+	$stsev	#warn$		;setup warning
+	return
+
+20$:	.word	100$,101$,102$
+ivnam=0
+devnf=1
+norig=2
+100$:	.ascii	_Invalid device name_<200>
+101$:	.ascii	_Device not found_<200>
+102$:	.ascii	_Insufficient rights_<200>
+	.even
+.sbttl	brief description
+
+;	Display header & brief
+;	Display brief
+
+;print <SHAREplus V1.1 Devices on  13-Aug-84  20:45:39.96  Uptime 1 20:45:33.42>
+;print <RUST/XM V1.1 Devices on  13-Aug-84  20:45:39.96    Uptime 1 20:45:33.42>
+;print <Device Device      Device      Error   Volume  Free    I/O  Trans Mount>
+;print <Name  Category Characteristics Count    Label Blocks  Count Count Count>
+;      <DY0: floppy    mnt all spl r/o     0   SYSTEM    245  65334    22     1>
+
+shouni:	call	gettim			;get most recent time
+	bit	#full$!volum$!devic$,opts ;is this a full display?
+	beq	10$			;no
+	jmp	shoful			;show the entire unit
+10$:	call	shohea			;yes - put up the header
+
+20$:
+	call	xdevice			;
+	type	<  >
+	call	xcateg			;category
+	type	< >
+
+	tst	uniloa			;this unit mounted?
+	beq	100$			;no
+
+	call	xchars			;characteristics
+;	type	< >
+	call	xerror			;errors
+	type	<  >
+	call	xlabel			;label
+	type	< >
+	call	xfree			;free blocks
+
+	type	<   >
+	call	xopers			;i/o count
+	type	< >
+	call	xtrans			;trans count
+	type	< >
+	call	xmount			;mount count
+	print
+	return
+
+;	Installed device with no units mounted
+
+100$:	print	<ins>			;installed only
+	return
+.sbttl	full description
+
+;Device DY:	 RX02 floppy diskette 		19-Mar-84 12:24:23.12
+
+meta	<flag c d e><.word c,d><.asciz &e&><.even>
+
+shoful:					;
+	tst	frmcnt			;is this the first?
+	beq	5$			;yes
+	print				;no - put another line in
+5$:	inc	frmcnt
+	print
+	type	<Device  >
+	call	xdevice			;the device name
+	type	<           >		;
+	call	xdesc
+	type	< >
+	call	dattik			;display the time
+	print
+	bit	#devic$,opts		;show dev/handler?
+	beq	10$			;no
+	call	shohan			;yes
+10$:	tst	uniloa			;is the unit loaded?
+	beq	20$			;no
+	bit	#volum$!full$,opts	;volume?
+	beq	20$			;no
+	call	shovol			;show the volume
+20$:	return
+.sbttl	show handler
+
+;Device status		Active Abort
+;Install options	/single /synchronous /per_process /timeout /abort
+;			/external
+;Handler options	read-only, special functions, variable-size
+;			write-only
+;			utility
+;			Noread Functions Variable Mapped Timeout Log
+;			Nowrite
+;			Utility
+;
+;			bootable, installation check,
+;Sysgen options		Mapped, time-out, error-log,  
+;
+;Address space  virtual 18-bit		Device handler      SY:DYX.SYS
+;Priority		    12		Handler address		100004
+;Transaction count	    12		CSR address		177560
+;I/O count		     0		Vector address         300,304
+
+shohan:
+	print
+	type	<Device status          >
+	mov	#devops,r2		;go display it
+	call	shobit			;
+	print
+
+	type	<Install options        >
+	mov	#insops,r2		;
+	call	shobit			;installation options
+	print
+
+	type	<Handler options        >
+	mov	#hanops,r2		;
+	clr	-(sp)			;flag no initial
+	bit	#deron$,der+de.sta	;read-only?
+	beq	20$			;no
+	bit	#dewon$,der+de.sta	;write-only?
+	beq	10$			;no
+	type	<Utility >		;yes - utility
+	br	30$
+10$:	type	<Nowrite >		;read-only
+	br	30$
+20$:	bit	#dewon$,der+de.sta	;write-only?
+	beq	30$			;no
+	type	<Noread >		;
+30$:	inc	(sp)			;
+40$:	call	shobit			;handler options
+	tst	(sp)+			;got an initial?
+	bne	50$			;yes
+	type	<       >		;put out write-only blank
+	br	60$
+50$:	type	< >			;difference of shortest/longest
+60$:	print
+	print
+
+;15			   14
+;Address space  virtual 18-bit		Device handler      SY:DYX.SYS
+;Priority		    12		Handler address		100004
+;Transaction count	    12		CSR address		177560
+;I/O count		     0		Vector address         300,304
+
+	type	<Address space  >	;address space
+	call	xbus			;get the bus type
+	type	<          >
+
+	type	<Device handler >
+	output	fil par=#der+de.fnm cnt=#14. ctl=#rig
+	print	
+
+	type	<Priority       >
+	movb	der+de.pri,r1
+	tstb	uniloa
+	beq	80$
+	movb	unr+un.pri,r1
+80$:	output	dec par=r1 cnt=#14. ctl=#rig
+	type	<          >
+
+	type	<Handler address>
+	output	oct der+de.han cnt=#14. ctl=#rig
+	print
+
+	type	<Transaction count>
+	output	dec par=der+de.acc cnt=#12. ctl=#rig
+	type	<          >
+
+	type	<CSR address    >
+	output	oct par=der+de.csr cnt=#14. ctl=#rig
+	print
+
+	type	<I/O outstanding>
+	output	dec par=der+de.ioc cnt=#14. ctl=#rig
+	type	<          >
+
+	type	<Vector address >
+	type	<       >
+	tst	der+de.ve2		;got two of them?
+	bne	310$			;yes
+	type	<    >
+310$:	output	oct par=der+de.vec cnt=#3 ctl=#zer
+	tst	der+de.ve2		;got two of them?
+	beq	320$			;no
+	type	<,>
+	output	oct par=der+de.ve2 cnt=#3 ctl=#zer
+320$:	print
+	print
+	return
+
+devops:	flag	-1	h.acqe		<Active >
+	flag	-1	.iqlnk		<Queued >
+	flag	hahol$	h.ahol		<Held >
+	flag	hadon$	h.ahol		<Done >
+	.word	0
+
+insops:	flag	desin$	der+de.con	</Single >
+	flag	desyn$	der+de.typ	</Synchronous >
+	flag	deprc$	der+de.con	</Reentrant >
+	flag	detim$	der+de.typ	</Timeout > 
+	flag	deabo$	der+de.typ	</Abort >
+	flag	despf$	der+de.con	</Functions >
+	flag	deext$	der+de.typ	</External >
+	flag	dep6h$	der+de.typ	</Par6 >
+	.word	0
+
+hanops:	flag	defun$	der+de.sta	<Functions >
+	flag	sgmmg$	der+de.syg	<Mapped >
+	flag	sgerl$	der+de.syg	<Errors >
+	flag	sgtim$	der+de.syg	<Timeout >
+	.word	0
+.sbttl	show volume
+
+;Volume status		On-line, Mounted, Allocated, Dismounting, Active
+;Mount options		/nowrite /cache /spool /system /group /share
+;
+;Error count		     1		Owner process id	000000
+;Operations completed	     0		Owner process name	SYSTEM
+;
+;Volume label		    SYS		Free blocks		  2407
+;Owner UIC	      [001,004]		Total blocks		 12345
+;Volume     RWED,RWED,RWED,RWED		Transaction count	     1
+;File       RWED,RWED,RWED,RWED		Mount count 		     3
+;File structure           RT11A		Reference count              0
+
+shovol:	type	<Volume status          >   
+	mov	#volops,r2
+	call	shobit			;volume status
+	print
+	type	<Mount options          >
+	mov	#mouops,r2
+	call	shobit			;mount options
+	print
+	print
+
+	type	<Error count    >
+	output	dec par=unr+un.erc cnt=#14. ctl=#rig
+	type	<          >
+
+	type	<Owner process id>
+	type	<       >		;7
+	output	oct par=p.rpid cnt=#6 ctl=#zer
+	print
+
+	type	<Operations completed>
+	output	dec par=unr+un.opc cnt=#9. ctl=#rig
+	type	<          >
+
+	type	<Owner process name>
+	output	nam par=#p.rnam cnt=#11. ctl=#rig
+	print
+
+	print
+	type	<Volume label   >
+	output	nam par=#unr+un.lab cnt=#14. ctl=#rig
+	type	<          >
+	type	<Free blocks    >
+	output	dec par=unr+un.lof cnt=#14. ctl=#rig
+	print
+
+	type	<Owner UIC      >
+	output	uic par=unr+un.uic cnt=#14. ctl=#rig
+	type	<          >
+	type	<Total blocks   >
+	output	dec par=unr+un.dsz cnt=#14. ctl=#rig 
+	print
+
+	type	<Volume    >
+	output	prt par=unr+un.pro cnt=#19. ctl=#rig
+	type	<          >
+	type	<Transaction count>
+	output	dec par=unr+un.acc cnt=#12. ctl=#rig
+	print
+
+	type	<File      >
+	output	prt par=unr+un.fpr cnt=#19. ctl=#rig
+	type	<          >
+	type	<Mount count      >
+	movb	unr+un.mnc,r1
+	output	dec par=r1 cnt=#12. ctl=#rig
+	print
+
+	type	<File structure >
+	output	nam par=#unr+un.acn cnt=#14. ctl=#rig
+	type	<          >
+	type	<Reference count>
+	output	dec par=#0 cnt=#14. ctl=#rig
+	print
+	return
+
+;Volume status		On-line, Loaded, Mounted, Allocated, Dismounting, Active
+;Mount options		/nowrite /cache /spool /serial /system /group /share
+
+volops:	flag	unonl$	unr+un.con	<On-line >
+	flag	unloa$	unr+un.con	<Loaded >
+	flag	unmou$	unr+un.con	<Mounted >
+	flag	-1	unr+un.pcr	<Allocated >
+	flag	undsm$	unr+un.con	<Dismounting >
+	flag	-1	unr+un.ioc	<Active >
+	.word	0
+
+mouops:	flag	unnwr$	unr+un.con	</Nowrite >
+	flag	uncac$	unr+un.con	</Cache >
+	flag	unspl$	unr+un.con	</Spool >
+	flag	unpub$	unr+un.con	</System >
+	flag	unsha$	unr+un.con	</Share >
+	flag	unser$	unr+un.con	</Serial >
+	flag	unfor$	unr+un.con	</Stranger >
+	.word	0
+.sbttl	bit printer
+
+shobit:
+	clr	-(sp)		;
+110$:	mov	#1,r4		;assume we count spaces
+	bit	(r2)+,@(r2)+	;is this one set?
+	beq	120$		;no
+	clr	r4		;dont count them
+	output	str par=r2	;yes
+120$:	tstb	(r2)+		;skip the string
+	beq	130$		;done
+	add	r4,(sp)		;accumulate unused
+	br	120$		;
+130$:	inc	r2		;
+	bic	#1,r2		;
+	tst	(r2)		;any more?
+	bne	110$		;yes
+140$:	pop	r2		;should we fill it?
+	beq	150$		;no
+	output	str par=#160$ cnt=r2
+150$:	return
+160$:	.byte	0,0		;
+
+
+
+bitx:
+30$:	bit	(r4)+,r5		;got this one?
+	beq	40$			;nope
+	.print	r4			;yes
+40$:	tstb	(r4)+
+	bpl	40$
+	inc	r4
+	bic	#1,r4
+	tst	(r4)
+	bne	30$
+50$:	return
+.sbttl	display utilities
+meta	<bits c,d><.word c><.ascii _d_<200>><.even>
+
+shohea:
+	tst	heaflg		;already done this?
+	bne	10$		;yes
+	inc	heaflg		;no
+	type	<RUST/XM V>
+	output	dec par=s.yver	
+	type	<.>
+	output	dec par=s.yupd
+.if eq Y2K
+	type	< Devices on  >
+.iff
+	type	< Devices   >
+.endc
+	call	dattik
+	type	<     Uptime >
+	call	uptime
+	print
+;print <Device Device      Device      Error  Volume  Free     I/O  Trans Mount>
+;print <Name  Category Characteristics Count   Label Blocks   Count Count Count>
+print <Name  Category Characteristics Error   Label   Free     I/O Trans Mount>
+10$:	return
+
+;	DD:
+
+xdevice:
+	output	r50 par=der+de.dev	;display the name
+	tst	uniloa			;this unit loaded?
+	beq	10$			;no
+	movb	unr+un.uni,r1		;get the unit number
+	output	dec par=r1		;display the unit
+	type	<:>
+	return
+10$:	type	<: >			;installed only
+	return
+
+; Blocks
+
+xblocks:
+	bit	#util$,class		;this utility?
+	bne	15$			;yes
+	bit	#devar$!despc$,der+de.sta ;variable?
+	beq	10$			;nope
+	type	<varies>
+	br	30$
+10$:	mov	der+de.dsz,r1		;
+	bne	20$			;it has a size
+15$:	type	<      >		;six blanks
+	br	30$
+20$:	output	dec par=r1 cnt=#6 ctl=#rig
+30$:	return
+
+	assume	derta$ eq 100000	;
+xfree:	tst	der+de.sta		;this an RT-11 device?
+	bpl	10$			;no - assume we dont know
+	output	dec par=unr+un.lof cnt=#6 ctl=#rig
+	br	20$
+10$:	type	<      >
+20$:	return
+
+xerror:	output	dec par=unr+un.erc cnt=#5 ctl=#rig
+	return
+xopers:	output	dec par=unr+un.opc cnt=#5 ctl=#rig
+	return
+xtrans:	output	dec par=unr+un.acc cnt=#5 ctl=#rig ;files accessed
+	return
+xmount:	movb	unr+un.mnc,r1		;get the mount count
+	output	dec par=r1 cnt=#5 ctl=#rig
+	return
+
+xlabel:	output	nam par=#unr+un.lab cnt=#6 ctl=#low
+	return
+
+;	characteristics
+;	spl mbx shr gen avl mnt dmt all for swl elg
+;
+;	mnt onl all spl 
+;	dmt loa	ser swl
+;		sha for
+;
+; spl	spl	Spooled
+;	mbx	Mailbox
+;	gen	Generic
+;	avl	Available
+; mou	mnt	Mounted
+; dsm	dmt	Marked for dismount
+; alc	all	Allocated
+; for	for	Foreign
+; nwr	swl	Software write locked
+; onl	onl	On-line
+;	ofl	Off-line
+; sys	sys	/System
+; grp	grp	/Group
+
+.macro	xchar c d e f
+	jsr	r5,100$
+	.ascii	_c _
+	.word	d,e
+	bcc	f
+.endm
+
+xchars:				;characteristics
+	psh	#4		;four fields
+	xchar	onl unonl$,unr+un.con 10$
+10$:	xchar	dmt undsm$,unr+un.con 20$
+	xchar	mnt unmou$,unr+un.con 20$
+20$:	xchar	all 377,unr+un.own 30$
+	xchar	ser unser$,unr+un.con 30$
+	xchar	sha unsha$,unr+un.con 30$
+30$:	xchar	spl unspl$,unr+un.con 40$
+40$:	xchar	swl unnwr$,unr+un.con 50$
+50$:	xchar	for unfor$,unr+un.con 60$
+60$:	cmp	(sp),#4		;got any at all?
+	bne	70$		;yes
+	type	<avl >		;no
+	dec	(sp)		;
+70$:	dec	(sp)		;
+	bmi	80$		;no more
+	type	<    >		;
+	br	70$		;
+80$:	tst	(sp)+		;
+	return
+
+100$:	mov	r5,r1		;point to it
+	add	#4,r5		;
+	bit	(r5)+,@(r5)+	;is this set?
+	beq	120$		;no
+	dec	2(sp)		;got space for it?
+	bmi	110$		;no
+	output	str par=r1 cnt=#4
+110$:	tst	(pc)+		;
+120$:	sec			;
+	rts	r5		;
+
+; Bus	
+;
+;	virtual, 16, 18, 22, no bus, or blank
+;
+;	un.asp		unit address space
+;
+;	as16b$,,1	;16-bit coverage - unmapped & system
+;	as18b$,,3	;18-bit coverage - mapped
+;	as22b$,,7	;22-bit coverage - mapped & system
+;	asvab$,,20	;virtual i/o
+
+xbus:	type	<       >		;7+7
+	movb	der+de.asp,r0		;get the address space type
+	tst	uniloa			;loaded?
+	beq	10$			;no - use device
+	movb	unr+un.asp,r0		;yes - use unit space type
+10$:	bit	#util$,class		;this utility?
+	bne	60$			;yes - no bus
+	bit	#asvab$,r0		;virtual?
+	beq	20$			;no
+	type	<Virtual>		;yes
+	br	70$			;
+20$:	bit	#as22b$,r0		;22-bit?
+	beq	30$			;no
+	type	< 22-bit>		;yes
+	br	70$			;
+30$:	bit	#as18b$,r0		;18-bit?
+	beq	40$			;no
+	type	< 18-bit>		;yes
+	br	70$			;
+40$:	bit	#as16b$,r0		;16-bit?
+	beq	50$			;no
+	type	< 16-bit>		;yes
+	br	70$			;
+50$:	type	< ??????>		;this is wierd
+	br	70$			;
+60$:	type	<       >		;utility handler
+70$:	return				;
+.sbttl	class & structure
+
+;	Class
+;
+;	local, remote, pseudo, host, utility, kernel
+
+xclass:	psh	r4			;save these
+	psh	r5			;
+	mov	#100$,r4		;the list
+	mov	class,r5		;the variable
+	call	bitx			;one only
+	pop	r5
+	pop	r4
+	return
+
+100$:	bits	local$	<local>
+	bits	remot$	<remote>
+	bits	pseud$	<system>
+	bits	host$	<host>
+	bits	util$	<utility>
+	bits	kern$	<kernel>
+	.word	0
+
+;	rt11, foreign, w/o, r/o, none
+	
+xstruct:
+	bit	derta$,der+de.sta	;this RT?
+	beq	10$			;nope
+	type	<rt-11     >		;yes
+	br	100$
+10$:	bit	#despc$,der+de.sta	;stranger?
+	beq	20$			;nope
+	cmp	der+de.dev,#^rvx	;is this VX?
+	bne	15$			;nope
+	type	<vax/vms   >		;yes
+	br	100$			;
+15$:	type	<stranger  >
+	br	100$
+20$:	mov	der+de.sta,r0		;get ronly/wonly
+	bic	#^c<deron$!dewon$>,r0	;r/w?
+	bne	30$			;nope
+	type	<sequential>
+	br	100$
+30$:	cmp	r0,#dewon$		;
+	bne	40$			;yes
+	type	<write-only>
+	br	100$
+40$:	cmp	r0,#deron$		;ronly?
+	bne	50$			;nope
+	type	<read-only >
+	br	100$
+50$:	type	<none      >
+100$:	type	< >
+	return
+.sbttl	select device and unit
+
+seldev:	$cmkrnl	#area, #devsel, pic=yes
+	return
+
+seluni:	$cmkrnl	#area, #unisel, pic=yes
+	return
+
+devsel:	call	getclo		;get the clock
+	mov	nxtdev,r2	;get the next device
+	cmp	r2,@#d$edes	;this too high?
+	blo	20$		;no
+	.soft	0		;yes - report no more
+20$:	asl	r2		;
+	mov	d$emap(r2),r2	;get the device
+	bne	30$		;we have one
+	inc	nxtdev		;try for another
+	br	devsel		;
+30$:	mov	r2,curder	;save it
+	mova	der,r3		;get our record address
+	mov	#de.bbs/2,r4	;get the length
+40$:	mov	(r2)+,(r3)+	;move it back
+	sob	r4,40$		;
+	return
+
+unisel:	call	getclo		;get the clock
+	mov	curder,r2	;get the current unit
+	mov	nxtuni,r3	;get the next unit
+	cmp	r3,#8.		;too many?
+	blo	10$		;no
+	.soft	0		;yes - report no more units
+10$:	asl	r3		;
+	add	#de.unm,r3	;unit map
+	add	r2,r3		;device record
+	mov	(r3),r3		;get the record
+	bne	20$		;we have one
+	inc	nxtuni		;get the next one
+	br	unisel		;and try again
+
+20$:	mov	r3,curunr	;save it
+	mova	unr,r2		;get buffer address
+	mov	#un.bbs/2,r4	;
+30$:	mov	(r3)+,(r2)+	;move it in
+	sob	r4,30$		;
+
+	mov	@#p$huic,p.huic	;get our pcr
+;	clr	p.rprn		;assume none
+	clr	p.rpid		;assume none
+	clr	p.rnam		;
+	clr	p.rnam+2	;
+	mov	curunr,r3	;get it
+
+.if ne 0
+	mov	un.pcr(r3),r4	;get the owner process
+	beq	50$		;is none
+	mov	pr.prn(r4),p.rprn ;save the number
+	mov	pr.nam(r4),p.rnam ;process name
+	mov	pr.nam+2(r4),p.rnam+2 ;
+	mov	pr.own(r4),p.rown ;process owner pcr address
+	mov	@#p.hpcr,p.hpcr	;pcr address
+	mov	@#p.huic,p.huic	;uic
+.iff
+	movb	un.own(r3),r4		;device allocated?
+	beq	50$			;no
+	asl	r4			;yes - get pcr
+	mov	p$rmap(r4),r4		;get pcr
+	beq	50$			;ridic
+	mov	pr.pid(r4),p.rpid	;save the number
+	mov	pr.nam(r4),p.rnam	;process name
+	mov	pr.nam+2(r4),p.rnam+2 	;
+.endc
+
+50$:	clr	h.acqe		;
+	clr	h.ahol		;
+	clr	.iqlnk		;
+	mov	curder,r2	;r2 -> device record
+	mov	de.han(r2),r0	;r0 -> handler
+	beq	60$		;oops - no handler
+	mov	ha.hol(r0),h.ahol ;save hold flag
+	mov	ha.cqe(r0),r1	;get current queue element
+	beq	60$		;is none
+	mov	r1,h.acqe	;save current queue element
+	mov	iq.lnk(r1),.iqlnk ;save next one
+60$:
+100$:	return
+.sbttl	data
+
+devder::
+der:	.blkb	de.bbs		;device record
+
+h.ahol:	.word	0		;handler hold
+h.acqe:	.word	0		;current queue element
+.iqlnk:	.word	0		;next in queue
+
+devunr::
+unr:	.blkb	un.bbs		;unit record
+;p.hpcr:.word	0		;this processes pcr address
+p.huic:	.word	0		;process uic
+;p.rprn:.word	0		;owner process id
+p.rpid:	.word	0		;allocated process pid
+p.rnam:	.word	0,0		;allocated process name
+;p.rown:.word	0		;process owner pcr address
+
+opts:	.word	0		;command options
+class:	.word	0		;class of this device
+
+nxtdev:	.word	0
+nxtuni:	.word	0
+devcnt:	.word	0		;number found
+unicnt:	.word	0
+uniloa:	.word	0		;
+
+curder:	.word	0		;current der
+curunr:	.word	0		;current der
+heaflg:	.word	0		;header flag
+frmcnt:	.word	0		;count display frames
+
+pernam:	.word	0		;<>0 => permanent name
+lognam:	.byte	0,0,0,0,0,0	;
+devnam:	.byte	0,0,0,0,0,0	;
+.sbttl	show
+
+; This is the default SHOW command
+;
+;	DE__(status) = logs
+;	____DEu_=_log, log, log
+;		=_log, log,
+;
+
+syass:	.word	0			;sy assignment
+dkass:	.word	0			;dk assignment
+pname:	.word	0			;
+namlen:	.word	0			;length of previous name
+
+	set	s.free 0, s.count 2, s.unit 4
+
+shoass::
+	call	syslst			;check sy & dk	
+	clr	-(sp)			;s.unit = 0
+	psh	$slots			;get the slot count
+	asr	(sp)			;s.slot = slot count
+	psh	(sp)			;s.free starts as s.slots
+	mov	$pname,r5		;point to the permanent names
+
+10$:	mov	(r5)+,r4		;get the next
+	beq	30$			;not occupied
+	dec	(sp)			;reduce s.free
+	mov	r4,pname		;save the name
+
+;	psh	#15$			;in case it aborts
+;	mov	sp,errsp		;catch errors
+;	call	findev			;and point to it
+;	tst	(sp)+			;pop the catcher
+
+15$:;	tst	entry			;is it loaded?
+;	bne	16$			;yes
+;	bit	#remot$,class		;is this a remote device?
+;	bne	30$			;yes - ignore it
+16$:	mov	r4,r1			;display it
+	output	r50 par=r1 ctl=#upr	;display it
+
+;	type	<  (kernel)>
+;	tst	entry			;is it loaded?
+;	beq	17$			;nope
+;	type	< (>			;set it up
+;	call	xclass			;show the class
+;	type	<)>			;terminate it
+17$:	call	shomaj			;display generic
+	add	#<^r  0>,r4		;get unit zero
+	mov	#8.,s.unit(sp)		;count the units
+20$:	call	shomin			;get a sublist
+	inc	r4			;get the next
+	dec	s.unit(sp)		;all done?
+	bne	20$			;nope
+30$:	dec	s.slot(sp)		;count them
+	bne	10$			;we have more
+	pop	r1			;get the free slot count
+	output	dec par=r1		;
+	print	< free slots>		;
+	jmp	kmon			;done
+
+	set	s.col 0, s.slot 2, s.equa 4, s.head 6
+
+shomaj:	psh	(pc)+			;s.head <> 0 => header printed
+shomin:	clr	-(sp)			;s.head == 0 => not printed
+	clr	-(sp)			;s.equa
+	psh	$slots			;
+	asr	(sp)			;s.slot = slot count
+	clr	-(sp)			;s.col
+	mov	$unam1,r2		;physical names
+	mov	$unam2,r3		;logical names
+	clr	chars			;init pad counter
+30$:	cmp	(r2),r4			;is this us?
+	bne	70$			;nope
+	call	sysass			;check for sy/dk
+	bcs	70$			;ignore this one
+	tst	s.head(sp)		;done the name yet?
+	bne	40$			;yes
+	inc	s.head(sp)		;once only
+	mov	r4,r1			;nope
+	type	<    >			;indent
+	output	r50 par=r1 ctl=#upr	;
+40$:	tst	s.equa(sp)		;done the equals?
+	bne	50$			;yes
+	inc	s.equa(sp)		;flag it done
+	type	< = >			;
+50$:	cmp	(sp),#12.		;done enough columns?
+	bne	60$			;nope
+	clr	(sp)			;yes - reset s.col
+	print
+	type	<          >
+60$:	tst	(sp)			;is this the first?
+	beq	65$			;yes
+	type	<, >			;nope
+62$:	cmp	namlen,#3		;was the last a short name?
+	bhis	65$			;no
+	inc	namlen			;yes - pad it
+	output	cha par=#space		;
+	br	62$			;
+65$:	mov	(r3),r1			;get the translation
+	output	r50 par=r1		;display it
+	mov	o$pfln,namlen		;remember the size
+	inc	(sp)			;s.col - increment column number
+70$:	cmp	(r2)+,(r3)+		;pop to next pair
+	dec	s.slot(sp)		;all done?
+	bne	30$			;nope
+	tst	s.head(sp)		;did we do something?
+	beq	80$			;nope
+	print				;yes
+80$:	add	#10,sp			;pop them
+	return
+
+syslst:	mov	#^rsy,r0		;get SY translation
+	call	conlp			;get its physical
+	mov	r0,syass		;store it
+	mov	#^rdk,r0		;the same for DK
+	call	conlp
+	mov	r0,dkass		;
+	return
+sysass:	cmp	r4,#^rsy		;is this SY?
+	bne	10$			;nope
+	cmp	(r3),syass		;is this the real one?
+	bne	30$			;nope
+	br	20$			;yes
+10$:	cmp	r4,#^rdk		;this DK?
+	bne	20$			;nope
+	cmp	(r3),dkass		;is this it?
+	bne	30$			;nope
+20$:	tst	(pc)+			;o.k.
+30$:	sec				;ignore it
+	return
+;Fall thru to clock module
+

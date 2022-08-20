@@ -1,0 +1,676 @@
+rtx$c=1		; RUST on RSX
+prb$c=1
+nfs$c=1
+rnf$c=1		; RUST on NF
+dyn$c=1
+; .scca or clr ttks
+.title	load, unload, install & remove
+.pass
+.include "lib:share.mac"
+$chdef
+$dcdef
+$didef
+$drdef
+$hadef
+$jbdef
+$rmdef
+$rxapi
+$vadef
+set	erlg$ 1, mmgt$ 2, timit$ 4, rtem$ 10
+
+;	o  RT-11 provides drivers with a channel opened to the
+;	   system device in NFS mode. We can't do that for NF.
+;	   So what we do is provide a base block but subtract
+;	   that from read requests from the driver.
+
+load::					; act=0 = load
+unload::				; act=2 = unload
+install::				; act=4 = install
+remove::				; act=6 = remove
+	mov	l$ddis(r0),(pc)+	; act=6 - remember act
+l$dact:	.word	0			; the major jump table
+	call	ld$ini			; setup
+	setup	$load,i.lex		; set it up				;?275
+	scan	<D=0^M>			; skip the command
+10$:	scan	<^IF=1Q="Device? "> 	; get next device
+	psh	r5			; save input pointer for loop
+	mov	$input,r5		; $input -> ascii device name
+	call	getdev			; process the translated name
+	mov	dvname,r0		; device name
+	mov	r0,dname+2		; put it in the dblk
+	clr	r1			; search $pname for the device
+	clr	r4			; assume not installed
+20$:	call	indexes			; get the indexes
+	bcs	30$			; oops, not found
+	cmp	@.pname,dname+2		; this the guy?
+	bne	20$			; nope
+	mov	.hentry,r4		;
+30$:	call	@l$dact			; they do the hard stuff
+	pop	r5			; get it back
+	tstb	(r5)			; anymore?
+	bne	10$			; yep
+	return				; back to kmon main
+
+l$ddis:	.word	ld$loa
+	.word	ld$unl
+	.word	ld$ins
+	.word	ld$rem
+
+i.lex:	edit	<r,r=" ">		; replace commas with spaces
+	return
+
+$load:
+option	AUTO		1 _	null	ld$aut
+option	LOG		1 _	null	ld$log
+option	PROBE		1 _	null	ld$prb
+option	NOPROBE		1 _	null	ld$npr
+option
+
+ld$aut:	inc	l$daut
+	return
+l$daut:	.word	0
+ld$log:	inc	l$dlog
+	return
+l$dlog:	.word	0
+ld$prb:	inc	l$dprb
+	return
+l$dprb:	.word	0
+ld$npr:	mov	#1,l$dnpr
+	return
+l$dnpr:	.word	0
+
+ld$ini:	clr	l$daut			;
+	clr	l$dlog
+	clr	l$dprb
+	clr	l$dnpr
+mov #-1,k$mrus
+	blew	k$mrus,10$		; VRT or NF:RUST
+	mov	@$syass,l$dloo		; get real system device
+10$:	return
+.sbttl	load
+
+;	1. Install
+;	2. Fetch
+;	3. Load service routine 
+;	4. Protect vectors
+;
+;	o  Error if load=*no*
+
+ld$loa:	call	ld$ins			; install it
+;sic]	bcs	20$			; not a good idea
+	tst	(r4)			; already loaded?
+	bne	10$			; yes - ignore that
+	tst	@.dvrec			; got a driver?
+	beq	30$			; nope - don't ignore that
+	call	ld$psh			; free dynamic memory
+	mov	@.hsize,r0		; r0 =  byte size
+	mov	@.dvrec,r1		; r1 =  start block
+	mov	.hentr,r2		; r2 -> entry point pointer
+	call	ld$alc			; r3 -> load address
+	call	ld$fet			; fetch the driver
+	mov	#drloc.,r0		; load code
+	call	ld$ser			; call service routine
+	bcs	40$			; yuk - unwind
+	mov	r3,r0			;
+	call	ld$pro			; protect the vectors
+	call	ld$set			; set system low address
+10$:	return				;
+20$:	bnew	l$daut 20$		; was autoload
+	fatdev	<Load failed>		;
+30$:	fatdev	<Device has no driver>	;
+					; service routine failure
+40$:	clr	(r4)			; unload it
+	call	ld$set			; set system low address
+	fatdev	<Driver refused to load>;
+.sbttl	unload
+
+;	r4 ->	hentry
+;
+;	o  Also REMOVE if fetch=*no*
+
+ld$unl:	tst	r4			; installed?
+	beq	50$			; nope - ld$rem reports error
+	mov	(r4),r3			; entry point
+	beq	10$			; not loaded - ignore that
+	sub	#ha.lqe,r3		; load point
+	call	ld$sys			; check system device
+	bcs	20$			; somethings stay the same
+					;
+	mov	#drunc.,r0		; unload code
+	call	ld$ser			; call service routine
+	bcs	30$			; this is not happening
+					;
+	call	ld$uls			; unload specials
+	clr	(r4)			; unload is easy
+	mov	r3,r0			;
+	call	ld$unp			; unprotect the vectors
+	call	ld$res			;
+10$:	clc				; for REMOVE
+	return
+20$:	wardev	<Can't unload permanent device>
+
+					; service routine failure
+30$:	tst	r0			; did they supply a message?
+	beq	40$			; nope
+	.print				; yes
+	jmp	fatal			;
+40$:	fatdev	<Unable to unload driver>
+50$:	jmp	ld$rem			; let it report error
+
+;	unload specials
+
+ld$uls:
+return
+	world				; unload specials
+	cmp	@.pname,#^rsl		; this the command line editor?
+	bne	10$			; nope
+	bic	#te.edi,$terms(r0)	; remove the bit
+	mov	$job+2(r0),$lined(r0)	; reset the line-editor by hand
+	mov	$job+2(r0),$print(r0)	; reset soft-tabs by hand
+10$:	return
+
+;	check unloadable drivers
+;
+; in:	r3 =	driver load point
+
+ld$sys:	mov	@#j$bsys,r0		; get the monitor
+	cmp	r3,r0			; in the monitor?
+	bhis	10$			; yep - probably TT:
+	mov	rm.syi(r0),r0		; system index
+	add	$hentry,r0		; points to system driver entry point
+	mov	(r0),r0			; well, now it does
+;sic]	beq	10$			; monitor is stuffed
+	sub	#ha.lqe,r0		; load point
+	cmp	r3,r0			; trying to uninstall that?
+	bhis	10$			; yep
+	tst	(pc)+			; okay this time
+10$:	sec				; cheeky little devil
+	return
+.sbttl	install
+
+;	Don't install:
+;
+;	(RT-11) SL TT BA SD PI UD
+;
+;	o  fetch=*no* - only if from LOAD
+
+ld$ins:	tst	r4			; already installed?
+	bne	80$			; yes
+	mov	$hosts,r1		; install local-removed
+10$:	call	indexes			; check it out
+	bcc	20$			; not the end
+	fatdev	<Device table full>	; no room or no locals
+20$:	tst	@.pname			; already in use?
+	bne	10$			; yep, look again
+					;
+	mov	#l$dloo+2,r1		; 
+	mov	#l$dexp,r2		; assume explicit
+	mov	drname,(r1)		; explicit?
+	bne	26$			; yep
+	tst	-(r2)			; backup to /   /
+	beqw	k$mrus,25$		; not rust
+	tst	-(r2)			; backup to /  v/
+	beqw	k$mv11,25$		; not on V11
+	tst	-(r2)			; backup to /  w/
+25$:	mov	dname+2,r3		;
+	mov	r3,(r1)			;
+	add	(r2)+,(r1)		;
+26$:	.purge	#0			; purge a channel
+	.lookup	#area,#0,#l$dloo,#vamnt.; look it up (permanent NF: channel)
+	bcc	30$			; fine
+	bnew	(r2),#-1,25$		; more to check
+	br	90$			; oops
+					; should read 512. words		;???
+30$:	call	ld$rep			; if they wanted it logged
+	.readw	#area,#0,#l$dbuf,#512.,#0; read it in			;?34
+	bcc	40$			; fine
+35$:	fatdev	<Driver I/O error>	;
+40$:	call	ld$gen			; check sysgen options
+50$:	call	ld$ich			; call installation service routine
+	bcs	100$			; failed
+	mov	#l$dbuf,r1		; block zero of driver
+	clr	@.hentry		; $hentry
+	mov	dname+2,@.pname		; $pname
+	mov	dr.sta(r1),@.stat	; $stat
+	mov	@#j$bsys,r0		; get the monitor
+	mov	ch.sbl+4(r0),@.dvrec	; $dvrec
+	inc	@.dvrec			; plus one
+	mov	dr.hsz(r1),@.hsize	; $hsize
+	mov	dr.dsz(r1),@.dvsize	; $dvsize
+.if ne rtx$c
+	call	ld$rtx			; install RTX driver
+.endc					; channel=0, slot= 
+	mov	.hentry,r4		;
+80$:	return
+90$:	fatdev	<Driver not found>
+100$:	beqw	l$daut,110$		; not /auto
+	sec				; just ignore it
+	return				;
+110$:	fatdev	<Installation check failed>
+
+;	ld$gen - check sysgen options
+
+	lomsk$ = mmgt$!erlg$!timit$!rtem$
+ld$gen:	bit	#lomsk$,l$dbuf+h.gen	; got some we don't want?
+	bne	20$			; yep
+	return				;
+20$:	fatdev	<Sysgen missmatch>	;
+
+;	ld$rep - report selected driver
+
+ld$rep:	beqw	l$dlog,10$		; not applicable
+	type	<?DCL-I-Installing driver: >
+	mov	#l$dloo,r0		;
+	mov	$text,r1		; ugly
+	call	cv$rsu			;
+	.print	$text			;
+10$:	return
+
+	.rad50	/  w/			; default V11
+	.rad50	/  v/			; default PDP-11
+	.rad50	/   /			; explicit
+l$dexp:	.word	-1			; list terminator
+
+.if ne rtx$c
+ld$rtx:	psh	r0
+	rxdet$
+	bne	10$			; not rtx
+	psh	.index			; get the index
+	mov	@#j$brtx,r0		;
+	call	@rx.ins(r0)		;
+	tst	(sp)+			;
+10$:	pop	r0
+	return
+.endc
+.sbttl	remove
+
+; ???	Should remove assignments to the device
+; ???	In particular should remove mapped directories!
+
+ld$rem:	tst	r4			; device installed?
+	beq	20$			; nope
+	call	ld$unl			; unload it first
+	bcs	10$			; not unloadable (sy:, tt: etc)
+	tst	r4			; installed?
+	beq	10$			; nope
+	clr	@.pname			; zap
+	clr	r4			; it is gone
+10$:	return
+20$:	wardev	<Device not installed>
+.sbttl	allocate space
+
+;	Load the driver as high as possible
+;
+;	r0	size required
+;
+;	r3 ->	load address
+
+ld$alc:	pshs	<r5,r4,r2,r1,r0>
+	psh	r0		; size required
+	mov	$hentr,r0
+	mov	2(r0),r5
+	sub	#6,r5
+10$:	call	ld$hgh		; get highest
+	bcs	20$		; are no more
+	cmp	r3,r5		; any space?
+	blo	30$		; yep
+20$:	mov	r4,r5		;
+	bne	10$		; try again
+	br	40$		; end of empties
+
+30$:	mov	r5,r0		;
+	sub	r3,r0		;
+	cmp	r0,(sp)		; sufficient?
+	blo	20$		; nope
+	sub	(sp),r5		; that's where
+	mov	r5,r3		;
+	br	50$		;
+				;
+40$:	call	ld$get		; get low address
+	sub	(sp),r3		; grab some
+	tst	(pc)+		;
+50$:	sec			;
+	inc	(sp)+		; pop temp
+	pops	<r0,r1,r2,r4,r5>
+	return
+
+; in:	r5 -> top limit
+;
+; out:	r4 -> next highest driver
+;	r3 =  end of it
+
+ld$hgh:	mov	$hentr,r0
+	clr	r3
+	clr	r4
+10$:	mov	(r0),r1		; the entry point
+	beq	20$		; is no entry point
+	sub	#ha.lqe,r1	; adjust for RT-11 magic
+	cmp	r1,r5
+	bhis	20$
+	cmp	r1,r4
+	blo	20$
+	mov	r1,r4		; r4 -> driver
+	mov	r0,r3		; save the slot address
+20$:	tst	(r0)+
+	cmp	(r0),#-1
+	bne	10$
+	tst	r3		; find anything?
+	beq	30$		; nope
+	sub	$hentr,r3	; get the slot offset
+	add	$hsize,r3	;
+	mov	(r3),r3		; driver size
+	add	r4,r3		; r3 -> end of driver
+	tst	(pc)+
+30$:	sec
+	return
+.sbttl	get/set system low address
+
+ld$psh:	save
+	call	pshcom		; reset the lot
+	return
+
+ld$res:	call	ld$psh		; push command file etc
+ld$set:	call	ld$get		; get low address
+.if ne dyn$c
+	mov	r3,$usrlc(r0)	; set driver low address		;V4
+.endc
+	mov	r3,usrloc(r0)	; set system low address		;?118
+	call	host		; rebuild tables
+mov #-1,k$mrus
+	call	popcom		; pop command file and commands
+	return			; (popcom adjusts usrloc=$top)
+
+ld$get:	pshs	<r4,r2,r1>	; find lowest driver
+	psh	.index		; save that for restore
+	mov	@#sysptr,r0	; get the monitor
+.if ne dyn$c
+	mov	r0,r3		;
+.iff
+	mov	usrloc(r0),r3	; get the system low address		;?118
+.endc
+	mov	$hosts,r1	; get the locals
+	beqw	k$mrus,10$	; not rust
+	clr	r1		; look at all slots
+10$:	call	indexes		; get the next
+	bcs	20$		; the last
+	mov	@.hentry,r2	; get the hentry
+	beq	10$		; not loaded
+	cmp	r2,r3		; this lower?
+	bhi	10$		; nope
+	mov	r2,r3		; yep, get it
+	sub	#ha.lqe,r3	; RT-11 magic
+	br	10$		; now get the next
+20$:	pop	r1		; get back callers index
+	call	indexes		; remap callers indexes
+	pops	<r1,r2,r4>
+	return
+.sbttl	fetch driver
+
+; in:	r0	driver byte size
+;	r1	driver start block + 1
+;	r2 ->	hentry
+;	r3	load address
+;	r4 ->	block zero of driver
+
+ld$fet:	save
+	psh	r0			; save byte size
+	call	ld$opn			; open device/driver
+	bcs	10$			;
+	clc				;
+	ror	(sp)			; make word count
+	.readw	#l$diob,#0,r3,(sp),r1	; read the driver	
+	bcs	10$			;
+	clr	ha.cqe(r3)		; clear setup flags
+	clr	ha.hol(r3)		; clear setup flags
+	asl	(sp)			; restore byte count
+					; fill in end of handler
+	pop	r1			; get driver byte size
+	add	r3,r1			; add in base
+	mov	@#j$bsys,r0		;
+	mov	r0,-(r1)		; 
+	add	rm.frk(r0),(r1)		; $fork
+	mov	2(r0),-(r1)		; $inten
+					;
+	mov	r3,r0			;
+	call	ld$vec			; fill in vectors
+					;
+	mov	r3,(r2)			; fill hentry
+	add	#ha.lqe,(r2)		;
+	return
+		
+10$:	fatdev	<Error accessing driver>
+
+;	open device or driver
+;
+; out:	r1=1	if VRT, unmodified otherwise
+;	c=1	some error
+
+ld$opn:	.purge	#0	
+.if ne nfs$c
+	clr	#l$dloo+2		; non-file lookup
+	.lookup	#l$diob,#0,#l$dloo	; lookup real system device
+	bcs	30$			;
+	mov	@#j$bsys,r0		;
+	add	#rm.csw,r0		;
+	mov	@.dvrec,ch.sbl(r0)	;
+	dec	ch.sbl(r0)		;
+	mov	#1,r1			;
+.iff
+	mov	#l$dloo+2,r0		;
+	clr	(r0)			; non-file lookup
+.if ne rnf$c
+	bgtw	k$mrus,20$		; it's rust
+	mov	drname,(r0)		; got name with suffix?
+	bne	10$			; yes
+	mov	@.pname,(r0)		; it's vrt
+	add	#<^r  v>,(r0)		;
+10$:	mov	#1,r1			; start block
+.endc
+20$:	.lookup	#l$diob,#0,#l$dloo	; lookup real system device
+.endc
+30$:	return				;
+.sbttl	vector routines
+
+;	fill in vectors
+;
+;	r0 ->	driver load point
+
+ld$vec:	psh	r2			;
+	mov	(r0)+,r1		; h.vec
+	beq	40$			; oops, no vector
+	bmi	30$			; a vector table
+	mov	r0,(r1)			; store the base
+	add	(r0),(r1)+		; add in h.isr offset
+	mov	#br7,(r1)		; get the ps
+	br	40$			; join the common stuff
+30$:	asl	r1			; read sysmac for this
+	add	r0,r1			; point to the table
+35$:	mov	(r1)+,r2		; get the vector
+	ble	40$			; no more vectors
+	mov	r1,(r2)			; relocate
+	add	(r1)+,(r2)+		; to the ast
+	mov	(r1)+,(r2)		; move in the users ps
+	bis	#br7,(r2)		; and put ours on top
+	br	35$			; look for more
+40$:	pop	r2			;
+	return
+
+;	protect/unprotect vectors
+;
+;	r0 ->	driver load point
+
+ld$pro:	mov	(pc)+,r1		; protect
+ld$unp:	clr	r1			; unprotect
+	pshs	<r4,r3,r2>		;
+	mov	(r0)+,r2		; get the vector
+	bmi	10$			; a vector table
+	call	ld$low			;
+	br	30$			;
+					;
+10$:	asl	r2			; a vector table
+	add	r2,r0			; the first
+20$:	mov	(r0)+,r2		; get the next
+	ble	30$			; the last
+	call	ld$low			; protect the vectors
+	cmp	(r0)+,(r0)+		; skip to next
+	br	20$			; and do it again
+30$:	pops	<r2,r3,r4>
+	return
+
+ld$low:	call	(pc)			; protect two vectors
+	mov	r2,r3			; r2 = vector
+	asr	r3			; get a byte offset
+	mov	r3,r4			;
+	bic	#^c7,r3			; the bit
+	asr	r4			; the byte
+	asr	r4			;
+	asr	r4			;
+	add	@#j$bsys,r4		; get the monitor part
+	bnew	r1,10$			; protect
+	bicb	30$(r3),rm.lmp(r4)	; clear protection
+	br	20$			;
+10$:	bisb	30$(r3),rm.lmp(r4)	; set protection
+20$:	tst	(r2)+			; point at the next
+	return
+30$:	.byte	200,100,40,20,10,4,2,1
+.sbttl	installation service routine
+
+ld$ich:	pshs	<r5,r4,r3,r2>
+	.trpset	#area,#40$	; catch bus errors
+	mov	#l$dbuf+176,r3	; point at the beginning
+	tst	@(r3)+		; does it exist?
+	nop			; T11
+	bcs	20$		; installation fail
+	tst	(r3)		; install routine there?
+	beq	20$		; nope
+	mov	@#j$bsys,r0	; r0 -> $rmon
+	mov	r0,r2		; 
+	add	rm.mpt(r0),r2	; 
+	mov	-(r2),r1	; r1 - $rmsiz
+	clr	r2		; r2 = 0 	(XM -> unit record)
+				; r3 = ? 	(XM = stbdat)_
+	mov	#^rRST,r4	; r4 = RUST/SJ signature
+.if ne prb$c
+	clr	r5		; r5 = 0
+	bnew	l$dnpr,15$	; explicit noprobe
+	bnew	l$daut,10$	; auto defaults to probe
+	beqw	l$dprb,15$	; not probing
+10$:	mov	#^rPRB,r5	; r5 = PRB
+.endc
+15$:	call	(r3)		; call install check
+20$:	rol	r5		;*c=? 
+	.trpset	#area,#0	; catch/uncatch bus errors
+	ror	r5		;*c=?
+	pops	<r2,r3,r4,r5>	;
+	return			;*c
+40$:	bis	#1,2(sp)	; set the error code
+	rti								;34-
+.sbttl	driver service routines
+
+; in:	r0	service code
+;	r1	start block
+;	r2 ->	hentry
+;	r3	load address
+;	r4 ->	block zero of driver
+;	#0	sy: or driver
+;
+; dsr:	r0 ->	service routine
+;	r1 ->	getvec routine
+;	r2 =	$slot*2
+;	r3 =	service call code
+;	r4 ->	read routine (r0=blk,r1=buf,r2=wct)
+;	r5 ->	hentry for driver
+
+ld$ser:	save
+	beqw	k$mrus,10$		;
+	mov	r0,r3			; r3 = service code
+	call	sv$rou			; get service routine address
+	bcs	10$			; not applicable
+	mov	@#j$bsys,r1		;
+	mov	rm.gvc(r1),r1		; r1 -> getvec
+	mov	$slots,r2		; r2 = slot count * 2
+					; r3 =  service code
+	mov	#sv$rea,r4		; r4 -> read routine
+	mov	.hentry,r5		; r5 -> ye olde hentry
+	call	(r0)			; call ye olde routine
+	br	20$			;*c=?
+10$:	clc				; not applicable
+20$:	return				;
+
+;	o  Post-clear channel error
+;	o  Fetch version has to context switch channel area
+;
+;	r0 =	block number
+;	r1 =	word count
+;	r2 ->	buffer
+
+	.enabl	lsb
+sv$ovr:	add	@.dvrec,r0		; adjust for nfs
+	dec	r0			;
+	mov	#512.,r1		; overlay read routine
+	mov	#l$dbuf,r2		;
+	call	sv$rea			;
+	bcc	20$			; fine
+	fatdev	<Driver I/O error>	;
+sv$rea:	psh	r0			;
+.if ne rnf$c
+	bgtw	k$mrus,10$		; rust
+	sub	@.dvrec,(sp)		; vrt is file relative
+	inc	(sp)			;
+.endc
+10$:	.readw	#l$diob,#0,r2,r1,(sp)	; issue read
+	mov	@#j$bsys,r0		;* c=?
+	bic	#csher$,rm.csw(r0)	;*clear error
+	pop	r0			;*
+20$:	return				;*
+	.dsabl	lsb
+
+;	get service routine
+;
+;	r0	service code
+;
+;	r0 ->	routine
+;	c=1	not applicable
+
+sv$rou:	pshs	<r3,r2>
+	mov	r0,r3			; service code
+	mov	@.hentry,r1			
+	mov	ha.beg-ha.lqe(r1),r1	; get the nop + flags
+	blow	r1,#nop,30$		; low guard failed
+	bhiw	r1,#nop+37,30$		; high guard failed
+	asr	r0			; make bit offset
+	bpcb	l$dbit(r0),r1,30$	; routine not enabled
+
+	beqw	r3,#drloc.,10$		; channel already open for load
+	call	ld$opn			; open up for business
+10$:	clr	r0			; 
+	call	sv$ovr			; read the first two blocks
+	bnew	l$dbuf,#^rhan,30$	; not appropriate version
+	add	#l$dbuf,r3		; add buffer base
+	mov	dr.ftp(r3),r3		; (sp) = routine offset
+	beq	30$			; no routine -- which is strange
+	blow	r3,#1000,20$		; in block zero
+					;*c=0
+	mov	r3,r0			;*work out block number
+	ror	r0			;*words per block
+	clrb	r0			; delete words
+	swab	r0			; block number
+	call	sv$ovr			; get the blocks
+20$:	bic	#^c777,r3		;
+	add	#l$dbuf,r3		; r0 -> routine
+	mov	r3,r0			;
+	tst	(pc)+			;
+30$:	sec				;
+	pops	<r2,r3>			;
+	return
+.sbttl	data
+
+l$diob:	.blkw	5
+l$dbuf:	.blkw	512.		; service routine buffer
+l$ddst:	.blkb	di.bbs		; dstat
+
+l$dbit:	.byte	1,2,4,8.	; nibble bit map
+
+l$dloo:	.rad50	/sy       sys/	;
+
+.end

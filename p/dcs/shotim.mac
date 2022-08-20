@@ -1,0 +1,208 @@
+Y2K=1
+.sbttl	get time data
+
+;	Placed up front so it fits in same 4kw par as calling module
+;	Get clock called from kernel server.
+;
+;	Gettim called to get current time and date
+;	User mode call
+
+gettim:	.gtim	#area, #time
+	.date
+	mov	r0,date
+	$cmkrnl	#area, #getclo pic=yes 
+	return
+
+;	Kernel mode routine
+
+getclo:	mov	@#c$lhot,c.lhot	;
+	mov	@#c$llot,c.llot	;
+	mov	@#t$ibhi,t.ibhi	;
+	mov	@#t$iblo,t.iblo	;
+	mov	@#t$ih24,t.ih24	;
+	mov	@#t$il24,t.il24	;
+	mov	@#t$ifre,t.ifre	;
+	movb	@#s$yver,s.yver	;
+	movb	@#s$yupd,s.yupd	;
+	return
+
+c.lhot:	.word	0		;current ticks
+c.llot:	.word	0
+t.ibhi:	.word	0		;boot ticks
+t.iblo:	.word	0		;
+t.ih24:	.word	0		;24:00 hot
+t.il24:	.word	0		;24:00 lot
+t.ifre:	.word	0		;time frequency
+s.yver:	.word	0		;system version
+s.yupd:	.word	0		;system update
+time:	.word	0,0		;current time
+date:	.word	0		;current date
+.sbttl	time routines
+
+;	cpu	cpu time
+;	day	day time
+;
+; Compute the time for some displays
+;
+;	r0,r1	time in ticks (50 or 60 herz)
+;
+;	First divide must extract seconds since word quotient required
+;
+;	Display system uptime
+
+uptime:	mov	c.lhot,r0	;get current ticks
+	mov	c.llot,r1	;
+;	sub	t.iblo,r1	;compute uptime
+;	sbc	r0		;
+;	sub	t.ibhi,r0	;r0/r1 = uptime
+	psh	#opday$!opmil$	;display the lot
+	br	comtm2
+
+;	Date, time
+;	Date, time.mill
+
+dattik:	psh	#opmil$		;date time.cc
+	tst	(pc)+		;
+dattim:	clr	-(sp)		;date time
+	call	putdat		;
+	type	< >		;
+	mov	#time,r2	;get the time
+	br	comtim		;
+
+daytik:	psh	#opmil$		;time.cc
+	tst	(pc)+		;
+daytim:	clr	-(sp)		;time
+	mov	#time,r2	;get the time
+	br	comtim		;
+.sbttl	output time
+
+map	opday$,,200	;days
+map	opmil$,,100000	;milliseconds
+
+;	comtim
+;
+;	r2 ->	.word	hot, lot
+;	(sp)	.word	[opday$]![opmil$]
+;
+;	comtm2:
+;
+;	r0	hot
+;	r1	lot
+;
+;	time/<freq*60>	quo=minutes, rem=seconds*ticks
+;	minutes/60	quo=hours, rem=minutes
+;	seconds		quo=seconds, rem=ticks
+;	ticks*100/freq	
+
+comtim:	mov	(r2)+,r0	;high order
+	mov	(r2),r1		;low order
+
+comtm2:	call	getday		;remove the days
+	bit	#opday$,(sp)	;should we display the days?
+	beq	10$		;no
+	pshs	<r1,r0>		;yes
+	output	dec par=r2
+	type	< >
+	pops	<r0,r1>		;
+
+10$:	mov	t.ifre,r3	;compute second factor
+	mul	#60.,r3		;r3 = seconds factor
+
+	div	r3,r0		;extract seconds
+	mov	r0,r2		;r2 = minutes/hours/days
+	clr	r0		;
+	div	t.ifre,r0	;get ticks & seconds
+	psh	r1		;ticks
+	psh	r0		;seconds
+	clr	r0		;
+	mov	r2,r1		;minutes/hours
+	div	#60.,r0		;
+	psh	r1		;minutes
+	psh	r0		;hours
+	mov	#3,r2		;count again
+	br	30$		;do another
+20$:	type	<:>		;separator
+30$:	pop	r1		;
+	psh	r0		;save this
+	output	dec par=r1 ctl=#zer cnt=#2
+	pop	r0		;
+	sob	r2,20$		;count them
+
+	pop	r1		;get the ticks
+	bit	#opmil$,(sp)+	;display milliseconds?
+	beq	50$		;no
+	type	<.>		;yes
+	mul	#100.,r1	;*100
+	clr	r0		;
+	div	t.ifre,r0	;/frequency
+	asl	r1		;round it up
+	cmp	r1,t.ifre	;this a half a point?
+	blo	40$		;no
+	inc	r0		;yes
+40$:	mov	r0,r1		;get the value
+	output	dec par=r1 ctl=#zer cnt=#2
+50$:	return
+.dsabl	lsb
+
+getday:	mov	t.ih24,r2	;time
+	mov	t.il24,r3	;
+10$:	clr	r4		;days
+20$:	cmp	r0,r2		;got another day?
+	blo	30$		;no
+	bhi	25$		;yes
+	cmp	r1,r3		;really?
+	blo	30$		;no
+25$:	inc	r4		;count the day
+	sub	r3,r1		;divide
+	sbc	r0		;
+	sub	r2,r0		;
+	br	20$		;
+30$:	mov	r4,r2		;r2 = days
+	return
+.sbttl	date
+
+putdat:	mov	date,r1		;day
+	asl	r1		;r1 = day
+	asl	r1
+	asl	r1
+	swab	r1
+	bic	#^c<37>,r1
+	output	dec par=r1 ctl=#zer cnt=#2
+	type	<->		;
+
+	mov	date,r1		;month
+	asr	r1		;r1 = month
+	swab	r1
+	asr	r1		;
+	bic	#^c<17>,r1	;clean up			;Y2K fix
+	dec	r1		;remove month zero
+	cmp	r1,#11.		;in range ?
+	blos	10$		;yes
+5$:	mov	#12.,r1		;
+10$:	asl	r1		;
+	asl	r1		;
+	add	#20$,r1		;point to the month
+	output	str par=r1	;
+	type	<->		;
+	
+	mov	date,r1		;year
+	bic	#^c<37>,r1	;r0 = year
+.if eq Y2K
+	add	#72.,r1		;year
+.iff				;
+	psh	date		;handle era
+	swab	(sp)		;
+	asr	(sp)		;
+	bic	#^c<140>,(sp)	;
+	bis	(sp)+,r1	;
+	add	#1972.,r1	;
+.endc
+	output	dec par=r1	;
+	return
+
+20$:	.irp	$,<Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec,Bad>
+	.asciz	&$&
+	.endr
+	.even
+.end
+

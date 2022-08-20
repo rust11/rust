@@ -1,0 +1,180 @@
+.title	factor
+.include "dcs:dcl.mac"
+.psect	factor
+
+;	DCL FACTOR command
+;
+;	%build
+;	macro	dcs:factor /object=dcb:factor
+;	%end
+;	%date
+;	<16-Apr-2003 25:26:55.10>
+;	%edit
+;	<13   >
+
+meta <find s><jsr r2,find><.asciz &s&><.even>
+
+;	RT-11 command line factoring
+;
+;	=(xxx,xxx) is ignored for VMS compatibility.
+;	Factoring may not occur within such sections
+;	Factors are ignored inside quoted sections.
+;	Wildcards must be permitted during factor scan.
+;
+;	The case of '=(...)'<-1> causes the last ')' to be lost.
+
+factor::call	fix		;remember we're in memory
+	incb	@$wild		;permit wildcards in factors
+	call	facexc		;check syntax exclusions
+	bcs	220$		;excluded
+				;
+10$:	mov	#line,r5	;get the line
+	mov	$console,r4	;and the output area
+20$:	mov	r5,r1		;the start of preface
+	find	<(>		;look for this guy
+	bcs	100$		;end of string, get out
+	bne	20$		;remember the others
+	mov	r5,r2		;mark preface field end
+30$:	find			;find the next thing
+	bmi	40$		;stop, we got ')'
+	call	200$		;dump the current guy
+	br	30$		;now get the next
+40$:	mov	r4,r1		;save start of trailer
+	find	</>		;get the end of trailer
+	mov	r4,r2		;save end of trailer
+	adc	r2		;adjust for end of line
+50$:	find			;copy the rest out
+	bcc	50$		;till end of line
+	cmpb	-1(r4),#')	;terminates with a ')'
+	beq	55$		;yes, doesnt need another
+	movb	#'),r0		;so put one out
+	call	s.put
+55$:	mov	$console,r5	;reverse the fields
+	mov	#line,r4
+60$:	find	<(>		;get the start again
+	bne	60$
+	dec	r4		;remove the '('
+70$:	find			;get the next thing
+	bmi	80$		;we got the ')'
+	cmpb	-(r5),-(r4)	;back across the space
+	call	200$		;dump our string
+	movb	(r5)+,(r4)+	;now move the space
+	br	70$		;get the next
+80$:	bcs	90$		;dont delete end of line
+	clrb	-(r4)		;remove the ')'
+90$:	find			;move the rest of the string
+	bcc	90$		;till end of line
+	br	10$		;now do it again
+				;
+;	End of line 
+
+100$:	cmpb	-(r5),#')	;is our terminator still there?
+	bne	220$		;nope
+	clrb	(r5)		;yes, remove it
+220$:	decb	@$wild		;reset wildcard indicator
+	return			;done
+
+;	Copy out factor item
+
+200$:	mov	r1,r3		;get a copy
+210$:	movb	(r3)+,r0	;get the next
+	cmp	r3,r2		;done enough?
+	bhis	220$		;we've done enough
+	call	s.put		;dump it
+	br	210$
+
+find:	mov	(r2)+,r3	;get the calling argument
+10$:	movb	(r5),r0		;get the next character
+	sec			;in case its end of line
+	beq	30$		; >> c=1,n=1 end of line
+	call	s.put		;else we always move it
+	call	parchk		;check for =(...)
+	bcc	10$		;it was - get the next
+	check	< ,+>		;these guys are the same
+	inc	r5		;now skip the character
+	.word	cln		;in case its one of these
+	bcc	40$		; >> c=0,n=0,z=0 return
+	cmpb	r0,r3		;is the calling argument?
+	beq	50$		; >> z=1, exact match
+	cmpb	r0,#')		;is it ')' ?
+	bne	10$		;not this guy
+30$:	sen			;n=1, <)> or eol found
+40$:	clz			;z=0, not exact match
+50$:	rts	r2
+.sbttl	parchk - check for =(...)
+
+;	Skip =(...)
+;	If ) is at end of line go one further
+
+parchk:	psh	#')		;assume =() section
+	cmpb	r0,#'=		;this an equals sign?
+	bne	5$		;no
+	cmpb	1(r5),#'(	;this =(?
+	beq	10$		;yes
+	br	30$		;redundant
+5$:	mov	#'",(sp)	;assume quoted section
+	cmpb	r0,(sp)		;this quoted section?
+	bne	30$		;no
+10$:	inc	r5		;get the next
+	movb	(r5),r0		;get the next
+	beq	30$		;oops - missmatch
+	call	s.put		;dump it
+	cmpb	r0,(sp)		;end of it?
+	bne	10$		;no
+	inc	r5		;yes
+				;
+	tstb	(r5)		;end of string?
+	bne	20$		;no - or end of line
+	inc	r5		;yes
+	cmpb	(r5),#-1	;this the very end?
+	beq	20$		;no
+	clrb	(r5)		;terminate us
+20$:	tst	(pc)+		;
+30$:	sec			;
+	inc	(sp)+		;skip terminator
+	return
+.sbttl	check factor exclusion
+
+;	:=, ==, |	CCL line
+;
+;	(- (0..9	expression
+
+facexc:	mov	#line,r5	;get the line
+10$:	movb	(r5)+,r0	;
+	beq	40$		;mostly over
+	cmpb	r0,#'|		;UCL?
+	beq	50$		;
+	cmpb	(r5),#'=	;
+	bne	20$		;
+	cmpb	r0,(r5)		;==?
+	beq	50$		;
+	cmpb	r0,#':		;:=
+	beq	50$		;
+
+
+20$:	cmpb	r0,#'(		;opening?
+	bne	10$		;
+30$:	movb	(r5)+,r0	;
+	beq	40$		;who cares
+	cmpb	r0,#32.		;
+	beq	30$		;
+	cmpb	r0,#9.		;tab
+	beq	30$		;
+	cmpb	r0,#'-		;
+	beq	50$		;
+	cmpb	r0,#'0		;digit?
+	blo	40$		;
+	cmpb	r0,#'9		;
+	bhi	40$		;
+35$:	movb	(r5)+,r0	;got '('<digit> - check for ',' before ')'
+	beq	40$		;no closing ')'	
+	cmpb	r0,#')		;closing quote?
+	beq	50$		;yep - no comma - excluded
+	cmpb	r0,#',		;comma?
+	bne	35$		;nope
+40$:	tst	(pc)+		;not excluded
+50$:	sec			;is excluded
+	return
+
+.end
+

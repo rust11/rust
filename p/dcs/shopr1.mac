@@ -1,0 +1,649 @@
+.sbttl	show process state
+
+;	Process state:
+;
+;	PCR state:	
+;	CLI state:	
+;	JSW state:
+;	COM state:
+;	ACP state:	
+;	TER state:	??? ^F, ^B etc.
+;	IND state:
+; ???	ERR state:	Warn/Warn  Current: ananan   Value:  nnnn
+;	Request:
+;	Registers:
+;	Memory:
+;	Controlled:	[ctrl/c] Bus/Cpu Fpu Errors Chans
+;	Kernel AST:
+;	Client AST:	
+
+meta	<flag c d><.word c><.asciz &d&><.even>
+meta	<address c><jsr r4,shoadr><.word c>
+
+shosta:				;show process/state
+;	print
+;	print	<Process state:>
+	print
+	call	shotah		;display the header
+	call	shotar		;and the target itself
+	print
+	call	100$		;pcr, cli, jsw, com
+	call	600$		;acp
+	call	900$		;ter
+	call	960$		;ind
+	print
+	call	400$		;reg
+	call	500$		;mem
+	call	800$		;controlled
+	call	200$		;kernel ast
+	call	300$		;client ast
+	print
+	call	700$		;request
+	return
+
+;	Status flags
+
+100$:	type	<PCR state:  >
+	mov	#150$,r2	;get the flags to check
+	mov	p.hsta,r3	;
+	call	shobit		;show bits
+
+	type	<CLI state:  >
+	mov	#160$,r2	;CLI state
+	mov	p.hsta,r3	;
+	call	shobit
+
+	type	<JSW state:  >
+	mov	#170$,r2	;
+	mov	p.hjsw,r3	;
+	call	shobit		;
+
+	type	<COM state:  >
+	mov	#180$,r2	;
+	mov	p.hcfs,r3	;
+	call	shobit
+	return
+
+meta	<flag c d><.word c><.asciz &d&><.even>
+150$:	flag	prcha$	<Chain >
+	flag	primg$	<Image >
+	flag	prwak$	<Wake >
+	flag	prsus$	<Suspend >
+	flag	prcri$	<Critical >
+	flag	prdel$	<Delete >
+	flag	prrem$	<Remove >
+	flag	prexi$	<Exit >
+	flag	prabp$	<Abort_pending >
+	flag	prabt$	<Abort >
+	.word	0
+
+160$:	flag	prcli$	<Active >
+	flag	prast$	<AST >
+	flag	prcom$	<Command >
+	flag	prsus$	<Suspend >
+	.word	0
+
+170$:
+	flag	jsvir$	<Virtual >	;Virt
+	flag	jsovr$	<Overlay >	;Over
+	flag	jsrst$	<Reenter >	;Ree
+
+	flag	jscha$	<Chain >	;Chain
+	flag	jscom$	<Call >		;Call
+	flag	jsind$	<IND >		;IND
+
+	flag	jstts$	<Single >	;Single
+	flag	jsttr$	<Nowait >	;Nowait
+	flag	jsttl$	<Lower >	;Lower
+
+	flag	jsgtl$	<Gtlin >	;Gtlin
+	flag	jsedi$	<Noedit >	;Noedit
+
+;	flag	jsusr$	<Uswap >
+	.word	0
+
+180$:	flag	cftti$	<Nocommand >	;Nocommand
+	flag	cfind$	<IND >		;IND
+	flag	cfdis$	<Display >	;/everything
+	flag	cfqui$	<Quiet >	;Quiet
+
+	flag	cfact$	<Active >	;Active
+	flag	cfdcl$	<DCL >		;DCL input
+	.word	0
+
+;	AST
+
+200$:	type	<Kernel AST: >
+	mov	#250$,r2	;list
+	mov	pcr+pr.sig,r3	;get the signals
+	swab	r3		;put them in the high byte
+	bisb	pcr+pr.ast,r3	;flags
+	bne	210$		;
+	bisb	#200,r3		;force pending
+210$:	tst	pcr+pr.asq	;got any queued?
+	beq	215$		;no
+	bisb	#100,r3		;yes
+215$:	call	shobit		;show the bits
+	return
+
+250$:	flag	stact$	<Active >
+	flag	stdor$	<Dormant >
+	flag	stdis$	<Disable >
+	flag	100	<Queue >
+	flag	200	<Pending >
+
+	flag	siter$*256. <Terminal >
+	flag	sidbg$*256. <Debug >
+	flag	siabt$*256. <Abort >
+	flag	siexi$*256. <Exit >
+	flag	sirtm$*256. <Real >
+	.word	0
+
+;	Client AST:
+
+300$:	type	<Client AST: >
+	mov	#250$,r2	;states
+;	mov	p.hsig,r3	;get the signals
+;	ash	#5,r3		;get them * 64.
+	bis	p.hast,r3	;ast state
+	bne	310$		;has something
+	bis	#20,r3		;force pending
+310$:	tst	p.hasq		;got any in the queue?
+	beq	315$		;no
+	bis	#10,r3		;yes
+315$:	tst	p.hsig		;got any signals?
+	beq	320$		;no
+	bis	#40,r3		;yes
+320$:	call	shobit		;display state
+	return
+
+350$:	flag	stact$	<Active >
+	flag	stdor$	<Dormant >
+	flag	stdis$	<Disable >
+	flag	10	<Queue >
+	flag	20	<Pending >
+	flag	40	<Signals >
+
+.if ne 0
+	flag	tectc$*32. <^C >
+	flag	tecth$*32. <bs >
+	flag	tecty$*32. <^Y >
+	flag	tecat$*32. <[attach] >
+	flag	tecdt$*32. <[detach] >
+	flag	tecto$*32. <^O >
+	flag	tectt$*32. <^T >
+	flag	tecli$*32. <[cont] >
+.endc
+	.word	0
+
+;	Registers:	
+
+400$:	type	<Registers:  >
+	type	<Ksp: >
+	address	c.xksp
+	type	<  Usp: >
+	address	c.xusp
+
+	tst	c.xpsw
+	bmi	410$
+	type	<    K>
+	br	420$
+410$:	type	<    U>
+420$:	type	<pc: >
+	address	c.xpc
+	type	<  Psw: >
+	address	c.xpsw
+	print
+	return
+
+;	Memory
+
+500$:	Type   <Memory:     >
+	type	<Top: >
+	address	p.htop
+	type	<  Ctl: >
+	address	p.husr
+	type	<   Rmon: >
+	address	p.hrmc
+	print
+	return
+
+;	ACP
+;	Lookup chan=n  filename  r0=nnnnnn  Result=n
+
+600$:	Type	<ACP state:  >
+	movb	a.popr,r2	;get the operation
+	cmpb	r2,#acomx.	;too high?
+	blo	610$		;no
+	movb	#acomx.,r2	;yes
+610$:	asl	r2
+	asl	r2
+	asl	r2		;eight per name
+	add	#650$,r2	;
+	output	str par=r2	;display operation
+
+	output	dev par=a.plog cnt=#6
+
+	output	fil par=#a.pfna cnt=#14.
+
+	type	< Chn: >
+	output	dec par=a.pchn cnt=#3
+
+	type	<    Size: >
+	output	dec par=a.pr0 cnt=#5
+
+	tst	a.psta		;got an error?
+	bmi	620$		;yes
+	type	<         >
+	br	630$		;
+
+620$:	type	< Err: >
+	clr	r1
+	bisb	a.psta,r1	;get the code
+	output	oct par=r1 cnt=#3
+630$:	print
+
+	return
+
+650$:	.asciz	/Lookup /	;eight wide
+	.asciz	/Enter  /	;
+	.asciz	/Rename /	;
+	.asciz	/Delete /
+	.asciz	/Close  /
+	.asciz	/Purge  /
+	.asciz	/Savest /
+	.asciz	/Reopen /
+	.asciz	/Getfil /
+	.asciz	/Setfil /
+	.asciz	/Getvol /
+	.asciz	/Setvol /
+	.asciz	/Mount  /
+	.asciz	/Dismnt /
+	.asciz	/Error  /
+	.even
+
+700$:	tst	p.hcrp			;got a request?
+	beq	710$			;no
+	mov	#r.pchn,r5
+	call	request			;and display it
+	br	720$
+710$:	print
+720$:	print
+	return
+
+;	Program	[ctrl/c] bus/cpu fpu 
+
+800$:	type	<Controls:   >
+	clr	r3			;set the bits
+	mov	#p.hsfp,r2		;get the bits
+	mov	#1,r1			;
+810$:	tst	(r2)+			;in use?
+	beq	820$			;no
+	bis	r1,r3			;yes
+820$:	asl	r1			;next
+	cmp	r2,#p.himf		;all done?
+	blo	810$			;no
+
+	inc	r2			;yes - skip imf
+	tstb	(r2)+			;got channels?
+	beq	830$			;no
+	bis	r1,r3			;set
+830$:	mov	#850$,r2		;point to them
+	call	shobit
+	return
+
+850$:
+	flag	1	<Fpu >
+	flag	2	<^C >
+	flag	4	<Bus/Cpu >
+	flag	10	<Errors >
+	flag	20	<Channels >
+	.word	0
+
+900$:	type	<TER state:  >
+	mov	#950$,r2		;the bits
+	mov	t.esig,r3		;the signals
+	call	shobit			;display them
+	return
+950$:	flag	tectc$	<^C >
+	flag	tecty$	<^Y >
+	flag	tecth$	<^H >
+	flag	tecto$	<^O >
+	flag	tectt$	<^T >
+	flag	tectb$	<^B >
+	flag	tectf$	<^F >
+	flag	tectp$	<^P >
+	flag	tectx$	<^X >
+	flag	tecat$	<Att >
+	flag	tecdt$	<Det >
+	flag	tecli$	<Cli >
+	.word	0
+
+960$:	type	<IND state:  >
+	mov	#970$,r2		;the bits
+	movb	p.hinx+1,r3		;the signals
+	call	shobit			;display them
+	return
+
+970$:	flag	incgl$	<Global ^C >	;enable
+	flag	incin$	<Noabort >
+	flag	3	<Disabled ^C >	;other reasons
+	flag	inlin$	<Line >		;command from IND
+	flag	inrun$	<Run >		;running
+	flag	inind$	<Ind >		;ind running dcl
+	.word	0
+
+;	Zero out unused areas
+
+shoadr:	output	oct par=@(r4)+ ctl=#zer cnt=#6
+	rts	r4
+
+shobit:
+	clr	-(sp)		;
+110$:	mov	#1,r4		;assume we count spaces
+	bit	(r2)+,r3	;is this one set?
+	beq	120$		;no
+	clr	r4		;dont count them
+	output	str par=r2	;yes
+120$:	tstb	(r2)+		;skip the string
+	beq	130$		;done
+	add	r4,(sp)		;accumulate unused
+	br	120$		;
+130$:	inc	r2		;
+	bic	#1,r2		;
+	tst	(r2)		;any more?
+	bne	110$		;yes
+140$:	pop	r2		;should we fill it?
+	beq	150$		;no
+	output	str par=#160$ cnt=r2
+150$:	print
+	return
+160$:	.byte	0,0		;
+.sbttl	show process plas
+
+;Region 1  SHARED.REG  Blocks=28.  Base=10404p  Size=100p
+;Control   Global, shared, permanent
+;Window 1  Base=20000  Top=20776  Size=100  Offset=12  Length=10 
+;Region 2  
+
+shopla:	
+	tst	p.hxmr		;got xm?
+	bne	10$		;yes
+	return			;no - ignore it
+
+10$:	print
+	print	<Plas regions and windows:>
+	print
+
+; Do regions and mapped windows
+
+	mov	#1,r5		;get the regions
+20$:	call	100$		;do a region
+	inc	r5		;do the next
+	cmp	r5,#xmmrn.	;all done?
+	blo	20$		;no
+
+; Do the unmapped windows
+
+	mov	#-1,r5		;catch the first for a header
+	mov	#1,r4		;get the regions
+30$:	call	400$		;do a region
+	inc	r4		;do the next
+	cmp	r4,#xmmwn.	;all done?
+	blo	30$		;no
+	return			;
+
+100$:	mov	r5,r1		;point to the region
+	mul	#xr.bbs,r1	;get the region offset
+	add	#xmr,r1		;point into the record
+	add	#xm.xrg,r1	;
+	mov	r1,r2		;r2 -> region
+	tst	xr.add(r2)	;is it active?
+	bne	110$		;yes
+	return			;
+
+;Region 1  SHARED.REG  Blocks=28.  Base=10404p  Size=100p
+
+110$:	type	<Region >	;yes
+	output	dec par=r5	;
+	type	<  >		;
+	mov	r2,r1		;
+	add	#xr.fnm,r1	;r1 -> filename
+	output fil par=r1	;
+	type	<  Blocks=>	;blocks
+	clr	r0		;
+	mov	xr.siz(r2),r1	;r1 = pages
+	add	#mmpib.-1,r1	;
+	div	#mmpib.,r0	;
+	output	dec par=r0	;
+	type	<.  Base=>	;
+;Region 1  SHARED.REG  Blocks=28.  Base=10404p  Size=100p
+	output	dec par=xr.add(r2) ;base page
+	type	<.  Size=>
+	output	dec par=xr.siz(r2)
+	print	<.       >
+	type	<          >
+
+	pshs	<r5,r4,r3,r2>
+	mov	xr.ctl(r2),r3	;
+	mov	#700$,r2	;get the flags to check
+	call	shobit		;show bits
+	pops	<r2,r3,r4,r5>
+
+; Find all the regions mapped to this window
+
+	mov	#1,r4		;window number
+200$:	call	500$		;do a window
+	inc	r4		;
+	cmp	r4,#xmmrn.	;all done?
+	blo	200$		;no
+	return			;
+
+
+; Display unmapped windows
+
+400$:	mov	r4,r3		;window number
+	mul	#xw.bbs,r3	;get the region offset
+	add	#xm.xwn,r3	;r3 -> window 
+	add	#xmr,r3		;point into the record
+
+	tst	xw.rbp(r3)	;got a region?
+	bne	410$		;no
+	tst	xw.siz(r3)	;is it active?
+	bne	420$		;yes
+410$:	return			;not in use
+
+420$:	inc	r5		;r5=-1 implies the first
+	bne	430$		;not the first
+	print	<Unmapped: >	
+430$:	br	520$		;and do the common stuff
+
+
+; Display this window if its mapped to current region
+
+500$:	mov	r4,r3		;window number
+	mul	#xw.bbs,r3	;get the region offset
+	add	#xm.xwn,r3	;r3 -> window 
+	add	#xmr,r3		;point into the record
+
+	mov	r5,r1		;compute rbp address
+	mul	#xr.bbs,r1	;
+	add	#xm.xrg,r1	;
+	add	p.hxmr,r1	;kernel address of region control
+	cmp	r1,xw.rbp(r3)	;same region?
+	bne	510$		;no
+	tst	xw.siz(r3)	;is it active?
+	bne	520$		;yes
+510$:	return			;not in use
+
+;Window 1  Base=20000  Top=20776  Size=100  Offset=12  Length=10 
+
+520$:	type	<Window >
+	output	dec par=r4	;Window n
+	type	<  Low=>
+	output	oct par=xw.lvr(r3)
+	type	<  High=>	;
+	output	oct par=xw.hvr(r3)
+	type	<  Size=>
+	output	dec par=xw.siz(r3)
+	type	<.>
+
+	tst	xw.rbp(r3)	;is it mapped?
+	beq	530$		;no
+	type	<  Offset=>
+	output	dec par=xw.off(r3)
+	type	<.  Length=>
+	movb	xw.npd(r3),r1	;number in window
+	dec	r1		;last par handled below
+	mul	#mmpis.,r1	;pages in segments
+	movb	xw.lpd+1(r3),r0	;last pdr count
+	inc	r0		;mmu has one less
+	add	r0,r1		;r1 = length mapped
+	output	dec par=r1	;mapped
+530$:	print	<.       >
+	return
+
+;
+map	xmssg$,,0
+map	xmspn$,,0
+map	xmswr$,,0
+;
+
+meta	<flag c d><.word c><.asciz &d&><.even>
+700$:	flag	xmssg$	<System >
+	flag	xmsgb$	<Global >
+	flag	xmspm$	<Permanent >
+	flag	xmspn$	<Physical >
+;	flag	xmsrf$	<Copy_on_ref>
+;	flag	xmsdz$	<Dzero>
+	flag	xmswr$	<Write >
+;	flag	xmsxp$	<Expand >
+	flag	xmsde$	<Delete >
+	flag	xmsnc$	<No_create >
+	flag	xmsin$	<Init >
+	flag	xmscr$	<Created >
+	flag	xmsex$	<Existed >
+	.word	0
+.sbttl	show process/logger
+
+;	Display logger status of a process
+;	
+;	p$hlos	Logger status
+;	p$hlob	Logger buffer	 0 = status - unused
+;				 2 = character count in buffer
+;				 4 = allocated size
+;				 6 = output block
+;				10 = filename
+;	p$hlof	Logger flags 	high = input
+;				low  = output
+;
+; Logger usage:  No logging, File logging, Terminal logging
+; Logger state:  Output_pending Terminal_wait
+; Logfile name:	 EWD:OUTPUT.LOG  234 blocks, 3 blocks in use
+; 		 No logfile open
+; Logfile state: Suspended, File full, Output error, Close pending, Write act
+
+
+sholog:
+	print					;
+	type	<Logger usage:   >		;
+	call	logusg				; get logger status
+	type	<Logger state:   >		;
+	call	loglst				;
+	type	<Logfile name:   >		;
+	call	logfil				; display logfile data
+	type	<Logfile state:  >		; logfile status 
+	call	logfst
+
+	return
+
+;	Get logger usage
+
+logusg:						; logger status
+	tst	p.hlob				; do they log?
+	bne	10$				; yes
+	print	<No logging>			;
+	tst	(sp)+				; do not return
+	return					;
+						;
+10$:	bit	#foopn$,p.hlos			; file loggin?
+	beq	20$				; nope
+	type	<File>				;
+	br	30$				;
+20$:	type	<Terminal>			;
+30$:	type	< logging, >			;
+	tst	f.ocnt				;
+	bne	40$				;
+	print	<buffer empty>			;
+	br	60$				;
+40$:	output	dec par=f.ocnt			;
+	type	< character>			;
+	cmp	f.ocnt,#1			;
+	beq	50$				;
+	type	<s>				;
+50$:	print	< in buffer>			;
+60$:	return					;
+
+;	Logfile name and block usage		
+
+logfil:
+	bit	#foopn$,p.hlos			; got a file open?
+	bne	10$				; yes
+	print	<No logfile open>		;
+	return					;
+						;
+10$:	output	fil par=#f.ofil			; display filename
+	type	< >				;
+	cmp	f.oalc,#-1			; this non-file?
+	bne	15$				;nope
+	print	<Sequential>			;
+	br	40$				;
+
+15$:	output	dec par=f.oalc			;
+	type	< block>			;
+	cmp	f.oalc,#1			; this singular?
+	beq	20$				; yes
+	type	<s>				;
+20$:	type	<, >				;
+	output	dec par=f.oblk			;
+	type	< block>			;
+	cmp	f.oblk,#1			;
+	beq	30$				;
+	type	<s>				;
+30$:	print	< in use>			;
+40$:	return					;
+
+;	Display logfile status
+
+logfst:
+	bit	#foopn$,p.hlos			; got a file?
+	beq	30$				; nope
+	type	<Open >				;
+	bit	#fofil$,p.hlos			; enabled?
+	bne	10$				; yes
+	type	<Suspended >			;
+10$:	mov	#40$,r2				; get the strings
+	mov	p.hlos,r3			; get the bits
+	call	shobit				; display them
+20$:	return					;
+30$:	print
+	return					;
+
+40$:	flag	foful$	<File_full >		;
+	flag	foerr$	<Output_error >		;
+	flag	foclo$	<Close_pending >	;
+	flag	fowri$	<Write_pending >	;
+	.word	0				; terminate list
+
+;	Terminal logging state
+
+loglst:
+	mov	#10$,r2				; get descriptors
+	mov	p.hlos,r3			;
+	call	shobit				;
+	return					;
+
+10$:	flag	fopau$	<Terminal_wait >	;
+	flag	fopnd$	<Output_pending >	;
+	.word	0				;
+                                                                                                                                                                                                                                                                                                           

@@ -1,0 +1,1261 @@
+Y2K=1
+.title	login1
+.include "lib:share.mac"
+$defus
+$ehdef			;expert header
+$esdef			;error severity
+$fndef			;filenam
+$jbdef			;job area
+$jsdef			;job status word
+$kcdef			;kernel control
+$opdef			;output
+$pedef			;process enables
+$prdef			;pcr
+$pqdef			;process quotas
+$rmdef			;rmon - remove after stb compile (login fail count)
+$scdef			;scheduler data
+$sedef			;set terminal
+$srdef			;system rights
+$svdef			;shift values
+$tedef			;ter
+$ttdef			;terminal characteristics
+$usdef			;user access record
+
+;	%build
+;	r macro
+;	dcb:login1=ses:mpl/m,dcs:kp,dcs:login1
+;	^C
+;	%end
+;	%date
+;	<16-Mar-2008 22:12:33.02>
+;	%edit
+;	<204  >
+
+
+;	r3 -> uar buffer
+
+map	delete,,177	;
+map	us.bbs,,512.	;decode buffer size
+map	uscyp.,,135.	;decode variable
+
+	ctrlu='U-100
+
+meta <i$rad50 c,d><mov c,r2><mov d,r1><call i.rad50>
+meta <kerflg flg><$cmkrnl #area, #lo$kc0, p0=flg, pic=yes>
+.sbttl	login new user 
+
+;	Log new user in
+
+logon::	setup	$login			;get setup
+	edit	<D=""T="">		;no disk
+	kernel	#lo$boo			;check for boot in progress
+	bcc	60$			;not booting
+	print	<?DCL-W-Shutdown in progress> ;
+60$:	tst	p.husn			;got a user?
+	bne	100$			;yes - use it
+	kernel	#lo$ckr			;check remote terminal
+	bcc	70$			;no remote terminal
+	fatal	<Remote logins disabled> ;it's remote, kcrem$ not set
+					;
+70$:	kerflg	#kcint$			;interactive logins disabled?
+	bcc	80$			;nope
+	kernel	#lo$ckc			;check for console
+	bcc	80$			;we are the console
+	fatal	<Interactive logins disabled>
+					;
+80$:	scan	<^M>			;no - get the username
+	call	mrktim			;time them out
+90$:	scanend	<^IF=1Q="Username: ">	;
+	call	cantim			;cancel it
+	tstb	@$input			;got anything at all?
+	beq	90$			;nothing - try again
+
+;	Check the UAF
+
+100$:	call	login1			;check the uaf
+					;and insert name in sy:users.sys
+	tst	p.husn			;interactive login?
+	bne	130$			;nope
+	output	clr			;init output 
+	bitb	#usfdw$,us.flg(r3)	;welcome message disabled?
+	bne	110$			;yes
+	call	welcom			;call welcome routine
+110$:	bitb	#usfdm$,us.flg(r3)	;new mail disabled?
+	bne	120$			;yes
+	call	maimsg			;check for new mail
+120$:	clr	us.lfc(r3)		;clear out login fail count
+	.date				;get current date
+	psh	r0			;save date
+	.gtim	#area, #maibuf		;get the time
+	kernel	#lo$bat			;check for batch process
+	bcc	125$			;it's batch
+	pop	us.dat(r3)		;store login date
+	mov	maibuf,us.hot(r3)	;store high order time
+	mov	maibuf+2,us.lot(r3)	;and low order time
+	br	130$			;
+125$:	pop	us.nda(r3)		;use batch entries
+	mov	maibuf,us.nho(r3)	;
+	mov	maibuf+2,us.nlo(r3)	;
+
+;	Setup default disk unless
+
+130$:	edit	<^Z>			;build startup command file
+	edit	<D%"assign "_D" dk:"}>	;define default disk
+	edit	<D%> 140$		;keyboard overrides uar
+					;check captive
+	movi	us.dde,r3,r5		;point to default disk
+	tstb	(r5)			;got anything?
+	beq	140$			;nope
+	edit	<"ASSIGN "@\@@" DK:"}>
+
+;	Call system-wide startup command file
+
+140$:	kerflg	#kclgi$			;system wide login file?
+	bcs	150$			;nope
+	edit	<"set error none"}>	;yes - avoid errors
+	edit	<"@sy:logins.com"}>	;call the command file
+
+;	Setup user CLI
+
+150$:	mov	k$mwor,r0		;assume default CLI
+	mov	$force(r0),r0		;get the string
+	beq	190$			;is none
+	clrb	(r0)			;terminate it
+
+	movi	us.dcl,r3,r5		;get default CLI
+	cmp	(r5),#"DC		;this default DCL?
+	bne	160$			;nope
+	cmp	2(r5),#'L		;really?
+	bne	160$			;nope
+	clr	(r5)			;do not use dcl
+160$:	bitb	#usfdc$!usfcp$,us.flg(r3) ;allowed to change default cli?
+	bne	170$			;nope
+	edit	<L%>,,170$		;no keyboard CLI
+	mov	$linker,r5		;get keyboard CLI
+170$:	tstb	(r5)			;got a string?
+	beq	190$			;none available
+180$:	movb	(r5)+,(r0)+		;get the string
+	bne	180$			;until all copied
+
+;	Call user-specific startup command file
+
+190$:	movi	us.lgi,r3,r5		;point to login command file
+	tstb	(r5)			;got one?
+	beq	200$			;nope
+	edit	<*~}>			;yep - move it in
+
+;	Reset [ctrl/c]
+;
+; ???	Check captive first
+
+200$:	bitb	#usfcc$,us.flg(r3)	;start with [ctrl/c] disabled?
+	bne	205$			;yes
+	call	ctcon			;turn it back on
+
+;	/VERIFY
+
+205$:	call	putuaf			;put it back
+	mov	sysptr,r0		;r0 -> rt-11 header
+	mov	k$mwor,r1		;r1 -> expert header
+	bis	#ifeko$,statwd(r0)	;assume noquiet
+	bis	#senov$,eh.set(r1)	;assume noverify
+	edit	<l2>,,210$		;/verify?
+	bic	#senov$,eh.set(r1)	;turn noverify off
+
+;	/NOQUIET
+
+210$:	edit	<l0> 220$		;skip if not /verify
+	bis	#ifeko$,statwd(r0)	;force echo
+	br	230$			;and dispatch
+					;
+220$:	mov	k$mwor,r0		;get world
+	tst	$jobc(r0)		;is this a command file?
+	bne	230$			;yes
+	jmp	build			;no - do it a la DCL
+230$:	jmp	dispatch		;dont set DCL quiet
+
+$login:
+option	CLI		1 _	null	l.cli	l=0
+option	DISK		1 _	null	l.disk	l=0
+option	QUIET		1 _	null	
+option	NOQUIET		1 _	null	l.noqui
+option	VERIFY		1 _	null	l.verify
+option
+
+l.cli:	edit	<^L!:|?>		;get it in $linker
+	edit	<D="SY:">
+	call	file
+	edit	<D="">
+20$:	return
+
+l.disk:	edit	<^D!:|?>
+	edit	<(@\@@!:|?)>
+	return
+
+l.verify:edit	<l=2>
+	return
+l.noqui:edit	<l=1>
+	return
+.sbttl	welcome message, new mail message
+
+;	Welcome message
+
+welcom:	pshs	<r1,r2>			;save this
+
+	mov	#welnam,r1		;
+	call	distxt			;check for sy:welcom.txt
+	bcc	15$			;it was there
+					;
+	print				;start with a newline
+	type	<Welcome to RUST/XM V>
+	kernel	#getsys			;get system info
+	output	dec par=s.yver		;
+	type	<.>			;
+	output	dec par=s.yupd		;
+	tst	s.ynod			;got a node name?
+	beq	10$			;nope
+	type	< on node >		;
+	output	nam par=#s.ynod cnt=#6 ctl=<#low!tit>
+10$:	print				;
+
+15$:	mov	us.dat(r3),r0		;get the date
+	beq	17$			;nope
+	type	<Last interactive login on >
+	mov	us.hot(r3),r1		; r1 = high order
+	mov	us.lot(r3),r2		; r2 = low order
+	call	logdat			;
+	print				;
+
+17$:	mov	us.nda(r3),r0		;get non-interactive login date
+	beq	18$			;
+	type	<Last non-interactive login on >
+	mov	us.nho(r3),r1		;
+	mov	us.nlo(r3),r2		;
+	call	logdat			;
+	print				;
+
+18$:	tst	us.lfc(r3)		;failed logins?
+	beq	100$			;nope - we are done
+	output	dec par=us.lfc(r3)	;
+	type	< failure>		;
+	cmp	us.lfc(r3),#1		;just one?
+	beq	20$			;yes
+	type	<s>			;get plural
+20$:	print	< since last successful login>	
+
+100$:	bitb	#usfdm$,us.flg(r3)	;new mail disabled?
+	beq	110$			;nope - they do new line
+	print				;
+110$:	pops	<r2,r1>			;
+	return				;
+.sbttl	check new mail
+
+;	Check for new mail
+
+maimsg:	pshs	<r1,r2,r3>		;
+	print				;start with a newline
+	mov	#^rMAI,maifil		;assume mai: disk
+	.dstatu	#area, #maifil		;
+	bcc	10$			;fine
+	mov	#^rSY,maifil		;get it on sy:
+10$:	mov	l$ona1,maifil+fn.fil	;supply user name
+	mov	l$ona2,maifil+fn.nam	;
+	.purge	#0			;free the channel
+	.lookup	#area, #0, #maifil	;open the file
+	bcs	100$			;not found - ignore
+	.readw	#area, #0, #maibuf, #20, #0 ;read the first 20 words
+	bcs	100$			;ignore it on errors
+	mov	#maibuf+1,r0		;
+	call	mainum			;get mails read
+	psh	r3			;save number of mails read
+	mov	#maibuf+7,r0		;point to total number of mails
+	call	mainum			;get the number
+	sub	(sp)+,r3		;get number of unread messages
+	beq	100$			;no new mail
+	type	<You have >	 	;
+	output	dec par=r3		;
+	type	< new Mail message>	;
+	cmp	r3,#1			;exaclty one new mail?
+	beq	20$			;yes
+	type	<s>			;nope - plural
+20$:	print				;
+	print				;
+100$:	.purge	#0			;
+	pops	<r3,r2,r1>		;
+	return				;
+
+mainum:	mov	#5,r2			;get a counter
+	clr	r3			;init number
+10$:	movb	(r0)+,r1		;this a space?
+	cmpb	r1,#space		;
+	beq	20$			;yes
+	sub	#'0,r1			;deascii it
+	mul	#10.,r3			;multiply number by 10
+	add	r1,r3			;add in the number
+20$:	sob	r2,10$			;
+	return				;
+
+maifil:	.rad50	/MAIUSER  MAI/		;
+welnam:	.rad50	/SY WELCOMTXT/		;
+maibuf:	.blkw	22.			;
+.sbttl	login date & time
+
+;	Login time & date
+;
+;	r0 = date
+;	r1 = high order time
+;	r2 = low order time
+
+	stack	r5 r4 r3 r2 r1
+	.enable	lsb
+logdat:	pshs	<r1,r2,r3,r4,r5>;
+	mov	r0,r5		;another copy
+	mov	r0,r4		;another for Y2K
+	beq	nodate
+	mov	r5,r2		;and again
+	asl	r5		;isolate day in r5
+	asl	r5
+	asl	r5
+	swab	r5
+	bic	#^c<37>,r5
+	asr	r2		;isolate month in r2
+	swab	r2
+.if ne Y2K
+	bic	#^c<17*2>,r2
+.iff
+	bic	#^c<37*2>,r2
+.endc
+	bic	#^c<37>,r0	;and year in r0
+	sub	#2,r2		;get r2=<month*2> -2
+	cmp	r0,#99.-72.	;in range ?
+	bhi	baddat		;nope
+	cmp	r2,#12.*2	;in range ?
+	bhi	baddat		;nope
+	cmp	r5,days(r2)	;day in range ?
+	bhi	baddat		;nope
+	mov	r0,-(sp)	;r0=year, save it
+				;(sp)	year-72
+.if eq Y2K
+	add	#72.,(sp)	;(sp)	year
+.iff				;
+	swab	r4		;
+	asr	r4		;
+	bic	#^c<140>,r4	;
+	bis	r4,(sp)		;
+	add	#1972.,(sp)	;
+.endc
+
+
+	mov	r2,-(sp)	;r2=month
+	mov	r5,-(sp)	;r5=day
+	mov	r0,-(sp)	;save year
+	dec	r0		;r0	year-72-1
+	asr	r0		;r0	(year-72-1)/2
+	asr	r0		;r0	(year-72-1)/4
+	add	(sp),r0		;r0	year+((year-72-1)/4)
+	inc	r0		;r0	year+((year-72-1)/4)+1
+	add	r0,r5		;r5	year+((year-72-1)/4)+day
+	bit	#3,(sp)+	;leap year?
+	bne	10$		;nope - skip correction
+	cmp	#2,r2		;after february?
+	adc	r5		;r5	year+((year-72-1)/4)+day+1
+10$:	add	months(r2),r5	;r5	year+((year-72-1)/4)+day+1+(year_days)
+20$:	sub	#7,r5		;cheapo modulo 7
+	bpl	20$
+	asl	r5		;*4 for table index
+	mov	days(r5),r5
+	output	str par=r5
+	type	< >		;
+	br	30$
+
+baddat:	type	<Bad date>
+	br	40$
+nodate:	type	<No date>
+	br	40$
+
+30$:	pop	r1		;
+	output	dec par=r1 ctl=#zer cnt=#2
+	mov	(sp)+,r3	;get <month*2>-2
+	asl	r3		;  <month*4>-4
+	add	#month,r3
+	output	str par=r3 cnt=#5
+	pop	r1		;
+	output	dec par=r1 ctl=#zer cnt=#2
+40$:	type	< >		;
+	mov	sp.r3(sp),r3	;get pointer back
+	mov	sp.r1(sp),r0	;get high order
+	mov	sp.r2(sp),r1	;get low order
+				;
+;	mov	us.hot(r3),r0	;get high order
+;	mov	us.lot(r3),r1	;
+	mov	t.ifre,r3	;compute second factor
+	mul	#60.,r3		;r3 = seconds factor
+				;
+	div	r3,r0		;extract second
+	mov	r0,r2		;r2 = minutes/hours/days
+	clr	r0		;
+	div	t.ifre,r0	;get ticks & seconds
+	psh	r1		;ticks
+	psh	r0		;seconds
+	clr	r0		;
+	mov	r2,r1		;minutes/hours
+	div	#60.,r0		;
+	psh	r1		;minutes
+	psh	r0		;hours
+	mov	#3,r2		;count it
+	br	70$		;start
+60$:	type	<:>		;
+70$:	pop	r1		;
+	psh	r0		;
+	output	dec par=r1 ctl=#zer cnt=#2
+	pop	r0		;
+	sob	r2,60$		;do them all
+	type	<.>		;
+	pop	r1		;get the ticks
+	mul	#100.,r1	;
+	clr	r0		;
+	div	t.ifre,r0	;/frequency
+	mov	r0,r1		;get the value
+	output	dec par=r1 ctl=#zer cnt=#2
+	pops	<r5,r4,r3,r2,r1>
+	return			;
+	.dsabl	lsb
+
+months:	.word	-1,30.,58.,89.,119.,150.,180.,211.,242.,272.,303.,333.
+month:	.asciz	/-Jan-Feb-Mar-Apr-May-Jun-Jul-Aug-Sep-Oct-Nov-Dec-/
+	.word	sat,sun,mon,tue,wed,thu,fri
+days:	.word	  31.,29.,31.,30.,31.,30.,31.,31.,30.,31.,30.,31.
+
+sat:	.asciz	/Saturday/
+sun:	.asciz	/Sunday/
+mon:	.asciz	/Monday/
+tue:	.asciz	/Tuesday/
+wed:	.asciz	/Wednesday/
+thu:	.asciz	/Thursday/
+fri:	.asciz	/Friday/
+	.even
+.sbttl	kernel routines
+
+;	Check for boot in progress	;
+
+lo$boo:	bit	#kcboo$,@#s$ykc0	;boot in progress?
+	bne	10$			;yes
+	return				;nope
+10$:	.soft	0			;signal boot in progress
+
+;	Check for remote terminal
+
+lo$ckr:	mov	@#p$hter,r3		;get the terminal map
+	beq	10$			;non-terminal login
+	bit	#ttrem$,tt.rem(r3)	;this a remote terminal?
+	beq	10$			;nope
+	bit	#kcrem$,@#s$ykc0	;remote logins enabled?
+	beq	20$			;nope
+10$:	return				;
+20$:	.soft	0			;
+
+;	Check for the console
+
+lo$ckc:	mov	@#p$hter,r3		;get terminal map
+	beq	10$			;oops - should not happen
+	cmp	te.nam(r3),#^rT02	;this the console?
+	bne	10$			;nope
+	bit	#kccon$,@#s$ykc0	;console logins disabled?
+	beq	10$			;yes - no login
+	return				;
+10$:	.soft	0			;
+
+getsys:	movb	@#s$yver,s.yver		;get version number
+	movb	@#s$yupd,s.yupd		;get version update number
+	mov	@#s$ynod,s.ynod		;node name
+	mov	@#s$ynod+2,s.ynod+2	;
+	mov	@#t$ifre,t.ifre		;frequency
+	return
+s.yver:	.word	0			;
+s.yupd:	.word	0			;
+s.ynod:	.blkw	2			;
+t.ifre:	.word	0			;
+.sbttl	check the uaf
+
+;	Check password
+;
+;	Get the password
+
+login1::psh	r4			;save this
+	call	getuaf			;get the uaf
+	mov	#l$ouar,r3		;get the user access record
+	tst	p.husn			;this from an attach?
+	bne	5$			;yes - do not check it
+	bitb	#usfda$,us.flg(r3)	;account disabled?
+	bne	80$			;yes
+	tstb	us.pwd(r3)		;password specified?
+	bne	10$
+5$:	br	63$			;
+
+;	Prompt for interactive password
+
+10$:	kernel	#lo$bat			;this a batch login?
+	bcc	100$			;yes - ignore this
+	call	mrktim			;time it out
+
+;	type	<Password: >		;print something
+	jsr	r1,km$typ
+	string	<Password: >,200	;
+;
+	psh	jsw			;save status word
+	bis	#jsgtl$!jstts$,jsw 	;go into special mode
+	bic	#jsttl$,jsw		;disable lower case
+20$:	mov	#pass,r1		;get the password
+	clr	r2			;no characters
+30$:	.ttyin				;get one
+	cmpb	r0,#cr			;
+	beq	30$
+	cmpb	r0,#delete
+	bne	40$
+	tst	r2			;got any to rubout?
+	beq	30$			;nope
+	dec	r2
+	clrb	-(r1)			;yes
+	br	30$
+40$:	cmpb	r0,#ctrlu		;start again?
+	beq	20$			;yes
+	cmpb	r2,#80.
+	bhis	50$			;oops - too many
+	inc	r2			;count it
+	movb	r0,(r1)+
+50$:	cmpb	r0,#lf
+	bne	30$
+	clrb	-(r1)
+	call	cantim			;cancel the timer
+	print
+	tstb	pass			;got a blank line?
+	beq	70$			;yes - forget it
+	pop	jsw			;restore job status word
+
+;	compare password
+
+	clr	r2			;get a counter
+	movi	us.pwd,r3,r0		;point to password
+	mov	#pass,r1		;get user string
+60$:	cmpb	(r0)+,(r1)+		;this the same?
+	bne	70$			;nope - bomb
+	inc	r2			;count up to 8
+	tstb	(r0)			;all done?
+	beq	65$			;yes
+	cmp	r2,#8.			;all done?
+	blo	60$			;more to do
+63$:	br	100$			;all done
+65$:	tstb	(r1)			;this all, too?
+	beq	100$			;fine
+70$:					;
+	kernel	#lo$lfc			;count the failure
+	inc	us.lfc(r3)		;
+	call	putuaf			;
+	fatal	<User authorization failure>
+80$:	fatal	<Account disabled - Contact your system manager>
+
+;	-----------------------------------------------------------------------
+;	Password o.k.
+;
+;	Setup basic login information
+;	-----------------------------------------------------------------------
+
+100$:	call	lo$cvt			;convert RUST/XM to EXPERT
+	world				;get expert header
+	mov	l$osys,$right(r0) 	;setup the rights
+	mov	l$ona1,$user(r0)	;the user name
+	mov	l$ona2,$user+2(r0)	;second part
+	mov	l$ona1,prcnam		;assume this is the process name
+	mov	l$ona2,prcnam+2	;
+	mov	l$ouic,$uic(r0)		;insert UIC
+	call	lo$ins			;insert name in sy:users.sys
+	call	filker			;fill in the kernel
+	kernel	#lo$bat			;
+	bcs	110$			;nope
+	$stbat				;yes - set batch priority
+110$:	pop	r4			;restore this
+	return				;
+
+;	Count login fails
+
+lo$lfc:
+	mov	@#j$bsys,r0		;get start of kernel rmon
+	inc	rm.erc(r0)		;count the failure
+;	inc	@#s$ylfc		;count the failure
+	mov	@#p$hter,r3		;get the terminal
+	cmpb	tt.lfc(r3),#255.	;count to the maximum
+	beq	10$			;yes - ignore it
+	incb	tt.lfc(r3)		;count it forever
+10$:	return				;
+
+lo$bat:	bit	#pebat$,@#p$hpe0	;this a batch process?
+	beq	10$			;no
+	return				;yes
+10$:	.soft	0			;
+.sbttl	handle expert stuff
+
+;	-----------------------------------------------------------------------
+;	LO$CVT - Convert RUST/XM to EXPERT
+;	-----------------------------------------------------------------------
+;	
+;	lo$cvt
+;
+;	usage	changes system rights & names to appropiate EXPERT
+;		variables - information only
+;
+;	note	manager, system user, boot, logout, change fileprotection
+;		are always zero
+;
+;		TELL, STOP are always enabled - checked later on per process
+;		basis
+;
+;		ussop	operator	OPER right
+;		ussph	physical i/o	PHY_IO right
+;		usscl	SET CLI		usfdc$ LOGIN flag
+;		ussct	SET CTRLY	usfcy$ LOGIN flag
+;		
+;	-----------------------------------------------------------------------
+
+lo$cvt:					;convert to EXPERT style
+	clr	r0			;construct EXPERT rights
+	clr	us.prv+sr.sr3(r3)	;clear current settings
+	bit	#sropr$,us.prv+sr.opr(r3) ;oper rights?
+	beq	10$			;nope
+	bis	#ussop$,r0		;yes - operator
+	bis	#srope$,us.prv+sr.ope(r3) ;set it here, too
+10$:	bit	#srpio$,us.prv+sr.pio(r3) ;physical_i/o rights?
+	beq	20$			;nope
+	bis	#ussph$,r0		;yes - set the bit
+	bis	#srphy$,us.prv+sr.phy(r3) ;
+20$:	bitb	#usfdc$!usfcp$,us.flg(r3) ;change cli?
+	bne	30$			;no - not allowed
+	bis	#usscl$,r0		;yes - set the bit
+	bis	#srcli$,us.prv+sr.cli(r3) ;
+30$:	bitb	#usfcy$!usfcp$,us.flg(r3) ;use [ctrl/y]?
+	bne	40$			;nope
+	bis	#ussct$,r0		;yes - allow
+	bis	#srcty$,us.prv+sr.cty(r3) ;
+40$:	mov	r0,l$osys		;save expert rights
+	assume	us.use eq 0		;
+	mov	r3,r0			;get uar record
+	i$rad50	r0,#l$ona1		;convert username to rad50
+	i$rad50	r2,#l$ona2		;second part
+	movi	us.acc,r3,r0		;get accounting name
+	i$rad50	r0,#l$oac1		;get accounting name
+	i$rad50	r2,#l$oac2		;
+	tst	l$oac1			;got a name?
+	bne	50$			;yes	
+	mov	l$ona1,l$oac1		;default to user name
+	mov	l$ona2,l$oac2		;
+50$:	clr	r0			;clear this
+	bis	us.grp(r3),r0		;get group code
+	swab	r0			;put it in high byte
+	bis	us.mem(r3),r0		;get member code
+	mov	r0,l$ouic		;save the uic
+	clr	l$ouif			;assume no directory spec
+	call	lo$uif			;convert rsx directory specification
+	bcs	60$			;we failed
+	mov	r0,l$ouif		;
+60$:	return
+
+lo$uif:
+	clr	r2			;
+	movi	us.ddi,r3,r1		;
+	cmpb	(r1)+,#'[		;this a uic spec?
+	bne	10$			;nope - ignore
+	call	i$octal			;
+	bcs	10$			;invalid format - ignore
+	cmp	r0,#377			;this too high?
+	bhi	10$			;yes - invalid format
+	mov	r0,r2			;save it
+	swab	r2			;put group code in place
+	cmpb	(r1)+,#',		;
+	bne	10$			;wrong format
+	call	i$octal			;convert to octal
+	bcs	10$			;oops
+	cmp	r0,#377			;member code too high?
+	bhi	10$			;yes - invalid format
+	bis	r2,r0			;
+	tst	(pc)+			;fine
+10$:	sec				;c=1 failure
+	return				;
+.sbttl	fill kernel database
+
+;	Fill in RUST/XM kernel database
+;
+;	r3	uar record
+;	r4	pcr
+;
+
+filker:	movi	us.dde,r3,r1		;point to default device
+	call	conar			;convert it
+	mov	r0,l$odsk		;remember it
+					;
+4$:	$cmkrnl	#area, rtn=#10$, pic=yes ;change mode
+	bcc	5$			;fine
+	call	newnam			;make name unique
+	br	4$			;and try again
+5$:	return				;
+
+;	Kernel routine
+
+10$:	mov	@#p$hpcr,r4		;r4 -> pcr
+	call	chknam			;make sure we have a unique name
+	bcc	15$			;fine
+	.soft	0			;non-unique name
+
+;	Fill in PHD
+
+15$:
+	mov	l$ona1,@#p$hun0		;username
+	mov	l$ona2,@#p$hun1		;
+	mov	l$oac1,@#p$hacn		;accounting name
+	mov	l$oac2,@#p$hacn+2	;
+	mov	l$ouic,@#p$huic		;uic
+	mov	l$ouic,@#p$hlui		;setup login uic
+	mov	l$ouic,pr.uic(r4)	;pr.uic
+	mov	l$ouif,@#p$huif		;setup default directory
+	mov	l$odsk,@#p$hdsk		;default disk
+
+;	Setup default logical name LOG
+
+	clr	r0			;access logical names
+20$:	tst	p$hlog(r0)		;this logical name free?
+	beq	25$			;yes
+	add	#word,r0		;no
+	cmp	r0,#31.*word		;run out of space?
+	blo	20$			;no
+	br	30$			;yes - forget it
+25$:	mov	#^rhom,p$hlog(r0)	;logical name log:
+	mov	@#p$hdsk,p$hequ(r0)	;equivalence name
+
+30$:	mova	l$ouar,r3		;get user access record
+
+;	setup quotas
+
+meta	<setquo uar phd><mov uar(r3),@#p$hquo+phd><mov uar(r3),@#p$hlim+phd>
+
+	setquo	us.cpu pq.cph		;cpu limit high order
+	setquo	us.ast pq.ast		;setup ast limit
+	setquo	us.bio pq.bio		;buffer i/o
+	setquo	us.cpu+2 pq.cpu		;cpu time low order
+	setquo	us.dio pq.dio		;direct i/o
+;[sic]	setquo	us.fil pq.fil		;nope - setup at create time of process
+	setquo	us.pgf+2 pq.pgf		;page file - use word
+	setquo	us.prc pq.prc		;subprocesses
+	setquo	us.tqc pq.tqe		;timer queue
+;sic]	setquo	us.dfw pq.wsd		;working set default - setup by $creprc
+;sic]	setquo	us.wsq pq.wsq		;working set quota   - setup by $creprc
+	setquo	us.enq pq.enq		;enqueue limit
+	setquo	us.wse pq.wse		;working set default
+
+;	setup priority
+
+	clr	r1			;
+	bisb	us.pri(r3),r1		;avoid sign extend
+	cmp	r1,#31.			;too high?
+	blos	35$			;nope
+	mov	#31.,r1			;reset
+35$:	movb	r1,@#p$hpri		;setup the priority
+	mul	#sc.bbs,r1		;convert to queue offset
+	add	#s$cp00,r1		;add in start of queue
+	mov	r1,pr.bqu(r4)		;setup the base queue
+
+;	setup top priority		
+
+	movb	#31.,@#p$hpri+byte	;setup top priority
+	mov	#s$cp31,pr.tqu(r4)	;setup top queue
+
+	meta	<setrig	c><mov #c,r0><call setrig>		
+
+	setrig	p$har0			;authorized rights
+	setrig	p$hpr0			;process rights
+	setrig	p$hsr0			;current rights
+	bis	@#p$hir0,@#p$hsr0	;merge in current image rights
+	bis	@#p$hir0+2,@#p$hsr0+2	;merge in current image rights
+
+;	clear out accounting area	;
+
+	mov	#p$hcpu,r0		;point to accounting area
+40$:	clr	(r0)+			;clear it out
+	cmp	r0,#p$hali		;past accounting?
+	blo	40$			;nope
+	mov	@#c$lhot,@#p$hali	;setup login time
+	mov	@#c$llot,@#p$hali+word	;setup low order
+
+	mov	pr.ter(r4),r3		;got a terminal?
+	beq	50$			;no
+	mov	te.nam(r3),@#p$hinp 	;yes
+	mov	te.nam(r3),@#p$hout
+	mov	te.nam(r3),@#p$herr
+	tstb	te.roo(r3)		;is this the first process?
+	bne	50$			;no
+	movb	pr.prn(r4),te.roo(r3) 	;yes - grab it
+50$:	bic	#pelgo$,@#p$hpe1	;no longer logout
+	movb	#esdef$,@#p$herl	;set error error
+	return
+
+setrig:	mov	us.prv+sr.sr0(r3),(r0)+	;setup authorized rights
+	mov	us.prv+sr.sr1(r3),(r0)+	;
+	mov	us.prv+sr.sr2(r3),(r0)+	;
+	mov	us.prv+sr.sr3(r3),(r0)+	;setup expert rights
+	return				;
+.sbttl	check name
+
+;	Kernel check name routine
+;
+;	process name must be unique
+
+chknam:	$cmsch			;block everything
+	mov	#p$rprs,r1	;get the processes
+	mov	(r1)+,r0	;get a counter
+10$:	mov	(r1)+,r2	;get the next
+	beq	20$		;empty
+	cmp	r2,r4		;is this ourself?
+	beq	20$		;yes
+	cmp	pr.nam(r2),prcnam ;is this different?
+	bne	20$		;yes
+	cmp	pr.nam+2(r2),prcnam+2
+	beq	30$		;oops
+20$:	sob	r0,10$		;check them all
+	mov	prcnam,pr.nam(r4) ;setup the name
+	mov	prcnam+2,pr.nam+2(r4)
+	mov	prcnam,@#p$hnam	;process name
+	mov	prcnam+2,@#p$hnam+2
+	tst	(pc)+		;
+30$:	sec
+	rol	-(sp)		;save the result
+	$cmpro			;return to process state
+	ror	(sp)+		;report status
+	return
+.sbttl	new name
+
+;	Construct a unique process name
+;
+;	Called when a process name is not unique.
+;
+;	Separate alphabetic & numeric fields.
+;	Increment numeric field and reassemble.
+;
+;	IAN	IAN1...IAN9...IAN10
+;
+;	Find the numeric part of the name.
+;	Increment it and put it back
+
+newnam:	mov	#tmpnam,r1		;get the name
+	mov	prcnam,r0		;
+	call	conra			;convert to ascii
+	mov	prcnam+2,r0		;
+	call	conra			;
+					;
+	mov	#tmpnam,r1		;get it again
+10$:	tstb	(r1)+			;find the end of it
+	bne	10$			;must be found
+	dec	r1			;backup
+20$:	movb	-(r1),r0		;get the previous
+	call	digchk			;is this a digit?
+	bcs	30$			;no - we have the start
+	cmp	r1,#tmpnam		;entirely numeric?
+	bhi	20$			;
+	dec	r1			;yes - adjust for pop
+30$:	inc	r1			;skip to first numeric
+	psh	r1			;save it
+	call	conad			;convert to decimal number
+	inc	r0			;get the next
+	mov	(sp),r1			;get back the start of numeric area
+	call	conda			;convert back to ascii
+					;
+	sub	#tmpnam+6,r1		;got enough space?
+	blos	50$			;we have enough space
+	neg	r1			;number missing
+	add	(sp),r1			;where they have to go
+	mov	(sp),r0			;source
+40$:	movb	(r0)+,(r1)+		;move them in
+	bne	40$			;
+					;
+50$:	tst	(sp)+			;clean up from here
+	mov	#tmpnam,r1		;
+	call	conar			;get the result name
+	mov	r0,prcnam		;
+	call	conar			;
+	mov	r0,prcnam+2		;
+	return				;
+
+;	Check for digit
+
+digchk:	cmpb	r0,#'0			;this a digit?
+	blo	10$			;no
+	cmpb	r0,#'9			;
+	bhi	10$			;
+	tst	(pc)+			;
+10$:	sec				;
+	return
+
+;	Convert ascii to decimal
+;
+;	r0 =	result
+;	r1 ->	source
+
+conad:	clr	-(sp)			;
+10$:	tstb	(r1)			;this the end?
+	beq	20$			;yes
+	movb	(r1)+,r0		;get the next
+	call	digchk			;this a digit?
+	bcs	20$			;no - we are done
+	asl	(sp)			;yes
+	psh	(sp)			;
+	asl	(sp)			;
+	asl	(sp)			;
+	add	(sp)+,(sp)		;
+	sub	#'0,r0			;
+	add	r0,(sp)			;
+	br	10$			;
+20$:	pop	r0			;
+	return
+
+;	Convert octal to ascii
+;	Convert decimal to ascii
+;
+;	r0	value
+;	r1 ->	output stream
+
+	.enabl	lsb			;
+conoa:	jsr	r5,5$			;octal
+	.word	108$			;
+conda:	jsr	r5,5$			;decimal
+	.word	110$			;
+5$:	pshs	<r3,r2>			;
+	mov	r1,r3			;r3 -> output
+	mov	r0,r1			;r1 = value
+	mov	(r5),r5			;r5 -> divisors
+	clr	r2			;no leading zeroes
+					;
+10$:	clr	r0			;clear high order
+	div	(r5)+,r0		;get the next digit
+	bpl	15$			;positive reply
+	neg	r0			;adjust special case 1ooooo/100000
+15$:	bne	20$			;yes - digits from now on
+	tst	r2			;already done one?
+	bne	20$			;yes - do more
+	tst	(r5)			;this the last one?
+	bne	10$			;no - try again
+20$:	mov	#-1,r2			;get all remaining digits
+30$:	add	#'0,r0			;make a digit
+	movb	r0,(r3)+		;store it
+40$:	tst	(r5)			;any more to do ?
+	bne	10$			;yes
+	clrb	(r3)			;terminate it
+	mov	r3,r1			;update pointer
+	pops	<r2,r3,r5>		;restore these
+	return				;
+
+110$:	10000.,1000.,100.,10.,1,0
+108$:	100000,10000,1000,100,10,1,0
+.dsabl	lsb
+
+prcnam:	.word	0,0,0			;rad50 name
+tmpnam:	.asciz	/FULNAM0123456789/ 	;ascii name
+	.even				;
+l$odsk:	.word	0			;
+l$osys:	.word	0			;
+l$ona1:	.word	0			;
+l$ona2:	.word	0			;
+l$oac1:	.word	0			;
+l$oac2:	.word	0			;
+l$ouic:	.word	0			;
+l$ouif:	.word	0			;
+.sbttl	buffers
+
+l$ouar::.blkb	us.bbs		;uar buffer
+pass:	.blkb	84.		;
+.sbttl	get uaf file
+
+;	Open and read the UAF file
+
+	.enabl	lsb
+getpwd::$cmkrnl	#area, #100$, pic=yes
+	br	20$		;join common stuff
+getuaf:	mov	sp,r1
+	.csispc	#files,#types,$input
+	mov	r1,sp		;restore the stack
+20$:	.purge	#3
+	mov	#^ruaf,file3	;force it to uaf
+	call	trnuaf		;check for UAF assigned
+	bcs	25$		;no
+	mov	r0,file3	;got some other name?
+	bne	25$		;yes
+	mov	#^rsy,file3	;force it to SY:
+25$:	tst	file3+2		;got a name at all?
+	beq	30$		;no - forget it
+	mov	#^ruar,file3+6	;force type to UAR
+	.lookup	#area,#3,#file3	;look it up
+	bcs	30$		;failure - catch it later
+	.readw	#area,#3,#l$ouar,#us.bbs/2,#0 ;read the file
+	error	<Input error>	;
+	call	lo$dec		;decode the UAR
+	return			;
+30$:
+	mov	#l$ouar,r0	;get the buffer
+	add	#us.pwd,r0	;point to the password
+	mov	#3,r1		;get a counter
+40$:	mov	#-1,(r0)+	;get a password
+	dec	r1		;count it
+	bne	40$		;do all
+	return			;
+
+100$:	mova	file3,r0		;get the address
+	mov	#^rUAF,(r0)+		;fill in device
+	mov	@#p$husn,(r0)+		;fill in user name
+	mov	@#p$husn+word,(r0)+	;secondpart
+	return
+	.dsabl	lsb			;
+
+putuaf::
+	.wait	#3			; did we open channel?
+	bcs	10$			;nope
+	call	lo$enc			;	encode the file
+	.writw	#area,#3,#l$ouar,#us.bbs/2,#0 ;read the file
+	error	<Output error>		;
+10$:	return				;
+;	-----------------------------------------------------------------------
+;	LO$ENC
+;	-----------------------------------------------------------------------
+;
+;	c$uuar		contents of UAR file
+;	c$uwrk		workspace buffer
+;
+;	usage	called to decode uar record
+;	-----------------------------------------------------------------------
+
+lo$enc:	pshs	<r1,r2,r3,r4,r5>	;
+	mov	#l$owrk,r0		;get the buffer
+	mov	#us.bbs/2,r1		;get a counter
+10$:	clr	(r0)+			;clear it out
+	dec	r1			;count
+	bne	10$			;more
+					;r0 -> free for temporary use
+	mov	#uscyp.,r1		;r1 -> cyp
+	clr	r2			;r2 -> polarity
+	mov	r1,r3			;r3 -> position, start on cypher
+	clr	r4			;r4 -> offset in uar file buffer
+	psh	#us.bbs/2		;get a counter
+20$:					;loop per word
+	psh	#16.			;bits in word
+30$:					;loop per bit
+40$:	cmp	r3,#us.bbs*8.		;position above buffer?
+	blo	50$			;nope
+	sub	#us.bbs*8.,r3		;reduce
+	br	40$			;try again
+50$:	mov	r3,r0			;get position
+	ash	#-sv016.,r0		;divide by 16
+	asl	r0			;word offset
+	tst	l$ouar(r4)		;high bit set?
+	bpl	60$			;nope
+	tst	r2			;polarity?
+	beq	80$			;nothing to do
+	br	70$			;set the bit
+60$:	tst	r2			;check polarity
+	bne	80$			;nothing to do
+					;
+70$:	mov	r3,r5			;get a copy
+	bic	#^c17,r5		;get low order bits
+	psh	r1			;save cypher
+	mov	#1,r1			;
+	ash	r5,r1			;shift it in place
+	bis	r1,l$owrk(r0)		;
+	pop	r1			;get back cyper
+80$:	add	r1,r3			;update cyper
+	asl	l$ouar(r4)		;get the next
+	tst	r2			;
+	beq	90$			;
+	clr	r2			;
+	br	100$			;
+90$:	inc	r2			;
+100$:	dec	(sp)			;
+	bne	30$			;more
+	tst	(sp)+			;skip counter
+	add	#2,r4			;
+	dec	(sp)			;count them
+	bne	20$			;more
+	mov	#l$owrk,r0		;get decoded buffer
+	mov	#l$ouar,r1		;get destination
+	mov	#us.bbs/2,r2		;get a counter
+110$:	mov	(r0)+,(r1)+		;copy it in place
+	dec	r2			;count them
+	bne	110$			;until done
+	tst	(sp)+			;skip counter
+	pops	<r5,r4,r3,r2,r1>		;
+	return				;that's it
+;	-----------------------------------------------------------------------
+;	LO$DEC
+;	-----------------------------------------------------------------------
+;
+;	c$uuar		contents of UAR file
+;	c$uwrk		workspace buffer
+;
+;	usage	called to decode uar record
+;	-----------------------------------------------------------------------
+
+lo$dec:	mov	#l$owrk,r0		;get the buffer
+	mov	#us.bbs/2,r1		;get a counter
+10$:	clr	(r0)+			;clear it out
+	dec	r1			;count
+	bne	10$			;more
+					;r0 -> free for temporary use
+	mov	#uscyp.,r1		;r1 -> cyp
+	clr	r2			;r2 -> polarity
+	mov	r1,r3			;r3 -> position, start on cypher
+	clr	r4			;r4 -> offset in uar file buffer
+	psh	#us.bbs/2		;get a counter
+20$:					;loop per word
+	psh	#16.			;bits in word
+30$:					;loop per bit
+	asl	l$owrk(r4)		;shift result
+40$:	cmp	r3,#us.bbs*8.		;position above buffer?
+	blo	50$			;nope
+	sub	#us.bbs*8.,r3		;reduce
+	br	40$			;try again
+50$:	mov	r3,r0			;get position
+	ash	#-sv016.,r0		;divide by 16
+	asl	r0			;word offset
+	psh	l$ouar(r0)		;get the word
+	mov	r3,r0			;get another copy
+	bic	#^c17,r0		;isolate low order 4 bits
+	asl	r0			;get a word offset
+	psh	l$owom(r0)		;get the bit
+	clr	r0			;assume not set
+	bit	(sp)+,(sp)+		;this one set?
+	bne	60$			;it's set - negate it
+	inc	r0			;r0 = 1 -> bit is cleared
+					;r0 = 0 -> bit is set
+60$:	tst	r2			;test polarity
+	beq	80$			;pol = 0
+					;pol = 1
+					;if pol<>r0 -> set bit
+	clr	r2			;change polarity
+	tst	r0			;this true?
+	beq	70$			;no - set the bit
+	mov	#-1,r0			;force bit not set
+70$:	inc	r0			;-1 -> 0; 0 -> 1
+	br	90$			;
+					;pol = 0
+80$:	inc	r2			;change polarity
+90$:	bis	r0,l$owrk(r4)		;set the bit
+	add	r1,r3			;add in the magic value
+	dec	(sp)			;count them
+	bne	30$			;more to do
+	tst	(sp)+			;get rid of counter
+	add	#2,r4			;update pointer in workspace
+	dec	(sp)			;count words
+	bne	20$			;nope - more to do
+	tst	(sp)+			;skip counter
+					;
+	mov	#l$owrk,r0		;get decoded buffer
+	mov	#l$ouar,r1		;get destination
+	mov	#us.bbs/2,r2		;get a counter
+100$:	mov	(r0)+,(r1)+		;copy it in place
+	dec	r2			;count them
+	bne	100$			;until done
+	return				;that's it
+
+l$owrk:	.blkb	us.bbs			;buffer space
+l$owom:	.word	1,	2,	4,	10
+	.word	20,	40,	100,	200
+	.word	400,	1000,	2000,	4000
+	.word	10000,	20000,	40000,	100000
+.sbttl	error package
+
+types:	.rad50	/uafuafuafuaf/
+files:	.blkw	3*5
+file3:	.blkw	5*4
+area:	.blkw	5
+line:	.blkb	84.
+
+$wild:	.word	0		;0 => no wild; 1 => wildcards
+.sbttl	convert ascii to rad50
+
+;	-----------------------------------------------------------------------
+;	I$RAD50	- Convert ascii to rad50
+;	-----------------------------------------------------------------------
+;
+;		entry			return
+;	r1	-> output word		popped past
+;	r2	-> output stream	popped past
+;
+;	c=1	nothing found, output=0
+;	-----------------------------------------------------------------------
+
+i.rad50:tst	(r1)+		;advance on return
+	psh	r1		;save some regs
+	psh	r3		;
+	psh	r4		;
+	clr	-(r1)		;clear the output
+	mov	#3,r3		;get a counter
+10$:	mov	#70$,r4		;don't check for * and %
+20$:	movb	(r4)+,r0	;get the next offset
+	beq	40$		;forget it
+	bpl	20$		;skip range parameters
+	cmpb	(r4)+,(r2)	;check the range
+	bhi	20$		;its too low
+	cmpb	(r4)+,(r2)	;too high
+	blo	20$		;
+	movb	(r2),r4		;accept the character
+	beq	30$		;dont skip null
+	inc	r2		;skip it
+30$:	add	r4,r0		;and compute the present value
+40$:	mov	#40.-1,r5	;the multiplier
+	call	digit		;and multiply and add it
+	dec	r3
+	bne	10$		;do another sign
+50$:	tst	(pc)+		; >> c=0 - we found something
+60$:	sec			; >> c=1 - we found nothing
+	pop	r4		;
+	pop	r3		;
+	pop	r1		;
+	return
+70$:	.byte	-22,'0,'9,-100,'A,'Z,-140,'a,'z,0
+
+digit:	mov	(r1),r4		;get a copy
+10$:	add	r4,(r1)		;multiply it
+	dec	r5		;till we're done
+	bne	10$
+	add	r0,(r1)		;add in the new guy
+	return
+.sbttl	convert ascii to octal
+
+;	-----------------------------------------------------------------------
+;	I$OCTAL - Convert ascii to octal
+;	-----------------------------------------------------------------------
+;
+;		entry			return
+;	r1	-> input word		popped past
+;	r0	?			octal value
+;
+;	c=1	nothing found, r0=0
+;	-----------------------------------------------------------------------
+
+i$octal:
+	psh	r2			;
+	clr	-(sp)			;set the flag
+	clr	r0			;init result
+10$:	cmpb	(r1),#'0		;this a digit?
+	blo	20$			;nope
+	cmpb	(r1),#'7		;really?
+	bhi	20$			;nope
+	inc	(sp)			;flag value found
+	movb	(r1)+,r2		;get the digit
+	sub	#'0,r2			;deascii
+	asl	r0			;
+	asl	r0			;
+	asl	r0			;
+	bis	r2,r0			;
+	br	10$			;do the next
+20$:	tst	(sp)+			;anything found?
+	beq	30$			;nope
+	tst	(pc)+			;c=0
+30$:	sec				;c=1
+	pop	r2			;get this back
+	return				;c=?
+
+.end
+

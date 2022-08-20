@@ -1,0 +1,218 @@
+v11$c=1
+.title	host
+.include "dcs:dcl.mac"
+.psect	host
+;.pass
+;.include "lib:share.mac"
+$rpdef		;rp
+$vedef
+$vrdef
+
+;	%build
+;	macro dcs:host /object=dcb:host
+;	%end
+;	%date
+;	<12-Jul-2021 21:19:52>   
+;	%edit
+;	<42   >
+
+set	pnptr 404
+
+;	Setup dummy monitor tables
+
+host::	psh	r1		;save this guy
+	asr	#1		;already been here?
+	bcc	20$		;yes - skip this lot
+	call	ho$v11		;check V11
+
+	mov	sysptr,r1	;get rmon
+	add	pnptr(r1),r1	;point to the name table
+	mov	#$unam1,r0	;get our list
+10$:	add	r1,(r0)+	;relocate these
+	cmp	r0,#$dvsiz	;done them all?
+	blos	10$		;no
+
+	mov	k$mwor,r0	;point to net
+	mov	#k$mrig,r1	;point to us
+	add	r0,(r1)+	;
+	add	r0,(r1)+	;
+
+	tst	$ind+4(r0)	;got a job name yet?
+	bne	20$		;yes
+	movb	k$msat,r3	;nope get the satellite
+	asl	r3
+	mov	n$sats(r3),$ind+4(r0)
+	movb	k$mjob,r3	;get the job number
+	asl	r3
+	add	n$jobs(r3),$ind+4(r0)
+
+20$:	mov	k$mwor,r0	;
+	mov	$satn(r0),k$msat;sat # and max
+	mov	$jobn(r0),k$mjob;job # and max
+
+	mov	sysptr,r1		;get the system
+	add	#phdbs.-ph.mon,r1	;r1 = base of process pool
+	mov	r1,d$ptop		;top of memory
+	sub	#2,d$ptop		;adjust for 32kw wrap around
+	sub	#8196.,r1		;base of window
+	mov	r1,d$pbas		;base address
+	add	#512.,r1		;r1 = minimum to load image
+	mov	r1,d$pmin		;minimum
+	add	#512.,r1		;r1 = red zone
+	mov	r1,d$pred		;
+
+	pop	r1
+	return			;nope
+
+.if ne v11$c
+ho$v11:	psh	v$eiot			; save it
+	psh	v$eiot+2		;
+	mov	#20$,@#v$eiot		; setup a trap catcher
+	clr	v$eiot+2		;
+	mov	sp,r1			;
+	psh	#vrDET.			; detect
+	iot				;
+	.word	vrSIG.			;
+;	mov	r0,b$tv11		; remember it
+;	mov	#1,b$temu		; is an emulator
+	beqb	r0,#vrPDP.,10$		; PDP-11 mode
+	inc	k$mvrt			; it's VRT
+10$:	inc	k$mv11			; V11
+20$:	mov	r1,sp			; dump trap
+	pop	v$eiot+2		; restore
+	pop	v$eiot			; 
+	return				;
+.endc
+
+share::	return
+iotpro::jsr	r0,warex	;warning exit
+	.asciz	_Command not in system_	
+	return
+
+;	Change mode to kernel in pic
+;
+;	psh	#addr
+;	call	chmker
+
+chmker::$cmkrnl	#10$, 2(sp), pic=yes
+	pop	(sp)		;push out routine address
+	return			;
+10$:	.blkw	7.		;clean area
+
+timout::tst	k$mtmo		;are we timing out?
+	beq	10$		;no
+	fatal	<Timeout period expired> ;yes
+10$:	return			;just ignore it
+
+
+slots=31.
+$skip::	.word	0	;host slots to skip
+$slots::.word	31.*2	;total slot count
+$hosts::.word	31.*2	;host slot count
+$locals::.word	0	;local slot count
+
+meta	<length c><.word $><$=$+<c>>
+$unam1::.word	-<slots*2*2+4+4>
+$syass::.word	-<slots*2+4+2>
+$unam2::.word	-<slots*2+4>
+$=0
+$pname::length	slots*2
+$hentr::length	slots*2+2
+$stat::	length	slots*2
+$dvrec::length	slots*2	
+$hsize::length	slots*2
+$dvsiz::length	slots*2
+	.word	0	;end of list
+
+k$msys::.word	0	;0=> share, <>0=> satellite
+k$msat::.byte	0	;satellite number (zero if not satellite)
+k$msam::.byte	0	;maximum satellite number
+k$mjob::.byte	0	;job number (zero if single-user satellite)
+k$mjom::.byte	0	;maximum job number
+k$msha::.word	1	;specifically share
+k$mvrt::.word	0	;specifically VRT
+k$mrtx::.word	0	;never RTX
+k$mv11::.word	0	;V11 host
+
+k$mwor::.word	0	;the world
+k$mrig::.word	$rights	;$rights pointer
+k$mter::.word	$terms	;$terms pointer	
+k$mshp::.word	1	;RUST/XM
+k$mspv::.byte	0	;RUST/XM version
+k$mspu::.byte	0	;RUST/XM update
+d$pbas::.word	0	;base of process pool
+d$pmin::.word	0	;minimum address usable
+d$pred::.word	0	;red zone
+d$ptop::.word	0	;top word of memory
+k$mtmo::.word	0	;<>0 => timeout in progress
+
+n$sats: .rad50	/00 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 /
+n$jobs: .rad50	/  0  1  2  3  4  5  6  7  8  9/
+w$bits::.word	1,2,4,10,20,40,100,200,400,1000,2000,4000
+	.word	10000,20000,40000,100000
+.sbttl	check rights
+
+.if ne 0
+;	EXPERT tests
+;
+; ???	Convert these to RUST/XM
+
+right:	bit	(r5)+,@k$mrig	;do we have this right?
+	bne	10$		;yes
+	jmp	wrong		;nope
+10$:	rts	r5		;o.k.
+.endc
+
+;	tright	srprv. - test and return status
+;	cright	srprv. - control and abort if missing
+;
+;	psh	#srprv.
+;	call	cright/tright
+;
+;	This routine checks the process mask rather than the
+;	current mask since we are interested in the process
+;	rights only and not our DCL.SYS image rights.
+
+cright::mov	(pc)+,-(sp)	;
+tright::clr	-(sp)		;
+	pshs	<r1,r0>		;
+	stack	r0 r1 flg ret rgt;
+	tst	k$mprf		;do we have the rights already?
+	beq	40$		;no
+	movb	sp.rgt(sp),r0	;word offset
+	movb	sp.rgt+1(sp),r1	;bit in word
+	bit	w$bits(r1),k$mpr0(r0);do we have it?
+	bne	50$		;yes
+40$:	$cmkrnl	#200$, #100$, sp.rgt(sp), pic=yes
+	bcc	50$		;fine
+	tst	sp.flg(sp)	;should we return?
+	beq	60$		;yes
+	fatal	<Missing rights>;no
+50$:	tst	(pc)+		;
+60$:	sec			;
+70$:	pops	<r0,r1>		;
+	bit	(sp),(sp)+	;forget the flag
+	pop	(sp)		;push out the variable
+	return
+
+100$:	mov	#p$hpr0,r0	;copy them back
+	mova	k$mpr0,r1	;
+	mov	(r0)+,(r1)+	;
+	mov	(r0)+,(r1)+	;
+	mov	(r0)+,(r1)+	;
+	inc	k$mprf		;say they are o.k.
+				;
+	movb	rp.p0(r5),r0	;word offset
+	movb	rp.p0+1(r5),r1	;bit in word
+	bit	w$omap(r1),p$hpr0(r0) ;do we have it?
+	bne	110$		;yes
+	bis	w$omap(r1),p$hmr0(r0) ;no - remember error
+	.soft	0		;no
+110$:	return
+
+200$:	.blkw	7.		;area
+
+k$mprf::.word	0		;process rights known
+k$mpr0::.word	0,0,0,0		;we know the rights
+.end
+

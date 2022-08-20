@@ -1,0 +1,555 @@
+.title usr
+.pass
+set	syslow 266, ttks 304, lowmap 326, errors 2000 ;(errors from cg)
+set	clk50$ 40
+meta	<map c d=1 e=2><c=$><$=d*e+$>
+
+set	$ 0		;directory header
+map	d.total
+map	d.next
+map	d.high
+map	d.extr
+map	d.strt
+map	l.hdr
+
+set	$ 0		;directory entry
+map	e.flag
+map	e.name	3
+map	e.leng
+map	e.used	0
+map	e.chan	1 1
+map	e.jnum	1 1
+map	e.date
+map	l.entry
+
+set	$ 52		;handler
+map	h.siz
+map	h.dvsz
+map	h.dsts
+map	h.gen
+map	h.bptr
+map	h.blen
+
+set	$ 0
+map	h.vec		;header
+map	h.isr
+map	h.pri
+map	h.lqe
+map	h.cqe
+map	h.beg
+
+set	$ 0		;channel
+map	c.csw
+map	c.sblk
+map	c.leng
+map	c.used
+map	c.devq 1 1
+map	c.unit 1 1
+map	l.chan
+
+set	$ 0		;queue element
+map	q.link
+map	q.csw
+map	q.blkn
+map	q.func 1 1
+map	q.jnum 0
+map	q.unit 1 1
+map	q.buff
+map	q.wcnt
+map	q.comp
+map	l.queu
+.sbttl	declarations
+
+set	qlk 0, qgt 2, qcm 4, qry, 6, qch 10
+set	qa1 12, qa2 14, qa3 16, qa4 20
+set	qa5 22, qa6 24, qa7 26, qa8 30
+set	qx0 32, qx1 34, qx2 36, qx3 40					;?175
+set	qx4 42, qx5 44, qx6 46, qx7 50					;?175
+set	qdc 52, qck 54, qdk 56, qbs 60					;?175
+set	qbl qa1, qbu qa2, qwc qa3, qdu qa4
+set	qfn qa4 qr0 qa6, qer qa7
+
+;set	usrx$e 377, nodv$e 376, diri$e 375, fetc$e 374, dovr$e 372	;?200
+set	usrx$e 377, nodv$e 376, diri$o 375, fetc$e 374, dovr$e 372
+set	diri$e 364
+;set	clos. 1, dele. 1, look. 3, entr. 4, renm. 5			;?200
+set	clos. 1, dele. 2, look. 3, entr. 4, renm. 5
+set	tent 400, empty 1000, perm 2000, endblk 4000, prot 100000
+
+set	hderr$ 1, indx$m 76, renam$ 100, dwrit$ 200
+set	dblk$m 17400, eof$ 20000, activ$ 100000
+set	rewrite renam$!dwrit$
+
+set	spfun$ 2000, hndlr$ 4000, specl$ 10000
+set	wonly$ 20000, ronly$ 40000, filst$ 100000
+
+set	$inten 0, $csw 4
+set	blkey 256, chkey 260, $date 262, dflg 264, $usrlc 266
+set	qcomp 270, spusr 272, syunit 274, config 300, maxblk 314
+set	synch 324, lowmap 326, usrloc 352, $mtps 360, $mfps 362
+set	syindx 364, confg2 370, sysgen 372, usrare 374, emtrtn 400
+set	fork 402, pnptr 404
+
+set	n.reop 6, n.read 10, n.writ 11
+set	v.max 500
+
+meta	<movl c,d,e><c=.+2><mov d,e>
+meta	<usr c d e o=2><rel.r usr,\usrx,.+o><inst c d e>
+meta	<sam c d e o=2><rel.r sam,\samx,.+o><inst c d e>
+meta	<net c d e o=2><rel.r net,\netx,.+o><inst c d e>
+meta	<rel.r e f g><e'f=g><e'x=e'x+1>
+meta	<inst c d e><.iif b <e>,c d><.iif nb <e>,c d,e>
+set	usrx 0, samx 0, netx 0
+meta	<spl n><no n <clr -(sp)>><on n <psh #n*40>><sam call @#$mtps>
+
+meta	<fatal c><jsr r0,fatal><.word c+177400>
+meta	<fatalp c><jsr r0,fatalp><.word c+177400>
+
+meta	<phaze c><movb qcm(qel),r0><bic #^c176,r0><usr jmp @c'table(r0)>
+meta	<table c><c'table: commands uj,c,z=0>
+.sbttl	usr, primary dispatch, errors, exit
+
+; called here from send in sd
+;
+;  >> c=1	remote request, sent to host
+;  >> c=0	local request (errors in qer)
+
+				;bottom of usr
+				;enters with registers saved
+usr:	br	start		;skip the entry points
+    usr	.word	dreset o=0	;sreset entry
+start:	mov	qck(qel),qbs(qel) ; qbs(qel) -> user emt		;?39
+	mov	sp,qck(qel)	; r5 = qel (save stack for exit)
+				; r4 = csw
+	imov	qfn,qel,r3	;for lookup, enter, delete
+	imov	qa1,qel,r2	;for rename, dstatus
+    usr	mov	#dr.dstat,r1	;default device return area
+	mov	#activ$,qdk(qel);for non-file directory stuff
+	phaze	p		;do the preface phaze
+
+fatalp:	clr	(csw)		;directory errors purge channel
+fatal:	mov	(r0),r0		;return the error code
+	br	fatali		;join common
+exit0:	clr	qr0(qel)	;return with r0=0			;?210
+exeunt:	clr	r0		;no errors
+fatali:	mov	r0,qer(qel)	;return error codes
+	bic	#200,qcm(qel)	;dont update csw
+	tst	(pc)+		;c=0
+p.hoo:				;hook
+p.idl:				;idle
+p.tre:				;treset
+p.sda:				;sdat
+ghost:	sec			;c=1
+	mov	qck(qel),sp	;get the stack back
+d.sta:	return			;go back
+
+;	following can't occur
+d.hoo:				;hook
+d.idl:				;idle
+d.tre:				;treset
+d.sda:				;sdat
+.sbttl	preface phaze, secondary dispatch
+
+.enabl	lsb
+p.clo:	psh	(pc)+		;flag close				;?113+
+p.pur:	clr	-(sp)		;flag purge
+	mov	(csw),r0	;get the csw
+	bpl	11$		;already closed, skip this
+	call	channel		;check the channel
+	tst	(sp)+		;purge or close?
+	beq	10$		;purge
+;	tst	(r2)		;is it a non-file device?		;?200+
+;	bpl	10$		;yep, purge it				
+	bit	#filst$!specl$,(r2) ;this a file structured device?
+	beq	10$		;nope - just purge it
+	bpl	30$		;always purge special directory devices	;?200-
+	tstb	(csw)		;is a file-structured open?
+	bmi	30$		;yep, go check handler & dispatch
+10$:	clr	c.used(csw)	;purge special devices			;?200+
+	bit	#specl$,(r2)	;this a special directory?
+	bne	30$		;yes - force a purge at least		;?200-
+	br	12$		;join the common stuff
+11$:	tst	(sp)+		;skip the purge/close flag
+12$:	clr	(csw)		;purge it
+	br	exeunt		;and exit				
+p.reo:	mov	qa2(qel),r0	;c.csw in qa2
+	tst	qa3(qel)	;non-file channel?			
+	bne	20$		;nope					
+	mov	#-1,qa4(qel)	;yes, c.leng=-1				
+	br	20$		;join the common stuff
+p.sav:				;savestat				
+p.rea:				;read
+p.wri:				;write
+p.spf:				;spfun
+	mov	(csw),r0	;get the device number
+20$:	call	channel		;check local
+30$:	tst	(r1)		;repeat test for close
+	bne	phazed		;local and loaded
+p.nodv:	fatal	nodv$e		;no device
+.dsabl	lsb
+
+; dstatus and fetch
+
+p.sta:	imov	qa3,qel,r1	;dstatus, point to output area
+p.fet:	mov	r2,r3		;device name in qa1
+	call	device		;fetch
+	br	phazed		;go do the next
+
+; lookup, enter, rename, delete
+
+p.ren:	mov	r2,r3		;point to device name
+p.del:	bic	#activ$,qdk(qel);csw final state
+p.ent:
+p.loo:	call	device		;filter local devices
+	beq	p.nodv		;oops, no device handler
+	mov	csw,r0		;get another copy
+	movb	index,(r0)+	;open it
+	bisb	qdk+1(qel),(r0)+;set activ for non-file
+	clr	(r0)+		;c.sblk
+	mov	#-1,(r0)+	;c.leng non-file
+	clr	(r0)+		;c.used
+	clrb	(r0)+		;c.devq
+	movb	unit,(r0)	;c.unit
+	tst	(r3)+		; r3 -> filename now
+	bit	#filst$!specl$,stat ;this file-structured?		;?200+
+	beq	exit0		;
+	bpl	20$		;special directory - skip filename test	;?200-
+	tst	(r3)		;non-file?
+	beq	exit0		;yep, we're done			
+;	tst	stat		;non-file?				;?200
+;	bpl	exit0		;yep, we're done			;?200
+20$:	bis	#activ$,(csw)	;nope, we do it
+phazed:
+    usr	psh	#exeunt		;we always succeed now
+	phaze	d		;do the next phaze
+.sbttl	fetch, release
+
+d.fet:	mov	qa2(qel),r2	;r2 = qa2(qel) = load addr
+	mov	r2,qr0(qel)	;default return address
+	tst	(r1)		;r1 -> hentry; is it loaded?
+	bne	50$		;yep, loaded
+	cmp	r2,#v.max	;fetch or release?
+	blo	60$		;release; forget it
+	mov	r2,dr.buf	;fetch; store the buffer address
+	psh	hsize		;get the size
+	mov	(sp),dr.wcnt	;compute the word count
+	asr	dr.wcnt		;words
+	add	r2,(sp)		;compute the size
+    net	tst	@#$km		;is kmon loaded?
+	bne	5$		;yep, dont check limits
+    sam	cmp	@#syslow,(sp)	;is it over syslow?
+	bcs	10$		;yep, illegal load
+5$: sam	clr	@#$csw+<5*2*20>	;purge our channel
+    usr	mov	#dr.reop+c.unit,r0 ;get the reopen block
+    sam	movb	@#syunit+1,(r0)	;c.unit					;162
+	clrb	-(r0)		;c.devq
+	clr	-(r0)		;c.used
+	mov	#-1,-(r0)	;c.leng
+	mov	dvrec,-(r0)	;c.sblk
+	movb	#200,-(r0)	;active
+    sam	movb	@#syindx,-(r0)	;index
+	cmp	-(r0),-(r0)	;point at emt area
+	emt	375		;reopen the channel
+	bcs	10$		;oops
+    usr	mov	#dr.read,r0	;now read it
+	emt	375		;and load it
+	bcc	20$		;it worked
+10$:	fatal	fetc$e		;check error loading handler
+20$:	pop	r0		;get the handler end back
+	cmp	-(r0),-(r0)	;setup to plug inten and fork
+    sam	mov	@#$inten+2,(r0)+;plug in the inten jump	
+    sam	mov	@#fork,(r0)	;point to fork
+	add	@#sysptr,(r0)+	;so
+	mov	r0,qr0(qel)	;return next address to user
+	mov	(r2)+,r3	;h.vec
+	beq	40$		;oops, no vector
+	bmi	30$		;a vector table
+	mov	r2,(r3)		;store the base
+	add	(r2),(r3)+	;add in h.isr offset
+	mov	#br7,(r3)	;get the ps
+	br	40$		;join the common stuff
+30$:	asl	r3		;read sysmac for this
+	add	r2,r3		;point to the table
+35$:	mov	(r3)+,r0	;get the vector
+	ble	40$		;no more vectors
+	mov	r3,(r0)		;relocate
+	add	(r3)+,(r0)+	;to the ast
+	mov	(r3)+,(r0)	;move in the users ps
+	bis	#br7,(r0)	;and put ours on top
+	br	35$		;look for more
+40$:	add	#h.lqe-h.isr,r2	;point to lqe
+	mov	r2,(r1)		;fill hentry
+	br	60$		;fine
+50$:	cmp	-(r3),#v.max	;is it a release
+	bhis	60$		;nope, its a fetch
+    sam	cmp	@#syslow,(r1)	;is it a loaded handler?
+	bhi	60$		;yep, ignore it
+	clr	(r1)		;nope, unload the handler
+60$:	return
+.sbttl	dreset, device
+
+dreset:	save			;driver reset
+	mov	$hentry,r0	;get the hentrys
+	add	hosts,r0	;point to ours
+10$:	mov	(r0)+,r1	;get the next
+	beq	20$		;not loaded/fetched
+	clr	(r1)+		;clear lqe
+	clr	(r1)		;clear cqe
+    sam	cmp	r1,@#syslow	;is this loaded?
+	bhis	20$		;yep, leave it alone
+	clr	-2(r0)		;nope, clear it
+20$:	cmp	(r0),#-1	;end of table?
+	bne	10$		;yes
+	return			;go back
+
+channel:			;check channel local/loaded
+	bic	#^cindx$m,r0	;get it out
+	mov	r0,r2		;get a copy
+	add	$stat,r2	; r2 = $slot entry
+	br	loaded		;go check it
+
+; call with r1->output_area, r3->device_name
+
+.enabl	lsb
+device:				;map a device
+	mov	$pname,r0	;get the monitor list
+	cmp	-(r0),-(r0)	;sy and dk
+30$:	cmp	r0,$hentry	;end of list?
+	bhis	60$		;yes, no chance
+	mov	(r3),r2		;get the device name
+	sub	(r0)+,r2	;check for a match
+	blo	30$		;no chance
+	beq	40$		;exact
+	sub	(pc)+,r2	;try for unit number
+	.rad50	/  0/
+	blo	30$		;no chance
+	cmp	r2,#7		;unit out of range?
+	bhi	30$		;yep, not this guy
+40$:	movb	r2,unit		;remember the unit
+	tst	-(r0)		;bump the index back
+	sub	$pname,r0	;and adjust it
+	bpl	50$		;its a physical name
+    sam	mov	@#syindx,r0	;its a limbo device
+50$:	movb	r0,index	;remember the index
+	movl	$pname,0(r0),pname
+	movl	$stat,0(r0),(r1)+
+	movl	$hsize,0(r0),(r1)+
+	movl	$hentry,0(r0),(r1)+
+	movl	$dvsize,0(r0),(r1)
+	movl	$dvrec,0(r0),dvrec
+loaded:	cmp	r0,hosts	;is this a local?
+	blo	60$		;nope
+	mov	$hentry,r1	; >> r1 -> handler entry
+	add	r0,r1		;and point to it
+	tst	(r1)		; >> z=1 => not loaded; z=0 => loaded
+	return			;
+60$:	jmp	ghost		;try it on the host
+.dsabl	lsb
+.sbttl	savestatus, reopen, spfun, read, write
+
+.enabl	lsb
+d.sav:	mov	csw,r0		;the source (sam clears csw)
+	imov	qa2,qel,r1	;the destination
+	call	mov5		;go move them
+	tst	(csw)		;was it open?
+	bpl	err0		;nope, error 0
+	tstb	(csw)		;with an enter?
+	bpl	10$		;nope
+	fatal	1		;error 1
+err0:	fatal	0		;error code 0
+
+d.reo:	imov	qa2,qel,r0	;source (sam checks channel)
+	mov	csw,r1		;destination
+mov5:	mov	(r0)+,(r1)+	;move them in
+mov4:	mov	(r0)+,(r1)+
+mov3:	mov	(r0)+,(r1)+
+	mov	(r0)+,(r1)+
+	mov	(r0)+,(r1)+
+10$:	return
+
+; channel is open, request is within bounds
+
+d.spf:	bic	#errors,qcm(qel);do error-block locally
+	bit	#spfun$,(r2)	;does it accept spfun's?
+	beq	10$		;nope, ignore it
+	movb	qa4+1(qel),r3	;get the function			
+	mov	qa5(qel),qa4(qel) ;move the completion up
+	br	queue		;go queue it
+
+d.wri:	mov	qwc(qel),r0	;get the wordcount
+	add	#377,r0		;round up to a block
+	clrb	r0		;modulus 256.
+	swab	r0		;divide by 256.
+	add	qbl(qel),r0	;form the high block
+	cmp	c.used(csw),r0	;is this a new high?
+	bhi	20$		;nope
+	tstb	(csw)		;opened with .enter?
+	bpl	20$		;nope
+	mov	r0,c.used(csw)	;yep, update the channel
+20$:	neg	qwc(qel)	;negative count signals write
+d.rea:	clr	r3		; r3 = function
+	fall	queue		;fall into line
+.dsabl	lsb
+.sbttl	queue, complete
+
+queue:				;queue an i/o request
+    usr	mov	#complete,@(pc)+;set up qcomp
+    sam	.word	qcomp o=0	;in sam
+	mov	@qck(qel),real	;get the monitor done return
+;;	tst	(r2)		;r2=$stat+index; file-structured?
+;;	bpl	10$		;nope
+	cmp	#filst$!specl$,(r2) ;file-structured?
+	beq	10$		;nope
+	bic	#eof$,(csw)	;yes, clean it up
+10$:	mov	(r1),r1		; r1 -> h.lqe of handler
+	imov	qbs,qel,r0	;point to the csw area
+	clr	(r0)+		;q.link = 0
+	mov	csw,(r0)+	;q.csw
+	mov	qbl(qel),(r0)	;qbl - request block
+	add	c.sblk(csw),(r0)+ ;q.blkn
+	movb	r3,(r0)+	;q.func (r3=func)
+	movb	c.unit(csw),(r0)+ ;q.unit
+	mov	qbu(qel),(r0)+	;q.buff
+	mov	qwc(qel),(r0)+	;q.wcnt
+	mov	qdu(qel),(r0)	;q.comp
+	sub	#q.comp-q.blkn,r0 ;point back to q.blkn
+	clr	qwc(qel)	;it is done, son
+	mov	c.used(csw),qx3(qel) ;return the high block number
+	tst	(r1)+		;ignore lqe, r1 -> cqe
+	spl	7		;go up
+	mov	(r1),r2		;get the queue
+	bne	30$		;its busy
+	mov	r0,(r1)+	;its not busy
+	spl	0		;go down
+	call	(r1)		;call the handler
+	br	40$		;exit
+20$:	mov	q.link-q.blkn(r2),r2 ;go thru the list ???
+30$:	tst	q.link-q.blkn(r2) ;go to end of queue
+	bne	20$		;still not end
+	mov	r0,q.link-q.blkn(r2) ;put it in
+40$:	spl	0		;we no longer own the qel
+	cmp	(sp)+,(sp)+	;skip qel-type return (we just lost qel)
+	return			;c=0
+
+complet:save			;handler completion
+	mov	(r4),qel	;get the qel
+	mov	@q.csw-q.blkn(qel),qr0-qbs-q.blkn(qel) ;return the csw
+	psh	qel		;and save it a moment
+	mov	q.link-q.blkn(qel),(r4)+ ;get the next
+	beq	10$		;is no next
+	call	(r4)		;get this one going
+10$:	pop	qel		;get back our guy
+	sub	#qbs+q.blkn,qel	;get back our qel
+	jmp	@(pc)+		;now go to poppa
+real:	.word	0		;setup by queue
+.sbttl	special
+
+meta	<special c,d=0><jsr r3,special><.byte c,d>
+
+; This code is called to handle local special functions.
+; It will only function for unmapped handlers.
+;
+;	jsr	r3,special
+;	.byte	func,flags
+;
+; The function codes are:
+;
+;	clos.	1
+;	dele.	2
+;	look.	3
+;	entr.	4
+;	renm.	5
+
+
+special::		;handle special directory stuff
+	bit	#specl$,stat	;this a special directory device?
+	bne	20$		;yes
+	tst	(r3)+		;nope
+	rts	r3		;return
+
+20$:	clrb	c.devq(csw)	;reset this for ctrl/c
+	clr	(sp)		;comp	wait
+	psh	#-1		;func
+	movb	(r3),1(sp)	;	func
+	imov	qa2,r5,r1	;	r1 -> filename
+	mov	#7.+1,r2	;assume rename
+	psh	(r1)		;wcnt	size for enter
+	cmpb	(r3),#renm.	;is this a rename?
+	beq	30$		;yes
+	add	#qfn+2-qa2,r1	;point to the name
+	mov	#3+1.,r2	;size for others
+30$:
+    sam	clr	@#chkey		;no segment in memory
+    sam	clr	@#blkey		;
+    usr	mov	#d$buff,r0	;	r0 -> buffer
+	psh	r0		;buff	filename
+35$:	mov	(r1)+,(r0)+	;
+	dec	r2		;count them
+	bne	35$		;more
+	mov	#^rxvx,(r0)+	;move in the flag
+	clrb	(r0)+		;skip dummy byte
+	movb	qch(qel),(r0)+	;move in job channel number
+	clr	(r0)+		;signal not via host
+	clr	-(sp)		;blk	assume no seqnum
+	cmpb	(r3)+,#entr.	;this an enter
+	bhi	50$		;it's a rename
+	beq	40$		;enter
+	mov	qa2(r5),qa3(r5)	;move this parameter
+40$:	mov	qa3(r5),(sp)	;setup the parameter
+50$:	psh	#32*256.	;build an spfun
+	movb	qch(r5),(sp)	;and the channel
+	mov	sp,r0		;point to our synthetic area
+	emt	375		;and do it
+	bcs	85$		;directory error
+    sam	mov	@#spusr,r0	;any errors?
+	bne	90$		;yes - jump to fatal
+	bicb	(r3),1(csw)	;turn off the csw for close/delete/rename
+	bpl	70$		;don't modify r0 for above
+	mov	qwc(r5),qr0(r5)	;size for enter/delete
+70$:	jmp	exeunt		;and exit
+
+85$:	mov	#diri$o,r0	;directory i/o error
+90$:	bis	#177400,r0	;make it an error code
+	clr	(csw)		;turn off the channel
+	jmp	fatali		;goto errors
+
+
+.sbttl	data
+
+	.word	n.reop*400+20
+    usr	.word	dr.reop,o=0	;
+dr.reop:.word	0,0,0,0,0	;reopen to read handler
+
+dr.read:.word	n.read*400+20	;read from channel 16.
+dr.blk:	.word	0		;filled by fetch from dvrec
+dr.buf:	.word	0		;filled by fetch from user
+dr.wcnt:.word	0		;filled by fetch from hsize
+	.word	0		;wait i/o
+
+slots:	.word	0		;number of system slots
+hosts:	.word	0		;number of host slots
+local:	.word	0		;number of local slots
+index:	.byte	0		;device index
+unit:	.byte	0		;device unit
+
+pname:	.word	0		;the pname table start
+dvrec:	.word	0		;
+
+dr.dstat:
+stat:	.word	0		;$stat
+hsize:	.word	0
+hentry:	.word	0
+dvsize:	.word	0
+
+table p				;preface dispatch table
+table d				;doit dispatch table
+meta commands
+meta <repeat c,d><.irpc $,<d>><c><.endr>
+save:
+repeat	<psh	r'$><432105>
+	mov	14(sp),r5
+	call	@(sp)+
+repeat	<pop	r'$><012345>
+	return
+meta repeat
+                                                                                                             

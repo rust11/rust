@@ -1,0 +1,285 @@
+.sbttl	copy
+.psect	copy
+.pass
+set	pip 1, dup 2, filex 3, ame 4, transf 5
+
+;	VIP commands
+;
+;	copy	append	convert	copy
+;	delete	delete
+;	print	print	type
+;	rename	rename	protect	set_file unprotect
+
+append::			;append command
+	edit	<C=1e=1>	;only supported for PIP
+	br	appcop		;join common
+convert::
+.if ne 0
+	edit	<V=1o=1>	;VIP/X
+	br	appcop		;
+.endc
+	
+copy::	case	<append,convert,zip,unzip>;do append
+appcop:	setup	$copy,c.lex	;the table and lexical bypass
+	world			;get the net table
+	movb	$card(r0),r0	;get the wildcard setting
+	edit	<W=1r0N="*"T=".*">;setup the defaults
+	scan	<F=0^M>		;zero files into major
+	scan	<F=6^IQ="From? ">;6 files into input
+	scanend	<F=1^OQ="To  ? ">;1 file into output
+;am	edit	<C4>,,10$	;convert/ame
+;am	jmp	cvim		;vim
+10$:	call	vax		;check for vax names 
+;tr	edit	<C5>,,20$	;handle transf
+;tr	jmp	ctransf		;transf
+20$:	edit	<o1"/X">	;convert flag for VIP 
+	edit	<l1C1"/W">	;if log and pip
+	edit	<l0C1W3"/W">	;if not mute!query, PIP and wildcards
+	edit	<q1C1"/Q">	;if query & pip
+	edit	<c2C1"/U">	;if plus's & pip
+	edit	<q3C2"/Y">	;if noquery & dup
+;fx	edit	<q1C3"/Q">	;if query & filex
+	edit	<w1C1"/E"|w1"/W">;if wait pip=/E, dup/filex=/W
+	edit	<i1C1"/G">	;if ignore & pip
+	edit	<i1C2"/J">	;if ignore and dup
+;	edit	<V0C2> ,,30$	;not DUP
+;	cright	#sropr.		;must be operator for DUP
+;	cright	#srpio.		;physical I/O required
+30$:;	edit	<V1C="VIP"|C1C="PIP"|C2C="DUP"|C="FILEX">;
+;	edit	<V1C="VIP"|C1C="VIP"|C2C="DUP"|C="FILEX">;
+	edit	<V1C="VIP"|C1C="VIP"|C2C="VUP"|C="FILEX">;
+
+;	append
+
+	edit	<e0> 40$	;its not append
+	edit	<"/U">		;force concatenate
+	mov	$out,r5		;get the output string
+	edit	<^J(\@@@:@@@@@@.@@@\)> ;copy I to T (elide size)
+	edit	<","_I>		;copy the rest
+	edit	<I=J>		;swap these
+40$:	jmp	program		;go build the program
+
+.if ne 0
+cvim:	edit	<C="VIM">	;CONVERT/AME
+	edit	<^Z"R "_C}_U_O"="_I_S}"^C"}> ;build csi line
+	edit	<!R*!(_R})>	;if R then copy it out
+	jmp	build		;
+.endc
+
+$copy:
+option	ALLOCATE	3 _	null	allocate l=0
+option	ASCII		1 A	pip	value
+option	BINARY		1 B	pip	value
+option	BOOT		1 U	dup	value
+option	CONCATENATE	1 U	pip
+option	DEVICE		1 I	dup
+option	END		2 E	dup	value.	l=0
+option	FILES		1 F	dup
+;fx on	DOS		2 S	filex		l=0
+option	EXCLUDE		1 P	pip
+;ption	IGNORE		1 G	
+option	IGNORE		1 _	null	c.igno	
+option	IMAGE		1
+;fx on	INTERCHANGE	2 U	filex	value.	l=0
+option	LOG		1 _	null	c.log
+option	NOLOG		1 _	null	c.nolog	;MUTE for us
+option	NEWFILES	1 C	pip
+;fx on	OWNER		2 _	filex	owner
+;fx on	PACKED		2 P	filex		l=0
+option	POSITION	2 M	pip	value.	l=0
+option	PREDELETE	1 O	pip
+option	QUERY		1 _	null	c.query
+option	NOQUERY		1 _	null	c.noquery
+option	REPLACE		1
+option	NOREPLACE	1 N	pip
+option	SLOWLY		1 S	pip
+option	START		2 G	dup	value.	l=0
+option	SYSTEM		1 Y	pip
+;fx on	TOPS		2 T	filex		l=0
+option	WAIT		1 _	null	c.wait
+;va on	VAX		1 _	pip	c.vax		;
+;
+option	DATE		1 C	pip	value.
+option	SINCE		1 I	pip	value.
+option	BEFORE		1 J	pip	value.
+option	SETDATE		1 T	pip	value.
+option	INFORMATION	1 X	pip
+;
+option	MULTIVOLUME	1 V	pip
+option	PROTECTION	1 _	pip	c.prot
+option	NOPROTECTION	1 Z	pip
+option	RETAIN		1 R	dup
+option	VERIFY		1 H	null			;? pip & dup only
+;am on	AME		1 _	ame	c.ame		;convert/ame
+;am on	SHOW		1 S	ame
+option	DELETE		1 D	pip
+;
+;tr on	TRANSFER	1 _	transf	c.tran	l=0
+;tr on	SIGNAL		1 S	transf
+;tr on	LOCAL		1 T	transf		l=0
+option	SQUEEZE		1 _	pip	c.sque
+;option	UIC		1 _	pip	gtuic
+option	UIC		1 U	pip	valuic
+option	CONVERT		1 X	pip	value
+option	BY_OWNER	1 Q	pip	valuic
+option	BLOCK_SIZE	1 S	pip	value.
+option	HEADER		1 _	pip	c.log
+option	NOHEADER	1 _	pip	c.nhdr
+option
+
+; test for plus construction
+
+c.lex:	edit	<c1r+?|c2r,?|r,c=1|r+r=,c=2C=1>
+	return
+
+c.log:	edit	<l=1>		;remember /log
+	return
+c.query:edit	<q=1>		;flag query
+c.nolog:edit	<l0l=3>		;flag nolog
+	return
+c.noquery:edit	<q=3>		;flag noquery
+	return
+c.wait:	edit	<w=1>		;flag wait
+	return
+c.igno:	edit	<i=1>		;flag /ignore
+	return
+
+c.tran:	edit	<N=""T="">	;no defaults
+	return
+c.squee:edit	<"/N:SQU">	;/squeeze
+	edit	<V=1>		;force VIP
+	return
+.if ne 0
+c.vax:	edit	<V=1>		;
+	return
+.endc
+c.nhdr:	edit	<"/W:NHD">	;/noheader
+	return
+c.nwar:	edit	<"/W:NWR">	;/nowarnings
+	return
+
+c.prot:	call	gtprt			;get protection
+	bcc	10$			;got some
+	edit	<"/F">			;/PROTECTION
+10$:	return				;
+.if ne 0
+.sbttl	convert/ame
+
+;	convert/ame input output
+
+c.ame:	edit	<o1K1|?>	;must be CONVERT/AME
+	edit	<!=>,,40$	;no AME specification
+
+	edit	<"/A">		;tell them
+	psh	r4		;save the output stream
+	edit	<^R>		;
+	cmpb	(r5),#'"	;quoted?
+	beq	5$		;yes
+	cmpb	(r5),#''	;quoted string?
+	bne	25$		;nope
+5$:	movb	(r5)+,r0	;save the alternate
+10$:	clrb	(r4)		;terminate it
+	cmpb	(r5),r0		;end of string?
+	bne	15$		;nope
+	cmpb	(r5)+,(r5)	;double?
+	bne	30$		;nope
+15$:	movb	(r5)+,(r4)+	;move it
+	bne	10$		;get the next
+	edit	<?>		;illegal command
+
+25$:	call	file		;get a filespec
+30$:	pop	r4
+40$:	return
+.endc
+.if ne 0 ; transf
+.sbttl	copy/transfer
+
+;	Transfer options
+;
+;	Duplicate input wildcards on output
+;
+;	Should use logical names to check for transfer
+
+ctrans:	psh	r5		;save these two
+	psh	r4		;
+	edit	<J=O>		;get a copy of the output
+	mov	$out,r4		;copy it back there
+	mov	$object,r5	;
+	edit	<@\@@:>		;copy the device name
+	mov	r5,r3		;r3 -> output string
+	mov	$input,r5	;get the input
+	edit	<!@\@@:>	;skip its device name
+
+	cmpb	(r3),#'.	;got a name?
+	beq	30$		;no
+	tstb	(r3)		;got anything?
+	beq	30$		;no
+	cmpb	(r3),#'*	;output got wild name?
+	bne	60$		;no
+	inc	r3		;skip it
+30$:	call	100$		;copy it
+	br	70$		;
+60$:	call	110$		;skip the input name
+	mov	r5,r2		;save the input string
+	mov	r3,r5		;
+	call	100$		;copy output name
+	mov	r5,r3		;save output pointer
+	mov	r2,r5		;get back input pointer
+
+70$:	cmpb	(r3)+,#'.	;output got a type?
+	bne	80$		;no - use input type
+	cmpb	(r3),#'*	;output wildtype?
+	beq	80$		;yes - use input type
+	dec	r3		;no
+	mov	r3,r5		;use output type
+80$:	cmpb	(r5)+,#'.	;got a type at all?
+	bne	90$		;no
+	edit	<".">		;yes
+	call	100$		;copy the type
+90$:	pop	r4		;
+	pop	r5		;
+	edit	<l1"/W">	;setup log option
+	edit	<C="TRANSF">	;
+	jmp	program		;and do it
+
+;	Copy spec
+
+100$:	cmpb	(r5),#'*	;wildcard spec?
+	beq	110$		;yes - skip it
+	edit	<@\@@@@@@>	;no
+	return
+110$:	edit	<!@\@@@@@>	;skip spec
+	return
+
+.endc
+.sbttl	zip/unzip
+
+;	zip dk:INPUT.dsk dk:OUTPUT.zip
+
+zip::	setup	$zip			;the table and lexical bypass
+	world				;get the net table
+	scan	<F=0^M>			;zero files into major
+	scan	<F=1^IT=".DSK"Q="From? ">;1 files into input
+	scanend	<F=1^OT=".ZIP"Q="To  ? ">;1 file into output
+	edit	<C="ZIP">		;the file specification
+	edit	<^Z"R "_C}_I_S" "_U_O_M}"^C"}> ;build csi line
+	jmp	build			;go build it
+
+$zip:
+option
+
+;	unzip dk:INPUT.zip dk:OUTPUT.dsk
+
+unzip::	setup	$unzip			;the table and lexical bypass
+	world				;get the net table
+	scan	<F=0^M>			;zero files into major
+	scan	<F=1^IT=".ZIP"Q="From? ">;1 files into input
+	scanend	<F=1^OT=".DSK"Q="To  ? ">;1 file into output
+	edit	<C="UNZIP">		;the file specification
+	edit	<^Z"R "_C}_I_S" "_U_O_M}"^C"}> ;build csi line
+	jmp	build			;go build it
+
+$unzip:
+option
+.end
+

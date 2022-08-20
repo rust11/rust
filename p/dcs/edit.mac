@@ -1,0 +1,238 @@
+.title	edit command
+.include "dcs:dcl.mac"
+.psect edit
+
+;	DCL EDIT, MAKE, MUNG & TECO commands.
+;	Dispatch HELP and PATCH
+;
+;	%build
+;	macro	dcs:kp+dcs:edit /object=dcb:edit
+;	%end
+;	%date
+;	<24-Jul-2003 19:46:03.30>
+;	%edit
+;	<16   >
+;
+;	+---------------------------------------------------+
+;	! .CHAIN commands reset the stack to top of memory. !
+;	! KED etc put the stack back down low again.	    !
+;	+---------------------------------------------------+
+
+set .edit 1, .teco 2, .ked 3, .k52 4, .kex 5, .key 6
+set .csi .ked		; ked and above use CSI commands
+
+set .create 100000, .inspect 200
+set flag 510, fname 512, oname 540, estring 600
+.sbttl	edit
+
+edit::	case	<5$,5$,5$,help,patch>
+5$:	mov	sysptr,r2	;get rmon
+	mov	$top(r2),sp	;get chain space
+	mov	#500,r1		;clean up the chain area
+10$:	clr	(r1)+		;keep cleaning
+	cmp	r1,#1000	;upto 1000
+	bne	10$
+	case	<make,mung,teco,0,0>
+
+.if ne 0
+	mov	sysptr,r2	;get rmon
+	mov	$top(r2),sp	;get chain space
+	mov	#500,r1		;clean up the chain area
+10$:	clr	(r1)+		;keep cleaning
+	cmp	r1,#1000	;upto 1000
+	bne	10$
+	case	<make,mung,teco>
+.endc
+
+	setup	$$edit e.lex	;set it up
+	scan	<^M>		;get the command options
+	inc	@$column	;/allocate only in column 3
+	scan	<^IF=1Q="File? "> ;get the file
+	world			;get the net table
+	movb	$edit(r0),r0	;get the default editor
+	edit	<C0C=r>		;and define the editor
+	call	endline		;now handle end of line
+
+	mov	#fname,r4	;get the input
+	mov	$input,r5
+	edit	<(\@@@\:\@@@@@@\)(.*~|_T*~)>
+
+	mov	#oname,r4	;and the output file
+	mov	$out,r5
+	edit	<(O%||)(\@@@\:\@@@@@@\)(.*~|_T*~)>
+
+	movb	@$cusp,r2	;get the program number
+	cmpb	r2,#.csi	;is it a CSI string?
+	bhis	20$		;yes
+	jmp	edchain		;nope - a chain
+
+20$:	mov	stk,sp		;get the other stack back
+	edit	<^Z"R "(C3"KED")(C4"K52")(C5"KEX")(C6"KEYPAD")}>
+.if ne 0
+;	edit	<^Z"R K"(C3"ED"|"52")}>
+	edit	<^Z"R K"(C3"ED")>
+	edit	(C4"52")	;
+	edit	(C5"EX")	;
+	edit	(C6"EYPAD")	;
+	edit	(})		;
+.endc
+	mov	#oname,r5
+	tstb	(r5)		;got output?
+	beq	25$		;nope
+	edit	<*~"=">		;yes
+	br	30$		;get the input
+
+25$:	tstb	510		;doing /INSPECT?
+	bmi	30$		;yep, no output
+	mov	#fname,r5
+	edit	<*~"=">
+
+30$:	mov	#fname,r5
+	tst	510		;doing /CREATE?
+	bmi	40$		;yep
+	edit	<%~>		;copy all except [size]
+40$:	tstb	510		;doing inspect?
+	bpl	50$		;nope
+	edit	<"/I">		;yep
+50$:	edit	<}"^C">
+	jmp	build
+
+$$edit:
+option	TECO		1 _	.teco
+option	EDIT		1 _	.edit
+option	EXECUTE		1 _	.teco	execute	
+option	CREATE		1 _	null	create
+option	INSPECT		1 _ 	null	inspect
+option	OUTPUT		1 _	null	e.output l=0
+option	ALLOCATE	1 _	null	allocate l=0
+option	KED		1 _	.ked
+option	K52		1 _	.k52
+;
+option	KEX		1 _	.ked
+option	KEYPAD		1 _	.key
+option
+
+;	Handle EDIT FILE[size] case
+
+e.lex:	cmpb	r0,#'[		;this a file size?
+	bne	20$		;no
+	inc	r5		;yes - skip the bracket
+	call	alloc2		;pickup the size
+	cmpb	(r5)+,#']	;get the terminator
+	beq	10$		;fine
+	edit	<?>		;oops
+10$:	movb	(r5),r0		;get the new terminator
+20$:	return
+.sbttl	chain and options
+
+;	edit, teco
+
+edchain:tstb	@$expand	;trying to expand it?
+	bne	eddisp		;yes - display it
+	asl	r2		;get the offset
+	asl	r2
+	mov	#500,r3
+	mov	#^rsy,(r3)+
+	mov	edits-4(r2),(r3)+
+	mov	edits-2(r2),(r3)+
+	mov	#^rsav,(r3)+
+	world			;get our table
+	clr	$km(r0)		;we aint here anymore
+	mov	mon,r0		;get the system stack
+	mov	$top(r0),stk	;and swap to its stack
+	.chain			;and call them
+
+;	display edit
+
+eddisp:	asl	r2		;multiply by six
+	psh	r2		;
+	asl	r2		;
+	add	(sp)+,r2	;
+	add	#editds-6,r2	;point to the ascii name
+	type	<Editor: >	;
+	.print	r2		;
+	mov	#510,r2		;make/mung etc.
+	cmp	(r2)+,#-1	;this a teco command?
+	beq	5$		;yes
+	mov	#estring,r2	;get the edit string
+	tstb	(r2)		;got a string?
+	beq	40$		;nope
+5$:	type	<String: ">
+10$:	movb	(r2)+,r1	;get the next
+	beq	30$		;thats the end
+	cmpb	r1,#40		;this a non-printing character?
+	bhis	20$		;nope
+	type	<^>		;yes
+	add	#'A,r1		;make a control character
+20$:	.ttyout	r1		;display it
+	br	10$
+30$:	print	<">
+40$:	jmp	kmon		;and quit
+
+;	make, mung, teco
+
+make::
+mung::
+teco::	mov	#510,r4		;get the output area
+	mov	#-1,(r4)+	;flag command type
+	mov	#line,r5	;get the input line
+	tstb	@$expand	;this a display?
+	beq	20$		;no
+	mov	xcomman,r5	;yes - avoid the 'display ' part
+20$:	movb	(r5)+,(r4)+	;move in the string
+	bne	20$		;till its done
+	mov	#.teco,r2	;goto teco
+	br	edchain		;go chain
+
+create:	bis	#.create,flag	;setup the flag
+	br	unique		;only one option
+inspec:	bis	#.inspec,flag	;set it up
+	br	unique
+	return
+e.output:psh	#output		;call output after unique
+unique:	edit	<c1?|c=1>	;only one option allowed
+	return			;from CREATE,INSPECT,OUTPUT
+
+;	r4 ->	input
+
+execut:	psh	r4		;save this
+	movb	#377,flag	;fudge a flag
+	edit	<T=".TEC">	;define the default type
+	mov	#preface,r1	;
+	mov	#estring,r4	;thats the output area
+5$:	movb	(r1)+,(r4)+	;move it out
+	bne	5$		;
+	dec	r4		;
+	edit	<!:>,,40$	;no string
+	cmpb	(r5),#''	;quoted string?
+	bne	25$		;nope
+	movb	(r5)+,r0	;save the alternate
+10$:	cmpb	(r5),r0		;end of string?
+	bne	15$		;nope
+	cmpb	(r5)+,(r5)	;double?
+	bne	40$		;nope
+15$:	movb	(r5)+,(r4)+	;move it
+	bne	10$		;get the next
+	edit	<?>		;illegal command
+
+20$:	movb	(r5)+,(r4)+	;move the next
+25$:	tstb	(r5)		;end of string?
+	beq	40$		;yes
+	cmpb	(r5),#space	;a space
+	bne	20$		;nope
+40$:	movb	(r1)+,(r4)+	;now move it in
+	bne	40$
+	pop	r4		;
+	return
+
+preface:.ascii	/YHXZHK@I/<3><0>
+trail:	.ascii	<3>/MZ/<0>
+	.even
+edits:	.rad50	/edit  teco  ked   k52   ked   keypad/	;kex=ked
+editds:	.asciz	/EDIT /
+	.asciz	/TECO /
+	.asciz	/KED  /
+	.asciz	/K52  /
+	.asciz	/KED  /
+	.asciz	/KEYPAD/
+.end

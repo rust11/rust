@@ -1,0 +1,320 @@
+.title	pool
+.psect	pool
+.include "lib:share.mac"
+$eddef		;editor
+$fodef		;logger
+$opdef		;output
+$sedef		;set
+
+;	Process dynamic pool.
+;
+;	edit buffers		SET EDIT/LINES=n	
+;	logfile buffer		OPEN LOG	
+;	user commands		name := string	
+;
+;	The monitor uses the edit & logfile buffers. It maintains protected
+;	pointers to these structures. We need to update these pointers.
+;
+;	We need to ensure that we do not overflow the kernel par1 window.
+;
+;	Call with the following:
+;
+;	r0	type
+;	r1	new byte size
+
+global
+map	dpuse.,,0		;user commands
+map	dpedt.,,1		;edit buffers
+map	dplog.,,2		;logfile buffer
+map	dpini.,,3		;init pool
+local
+
+map	dp.buf	word,0	;buffer address
+map	dp.len		;buffer byte length
+map	dp.bbs
+
+area:	.blkw	7
+.sbttl	pool
+
+;	r0 = type
+;	r1 = size
+
+stack	typ len
+
+dp$adj::			;dynamic pool adjust
+	pshs	<r5,r4,r3,r2,r1,r0> ;save them all
+	call	pshcom		;save command files
+	cmp	(sp),#dpini.	;should we init the pool?
+	bne	10$		;no
+	$cmkrnl	#area, #dp$ini pic=yes ;init the pool
+	jmp	40$		;
+
+10$:	$cmkrnl	#area #dp$get pic=yes ;get the sizes
+	bcs	50$		;pool is screwed up
+
+;	Determine element and difference
+
+	mov	(sp),r5		;get the thing to change
+	mul	#dp.bbs,r5	;get the address
+	add	#d$pfir,r5	;r5 -> element to change
+
+	mov	sp.len(sp),d$pdif ;move in the new size
+	sub	dp.len(r5),d$pdif ;get the difference
+	beq	40$		;no change
+
+;	Expand or contract
+;
+;	Set limits of area to move
+
+	mov	d$pusb+dp.buf,d$pbot	;get bottom address to move
+	mov	dp.buf(r5),d$ptop	;get the top address
+	add	dp.len(r5),d$ptop	;top address
+
+	mov	sp.len(sp),dp.len(r5)	;store the new size
+
+;	Adjust the addresses
+
+	mov	#d$pfir,r1		;get the first
+20$:	sub	d$pdif,dp.buf(r1)	;adjust the base address
+	cmp	r1,r5			;is this the last?
+	beq	30$			;yes
+	add	#dp.bbs,r1		;no - do the next
+	br	20$			;
+
+30$:	mov	d$pfir+dp.buf,r0	;get the new low address
+	call	dp$lim			;check for enough space
+
+	$cmkrnl	#area #dp$mov pic=yes
+
+40$:	call	popcom			;put back the command file
+	pops	<r0,r1,r2,r3,r4,r5>
+	return
+
+
+50$:	call	popcom			;restore command files
+	message	<Process dynamic pool inconsistant>
+
+;	Check pool limit
+;
+;	r0 = base address
+;
+;	Leave at least 512. bytes for command files.
+;	Leave at least 512. bytes for image load.
+
+dp$lim:	mov	$text+2,r1		;get the command file size
+	sub	$text,r1		;r1 = command file size
+	mov	r0,r2			;get a copy to test
+	sub	r1,r2			;bottom address with command files
+	cmp	r2,d$pmin		;is this too low?
+	bhi	20$			;no
+10$:	call	popcom			;yes
+	message	<Insufficient space in process pool>
+
+20$:	cmp	r0,d$pred		;in the red zone?
+	bhi	30$			;no
+	message	<rwProcess pool nearly exhausted>
+30$:	return
+.sbttl	expand & contract
+
+;	This whole thing has to happen in kernel mode so that
+;	we cannot be aborted.
+;
+;	We move the lot down and clear the new space.
+;	We then call all the SET routines to setup the new addresses.
+;
+;	All these addresses are client addresses.
+
+dp$mov:
+	call	dp$cha		;change
+	mov	d$pbot,@#p$hctl	;reset the CTL base address
+	call	dp$set		;set new addresses
+	return
+
+dp$cha:	tst	d$pdif		;expand or contract?
+	bmi	dp$con		;contract
+
+dp$exp:				;expand
+	mov	d$pbot,r1	;r1 -> source
+	mov	d$ptop,r3	;
+	sub	r1,r3		;r3 = number to move
+	mov	r1,r2		;
+	sub	d$pdif,r2	;r2 -> destination
+	mov	r2,d$pbot	;
+	sub	@#p$hktc,r1	;make kernel addresses
+	sub	@#p$hktc,r2	;
+	tst	r3		;anything to move?
+	beq	20$		;no - it was a null pool
+10$:	movb	(r1)+,(r2)+	;move them in
+	sob	r3,10$		;
+
+20$:	mov	d$pdif,r3	;get the new size
+	beq	40$		;utter paranoia
+30$:	clrb	(r2)+		;move them in
+	sob	r3,30$		;
+40$:	return
+
+dp$con:				;contract
+	mov	d$ptop,r1	;
+	add	d$pdif,r1	;r1 -> source (dif is negative)
+
+	mov	d$ptop,r2	;r2 -> destination
+
+	mov	r1,r3		;
+	sub	d$pbot,r3	;r3 = count
+
+	sub	d$pdif,d$pbot	;change the bottom
+
+	sub	@#p$hktc,r1	;make kernel addresses
+	sub	@#p$hktc,r2	;
+
+	tst	r3		;anything to move?
+	beq	20$		;no - this should not really occur
+;	cmpb	(r1)+,(r2)+	;pop
+10$:	movb	-(r1),-(r2)	;move them in
+	sob	r3,10$		;
+20$:	return
+.sbttl	get values
+
+;	Get current addresses
+;
+;	r1	base address
+;	r2	length
+
+dp$get:	mov	@#p$hctl,r0	;get the ctl address
+
+;	User commands (was Symbols)
+
+	mov	@#p$hmet,r1	;user base
+	mov	@#p$hmel,r2	;user size
+	call	dp$cvt		;convert them
+	mov	r1,d$pusb	;user base
+	mov	r2,d$puss	;user length
+
+;	Edit
+
+	movb	@#p$heds,r1	;get the number of lines
+	mul	#edlbs.,r1	;make the byte size
+	mov	r1,r2		;store the size
+	mov	@#p$hedb,r1	;buffer address
+	call	dp$cvt		;convert them
+	mov	r1,d$pedb	;
+	mov	r2,d$peds	;
+
+;	Log
+
+	clr	r2		;assume not there
+	mov	@#p$hlob,r1	;get the buffer
+	beq	10$		;not there
+	mov	#fo.bbs,r2	;force the size
+10$:	call	dp$cvt		;convert them
+	mov	r1,d$plob	;
+	mov	r2,d$plos	;
+	return
+
+;	Convert with default
+;
+;	r0	default address
+;	r1	current address or zero
+;	r2	current size
+
+dp$cvt:				;
+	tst	r1		;got a buffer?
+	bne	10$		;yes
+	mov	r0,r1		;no - use the default
+	br	30$		;we are done
+10$:	cmp	r1,r0		;is this correct?
+	beq	20$		;yes
+	.soft	0		;no - report the error
+20$:	mov	r1,r0		;change the default
+	add	r2,r0		;
+30$:	return
+.sbttl	set buffers
+
+;	set new values
+;
+;	check for moved or changed
+;
+;	user	lowest
+;	log
+;	edit	highest
+
+dp$set:				;set them
+
+;	User commands
+
+	mov	d$pusb,r1	;get the buffer
+	mov	d$puss,r2	;get the size
+	bne	10$		;fine
+	clr	r1		;no size, no buffer
+10$:	mov	r1,@#p$hmet	;	
+	mov	r2,@#p$hmel	;length
+	beq	11$		;nothing
+	sub	@#p$hktc,r1	;setup the end of the buffer
+	add	r2,r1		;point to the end
+	movb	#-1,-2(r1)	;terminate the buffer
+
+;	Edit lines
+
+11$:	mov	d$pedb,r1	;get the buffer address
+	mov	d$peds,r2	;get the size
+	bne	12$		;fine
+	clr	r1		;no length, no buffer
+12$:	mov	r1,@#p$hedb	;save the buffer address
+	mov	r2,r1		;
+	clr	r0		;
+	div	#edlbs.,r0	;get the number of lines
+	movb	r0,@#p$heds	;count the lines
+
+;	Log buffer
+
+	mov	d$plob,r1	;base address
+	mov	d$plos,r2	;length
+	bne	20$		;got a length
+	clr	r1		;no length, no buffer
+	clr	@#p$hlos	;turn off the status
+20$:	mov	r1,@#p$hlob	;reset the buffer
+	bne	30$		;
+	bic	#setlo$,@#p$hset ;we do not have a log
+	br	40$		;
+30$:	bis	#setlo$,@#p$hset ;we do have a log
+40$:	return
+.sbttl	init buffers
+
+;	reset for logout
+;
+;	LOS:LOGOFF - Update this module for changes.
+
+dp$ini:	clr	@#p$hmet	;no symbol table buffer
+	clr	@#p$hmel	;no symbol table length
+	clr	@#p$hedb	;no edit buffer
+	clrb	@#p$heds	;no lines
+	clr	@#p$hlos	;no log status
+	clr	@#p$hlob	;no log buffer
+	bic	#setlo$,@#p$hset;nolog
+	mov	@#p$hphc,@#p$hctl ;reset top address
+	sub	#2,@#p$hctl	;adjust for settop
+	return
+.sbttl	data
+
+;	data must follow kernel routines
+
+
+d$pbot:	.word	0		;low address of pool
+d$ptop:	.word	0		;top address to move
+d$pdif:	.word	0		;bytes to adjust by
+
+	assume	dpuse. eq 0
+	assume	dpedt. eq 1
+	assume	dplog. eq 2
+
+d$pfir:
+d$pusb:	.word	0		;user base
+d$puss:	.word	0		;user size
+
+d$pedb:	.word	0		;edit base
+d$peds:	.word	0		;edit size
+
+d$plob:	.word	0		;log base
+d$plos:	.word	0		;log size
+.end
+

@@ -1,0 +1,866 @@
+.sbttl	instun - install terminal unit
+
+;	r5 ->	system database
+;	r4 ->	our origin
+
+meta	<abort c><jsr r0,in$abo><.word c>
+
+in$beg:	mov	sp,i$nsp	;save the stack for exits
+	jmp	in$sta		;skip the data
+
+in$abo:	mov	(r0)+,result	;save the error
+in$exi:	mov	(pc)+,sp	;get back the stack
+i$nsp:	.word	0		;saved stack
+	$cmpro			;return to process state
+	return			;and quit
+
+clear:	mov	#cleara,r0	;
+10$:	clr	(r0)+
+	cmp	r0,#clearz
+	bne	10$
+	return
+
+task:	.word	0		;0=install, 1=remove
+majopt:	.word	0		;major options
+act:	.word	0		;inster,remter,setter
+comman:	.word	0		;0=install, 2=remove, 4=set
+action:	.word	0		;1=install,-1=remove,0=set
+inssol:	.word	0		;'s'=SHAREsolo
+cleara:
+opts:	.word	0		;command options
+setopt:	.word	0		;set terminal options
+result:	.word	0		;0 => no error - n => error code
+;
+tnum:	.word	0		;terminal number
+tslot:	.word	0		;current slot number
+tname:	.word	0		;rad50 name of terminal
+cname:	.word	0		;controller name (DZA)
+cunit:	.word	0		;controller unit (0:99)
+ctype:	.word	0		;0=dl, 1=dz, 2=dh
+terk:	.word	0		;kernel ter address
+tcont:	.word	0		;controller address
+tcsr:	.word	0		;csr address
+tvec:	.word	0		;primary vector
+tmask:	.word	0		;7/8 bit mask
+
+tipri:	.word	0		;input priority
+tique:	.word	0		;
+topri:	.word	0		;output priority
+toque:	.word	0		;
+tpid:	.word	0		;
+tpcr:	.word	0		;
+tspeed:	.word	0		;baud rate
+trate:	.word	0		;speed pattern
+tstop:	.word	0		;stop bits
+tparit:	.word	0		;parity (0=none, 1=odd, 2=even)
+tsize:	.word	0		;character size
+tpar:	.word	0		;parity, stop and size
+tlengt:	.word	0		;page length (/page)
+twidth:	.word	0		;page width
+
+ttype:	.word	0		;terminal type code
+tmodel:	.word	0,0		;rad50 model name
+tset:	.word	0,0,0,0		;characteristics to set
+tclear:	.word	0,0,0,0		;characteristics to clear
+conset:	.word	0		;controls to set
+conclr:	.word	0		;controls to clear
+tc0set:	.word	0		;tc0 to set
+tc0clr:	.word	0		;tc0 to clear
+tc1set:	.word	0		;
+tc1clr:	.word	0		;
+
+object:	.word	0		;0=dl, 2=dz, 4=dh
+vecs:	.word	0,0,0,0,0	;vectors to check
+dzpar:	.word	0		;dz line parameter
+dhpar:	.word	0		;dh line parameter
+
+clearz:
+	v.bus	=	4
+	pr7	=	340
+.sbttl	kernel preprocessing
+
+in$sta:					;start up
+	$cmsch				;stop the scheduler
+
+;	Check terminal slot
+
+	bit	#tname$,opts		;specified a terminal?
+	beq	10$			;no
+	tst	tnum			;trying for zero?
+	beq	50$			;yes
+	cmp	tnum,@#t$etes		;this a valid terminal number?
+	bhis	50$			;nope - stop it now
+	br	20$			;
+
+;	No terminal specified - check for SET default
+
+10$:	tst	setopt			;is this a SET?
+	bpl	20$			;no
+	mov	@#p$hter,r3		;yes - get their terminal
+	beq	80$			;no terminal available
+	mov	te.tid(r3),tnum		;setup the terminal number
+	mov	tnum,tslot		;
+	asl	tslot			;supply the slot
+	mov	te.nam(r3),tname	;and the name
+	bis	#tname$,opts		;and set them up
+
+;	Check process slot
+
+20$:	bit	#proce$,opts		;specified a process number
+	beq	30$			;no
+	cmp	tpid,#1			;one or less is out
+	blos	60$			;too low
+	cmp	tpid,@#p$rprs		;too high?
+	bhis	60$			;yes
+
+30$:	bit	#contr$!cname$,opts	;specified a controller?
+	beq	40$			;no
+	call	fndcon			;find the controller
+	bcs	70$			;controller not found
+
+40$:	cmp	act,#inster		;is this an install?
+	beq	in$ins			;yes
+	jmp	in$rem			;
+
+50$:	abort	er$itn			;invalid terminal number
+60$:	abort	er$ipn			;invalid process number
+70$:	jmp	in$exi			;fndcon setup error message
+80$:	abort	er$npt			;no process terminal
+.sbttl	install terminal
+
+;	Check terminal already installed
+
+in$ins:
+	bit	#tname$,opts		;specified a terminal?
+	beq	5$			;no - look for one
+	mov	tslot,r2		;r2 -> slot
+	tst	t$emap(r2)		;already occupied?
+	beq	20$			;nope
+	abort	er$dai			;terminal already installed
+
+5$:	mov	@#t$etes,r1		;count them
+	sub	#2,r1			;
+	mov	#4,r2			;start with slot 2
+10$:	tst	t$emap(r2)		;this slot free?
+	beq	15$			;yes
+	tst	(r2)+			;
+	sob	r1,10$			;keep looking
+	abort	er$tmf			;
+15$:	mov	r2,tslot		;store the slot
+	asr	r2			;
+	mov	r2,tnum			;store the tid
+	mov	r2,r0			;r0 => terminal id
+	call	cnvbru			;binary to rad50 unit
+	mov	r0,tname		;store the terminal name
+	
+;	Abort if process has terminal
+
+20$:	bit	#proce$,opts		;got a process?
+	beq	40$			;no
+	mov	tpid,r1			;check process out
+	asl	r1			;twice
+	mov	p$rmap(r1),r1		;get the process
+	bne	30$			;got one
+25$:	abort	er$pna			;process does not exist
+30$:
+.if ne solo
+	call	in$sol			;check share solo
+	bcs	35$			;fails
+.endc
+	mov	r1,tpcr			;
+	tst	pr.ter(r1)		;check for no terminal
+	beq	40$			;
+35$:	abort	er$pht			;process has terminal
+40$:	fall	100$			;
+
+;	Validate device vectors
+
+100$:	bit	#devic$,opts		;this /device?
+	beq	200$			;no - dont check csr or vector
+	bit	#virtu$,opts		;this a virtual terminal?
+	bne	200$			;yes
+					;
+110$:	mov	tvec,r0			;get the vector
+	add	#2,r0			;pop past it
+	cmp	-2(r0),r0		;check the address
+	bne	120$			;not us
+	cmp	(r0)+,#iot		;in use?
+	bne	120$			;yes
+	tst	(r0)+			;and the second one
+	cmp	-2(r0),r0		;
+	bne	120$			;
+	cmp	(r0),#iot		;
+	beq	130$			;
+120$:	abort	er$vao			;vector already occupied
+
+;	Validate device CSR
+
+130$:	mov	tcsr,r0			;get the csr
+	tst	(r0)			;check it out
+	bvs	150$			;oops - csr is wrong
+	add	#6,r0			;and check the last
+	tst	(r0)			;
+	bvs	150$			;oops
+	br	200$			;fine
+150$:	mov	#er$ccf,result		;csr check failed
+	jmp	in$exi			;and exit
+
+;	Create terminal record
+
+200$:	psh	#poter.!poclr$		;type
+	psh	#te.bbs			;byte length
+	call	@#po$cre		;create a pool element
+	mov	r0,terk			;der kernel address
+	bne	240$			;we got it
+220$:	abort	er$ips			;insufficient pool space
+
+;	Fill terminal record
+
+240$:	mov	terk,r2			;point to the terk
+	call	filter			;and fill it in
+
+;	Setup device vectors
+
+400$:	bit	#devic$,opts		;this /device?
+	beq	450$			;yes - dont fill vectors
+	bit	#virtu$,opts		;this /virtual?
+	bne	450$			;yes
+	mov	terk,r2			;point to terminal record
+	mov	r2,r0			;isr
+	add	#te.isr,r0		;
+	mov	r2,r1			;osr
+	add	#te.osr,r1		;
+	mov	tvec,r3			;vector
+	mov	r0,(r3)+		;isr
+	mov	#pr7,(r3)+
+	mov	r1,(r3)+
+	mov	#pr7,(r3)+
+
+;	Fill in terminal map
+
+450$:	mov	tslot,r0		;r0 = terminal slot
+	mov	terk,t$emap(r0)		;plug us in
+
+;	Attach device unit
+
+460$:	cmp	object,#dlobj.		;DL: is combined unit/device
+	beq	465$			;install DL device
+	bit	#devic$,opts		;this /device?
+	bne	470$			;yes - not a unit
+465$:	tcall	object,attdlu,attdzu,attdhu
+
+;	Fill in process slot
+
+470$:	pshs	<r5,r4>
+	mov	te.pcr(r2),r4		;get the pcr
+	beq	550$			;no process
+	mov	r2,pr.ter(r4)		;attach us
+	movb	pr.prn(r4),te.roo(r2)	;and set it up as root
+
+;	Signal process to attach terminal
+
+	$cmpro				;back tp process mode
+	mov	#siter$,r0		;set the terminal signal
+	call	@#as$pms		;post a monitor signal
+	br	560$
+
+550$:	$cmpro				;back to process mode
+
+560$:	pops	<r4,r5>
+	mov	i$nsp,sp		;get back our stack
+	return
+
+.if ne solo
+in$sol:	pshs	<r3,r1,r0>
+	cmpb	inssol,#'s		;this SHAREsolo?
+	bne	155$			;no - skip this
+	mov	#t$etes,r0		;get terminal map
+	mov	(r0)+,r1		;
+152$:	mov	(r0)+,r3		;get the next
+	beq	154$			;is none
+	tst	te.pcr(r3)		;already got a process
+	bne	156$			;yes - only one permitted
+154$:	dec	r1			;any more?
+	bne	152$			;yes
+155$:	tst	(pc)+			;no restriction
+156$:	sec				;already got one
+	pops	<r0,r1,r3>
+	return
+.endc					;
+.sbttl	fill terminal record
+
+$$=1000
+.macro	select c
+.irp $$$,\$$
+$$$'$:
+.endr
+$$=$$+10
+.if nb <c>
+.irp $$$,\$$
+	bit	#c,opt'c
+	beq	$$$'$
+.endr
+.endc
+.endm
+
+.macro	avoid c
+.irp $$$,\$$
+$$$'$:
+.endr
+$$=$$+10
+.if nb <c>
+.irp $$$,\$$
+	bit	#c,opt'c
+	bne	$$$'$
+.endr
+.endc
+.endm
+
+;	This monster handles both install and set
+;	I need a 132 column editor
+
+filter:
+	bic	tclear,te.tc0(r2)	;te.tc0		;terminal characteristics
+	bis	tset,te.tc0(r2)
+	bic	tclear+2,te.tc1(r2)	;te.tc1		;
+	bis	tset+2,te.tc1(r2)
+	bic	tclear+4,te.tc2(r2)	;te.tc1		;
+	bis	tset+4,te.tc2(r2)
+	bis	tset+6,te.tc3(r2)	;te.tc3
+	bic	tclear+6,te.tc3(r2)	;
+	call	filpar			;fill in the parameters
+
+select	width$
+	movb	twidth,te.wid(r2)	;te.wid	byte	;terminal width
+select	lengt$
+	movb	tlength,te.len(r2)	;te.len	byte	;page length
+select	type$				;te.spe byte	;from previous
+	mov	ttype,te.typ(r2)	;te.typ		;vt100 numeric code
+avoid	set$
+	movb	ctype,te.cot(r2)	;te.cot		;tetdl$ - controller type
+	mov	tcont,te.cor(r2)	;te.cor		;controller address
+
+select	model$
+	mov	tmodel,te.mod(r2)	;te.mod		;brandname
+	mov	tmodel+2,te.mod+2(r2)	;		;
+
+avoid	set$
+	mov	tname,te.nam(r2)	;te.nam	word*2	;T01:
+					;		;
+	mov	tnum,te.tid(r2)		;te.tid		;	- terminal id
+					;te.csr	null	;	- CSR address
+	psh	#2			;assume physical
+	mov	tcsr,r0
+	bne	10$			;its physical
+	clr	(sp)			;its virtual
+	mov	#s$ywal,r0		;use dummy address
+10$:	mov	r0,te.tks(r2)		;te.tks		;tks
+	add	(sp),r0
+	mov	r0,te.tkb(r2)		;te.tkb		;tkb	- input buffer
+	add	(sp),r0
+	mov	r0,te.tps(r2)		;te.tps		;tps	- output status
+	add	(sp),r0
+	mov	r0,te.tpb(r2)		;te.tpb		;tps	- output buffer
+	tst	(sp)+			;cleanup
+	mov	tvec,te.vec(r2)		;te.vec		;vec	- vector address
+	movb	cunit,te.uni(r2)	;te.uni byte	;uni	- controller unit
+					;te.fr0	byte
+	mov	#100,te.iie(r2)		;te.iie		;ie	- input enable bit
+	mov	#100,te.oie(r2)		;te.oie		;ie	- output enable bit
+
+	;movb	#scpti.,te.ipr(r2)	;te.ipr	byte	;n	- input priority
+	;movb	#scpto.,te.opr(r2)	;te.opr	byte	;n	- output priority
+
+	; Process specific data
+
+	mov	tpcr,te.pcr(r2)		;te.pcr		;pcr	- pcr of owner
+	losig$=tecat$
+select
+	bis	conset,te.con(r2)	;te.con		;bits	- ctrl character mask
+	bic	conclr,te.con(r2)
+	movb	tipri,te.ipr(r2)	;te.ipr byte	;n	- input priority
+	movb	topri,te.opr(r2)	;te.opr byte	;n	- output priority
+
+; ??	copy redundand structures 
+
+	assume	tt.pas eq 0		;		;
+	bic	#tect0$,te.con(r2)	;		;assume not /passall
+	bis	#tecto$,te.con(r2)	;		;enable ^O
+	bit	#ttpas$,te.tc0(r2)	;		;passall set?
+	beq	20$			;		;nope - leave it
+	bis	#tect0$,te.con(r2)	;		;enable nulls
+	bic	#tecto$,te.con(r2)	;		;disable ^O
+20$:	bit	#tttsy$,te.tc0(r2)	;		;is it /TTSYNC?
+	bne	25$			;		;yes
+	bic	#tects$,te.con(r2)	;		;/NOTTSYNC
+	br	26$			;		;
+25$:	bis	#tects$,te.con(r2)	;		;/NOTTSYNC
+26$:					;		;
+
+avoid	set$
+	mov	#losig$,te.sig(r2)	;te.sig		;bits	- pending signals
+select	mask$
+	mov	tmask,te.msk(r2)	;te.msk		;te7b$m	- 7/8 bit mode mask
+
+					;te.sbs	null	;status block byte size ($gette)
+avoid	set$
+;
+	; Input 
+	;			;ordered
+	mov	#4537,te.isr(r2)	;te.isr	word*2	;jsr r5,@#dl$isr - input isr
+	mov	#dl$isr,te.isr+2(r2)	;
+	mov	te.tkb(r2),te.ikb(r2)	;te.ikb		;tkb	- input buffer address
+					;te.ich	byte	;0	- input character buffer
+	movb	te.tid(r2),te.iid(r2)	;te.iid	byte	;tid	- terminal id for input
+		;			;unordered
+					;te.ict		;0	- input count
+	mov	r2,r0
+	add	#te.irb,r0
+	mov	r0,te.igt(r2)		;te.igt		;te.irn	- input ring get pointer
+	mov	r2,r1
+	add	#te.ire-1,r1
+	mov	r1,te.ito(r2)		;te.ito		;te.ire	- input ring top pointer
+	mov	r0,te.ipt(r2)		;te.ipt		;te.irn	- input ring put pointer
+	mov	r0,te.ibo(r2)		;te.ibo		;te.irb	- input bottom pointer
+		;
+	mov	#teifc.,te.ifc(r2)	;te.ifc		;0	- input get fail counter
+					;te.ila		;0	- last input character
+select	iprio$
+	movb	te.ipr(r2),r0
+	bne	110$
+	movb	@#s$cdti,r0
+110$:	bic	#^c37,r0
+	movb	r0,te.ipr(r2)
+	asl	r0
+	asl	r0
+	add	#s$cp00,r0
+	mov	r0,te.iqu(r2)		;te.iqu		;queue 	- input scheduler queue
+	;
+	; Output
+	;			;ordered
+avoid	set$
+	mov	#4537,te.osr(r2)	;te.osr	word*2	;jsr r5,@#dl$osr - output isr
+	mov	#dl$osr,te.osr+2(r2)	
+	mov	#-1,te.oct(r2)		;te.oct		;0	- output character count
+	mov	r2,r0
+	add	#te.orb,r0
+	mov	r0,te.ogt(r2)		;te.ogt		;te.orb	- output get pointer
+	mov	r2,r1
+	add	#te.ore-1,r1
+	mov	r1,te.oto(r2)		;te.oto		;te.ore	- output top pointer
+	;			;unordered
+	mov	r0,te.opt(r2)		;te.opt		;te.orb	- output put pointer
+	mov	r0,te.obo(r2)		;te.obo		;te.orb	- output bottom pointer
+	;
+					;te.omo	null	;0	- output mode
+					;te.ocs	byte	;0	- ctrl/s state
+					;te.oco	byte	;0	- ctrl/o state
+	mov	te.oie(r2),te.oen(r2)	;te.oen		;ie	- output enable state
+	;
+					;te.ola		;0	- output last character
+select	oprio$
+	movb	te.opr(r2),r0
+	bne	210$
+	movb	@#s$cdto,r0
+210$:	bicb	#^c37,r0
+	movb	r0,te.opr(r2)
+	asl	r0
+	asl	r0
+	add	#s$cp00,r0
+	mov	r0,te.oqu(r2)		;te.oqu		;	- output scheduler queue
+	;
+	; Fork
+	;
+avoid	set$
+					;te.frk		;suc	- output done fork block
+	mov	#te$frk,te.fpc(r2)	;te.fpc		;te$frk	- fork goto
+	mov	r2,te.fr5(r2)		;te.fr5		;te.ter	- saved r5
+	
+					;te.fr4		;(never used)
+	;mov	#s$ywal,te.sel(r2)	;te.sel		;dummy DH channel selector
+	mov	#te$sel,te.sel(r2)	;		;turn on DL/DZ
+	
+	;
+	; Rings
+	;
+					;te.irb	teirs.	;	- input ring
+					;te.ire	null	;	- input ring end
+					;te.orb	teors.	;	- output ring
+					;te.ore	null	;	- output ring end
+	;				;
+	;				;te.mbx	null	;address of mailbox pcr
+	;				;te.mt0	null	;mtt attach
+	;				;te.mt1	null	;mtt connection
+select
+	bis	conset,te.pco(r2)	;te.pco con	;permanent controls
+	bic	conclr,te.pco(r2)	;
+
+; ??	copy redundand structures 
+
+	assume	tt.pas eq 0		;		;
+	bic	#tect0$,te.pco(r2)	;		;assume not /passall
+	bis	#tecto$,te.pco(r2)	;		;enable ^O
+	bit	#ttpas$,te.tc0(r2)	;		;passall set?
+	beq	30$			;		;nope - leave it
+	bis	#tect0$,te.pco(r2)	;		;enable nulls
+	bic	#tecto$,te.pco(r2)	;		;disable ^O
+30$:	bit	#tttsy$,te.tc0(r2)	;		;is it /TTSYNC?
+	bne	35$			;		;yes
+	bic	#tects$,te.con(r2)	;		;/NOTTSYNC
+	br	36$			;		;
+35$:	bis	#tects$,te.con(r2)	;		;/NOTTSYNC
+36$:					;		;
+
+	;				;te.fr0 null	;unused
+	;				;te.fr1	null	;unused
+					;te.bbs
+select	set$				;check for hardware change on set
+	psh	r3			;get this register
+	bit	#stop$!parit$!speed$!size$,setopt ;need to change hardware?
+	beq	310$			;nope
+	mov	te.cor(r2),r3		;get controller record
+	beq	310$			;that's it
+	movb	te.uni(r2),cunit	;setup the unit number
+	movb	te.cot(r2),r0		;get controller type
+	bic	#^c7,r0			;isolate bits
+	asl	r0			;word offset
+	mov	r0,object		;setup the dispatch
+	tcall	object,setdlp,setdzp,setdhp ;setup the hardware
+310$:	pop	r3			;get it back
+					;
+select					;
+	return
+.sbttl	set terminal - update hardware
+
+;	r2 ->	terminal record
+;	r3 ->	controller record
+;
+;	Build dz line parameter
+
+setdlp:	return				;dl is a nop
+
+setdzp:	mov	tstop,r0		;get the stop value
+	mova	s$zsto,r1		;get address of table
+	call	comset			;compare and convert
+	bis	r0,dzpar		;build it
+	mov	tsize,r0		;bits per character
+	mova	s$zsiz,r1		;
+	call	comset			;
+	bis	r0,dzpar		;
+	mov	tspeed,r0		;baud rate
+	mova	s$zspe,r1
+	call	comset
+	bis	r0,dzpar
+	mov	tparit,r0
+	mova	s$zpar,r1
+	call	comset
+	bis	r0,dzpar
+	bis	#dzpre$,dzpar		;setup receive enable
+	movb	te.uni(r2),r0		;
+	bic	#^c7,r0			;clean it up
+	bis	r0,dzpar		;select the unit
+	asl	r0			;word offset
+	add	r3,r0			;add in the base
+	mov	dzpar,tz.par(r0)	;save the parameters
+	assume	dz.par eq te.tkb-te.csr	;
+	mov	dzpar,@te.tkb(r2)	;setup the hardware
+	return
+
+s$zsto:	.word	1,0,	2,40				;stop bits
+	.word	-1
+s$zsiz:	.word	5,0,	6,10,	7,20,	8.,30		;bits per character
+	.word	-1
+s$zpar:	.word	0,0,	1,dzpod$!dzpar$, 2,dzpar$	;parity
+	.word	-1
+s$zspe:	.word	50.,0,		75.,400,	110.,1000,	134.,1400
+	.word	150.,2000,	300.,2400,	600.,3000,	1200.,3400
+	.word	1800.,4000,	2000.,4400,	2400.,5000,	3600.,5400
+	.word	4800.,6000,	7200.,6400,	9600.,7000,	19200.,7400
+	.word	-1
+
+;	r2 ->	terminal record
+;	r3 ->	controller record
+;
+;	Build dh line parameter
+
+setdhp:	mov	tstop,r0		;get the stop value
+	mova	s$hsto,r1		;
+	call	comset			;compare and convert
+	bis	r0,dhpar		;build it
+
+	mov	tsize,r0		;bits per character
+	mova	s$hsiz,r1		;
+	call	comset			;
+	bis	r0,dhpar		;
+
+	mov	tspeed,r0		;baud rate
+	mova	s$hspe,r1
+	call	comset
+	bis	r0,dhpar
+
+	mov	tparit,r0
+	mova	s$hpar,r1
+	call	comset
+	bis	r0,dhpar
+
+	movb	te.uni(r2),r0		;get the unit number
+	bic	#^c7,r0			;clean it up
+	asl	r0			;word offset
+	mov	th.csr(r3),r1		;get the hardware
+	add	r3,r0			;add controller base
+	mov	dhpar,th.par(r0)	;save it
+	spl	7			;go up
+	movb	te.uni(r2),(r1)		;select the line
+	mov	dhpar,dh.par(r1)	;setup the hardware
+	spl	0			;come down
+	return
+
+s$hsto:	.word	1,0,	2,dhpst$			;stop bits
+	.word	-1
+s$hsiz:	.word	5,0,	6,10,	7,20,	8.,30		;bits per character
+	.word	-1
+s$hpar:	.word	0,0,	1,dhppe$, 2,dhppe$!dhpev$	;parity
+	.word	-1
+
+.macro	dhspee c d e f g h i j
+	.word	c
+	.word	d*400!<d*10000>
+.iif nb <e>,dhspee e f g h i j
+.endm
+							;baud rate
+s$hspe:	dhspee	50.,dh050.,	75.,dh075.,	110.,dh110.,	134.,dh134.
+	dhspee	150.,dh150.,	300.,dh300.,	600.,dh600.,	1200.,dh12h.
+	dhspee	1800.,dh18h.,	2000.,dh20h.,	2400.,dh24h.,	4800.,dh48h.
+	dhspee	7200.,dh72h.,	9600.,dh96h.,	19200.,dh19k.,	38400.,dh38k.
+	.word	-1
+
+;	r0	value
+;	r1 ->	list, -1
+
+comset:	
+10$:	cmp	r0,(r1)+		;this it?
+	beq	20$			;yes
+	tst	(r1)+			;no
+	cmp	(r1),#-1		;this the last?
+	bne	10$			;no
+	abort	er$isp			;invalid set parameter
+20$:	mov	(r1)+,r0		;return the default
+	return
+.sbttl	fill in line parameters
+
+;	Fill in line parameters - setup for defaults
+;
+;	Merges new parameters with existing parameters.
+;	Sets unspecified parameters to existing.
+;	Install sets all parameters.
+;
+;	ssss ssss ...s llop
+
+filpar:
+	mov	te.par(r2),r1		;
+
+	bit	#parit$,setopt		;specified parity?
+	beq	5$			;no
+	mov	tparit,r0		;
+	bic	#3,r1			;
+	bic	#^c3,r0			;
+	bis	r0,r1			;
+	br	10$
+5$:	mov	r1,r0			;get the bits
+	bic	#^c3,r0			;
+	mov	r0,tparit		;
+
+10$:	bit	#size$,setopt		;specified parity?
+	beq	15$			;no
+	bic	#3*4,r1			;yes - clear it out
+	mov	tsize,r0		;get the parity
+	sub	#5,r0			;-5
+	bic	#^c3,r0			;
+	asl	r0			;
+	asl	r0			;
+	bis	r0,r1			;set it up
+	br	20$
+15$:	mov	r1,r0
+	asr	r0
+	asr	r0
+	bic	#^c3,r0
+	add	#5,r0			;+5
+	mov	r0,tsize		;
+
+20$:	bit	#stop$,setopt		;specified stop bits
+	beq	25$			;no
+	bic	#20,r1			;yes
+	mov	tstop,r0		;
+	dec	r0			;-1
+	bic	#^c1,r0			;
+	asl	r0			;
+	asl	r0			;
+	asl	r0			;
+	asl	r0			;
+	bis	r0,r1			;
+	br	30$
+25$:	mov	r1,r0			;get the stop bits
+	asr	r0			;
+	asr	r0			;
+	asr	r0			;
+	asr	r0			;
+	bic	#^c1,r0			;
+	inc	r0			;
+	mov	r0,tstop		;
+
+30$:	bit	#speed$,setopt		;specified the speed?
+	beq	35$			;no
+	bic	#177400,r1		;yes
+	mov	trate,r0		;
+	bic	#^c17,r0		;
+	swab	r0			;
+	bis	r0,r1			;
+	br	40$
+35$:	mov	r1,r0			;
+	swab	r0
+	bic	#^c17,r0		;
+	movb	r0,trate		;
+	asl	r0			;
+	mova	100$,-(sp)		;
+	add	(sp)+,r0		;
+	mov	(r0),tspeed		;get the speed
+
+40$:	mov	r1,te.par(r2)		;set it up
+	mov	r1,tpar			;and remember it
+	return
+
+100$:	.word	50.,		75.,		110.,		134.
+	.word	150.,		300.,		600.,		3400
+	.word	1800.,		2000.,		2400.,		3600.
+	.word	4800.,		7200.,		9600.,		19200.
+	.word	38400.
+.sbttl	find controller
+
+;	cname	controller name in rad50
+;	tcont	return controller address
+;
+;		controller must be found
+;		unit must be free
+;
+;	r3 ->	controller
+;	r1 ->	terminal record
+
+fndcon:					;look for the controller
+	mov	#t$econ,r0		;search for the controller
+	clr	r1			;assume no terminal record
+	clr	r3			;assume no controller
+10$:	mov	(r0),r0			;get the next
+	cmp	r0,#t$econ		;any more?
+	beq	30$			;no - controller not installed
+	cmp	tz.con(r0),cname	;this us?
+	bne	10$			;no
+
+	mov	r0,r3			;yes
+	mov	tz.csr(r3),tcsr		;setup the csr
+	mov	tz.vec(r3),tvec		;setup the vector
+	mov	r3,tcont		;setup the controller address
+
+	movb	cunit,r0		;get the unit
+	bic	#^c17,r0		;clean it up
+	asl	r0			;make a word offset
+	add	r3,r0			;see if its already installed
+	add	#tz.tem,r0		;point to the unit
+	tst	(r0)			;already got something?
+	bne	20$			;oops - already installed
+
+	clc				;fine
+	return
+
+20$:	mov	#er$uai,result		;oops - unit already installed
+	sec
+	return
+30$:	mov	#er$cnf,result		;oops - no controller
+	sec
+	return
+.sbttl	remove terminal unit
+
+;	remove terminal unit
+
+in$rem:					;remove a handler
+	mov	tslot,r3		;get the slot number
+	beq	10$			;zero is a no no
+	add	#t$emap,r3		;r3 -> slot in map
+	mov	(r3),r2			;r2 -> terminal record
+	bne	20$			;its installed
+10$:	abort	er$dni			;device not installed
+
+20$:	mov	r2,terk			;remember this
+	cmp	act,#remter		;this set terminal?
+	beq	30$			;yes
+	jmp	filter			;yes - fill it in and quit
+30$:	tst	te.pcr(r2)		;is it attached?
+	beq	40$			;no
+	abort	er$dib			;device is busy
+
+40$:	clr	(r3)			;remove us from the map
+
+	movb	te.cot(r2),r3		;get controller type
+	bic	#^c7,r3			;clean it up
+	cmp	r3,#tembt.		;this mailbox?
+	beq	60$			;yes ignore
+	asl	r3			;get a word offset
+	mov	r3,object		;setup the object
+
+	mov	te.cor(r2),r3		;r3 -> controller
+	mov	r3,tcont		;store it
+	beq	50$			;is none
+	mov	tz.csr(r3),tcsr		;supply csr address
+50$:	mov	te.uni(r2),cunit	;save the unit
+					;unit is not cleaned up
+	tcall	object,detdlu,detdzu,detdhu ;detach the unit
+	psh	terk			;delete terminal record
+	call	@#po$del		;delete the pool element
+60$:	return				;
+.sbttl	convert unit number to name
+
+;	r0	terminal unit number
+;
+;	call	cnvbru
+;
+;	r0	rad50 Tuu
+
+cnvbru:					;convert binary to unit
+	pshs	<r2,r1>			;
+	mov	r0,r1			;
+	clr	r0			;divide by 10.
+	div	#10.,r0			;r0 = quotient, r1 = remainder
+	mov	#^rT00,r2		;the default pattern
+	add	r1,r2			;add in low order digit
+	mul	#40.,r0			;form next digit
+	add	r1,r2			;
+	mov	r2,r0			;
+	pops	<r1,r2>			;
+	return
+.sbttl	tjump & tcall
+
+;	tjump & tcall
+;
+;	PIC dispatch on command or object
+;
+; ???	Must change if more objects or commands added
+;
+;	jsr	r0,tcall
+;	.word	selector-.
+;	.word	case1-.
+;	.word	case2-.
+;	.word	case3-.
+
+.enabl	lsb
+tjump:	tst	(sp)+
+	br	10$
+tcall:	mov	r0,(sp)
+	add	#10,(sp)
+10$:	psh	r0			;get the base
+	add	(r0)+,(sp)		;add in the offset
+	add	@(sp)+,r0		;point to the case
+	add	(r0),r0			;r0 -> routine
+	jmp	(r0)			;call the routine
+.dsabl	lsb
+
+.end
+

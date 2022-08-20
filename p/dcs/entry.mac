@@ -1,0 +1,223 @@
+dln$c=1
+fast=1
+.title	entry
+.psect	entry
+.pass
+.mcall	.settop
+set	null =0, space =40, ff =14
+meta <entry n,c,l,x=0><n'u$:.word x*400!''n,c,0,0><.iif nb <l>,l==.-4>
+meta <null c><c'u$=0>	;define a null
+
+$entries::
+entry	A 24.		;assumed execute program for execute
+null	B
+entry	C 8.	$cusp	;cusp
+entry	D 4	x=5	;default device (usually DK: or LP:)
+entry	E 2	$extend	;e<>1 => accept long filenames
+entry	F 2	$files	;number of files permitted
+null	G		;GH reserved for edit macro
+null	H
+entry	I 82.	$input	;input for csi
+entry	J 82.	$object	;obJect file input to link for execute
+entry	K 2	$column	;the column counter
+entry	L 82.	$linker	;linklibrary switch space
+entry	M 82.	$major	;M is a dummy line for some operations
+entry	N 6	x=5	;default filename (DIR/OUTPUT N=0)
+entry	O 82.	$out	;output for csi
+entry	P 20.		;program dependant switches (???)
+entry	Q 40.	$query	;command line query (From ? etc.)
+entry	R 82.	$rest	;linker switches from execute
+entry	S 82.	$switch	;switches line  (post command switches)
+entry	T 4	x=5	;default type (DIR/OUTPUT T=0)
+entry	U 18.	;$uic	;UIC code for filex
+entry	V 2		;VAX flag
+entry	W 2	$wild	;wildflag test
+entry	X 24.	$expand	;expand in progress flag
+null	Y		;'y' reserved for edit macro
+
+meta <entry n,c,l,x=0><n'l$:.word x*400!''n,c,0,0><.iif nb <l>,l==.-4>
+meta <null c><c'l$=0>	;define a null
+
+entry	a 24.	$assume	;			assumed filename
+.if ne dln$c
+entry	b 64.	$begin	;for getcusp in files.mac
+.iff
+entry	b 24.	$begin	;for getcusp in files.mac
+.endc
+entry	c 2	$case	;'+' type	    file complexs
+entry	d 4	$device	;			device (lookahead)
+entry	e 2		;/noexecute
+entry	f 24.	x=5	;			filename
+null	g		;gh reserved for edit macro
+null	h
+entry	i 2	x=5	;			inhibit
+entry	j 2		;job in spool
+entry	k 2	$dollar	;'$' allowed in names
+;ull	k 		;
+entry	l 2		;/nolog/list/symbol
+entry	m 2		;/map
+entry	n 24.	$name	;			name (lookahead)
+entry	o 2		;/noobject
+entry	p 24.	$prior	;			previous name
+entry	q 4		;/query flag
+entry	r 2	$r0	;r0 argument to edit call and exit
+entry	s 4	.switch	;/run/norun (save) (count switchs in libr)
+entry	t 2	$temp	;temp is used as a marker in value
+entry	u 2		;/nolinenumbers
+entry	v 82.	$verify	;debug test variable.
+entry	w 2		;/warnings/nowarnings/wait
+entry	x 2	$index	;			index (l,m,o,s)
+null	y		;'y' reserved for edit macro
+entry	z 2		;permanent zero value
+meta <entry n,c,l,x=0><.word x*400!''n,c,0,0><.iif nb <l>,l==.-4>
+entry	z 82.	$save	;dummy for backup line
+entry	z 200.	$console;to pickup more input
+meta <entry n,c,l,x=0><n'u$:.word x*400!''n,c,0,0><.iif nb <l>,l==.-4>
+entry	Z 82.*10. $text	;leave some space for this guy
+.word	0
+state::	.word	0	;transition flags
+	.word	-1	;backward bumper for line
+line::	.blkb	256.	;the command line
+	.byte	0,-1	;and the ending
+data::	.word	line	;points to data section
+table::	.word	0	;points to current symbol table
+bypass::.word	0	;points to lexical bypass
+pna::	.word	0	;previous name allocate
+nest::	.word	0	;single-level string stack
+limit::	.limit		;the limit table
+textb::	.word	0	;bottom of $text
+textt::	.word	0	;top of $text
+$dummy::.word	0	;dummy option table
+xcomma::.word	0	;points past DISPLAY_ to command start
+k$mare::fall	area	;
+area::	.blkw	12.	;general purpose EMT area
+
+; these are used to lookup up a variable
+
+lookup:
+	.irpc	x,<ABCDEFGHIJKLMNOPQRSTUVWXYZ>
+	.word	x'u$
+	.endr
+	.irpc	x,<abcdefghijkmlnopqrstuvwxyz>
+	.word	x'l$
+	.endr
+.mcall	.ttyout
+.sbttl	access routines
+
+; setup and clear the symbol table
+
+entries::
+	inc	(pc)+		;first time flag
+once:	.word	-1		;0 first time
+	bne	5$
+5$:	.settop	#-1		;get the top of memory
+	sub	#40,top		;give us some space
+	mov	#$entries,r0	;point to the buggers
+	mov	limit+2,r1	;get the program top
+	mov	#-1,(r1)+	;backward bumper for first string
+10$:	inc	r0		;get the index
+	movb	(r0)+,r3	;maybe its indexed
+	tst	(r0)+		;skip the count
+	mov	r1,(r0)+	;setup the address
+	mov	r1,(r0)+	;setup the creeping pointer
+15$:	mov	-6(r0),r2	;get the count
+20$:	psh	r1		;compute end
+	add	r2,(sp)		;add in the size
+	cmp	(sp)+,top	;is this the end?
+	bhi	60$		;yes
+
+	mov	r1,textb	;catch the start of $text
+;	tst	(r0)		;is the last. i.e. $text
+;	beq	27$		;yes - don't clear it
+
+;	tst	once		;this the first time?
+;	bne	27$		;yes - just clear one and skip
+21$:	bit	#1,r1		;are we odd?
+	beq	22$		;nope
+	clrb	(r1)+		;yes - even up
+	dec	r2		;and adjust it
+22$:	psh	r2		;save the partial for later
+	asr	r2		;get it smaller
+	asr	r2		;
+	beq	24$		;not enough for double word clear
+23$:	clr	(r1)+		;clear four at a time
+	clr	(r1)+		;
+	dec	r2		;count them
+	bne	23$		;keep going
+24$:	pop	r2		;get the partial back
+	bic	#^c3,r2		;get the remainder
+	beq	28$		;no remainder
+25$:	clrb	(r1)+		;clear it
+	dec	r2		;count it
+	bne	25$		;do another
+	br	28$		;fine
+27$:	clrb	(r1)		;terminate it
+	add	r2,r1		;skip the field
+28$:	clrb	(r1)+		;add room for end of line
+	movb	#-1,(r1)+	;put a bumper in
+	dec	r3		;maybe its indexed
+	bgt	15$		;true, do another
+
+30$:	tst	(r0)		;any more to do?
+	bne	10$		;yep, do it
+
+	sub	#4,r1		;back up
+	mov	r1,textt	;store $text top
+
+	return			;return, table setup and cleared
+
+60$:	.abort	<No room for DCL>
+.sbttl	address
+
+; address - return entry address
+
+address::
+	cmpb	r0,#'0		;this a digit?
+	blo	10$		;nope
+	cmpb	r0,#'9		;really a digit?
+	bhi	10$		;nope
+	sub	#'0,r0		;remove the ascii part
+	br	50$		;and return (c=1)
+
+.if ne fast
+10$:	mov	r0,r1		;get another copy
+	cmp	r0,#'Z		;what do we have here?
+	bhi	15$		;maybe lower
+	cmp	r0,#'A		;really an upper?
+	blo	50$		;not one of ours
+	sub	#'A,r1		;this is the guy
+	br	20$		;join the common stuff
+15$:	cmpb	r0,#'a		;lower case?
+	blo	50$		;nope
+	cmpb	r0,#'z		;really?
+	bhi	50$		;nope
+	sub	#'a-26.,r1	;form the index
+20$:	asl	r1		;get the offset
+	mov	lookup(r1),r1	;get the address
+	beq	50$		;not one of ours
+.iff
+10$:	mov	#$entries,r1	;get the table
+	cmpb	r0,(r1)		;is this the guy?
+	beq	30$		;yes
+	add	#10,r1		;skip to next entry
+	tst	(r1)		;any more to do?
+	bne	10$		;yep.
+	br	50$		;not a variable
+.endc
+
+30$:	mov	4(r1),r0	;get the base
+	movb	1(r1),-(sp)	;get a counter
+	beq	45$		;no indexed (use a dummy count)
+
+35$:	movb	@$index,(sp)	;get the index
+38$:	beq	45$		;its base position
+40$:	add	2(r1),r0	;add in the offset
+	cmpb	(r0)+,(r0)+	;skip the end of line
+	decb	(sp)		;count the index out
+	bne	40$		;more to do
+45$:	tst	(sp)+		;pop the counter
+	tst	(pc)+		;c=0, address in r0
+50$:	sec			;c=1, nothing found
+	return
+.end	
+

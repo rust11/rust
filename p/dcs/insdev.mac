@@ -1,0 +1,542 @@
+.title	insdev
+.include "dcs:dcl.mac"
+.psect	insdev
+
+;	DCL INSTALL, REMOVE, LOAD, UNLOAD, MOUNT, DISMOUNT
+;	Includes DEVICE & GETVAL
+;
+;	INSTALL		Equivalent to RT-11 INSTALL and LOAD
+;	REMOVE		Equivalent to RT-11 UNLOAD and REMOVE
+;	LOAD		Equivalent to VMS MOUNT/...
+;	UNLOAD		Equivalent to VMS DISMOUNT/...
+;	MOUNT	
+;	DISMOUNT
+;	SET DEVICE
+;
+;	%build
+;	macro dcs:(insdev+insde1+insde2+insde3)/object:dcb:insdev
+;	%end
+;	%date
+;	<27-Feb-2008 22:30:10.45>
+;	%edit
+;	<54   >
+
+$apdef		;acp
+$ardef		;access rights
+$asdef		;address space
+$cidef		;channel info
+$dcdef		;device codes
+$dedef		;device
+$drdef		;driver
+$ekdef		;external kernel
+$evdef		;eve
+$exdef		;external handler
+$fedef		;feature
+$fndef		;filename
+$hadef		;handler
+$hrdef		;handler recording
+$mmdef		;mmu
+$imdef		;image
+$podef		;pool
+$qudef		;queues
+$srdef		;
+$sgdef		;sysgen
+$scdef		;scheduler wait & priority
+$tbdef		;tb
+$tidef		;timer
+$undef		;unit
+include	getval	;
+include	device	;
+
+;	SHARE/plus device install & remove
+;
+;	Operator rights are required.
+;	VM: and TT: may not be replaced.
+;
+;	The device specification has the following rules:
+;
+;	dd:		sy:ddx.sys
+;	dd		sy:dd.sys
+;	dev:dd.typ	dev:dd.typ
+;
+;	install/options	devices
+;	remove/options	devices
+;	set device/options device
+;	abort/device/options devices
+;
+;	mount	devices label logical
+;	dismount devices
+;	set unit
+;
+;	/replace		replaces existing handler
+;	/noreplace		???
+;	/nodefault		dont use handlr recording area
+;
+;	/handler:filespec	specifies handler name
+;	/csr:address		specify CSR address for device
+;	/vector:address		specify vector address for device
+;
+;	/single			single unit device
+;	/per_process		per-process device
+;	/mapped			install mapped
+;	/unmapped		install unmapped
+;	/22bit			device supports 22-bit (only if DMA)
+;	/virtual		virtual addressing
+;	/timeout		use device timeout support
+;	/abort			support handler abort
+;	/synchronous		device is synchronous
+;	/nocsr_check		dont check CSR
+;	/noinstall_check	dont perform installation check
+;	/novector_check		dont check vectors
+;	/size=n			specify block size
+;	/units=n		specify maximum unit number of device
+;	/fixed_size=n		force fixed size device
+;
+; MOUNT OPTIONS	
+;
+;	/structure:rt11a	specify file-structure
+;	/processor:acp		specify acp for device
+;	/owner:[g,m]		specify UIC for device
+;	/protection:[w,s,g,o]	specify default protection for device
+;	/priority:n		specify device priority
+;	/file_protection:prt
+;	/label:nam		specify label
+;	/logical:nam		specify logical name
+;	/nowrite
+;	/nocache		dont cache device
+;	/serialize		serialize access to device
+;
+;	/[no]shared		allocate
+;	/group
+;	/system
+;	/foreign
+.sbttl	device installation
+
+set	instsk 0, remtsk 4, loatsk 10, unltsk 14, moutsk 10, distsk 14
+acts:	.word	insker,remker,loaker,unlker
+	.word	mouker,disker
+tasks:	.word	instsk,remtsk,loatsk,unltsk,moutsk,distsk
+
+majopt:	.word	0		;options on column zero
+majctl:	.word	0		;controls on column zero
+dclact:	.word	0
+discmd:	.word	0		;dismount command written
+
+kernel::mov	r0,dclact	;save this for /terminal
+	mov	acts(r0),(pc)+	;act=6 - remember act
+act:	.word	0		;the major jump table
+
+	mov	tasks(r0),task	;get the task
+				;reset the image header
+	$imgact	#area, #0, #imopn$!imget$!imact$!imres$, #0, #0
+
+	world			;
+	mov	#scpio.,dpri	;default i/o priority
+	clr	blocks		;
+	clr	fixed		;
+	clr	mstcon		;
+	clr	mclcon		;
+	mov	$uic(r0),muic	;
+	clr	mpro		;
+	clr	fpro		;
+	clr	mstpro		;
+	clr	munit		;
+	clr	macp		;no acp
+	clr	upri		;unit priority
+	clr	discmd		;no dismount command written
+	clr	disfet		;fetch routine not disabled
+	clr	defcon		;de.con from HANDLR
+	clr	deftyp		;de.typ from HANDLR
+				;
+	mov	$text,handx	;point to extended handler start
+	mov	$text,handu	;point to usermode handler
+	add	#haxhs.,handu	;point past the extended header area
+	mov	$hosts,slots	;get the kernel slot count (*2)
+
+	setup	$kernel,i.lex	;set it up
+	scan	<D=0^M>		;skip the command
+	mov	opts,majopt	;save the major options
+	mov	ctls,majctl	;save major controls
+
+10$:	mov	majopt,opts	;reset the major options
+;	mov	majctl,ctls	;
+	scan	<^IF=1Q="Device? "> ;get next device
+	call	mouinp		;check for additional mount input
+				;
+	psh	r5		;save input pointer for loop
+	mov	$input,r5	;$input -> ascii device name
+	call	getldv		;get logical device name
+	bcc	12$		;it was a logical name
+	call	chkprm		;check permanent name syntax
+12$:	mov	gunit,munit	;pick up the unit number
+	mov	r0,pname	;remember the device name
+	mov	r0,dname+2	;put it in the dblk
+	call	perdev		;check permanent devices - reject ld
+	bcs	30$		;oops - permanent device
+	bit	#repla$,opts	;this load/replace?
+	bne	14$		;yes
+	tst	unknow		;this an unknown device?
+	beq	20$		;no
+14$:	cmp	act,#loaker	;yes - this a load?
+	beq	15$		;yes
+	cmp	act,#mouker	;or this a mount?
+	bne	20$		;no
+15$:	cright	#sropr.		;must have operator rights
+	call	insker		;yes - install it first
+	$imgact	#area, #0, #imopn$!imget$!imact$!imres$, #0, #0
+20$:	tright	#srmnt.		;MOUNT rights?
+	bcc	25$		;yes
+	cright	#sropr.		;or OPER rights?
+25$:	call	@act		;call the routine
+	clr	munit		;clear the unit number
+	clr	blocks		;reset this variable
+	clr	fixed		;and this too
+	clr	dpri		;
+	clr	disfet		;
+30$:	pop	r5		;get this back
+	cmp	act,#mouker	;is this a mount?
+	beq	40$		;yes
+	tstb	(r5)		;any more?
+	bne	10$		;yes
+	call	disfin		;check dismount finish
+	jmp	kmon		;nope
+40$:	jmp	moudev		;call mount to finish up
+
+;	Convert (a,b,c,d) to /a/b/c/d
+
+i.lex:	tst	ovrinp		;override in progress?
+	beq	40$		;no
+				;
+	cmpb	r0,#':		;this a colon?
+	beq	2$		;yes
+				;
+	cmpb	r0,#'=		;this an equals?
+	bne	5$		;no
+2$:	cmpb	1(r5),#'(	;followed by parenthesis?
+	bne	15$		;no
+	inc	r5		;yes - skip = and replace ( with /
+	br	15$		;
+5$:	cmpb	r0,#'(		;this a (
+	beq	15$		;yes
+10$:	cmpb	r0,#',		;got a comma?
+	bne	20$		;no
+15$:	movb	#'/,r0		;yes
+	br	30$		;
+20$:	cmpb	r0,#')		;got a )
+	bne	30$		;no
+	inc	r5		;yes - skip it
+	movb	(r5),r0		;yes - and get the next
+	clr	ovrinp		;no privileges in progress
+30$:	return
+40$:	cmp	act,mouker	;this a mount?
+	beq	50$		;yes - dont do this
+	edit	<r,r=" ">	;replace commas with spaces
+50$:	return
+.sbttl	options
+
+$kernel:
+option	TERMINAL	1 _	null	i.term
+option	FEATURE		1 _	null	i.feat
+option	DIVERSION	1 _	null	i.dive
+option	CONSIGNMENT	1 _	null	i.cons
+option	PRINTER		1 _	null	i.prin
+option	IMAGE		1 _	null	i.imag		;
+option	KERNEL		1 _	null			;nop
+;
+option	REPLACE		1 _	null	i.repl		;/o=rep
+option	NOREPLACE	1 _	null	i.nrep		;
+option	NOINSTALL_CHECK	1 _	null	i.nins		;/o:ins
+option	NOCSR_CHECK	1 _	null	i.ncsr		;/o:csr
+option	NOIMAGE_CHECK	1 _	null	i.nimg		;/o:img
+option	FUNCTIONS	1 _	null	i.aspf		;
+option	NOVALIDATE	1 _	null	i.nova		;/o:val
+option	NODEFAULT	1 _	null	i.ndef		;
+option	SYNCHRONOUS	1 _	null	i.sync		;/m:syn
+option	22BIT		1 _	null	i.22bi		;/m:m22
+option	TIMEOUT		1 _	null	i.time		;/m:tim
+option	MAPPED		1 _	null	i.mapp		;/m:map
+option	UNMAPPED	1 _	null	i.unma		;/m:unm
+option	SIZE		1 _	null	i.size		;/?:#size
+option	FIXED_SIZE	1 _	null	i.fixe		;/m:fix
+;
+option	ABORT		1 _	null	i.abor		;/m:abo
+option	NOABORT		1 _	null	i.nabo		;/m:nab
+option	PRIORITY	1 _	null	i.prio		;/?:#pri
+option	VIRTUAL		1 _	null	i.virt		;/m:vir
+option	SINGLE		1 _	null	i.sing		;/m:sin
+option	MOUNT		1 _	null	i.moun		;/m
+;	 LOAD						;/m:loa
+;	 INSTALL					;/m:ins
+option	NOPATCH		1 _	null	i.npat		;/o:pat
+option	REENTRANT	1 _	null	i.reen		;/m:ree
+option	EXTERNAL	1 _	null	i.exte		;
+option	NOEXTERNAL	1 _	null	i.next		;
+option	PAR6		1 _	null	i.par6		;/
+
+$load:
+option	ACP		1 _	null	m.acp		;,,,acpnam
+option	STRUCTURE	1 _	null	m.acp		;,,,acpnam
+option	OWNER_UIC	1 _	null	m.owne		;/u:g:m
+option	PROTECTION	1 _	null	m.prot		;/p:octal
+option	FILE_PROTECTION	1 _	null	m.file		;/f:octal
+option	WRITE		1 _	null	m.writ		;/w
+option	NOWRITE		1 _	null	m.nowr		;/n or /n:wri
+option	SHARE		1 _	null	m.shar		;/m:sha
+option	NOSHARE		1 _	null	m.nosh		;/n:sha
+option	CACHE		1 _	null	m.cach		;/m:cac
+option	NOCACHE		1 _	null	m.noca		;/n:sha
+option	SERIALIZE	1 _	null	m.seri		;/m:ser
+option	NOSERIALIZE	1 _	null	m.nose		;/noserialize
+option	GROUP		1 _	null	m.grou		;/g
+option	SYSTEM		1 _	null	m.syst		;/s
+option	FOREIGN		1 _	null	m.fore		;/f
+							;
+option	AUTOMOUNT	1 _	null	m.auto		;/a
+option	NEW_VOLUME	1 _	null	m.newv		;/o:vol
+option	OVERRIDE	1 _	null	m.over		;/o
+option	HOMEBLOCK	1 _	null	m.home		;/o:hom
+option	IDENT		1 _	null	m.iden		;/o:ide
+option	LABEL		1 _	null	m.labe		;/o:lab
+option	VERIFY		1 _	null	m.veri		;/o:ver
+option	UIC		1 _	null	m.uic		;/o:uic
+option	ACP		1 _	null	m.acp		;
+option
+.sbttl	option routines
+
+meta	<subopt c d><setopt d><c: bis #d,opts><return>
+meta	<setopt c><c=$o><$o=$o*2>
+$o=1
+
+meta	<subctl c d><setctl d><c: bis #d,ctls><return>
+meta	<setctl c><c=$c><$c=$c*2>
+$c=1
+meta	<subovr c d><setovr d><c: bis #d,ovrs><br ovrchk>
+meta	<setovr c><c=$v><$v=$v*2>
+$v=1
+meta	<submou c d><setmou d><c: bis #d,mous><return>
+meta	<setmou c><c=$m><$m=$m*2>
+$m=1
+
+i.term:					;install/terminal
+10$:	mov	dclact,r0		;
+	cmp	r0,#rem.atc		;too high?
+	bhi	20$			;yes
+	jmp	attach			;
+20$:	jmp	illopt			;invalid option
+
+i.feat:					;install/feature
+	mov	dclact,r0		;
+	cmp	r0,#rem.fea		;too high?
+	bhi	20$			;yes
+	jmp	insfea			;no
+20$:	jmp	illopt			;yes
+
+i.imag:					;install/image
+	edit	<^Z"r image"}>		;run image utility
+	cmp	task,#instsk		;this /install?
+	bne	10$			;nope
+	edit	<"install ">		;install *
+	br	20$			;
+10$:	edit	<"remove ">
+20$:	edit	<*~}"^C"}>		;
+	jmp	build			;dispatch it
+
+	.enabl	lsb			;
+i.dive:	mov	#.qindi,r0		;install/diversion
+	br	10$			;
+i.cons:	mov	#.qinco,r0		;install/consignment
+	br	10$			;
+i.prin:	mov	#.qinpr,r0		;install/printer
+10$:	cmp	dclact,#2		;too high?
+	bhi	20$			;yes
+	add	dclact,r0		;no
+	jmp	queues			;go do i
+20$:	jmp	illopt			;
+	.dsabl	lsb			;
+
+subopt	i.repl	repla$			;/replace
+subopt	i.nrep	norep$			;/noreplace
+subopt	i.nins	noins$			;/noinstall_check
+subopt	i.ncsr	nocsr$			;/nocsr_check
+subopt	i.nimg	noima$			;/noimage_check
+subopt	i.sync	synch$			;/synchronous
+subopt	i.22bi	bit22$			;/22_bit
+subopt	i.time	timio$			;/timeout
+subopt	i.unma	unmap$			;/unmapped
+subopt	i.mapp	mappe$			;/mapped
+subopt	i.noval	noval$			;/novalidate
+subopt	i.abor	abort$			;/abort
+subopt	i.virt	virtu$			;/virtual
+subopt	i.sing	singl$			;/single
+subopt	i.moun	mount$			;/mount
+					;
+subctl	i.reen	reent$			;/per_process
+subctl	i.npat	npatc$			;/nopatch
+subctl	i.aspf	aspfu$			;/nospfun_check
+subctl	i.exte	exter$			;/external
+subctl	i.next	nexte$			;/noexternal
+subctl	i.nabo	nabor$			;/noabort
+i.par6:	bis	#exter$,ctls		;/external
+subctl	i.d000	par6$			;/par6
+subctl	i.ndef	ndefa$			;/nodefault
+
+i.fixed:bis	#varsz$,fixed		;/fixed_size=n
+	fall	i.size			;
+
+i.size:	call	getval			;/size=n
+	mov	r0,blocks		;setup the size
+	return
+
+i.prio:	call	getval			;/priority=n
+	mov	r0,dpri			;save it
+	inc	upri			;remember specific priority
+	return				;
+.sbttl	load options
+
+;	s o g w
+
+m.grou:	bis	#170000,mstpro		;stop the world
+	submou	10$	group$		;/group
+
+m.nowr:	bis	#unnwr$,mstcon		;set nowrite
+	return
+m.writ:	bis	#unnwr$,mclcon		;clear nowrite
+	return
+
+m.syst:	bis	#unpub$!unsha$,mstcon	;set public
+	submou	10$	syste$		;set system mount
+
+m.shar:	bis	#unsha$,mstcon		;set shared
+	submou	10$	share$
+
+m.nosh:	bis	#argr$p!arwo$p,mstpro	;stop group and world
+	bis	#unsha$,mclcon		;clear shared
+	submou	10$	nosha$
+
+m.fore:	bis	#unfor$,mstcon		;set foreign
+	mov	#100000+acrtn.,macp	;force foreign
+	return
+m.seri:	bis	#unser$,mstcon		;set serialize
+	return
+m.nose:	bis	#unser$,mclcon		;clear serialize
+	return
+m.cach:	bis	#uncac$,mstcon		;/cache
+	return
+m.noca:	bis	#uncac$,mclcon		;/nocache
+	return
+m.owne:					;/owner:uic
+	call	getuic			;get a uic
+	mov	r0,muic			;
+	return
+m.prot:					;/protection:protection
+	call	getpro			;
+	mov	r0,mpro
+	return
+m.file:					;/file:protection
+	bis	#unfpr$,mstcon
+	call	getpro
+	mov	r0,fpro
+	return
+.sbttl	mount options
+
+m.auto:	call	mouchk			;must be mount
+	edit	<!*?>			;must be last
+	edit	<^Z>
+	edit	<"r mount"}>
+	edit	<"/A"}"^C"}>		;
+	jmp	build			;and do it
+
+m.over:	inc	ovrinp			;remember we are doing it
+	br	mouchk			;and check for mount
+
+m.newv:	bis	#ovhom$,ovrs		;/new_volume = override home
+	return
+
+subovr	m.home	ovhom$			;homeblock
+subovr	m.iden	ovide$
+subovr	m.labe	ovlab$
+subovr	m.veri	ovver$
+subovr	m.uic	ovuic$
+subovr	m.acp	ovacp$
+
+ovrchk:	tst	ovrinp			;doing /override?
+	bne	mouchk			;yes - check mount
+	edit	<?>
+mouchk:	cmp	act,#mouker		;this a mount command?
+	beq	10$			;yes
+	edit	<?>			;no
+10$:	return
+.sbttl	mount pre & post processing
+
+;	Pick the additional mount input
+
+mouinp:	cmp	act,#mouker	;is this mount?
+	bne	10$		;no
+	edit	<W=1D="SY:">	;* skips label or file
+	scan	<^OF=1Q="">	;get the label or name
+	edit	<D="">		;no default for logical name
+	scanend	<^LF=1Q="">	;pickup the logical name
+10$:	return
+
+;	Build the mount command
+;
+;	mount dev: label log:
+;
+;	r mount
+;	dev:,label,log:/switchs
+
+moudev:				;mount device
+	mov	$input,r5	;cleanup device name
+	call	escskp		;skip the escape character
+	edit	<!@\@@>,,10$	;nothing like what we want
+	tstb	(r5)		;this the end of it?
+	bne	10$		;no
+	movb	#':,(r5)+	;yes - put in a colon
+	clrb	(r5)		;
+10$:	edit	<^Z>		;write the command
+	edit	<"r mount"}>	;run mount
+	edit	<_I,_O,_L>	;get the names
+	mov	#200$,r3	;get the common list
+	call	150$		;move them in
+	tst	ovrs		;got any overrides?
+	beq	70$		;no
+	edit	<"/O">		;yes
+	mov	#300$,r3	;get the overrides
+	call	150$		;
+70$:	edit	<}"^C"}>	;finish it up
+	jmp	build		;and quit
+
+150$:	bit	(r3)+,@(r3)+	;should we set this one?
+	beq	160$		;no
+	psh	r5		;yes
+	mov	r3,r5		;
+	edit	<*~>		;copy it out
+	pop	r5		;
+160$:	tstb	(r3)+		;skip it
+	bne	160$		;
+	inc	r3
+	bic	#1,r3
+	tst	(r3)		;anymore?
+	bne	150$		;yes
+	return
+
+;opt	U	mo$opu		;/uic:g:m:
+meta	<mopt c d e><.word c,d><.asciz "e"><.even>
+200$:
+;mopt	purge$	ctls	</P>
+mopt	repla$	opts	</R>
+mopt	syste$	mous	</S>
+mopt	group$	mous	</G>
+mopt	unfor$	mstcon	</F>
+.word	0
+
+300$:
+mopt	ovhom$	ovrs	<:hom>
+mopt	ovacp$	ovrs	<:acp>
+mopt	ovlab$	ovrs	<:lab>
+mopt	ovide$	ovrs	<:ide>
+mopt	ovver$	ovrs	<:ver>
+mopt	ovuic$	ovrs	<:uic>
+;mopt	ovown$	ovrs	<:own>
+.word	0
+

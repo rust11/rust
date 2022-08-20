@@ -1,0 +1,427 @@
+.title	show
+.include "dcs:dcl.mac"
+.psect	show
+
+;	DCL show command
+;
+;	%build
+;	macro	dcs:show /object=dcb:show
+;	%end
+;	%date
+;	<04-Mar-2008 01:01:34.19>
+;	%edit
+;	<98   >
+
+$erdef		;error codes
+$icdef		;image control
+$imdef		;image
+$jbdef		;job
+$rmdef		;rmon
+$rpdef		;rp
+
+;	Dispatch SHOW commands
+
+set	resorc 1, xxfree 2, prog 3, handle 4
+set	trans 5, logic 6
+
+watch::	tst	$watch		;this the second time?
+	bne	show		;yes
+	call	os$beg		;no - setup the screen
+	mov	#50.,$watch	;setup the default frequency
+	br	show		;
+
+show::	setup	$show,s.lex	;setup for the command
+	tstb	(r5)		;is this the null command?
+	bne	10$		;nope
+	mov	#sho.ass,r0	;yes
+	jmp	shodev		;display them
+
+10$:	call	getdat		;get RUST/XM data
+	scan	<^M>		;get the switches
+	edit	<C1> 30$	;its resorc
+	setup	$dummy		;no more options
+	scanend	<^IF=1(C3Q="Program? "|C4Q="Handler? ")>
+30$:	edit	<*?>		;oops - not end of line
+	edit	<C1S0"/L">
+	edit	<(C1C="RESORC"|C3C="PROGRA"|C4C="HANDLE")>
+	jmp	program		;and call a utility
+
+getdat:	$cmkrnl	#area, #100$, pic=yes
+	mov	r0,k$mspv	;save the version
+	return
+100$:	mov	@#s$yver,rp.r0(r5) ;pickup the version
+	return
+
+$show:
+option	ALL		1 _	null	s.all	;all	all	con
+option	CON		1 _	resorc	s.conf	;con	con	con
+option	CONFIGURATION	1 _	null	s.conf	;con	con	con
+option	DEVICES		1 _	null	s.dev l=0 ;con	con	?
+option	TERMINALS	1 _	null	s.term	;new	new	new	
+option	TT		1 _	null	s.tt	;
+option	JOBS		1 J	resorc	s.jobs	;jobs	sha	?
+option	QUEUES		1 _	null	optnot	;not	new	new
+option	ERRORS		1 _	null	s.erro	;not	not	not
+option	NEWS		1 _	null	s.news	;news	news	news
+option	SETTINGS	1 _	null	s.set	;set	set	set
+option	PATHS		1 _	null	s.path	;path	path	path
+;ption	SYMBOLS		1 _	null	s.meta	;meta	meta	meta
+option	HANDLER		1 _	handle		;hand	hand	hand
+option	DRIVER		1 _	handle		;hand	hand	hand
+option	PROGRAM		1 _	prog
+option	TRANSLATIONS	1 _	trans	s.trans
+option	LOGICAL		1 _	logic	s.logic
+option	DIVERSIONS	1 _	null	s.diver
+option	CONSIGNMENTS	1 _	null	s.consi
+option	PRINTERS	1 _	null	s.print
+option	IMAGES		1 _	null	s.images
+option	DEFAULT		1 _	null	s.default
+option	PROCESS		1 _	null	s.process
+option	SYSTEM		1 _	null	s.syst	;jobs	
+option	MEMORY		1 _	null	s.memor	;mem	layout	not
+option	SUBSETS		1 _	null	s.subs
+option	USERS		1 _	null	s.users
+option	DATE		1 _	null	s.time
+option	TIME		1 _	null	s.time
+option	DAYTIME		1 _	null	s.time
+option	POOL		1 _	null	s.pool
+option	PERMANENT	1 _	null	s.permanent
+option	PEOPLE		1 _	null	s.people
+option	EQUIVALENCE	1 _	null	s.equi
+option	UIC		1 _	null	s.uic
+option	PROTECTION	1 _	null	s.prot
+option	FEATURES	1 _	null	s.feat
+option	VOLUME		1 _	null	s.volu
+option	WORLD		1 _	null	s.worl
+option	PASSWORDS	1 _	null	s.pass
+option	INTELLIGENCE	1 _	null	s.inte
+option	STATUS		1 _	null	s.stat
+option	ASSIGNMENTS	1 _	logic	s.logi
+option	RECORDS		1 _	null	s.reco
+option	NODE		1 _	null	s.node
+;ption	COMMANDS	1 _	null	s.comm
+option	COMMANDS	1 _	null	s.meta
+option	RT11		1 _	prog	s.rt11
+option	RSX11		1 _	prog	s.rsx
+option	ACCOUNTING	1 _	null	s.acco
+option	KERNEL		1 _	null	s.kern
+option	RIGHTS		1 _	null	s.righ
+option	BATCH_QUEUE	1 _	null	s.batq
+option	NETWORK		1 _	null	s.netw
+$dummy:
+option
+
+s.lex:	edit	<c0r%r r="/"c=1>
+	return
+.sbttl	option driver
+
+;	/RT11/RSX	
+
+s.rt11:	edit	<"/T:RT11">	
+	return
+s.rsx:	edit	<"/T:RSX">
+	return
+
+;	SHOW ALL
+;
+;	Do not check /M or /X
+;	Display site name and license
+
+.enabl	lsb
+s.all:	edit	<l=1>		;flag all
+	edit	<"/M/C/H/O/D/L/J/T">  ;avoid /X
+	br	10$
+
+;	SHOW CONFIGURATION
+;	
+;	Display site name and configuration
+
+s.conf:	edit	<"/M/C">	;
+10$:	mov	#1,r1		;want title
+	kernel	#20$		;turn off trace
+				;r2 = p$hic0
+	call	decode		;show the site name
+	kernel	#30$		;let it back on
+	jmp	s.set		;
+	return			;
+
+20$:	mov	@#p$hic0,rp.r2(r5)
+	bis	#icntr$,@#p$hic0 ;disable trace
+	return
+
+30$:	mov	rp.r2(r5),@#p$hic0 ;reset options
+	return
+.dsabl	lsb
+
+;	SHOW DEVICES
+;	SHOW DEVICE:DD:
+;	SHOW SUBSETS
+
+s.subs:	call	eol		;
+	edit	<^Z"R MOUNT"}"/L"}"^C"}>
+	jmp	build		;and display them
+
+s.dev:	edit	<!:>,,20$	;no colon, not resorc
+	psh	r4		;yes
+	edit	<^I>		;into output
+	edit	<@\@@!:>,,10$	;
+	edit	<":">		;
+10$:	edit	<"/D">		;put in the switch
+	pop	r4		;fine
+	edit	<C=1>		;force it to resorc
+	return			;
+
+s.syde=.
+	call	eol		;check end of line
+20$:	clr	r0		;
+	jmp	shodev		;go show devices
+
+;	SHOW TIME, DATE, DAYTIME
+;	SHOW NEWS
+
+.enabl	lsb
+s.time:	mov	#new.tim,r0	;dispatch code
+	br	10$		;
+s.news:	clr	r0		;for the dispatch
+10$:	call	eol		;test for end of line
+	jmp	news		;do the news
+.dsabl	lsb
+
+;	SHOW TERMINAL
+;	SHOW TT
+;	SHOW SETTINGS
+
+.enabl	lsb
+s.syte:	call	eol		;check end of line
+	mov	#ste.sy,r0
+	br	4$
+s.term:	clr	r0		;
+4$:	jmp	shoter		;yes - do the full display
+s.tt:	tstb	(r5)
+	bne	s.term		;
+5$:	mov	#sht.set,r0	;show terminal
+	br	10$
+s.set:	mov	#sho.set,r0	;dispatch to set/show
+10$:	call	eol		;test for end of line
+	jmp	set		;and do it
+.dsabl	lsb
+
+;	SHOW SYMBOLS
+
+s.meta:	mov	#sho.met,r0	;dispatch to meta show
+	jmp	meta		;go do it
+
+;	SHOW COMMANDS
+;
+;	RUN SY:UCL TT:=
+
+s.comm:	edit	<O="TT:">	;
+	tstb	(r5)		;got any more coming?
+	beq	10$		;
+	setup	$scomm		;yes - get option
+	scan	<^M>		;get the next
+
+;	Force UCL 
+
+10$:	mov	sysptr,r3	;get the system
+	add	#rm.ucf,r3	;point to ucl filename
+	tst	(r3)		;do we have one?
+	bne	20$		;yes
+	mov	#^rsy,(r3)+	;no - define it
+	mov	#^rucl,(r3)+	;
+	clr	(r3)+		;
+	mov	#^rsav,(r3)+	;
+	mov	#j$bcfn,r1	;get the chain filename area
+	sub	#4*2,r3		;backup
+20$:	mov	#j$bcfn,r1	;get the chain filename area
+	mov	(r3)+,(r1)+	;copy the name
+	mov	(r3)+,(r1)+	;
+	mov	(r3)+,(r1)+	;
+	mov	(r3)+,(r1)+	;
+				;
+	edit	<^Z_O"="}>	;setup command
+	bisb	#200,@$expand	;force return
+	call	build		;push the command
+	bicb	#200,@$expand	;clear the flag
+	$imgact	#area img=#j$bcfn ctl=#imcha$!imdcl$ sta=#0 par=#0
+	edit	<?>		;
+;
+;10$:	edit	<^Z"R UCL"}_O"="}> ;R UCL TT:=
+;	jmp	build		;
+
+$scomm:
+option	TERMINAL	1 _	null	terminal l=0
+option	PRINTER		1 _	null	printer l=0
+option	OUTPUT		1 _	null	output l=0
+option	ALLOCATE	1 _	null	allocate l=0
+option	
+
+;	SHOW MEMORY
+;	SHOW POOL
+
+.enabl	lsb
+s.memor:
+	mov	#ker.poo,r0	;show kernel
+	br	10$		;
+s.pool:	mov	#sho.poo,r0	;show pool
+10$:	jmp	shopoo
+.dsabl	lsb
+
+;	SHOW LOGICAL
+;	SHOW TRANSLATION
+;	SHOW EQUIVALENCE
+
+.enabl	lsb
+s.logic:clr	r0		;dispatch it
+	br	10$		;
+s.trans:mov	#1,r0
+	br	10$		;
+s.equi:	mov	#2,r0		;
+10$:	jmp	sholog		;
+.dsabl	lsb
+
+;	SHOW NETWORK
+
+s.netw:	edit	<^Z"r nodes"}"^C"}>
+	jmp	build		;
+
+;	SHOW SYSTEM
+
+s.syst:	tstb	(r5)		;got any more coming?
+	beq	s.sypr		;no - show system/processes is default
+	edit	<c=0>		;translate space to slash
+	setup	$ssyst, s.lex	;set us up
+	scan	<^M>		;get the next
+	br	s.sypr		;default to processes
+
+$ssyst:
+option	PROCESSES	1 _	null	s.sypr
+option	JOBS		1 _	null	s.syjo
+option	TERMINALS	1 _	null	s.syte
+option	FEATURES	1 _	null	s.syfe
+options	DEVICES		1 _	null	s.syde
+;option	CONTINUOUS	1 _	null	s.star
+;option	SPOOLERS	1 _	null	s.sysp
+option	
+
+;	SHOW PROTECTION
+;	SHOW UIC
+;	SHOW PROCESS
+;	SHOW UIC
+;	SHOW RIGHTS
+
+.enabl	lsb
+s.prot:	mov	#sho.pt,r0	;protection
+	br	10$
+s.uic:	mov	#sho.ui,r0	;uic
+	br	10$
+s.righ:	mov	#sho.rg,r0	;
+	br	10$		;
+
+s.syjo:	call	eol		;
+s.jobs:	mov	#sho.jo,r0	;jobs
+	br	10$		;
+s.sypr:	call	eol		;
+	mov	#sho.sy,r0	;system
+	br	10$		;
+s.proce:mov	#sho.pr,r0	;process
+10$:	jmp	shopro		;
+.dsabl	lsb
+
+s.batq:	mov	#sho.bat,r0	; DCS:BATCH.MAC
+	jmp	batch		;
+
+;	SHOW STATUS
+;
+;	Display the [ctrl/t] string.
+
+s.stat:	call	eol		;check end of line
+	.serr			;block errors
+	movb	j$blev,-(sp)	;save the error byte
+	.hard	erctt.		;issue the message
+	movb	(sp)+,j$blev	;reset the error level
+	.herr			;
+	jmp	kmon		;
+
+;	SHOW FEATURES
+
+s.syfe:	call	eol		;
+s.feat:	mov	#sho.fea,r0	;features
+	jmp	insfea		;
+
+;	SHOW RECORDS
+
+s.reco:	call	eol		;
+	edit	<^Z"r record"}>	;run record
+	jmp	build		;
+
+;	SHOW ACCOUNTING
+
+s.acco:	edit	<^Z"r accoun report ">	;
+	edit	<*~>		;
+	edit	<}>		;
+	jmp	build		
+
+;	Generic
+
+global
+map	.shpth	2,0
+map	.shdef	2
+map	.shprm	2
+map	.shuse	2
+map	.shpeo	2
+map	.shvol	2
+map	.shwor	2
+map	.shpas	2
+map	.shint	2
+map	.shnod	2
+map	.sherr	2
+map	.shker	2
+
+;map	.shdiv	2
+;map	.shcns	2
+;map	.shprn	2
+;map	.shimg	2
+local
+
+.enabl	lsb
+s.paths:mov	#.shpth,r0	;
+	br	10$		;
+s.defa:	mov	#.shdef,r0	;
+	br	10$
+s.perm:	mov	#.shprm,r0
+	br	10$
+s.user:	mov	#.shuse,r0
+	br	10$
+s.peop:	mov	#.shpeo,r0	;
+	br	10$		;
+s.volu:	mov	#.shvol,r0
+	br	20$
+s.worl:	mov	#.shwor,r0
+	br	10$
+s.pass:	mov	#.shpas,r0
+	br	10$
+s.inte:	mov	#.shint,r0
+	br	10$
+s.node:	mov	#.shnod,r0
+	br	10$
+s.erro:	mov	#.sherr,r0
+	br	10$	
+s.kern:	mov	#.shker,r0
+	br	10$
+10$:	call	eol
+20$:	jmp	shogen		;
+.dsabl	lsb
+
+.enabl	lsb
+s.dive:	mov	#.qshdi,r0	;
+	br	10$		;
+s.cons:	mov	#.qshco,r0	;
+	br	10$
+s.prin:	mov	#.qshpr,r0	;
+10$:	jmp	queues
+.dsabl	lsb
+s.imag:	jmp	shoimg		;do it
+
+.end
+

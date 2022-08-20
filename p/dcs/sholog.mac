@@ -1,0 +1,741 @@
+.title	show logical names
+.pass
+.include "lib:share.mac"
+$jbdef		;rt-11 job
+$nadef		;name external
+$txdef		;text
+
+;	We are half way thru processing the initial field.
+;
+;	sho.log=0, sho.tra = 1, sho.equ = 2
+;
+;	show logical noname	all names in selected tables
+;	show logical nowild	recursive translation of name
+;	show logical wild	all matching names with table id
+;	show equivalence	as for show logical but sorted & selected
+;				on equivalence names.
+;
+;	show translation name	single translation with table id
+;
+;	/single			single column format
+;	/equivalence		sort & select on equivalence names
+; ???	/group:n		select group number
+;
+;	tables	process, group, system
+;	name	explicit, wildcard
+;	specs	multiple name specifications
+;
+;-----------------------;
+; Name display type	;
+;-----------------------;
+			;
+map	nttab$,,1	;display table number
+map	ntrec$,,2	;display recursive
+map	nttit$,,4	;display table title
+			;
+;-----------------------;
+; Name header		;
+;-----------------------;
+			;
+map	nh.msk	word,0	;name table bit
+map	nh.tab		;table pointer
+map	nh.lnk		;link to next
+map	nh.tit		;table title
+			;
+;-----------------------;
+; Name table entry	;
+;-----------------------;
+			;
+map	nt.sta	byte,0	;status
+map	nt.gic	byte	;group
+map	nt.nax		;rad50 name
+map	nt.nam	byte*4	;asciz logical name
+map	nt.eqx		;equ rad50
+map	nt.equ	byte*4	;equ ascii
+map	nt.bbs		;
+			;
+map	ntprc$,,naprc$	;process
+map	ntgrp$,,nagrp$	;group
+map	ntsys$,,nasys$	;system
+map	ntdon$,,100	;done
+map	ntsel$,,200	;selected
+.sbttl	show logical, translation
+
+;	Collect command parameters & options
+;	Dispatch command
+;
+;	C=0	logical
+;	C=1	translate
+
+sholog::			;show logical
+	clr	equopt		;/equivalence
+	cmp	r0,#2		;this /equivalence?
+	bne	10$		;no
+	clr	r0		;yes - make it /logical
+	inc	equopt		;and set /equivalence option
+10$:	mov	r0,case		;0=> logical, 1=>equivalence
+	clr	enable		;clear enables
+	clr	disable		;clear disables
+	clr	allopt		;no /all
+	clr	lognam		;no logical name yet
+	clr	disopt		;no display options
+	clr	sinopt		;single option
+	clr	colnum		;no column
+	clr	colmax		;no maximum
+	setup	$sholog,s.lex	;no more options
+	edit	<W=1>		;wildcards are o.k.
+	tstb	(r5)		;got any more options
+	beq	20$		;no
+	scan	<^M>		;get the options
+
+20$:	call	getmsk		;get the disables
+	tst	case		;is this a translate?
+	bne	30$		;yes - force input
+	tst	allopt		;did we get /all?
+	bne	60$		;yes - ignore parameters
+	tstb	(r5)		;do we have any input?
+	beq	60$		;no - its /all
+
+30$:	scan	<^ID=0F=1Q="Logical names? ">
+	psh	r5		;save this
+	mov	$input,r5	;
+	call	getinp		;get another name
+	call	dspnam		;go dispatch it
+	pop	r5		;restore the pointer
+	tstb	(r5)		;any more coming?
+	beq	40$		;no
+	print			;yes - separate them
+	br	30$		;
+40$:	jmp	kmon		;and quit
+
+60$:	bis	#nttit$,disopt	;display table titles
+	call	dspgen		;/all or 
+	jmp	kmon		;
+
+$sholog:
+option	ALL		1 _	null	s.all
+option	PROCESS		1 _	null	s.proc
+option	GROUP		1 _	null	s.grou
+option	SYSTEM		1 _	null	s.syst
+;
+option	NOALL		1 _	null	s.nall
+option	NOPROCESS	1 _	null	s.npro
+option	NOGROUP		1 _	null	s.ngro
+option	NOSYSTEM	1 _	null	s.nsys
+;
+option	LOGICAL		1 _	null	s.logi
+option	NOLOGICAL	1 _	null	s.nolo
+option	EQUIVALENCE	1 _	null	s.equi
+option	NOEQUIVALENCE	1 _	null	s.noeq
+option	SINGLE		1 _	null	s.sing
+option	NOSINGLE	1 _	null	s.nosi
+option
+s.lex:	edit	<r,r=" ">	;replace comma with space
+	return
+
+s.all:	inc	allopt		;remember we got all
+	bis	#naall$,enable	;enable all
+	bic	#naall$,dsbmsk	;enable all
+	return
+s.proc:	bis	#naprc$,enable	;enable process
+	bic	#naprc$,dsbmsk	;enable process
+	return
+s.grou:	bis	#nagrp$,enable	;enable group
+	bic	#nagrp$,dsbmsk	;enable group
+	return
+s.syst:	bis	#nasys$,enable	;enable system
+	bic	#nasys$,dsbmsk	;enable system
+	return
+s.nolo:
+s.equi:	inc	equopt		;/equivalence option
+	return
+s.sing:	inc	sinopt		;/single
+	return
+; /no
+
+s.nall:	clr	allopt		;
+	bis	#naall$,disable	;disable all
+	bis	#naall$,dsbmsk	;disable all
+	return
+s.npro:	bis	#naprc$,disable	;enable process
+	bis	#naprc$,dsbmsk	;enable process
+	return
+s.ngro:	bis	#nagrp$,disable	;enable group
+	bis	#nagrp$,dsbmsk	;enable group
+	return
+s.nsys:	bis	#nasys$,disable	;enable system
+	bis	#nasys$,dsbmsk	;enable system
+	return
+s.logi:
+s.noeq:	clr	equopt		;/noequivalence
+	return
+s.nosi:	clr	sinopt		;/nosingle
+	return
+
+getmsk:
+	mov	enable,dsbmsk	;build the disable mask
+	bne	10$		;we have explicit enables
+	mov	#naall$,dsbmsk	;default is /all
+10$:	com	dsbmsk		;make them disables
+	bis	disable,dsbmsk	;explicit disables
+	bic	#nant$m,dsbmsk	;clean it up
+	return
+.sbttl	dispatch single
+meta	<calgen c><mov c,r4><call calgen>
+
+;	Translate name
+;
+;	show transla nowild	single name, not recursive
+;	show logical nowild	single name, recursive
+;	show logical wild	matched names, not recursive
+
+dspnam:				;this is a single name translation
+	tst	case		;is this translate?
+	beq	20$		;no
+
+; show translation lognam
+
+	call	trnnam		;yes - translate single name
+	return			;and quit
+
+; show translation nowild
+
+20$:	call	wilchk		;do we have wildcards?
+	bcc	30$		;yes - wildcard search
+	tst	equopt		;/equivalence?
+	bne	30$		;yes
+	bis	#ntrec$,disopt	;display recursively
+	bis	#nttab$,disopt	;display table name
+	call	trnnam		;no - translate recursive
+	return
+
+; show translation wild
+
+30$:	bis	#nttab$,disopt	;display table name
+	clr	entcnt		;check for undefined
+	call	dspgen		;display wild
+	tst	entcnt		;did we get anything?
+	bne	40$		;yes
+	mov	#logent,r3	;no
+	clrb	(r3)		;no table
+	clr	nt.equ(r3)	;undefined
+	call	disent		;say it was undefined
+40$:	return
+
+; decode lognam specification
+
+getinp:	mov	$input,r5	;get the input string
+	mov	r5,r1		;get the string
+	call	large		;make it upper case
+	mov	#lognam,r4	;and the output
+	edit	<@\@@!:> ,,10$	;get the name (with wildcards)
+	edit	<!*> ,,20$	;must be the end
+10$:	mov	$input,r0	;supply the name
+	jmp	invnam		;invalid name
+20$:	call	wilchk		;check for wildcards in name
+	bcc	30$		;yes - dont translate it
+	mov	#lognam,r1	;point to it
+	call	conar		;get rad50 of it
+	mov	r0,logr50	;store rad50 version
+30$:;	mov	#lognam,r1	;convert to uppercase
+;	call	large		;convert it to upper case
+	return
+
+;	r0 ->	logical name
+
+invnam:	mov	#2,r1		;force invalid name
+trnerr:				;r1 = error code
+	psh	r0		;save the name address
+	type	<?DCL-E->	;
+	cmp	r1,#maxerr	;in range?
+	blo	10$		;yes
+	mov	#maxerr,r1	;force system error
+10$:	asl	r1
+	.print	20$(r1)
+	type	< >		;
+	pop	r0		;get the name
+	beq	15$		;is none
+	.print			;print it
+15$:	jmp	kmon		;never fatal
+
+20$:	.word	100$,101$,102$,103$,104$,105$
+invadr=6.
+buferr=7.
+maxerr=8.
+	.word	200$,201$,202$
+
+100$:	.ascii	_Superseded existing name_<200>
+101$:	.ascii	_Logical name not found_<200>
+102$:	.ascii	_Invalid logical name_<200>
+103$:	.ascii	_Invalid table_<200>
+104$:	.ascii	_Insufficient rights_<200>
+105$:	.ascii	_Insufficient memory - table full_<200>	
+
+200$:	.asciz	_Kernel address error_	
+201$:	.asciz	_Intermediate buffer too small_	
+202$:	.asciz	_System error_	
+	.even
+.sbttl	translate single name
+
+trnnam:
+	clr	-(sp)		;count translations
+	mov	lognam,oldnam	;save it
+	mov	lognam+2,oldnam+2
+10$:	$trnlog	#area, #lognam,, #resnam, #restba, #resaca, dsbmsk
+	bcc	20$		;fine - we have it
+	clrb	restba		;force no table
+	movb	errbyt,r1	;get the error code
+	cmp	r1,#nanot.	;not found?
+	beq	40$		;yes - thats fine
+	mov	#lognam,r0	;supply the name
+	jmp	trnerr		;report it
+
+20$:	aslb	restba		;get the result table
+	bne	30$		;not system
+	incb	restba		;
+
+30$:	mov	#logent,r3	;point to our pseudo entry
+	inc	(sp)		;count it
+	call	disent		;display entry
+	bit	#ntrec$,disopt	;is this recursive?
+	beq	40$		;no - we are finished
+	mov	resnam,lognam	;yes - move the name up
+	mov	resnam+2,lognam+2 ;
+	cmpb	(sp),#10.	;too many?
+	blo	10$		;no
+	clr	(sp)		;yes - force it undefined
+
+40$:	tst	(sp)		;did we get too little or too much?
+	bne	50$		;no
+	mov	oldnam,lognam	;get back the original
+	mov	oldnam+2,lognam+2
+	clr	resnam		;undefine it
+	mov	#logent,r3	;point to it
+	call	disent		;display it
+50$:	tst	(sp)+		;
+	return
+.sbttl	display entry
+
+;	Display logical & equivalence names
+;
+;	r3 ->	name entry
+;
+;	nt.nam	logical name
+;	nt.equ	equivalence
+
+disent:				;display entry
+	inc	entcnt		;remember we got one
+	movi	nt.nam,r3,r1	;logical name
+	call	100$		;display it
+	type	< = >		;
+	movi	nt.equ,r3,r1	;result name
+	call	100$		;
+	bit	#nttab$,disopt	;table too?
+	beq	50$		;no
+	bit	#naprc$,(r3)	;this a process name?
+	beq	10$		;no
+	type	< (process)>	;yes
+	br	50$
+10$:	bit	#nagrp$,(r3)	;a group name?
+	beq	20$		;no
+	type	< (group)  >	;
+	br	50$		;
+20$:	bit	#nasys$,(r3)	;a system name?
+	beq	50$		;no - must be undefined
+	type	< (system) >	;
+50$:	tst	colnum		;are we doing columns?
+	bne	60$		;yes - skip the end of line
+	print
+60$:	return
+
+100$:	tstb	(r1)		;is it defined?
+	beq	130$		;no
+	psh	#3		;field size
+110$:	movb	(r1)+,r0	;get the next
+	beq	120$		;
+	.ttyout			;
+	dec	(sp)		;
+	bne	110$		;
+120$:	type	< >		;a space
+	dec	(sp)		;anymore?
+	bpl	120$		;yes
+	tst	(sp)+
+	return
+
+130$:	type	< (undefined)>
+	bic	#naglo$,(r3)	;its not in any table
+	return
+.sbttl	generic dispatch
+
+;	show logical noname	table headings
+;	show logical wild	table trailer (nttab$)
+
+dspgen:				;dispatch table
+	call	initab		;init the tables
+	call	gettab		;get the logical names
+	mov	#n$hprc,r5	;get the process table
+10$:	bit	(r5),dsbmsk	;is this one disabled?
+	bne	50$		;yes
+
+	mov	#3,colmax	;assume 3 column listing
+	call	wilsel		;select them
+	bcs	50$		;empty table
+	bit	#nttit$,disopt	;display a title?
+	beq	30$		;no
+	mov	#5,colmax	;five column in this form
+	movi	nh.tit,r5,r1	;get the title
+	print
+	type	<(>		;
+	.print	r1		;print it
+	print	<)>		;
+30$:	clr	colnum		;force first line
+	call	sortab		;sort and output
+	tst	colnum		;half finished line?
+	beq	50$		;no
+	print			;yes
+50$:	mov	nh.lnk(r5),r5	;get the next
+	bne	10$		;do this one
+	return
+
+;	Called here to display a table entry
+
+tabent:				;store a table entry
+	tst	sinopt		;running single column option
+	bne	30$		;yes
+	tst	colnum		;this the very first?
+	beq	20$		;yes
+	cmp	colnum,colmax	;got a new row?
+	bne	10$		;no
+	print			;yes
+	clr	colnum		;
+	br	20$		;
+10$:	type	<    >		;no - separate the last
+20$:	inc	colnum		;step up column number
+30$:	jmp	disent		;and display it
+.sbttl	get name tables
+
+initab:	mov	$text,buflow	;setup the pointers
+	inc	buflow
+	bic	#1,buflow
+	mov	j$btop,buftop	;define the last address
+	return
+
+;	get tables
+;
+;	We use previous mode mapping to use the $text buffer.
+;	group & system name tables.
+
+gettab:	clr	sererr
+	$cmkrnl	#area, #server, pic=yes
+	mov	sererr,r1	;got an error
+	beq	10$		;no
+	clr	r0		;no name
+	jmp	trnerr		;and quit
+10$:	call	cvttab		;convert them to ascii
+	return
+
+;	kernel mode routine
+
+server:	mov	buflow,r4	;get the first one
+	mov	r4,n$hprt	;store it
+	mov	#naprc$,r1	;get process names
+	call	movprc		;move them
+	call	endtab		;end it
+	mov	r4,n$hgrt	;store the next
+	mov	#n$agrp,r0	;group names
+	mov	#nagrp$,r1	;get group names
+	mov	#n$agrm,r3	;group mutex
+	call	movtab		;move them
+	call	endtab		;set the end up
+	mov	r4,n$hsyt	;setup system table
+	mov	#n$asys,r0	;system names
+	mov	#nasys$,r1	;get system names
+	mov	#n$asym,r3	;system table mutex
+	call	movtab		;
+	call	endtab		;
+	return
+
+; get process names
+
+movprc:	bit	r1,dsbmsk	;are we handling process names?
+	bne	20$		;no
+	mov	#p$hlog,r2	;logical names
+	mov	#p$hequ,r3	;equivalence names
+	psh	#napct.		;entries in process table
+10$:	call	movnam		;move a pair
+	dec	(sp)		;count them
+	bne	10$		;
+	tst	(sp)+		;
+20$:	return
+
+movtab:	bit	r1,dsbmsk	;do we have this
+	bne	30$		;no - disabled
+	cmp	(r0),r0		;do we have any at all?
+	beq	30$		;no - none
+	psh	r3		;save mutex address
+	psh	r0		;save table address
+	$mutex	read r3		;
+10$:	mov	(r0),r0		;get the next
+	cmp	r0,(sp)		;is this the last
+	beq	20$		;yes - get out
+	cmp	r1,#nasys$	;this the system table?
+	beq	15$		;yes - take them all
+	cmpb	na.gic(r0),@#p$hgic;is this our group?
+	bne	10$		;no
+15$:	movi	na.tab,r0,r2	;yes - point to the entries
+	call	movseg		;move a table
+	br	10$		;and get the next
+20$:	tst	(sp)+		;pop table address
+	$mutex	unlock (sp)+	;unlock the table
+30$:	return
+
+movseg:	psh	#naect.		;get the count
+	mov	r2,r3		;
+	add	#2,r3		;point to equivalence
+10$:	call	movnam		;move a single name
+	cmp	(r2)+,(r3)+	;skip past
+	dec	(sp)		;any more?
+	bne	10$		;yes
+	tst	(sp)+		;
+	return
+
+movnam:	tst	(r2)		;is this empty?
+	beq	30$		;yes - ignore it
+	tst	sererr		;have we seen an error?
+	bne	30$		;yes
+	psh	r4		;make sure there is room
+	add	#na.bbs+2,(sp)	;
+	cmp	(sp)+,buftop	;are we over the top?
+	bhis	20$		;yes - report the error
+
+	movtd	r1,(r4)+,10$	;table flag
+	movtd	(r2),(r4)+,10$	;get the logical name
+	movtd	#0,(r4)+,10$	;
+	movtd	#0,(r4)+,10$	;
+	movtd	(r3),(r4)+,10$	;nx.eqx
+	movtd	#0,(r4)+,10$	;nx.eqa
+	movtd	#0,(r4)+,10$	;
+	br	30$
+10$:	mov	#invadr,sererr	;report the error & quit
+	br	30$
+20$:	mov	#buferr,sererr	;no room
+30$:	cmp	(r2)+,(r3)+	;skip it
+	return
+
+endtab:	movtd	#-1,(r4)+,10$	;move in -1 end of table
+	return
+10$:	mov	#invadr,sererr	;oops
+	return
+.sbttl	data
+
+;	data must follow the server
+
+sererr:	.word	0		;server error return
+				;1 = address error
+				;2 = no room
+buflow:	.word	0		;start of buffers
+buftop:	.word	0		;last available address
+
+n$hprc:			;process
+	.word	naprc$	;process name
+n$hprt:	.word	0	;process table address	
+	.word	n$hgrp	;group table
+	.ascii	/Process/<200>
+	.even
+n$hgrp:			;group
+	.word	nagrp$	;
+n$hgrt:	.word	0	;group table
+	.word	n$hsyh	;system header
+	.ascii	/Group/<200>
+	.even
+n$hsyh:			;system
+	.word	nasys$	;
+n$hsyt:	.word	0	;system table
+	.word	0	;last link
+	.ascii	/System/<200>	
+	.even
+
+enable:	.word	0		;explicit enable
+disable:.word	0		;explicit disable
+dsbmsk:	.word	0		;result disable mask
+allopt:	.word	0		;1 => /all
+disopt:	.word	0		;display options
+equopt:	.word	0		;/equivalence flag
+
+sinopt:	.word	0		;/single column option
+colnum:	.word	0		;current column number
+colmax:	.word	0		;maximum column number
+entcnt:	.word	0		;number of entries found
+
+restba:				;result tba
+logent:	.word	0		;logical table entry
+logr50:	.rad50	/   /		;rad50 format
+lognam:	.asciz	/AAA/		;logical name ascii
+resr50:	.rad50	/   /		;result rad50
+resnam:	.asciz	/   /		;result ascii
+
+case:	.word	0		;0=logical, 1=translation
+
+oldnam:	.word	0,0		;save original name
+resaca:	.word	0		;dummy acm address
+area:	.blkw	7		;
+.sbttl	convert all names to ascii
+
+cvttab:				;convert all rad50 to ascii
+	mov	#n$hprc,r5	;start with process names
+5$:	mov	nh.tab(r5),r3	;get its table
+10$:	cmp	(r3),#-1	;end of table?
+	beq	20$		;yes
+	mov	nt.nax(r3),r0	;get the name
+	movi	nt.nam,r3,r1	;ascii output
+	clr	(r1)		;
+	clr	2(r1)		;default to zero
+	call	conra		;convert rad50 to ascii upper
+	mov	nt.eqx(r3),r0	;equivalence
+	movi	nt.equ,r3,r1	;
+	clr	(r1)		;
+	clr	2(r1)		;
+	call	conra		;make it ascii
+	add	#nt.bbs,r3	;do the next
+	br	10$
+20$:	mov	nh.lnk(r5),r5	;got another?
+	bne	5$		;yes
+	return
+.sbttl	sort & output selected names
+
+;	r4 ->	table
+;
+;	sort & display selected entries
+;
+;	equivalence has priority over logical
+
+sortab:				;sort table
+	mov	nh.tab(r5),r4	;get the table
+	psh	r5		;save this one
+	clr	-(sp)		;equivalence
+10$:	mov	#-1,(sp)	;equivalence
+	mov	#-1,r5		;lowest so far
+	mov	r4,r2		;look again
+20$:	cmp	(r2),#-1	;is this the end?
+	beq	40$		;yes
+	bit	#ntdon$,(r2)	;already done this?
+	bne	30$		;yes - forget it
+	bit	#ntsel$,(r2)	;is this selected?
+	beq	30$		;no
+	tst	equopt		;sorting on equivalence names?
+	beq	25$		;no
+	cmp	nt.eqx(r2),(sp)	;lower equivalence name?
+	blo	27$		;yes
+	bhi	30$		;no
+25$:	cmp	nt.nax(r2),r5	;lower logical name?
+	bhis	30$		;no
+27$:	mov	r2,r3		;swap elements
+	mov	nt.eqx(r3),(sp)	;replace equivalence level
+	mov	nt.nax(r3),r5	;replace logical level
+30$:	add	#nt.bbs,r2	;point to the next
+	br	20$		;and try again
+40$:	cmp	r5,#-1		;did we get one?
+	beq	50$		;no - its all over
+	bis	#ntdon$,(r3)	;dont consider this again
+	call	tabent		;display the entry
+	br	10$		;and look again
+50$:	tst	(sp)+		;skip the equivalence name
+	pop	r5		;
+	return
+.sbttl	select & sort
+
+;	wilchk	c=0 => wildcards in lognam
+;		z=1 => null name
+;		r0 = length of string
+;		convert string to upper case
+;	wilsel	set ntdon$ in selected entries
+;		c=0 => r0 = number of entries selected
+;		c=1 => no entries selected
+;	wilmat	c=0 => lognam matchs entry
+;
+;	r1 ->	string
+
+wilchk:
+	mov	#lognam,r1	;get the name
+	psh	#100000		;setup flag & count
+10$:	movb	(r1)+,r0	;
+	beq	30$		;all over
+	incb	(sp)		;count it
+	cmpb	r0,#'*		;got a star?
+	beq	20$		;yes
+	cmpb	r0,#'%		;got a percent?
+	bne	10$		;yes
+20$:	bic	#100000,(sp)	;turn off nowildcard flag
+	br	10$		;
+30$:	movb	(sp),r0		;get the count
+	rol	(sp)+		;set the c & z bit
+	return
+
+;	r5 ->	header
+;	lognam	match name - null implies all
+;
+;	set select bit in all that match
+
+wilsel:
+	mov	nh.tab(r5),r3	;get the table
+	clr	-(sp)		;return select count
+10$:	cmp	(r3),#-1	;
+	beq	40$		;table done
+	tst	lognam		;doing them all?
+	beq	20$		;yes
+	mov	#lognam,r0	;no - point to model
+	movi	nt.nam,r3,r1	;point to target
+	tst	equopt		;/equivalence option?
+	beq	15$		;no
+	movi	nt.equ,r3,r1	;yes
+15$:	psh	r2		;
+	call	wilmat		;get a match
+	pop	r2		;
+	bcs	30$		;no go
+20$:	bis	#ntsel$,(r3)	;select it
+	inc	(sp)		;count it
+30$:	add	#nt.bbs,r3	;point to the next
+	br	10$		;
+40$:	pop	r0		;get the count
+	beq	50$		;none selected
+	tst	(pc)+		;
+50$:	sec			;
+	return
+
+;	wilmat	match lognam with entry
+;
+;	r0 ->	input model with wildcards
+;	r1 ->	model to check
+;	r2	burnt
+
+wilmat:
+100$:	movb	(r0)+,r2		;get the next
+	cmpb	r2,#'*			;wild?
+	bne	120$			;nope
+	tstb	(r0)			;terminating *
+	beq	150$			;yes - we match
+110$:	psh	r1
+	psh	r0
+	call	140$
+	pop	r0
+	pop	r1
+	bcc	150$			;we matched
+	inc	r1			;try from next position
+	tstb	(r1)			;this done?
+	bne	110$			;nope - continue
+	br	170$			;we failed
+120$:	tstb	(r1)			;all done?
+	beq	170$			;yes - we fail
+	cmpb	r2,(r1)+		;is this similiar?
+	beq	140$			;yes
+	cmpb	r2,#'%			;got a percent?
+	bne	170$			;yes - that succeeds
+140$:	tstb	(r0)			;end of string?
+	bne	100$			;nope
+	tstb	(r1)			;and this?
+	bne	170$
+150$:	tst	(pc)+
+170$:	sec
+	return
+.end
+                                                                                                                                                                                                                                                                                                                                                                                                

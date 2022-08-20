@@ -1,0 +1,424 @@
+.title	macro command
+.psect	macro
+.pass
+set .macro 1
+;macro	macro=i:kp/p:1,macro,files
+
+macro::	case	<rider,cc,maree>	;
+	setup	$macro,m.lex	;setup for macro
+	edit	<x=2D="LP:">	;setup the listing default
+	edit	<^Z"R MACRO"$>	;run the compiler
+	scan	<^M>		;get the command switches
+	psh	$switch+2	;save the front end guys
+	edit	<l0x=2D="DK:"x=0> ;change to DK: if not generic list	;?293
+
+10$:	scan	<F=6^IQ="Files? "> ;get the files
+	edit	<x=1o0f0^f_D_a>	;setup the object name
+	edit	<x=2l%f0^f_D_a>	;setup the listing name
+	edit	<^Zx=1_f(x=2f%","_f)x=0"="_I_S$>;put out the command line
+	tstb	(r5)		;anymore coming
+	beq	30$		;nope, go build the command
+
+	mov	(sp),$switch+2	;restore the front end pointer
+	clrb	@$switch+2	;and terminate it
+	edit	<o1|o=0>	;reset the noobject flag
+	edit	<l1|l=0>	;reset the list flag
+	edit	<x=1i1?|i=0f=0>	;clean up the object file
+	edit	<x=2i1?|i=0f=0>	;and the listing file
+	edit	<K=1>		;backup to goto column 2
+	br	10$		;and do another pass
+
+30$:	edit	<^Z"^C"}>	;kill the compiler
+	jmp	build		;go copy it out
+
+$macro:
+option	OBJECT		1 _	null	object	l=0
+option	NOOBJECT	1 _	null	noobject
+option	SHOW		1 L	.macro	value
+option	NOSHOW		1 N	.macro	value
+option	LIST		1 _	null	list	l=0
+option	NOLIST		1 _	null
+option	ENABLE		1 E	.macro	value
+option	DISABLE		1 D	.macro	value
+option	CROSSREFERENCE	1 C	.macro	value
+option	LIBRARY		2 M	.macro		l=0
+option	PASS		2 P	.macro	value.	l=0
+option	ALLOCATE	1 _	null	allocate l=0
+option
+
+m.lex:	edit	<r,r= |r+r=,>	;convert + to , and , to space.
+	return
+
+noobject:edit	<o1|o=K>	;remember it (only once)
+	return
+
+object:	edit	<r=1>		;set it up
+	jmp	complex		;and go handle it
+list:	edit	<r=2l1|l=K>	;doing list, setup the flag
+	jmp	complex		;and fall into the files handler
+.sbttl	maree command
+
+maree:	setup	$maree,m.lex	;setup for macro
+	clr	definp			;define input
+;	edit	<x=2D="LP:">		;setup the listing default
+;	edit	<^Z"R MAREE"$>		;run the compiler
+	edit	<C=5>			;
+	scan	<^M>			;get the command switches
+	psh	$switch+2		;save the front end guys
+	edit	<l0x=2D="DK:"x=0> ;change to DK: if not generic list	;?293
+
+10$:	scan	<F=6^IQ="Files? ">	;get the files
+	edit	<x=1o0f0^f_D_a>		;setup the object name
+;	edit	<^Z"-c -o "x=1_f" tmp:"_a".c"$> ;C command
+
+
+	mov	sp,r0			;use user source
+	call	ccfile			;compile C source
+
+	tstb	(r5)			;anymore coming
+	beq	30$			;nope, go build the command
+
+	mov	(sp),$switch+2		;restore the front end pointer
+	clrb	@$switch+2		;and terminate it
+	edit	<o1|o=0>		;reset the noobject flag
+	edit	<l1|l=0>		;reset the list flag
+	edit	<x=1i1?|i=0f=0>		;clean up the object file
+	edit	<x=2i1?|i=0f=0>		;and the listing file
+	edit	<K=1>			;backup to goto column 2
+	jmp	10$			;and do another pass
+
+30$:;	edit	<^Z"^C"}>		;kill the compiler
+	jmp	buildq			;go copy it out
+
+$maree:
+option	OBJECT		1 _	null	object	l=0
+option	NOOBJECT	1 _	null	noobject
+option	DELETE		1 _	null
+option	NODELETE	1 _	null	r.nodel
+option	MACRO		1 _	null
+option	NOMACRO		1 _	null	r.nomac
+option
+.sbttl	rider command
+
+;	RIDER src/object:obj:
+;
+;	r rider
+;	src tmp:src.rx
+;	CC  tmp:src.rx/object:obj:src.obj
+;	DELETE tmp:src.rx
+;
+;	Whitesmiths:
+;
+;	/include=(dk:,wsk:,sy:)
+
+set .head 1
+set .white 2
+set .decus 3
+set .unix 4
+set .maree 5
+
+rider::	setup	$rider,m.lex		;setup for macro
+	edit	<x=2D="LP:">		;setup the listing default
+	scan	<^M>			;get the command switches
+	psh	$switch+2		;save the front end guys
+	edit	<l0x=2D="DK:"x=0>	;change to DK: if not generic list	;?293
+
+10$:	scan	<F=6^IQ="Files? ">	;get the files
+	edit	<^Z"R RIDER"$>		;rider
+
+	edit	<x=1o0f0^f_D_a>		;setup the object name
+					;
+	edit	<V1>,,20$		;not a header file
+	edit	<^Zx=0_I"/H "x=1_f$>	;input output
+	edit	<^Z"^C"$>		;
+	jmp	30$			;
+
+20$:;	edit	<x=1o0f0^f_D_a>		;setup the object name
+
+	edit	<^Zx=0_I" tmp:"_a".c"$>	;input output
+	edit	<^Z"^C"$>		;kill the compiler
+
+	clr	r0			;use temp source
+	call	ccfile			;compile one file
+
+30$:	tstb	(r5)			;anymore coming
+	beq	40$			;nope, go build the command
+
+	mov	(sp),$switch+2		;restore the front end pointer
+	clrb	@$switch+2		;and terminate it
+	edit	<o1|o=0>		;reset the noobject flag
+	edit	<l1|l=0>		;reset the list flag
+	edit	<x=1i1?|i=0f=0>		;clean up the object file
+	edit	<x=2i1?|i=0f=0>		;and the listing file
+	edit	<K=1>			;backup to goto column 2
+	jmp	10$			;and do another pass
+
+40$:;	edit	<^Z"^C"}>		;kill the compiler
+	jmp	buildq			;go copy it out
+
+$rider:
+option	HEADER		1 _	null	r.head	l=0
+option	OBJECT		1 _	null	object	l=0
+option	NOOBJECT	1 _	null	noobject
+;option	LIST		1 _	null	list	l=0
+;option	NOLIST		1 _	null
+option	DELETE		1 _	null
+option	NODELETE	1 _	null	r.nodel
+option	MACRO		1 _	null
+option	NOMACRO		1 _	null	r.nomac
+option	ALLOCATE	1 _	null	allocate l=0
+option	WHITESMITHS	1 _	.white
+option	UNIX		1 _	.unix
+option	DECUS		1 _	.decus	
+option
+
+r.head:	edit	<V=1>		; header file
+	callr	object		; and treat as /OBJECT
+
+r.nodel:edit	<q=1>		; /nodelete temp
+	return
+r.nomac:edit	<m=1>		; /nomacro
+	return
+.sbttl	cc command
+
+;	CC src/obj:a:
+;
+;	CC  tmp:src.rx/object:obj:src.obj
+;	DELETE tmp:src.rx
+;
+;???	/KIT=dev:
+;???	/TEMPORARY=dev:
+;???	/ENVIRONMENT=([NO]FPU [NO]PIC)
+;???	/NODELETE
+;???	/INCLUDE=(dev:,...)
+;???	/DEFINE=("...",...)
+;???	/NOMACRO
+
+definp:	.word	0
+
+CC::	setup	$cc,c.lex		;setup for macro
+	clr	definp			;define input
+	edit	<x=2D="LP:">		;setup the listing default
+;	edit	<^Z"R C"$>		;run the compiler
+	scan	<^M>			;get the command switches
+	psh	$switch+2		;save the front end guys
+	edit	<l0x=2D="DK:"x=0> ;change to DK: if not generic list	;?293
+
+10$:	scan	<F=6^IQ="Files? ">	;get the files
+	edit	<x=1o0f0^f_D_a>		;setup the object name
+;	edit	<^Z"-c -o "x=1_f" tmp:"_a".c"$> ;C command
+
+
+	mov	sp,r0			;use user source
+	call	ccfile			;compile C source
+
+;	edit	<^Z"r pp"$>
+;	edit	<^Z"-x -o tmp:"_a".tm1 -idk:|wsk:|sy: "_I".c"$>
+;	edit	<^Z"r p1"$>
+;	edit	<^Z"-o tmp:"_a".tm2 -cn6 tmp:"_a".tm1"$>
+;	edit	<^Z"r p211"$>
+;	edit	<^Z"-o tmp:"_a".mac tmp:"_a".tm2"$>
+;	edit	<^Z"macro/object:"x=1_f" tmp:"_a$>
+
+	tstb	(r5)			;anymore coming
+	beq	30$			;nope, go build the command
+
+	mov	(sp),$switch+2		;restore the front end pointer
+	clrb	@$switch+2		;and terminate it
+	edit	<o1|o=0>		;reset the noobject flag
+	edit	<l1|l=0>		;reset the list flag
+	edit	<x=1i1?|i=0f=0>		;clean up the object file
+	edit	<x=2i1?|i=0f=0>		;and the listing file
+	edit	<K=1>			;backup to goto column 2
+	jmp	10$			;and do another pass
+
+30$:;	edit	<^Z"^C"}>		;kill the compiler
+	jmp	buildq			;go copy it out
+
+$cc:
+option	OBJECT		1 _	null	object	l=0
+option	NOOBJECT	1 _	null	noobject
+;option	LIST		1 _	null	list	l=0
+;option	NOLIST		1 _	null
+option	DELETE		1 _	null
+option	NODELETE	1 _	null	r.nodel
+option	MACRO		1 _	null
+option	NOMACRO		1 _	null	r.nomac
+;option	ALLOCATE	1 _	null	allocate l=0
+option	WHITESMITHS	1 _	.white
+option	UNIX		1 _	.unix
+option	DECUS		1 _	.decus
+
+.if ne 0
+option	DEFINE		1 _	null	o.def
+option	UNDDEFINE	1 _	null	o.und
+.endc
+option
+
+o.def:	movb	#'d,definp
+	return
+o.und:	movb	#'d,definp
+	return
+
+c.lex:	edit	<r,r= |r+r=,>	;convert + to , and , to space.
+.if ne 0
+	tst	definp		;define in progress?
+	beq	35$		;no
+	clr	-(sp)		;"()" flag
+	cmpb	r0,#'=		;this an equals?
+	bne	40$		;no
+	cmpb	1(r5),#'(	;followed by parenthesis?
+	bne	15$		;no
+	inc	r5		;yes - skip
+	inc	(sp)		;remember to terminate it
+15$:	cmpb	(r5)+,#'"	;must have this
+	bne	40$		;
+	mov	$text,r4	;
+	movb	#'-,(r5)+	;-
+	movb	definp,(r4)+	;-D
+	movb	#32.,(r4)+	;
+20$:	movb	(r5)+,(r4)+	;
+	beq	40$		;oops
+	cmpb	(r5),#'"	;end of it?
+	bne	20$		;
+	movb	#32.,(r5)+	;
+	mov	r4,$text	;
+	cmpb	(r5)+,#',	;
+	beq	15$		;got more
+	dec	r5		;
+	tst	(sp)+		;need a ")"?
+	beq	30$		;nope
+	cmpb	(r5)+,#')	;must have that
+	bne	40$		;oops
+30$:	movb	(r5),r0		;yes - and get the next
+	clr	definp		;no define in progress
+.endc
+35$:	return
+40$:	edit	<?>
+
+.sbttl	ccfile - compile one C file
+
+ccfile:	tst	r0
+	bne	10$
+	edit	<^L"tmp:"_a>
+	br	20$
+10$:	edit	<^L_I>
+20$:;	psh	r0			
+	edit	<C2> cc$whi
+	edit	<C4> 30$
+	edit	<C5> 60$
+	jmp	cc$dec
+30$:	jmp	cc$unx
+60$:	jmp	cc$mar
+
+;	WHITESMITHS C:
+;
+;	r pp
+;	-x -o N.tm1 -idk:|sy: DN.E
+;	r p1
+;	-o N.tm2 -cn6 N.tm1
+;	r p211
+;	-o N.mac N.tm2
+;	mac N
+;	del/noqu N.tm*,N.mac
+
+cc$whi:	edit	<^Z"run wcc:pp"$>
+;	tst	(sp)+			; temp file?
+;	bne	10$			; nope
+;	edit	<^Z"-x -o tmp:"_a".cw1 -idk:|wcc:|sy: tmp:"_a".c"$>
+;	br	20$
+;10$:	edit	<^Z"-x -o tmp:"_a".cw1 -idk:|wcc:|sy: "_I".c"$>
+;20$:
+	edit	<^Z"-x -o tmp:"_a".cw1 -idk:|wcc:|sy: "_L".c"$>
+	edit	<^Z"run wcc:p1"$>
+	edit	<^Z"-o tmp:"_a".cw2 -cn6 tmp:"_a".cw1"$>
+	edit	<^Z"run wcc:p211"$>
+	edit	<^Z"-o tmp:"_a".mac tmp:"_a".cw2"$>
+	edit	<m0^Z"macro/object:"x=1_f" tmp:"_a$>
+	edit	<W=1>
+	edit	<q0^Z"delete/noquery tmp:"_a".cw*"$>
+	edit	<W=0>
+	return
+
+;	DECUS C
+;
+;	define c: dcc:
+;	run dcc:cc
+;	file.s,tmp:file.a,file.b=file.c /switches
+;	run dcc:as
+;	obj:file.obj,lst:file.lst=tmp:file.s /switches
+;
+;	/M	supress preprocessor
+;	/W	supress "no reference for XXX"
+;		DECUS-C issues these for arguments which causes
+;		problems when an argument is either no longer
+;		used or where an argument is only used on a 
+;		particular platform.
+	
+cc$dec:;edit	<^Z"define c: dcc:"$>
+	edit	<^Z"run dcc:cpp"$>
+;	tst	(sp)+
+;	bne	10$
+;	edit	<^Z"tmp:"_a".c tmp:"_a".cd0"$>
+;	br	20$
+;10$:	edit	<^Z_I".c tmp:"_a".cd0"$>
+;20$:
+	edit	<^Z_L".c tmp:"_a".cd0 -idcc:"$>
+	edit	<^Z"run dcc:cc"$>
+.if ne 0
+	tst	(sp)+
+	bne	10$
+	edit	<^Z"tmp:"_a".cds,tmp:"_a".cd1,tmp:"_a".cd2=tmp:"_a".c"$>
+	br	20$
+10$:	edit	<^Z"tmp:"_a".cds,tmp:"_a".cd1,tmp:"_a".cd2="_I".c"$>
+20$:
+.endc
+	edit	<^Z"tmp:"_a".cds,tmp:"_a".cd1,tmp:"_a".cd2=tmp:"_a".cd0/M/W"$>
+
+	edit	<m0^Z"run dcc:as"$>
+	edit	<m0^Zx=1_f"=tmp:"_a".cds"$>
+	edit	<W=1>
+	edit	<q0^Z"delete/noquery tmp:"_a".cd*"$>
+	edit	<W=0>
+	return
+
+;	UNIX C
+;
+;	UNIX dispatcher converts "dev:xxx" to "/dev/xxx"
+;
+;	unix ucc:cpp /src/file.c /tmp/file.1
+;	unix ucc:c0 /tmp/file.1 /tmp/file.2 /tmp/file.3
+;	unix ucc:c1 /tmp/file.2 /tmp/file.3 /tmp/file.4
+;	unix ucc:as -u /tmp/file.4 
+;	unix ucc:ld -n /ucc/crt0.o /exe/file -lc -o /tmp/b.out
+
+cc$unx:
+;	tst	(sp)+
+;	bne	10$
+;	edit	<^Z"r unix"$>
+;	edit	<^Z"ucc:cpp tmp:"_a".c tmp:"_a".cu1"$>
+;	br	20$
+;10$:	edit	<^Z"ucc:cpp "_I".c tmp:"_a".cu1"$>
+;20$:
+
+;	edit	<^Z"define c: ucc:"$>
+	edit	<^Z"r unix"$>
+	edit	<^Z"ucc:cpp "_L".c tmp:"_a".cu1"$>
+	edit	<^Z"r unix"$>
+	edit	<^Z"ucc:c0 tmp:"_a".cu1 tmp:"_a".cu2 tmp:"_a".cu3"$>
+	edit	<^Z"r unix"$>
+	edit	<^Z"ucc:c1 tmp:"_a".cu2 tmp:"_a".cu3 tmp:"_a".cu4"$>
+	edit	<m0^Z"r unix"$>
+	edit	<m0^Z"ucc:as -u tmp:"_a".cu4"$>
+	edit	<m0^Z"copy tmp:a.out "x=1_f".out"$>
+	return
+
+;	MAREE
+
+cc$mar:	edit	<^Z"r maree"$>
+	edit	<^Z"tmp:"_a".mat="_L$>
+	edit	<m0^Z"r macro"$>
+	edit	<m0^Zx=1_f"=tmp:"_a".mat"}"^C"$>
+	edit	<q0^Z"delete/noquery tmp:"_a".mat"$>
+	return
+

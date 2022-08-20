@@ -1,0 +1,85 @@
+.title	help command
+.include "dcs:dcl.mac"
+.psect help
+set	.help 1
+
+;	+--------------------
+;	| KMON uses this
+;	+--------------------
+;
+;	DCL HELP command
+;
+;	%build
+;	macro	dcs:kp+dcs:help /object=dcb:help
+;	%end
+;	%date
+;	<17-Sep-2004 00:16:52.00>
+;	%edit
+;	<23   >
+
+help::	setup	$help		;set it up
+	scan	<W=1^M>		;get the command switches
+.if ne K$SHP
+	edit	<I0I="SY:RUSTX">;default input spec
+.iff
+	edit	<I0I="SY:RUST">	;default input spec
+.endc
+	edit	<O0O="TT:">	;default output specification
+	edit	<^Z"r help"}>	;run help
+	edit	<_O"="_I_S_M>	;files and switches
+	edit	<"/X">		;exit after completion
+	tstb	(r5)		;got more?
+	beq	10$		;no
+	edit	<"/T"}>		;yes - say topic follows
+	edit	<*~}>		;copy the rest of it
+	edit	<"^C">		;and terminate it
+10$:	edit	<}>		;
+	jmp	build		;do it
+
+$help:
+option	PAGE		1 P	.help
+option	NOPAGE		1 H	.help
+option	PROMPT		1 _	.help
+option	NOPROMPT	1 B	.help
+option	LENGTH		1 L	.help	value.
+option	LIBRARY		1 _	.help	hl$lib	 l=0
+option	TERMINAL	1 _	.help	terminal l=0	
+option	PRINTER		1 _	.help	printer	 l=0
+option	OUTPUT		1 _	.help	output	 l=0
+option	ALLOCATE	1 _	.help	allocate l=0
+
+option	DOCUMENT	1 D	.help
+option	FORM		1 F	.help
+option	NOFORM		1 S	.help
+option	CASCADE		1 K	.help
+option	NOCASCADE	1 N	.help
+option
+
+;	Get /LIBRARY=file into $INPUT
+
+hl$lib:	edit	<^Ix=1!:|?>	;get the colon
+	jmp	file		;pickup filespec
+
+.end
+.if ne 0
+help::	world			;kill kmon flag
+	clr	$km(r0)		;we are not around no more
+	mov	mon,r0		;get RT-11
+	mov	$top(r0),sp	;use the system stack
+	mov	sp,stk		;for the rmon swap
+	mov	#600,r0		;send a string to help
+20$:	movb	(r5)+,(r0)+	;move our string
+	bne	20$		;till its done
+	clrb	512		;flag no input
+	clrb	540		;flag no output
+	mov	#500,r0		;move in the file name
+	mov	#.help,r1	;get the name
+40$:	mov	(r1)+,(r0)+	;copy it in
+	bne	40$		;till its done
+	.chain			;now call it
+
+.help:	.rad50	/sy help  sav/
+	.word	0
+.endc
+.end
+

@@ -1,0 +1,171 @@
+dln$c=1
+.sbttl	translate
+
+translat:clr	-(sp)		;make it non file
+	clr	dtype		;dtype = 0 = does not exist
+	clr	dslot		;
+	psh	r0		;now look it up for host assigns
+	mov	sp,r1		;get another pointer
+	mov	name,dname+2	;
+	.dstat	#device,r1	;check it out
+	bcs	20$		;oops, does not exist
+	inc	dtype		;dtype = 1 = exists
+	edit	<q1> 5$		;ASSIGN/TRANSLATED			;?270
+	mov	$input,r5	;see if it had a colon			;?103
+	edit	<s1> 5$		;this is /permanent
+	edit	<!@\@@\:>,,15$	;no colon, use it as it is		;?103
+;ew
+	br	15$		;ignore colon rule for translated assign
+5$:	.serr			;turn off logical errors
+	.purge	#0		;get a channel
+	.lookup	#area,#0,sp	;look it up
+	bcs	30$		; not loaded, try local assign table
+	mov	sysptr,r0	;point into the monitor
+	mov	$csw(r0),r1	;get the offset
+	bic	#^cindx$m,r1	;bic all but the offset
+	movb	r1,dslot	;remember the slot
+	add	$pname,r1	;point to the pname
+	mov	(r1),(sp)	;get the name
+	add	(pc)+,(sp)	;form the unit number
+	.rad50	/  0/		;start with unit zero
+	movb	$csw+c.unit(r0),r1 ;get the unit
+	bic	#^c7,r1		;just the unit number
+	movb	r1,dunit	;unit number
+	add	r1,(sp)		;add in the unit number
+	mov	(sp),prmdev	;
+	.purge	#0		;release the channel
+10$:	.herr			;reset soft errors
+15$:	clc			;c=0
+20$:	pop	r0		;return the name
+	inc	(sp)+		;skip the other guy
+	return			;c=1 => illegal device
+	
+30$:	clr	r1		;look thru local assigns
+	inc	dtype		;dtype = 2 = not found
+	mov	(sp),r0		;get a logical name
+	call	trasys		;translate it
+	bcs	40$		;not found
+	mov	r0,(sp)		;found and translated
+	inc	dtype		;
+40$:	br	10$		;
+
+	rxSTA. = 132500
+
+.enabl	lsb
+trasys:	psh	#2		;translate system name
+	bnew	r0,#rxSTA.,5$	;
+	mov	@#j$bsys,r0	;
+	mov	rm.cal(r0),r0	;
+	sec			;
+	beq	20$		;
+	clc			;
+	br	15$		;
+tralog:	clr	-(sp)		;
+5$:	clr	r1		; << r0 = logical name
+10$:	call	indexes		;get the next
+	sbc	(sp)		;count down
+	bcs	20$		;not found
+	cmp	@.unam2,r0	;this it?
+	bne	10$		;nope
+	inc	dtype		;dtype = 3 = local-assign
+	mov	@.unam1,r0	;yes, get the physical name
+15$:
+.if ne dln$c
+	mov	r0,d$neqv	;equivalence device
+.endc
+20$:	inc	(sp)+		;pop the flag
+.if ne dln$c
+	bcs	dn$trn
+.endc
+	return			;c=0 => r0 = translated name		;?88-
+.dsabl	lsb
+
+dtype:	.word	0		;device type
+
+dslot:	.byte	0		;slot number
+dunit:	.byte	0		;unit number
+prmdev:	.rad50	/   /		;
+
+
+.if ne dln$c
+$dmdef
+$dndef
+dn$trn:	beqw	k$mrus,30$	;must be rust
+	psh	r0		;
+	mov	#^rDLN,r0	;
+	call	dm$ptr		;
+	add	#dm.hdr,r0	;skip the header
+10$:	beqw	(r0),30$	;no more 
+	beqw	(r0),#^rC00,30$	;
+	beqw	(sp),dn.log(r0),20$ ;found it
+	add	(r0),r0		;
+	br	10$		;
+20$:	mov	r0,d$nptr
+	mov	dn.dev(r0),d$neqv
+	mov	#-1,(sp)	;flag dln
+	tst	(pc)+		;
+30$:	sec
+	pop	r0		
+	return
+
+d$nptr:	.word	0		;
+d$ncur:	.word	0
+d$neqv:	.word	0
+
+dn$unp:	bnew	r0,#-1,30$	; not ours
+	pshs	<r4,r3>
+	mov	d$nptr,r4	; get the name
+	mov	(r4),r3		;
+	add	#dn.dev,r4	;
+	call	unpac4		;
+	type	<:\>		;
+	sub	#dn.sub,r3	;
+10$:	beqw	r3,20$		;
+	call	unpac4		;
+	call	unpac4		;
+	type	<\>		;
+	sub	#dnSUB.,r3		
+	br	10$		;
+20$:	pops	<r3,r4>
+	tst	(pc)+		;
+30$:	sec
+	return
+
+	.enabl	lsb
+dn$fst:	psh	r0		;
+	mov	#^rdln,r0	;
+	call	dm$ptr		;
+	add	#dm.hdr,r0	
+	br	10$
+dn$nxt:	psh	r0		;
+	mov	d$ncur,r0	;
+	beqw	(r0),20$	;
+	add	(r0),r0		;
+10$:	mov	r0,d$ncur	;
+	beqw	(r0),20$	;
+	tst	(pc)+
+20$:	sec
+	pop	r0		;
+	return
+	.dsabl	lsb
+
+dn$tmp:	blow	r0,#<^rZ50>,10$	; is name a temp?
+	bhiw	r0,#<^rZ99>,10$	;
+	tst	(pc)+		; yes
+10$:	sec			; nnoossiirree
+	return
+
+dn$zap:	psh	r0		; zap CSI names
+	call	dn$fre		; get first free
+	clr	(r0)		; remove C00: etc
+	pop	r0		;
+	return
+
+dn$fre:	call	dn$ptr		; find first CSI or end
+10$:	beqw	(r0),20$	; this ends it
+	beqw	(r0),#^rC00,20$	; so does this
+	add	(r0),r0		; point to next
+	br	10$
+20$:	return
+
+.endc

@@ -1,0 +1,383 @@
+.sbttl	install external
+.include "lib:share.mac"
+xch=1		;external channel
+
+;	Install external device
+;
+;	Called here just before the kernel device is installed.
+;	If this is an external device then load the handler
+;	into external memory and replace the pointer to the
+;	dummy kernel handler.
+;	
+;	de.hsz	modify to the size of the handler
+
+	meta	setprv	<call setprv>
+	meta	remprv	<call remprv>
+
+insext:	bit	#exter$,ctls		;this an external handler?
+	beq	3$			;no
+	$cmkrnl	#area, #extchk pic=yes	;check for external feature
+	bcc	4$			;fine
+	invdev	<External feature not installed>
+3$:	jmp	90$			;and continue
+
+;	Check external handler
+
+4$:	tst	vecs			;check for two or less vectors
+	beq	5$			;fine
+	tst	vecs+2			;two vectors?
+	beq	5$			;
+	tst	vecs+4			;more than two?
+	beq	5$			;no
+	invdev	<Too many vectors for external handler>
+
+5$:	mov	der+de.dev,220$		;setup the device name
+	mov	der+de.hsz,r1		;get the device byte size
+	cmp	r1,#8192.		;too big?
+	blo	10$			;no
+	invdev	<External handler too large>
+					;
+10$:	setprv				;get sysprv rights
+	add	#haxhs.,r1		;add in extended header size
+	asr	r1			;words
+	add	#255.,r1		;round up
+	clrb	r1			;
+	swab	r1			;blocks
+	.purge	#xch			;
+	bit	#repla$,opts		;this /replace?
+	beq	15$			;nope
+	psh	210$+10			;get eva message
+	clr	210$+10			;remove eva message
+	.fprot	#area, #xch, #210$, #0	;remove protection from previous file
+	pop	210$+10			;restore eva
+15$:	.enter	#area, #xch, #210$, r1	;	
+	bcc	20$			;
+	invdev	<Error creating external handler file>
+
+;	Handle par6 mapping
+;
+;	r1 =	block size of handler
+;	r3 =	base page of handler
+;
+;	If the handler is totally enclosed within
+;	par6 space then use par6 base address.
+
+20$:	.cstat	#area, #xch, #200$	;get the channel status
+	mov	200$+ci.sbl,r3		;get the start block
+	mul	#mmpib.,r1		;get the page length
+	mul	#mmpib.,r3		;get the base page
+	add	r3,r1			;r1 is top page
+	mov	r3,e$kpag		;setup the page number
+	mov	#m$mpa6,e$kbas		;assume par6 base
+	add	#haxhs.,e$kbas		;add in the extension header
+					;
+	cmp	r3,#mmkp6.		;inside par6 area?
+	blo	25$			;no
+	cmp	r1,#mmkp7.		;really inside area?
+	bhi	25$			;no
+	sub	#mmkp6.,r3		;get page offset into par6
+	mul	#mmbip.,r3		;get byte offset
+	add	#m$mpa6,r3		;convert to virtual address
+					;
+	mov	#mmkp6.,e$kpag		;setup page number
+	add	#haxhs.,r3		;add in the extension header
+	mov	r3,e$kbas		;setup base address
+	bis	#par6$,ctls		;remember par6 handler
+	br	26$			;
+					;
+25$:	bit	#par6$,ctls		;required par6?
+	beq	26$			;no
+	call	prgext			;
+	invdev	<No space in par6 for external handler>
+
+26$:	call	extlnk			;link up handlers
+	call	extvec			;setup the vectors
+	mov	hsize,r1		;
+	add	#haxhs.,r1		;add in extended header size
+	asr	r1			;
+	.writw	#area, #xch, handx, r1, #0;write it out
+	bcc	30$			;
+	call	prgext			;
+	invdev	<Error writing external handler file>
+
+;	Replace variables for dummy kernel handler
+
+30$:	remprv				;
+	mov	hsize,xhands		;save external size for later
+	mov	#extske,handu		;setup user space address
+	mov	#ek.bbs,hsize		;setup kernel handler size
+	bit	#timio$,opts		;want timeout?
+	beq	40$			;no
+	mov	#ek.xbs,hsize		;yes
+40$:	mov	hsize,der+de.hsz	;device copy of size
+	mov	hsize,handwc		;
+	asr	handwc			;setup handler wordcount
+	bis	#deext$,der+de.typ	;remember its external
+	bit	#par6$,ctls		;par6 handler?
+	beq	90$			;no
+	bis	#dep6h$,der+de.typ	;yes
+90$:	return				;
+
+200$:	.blkb	ci.bbs			;channel information
+210$:	.rad50	/vm /		
+220$:	.rad50	/   /
+	.rad50	/   /			;rad50 process number
+	.rad50	/syx/
+	$evbeg				;EVE package for enter
+	$evgro	sfi			;set file
+	$evcal	uic word dat=yes	;
+	.byte	4,1			;uic = [1,4]
+	$evcal	pro word dat=yes	;
+	.word	177200			;pro = (s:rwed,o:rwe,g:r,w:)
+	$evcal	del word dat=yes	;
+	.word	1			;del = nodelete
+	$evend				;
+
+;	Check for external feature loaded
+
+extchk:	tst	@#f$emap+<feext.*2>	;external loaded?
+	bne	10$			;yes
+	.soft	0			;no - report it
+10$:	return				;
+
+;	setup system privilege to access VM:
+
+setprv::$cmkrnl	#area, #setrig pic=yes	;check for external feature
+	return
+
+setrig:	bis	#srsys$,@#p$hsr0+sr.sys	;setup SYSPRV right
+	return
+
+;	remove system privilege to access VM:
+
+remprv::$cmkrnl	#area, #remrig pic=yes	;check for external feature
+	return
+
+remrig:	bic	#srsys$,@#p$hsr0+sr.sys	;remove SYSPRV right
+	return
+.sbttl	connect, remove
+
+;	Connect handler
+;
+;	Make the handler file permanent
+
+clsext:	setprv				;setup SYSPRV privilege
+	.close	#xch			;close the channel
+	remprv				;remove privilege
+	return
+
+prgext:	call	remext			;clean up external files
+	.purge	#xch			;purge extended handler
+	return
+
+;	Remove external handler
+
+remext:	setprv				;make sure we can access VM:
+	mov	pname,110$		;setup the device name
+	mov	#^rsyx,120$		;
+	.purge	#xch			;
+	.fprot	#area, #xch, #100$, #0	;unprotect it first
+	.delete	#area, #xch, #100$,	;purge the file
+	mov	#^rreg,120$		;check possible region file
+	.fprot	#area, #xch, #100$, #0	;handler global region file
+	.delete	#area, #xch, #100$, #0	;
+	remprv				;remove the right
+;	kernel	10$			;get into the kernel
+	return
+
+100$:	.rad50	/vm /		
+110$:	.rad50	/   /
+	.rad50	/   /			;rad50 process number
+120$:	.rad50	/syx/
+.sbttl	link external handler
+
+;	link external handler
+;
+;	fill in rmon stuff
+
+extlnk:	mov	#der,r3			;r3 -> device record
+	mov	handu,r1		;point to the handler
+	clr	ha.hol(r1)		;clear the handler hold flag
+	add	hsize,r1		;r1 -> handler end
+	mov	#fk$enq,-(r1)		;link it up - changed later
+	mov	#in$int,-(r1)		;thus
+
+	bit	#sgtim$,de.syg(r3)	;does it have timeout?
+	beq	110$			;nope
+	mov	#io$tid,-(r1)		;yes - plug in the dummy
+
+110$:	bit	#sgerl$,de.syg(r3)	;does it have error logging?
+	beq	120$			;nope
+	mov	#io$erd,-(r1)		;yes - plug in the dummy address
+120$:	bit	#sgmmg$,de.syg(r3)	;xm handler?
+	beq	130$			;nope
+	mov	#io$ptw,-(r1)		;stuff xm routines in
+	mov	#io$ptb,-(r1)
+	mov	#io$gtb,-(r1)
+	mov	#io$chp,-(r1)		;map physical address
+	mov	#io$cum,-(r1)		;relocate user space address
+130$:	return
+.sbttl	setup external vectors
+
+;	Setup external vectors
+;
+;	Already tested for maximum two vectors
+
+extvec:
+	clr	e$kvc0			;clean up
+	clr	e$kvp0			;clear ps
+	clr	e$kvc1			;assume no vectors
+	clr	e$kvp1			;
+	clr	e$kpc0			;
+	mov	#pr7,e$kps0		;
+	clr	e$kpc1			;
+	mov	#pr7,e$kps1		;
+	mov	#e$kvc0,r2		;first vector
+	mov	#e$kpc0,r3		;first isr
+	mov	handu,r1		;get the vector pointer
+	tst	(r1)			;what do we have?
+	beq	30$			;no vectors
+	bpl	20$			;one only
+
+10$:	mov	(r1),r1			;get the offset
+	asl	r1			;vector list
+	add	handu,r1		;relocate the pointer
+	add	#2,r1			;rtfm
+	call	v54vec			;get the real vector list
+
+	call	20$			;do the first
+	mov	#e$kvc1,r2		;try for the second
+	mov	#e$kpc1,r3		;
+
+20$:	mov	(r1),(r2)		;setup the vector
+	ble	30$			;that was the last
+	tst	(r1)+			;point to isr offset
+	mov	r1,(r3)			;compute local address
+	add	(r1)+,(r3)		;relocate within handu
+	sub	handu,(r3)		;offset from start
+	add	e$kbas,(r3)+		;address in par6
+	bis	(r1)+,(r3)+		;setup ps
+30$:	return
+.sbttl	external links
+
+;	Setup external links
+; 
+;	Called in kernel mode to setup qcomp links.
+;	This code cannot be peformed until the address of the
+;	kernel handler has been determined.
+; 
+;	mov	pc,r4
+;	add	#ddcqe-.,r4
+; 
+;	old				new
+; 
+;	mov	@#54,r5
+;	jmp	@270(r5)		jmp	@#ek$don
+; or	call	@270(r5)		call	@#ek$don
+; 
+;	r3 ->	device record
+;	r4 ->	kernel handler
+;	r5 ->	external handler
+
+extqco:	bit	#exter$,ctls	;this an external handler
+	beq	230$		;no
+	pshs	<r3,r2,r1>	;
+	psh	@#m$kip6	;save par6
+	mov	handk,r3	;r3 -> kernel handler
+	mov	ek.pag(r3),@#m$kip6 ;map the external handler
+	mov	ek.bas(r3),r1	;r1 -> start of handler
+	mov	r1,r2		;
+	add	xhands,r2	;r2 -> end of external handler
+
+;	Fill in the extension header
+
+	mov	r3,ha.xkh(r1)	;point to kernel handler
+
+;	fork
+
+	assume	ha.fkp eq -2	;
+	mov	r3,-(r2)	;base
+	add	#ek.pfk,(r2)	;ek$pfk - post fork
+
+;	timio
+
+	bit	#timio$,opts	;want timeout?
+	beq	225$		;no
+	assume	ha.tmp eq -6	;
+	tst	-(r2)		;yes - skip inten
+	mov	r3,-(r2)	;push in the base
+	add	#ek.tmo,(r2)	;kernel ek$dtm
+
+;	fork queue
+
+225$:	mov	r3,ek.fqu+2(r3)	;setup the fork queue
+	add	#ek.fqu,ek.fqu+2(r3)
+
+	pops	<r1,r2,r3>	;restore them
+	pop	@#m$kip6	;
+230$:	return
+.sbttl	skeleton handler
+
+;	Skeleton external handler
+
+meta	<ektrn$	c><jsr r5,ek$trn><.word c> ;transfer to feature
+
+extske:
+e$khan:
+	ekvec. = <e$kvtb-.>/2-1!100000	;offset to vector table
+e$kvec:	.word	ekvec.			;ha.vec - offset to table	 ins
+e$kiso:	.word	ek$is0-.		;ha.isr - offset to isr
+e$khol:	.word	0			;ha.hol - done hold flag
+e$klqe:	.word	0			;ha.lqe - last queue element
+e$kcqe:	.word	0			;ha.cqe - current queue element
+e$kbeg:	nop				;ha.beg - V5.3 nop
+	br	ek$sta			;ha.beg - start i/o
+e$kgua:	.rad50	"ext"			;eh.gua - guard word
+e$kvtb:
+e$kvc0:	.word	0			;vector
+	ekvi0. = ek$is0-.		;
+e$kvo0:	.word	ekvi0.			;isr offset
+e$kvp0:	.word	0			;ps
+;
+e$kvc1:	.word	0			;vector or terminator
+	ekvi1. = ek$is1-.		;
+e$kvo1:	.word	ekvi1.			;isr offset
+e$kvp1:	.word	0			;ps
+	.word	0			;terminator
+e$kfqu:	.word	0,0			;fork queue
+e$kfbl:	.word	0,0,0,0			;fork block
+	assume .-e$khan-ek.sta eq 0	;
+ek$sta:	ektrn$	ex.fst			;start I/O
+ek$don:	ektrn$	ex.fdn			;I/O done
+ek$abx:	ektrn$	ex.fab			;abort I/O
+ek$pfk:	ektrn$	ex.fpf			;post fork
+ek$dfk:	ektrn$	ex.fdf			;deliver fork
+ek$abt:	br	ek$abx			;abort entry point
+ek$is0:	ektrn$	ex.fis			;transfer interrupt
+e$kpc0:	.word	0			;isr pc				con
+e$kps0:	.word	0			;isr ps				con
+ek$is1:	ektrn$	ex.fis			;transfer interrupt
+e$kpc1:	.word	0			;isr pc				con
+e$kps1:	.word	0			;isr ps				con
+	assume	.-e$khan-ek.trn eq 0	;
+ek$trn:	jsr	r4,@#ek$dis		;save r4 & relocate
+e$kpag:	.word	0			;extended page			ins
+e$kbas:.word	m$mpa6			;base address in memory		ins
+e$ktop:	assume .-e$khan-ek.top eq 0	;
+;
+;	timio section
+;
+ek$tmo:	ektrn$	ex.tmo			;timio & ctimio
+ek$dtm:	ektrn$	ex.dtm			;deliver timer
+e$ktsu:	.word	0			;timer successor
+e$ktpc:	.word	0			;timer pc - ek$dtm
+e$ktps:	.word	0			;timer ps - unused
+e$ktr0:	.word	tirti.			;timer r0 - sequence = tirti.
+e$ktr1:	.word	0			;timer r1 - handler tbl address
+e$ktho:	.word	0			;timer hot
+e$ktlo:	.word	0			;timer lot
+;
+e$kxbs:	assume .-e$khan-ek.xbs eq 0	;
+;
+.end
+                                                                                                                                                                                                                                                                                                                                                                                       

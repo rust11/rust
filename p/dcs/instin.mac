@@ -1,0 +1,701 @@
+.sbttl	instin - install interface
+.sbttl	dl interface
+
+;	build dl parameters
+;	install dl controller
+
+buidlp:
+insdlc:	return
+
+;	attach dl interface
+;
+;	r2 ->	terminal record
+
+attdlu:	spl	7			;
+	bic	te.iie(r2),@te.tks(r2)	;
+	bis	te.iie(r2),@te.tks(r2)	;enable input
+	spl	0			;
+	return
+
+;	detach dl interface
+;
+;	r2 ->	terminal record
+
+detdlu:	spl	7			;go up
+	clr	@te.tks(r2)		;turn it off
+	clr	@te.tps(r2)		;
+	spl	0			;come down
+	mov	te.vec(r2),r3		;get the vector
+	beq	10$			;insane
+	spl	7			;go up
+	mov	r3,(r3)			;put in the fill pattern
+	add	#2,(r3)+		;ve.pc = .+2
+	mov	#iot,(r3)+		;ve.ps = iot
+	mov	r3,(r3)			;twice
+	add	#2,(r3)+		;
+	mov	#iot,(r3)+		;
+	spl	0			;
+10$:	return				;return
+.sbttl	build dz
+
+;	Build dz line parameter
+
+buidzp:					;build dz parameters
+	mov	tstop,r0		;get the stop value
+	mov	#d$zsto,r1		;
+	call	comdzc			;compare and convert
+	bis	r0,dzpar		;build it
+	mov	tsize,r0		;bits per character
+	mov	#d$zsiz,r1		;
+	call	comdzc			;
+	bis	r0,dzpar		;
+	mov	tspeed,r0		;baud rate
+	mov	#d$zspe,r1
+	call	comdzc
+	bis	r0,dzpar
+	mov	tparit,r0
+	mov	#d$zpar,r1
+	call	comdzc
+	bis	r0,dzpar
+	bis	#dzpre$,dzpar		;setup receive enable
+	movb	cunit,r0		;
+	bic	#^c17,r0		;clean it up
+	bis	r0,dzpar		;
+	return
+
+d$zsto:	.word	1,0,	2,40				;stop bits
+	.word	-1
+	.asciz	/stop/
+	.even
+d$zsiz:	.word	5,0,	6,10,	7,20,	8.,30		;bits per character
+	.word	-1
+	.asciz	/size/
+	.even
+d$zpar:	.word	0,0,	1,dzpod$!dzpar$, 2,dzpar$	;parity
+	.word	-1
+	.asciz	/parity/
+	.even
+							;baud rate
+d$zspe:	.word	50.,0,		75.,400,	110.,1000,	134.,1400
+	.word	150.,2000,	300.,2400,	600.,3000,	1200.,3400
+	.word	1800.,4000,	2000.,4400,	2400.,5000,	3600.,5400
+	.word	4800.,6000,	7200.,6400,	9600.,7000,	19200.,7400
+	.word	-1
+	.asciz	/speed/
+	.even
+
+;	r0	value
+;	r1 ->	list, -1, error code
+
+comdzc:	
+10$:	cmp	r0,(r1)+		;this it?
+	beq	20$			;yes
+	tst	(r1)+			;no
+	cmp	(r1),#-1		;this the last?
+	bne	10$			;no
+	tst	(r1)+			;skip the guard
+	message	<Invalid line parameter: > txa=r1	
+20$:	mov	(r1)+,r0		;return the default
+	return
+.sbttl	install dz controller
+
+;	Install DZ controller
+; 
+;	Synchronises by locking system process
+
+meta	<conerr c><jsr r0,condze><.word c>
+
+insdzc:					;install dz controller
+	clr	result			;
+	$cmkrnl	#area, #100$, pic=yes	;go into kernel mode
+	mov	result,r0		;got an error?
+	beq	20$			;no
+	call	(r0)			;yes
+	jmp	kmon
+20$:	return				;and quit
+
+;	Create the pool element first
+
+100$:	clr	rp.p0(r5)		;save the pool element here
+	$obtain	#s$yque			;synchronize kernel
+	$crepo	#pocor.!poclr$,#tz.bbs	;create one
+	bcc	105$			;fine	
+	mov	#er$ips,result		;return the error
+	$divest	#s$yque			;release system process
+	.soft	0			;and quit
+
+105$:	mov	r0,rp.p0(r5)		;save the element address
+
+;	Make sure its not already installed
+
+	mov	#t$econ,r0		;point to the queue
+110$:	mov	(r0),r0			;get the next
+	cmp	(r0),#t$econ		;searched them all?
+	beq	120$			;yes - we can install this
+	cmp	tz.con(r0),cname	;same controller?
+	bne	110$			;no
+	conerr	er$cai			;controller already installed
+
+120$:	mov	tcsr,r0			;get the csr address
+	tst	(r0)			;does it exist?
+	bvs	140$			;oops - csr check fail
+	tst	dz.bbs-2(r0)		;check the last one as well
+	bvs	140$			;
+	mov	tvec,r0			;get the vector
+	add	#2,r0			;advance it
+	cmp	-2(r0),r0		;is this owned?
+	bne	130$			;yes
+	cmp	(r0),#iot		;really?
+	beq	200$			;we are o.k.
+130$:	conerr	er$vao			;vector in use
+140$:	conerr	er$ccf			;invalid csr
+
+200$:					;we own most things
+	mov	rp.p0(r5),r3		;now point to it
+	call	fildzs			;fill the rest in
+	mov	r3,(r3)			;tz.suc
+	mov	r3,tz.pre(r3)		;tz.pre
+	insque	r3,r0,#t$econ		;insert it in the queue
+	br	500$			;fine
+
+400$:	
+500$:	$divest	#s$yque			;release it
+	return
+
+condze: 
+	mov	(r0),result		;return the error code
+	$delpo	rp.p0(r5)		;delete the pool element
+	$divest	#s$yque			;release it
+	jmp	@#em$err		;and quit
+.sbttl	fill dz shell
+
+; receiver service routine
+
+fildzs:					;fill dz shell
+	mova	dzshel,r0		;
+	mov	r3,r1			;
+	mov	#tz.bbs/2,r2		;
+10$:	mov	(r0)+,(r1)+		;move it in
+	sob	r2,10$			;
+
+	mov	tcsr,tz.csr(r3)		;tz.csr	- csr address
+	mov	tvec,tz.vec(r3)		;tz.vec	- vector address
+	mov	cname,tz.con(r3)	;tz.con	- controller name
+					;tz.ref	- reference count
+					;tz.tim	- tid map
+					;tz.tem	- ter map (te.oct)
+					;tz.isr	- receiver service (below)
+	mov	tcsr,tz.rbp(r3)		;tz.rbp	- rbu pointer
+	add	#dz.rbu,tz.rbp(r3)	;
+	mov	r3,tz.tip(r3)		;tz.tip	- tz.tim pointer
+	add	#tz.tim,tz.tip(r3)	;
+
+	mov	#h$sput,r0		;tz.hsp	- offset to h$sput
+	sub	r3,r0			;	- base
+	sub	#tz.hsp-tz.suc,r0	;	- tz.hsp
+	sub	#2,r0			;	- popped pc
+	mov	r0,tz.hsp(r3)		;
+
+					;tz.osr	- transmit service (below)
+	mov	tcsr,tz.cst(r3)		;tz.cst	- dz.csr+1
+	inc	tz.cst(r3)		;
+	mov	r3,tz.tep(r3)		;tz.tep	- tz.tem pointer
+	add	#tz.tem,tz.tep(r3)	;
+					;tz.tem
+	mov	tvec,r0			;get the vector
+	spl	7			;block everything
+	mov	r3,(r0)			;tz.isr
+	add	#tz.isr,(r0)+		;
+	mov	#pr7,(r0)+		;
+	mov	r3,(r0)			;
+	add	#tz.osr,(r0)+		;
+	mov	#pr7,(r0)+		;
+	mov	#dzcri$!dzcti$!dzcse$,@tcsr ;enable input/output, master scan
+	spl	0			;
+	return
+.sbttl	dz shell
+
+;	DZ shell
+;
+;	Used only by DCL 
+;
+; receiver service routine
+
+dzshel:
+$=.				;orign
+tz.suc==.-$
+	.word	0		;tz.suc	- successor
+tz.pre==.-$
+	.word	0		;tz.pre	- predecessor
+tz.csr==.-$
+	.word	0		;csr
+tz.vec==.-$
+	.word	0		;vector
+tz.con==.-$
+	.word	^rdza		;rad50 controller name
+tz.ref==.-$
+	.word	0		;number of units referenced
+tz.tim==.-$			;terminal id map
+	.byte	0,0,0,0		;terminal id's
+	.byte	0,0,0,0		;
+tz.tem==.-$			;terminal record map
+	.word	0,0,0,0		;te.oct pointers
+	.word	0,0,0,0		;
+
+tz.par==.-$			;line parameters
+	.word	0,0,0,0
+	.word	0,0,0,0
+
+; input service routine
+
+tz.isr==.-$
+	psh	r5		;save this
+	psh	@(pc)+		;get char/line [always valid]
+tz.rbp==.-$			;dz.rbu
+	.word	0		;dz.rbu
+	movb	1(sp),r5	;get the line
+	bic	#^c7,r5		;isolate the line number
+tz.tip==.+2-$			;
+	movb	tz.tim(r5),1(sp);get tid [strays handled later]
+
+tz.hsp==.+2-$			;relative offset to h$sput
+	pop	@h$sput		;store the character
+	jmp	@#dz$isr	;join common section
+
+; output service routine
+
+tz.osr==.-$			;transmit service routine
+	psh	r5		;save this
+	movb	@(pc)+,r5	;pick up the address
+tz.cst==.-$			; (@#dz.csr+1)
+	.word	0		;
+	bic	#^c7,r5		;clean it up
+	asl	r5		;
+tz.tep==.+2-$			; (@#tz.tem)
+	mov	tz.tem(r5),r5	;get the address
+	beq	30$		;does not exist
+	jmp	@#dz$osr	;join the common stuff
+30$:	pop	r5		;
+	rti			;ignore it
+
+tz.bbs==.-$			;block size
+.dsabl	lsb
+.sbttl	install dz unit
+
+;	r2 ->	terminal record
+;	r3 ->	controller
+;
+;	Fill in terminal unit record
+;
+;	te.iie & te.tks are same as dl:
+
+attdzu:					;fill controller
+	psh	r4			;free a register
+	clr	r4			;
+	mov	tcont,r3		;r3 -> dz controller
+	inc	tz.ref(r3)		;count the new unit
+	movb	cunit,r1		;r1 = unit
+	bic	#^c17,r1		;clean up
+	bisb	b$ymap(r1),r4		;get the bit
+	movb	r4,te.oie(r2)		;setup the enable bit
+	movb	r4,te.oen(r2)		;setup the enable bit
+	mov	tcsr,r0			;disable output
+	bicb	r4,dz.tsr(r0)		;disable output
+	swab	r4			;get it in high byte
+	bis	r4,dz.tsr(r0)		;set DTR bit
+	add	r3,r1			;
+	add	#tz.tim,r1		;r1 -> tz.tim entry
+	mov	cunit,r0		;r0 = unit
+	bic	#^c17,r0		;clean up
+	asl	r0			;
+	add	r3,r0			;
+	add	#tz.tem,r0		;r0 -> tz.tem entry
+	spl	7			;
+	movb	te.tid(r2),(r1)		;fill in the tid
+	mov	r2,(r0)			;fill in tem
+	add	#te.oct,(r0)		;
+	mov	dzpar,tz.par-tz.tem(r0)	;remember parameters
+	mov	dzpar,@te.tkb(r2)	;set them and enable them
+	spl	0			;terminal is active
+	pop	r4			;get r4 back
+	return
+.sbttl	detach dz unit
+
+;	r2 ->	terminal record
+;	r3 ->	controller
+
+detdzu:					;fill controller
+	tst	r3			;check controller
+	beq	10$			;insane
+	mov	tcsr,r0			;disable output
+	beq	10$			;insane
+	movb	cunit,r1		;r1 = unit
+	bic	#^c17,r1		;clean it up
+	bicb	b$ymap(r1),dz.tsr(r0)	;disable output
+	bicb	b$ymap(r1),dz.tsr+1(r0)	;remove DTR
+	add	r3,r1			;
+	add	#tz.tim,r1		;r1 -> tz.tim entry
+	movb	cunit,r0		;r0 = unit
+	bic	#^c17,r0		;clean it up
+	asl	r0			;
+	add	r3,r0			;
+	add	#tz.tem,r0		;r0 -> tz.tem entry
+	spl	7			;
+	clrb	(r1)			;remove the tid
+	clr	(r0)			;remove the tem
+	psh	tz.par-tz.tem(r0)	;get the parameters
+	bic	#dzpre$,(sp)		;turn off enable
+	pop	@te.tkb(r2)		;cleanup hardwae
+	spl	0			;terminal is active
+	dec	tz.ref(r3)		;count the unit out
+10$:	return
+.sbttl	build dh line parameters
+
+;	Build dh line parameter
+
+buidhp:					;build dh parameters
+	mov	tstop,r0		;get the stop value
+	mov	#d$hsto,r1		;
+	call	comdhc			;compare and convert
+	bis	r0,dhpar		;build it
+
+	mov	tsize,r0		;bits per character
+	mov	#d$hsiz,r1		;
+	call	comdhc			;
+	bis	r0,dhpar		;
+
+	mov	tspeed,r0		;baud rate
+	mov	#d$hspe,r1
+	call	comdhc
+	bis	r0,dhpar
+
+	mov	tparit,r0
+	mov	#d$hpar,r1
+	call	comdhc
+	bis	r0,dhpar
+
+	return
+
+d$hsto:	.word	1,0,	2,dhpst$			;stop bits
+	.word	-1
+	.asciz	/stop/
+	.even
+d$hsiz:	.word	5,0,	6,10,	7,20,	8.,30		;bits per character
+	.word	-1
+	.asciz	/size/
+	.even
+d$hpar:	.word	0,0,	1,dhppe$, 2,dhppe$!dhpev$	;parity
+	.word	-1
+	.asciz	/parity/
+	.even
+
+.macro	dhspee c d e f g h i j
+	.word	c
+	.word	d*400!<d*10000>
+.iif nb <e>,dhspee e f g h i j
+.endm
+							;baud rate
+d$hspe:	dhspee	50.,dh050.,	75.,dh075.,	110.,dh110.,	134.,dh134.
+	dhspee	150.,dh150.,	300.,dh300.,	600.,dh600.,	1200.,dh12h.
+	dhspee	1800.,dh18h.,	2000.,dh20h.,	2400.,dh24h.,	4800.,dh48h.
+	dhspee	7200.,dh72h.,	9600.,dh96h.,	19200.,dh19k.,	38400.,dh38k.
+	.word	-1
+	.asciz	/speed/
+	.even
+
+;	r0	value
+;	r1 ->	list, -1, error code
+
+comdhc:	
+10$:	cmp	r0,(r1)+		;this it?
+	beq	20$			;yes
+	tst	(r1)+			;no
+	cmp	(r1),#-1		;this the last?
+	bne	10$			;no
+	tst	(r1)+			;skip the guard
+	message	<Invalid line parameter: > txa=r1	
+20$:	mov	(r1)+,r0		;return the default
+	return
+.sbttl	install dh controller
+
+;	Install DH controller
+; 
+;	Synchronises by locking system process
+
+meta	<conerr c><jsr r0,condhe><.word c>
+
+insdhc:
+	clr	result			;
+	$cmkrnl	#area, #100$, pic=yes	;go into kernel mode
+	mov	result,r0		;got an error?
+	beq	20$			;no
+	call	(r0)			;yes
+	jmp	kmon
+20$:	return				;and quit
+
+;	Create the pool element first
+
+100$:	clr	rp.p0(r5)		;save the pool element here
+	$obtain	#s$yque			;synchronize kernel
+	$crepo	#pocor.!poclr$,#th.bbs	;create one
+	bcc	105$			;fine	
+	mov	#er$ips,result		;return the error
+	$divest	#s$yque			;release system process
+	.soft	0			;and quit
+105$:	mov	r0,rp.p0(r5)		;save the element address
+
+;	Make sure its not already installed
+
+	mov	#t$econ,r0		;point to the queue
+110$:	mov	(r0),r0			;get the next
+	cmp	(r0),#t$econ		;searched them all?
+	beq	120$			;yes - we can install this
+	cmp	th.con(r0),cname	;same controller?
+	bne	110$			;no
+	conerr	er$cai			;controller already installed
+
+120$:	mov	tcsr,r0			;get the csr address
+	tst	(r0)			;does it exist?
+	bvs	140$			;oops - csr check fail
+	tst	dh.bbs-2(r0)		;check the last one as well
+	bvs	140$			;
+	mov	tvec,r0			;get the vector
+	add	#2,r0			;advance it
+	cmp	-2(r0),r0		;is this owned?
+	bne	130$			;yes
+	cmp	(r0),#iot		;really?
+	beq	200$			;we are o.k.
+130$:	conerr	er$vao			;vector in use
+140$:	conerr	er$ccf			;invalid csr
+
+200$:					;we own most things
+	mov	rp.p0(r5),r3		;now point to it
+	call	fildhs			;fill the rest in
+	mov	r3,(r3)			;th.suc
+	mov	r3,th.pre(r3)		;th.pre
+	insque	r3,r0,#t$econ		;insert it in the queue
+	br	500$			;fine
+
+400$:	
+500$:	$divest	#s$yque			;release it
+	return
+
+condhe: 
+	mov	(r0),result		;return the error code
+	$delpo	rp.p0(r5)		;delete the pool element
+	$divest	#s$yque			;release it
+	jmp	@#em$err		;and quit
+.sbttl	fill dh shell
+
+;	Fill in the shell
+
+fildhs:					;fill dh shell
+	mova	dhshel,r0		;
+	mov	r3,r1			;
+	mov	#th.bbs/2,r2		;
+10$:	mov	(r0)+,(r1)+		;move it in
+	sob	r2,10$			;
+
+	mov	tcsr,th.csr(r3)		;th.csr	- csr address
+	mov	tvec,th.vec(r3)		;th.vec	- vector address
+	mov	cname,th.con(r3)	;th.con	- controller name
+					;th.ref	- reference count
+					;th.tim	- tid map
+					;th.tem	- ter map (te.oct)
+					;th.isr	- receiver service (below)
+
+					;-4(r1) -> dh$ofk
+					;-2(r1) -> dh$ifk
+	mov	@#d$hhan,r1		;   r1  -> dh$fkp
+	mov	r1,th.ifp(r3)		;th.ifp - dh$fkp
+	mov	-2(r1),th.ipc(r3)	;th.ipc - dh$ifk
+	mov	r3,th.ir5(r3)		;th.ir5 - input fork r5
+	mov	r1,th.ofp(r3)		;th.ofp - dh$fkp
+	mov	-4(r1),th.opc(r3)	;th.opc - dh$ofk
+	mov	r3,th.or5(r3)		;th.or5 - output fork r5
+
+	mov	tcsr,r0			;get the controller
+	clr	r1			;dont do this forever
+15$:	mov	dh.rbu(r0),r2		;get the next
+	bpl	20$			;fine
+	sob	r1,15$			;do another
+
+20$:	mov	tvec,r0			;get the vector
+	spl	7			;block everything
+	mov	r3,(r0)			;th.isr
+	add	#th.isr,(r0)+		;
+	mov	#pr7,(r0)+		;
+	mov	r3,(r0)			;
+	add	#th.osr,(r0)+		;
+	mov	#pr7,(r0)+		;
+	mov	#dhcti$!dhcri$,@tcsr	;enable input & output
+	spl	0			;
+	return
+.sbttl	dh shell
+
+;	DH shell
+;
+;	Defined in LDT.MAC as well for DDH.MAC
+
+dhshel:
+$=.				;orign
+th.suc=.-$
+	.word	0		;th.suc	- successor
+th.pre=.-$
+	.word	0		;th.pre	- predecessor
+th.csr=.-$
+	.word	0		;csr
+th.vec=.-$
+	.word	0		;vector
+th.con=.-$
+	.word	^rdha		;rad50 controller name
+th.ref=.-$
+	.word	0		;number of units referenced
+th.tim=.-$			;terminal id map
+	.byte	0,0,0,0		;terminal id's
+	.byte	0,0,0,0		;
+th.tem=.-$			;terminal record map
+	.word	0,0,0,0		;te.oct pointers
+	.word	0,0,0,0		;
+
+th.par=.-$			;line parameters
+	.word	0,0,0,0
+	.word	0,0,0,0
+
+; input service routine
+;
+;	We fork to the DHV input routine
+
+th.isr=.-$
+	jsr	r5,@(pc)+	;call the fork processor
+th.ifp=.-$
+	.word	dh$fkp		;
+th.ifs=.-$
+	.word	-1		;input fork semaphore
+th.ifb=.-$			;fork block
+	.word	0		;fk.suc
+th.ipc=.-$
+	.word	dh$ifk		;fk.kpc
+th.ir5=.-$
+	.word	0		;fk.kr5
+th.ir4=.-$
+	.word	0		;fk.kr4
+
+; output service routine
+;
+;	Fork to the DHV output service routine
+
+th.osr=.-$
+	jsr	r5,@(pc)+	;call the fork processor
+th.ofp=.-$
+	.word	dh$fkp		;
+th.ofs=.-$
+	.word	-1		;output semaphore
+th.ofb=.-$			;fork block
+	.word	0		;fk.suc
+th.opc=.-$
+	.word	dh$ofk		;fk.kpc
+th.or5=.-$
+	.word	0		;fk.kr5
+th.or4=.-$
+	.word	0		;fk.kr4
+th.bbs=.-$			;block size
+.dsabl	lsb
+.sbttl	attach dh unit
+
+;	r2 ->	terminal record
+;	r3 ->	controller
+;	r4 ->	DH 
+;
+;	Fill in the controller
+
+attdhu:					;fill controller
+	psh	r4			;
+	mov	terk,r2			;terminal record
+	mov	tcont,r3		;r3 -> dh controller
+	mov	tcsr,r4			;r4 -> dh interface
+
+	inc	th.ref(r3)		;count the new unit
+
+	bis	#100,cunit		;set ie in unit
+	mov	#dhlre$,te.iie(r2)	;input enable (???)
+	mov	#dhtte$,te.oie(r2)	;transmit enable
+	mov	#dhtte$,te.oen(r2)	;
+	clr	te.obc(r2)		;cleanup the bytecount
+
+	movb	cunit,r1		;get the unit
+	bic	#^c17,r1		;clean it up
+	add	r3,r1			;
+	add	#th.tim,r1		;r1 -> tz.tim entry
+
+	mov	cunit,r0		;r0 = unit
+	bic	#^c17,r0		;
+	asl	r0			;
+	add	r3,r0			;
+	add	#th.tem,r0		;r0 -> tz.tem entry
+
+	movb	te.tid(r2),(r1)		;te.tim - input id map
+	mov	r2,(r0)			;th.tem - output ter map
+	mov	dhpar,th.par-th.tem(r0)	;th.par - line parameters
+					;and output enable
+
+	movb	cunit,te.uni(r2)	;setup the unit
+	mov	#dh$sel,te.sel(r2)	;select routine
+	mov	#s$ywal,te.tps(r2)	;ignore TPS writes
+	mov	r4,te.tpb(r2)		;redundant
+	add	#dh.xbu,te.tpb(r2)	;
+
+	psh	#dhlre$!dhldt$		;receiver enable, DTR
+	bit	#tttsy$,te.tc0(r2)	;using TTSYNC?
+	beq	10$			;no
+	bis	#dhlia$!dhloa$,(sp)	;xon/xoff
+					;
+10$:	spl	7			;
+	movb	cunit,(r4)		;select the line
+	mov	dhpar,dh.par(r4)	;dh.par - setup the hardware
+;	mov	#dhlre$!dhlia$!dhloa$!dhldt$,dh.lin(r4) ;receiver, xon/xoff, DTR
+	pop	dh.lin(r4)		;setup line parameters
+	mov	#dhtte$,dh.tb2(r4)	;enable output
+	spl	0			;terminal is active
+	pop	r4			;done
+	return
+.sbttl	detach dh unit
+
+;	r2 ->	terminal record
+;	r3 ->	controller
+;	r4 ->	DH 
+;
+;	Fill in the controller
+
+detdhu:					;fill controller
+	psh	r4			;
+	mov	tcont,r3		;r3 -> dh controller
+	beq	50$			;insane
+	mov	tcsr,r4			;r4 -> dh interface
+	beq	50$			;insane
+
+	movb	cunit,r1		;get the unit
+	bic	#^c17,r1		;clean it up
+	add	r3,r1			;
+	add	#th.tim,r1		;r1 -> tz.tim entry
+
+	mov	cunit,r0		;r0 = unit
+	bic	#^c17,r0		;
+	asl	r0			;
+	add	r3,r0			;
+	add	#th.tem,r0		;r0 -> tz.tem entry
+
+	clrb	(r1)			;te.tim - clear input map
+	clr	(r0)			;th.tem - output ter map
+	clr	th.par-th.tem(r0)	;th.par - remove parameters
+
+	spl	7			;
+	movb	cunit,(r4)		;select the unit
+	bic	#dhlre$!dhlia$!dhloa$!dhldt$,dh.lin(r4) ;receiver, xon/xoff, DTR
+	bic	#dhtte$,dh.tb2(r4)	;disable output
+	clr	dh.par(r4)		;clean up parameters
+	spl	0			;terminal is active
+	dec	th.ref(r3)		;count the new unit
+50$:	pop	r4			;done
+	return
+                                                                                                                                                                    

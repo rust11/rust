@@ -1,0 +1,345 @@
+dol$c=1		; permit dollar everywhere
+.title	text - the editor
+.psect	text
+.pass
+
+;	r0	saved in _r, modified
+;	r1/r2	saved
+;	r3 ->	edit control string
+;	r4 ->	output line
+;	r5 ->	input line
+
+text::	mov	r0,@$r0		;save r0 for <_r>
+	psh	r1		;we save r1
+	psh	r2		;and r2
+	call	e.begin		;remember where we are
+	clr	(pc)+		;clear our flags
+e$mute:	.byte	0		;copy flag
+e$optio:.byte	0		;ignore failures flag
+5$:	movb	(r3)+,r0	;c=0> get the next guy
+	ble	15$		;c=0> its done
+	psh	#13$		;the command return address
+	movb	edits(r0),r1	;get the offset
+	beq	16$		;not one of ours
+	clc			;c=0>
+	jmp	@jumps(r1)	;c=0> and dispatch it
+13$:	bcc	5$		;do some more
+15$:	call	e.even		;c> even us up
+	pop	r2		;c> restore r2
+	pop	r1		;c> and r1
+	mov	@$r0,r0		;c> get r0 back
+	rts	r3		;c> and return
+
+16$:	call	address		;is this a variable?
+	bcs	e.compare	;nope, use the copy check
+e.value:mov	r0,r2		;save the variable address
+	movb	(r3)+,r0	;get the next
+	cmpb	r0,#'=		;is this an assign?
+	bne	50$		;nope
+	movb	(r3)+,r0	;get the thing to assign
+	call	address		;is it a variable?
+	bcs	30$		;nope
+.if ne test
+	call	thump		;mabye its for the debugger
+	bcc	e.good		;it handled it
+.endc
+	movb	(r0),r1		;(V=V) the cusp check
+	call	e.cusp		;check the first
+25$:	movb	(r0)+,(r2)+	;copy it in (V=V)
+	bne	25$		;till we're done
+	br	e.good		;fine
+
+30$:	cmpb	r0,#'"		;is it V="ccc"?
+	bne	40$		;nope
+35$:	movb	(r3)+,r0	;get the next (V="aaa")
+	cmpb	r0,#'"		;is this the last?
+	bne	38$		;nope
+	clr	r0		;make it a terminator
+38$:	movb	r0,(r2)+	;store it
+	bne	35$		;till its done
+	br	e.good
+
+40$:	movb	r0,r1		;(V=c) the cusp check
+	call	e.cusp		;check for cusp
+	movb	r0,(r2)+	;store it (V=,)
+	clrb	(r2)		;terminate it
+	br	e.good		;and its done
+
+50$:	cmpb	r0,#'%		;is it (v%) => V<>0 test?
+	bne	55$		;nope
+	tstb	(r2)		;check it
+	bne	e.good		;its ne - o.k.
+	br	e.goof
+55$:	cmpb	r0,#''		;is it (v'c) ?
+	bne	58$		;nope
+	movb	(r3)+,r0	;yes - get the character
+	br	60$		;and compare it
+58$:	call	address		;is it a variable?
+	bcs	60$		;nope
+	movb	(r0),r0		;yes, get the character
+60$:	cmpb	r0,(r2)		;do the compare
+	beq	e.good		;it matches
+	br	e.goof		;it doesnt match
+
+e.begin:mov	r4,(pc)+	;save r4
+e.r4:	.word	0		;backup copy of r4
+	mov	r5,(pc)+	;save r5
+e.r5:	.word	0		;backup copy of r5
+	br	e.good
+
+e.back:	mov	e.r4,r4
+	mov	e.r5,r5
+	br	e.good
+
+e.else:	tstb	(r3)		;end of program?
+	beq	e.good		;yes, forget it
+	cmpb	(r3),#'(	;a new loop?
+	beq	e.good		;yes
+	cmpb	(r3)+,#')	;skip to end
+	bne	e.else		;keep skipping
+e.end:	br	e.good		;terrific
+
+e.option:comb	e$option	;change its state
+	br	e.good		;return happy
+e.mute:	comb	e$mute		;change its state
+	br	e.good		;and return
+
+; commands return to goof to check things
+
+e.goof:	cmpb	(r3)+,#'~	;were we looping?
+	beq	e.good		;yes, ignore failure, stop loop
+	dec	r3		;no, bump back again
+	tstb	e$option	;was it optional?
+	bne	e.good		;yes, ignore goof
+5$:	cmpb	(r3)+,#')	;end of nest?
+	beq	e.back		;yes, backup and exit
+	tstb	-(r3)		;end of string?
+	bne	10$		;nope
+	call	e.back		;back up
+	br	e.bad		;and kill it
+10$:	cmpb	(r3),#'(	;start of new nest?
+	beq	e.good		;yep, ignore error
+	cmpb	(r3)+,#'|	;alternative?
+	bne	5$		;nope, keep looking
+	call	e.back		;yes, back up
+	cmpb	(r3),#'|	;is this ||, the escape clause?
+	beq	e.bad		;yes, skip out of here
+e.good:	tst	(pc)+		;c=0 => good
+e.bad:	sec			;c=1 => bad
+	return
+
+e.compar:cmpb	r0,(r5)		;are they the same
+	beq	e.copy		;its o.k.
+	cmpb	r0,#space	;is this a space?
+	bne	e.goof		;nope
+;	cmpb	(r5),#ht	;tab is same as space
+;	beq	e.good		;its a tab
+	tstb	(r5)		;special case space==0
+	bne	e.goof		;still not right
+	br	e.good		;its o.k. but dont copy
+e.copy:	movb	(r5)+,r0	;get the character
+e.move:	tstb	e$mute		;are we copying at present?
+	bne	e.good		;no, skip it
+e.forc:	call	e.put		;and put it out
+	br	e.good
+
+e.perver:call	e.copy		;get it and copy it
+	tstb	r0		;end of line?
+	beq	10$		;yes, that goofs
+	cmpb	r0,(r3)		;was this the last?
+	bne	e.perverse	;nope, keep looking
+	inc	r3		;skip the character to match
+	br	e.good		;it was o.k.
+10$:	inc	r3		;skip the character
+	br	e.goof		;and goof them
+e.all:	tstb	(r5)		;at end of line
+	beq	e.goof		;yes, we're done
+	cmpb	(r3),#'=	;is this a literal test
+	bne	e.copy		;nope
+	inc	r3		;yep, skip the '=
+	movb	(r3)+,r0	;get the compare character
+10$:	cmpb	r0,(r5)		;are they the same?
+	beq	e.copy		;yep
+	cmpb	r0,#'A		;this a letter compare?
+	blo	e.goof		;nope
+	cmpb	r0,#'Z		;really
+	bhi	e.goof		;nope
+	add	#'a-'A,r0	;make it lower case
+	br	10$		;try again
+e.symb:	check	<$> e.copy	;symbol
+	br	e.alpha		;
+e.file:	check	<:.> e.copy	;these make filenames
+e.alpha:check	<_*%?A_Za_z> e.copy ;look for a letter
+.if eq dol$c
+	tstb	@$dollar	;$ allowed?
+	beq	e.digit		;nope
+.endc
+	check	<$> e.copy	;
+e.digit:check	<0_9> e.copy	;look for a digit
+	br	e.goof		;no good
+e.feed:	movb	#cr,r0		;do a cr
+	call	e.put		;dump it
+	movb	#lf,r0		;and a lf
+	br	e.force		;and force it out
+e.allo:	mov	r4,pna		;mark it for allocates
+	br	e.good		;and return
+
+e.string:movb	(r3)+,r0	;move one of ours
+	cmpb	r0,#'"		;end of the string?
+	beq	e.good		;yes, we're done
+	call	e.put		;check and dump it
+	br	e.string	;and do another
+e.repea:cmpb	-(r3),-(r3)	;backup two places
+	br	e.good
+
+e.comma:movb	-1(r4),r1	;get the previous byte
+	ble	e.good		;doesnt need a comma
+	cmpb	r1,#',		;already got one?
+	beq	e.good		;yes, doesnt need another
+	cmpb	r1,#'=		;sitting on the equals sign?
+	beq	e.good		;yes, no comma
+	movb	#',,(r4)+	;give it a comma
+	br	e.good
+
+;	::	colon only
+;	:	colon or equals. copy colon.
+
+e.colon:movb	#':,r0		;assume we have a colon
+	cmpb	(r3)+,r0	;is this a double colon?
+	beq	e.comp		;yes - colon only
+	dec	r3		;skip it
+	cmpb	(r5)+,#'=	;got an equals?
+	beq	e.move		;yes - copy a colon
+	cmpb	-(r5),r0	;got a colon?
+	beq	e.copy		;yes - copy a colon
+	jmp	e.goof		;no
+
+e.jump:	call	push		;and push it maybe
+	movb	(r3)+,r0	;get the address
+	call	address		;go get an address
+	bcs	e.bump		;oops, i screwed up
+	mov	r0,r4		;and use it
+egood:	jmp	e.good		;and return
+e.bump:	jmp	syserr		;theoretically impossible
+
+e.dump:	clr	r0		;no bumper
+10$:	movb	r0,r2		;setup the bumper
+	movb	(r3)+,r0	;get the address
+	call	address		;get the address
+	bcs	10$		;till we get one
+	mov	r0,r1		;get the address
+20$:	movb	(r1)+,r0	;get the next
+	beq	egood		;that was all
+	cmpb	r0,r2		;got the bumper?
+	beq	egood		;yes, we're done
+	call	e.put		;nope, dump the character
+	br	20$		;and get the next
+
+e.cusp:	cmp	$cusp,r2	;(C=r) or (C=c) ?
+	bne	5$		;nope
+	tstb	(r2)		;is it setup yet?
+	beq	5$		;nope, its o.k.
+	cmpb	r1,(r2)		; << r1 = r or c
+	bne	10$		;oops, conflicting options
+5$:	return
+10$:	fatal	<Conflicting options>
+
+e.keep:	call	e.feed		;force newline
+	mov	r4,$text	;keep what we have
+	br	egood		;
+
+e.put::	cmpb	r0,#'*		;is this a wildcard?
+	beq	20$		;yes, remember it
+	cmpb	r0,#'?		;DOS wild character?
+	bne	11$		;
+	movb	#'%,r0		;replace it
+11$:	cmpb	r0,#'%		;is this a wildcharacter?
+	bne	s.put		;nope
+20$:	tstb	@$wild		;wildcards permitted?
+	bne	30$		;yes
+e.illeg=.
+	jmp	illegal
+30$:	bisb	#3,@$wild	;remember we got one
+s.put::	cmp	r4,textb	;in $text area?
+	bhis	10$		;yes - different test
+	cmpb	(r4),#-1	;this the end of the string?
+	beq	40$		;yes - line too long
+	movb	r0,(r4)+	;store it
+	cmpb	(r4),#-1	;is this end of line?
+	beq	40$		;yes
+	clrb	(r4)		;no - terminate the string
+	return			;and return
+10$:	cmp	r4,textt	;have we overrun $text?
+	bhis	40$		;yes
+	movb	r0,(r4)+	;store it
+	clrb	(r4)		;
+	return			;nope
+40$:	fatal	<Line too long>
+
+e.even:	dec	r3		;c> backup to run r3 out
+15$:	bitb	(r3),(r3)+	;c> look for a null
+	bne	15$		;c> keep looking
+	inc	r3		;c> now even it up
+	bic	#1,r3		;c>
+	return			;c> go back
+.sbttl	jump table
+
+.macro	jump c d
+.=edits+d
+.byte	$
+.=jumps+$
+.word	e.'c
+$=$+2
+.endm
+
+edits:	.blkw	64.
+jumps::	.word	0		;dummy	
+$=2
+
+jump	all	52	; *
+jump	file	45	; %
+jump	alpha	100	; @
+jump	digit	43	; #
+jump	illegal	77	; ?
+jump	option	134	; \
+jump	mute	41	; !
+jump	begin	50	; (
+jump	else	174	; |
+jump	end	51	; )
+jump	string	42	; "
+jump	repeat	176	; ~
+jump	pervers	140	; `
+jump	jump	136	; ^ 
+jump	dump	137	; _
+jump	feed	175	; }
+jump	allo	173	; {
+jump	comma	54	; ,
+jump	colon	72	; :
+jump	keep	44	; $			;V4
+jump	symb	53	; +			;V4
+.sbttl	check
+
+;	check	<...> good,fail	;
+
+check::	tstb	(r3)		;any more?
+	beq	20$		;nope
+	cmpb	(r5),(r3)+	;is this it
+	beq	15$		;yes
+	bhis	10$		;maybe a range
+	cmpb	(r3),#'_	;skip a range?
+	bne	check		;nope
+	cmpb	(r3)+,(r3)+	;yes
+	br	check		;
+
+10$:	cmpb	(r3),#'_	;is it a range
+	bne	check		;no
+	inc	r3		;skip the range specifier
+	cmpb	(r5),(r3)+	;check the high end
+	bhi	check		;its not us
+15$:	tst	(pc)+		;c=0, o.k.
+20$:	sec			;c=1, no match for us
+	call	e.even		;c> get even
+	rts	r3		;c> and escape
+
+.end
+

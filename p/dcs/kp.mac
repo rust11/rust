@@ -1,0 +1,85 @@
+K$SHP=1
+K$KMN=0
+rsj$c=0
+rxm$c=1
+.sbttl	kp	kmon preface
+.nlist
+.enabl	lc,gbl,mcl
+.nlist	ld,cnd,bex
+.list	ttm
+.list
+.macro	meta	m n o p
+.macro	m
+n
+o
+p
+.endm
+.endm
+meta <set c d e f g h i j k l m n><c=d><.iif nb <e>,set e f g h i j k l m n>
+set	tmp %0, cha %0, num %1, src %2
+set	dst %3	str %4, dev %4, csw %4 qel %5
+set	cr 15, lf 12
+meta <bl c,d,e> <.iif b <c>,d> <.iif nb <e>,bl c,<e>>
+meta <nb c,d,e> <.iif nb <c>,d> <.iif nb <e>,nb c,<e>>
+meta <.blank n><.rept n><.byte 0><.endr>
+meta <psh a> <mov a,-(sp)>
+meta <pop a> <.iif b <a>,mov (sp),(sp)+><.iif nb <a>,mov (sp)+,a>
+meta <save> <jsr r5,save>
+meta <restore> <jsr r5,restore>
+meta <fall a b c d> <.iif ne,.-a, .error .-a b c d>
+meta <on a b c d e> <.iif ne a,b c d e>
+meta <no a,b c d e> <.iif eq a,b c d e>
+meta <.print a>,<.iif nb <a>,mov a,r0> <emt 351>
+meta <.cond> <.enabl lc,gbl> <.nlist ld,cnd,bex> <.list ttm> 
+meta <imov a,b,c> <mov b,c> <add #a,c>
+set	path 6
+
+;meta <string a,t=0,?l><l:.ascii&a&><.iif eq .-l&1,.byte 177><.byte t>
+;meta <.feed><emt 362>
+;meta <.ttin><emt 366>
+;meta <.ttou a><.iif nb,a,movb a,r0><emt 367>
+;meta <print s><emt 365><string <s>>
+;meta <type s><emt 365><string <s>,200>
+;meta <.abort s,l><emt 363><.iif nb l,l==.><.iif nb <s>,string <s>>
+;meta <.fatal s,l><emt 364><.iif nb l,l==.><.iif nb <s>,string <s>>
+
+meta <string a,t=0><.ascii &a&<t>><.even>
+meta <.ttin><call km$tti>
+meta <.feed><call km$fee>
+meta <.ttou a><.ttyout a>
+meta <print s><jsr r1,km$pri><string <s>>
+meta <type s><jsr r1,km$typ><string <s>,200>
+meta <.abort s,l><jsr r1,km$abo><.iif nb l,l==.><string <s>>
+meta <.fatal s,l><jsr r1,km$fat><.iif nb l,l==.><string <s>>
+
+meta <.ttyin c><emt 340><bcs .-2><.iif nb <c>,mov r0,c>
+meta <string a,t=0,?l><l:.ascii&a&><.iif eq .-l&1,.byte 177><.byte t>
+;meta <.gslots a><mov a,r0><emt 370>
+set  $csw 4, $con 300, $top 266
+meta <.proceed><mov sp,r0><.exit>
+meta <.exit><emt 350>
+meta <world c=r0><mov k$mwor,c>
+meta <map n,s=0,p=2><nb n,<n=$>><nb n,<$=s*p+$>><bl n,<$=.>>
+meta <.pass><.cond>
+meta <alpha a><.asciz &a&><.even>
+meta <opt n,c,s,p,y,l><.word ''l*400!c,p*400!''s,y><.asciz &n&><.even>
+meta <option n,c=0,s=_,p=0,y=0,l=S><.iif nb <n>,opt n c s p y l><.iif b <n>,0>
+meta <setup c=0,d=dupe,e=dupe><jsr r3,setup><.word c,d,e>
+meta <scan a><jsr r3,text><.asciz &a&><calls scan>
+meta <scanend a><jsr r3,text><.asciz &a&><calls scan,endline>
+meta <edit a g h><jsr r3,text><.asciz &a&><branch g,h>
+meta <check a g h><jsr r3,check><.asciz &a&><branch g,h>
+meta <branch c d><.even><.iif nb <c>,bcc c><.iif nb <d>,bcs d>
+meta <calls c d><.even><call c><.iif nb <d>,call d>
+meta <error a><jsr r1,error><alpha <a>>
+meta <fatal a><jsr r1,fatal><alpha <a>>
+meta <case m,?a,?b><jmp @a(r0)><a: .word b,m><b:>
+meta <strip c><.iif nb <c>,mov c,r4><call strip>
+meta <rights c><jsr r5,right><.word c>
+set test 0
+meta	<debug c><.word bpt,<^rsys>><.ascii _c_<200>><.even>
+meta	<report c><.word bpt,<^rsys>><.ascii _c_<200>><.even>
+meta	<nodebug><meta <debug c>>
+meta	<tright c><psh c><call tright>
+meta	<cright c><psh c><call cright>
+meta	<kernel c><psh c><call chmker>

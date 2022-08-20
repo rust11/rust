@@ -1,0 +1,899 @@
+imp$c=0		; setup implicit DK/SY translations
+def$c=1		; translate DK: for SET DEFAULT
+dln$c=1
+.title	assign, deassign
+.pass
+.include "lib:share.mac"
+$jbdef
+$rmdef
+set cdev 0, cpath 1, cform 2, cspool 3	
+
+share=0
+	.enabl	lsb
+assign::mov	r0,r1		;save it for us and install
+.if ne dln$c
+	call	dl$ini		;clear stuff
+.endc
+	case	<deassign,define,undefine,cd,setdef>	
+	setup	$assign;,a.lex	;set it up				;?154+
+	scan	<D=0^M>		;no device, no switches
+defpth:	scan	<^I(F=1c0Q="Device  name? "|F=1Q="Path name? ">
+	call	chkcal		;check catch-all
+80$:	scanend	<^O(c0F=1Q="Logical name? "|F=4Q="Logical names? ">
+	jmp	assdef		;join the common stuff
+
+cd:	bneb	(r5),setdef	;
+	jmp	s.default	; show default
+setdef:	setup	$cd
+	scan	<D=0^M>		;no device, no switches
+	edit	<^O"DK:">	;
+	mov	#^rdk,r0	;
+	call	dl$up		;check for "cd .."
+	bcc	assdf2		;
+	scanend	<^I(F=1Q="Directory? ">
+	br	assdef		;
+$cd:	.word	0
+a.patj:	jmp	a.path
+
+define:	setup	$assign;,a.lex	;set it up				;?154+
+	scan	<D=0^M>		;no device, no switches
+	edit	<c%> defpth	;handle define/path
+	call	chkcal		;check catch-all
+90$:	scan	<^O(c0F=1Q="Logical name? "|F=4Q="Logical names? ">
+	edit	<W=0>
+	scanend	<^I(F=1c0Q="Device  name? "|Q="Path name? ">
+
+assdef:	edit	<c%> a.patj	;do the paths assign			;?154-
+assdf2:	clr	un1		;preset restore
+	mov	$input,r5	;point to the input
+	clr	prmdev		;
+.if ne dln$c
+	call	dl$par		;parse it
+.iff
+	call	getdevice	;get the device
+.endc
+	mov	name,r0		;
+	call	translate	;go translate it			;?88+
+	psh	r0		;save the result
+	bcc	5$		;yes
+devinv:	fatdev	<Invalid device>;
+5$:	mov	dslot,phslot	;remember physical slot
+	edit	<s0> 6$		;not /system/boot
+	edit	<s=2>		;don't translate next one
+	movb	phslot,r0	;get the slot
+	add	$stat,r0	;point to the status
+	bit	#filst$!specl$,(r0)
+	beq	devinv		;this is an invalid physical device
+6$:	mov	$out,r5		;get the output
+	cmpb	(r5),#'*	;catch-all?
+	beq	catch		;yep
+				;
+	call	getdevice	;get logical name
+;V4	mov	r0,r4		;get the logical name
+	mov	name,r4		;
+	edit	<s0>,7$		;not system
+	jmp	a.perm
+7$:
+.if ne dln$c
+	mov	r4,r0		;
+	call	dl$und		;undefine it
+.endc
+8$:	clr	r1		;start with slot 0
+	mov	#-1,r3		;catch new slot in r3
+10$:	call	indexes		;get the pointers
+	bcs	30$		;phaze two
+	cmp	@.unam2,r4	;same logical name?
+	bne	20$		;nope
+	mov	@.unam2,un2
+	mov	.unam2,un2adr
+	mov	@.unam1,un1
+	mov	.unam1,un1adr	;to restore them
+	clr	@.unam2		;deassign it
+	clr	@.unam1
+20$:	tst	@.unam2		;is it free
+	bne	10$		;nope
+	tst	r3		;already got a slot?
+	bpl	10$		;yep, use the first
+	mov	r1,r3		;catch the slot
+	tst	-(r3)		;back off
+	br	10$		;and look at the next
+30$:
+.if ne dln$c
+	bnew	(sp),#^rC00,35$	;not a directory name
+	tst	(sp)+		;dump that
+	mov	name,r0		;the logical
+	mov	$input,r1	;the string
+	call	dl$def		;define it
+	br	50$		;
+.endc
+35$:	mov	r3,r1		;get the index
+	bpl	40$		;fine
+noroom:
+.if ne dln$c
+	call	dl$res		;restore stuff
+.endc
+	fatdev	<No room>	;no room in assign table
+40$:	call	indexes		;get the slot
+	mov	r4,@.unam2	;move in the logical
+	pop	@.unam1		;and the physical
+	mov	.unam1,nun1ad	;store for restore
+	mov	.unam2,nun2ad
+50$:	call	dl$per		;
+	call	recurse		;check for assignment loops
+	call	dl$per		;
+	return
+	.dsabl	lsb
+
+catch:	mov	prmdev,r0	;
+	beq	devinv
+	mov	@#j$bsys,r1
+	mov	r0,rm.cal(r1)
+	jmp	kmon
+
+a.path:	mov	#40$,r2		;collect the names first
+	mov	r2,r1		;save another pointer
+	mov	$out,r5		;point to the names
+20$:
+.if ne dln$c
+	call	dl$pth		;parse path
+.iff
+	call	getdevice	;get the name
+.endc
+;	mov	r0,(r2)+	;store it
+	mov	name,(r2)+	;
+	clr	(r2)		;make sure its terminated
+	tstb	(r5)		;any more?
+	bne	20$		;yep
+	call	r.path		;remove the path
+	tst	r2		;did we find a slot?
+	beq	noroom		;yep (and its just been deleted!)
+	mov	r0,(r2)+	;move in the path name
+30$:	mov	(r1)+,(r2)+	;move them in
+	bne	30$		;thus
+	return			;done
+40$:	.word	0,0,0,0,0	;to collect names
+
+;	(sp)	physical name
+;	r4	logical name
+
+.if ne 0
+a.system:
+	edit	<s2>,4$		;this is permanent
+	rights	<u.ssys>	;system rights at least
+	mov	r4,r0		;logical name
+	mov	(sp),r1		;equivalence name
+	system	sy$sas		;do a system assignment
+	tst	r0		;did it work
+	beq	noroom		;nope
+	jmp	kmon		;yes
+.endc
+
+a.perm:				;handle system assignment for DK: or SY:
+	rights	<u.sopr>	;operator rights
+	cmp	r4,#^rBO	;this the boot device?
+	bne	5$		;oops
+	mov	sysptr,r0	;point to this stuff
+	movb	phslot,syindx(r0) ;save the index
+	movb	phunit,syunit+1(r0) ;save the unit
+	jmp	kmon		;and quit
+
+5$:	mov	$syassg,r0	;point to the system assignment
+	cmp	r4,#^rSY	;check for SY:?
+	bne	10$		;nope
+	mov	(sp),(r0)	;reassign it
+	br	15$		;
+10$:	cmp	r4,#^rDK	;check for DK:?
+	bne	20$		;nope
+	mov	(sp),-(r0)	;reassign it
+15$:	jmp	kmon
+20$:	fatdev	<Invalid name>
+phslot:	.byte	0
+phunit:	.byte	0
+
+a.lex:	edit	<r,r=" ">	;replace comma with space
+	return
+$assign:
+option	TRANSLATED	1 _	null	o.trans				;?270
+option	VERIFY		1 _	null	o.verify			;
+option	PERMANENT	1 _	null	o.perm
+$deass:
+option	PATH		1 _	null	o.path
+;option	SYSTEM		1 _	null	o.sys
+option
+
+o.path:	edit	<c=1>		;set the condition
+	return			;					;?154-
+o.trans:edit	<q=1>		;set the translated flag		;?270
+	return
+o.veri:	edit	<*?>		;must be empty
+	clr	nun1ad		;nothing to restore
+	clr	un1		;
+	call	dl$per		;
+;	call	infinity	;and check it out
+	call	recurse		;
+	jmp	kmon		;
+
+o.perm:	edit	<s=1>		;permanent
+	return
+
+.if ne 0
+o.sys:	tstb	k$msha		;this share?
+	beq	10$		;nope - ignore /system
+	edit	<s=2>		;system
+10$:	return
+.endc
+
+chkcal:	cmpb	(r5),#'*	;define * xxx?
+	bne	90$		;nope
+	cmpb	1(r5),#32.	;exactly "*"
+	bhi	90$		;nope
+	edit	<W=1>
+	edit	<q=1>		;translated 
+90$:	return
+.sbttl	infinity
+
+recurse:			;check recursive assignment
+	call	dl$per		;
+	mov	r4,r0		;get the name
+	mov	#31.,r3		;count them
+10$:	call	trasys		;check it
+	bcs	40$		;not found
+.if ne dln$c
+;mov d$neqv,r1
+;call unpack
+;print
+	mov	d$neqv,r0	;
+.endc
+	dec 	r3		;count them down
+	bne	10$		;more to check
+	type	<?DCL-F-Logical name loop: >
+	mov	r4,r1		;get the name back
+	call	unpack		;dump the name
+	print
+
+.if ne dln$c
+	call	dl$res		;restore those
+.endc
+	tst	nun1ad		;got a new assign here?
+	beq	20$		;nope
+	clr	@nun1ad		;remove it
+	clr	@nun2ad		;
+20$:	tst	un1		;did we remove one
+	beq	30$		;nope
+	mov	un1,@un1adr	;restore it
+	mov	un2,@un2adr	;
+30$:	call	dl$per		;
+	jmp	setfat		;yep
+40$:	return
+
+nun1ad:	.word	0		;new unam1
+nun2ad:	.word			;new unam2
+un1:	.word	0
+un1adr:	.word	0
+un2:	.word	0
+un2adr:	.word	0
+infin:	.word	0		;remember infinity
+.sbttl	deassign command
+
+undefine::
+	setup	$deass,a.lex	;same as for assign
+	scan	<D=0^M>		;advance past space
+;	edit	<s1> 10$	;ignore deassign/permanent
+	tstb	(r5)		;got any?
+	bne	single		;yes
+	call	chkcal		;check catchall
+	scan	<F=6^IQ="Logical names? ">
+10$:	jmp	kmon		;
+
+deassign::
+	setup	$deass,a.lex	;same as for assign
+	scan	<D=0^M>		;advance past space
+unddea:;edit	<s1> 60$	;ignore deassign/permanent
+	tstb	(r5)		;got anything?
+	bne	single		;yes - do single deassigns
+	edit	<s2> single	;deassign/system
+	edit	<c%> z.path	;clear all paths
+; deassign/all
+	clr	r1		;clear all assigns
+50$:	call	indexes		;go do one
+	bcs	60$		;all over
+	clr	@.unam1		;just clear the entry
+	clr	@.unam2
+	br	50$		;till there all done			;?88-
+60$:	call	dl$per		;
+	jmp	kmon		;
+
+; deassign/paths/all
+
+z.path:	world			;point to the tables
+	mov	$paths(r0),r0	;get the list
+10$:	clr	(r0)+		;clear all paths
+	cmp	(r0),#-1	;thus
+	bne	10$
+30$:	call	dl$per		;
+	return
+
+; single deassigns
+
+single:	psh	r5		;setup common loop
+more:	pop	r5		;get it back
+	tstb	(r5)		;all done?
+	bne	5$		;nope
+	call	dl$per		;
+	jmp	kmon		;yes
+
+5$:	call	chkcal		;
+	scan	<F=1^I>		;get the specification
+	psh	r5		;
+	edit	<c1> d.path	;deassign a path
+;	edit	<s2> d.system	;deassign system name
+; deassign log	
+	mov	$input,r5	;point at it
+	call	getdevice	;get the device
+;V4	mov	r0,r4		;move it
+	mov	name,r4		;
+	beqw	r4,#rxSTA.,40$	;
+
+.if ne dln$c
+	mov	r4,r0		;
+	call	dl$und		;parse name
+	bcc	30$		;
+.endc
+;	edit	<s2> d.system	;deassign system name
+	clr	r1		;start with index 0			;?88+
+10$:	call	indexes		;get the next
+	bcc	15$		;more
+	wardev	<Logical name not found>,#30$
+
+15$:	cmp	@.unam2,r4	;is this it?
+	bne	10$		; nope
+20$:	clr	@.unam1		;just clear the entry
+	clr	@.unam2
+30$:	br	more		;and look for more
+
+40$:	mov	@#j$bsys,r0	;undefine catch-all
+	clr	rm.cal(r0)	;somethings are easy
+	br	more
+
+.if ne 0
+d.system:
+	system	sy$sde		;deassign system name
+	tst	r0		;was it found?
+	beq	11$		;nope
+	br	more		;yes - look for more
+.endc
+
+; deassign/path path_name
+
+d.path:	call	r.path		;go look for it
+	tst	r3		;did they find it?
+	bne	10$		;yep
+	wardev	<Path name not found>,#10$
+10$:	jmp	more		;and look for more
+
+; remove path name utility
+
+r.path:	world			;get the path list
+	mov	$paths(r0),r4	;get the list
+	mov	$input,r5	;point to the path name
+	call	getdevice	;get physical device
+	mov	name,r0		;				;V4
+	clr	r2		;return the slot pointer
+	clr	r3		;points to the one we deleted
+10$:	cmp	(r4),#-1	;any more slots?
+	beq	50$		;nope
+	cmp	(r4),r0		;is this the guy?
+	bne	30$		;nope
+	mov	r4,r3		;copy the pointer
+20$:
+.if ne dln$c
+	mov	(r3),r0		;get the name
+	call	dn$tmp		;check path name
+	bcs	25$		;
+	call	dl$und		;undefine it
+.endc
+25$:	clr	(r3)+		;and clear them
+	tst	(r3)		;till the gap
+	bne	20$
+30$:	tst	(r4)		;is this slot free?
+	bne	40$		;nope
+	tst	r2		;already got one?
+	bne	40$		;yep
+	mov	r4,r2		;nope - use this one
+40$:	add	#path*2,r4	;point to next
+	br	10$		;look for the next
+50$:	return
+.sbttl	DLN operations
+
+d$lcsi:	.blkw	3*5
+d$lif0:	.blkw	6*4
+d$ldef:	.word	0,0,0,0
+
+;	Define path dynamic name
+
+	comma = 54
+dl$pth:	save
+	stack	ret,r0,r1,r2,r3,r4,r5
+10$:	mov	r5,r3		; track r5
+	mov	$begin,r4	;
+	call	file		;
+	edit	<!,>		; skip comma
+	bneb	-(r4),#comma,15$;
+	clrb	(r4)		;
+15$:	bneb	(r5),#comma,16$	;
+	inc	r5		; update r5
+16$:	mov	r5,r3		;
+	mov	$begin,r1	;
+	call	dl$cre		;
+	bcs	20$		;
+	call	dl$alc		; allocate temp
+	mov	r0,name		; setup the temp
+	mov	$begin,r1	;
+	call	dl$def		; now define it
+	br	30$		;
+				;
+20$:	mov	sp.r5(sp),r5	; not a path
+	call	getdevice	;
+	mov	r5,r3		;
+30$:	mov	r3,sp.r5(sp)	;
+	return			;
+
+;	Parse name
+
+dl$par:	psh	r1		; parse name
+	mov	r5,r1		;
+	call	dl$cre		; try to make one
+	mov	#^rC00,name	; assume DLN
+	bcc	10$		;
+	call	getdevice	;
+10$:	pop	r1		;
+	return			;
+
+;	define DLN
+;
+;	r0	logical
+;	r1 ->	string
+
+dl$def:	save			; define DLN
+	stack	sav,r0,r1	;
+.if ne def$c
+	bneb	(r1),<#'\>,10$	;
+	mov	#d$lunw,r1	;use unwound name instead
+.endc
+10$:	call	dl$cre		; attempt to make the name
+	bcs	dl$ret		; no chance
+	mov	sp.r0(sp),r0	;
+	mov	r0,@d$linp	;
+	add	#2,d$linp	;
+	clr	@d$linp		;
+	mov	#^rC00,r0	;
+	call	dl$fnd		;
+	mov	sp.r0(sp),dn.log(r0) ; change the name
+	mov	(r0),r0		; adjustment
+dl$adj:	mov	r0,d$madj	;
+	mov	#^rDLN,d$mtyp	;
+	clr	d$mrep		; no replacement element
+	call	dm$adj		; adjust it all
+	clc			;
+dl$ret:	return			;
+
+dl$cre:	pshs	<r0,r2>		; create logical
+	call	dn$zap		; zap earlier C00:
+.if ne def$c
+	cmpb	(r1),#'\	; default device directory?
+	bne	5$		; nope
+	mov	#^rdk,r0	; yep - need to translate that 
+	mov	#d$lunw,r2	; result string
+	call	dl$unw		; unwind and merge
+	bcs	10$		;
+	mov	r0,r1		; r1 -> unwound/merged string
+.endc
+5$:	mov	sp,r2		; r1 -> directory name
+	.csispc	#d$lcsi,#d$ldef,r1
+	mov	r2,sp		;
+	bcs	10$		; invalid name
+	mov	#^rC00,r0	; now look it up
+	call	dl$fnd		; not a directory name if not found
+	bcs	10$		; not a directory name
+
+.if ne 0; def$c
+	bnew	dn.dev(r0),#<^rdk>,20$ ; default assignment?
+	psh	r0		;
+	mov	#^rdk,r0	;
+	call	trasys		;
+	pop	r1		;
+	bcs	20$		;
+	mov	r0,dn.dev(r1)
+.endc
+
+20$:	tst	(pc)+		;
+10$:	sec			;
+	pops	<r2,r0>		;
+	return
+
+;	r0 =	logical
+
+dl$und:	tst	(pc)+		; undefine
+dl$rem:	sec			; remove (for restore)
+	ror	-(sp)		;
+	stack	flg,ret		;
+	call	dn$zap		; elide C00: etc
+	call	dl$fnd		; find it
+	bit	(sp),(sp)+	; check save
+	stack	ret		;
+	bcs	dl$ret		; not found - no biggy
+	bmi	5$		; just remove
+	call	dl$sav		; save for restore
+5$:	psh	r1		; save that
+	psh	(r0)		; save length
+	stack	len,r1,ret	;
+	mov	r0,r1		;
+	add	(r0),r1		; r1 -> next
+10$:	beqw	(r1),30$	; end of it
+	mov	(r1),r2		; get count
+20$:	movb	(r1)+,(r0)+	; move it down
+	sobw	r2,20$		; more
+	br	10$		; do another
+				;
+30$:	mov	(sp),r1		; clear remainder
+40$:	clrb	(r0)+		; clean up the table
+	sobw	r1,40$		;
+	stack	len,r1,ret	;
+	pop	r0		; get the count
+	neg	r0		; negative to truncate
+	pop	r1		; restore that
+	call	dl$adj		;
+	clc			;
+	return
+.sbttl	restore  & allocate DLNs
+
+;	d$lins	is a list of inserted members that need to be removed
+;	d$lrem	is a list of removed members that need to be inserted
+
+d$linp:	.word	d$lins
+d$lins:	.blkw	20.
+d$lrem:	.blkw	100.
+
+dl$ini:	mov	#d$lins,d$linp
+	clr	d$lins
+	clr	d$lrem
+	return
+
+dl$sav:	save
+	mov	#d$lrem,r1
+10$:	beqw	(r1),20$
+	add	(r1),r1
+	br	10$
+20$:	mov	(r0),r2
+30$:	movb	(r0)+,(r1)+
+	sobw	r2,30$
+	return
+
+dl$res:	save
+	call	dn$zap		; get rid of CSI entries
+	mov	#d$lins,r1	; did we insert?
+10$:	beqw	(r1),20$	; no more to remove
+	mov	(r1)+,r0	;
+	call	dl$rem		; remove it
+	br	10$		;
+20$:	mov	#d$lrem,r1	;
+30$:	beqw	(r1),50$	;
+	call	dn$fre		; get free entry
+	mov	(r1),r3		; adjustment
+	mov	(r1),r2		;
+40$:	movb	(r1)+,(r0)+	;
+	sobw	r2,40$		;
+	mov	r3,r0		;
+	call	dl$adj		;
+	br	30$		;
+50$:	call	dl$per		;
+	return
+
+;	Allocate a new dynamic DLN
+;
+;	Z01-Z49	CSI DLNs
+;	Z50-Z99	Equivalance DLNS
+;
+;	r0	rad50 DLN
+;	c=1	no more available
+
+dl$alc:	save
+	stack	sav,r0		;
+	clr	r1		; begin with Z50
+	clr	r2		;
+10$:	mov	#^rZ50,r0	; build new attempt 
+	add	r1,r0		; 0..9
+	add	r2,r0		; 50...
+	mov	r0,sp.r0(sp)	; return the value
+	inc	r1		; pre-increment for next attempt
+	bnew	r1,#10.,20$	;
+	clr	r1		; rollover to tens
+	add	#40.,r2		;
+20$:	call	dl$fnd		; check available
+	bcc	10$		; still not found
+	mov	r0,sp.r0(sp)	
+	return
+
+;	If SY: or DK: are defined in the DLN table then
+;	remove them from the permanent slots. Put them
+;	back otherwise.
+
+dl$per:	save
+	mov	$pname,r4	;point to them
+	mov	#^rDK,r0	;
+	mov	r0,r1		;
+	call	dl$fnd
+	bcs	10$
+	mov	#^rDK$,r1	;
+10$:	mov	r1,-4(r4)
+	mov	#^rSY,r0	;
+	mov	r0,r1		;
+	call	dl$fnd
+	bcs	20$
+	mov	#^rSY$,r1	;
+20$:	mov	r1,-2(r4)
+	return
+
+.if ne imp$c
+;	Implicit SY and DK translations
+;
+;	If DK -> XXX
+;	and XXX is undefined
+;	and there's a catch-all device
+;	make hidden assignment XXX -> catch-all device
+;	otherwise, remove hidden assignment
+
+dl$imp:	mov	#^rDK,r0
+	call	10$44
+	mov	#^rSY,r0
+10$:
+
+.endc
+.sbttl	dl$unw - unwind name
+
+;	r0 =	rad50 logical name
+;	r1 ->	directory name string
+;	r2 ->	result string
+;
+;	r0 ->	merged string
+
+
+d$lunw:	.blkb	64.
+
+dl$unw:	pshs	<r3,r2,r1,r0>	;
+	stack	r0,r1,r2,r3
+	call	dl$fnd		; is it a DLN?
+	bcc	10$		; yep
+	call	trasys		; then get simple logical name
+	bcs	40$		; that's crazy
+	mov	d$neqv,r0	;
+	mov	sp.r2(sp),r1	;
+	call	conra		;
+	movb	#':,(r1)+	;
+	br	20$		;
+
+
+10$:	mov	sp.r2(sp),r1	;
+	mov	(r0),r3		; length
+	call	dl$bak		;
+	sbc	r1		; account for closing "\"
+	clrb	(r1)		;
+				;
+20$:	mov	sp.r1(sp),r0	;
+30$:	movb	(r0)+,(r1)+	;
+	bne	30$
+
+	mov	sp.r2(sp),sp.r0(sp)
+	tst	(pc)+		;
+40$:	sec			;
+	pops	<r0,r1,r2,r3>
+	return
+
+;	r0 ->	dln
+;	r1 ->	output area
+;	r3 =	length
+;
+;	r1 ->	past result
+;	c=1	result ended with "\"
+
+dl$bak:	add	r0,r3		; r3 -> last name
+	movi	dn.dev,r0,r2	; r2 -> dn.dev
+	mov	(r2)+,r0	;
+	call	conra		;
+	movb	#':,(r1)+	;
+	bhisw	r2,r3,30$	; device only
+10$:	movb	#'\,(r1)+	; another directory
+	mov	(r2)+,r0	;
+	call	conra		;
+	mov	(r2)+,r0	;
+	call	conra		;
+	blow	r2,r3,10$	; more
+	movb	#'\,(r1)+	;
+	sec			;
+	br	30$		;
+20$:	clc			;
+30$:	bicb	(r1),(r1)	;
+	return
+.sbttl	up a directory
+
+;	r0	logical name
+;	r2	result area
+
+dl$up:	pshs	<r3,r2,r1,r0>
+	stack	r0,r1,r2,r3
+	clr	r3		;
+	mov	r5,r1		;
+10$:	bneb	(r1)+,<#'.>,30$	; not ..	
+	bneb	(r1)+,<#'.>,20$	;
+	mov	r1,r5		;
+	add	#dnSUB.,r3	; another
+	beqb	(r1),30$	; got it all
+	beqb	(r1)+,<#'\>,10$	;
+	br	70$		; invalid command
+20$:	bnew	r3,70$		; invalid command
+30$:	beqw	r3,60$		; no parents
+				;
+	call	dl$fnd		; find directory (DK:)
+	bcs	80$		; invalid directory
+	mov	(r0),r1		; 
+	sub	r3,r1		; how many to go up
+	blow	r1,#dn.sub,80$	; can't go up
+	mov	r1,r3		;
+				;
+	mov	sp.r2(sp),r1	; output area
+	mov	$input,r1	; output area
+	call	dl$bak		; translate it back
+				;
+	mov	r5,r0		;
+	bneb	(r0)+,<#'\>,50$	; no more coming
+	mov	r0,r5		;
+	beqb	(r0),50$	; redundant \
+	bneb	-1(r1),<#':>,40$; not back to device
+	dec	r0		; need the separator
+40$:	movb	(r0)+,(r1)+	;
+	bne	40$		;
+	mov	r0,r5		;
+				;
+50$:	tst	(pc)+		;
+60$:	sec			; not up
+	pops	<r0,r1,r2,r3>	;
+	return
+70$:
+80$:	fatal	<Invalid directory>
+.end
+
+
+;	Convert C00
+;
+;	r0	logical name
+
+dl$cvt:	save			; define DLN
+	stack	sav,r0,r1	;
+	mov	r0,@d$linp	;
+	add	#2,d$linp	;
+	clr	@d$linp		;
+	mov	#^cC00,r0	;
+	call	dl$fnd		;
+	bcs	dl$ret		;
+	mov	sp.r0(sp),dn.log(r0) ; change the name
+	mov	(r0),r0		; adjustment
+dl$adj:	mov	r0,d$madj	;
+	mov	#^rDLN,d$mtyp	;
+	clr	d$mrep		; no replacement element
+	call	dm$adj		; adjust it all
+	clc			;
+dl$ret:	return
+
+;	dynamic memory
+;
+;	path names
+;
+;	.word	cnt,^rpth
+;	.word	cnt
+;	.rad50	/log/
+;	.rad50	/eqv/,/eqv/,...
+;	
+;	.word	cnt
+;	.rad50	/log/
+;	.rad50	/eqv/,/eqv/,...
+;	.word	0
+;
+;	directory names
+;
+;	xxx	user defined entries
+;	Pxx	path entries
+;	Cxx	csi entries (reserved space)
+;
+;	.word	n,^rdir
+;	.word	cnt		; csi header 
+;	.word	cnt,cnt		; offset/size of CSI entries
+;
+;	.word	cnt
+;	.word	start,length
+;	.rad50	/log/,/dev/
+;	.rad50	/subdir/
+;	.rad50	/subdir/
+;	...
+;	.word	cnt
+;	.word	start,length
+;	.rad50	/log/,/dev/
+;	.rad50	/subdir/
+;	.rad50	/subdir/
+;	...
+;	.word	0
+;
+;	Show logical/dynamic
+.sbttl	infinity
+
+recurse:			;check recursive assignment
+	mov	r4,r0		;get the name
+	mov	#31.,r3		;count them
+10$:	call	trasys		;check it
+	bcs	20$		;not found
+.if ne dln$c
+	mov	d$neqv,r0	;
+.endc
+	dec 	r3		;count them down
+	bne	10$		;more to check
+	br	infinity	;its inifinite - list why
+20$:	return			;its o.k.
+
+infinity:clr	infin		;assume no problems
+	clr	r2		;this has the first one
+	psh	#1		;plus two slots
+10$:	mov	r2,r1		;get the next
+	call	indexes		;get this slot
+	sbc	(sp)		;
+	bmi	22$		;all done
+	mov	r1,r2		;save it
+	mov	@.unam2,r0	;get the next
+	beq	10$		;ignore these
+	mov	#31.,r3		;count it down
+	mov	r0,r4		;save it for errors
+20$:	call	trasys		;translate a system name
+	bcs	10$		;not found
+.if ne dln$c
+	mov	d$neqv,r0	;
+.endc
+	dec	r3		;too many?
+	bne	20$		;nope
+	inc	infin		;remember we were wrong
+	type	<?DCL-F-Logical name loop >
+	mov	r4,r1		;get the name back
+	call	unpack		;dump the name
+	type	< = >		;
+	mov	r4,r0		;get it again
+	call	trasys		;translate it
+	call	unpac0		;type it too
+	print			;
+	br	10$		;
+22$:	tst	infin		;got an infinite assign?
+	beq	30$		;nope
+.if ne dln$c
+	call	dl$res		;restore those
+	call	dl$per		;
+.endc
+	tst	nun1ad		;got a new assign here?
+	beq	23$		;nope
+	clr	@nun1ad		;remove it
+	clr	@nun2ad		;
+23$:	tst	un1		;did we remove one
+	beq	25$		;nope
+	mov	un1,@un1adr	;restore it
+	mov	un2,@un2adr	;
+25$:
+30$:	tst	(sp)+		;
+	tst	infin		;did we recurse?
+	bne	35$		;nope
+	return
+35$:	call	dl$per		;
+	jmp	setfat		;yep
+
+nun1ad:	.word	0		;new unam1
+nun2ad:	.word			;new unam2
+un1:	.word	0
+un1adr:	.word	0
+un2:	.word	0
+un2adr:	.word	0
+infin:	.word	0		;remember infinity
+

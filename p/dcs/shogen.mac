@@ -1,0 +1,611 @@
+uif=1
+.title	shogen
+.psect	shogen
+.pass
+.include "lib:share.mac"
+
+
+map	oplow$,,400	;lower case
+map	opupr$,,1000	;upper case
+map	optit$,,2000	;title
+map	oprig$,,4000	;right justify
+map	opzer$,,10000	;zero fill number
+map	opsgn$,,20000	;signed number
+
+shogen::
+	jmp	@10$(r0)
+10$:	.word	s.path,s.defa,s.perm,s.user,s.peop
+	.word	s.volu,s.worl,s.pass,s.inte,s.node
+	.word	s.erro,s.kern
+	.word	s.intr
+s.intr:	jmp	kmon		;
+
+s.paths:call	eol		;check for end of line
+	world			;get the table
+	mov	$paths(r0),r4	;get a pointer
+10$:	cmp	(r4),#-1	;end of them?
+	beq	50$		;yep
+	mov	r4,r5		;get another pointer
+	mov	(r5)+,r1	;get the next one
+	beq	40$		;oops - its empty
+	call	unpacf		;type it
+	type	< = >		;
+	mov	(r5)+,r1	;get the next assignment
+	beq	30$
+20$:	call	unpack		;type it
+	mov	(r5)+,r1	;get the next
+	beq	30$		;nope
+	type	<, >		;yep
+	br	20$		;go get it
+30$:	print			;end of line
+40$:	add	#path*2,r4	;point to the next?
+	br	10$		;look for the next
+50$:	jmp	kmon		;done
+.sbttl	show permanent
+
+; show permanent	
+; move show default to sholog
+
+s.perm:				;show permanent DK:, SY:, BO:
+	call	eol		;
+	psh	#kmon		;force return here
+	mov	$syassg,r4	;point to them
+	mov	#^rdk,r1	;DK:
+	mov	-2(r4),r2	;
+	call	10$		;
+;	mov	#^rsy,r1	;
+;	mov	(r4),r2		;SY:
+;	call	10$		;
+	mov	#^rbo,r1	;BO:
+	mov	sysptr,r0	;point to the system
+	movb	syunit(r0),r2	;get the unit number
+	movb	syindx(r0),r0	;build the physical boot-device
+	add	$pname,r0	;point to the name
+	add	(r0),r2		;get the physical name
+	add	(pc)+,r2	;add in the rad50 constant
+	.rad50	/  0/		;
+10$:	call	unpacf
+	type	< = >
+	mov	r2,r1
+	call	unpacf
+	print
+	return
+.if eq uif
+.sbttl	show default
+
+s.defa:				;
+	type	<DK:  = >
+	$trnlog	#20$, #lognam, #0, #resnam, #0, #0, #0
+	bcs	10$		;oops
+	.print	#resnam		;
+	br	15$
+10$:	print	<(Undefined)>
+15$:	jmp	kmon
+20$:	.blkw	7
+lognam:	.asciz	/DK:/	
+resnam:	.asciz	/DK0:/
+	.even
+.endc
+.sbttl	show users
+.mcall	.lookup	.readw	.purge
+
+;	Displays the users logged onto the system.
+;
+;	Uses channel 14. and the $text area.
+;
+;	SHOW PEOPLE
+;	SHOW USERS
+
+users:	.word	0
+peocol:	.word	0
+peouse:	.word	0
+usecnt:	.word	0
+peocnt:	.word	0
+
+s.peop:
+s.user:	mov	(pc)+,-(sp)
+;s.peop:
+	clr	-(sp)		;(sp)=0 => people
+	call	eol		;
+	pop	peouse
+	clr	usecnt
+	clr	peocnt
+	clr	peocol		;
+	.purge	#14.		;purge the channel
+	.lookup	#area,#14.,#usrfil ;lookup the name
+	bcs	70$		;user not found
+	mov	$text,r2	;point to it
+	.readw	#area,#14.,r2,#256.,#0 ;read it in
+	bcs	70$		;user not found
+	.purge	#14.
+	mov	#256./3-1,r3	;maximum number of entries
+	call	remuse		;remove user from list
+
+50$:	mov	#fstjob,curjob	;setup the first
+55$:	call	nxtjob		;get the next
+	bcs	70$		;no more
+	inc	peocnt		;another person
+;	tst	(r2)		;all done?
+;	beq	70$		;yes
+;	call	satjob		;display the satellite & job.
+	tst	peocol		;need a comma?
+	beq	57$		;no
+	cmp	peocol,#9.	;need a line?
+	blos	56$		;no
+	print			;
+	clr	peocol		;
+	br	57$
+56$:	type	<, >		;yes
+57$:	inc	peocol		;
+	mov	r2,r4		;point to the name
+	mov	#1,uppers	;one upper case letter
+	call	unpac4		;unpack it
+	clr	uppers		;no upper case letters
+	call	unpac4
+60$:	dec	r3		;count them
+	bne	55$		;possibly more
+
+70$:	tst	usecnt		;got a user?
+	beq	75$		;no
+	tst	peocnt		;only the user?
+	beq	73$		;yes
+	type	< and you >	;
+	br	74$		;
+73$:	type	<Nobody but you >
+74$:	mov	#usrnam,r4	;display the users name
+	mov	#1,uppers	;
+	call	unpac4		;
+	clr	uppers		;
+	call	unpac4		;
+	print	<.                                  > ;clear line
+	br	80$		;
+75$:	tst	peocnt		;anyone logged in at all?
+	bne	76$		;yes
+	call	os$cli		;clear to end-of-line
+	print	<Nobody but you?>;
+	br	80$		;
+76$:	tst	peocol		;got a column?
+	beq	80$		;no
+	print
+80$:	jmp	kmon
+
+satjob:				;4(r2) = job, node
+	mov	#8.,r1		;count the characters
+				;r4 = string
+	movb	5(r2),r3	;get the satellite
+	beq	10$		;is none
+	type	<s>		;
+	dec	r1		;
+	call	30$		;
+10$:	movb	4(r2),r3	;get the job
+	beq	50$		;is none
+	type	<j>		;
+	dec	r1		;
+	call	30$		;
+20$:	type	< >		;
+	dec	r1
+	bne	20$
+	return
+
+30$:	cmpb	r3,#10.		;higher than 10?
+	blo	40$		;nope
+	type	<1>		;
+	dec	r1		;
+	sub	#10.,r3		;
+40$:	add	#'0,r3		;make the low digit
+	.ttyout	r3		;
+	dec	r1		;
+50$:	return
+usrfil:	.rad50	/sy users sys/
+
+
+curjob:	.word	30134
+fstjob:	.blkw	3
+lstjob:	.word	-1,-1,-1	;maximum
+usrnam:	.word	0,0
+
+;	Sort names and remove duplicates
+
+remuse:	tst	peouse		;people or user?
+	beq	30$		;people
+	mov	$text,r2	;remove ourself
+	mov	r3,r4		;check the format
+10$:	tst	(r2)		;anymore?
+	beq	30$		;no
+	cmpb	4(r2),k$mjob	;is this us?
+	bne	20$		;no
+	mov	(r2)+,usrnam	;yes
+	mov	(r2),usrnam+2
+	inc	usecnt		;we are here
+	br	30$
+20$:	add	#6,r2
+	dec	r4		;
+	bne	10$		;
+30$:	return
+
+nxtjob:	mov	$text,r2	;get the buffer
+	mov	curjob,r4	;get the current job
+	mov	#lstjob,r5	;get the last job
+
+10$:	tst	(r2)		;any more here?
+	beq	30$		;nope
+	tst	usecnt		;remove ourself?
+	beq	12$		;no
+	cmp	(r2),usrnam	;this us?
+	bne	12$		;no
+	cmp	2(r2),usrnam+2	;really?
+	beq	20$		;yes
+
+12$:	cmp	(r2),(r4)	;this higher?
+	blo	20$		;nope
+	bhi	14$		;
+	cmp	2(r2),2(r4)	;definite?
+	blos	20$		;no
+
+14$:	cmp	(r2),(r5)	;this lower than highest?
+	blo	15$		;yes
+	bhi	20$		;no
+	cmp	2(r2),2(r5)	;really?
+	blos	20$		;no
+15$:	mov	r2,r5		;yes - swap it
+20$:	add	#6,r2		;get the next
+	br	10$		;and look for it
+
+30$:	cmp	4(r5),#-1	;is this us?
+	beq	40$		;
+	mov	r5,r2		;nope - swap them
+	mov	r2,curjob	;and store it for next time
+	tst	(pc)+		;and say we got one
+40$:	sec			;no more
+	return
+.sbttl	show world
+
+s.worl:	.print	#world
+	jmp	kmon
+
+meta	<h c><.ascii &  'c'  &<cr><lf>>
+meta	<t c><.ascii &..'c'..&<cr><lf>>
+
+world:
+;h<   02:22 04:22 06:22 08:22 10:22 12:22 14:22 16:22 18:22 20:22 22:00 24:00 >
+t <..................o.....oooo...............................................>
+t <..............ooooo..ooooooooo.........................o...................>
+t <..........o.ooooooo...oooooooo......................ooooo.....o.o..........>
+t <....o.......oo.o........ooooo..........o........oooooooooooo..oo...........>
+t <...ooooooooooooooo.oo...ooo...o......oooooo.oooooooooooooooooooooooooooo...>
+t <...ooooooooooooo...o.....o.........ooooooooooooooooooooooooooooooooooo.....>
+t <........ooooooooo..oooo.........oo..ooooooooooooooooooooooooooo...o........>
+t <..........ooooooooooooo...........ooooooooooooooooooooooooooooo............>
+t <..........oooooooooo............ooo.oooooooooooooooooooooooo..o............>
+t <.o.........oooooooo..............ooo......ooooooooooooooooo..o.............>
+t <....o........oo...o............oooooooooooooo...ooooo..ooo.................>
+t <................oo.o...........oooooooooooooo....o....oo..o................>
+t <..................ooooooo..........ooooooooo..........oooo...oo............>
+t <.o................ooooooooo.........oooooo...................oo............>
+t <....................oooooo...........ooooo.o.............ooooooo...........>
+t <....................ooooo............ooo.................oooooooo..........>
+t <...................ooo.........................................o....o......>
+t <...................oo..............................................o.......>
+t <....................o......................................................>
+;h<01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 01 >
+.byte	0
+.even
+.sbttl	show volume
+
+;	RUST/XM SHOW VOLUME command
+;
+;	/full	
+;	/verify
+
+s.volu:
+	setup	$shovol		;set it up
+	scan	<D=0^M>		;skip the command
+	scanend	<F=6^IQ="Device? ">
+	edit	<C="VOLUME">	;
+	jmp	program		;dispatch it
+
+$shovol:
+option	BRIEF		1 _	null		;default
+option	FULL		1 F	null
+option	VERIFY		1 V	null
+option
+.sbttl	show node
+
+;	show node
+;
+;	Node: Quark 1
+
+s.node:	$cmkrnl	#area, #100$ pic=yes
+	type	<Node: >	;print something
+	psh	200$		;check for set at all
+	bis	210$,(sp)+	;got one of them?
+	bne	10$		;yes
+	print	<Noname>	;no
+	br	30$		;and quit
+
+10$:	call	op$com		;
+	.word	op$clr		;
+	mov	#optit$!oplow$,r0 ;
+	mov	200$,r1		;
+	call	of$com		;
+	.word	op$r50		;
+	mov	#oplow$,r0
+	mov	200$+2,r1	;
+	call	of$com		;
+	.word	op$r50		;
+	movb	#space,r1	;
+	call	op$com		;
+	.word	op$cha		;
+	clr	r1		;
+	bisb	210$,r1		;
+	beq	20$		;
+	call	op$com		;
+	.word	op$dec		;
+20$:	call	op$new
+30$:	jmp	kmon
+
+;	Get the node information
+
+100$:	mov	@#s$ynod,200$	;
+	mov	@#s$ynod+2,200$+2;
+	movb	@#s$ynid,210$	;
+	return
+200$:	.rad50	/noname/
+210$:	.word	0
+.sbttl	show passwords
+.mcall	.twait
+meta	<delay c><mov c,r1><call 100$>
+meta	<prompt c><jsr r5,300$><.asciz "c"><.even>
+meta	<slow c><jsr r5,290$><.asciz "c"><.even>
+meta	<prints c><jsr r5,350$><.asciz "c"><.even>
+
+s.pass:				;
+	delay	#100.		;
+	prints	<I-Now, I know they are here somewhere...>	
+	delay	#120.		;
+	mov	#8.,r2		;
+	mov	#60.,r3		;
+	mov	#5,r4		;
+
+10$:	type	<?SHARE-I-Working>
+	delay	r3
+	.ttyout	#cr
+	type	<?SHARE-I-        >
+	.ttyout	#cr
+	type	<?SHARE-I->
+	sub	r4,r3		;
+	delay	r3		;
+	.ttyout	#cr
+	sub	r4,r3		;any more?
+	bne	10$		;yes
+	cmp	r4,#1		;this the end?
+	beq	15$		;yes
+	mov	#4,r3		;
+	mov	#1,r4		;
+	br	10$		;
+
+15$:	prints	<I-Working is not helping much>	
+	delay	#25.
+	print
+	delay	#75.		;
+	print			;
+	delay	#30.
+	print
+	delay	#30
+	print
+	prints	<E-I am getting a lot of strange error codes>
+	delay	#120.
+	prints	<I-I think I need a broader viewpoint>
+	delay	#95.
+	print
+	delay	#45.
+	print	
+	prints	<I-I have found something...>
+	delay	#120.
+	print	
+	.print	#world
+	print	<066552>	;
+	type	<@>		;crash us
+	delay	#155.		;just a short one
+	print	<P>		;proceed
+	delay	#130.		;wait a second
+	print
+	print <LOGIN 000002 T05: 12:35:21 SHARE  CPU=00:00:10.34 IO=567 MEM=128>
+	type	<Username: >	;
+	jsr	r5,300$		;
+	.asciz	/SYSTEM/	;
+	.even
+	type	<Password: >	;
+	delay	#80.		;
+	jsr	r5,300$		;
+	.asciz	/                 /
+	.even
+	print			;
+	delay	#150.
+	print
+	print	<      Welcome to VAX/VMS V379.5>
+	print			;
+	delay	#200.		;
+	prints	<W-How did I get here?>
+	delay	#130.
+	prints	<W-And how do I get out again?>
+	delay	#130.
+	print
+	print
+	type	<$ >		;
+	delay	#90.		;
+	jsr	r5,300$		;
+	.asciz	_boot/noquery_	
+	.even
+	delay	#130.		;
+	print	<%BOOT-I-NORMERR, Normal successful error>
+	delay	#170.
+	print
+	print	<?02  80007B06>	;
+	.print	#200$		;>>>
+	delay	#110.		;
+	print	<C>		;
+				;
+	print	<?02  80007B06>	;
+	.print	#200$		;>>>
+	delay	#190.		;
+	prompt	<PLUGH>		;
+	delay	#190.		;
+	print			;
+	prints	<I-There is a puff of smoke and ...>
+	print			;
+	delay	#100.		;
+	print	<?KMON-I-You are in a maze of twisty little passages>	
+	delay	#100.		;
+	type	<.>		;
+	delay	#150.		;
+	prompt	<show system>	;
+	delay	#70.		;
+	print	<?KMON-I-A little dwarf just threw an error message at you>
+	delay	#30.		;
+	type	<.>		;
+	delay	#95.		;
+	prompt	<show features>	;
+	delay	#10.		;
+	print	<?KMON-E-I don't see any features>	
+	delay	#30.		;
+	type	<.>		;
+	delay	#30.		;
+	prompt	<show>		;
+	delay	#80.		;
+	print	<Assignments:>	;
+	delay	#30.		;
+	.print	#tsxsy		;
+	delay	#30.		;
+	.print	#tsxcbl		;
+	delay	#30.		;
+	.print	#tsxtmp		;
+	delay	#30.		;
+	.print	#tsxdk		;
+	delay	#50.		;
+	type	<.>		;
+	delay	#140.		;
+	slow	<Oh>		;
+	delay	#40.		;
+	slow	< >		;
+	delay	#20.		;
+	slow	<umm>		;
+	delay	#30.		;
+	slow	< ahh >		;
+	delay	#20.		;
+	slow	<...........>	;
+	print	<XYZZY>		;
+	delay	#20.		;
+	print			;
+	prints	<I-There is a puff of smoke and ...>
+	print			;
+	delay	#100.		;
+	prints	<U-Oh God, ...>
+	call	400$
+	prints	<U-I've landed in Unix>
+	call	400$
+	prints	<U-My reputation!!!>
+	delay	#20.
+	prints	<U-My innocence!!!>
+	call	400$
+	delay	#200.		;
+	prints	<U-Now, we just need to be calm>
+	delay	#50.
+	call	400$
+	print
+	prints	<U-I said be calm>
+	delay	#100.
+	prints	<U-That's better>
+	delay	#40.
+	prints	<U-Now, we'll just slide down one of these-here pipes>
+	delay	#40.
+print	<__>
+print	< ..>
+print	<   ..>
+print	<   ..>
+print	<    ..>
+print	<      ..>
+print	<	..>
+print	<	 ..>
+print	<	..>
+print	<	 ..>
+print	<	..>
+print	<	 ..>
+print	<	   ..>
+print	<	  ..>
+print	<	..>
+print	<       ..>
+print	<      ..>
+print	<    .. >
+print	<   ..>
+print	<  ..>
+print	< ..>
+print	<..>
+print	< ..>
+print	<_  _>
+	delay	#100.		;
+	prints	<I-Hmm>
+	delay	#30.
+	prints	<I-You're not going to like this...>
+	delay	#20.		;
+	prints	<I-But I can't find them anywhere.>
+	delay	#10.		;
+	jmp	kmon
+
+100$:	mov	r1,110$+2	;setup the pause
+	.twait	#area, #110$
+	return
+
+110$:	.word	0,100.		;
+200$:	.byte	'>,'>,'>,200	;
+
+290$:	psh	(pc)+		;
+300$:	clr	-(sp)		;
+310$:	delay	#7.		;average typing rate
+	.ttyout	(r5)+		;display the next
+	tstb	(r5)		;anymore
+	bne	310$		;yes
+	inc	r5		;
+	inc	r5		;
+	bic	#1,r5		;
+	delay	#7.		;
+	tst	(sp)+		;end of line?
+	bne	320$		;no
+	print			;
+320$:	rts	r5
+
+350$:	type	<?SHARE->
+	.print	r5		;print the rest
+360$:	tstb	(r5)+		;skip it
+	bne	360$		;
+	inc	r5		;
+	bic	#1,r5
+	rts	r5
+
+400$:	delay	#40.
+	print
+	prints	<U- H   H  EEEEE  L      PPPP>
+	.ttyout	#7
+	prints	<U- H   H  E      L      P   P>
+	.ttyout	#7
+	prints	<U- HHHHH  EEEE   L      PPPP>
+	.ttyout	#7
+	prints	<U- H   H  E      L      P>
+	.ttyout	#7
+	prints	<U- H   H  EEEEE  LLLLL  P>
+	.ttyout	#7
+	print
+	delay	#20.
+	return
+
+tsxsy:	.asciz	"SY  --> DL0:"	;
+tsxcbl:	.asciz	"CBL --> RK0:"	;
+tsxtmp:	.asciz	"TMP --> DL3:"	;
+tsxdk:	.asciz	"DK  --> LD0:"	;
+msdos:	.ascii	"A:>"<200>
+	.even
+s.inte:
+	print	<?SHARE-I-Insufficient imagination>
+	jmp	kmon
+
+.end

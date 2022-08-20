@@ -1,0 +1,75 @@
+.title	decode
+.include "dcs:dcl.mac"
+.psect	decode
+
+;	DCL decode command
+;
+;	%build
+;	macro	dcs:decode /object=dcb:decode
+;	%end
+;	%date
+;	<27-Feb-2008 23:47:26.23>
+;	%edit
+;	<32   >
+
+$opdef
+
+;	Decode and display owner information
+;
+;	r1=0	no titles
+;	r1=1	titles
+
+decode::clr	decode-2
+	psh	r1
+	output	clr
+	tst	(sp)		;want titles
+	beq	5$		;no
+	type	<System  ID: >	;yes
+5$:	type	<RUST/XM V>
+	output	dec par=k$mspv opr=b
+	type	<.>
+	output	dec par=k$mspu opr=b
+	print
+	tst	(sp)		;want titles?
+	beq	6$		;no
+	type	<Owner name: >	;
+6$:	call	plain		;
+	mov	#plain,r1	;
+10$:	clr	(r1)+
+	cmp	r1,#textend
+	blo	10$
+	tst	(sp)+
+	return
+
+chkmon::			;check kmon
+	return
+
+plain:	mov	#31013.,r0
+	mov	#text,r1
+	mov	#400,r5		;count them
+10$:	sub	r0,(r1)
+	add	(r1)+,r0
+	dec	r5
+	bne	10$
+	mov	#text,r1
+20$:	movb	(r1)+,r0
+	beq	30$
+	psh	r1
+	output	cha r0
+	pop	r1
+	cmpb	-1(r1),#lf	;was this a new line?
+	bne	20$
+	tstb	(r1)		;got another line?
+	beq	30$		;no
+	output	log		;yes
+	type	<            >	;space in
+	br	20$
+30$:	output	log
+	return
+	.	=	decode+776
+
+text:	.rept	400
+	.word	31013.
+	.endr
+textend:
+.end

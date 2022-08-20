@@ -1,0 +1,253 @@
+V4=1
+.title	shomor
+.include "dcs:dcl.mac"
+.psect	shomor
+$kcdef		;kernel control
+$opdef		;output
+$qudef		;kernel queues
+$rpdef
+
+$rmdef		;rmon - remove after stb compile (login fail count)
+$jbdef		;rmon - remove after stb compile (login fail count)
+
+;	Show default
+;
+;	%build
+;	macro	dcs:shomor /object=dcb:
+;	%end
+;	%date
+;	<24-Jul-2003 20:32:34.40>
+;	%edit
+;	<33   >
+
+s.defa::			;
+	output	clr		;clear it
+	type	<DK:  = >
+	clr	220$		;clean it up
+	clr	220$+2		;
+	$trnlog	#200$, #210$, #0, #220$, #0, #0, #0
+	bcs	10$		;oops
+	mov	#220$,r1	;get the name
+10$:	tstb	(r1)+		;skip to the end
+	bne	10$		;
+	movb	#200,-(r1)	;stop it
+	output	str par=#220$	;
+	type	<:>		;
+	br	30$		;
+20$:	type	<(Undefined)>
+30$:	$cmkrnl	#area, #100$ pic=yes
+	mov	r0,r1		;keep a copy
+	beq	40$		;no UIC
+	output	uic par=r1	;display it
+40$:	print			;new line
+	jmp	kmon		;
+
+100$:	mov	@#p$huif,rp.r0(r5) ;return default uic
+	return
+
+200$:	.blkw	7
+210$:	.asciz	/DK:/		;logical name
+	.even
+220$:	.asciz	/DK0/		;equivalence
+	.even
+.sbttl	show kernel, errors
+
+;	Show kernel
+;	Show errors
+;
+;	Login permission:	Interactive Login Logout
+;	Login command files:	logins, logout
+;	Kernel control flags:	Protected Maintenance Boot
+;	Transaction buffers:	3 (1 free)
+;	Transaction packets:	10 (3 free)
+;	AST delivery packets:	10 (5 free)
+;
+;	Environment errors:	Clock not active
+;	Memory parity errors:	None
+;	Stray interrupts:	1, last at 370
+;	Login failures:		2, last on T03: with name USER
+;	Directory failures:	none
+;	Device I/O errors:	12, last on DL2:
+;	System fatal halts:	none
+
+	.enable	lsb
+s.kern::output	clr			;cleanup
+	kernel	#1000$			;
+	type	<Login permission:	>	;introduce it
+	mov	s.ykc0,r2		;get the flags
+	mov	#1100$,r3		;point to the bits
+	call	800$			;display them
+	tst	(r3)+			;skip intermediate
+	type	<Login command files:	>	;newline
+	call	800$			;display second part
+	tst	(r3)+			;skip intermediate
+	type	<Kernel control flags:	>	;newline
+	call	800$			;display the rest
+
+	type	<Transaction packets:	>
+	jsr	r5,900$			;report them
+	.word	s.ytpc,s.ytpf		;
+	type	<Transaction buffers:	>
+	jsr	r5,900$			;report them
+	.word	s.ytbc,s.ytbf		;
+	type	<AST delivery blocks:	>
+	jsr	r5,900$			;report them
+	.word	s.yadc,s.yadf		;
+	br	200$			;
+
+
+s.erro::				;show errors
+	output	clr			;cleanup
+	kernel	#1000$			;
+					;
+200$:	type	<Memory parity errors:	>	;
+	output	dec par=v.empc		;the count
+	print				;
+	type	<Stray interrupts:	>	;
+	output	dec par=v.esic		;the count
+	print				;
+	type   <Login failures:		>
+	output	dec par=s.ylfc		;the count
+	print
+	jmp	kmon			;all done
+
+
+;	Kernel flags
+
+800$:	tst	(r3)			;any more?
+	beq	830$			;no
+	bit	(r3)+,r2		;this one set?
+	bne	810$			;yes
+	type	<No>			;no
+810$:	output	str par=r3		;display the string
+	type	< >			;and a space
+820$:	tstb	(r3)+			;skip the string
+	bpl	820$			;
+	inc	r3			;even up
+	bic	#1,r3			;
+	br	800$			;
+830$:	print				;
+	return
+
+
+;	Kernel counters
+;
+;	12  (5 free)
+
+900$:	output	dec par=@(r5)+		;total
+	type	< (>			;
+	output	dec par=@(r5)+		;free
+	print	< free)>		;
+	rts	r5			;
+
+;	Get kernel information
+
+1000$:	mov	@#s$ykc0,s.ykc0		;kernel control
+	mov	@#v$empc,v.empc		;memory parity errors
+	mov	@#v$esic,v.esic		;stray interrupts
+	mov	@#v$esiv,v.esiv		;stray interrupt vector
+	mov	@#j$bsys,r0		;get start of kernel rmon
+	mov	rm.erc(r0),s.ylfc	;login fail count
+;	mov	@#s$ylfc,s.ylfc		;login fail count
+
+;	get the queue element counts
+
+;	Change this patch back with new STB
+
+.if ne V4				; see KDA for this grunge
+	r.mtp3 = 460
+	r.mtp4 = 514
+	sy.tpc = 0
+	sy.tbc = 2
+	sy.adc = 4
+	mov	#r$mmon+r.mtp3,r0	;get monitor stuff
+	cmp	r0,#207			;been patched?
+	bne	1001$			;nope
+	mov	#r$mmon+r.mtp4,r0	;yep - use V4
+1001$:	mov	sy.tpc(r0),s.ytpc	;tp count
+	mov	sy.tbc(r0),s.ytbc	;tp count
+	mov	sy.adc(r0),s.yadc	;tp count
+.iff
+	movb	@#s$yadc,s.yadc		;ad count
+	movb	@#s$ytbc,s.ytbc		;tb count
+	movb	@#s$ytpc,s.ytpc		;tp count
+.endc
+
+;	compute the free queue element counts
+
+	jsr	r5,1010$		;get the tp used count
+	.word	t$pque			;
+	mov	r0,s.ytpf		;free tps
+	jsr	r5,1010$		;get the tb used count
+	.word	t$bque			;
+	mov	r0,s.ytbf		;free tbs
+	jsr	r5,1010$		;get the ad used count
+	.word	a$dque			;
+	mov	r0,s.yadf		;free tps
+	return
+
+1010$:	clr	r0			;clear the counter
+	mov	(r5)+,r1		;get the pointer
+	$cmsch				;block the system
+	mov	qu.rec(r1),r1		;get the next
+1020$:	beq	1030$			;are no more
+	inc	r0			;count it
+	mov	(r1),r1			;get the next
+	br	1020$			;
+1030$:	$cmpro				;back to process state
+	rts	r5			;done
+
+v.empc:	.word	0			;
+v.esic:	.word	0			;
+v.esiv:	.word	0			;
+s.ykc0:	.word	0			;
+s.ylfc:	.word	0			;
+s.yadc:	.word	0			;ads
+s.ytbc:	.word	0			;tbs
+s.ytpc:	.word	0			;tps
+s.yadf:	.word	0			;free ads
+s.ytbf:	.word	0			;free tbs
+s.ytpf:	.word	0			;free tps
+	.dsabl	lsb			;
+
+meta	<kerbit bit str><.word bit><.ascii "str"<200>><.even>
+
+	losym$	= kccon$!kcint$!kcrem$
+1100$:	kerbit	kccon$	<Console>	;
+	kerbit	kcint$	<Local>		;
+	kerbit	kcrem$	<Remote>	;
+	.word	0
+	kerbit	kclgi$	<Logins>	;
+	kerbit	kclgo$	<Logout>	;
+	.word	0			;
+	kerbit	kcpro$	<Protected>	;
+	kerbit	kckmm$	<Maintenance>	;
+	kerbit	kcboo$	<Boot>		;
+	.word	0			;
+.end	
+.sbttl	show messages
+
+;	Display message queue
+;
+;Process	Chan	Type	Target		Request	Count	Done
+;IAN1	MQRECV	12	RT-11	IAN4	MQSEND	Read	200
+;		13	Process	All		Read	200
+;IAN4	MQSEND	3	Image	IAN1	MQRECV
+;
+s.mesg::output	clr			;cleanup
+	kernel	#1000$			;
+	bcc	10$			;fine
+	asl	r0			;get error condition
+	.print	s$merr(r0)		;
+
+;	Got information
+
+	print	<RUST/XM message queue >	
+	print	<From		To		Bytes	Type	>
+;Process	Act	Bytes	Target		Type	Status
+;IAN1	MQRECV	Read	200	IAN4	MQSEND	RT-11	
+
+	mov	#m$qbuf,r5		;get the buffer
+
+.end
+

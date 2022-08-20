@@ -1,0 +1,79 @@
+.sbttl	unpack
+.mcall	.ttyout
+
+uppers:	.word	0		;number of upper case chars
+chars:	.word	0		;number out so far
+
+unpacu:	mov	#3,uppers	;upper case
+	br	unpac3		;format to three characters
+unpacf:	clr	uppers		;make them lower case
+unpac3:	mov	#3,chars	;count down the chars
+	call	unpack		;unpack it
+10$:	dec	chars
+	bmi	20$
+	.ttyout	#space		;type some more
+	br	10$
+20$:	return
+
+	.enabl	lsb
+unpac4:	mov	(r4)+,r0	;get the next
+unpac0:	mov	r0,r1		;move it
+	psh	r2		;
+	br	10$		;
+
+unpack:	psh	r2		; << r1 = word				;?154
+.if ndf dln$c
+dln$c=0
+.endc
+.if ne dln$c
+	call	dn$unp
+	bcc	100$
+.endc
+				; destroys r0, r1, r2
+10$:	mov	#110$,r2	;get the divisors
+20$:	mov	#-1,r0		;init the result
+30$:	inc	r0		;next character
+	sub	(r2),r1		;this it?
+	bcc	30$		;nope
+	add	(r2),r1		;bump back
+	tst	r0		;a null?
+;	beq	60$		;yep, forget it
+	beq	90$		;yep - forget it
+	cmp	#35,r0		;this a * or %
+	blo	70$		;its alphabetic
+	beq	75$		;its * - add 15
+	cmp	#33,r0		;nah?
+	blo	75$		;its % - add 11
+	beq	80$
+	cmp	#35,r0		;this a * or %
+	blo	80$		;its % - add 11
+	beq	75$		;its * - add 15
+50$:	add	#40,r0
+60$:	add	#16,r0		;space
+70$:	add	#5,r0
+75$:	add	#4,r0		;
+80$:	add	#11,r0
+	dec	uppers		;lower case required
+;	bpl	85$		;yes
+	bmi	85$
+	cmpb	r0,#'a		;this alphabetic?
+	blo	85$		;nope
+	cmpb	r0,#'z		;truly?
+	bhi	85$		;nope
+	sub	#'a-'A,r0	;make it lower
+85$:	dec	chars		;count them
+	.ttyout			;type it
+90$:	tst	-(r2)		;any more?
+	bne	20$		;yep
+95$:;	mov	#3,uppers	;reset upper case count
+	clr	uppers		;lower case usually
+100$:	pop	r2		;
+	return
+	.word	0,1,50
+110$:	.word	50*50							;?154
+	.dsabl	lsb
+
+;$		33
+;%	45-11	34
+;*	52-15	35
+

@@ -1,0 +1,578 @@
+.title	login
+.include "dcs:dcl.mac"
+
+;	Modules:
+;
+;	login	login, logout, authorize commands
+;	login1	uaf operations
+;	login2	users.sys
+;	poll	terminal operations
+;	 p.husn	data at end of all modules
+;
+;	LOGIN may have to exit to other command files before it can process
+;	the command string. It sets the CLI to LOGIN and copies the original
+;	command back into the command stream each time.
+;
+;	We reset the process environment each time we arrive and check the
+;	same path. Flags are used in the process enable flags to make sure
+;	we dont loop forever.
+;
+;	pr.nam	logout	process is logging out
+;	pr.nam	login	process is logging in
+;	pr.nam	neither	user is logged in
+
+$ehdef		;expert header
+$indef		;ind
+$jbdef		;
+$jsdef		;jsw
+$kcdef		;kernel control
+$opdef		;output
+$pedef		;process enables
+$prdef		;pcr
+$rmdef		;rmon
+$rpdef		;rp
+$srdef		;system rights
+$usdef		;uar
+
+;	%build
+;	r macro
+;	dcb:login=dcs:kp,dcs:login,dcs:shotim
+;	^C
+;	%end
+;	%date
+;	<16-Mar-2008 21:57:52.14>
+;	%edit
+;	<63   >
+
+map	delete,,177.	;
+map	ctrlu,,<'U-100>
+
+meta	<kerflg	flg><$cmkrnl #area, #lo$kc0, p0=flg, pic=yes>
+.sbttl	authorize, set password
+
+authorize::
+	setup	$dummy			;no options
+	cright	#sropr.			;manager rights
+	scan	<^IF=1Q="Username? "> ;get next device
+	edit	<^Z"R AUTHOR"}>		;build the command
+	edit	<!\ \!@\@@@@@!@~!}>	;the rest or nothing
+	edit	<"^C"}>			;terminate cusp
+	jmp	build			;call the program
+
+setpwd::call	eol			;
+	bis	#jsgtl$!jstts$,@#jsw	;
+	bic	#jsttl$,@#jsw		;
+	call	getpwd			;get the current password
+	clr	-(sp)			;assume no error
+					;get old password
+	bitb	#usflp$,us.flg+l$ouar	;allowed to change password?
+	beq	10$			;yes - fine
+	mov	#norigh,(sp)		;nope
+	br	30$			;
+
+10$:	mov	#300$,r0		;the prompt
+	mov	#passwd,r1		;result string
+	call	100$			;get from terminal
+					;compare old password
+	mov	#l$ouar,r1		;get the old one
+	add	#us.pwd,r1		;point to password
+	call	200$			;compare
+	bcc	20$			;fine
+	mov	#olderr,(sp)		;
+					;get new password
+20$:	mov	#400$,r0		;
+	mov	#l$ouar,r1		;
+	add	#us.pwd,r1		;point to it
+	call	100$			;get the string
+					;verify new password
+	mov	#500$,r0		;
+	mov	#passwd,r1		;
+	call	100$			;
+					;
+	mov	#l$ouar+us.pwd,r1	;point to password
+	call	200$			;compare
+	bcc	30$			;fine
+	mov	#newerr,(sp)		;setup the error
+					;
+30$:	pop	r1			;get error code
+	bne	40$			;oops
+	call	putuaf			;put it back
+	jmp	kmon			;
+40$:	jmp	fatal
+
+;	get input line
+
+100$:	.print				;print the string
+110$:	mov	r1,r2			;get a copy
+	clr	r3			;
+120$:	.ttyin				;get a character
+	cmpb	r0,#cr			;this the end?
+	beq	120$			;
+	cmpb	r0,#delete		;delete one
+	bne	130$			;nope
+	tst	r3			;got one?
+	beq	120$			;nope - ignore
+	clrb	-(r2)			;clear it
+	dec	r3			;one less
+	br	120$			;
+130$:	cmpb	r0,#ctrlu		;start again?
+	beq	110$			;yes
+	cmpb	r0,#lf			;end of it?
+	beq	150$			;yes
+	cmpb	r3,#8.			;more space?
+	bhis	120$			;nope
+	inc	r3			;
+	movb	r0,(r2)+		;store character
+	br	120$			;and start over
+150$:	cmpb	r3,#8.			;any more space?
+	bhis	160$			;nope
+	clrb	(r2)+			;clear the rest
+	inc	r3			;count it
+	br	150$			;try again
+160$:	.print	#newlin
+	return				;
+
+200$:	mov	#passwd,r0		;
+	mov	#8.,r2			;
+210$:	cmpb	(r0),(r1)+		;this the same?
+	bne	230$			;nope error
+	tstb	(r0)+			;end of string?
+	beq	220$			;yes fine
+	dec	r2			;more
+	bne	210$			;
+220$:	tst	(pc)+			;no error
+230$:	sec				;
+	return
+
+
+300$:	.ascii	/Old password: /<200>
+400$:	.ascii	/New password: /<200>
+500$:	.ascii	/Verification: /<200>
+olderr:	.asciz	/Old password validation error - password unchanged/
+newerr:	.asciz	/New password verification error - password unchanged/
+norigh:	.ascii	/Password is locked/
+newlin:	.asciz	//
+passwd:	.blkb	10.			;
+	.even
+.sbttl	login, logout
+
+;	State mechanism
+;
+;	pr.nam	ph.nam	ph.usn	state
+; 0	user	user	user	logged in	logout.com
+; 1	logout	user	user	logging out	logout.com
+; 2	logon		user	internal login	login
+; 3	login			terminal wait	polout, poll
+
+login::	case	<logout,logio,author,reset$>
+logout:
+logio:	setup	$dummy			;say we are here
+	.serr				;catch all errors
+	call	ctcoff			;turn off [ctrl/c]
+	call	logcli			;force login
+	call	cantim			;cancel marktimes
+	clr	p.husn			;clear username variable
+
+;	Check loginout state
+;
+;	GETSTA gets current state, sets next
+
+100$:	call	getsta			;get the state
+	add	r0,pc			;dispatch it
+	br	110$			;user is logged in
+	br	120$			;process is logging out
+	br	130$			;try internal login
+	br	140$			;process is logging in
+
+;	USER - User is logged in
+;
+;	cleanup, copy command and exit.
+;	handle logout command files.
+
+110$:					;user is logged in
+	call	attout			;get rid of attached processes
+					;get rid of resources
+	call	logoff			;log the user out first
+	br	100$			;get the next state
+
+;	LOGOUT - User is logged out
+;
+;	check for new username in command
+
+120$:					;user is logged out
+	tstb	(r5)			;do we have a new name already?
+	bne	200$			;yes - try to log this in
+					;no - display logout message
+	br	100$			;goto next phaze
+
+;	LOGOFF - Process is logged out
+;
+;	display logout message
+
+130$:					;process is logging in
+	tst	p.hnam			;do we have a name to logout?
+	beq	135$			;no
+	call	gettim			;get clock information
+	output	nam par=#p.hnam		;display the name
+	type	< logged out on >	;
+	call	dattim			;show full date
+	print				;and display it
+135$:	br	100$			;move to next state
+
+;	Check here to see if we should delete this process
+;
+;	LOGON - process new name
+;	LOGIN - look for new terminal
+
+140$:	tstb	(r5)			;got a name coming?
+	bne	200$			;yes - dont poll again
+	call	polout			;get rid of the terminal
+	call	poll			;get another terminal
+	bcc	200$			;attached login
+	call	logtxt			;interactive - display login text
+					;got one
+200$:	jmp	logon			;go logon for new user
+.sbttl	logoff
+
+;	Log user out.
+;
+;	Disable the terminal [ctrl/c] and [ctrl/y] mechanisms.
+;	Set global [ctrl/c]. Remove control structures.
+;	Reset the system UIC.
+;
+;	Clean up some basic structures and write the accounting record.
+;	Run the system logout command file, if any, unless the process
+;	has noaccounting set.
+;
+;	Add accounting variables to root process if it has one.
+;	Write accounting variables out if its the root process.
+;
+;	Check for sys:logout.com - reset default disk
+;	Global SCCA
+;	Disable trace unless display/everything
+
+logoff:					;remove user context
+	call	lo$rem			;remove the login name
+	call	cleanup			;cleanup process
+	kerflg	#kclgo$			;check for LOGOUT.COM
+	bcs	80$			;no file to run
+;	bit	#penac$,p.hpe0		;disabled accounting?
+;	bne	80$			;yes
+;	cmp	p.rnam,#^rlog		;this the second time?
+;	bne	50$			;no
+;	cmp	p.rnam+2,#^rin		;really?
+;	beq	60$			;yes
+;	cmp	p.rnam+2,#^rout		;
+;	beq	60$			;
+50$:	edit	<^Z>			;run the command file
+	edit	<"SET ERROR NONE"}>	;avoid errors
+	edit	<"@SY:LOGOUT.COM"}>	;
+	kernel	#100$			;assign default dk
+	mov	#line,r5		;get the command line
+60$:	movb	(r5),(r4)+		;move the line out
+	bitb	#177,(r5)+		;is this the end?
+	bne	60$			;no
+	movb	#cr,-1(r4)		;terminate it
+	movb	#lf,(r4)+		;
+	jmp	build			;and go do it
+80$:	return
+
+;	Assign default disk for logout command file
+
+100$:	mov	@#p$hdsk,@#p$hequ	;setup equivalence
+	beq	110$			;is none
+	mov	#^rdk,@#p$hlog		;setup logical name
+110$:	return				;
+.sbttl	cleanup process
+
+;	Cleanup basic user structures
+;
+;	This is called once to remove control structures.
+;	Must exit afterward to get the CLI back again.
+;	It supplies a well defined logout environment.
+;
+;	Do not reset DCL.SYS channel.
+;	The command file stays in.
+
+error=34				;error!severe!fatal
+
+cleanup:
+	mov	#dpini.,r0		;init pool
+	clr	r1			;
+	call	dp$adj			;
+					;
+	mov	sysptr,r0		;
+	clr	rm.ucf(r0)		;set noucl
+	bis	#ifeko$,statwd(r0)	;set tt quiet
+	bic	#ifind!ifrt,statwd(r0)	;set kmon noind, tt command
+	movb	#error,errlev(r0)	;set error error
+	movb	#$$ked,maxoff(r0)	;set edit edit
+	bicb	#^cincgl$,rm.ins(r0)	;all ind except global ^c
+	bit	#ifall,statwd(r0)	;display/everything active?
+	bne	10$			;yes
+	mov	k$mwor,r0		;get our world
+	bic	#te.trx,$terms(r0)	;no - disable trace
+					;
+10$:	mov	k$mwor,r0		;get our world
+	clr	eh.ucl(r0)		;reset ucl - not used
+	mov	#cr+<lf*256.>,eh.dot(r0);reset the prompt
+	mov	#'.+<200*256.>,eh.dot+2(r0)
+					;
+	bic	#te.cty!te.ctf!te.ide,$terms(r0)
+					;noctrly/f, noidentify
+	bis	#te.nov!te.edi,$terms(r0) ;set noverify, sl/edit
+	clrb	$card(r0)		;set wild implicit
+	movb	#3,$edit(r0)		;set edit ked
+	movb	#'A,$bas(r0)		;set basic all
+					;
+	clr	$user(r0)		;and set logged out
+	clr	$user+2(r0)		;
+					;
+30$:	bis	#u.scli,@k$mrig		;permit set cli
+	call	r.all$			;reset most things
+					;
+	mov	$unam1,r0		;deassign/all
+	mov	$unam2,r1		;
+	mov	$slots,r2		;and a counter
+50$:	clr	(r0)+			;logical
+	clr	(r1)+			;equivalence
+	sub	#2,r2			;count them
+	bne	50$			;more
+					;
+	mov	k$mwor,r0		;ass/path dk dk,sy
+	mov	$paths(r0),r0		;get the path list
+	beq	60$			;
+	psh	r0			;save it
+	mov	#^rdk,(r0)		;ass/path sy dk,sy
+	mov	(r0)+,(r0)+		;
+	mov	#^rsy,(r0)+		;
+	clr	(r0)+			;terminate it
+					;
+	call	trnsvp			;check for system vm path
+	mov	#^rvm,r1		;assume VM:
+	bcc	52$			;YES means VM:
+	mov	r0,r1			;did we really fail?
+	beq	55$			;yes
+					;
+52$:	mov	(sp),r0			;get the paths again
+	add	#6*2,r0			;point to the second
+	cmp	(r0),#-1		;got a second?
+	beq	55$			;no
+	mov	#^rsy,(r0)+		;yes - assign/path sy vm,sy
+	mov	r1,(r0)+		;
+	mov	#^rsy,(r0)+		;
+55$:	tst	(sp)+			;forget paths
+60$:
+	kernel	#100$			;
+	return				;
+
+meta	<setrig addr><mov addr,r0><call setrig>
+
+100$:	setrig	#p$har0
+	setrig	#p$hpr0
+	setrig	#p$hsr0
+	mov	#p$hmr0,r0
+	mov	#4,r1			;
+110$:	clr	(r0)+			;clear missing rights
+	sob	r1,110$			;
+	movb	#4,@#p$hpri
+	movb	#31.,@#p$hpri+byte	;
+	mov	@#p$hpcr,r4		;get pcr
+	mov	#s$cp04,pr.bqu(r4)	;
+	mov	#s$cp31,pr.tqu(r4)	;
+	return
+
+setrig:	mov	#4,r1			;
+10$:	mov	#-1,(r0)+		;
+	sob	r1,10$			;
+	return
+.sbttl	utilities
+
+;	build LOGIN or LOGOUT command
+
+logcli::mov	#20$,r0			;force login
+	mov	k$mwor,r1		;point to it
+	mov	$force(r1),r1		;get the string start
+	beq	15$			;they don't have one
+10$:	movb	(r0)+,(r1)+		;move in the string
+	bne	10$			;more to go
+15$:	return				;
+20$:	.asciz	/login/			;
+	.even				;
+
+	.enabl	lsb			;
+ctcon::	clr	r1			;enable ctrl/c
+	br	10$			;join common
+ctcoff:	mov	#20$,r1			;disable ctrl/c
+10$:	.scca	#area, r1, type=global	;stop [ctrl/c]
+	return				;
+20$:	.word	0			;ctrl/c flag
+.dsabl	lsb				;
+
+;	Check for following:
+;
+;	sli	system login
+;	slo	system logout
+;
+;	r1 ->	logical name
+
+trnsvp:	jsr	r1,trnlog		;translate
+	.asciz	/SVP/			;SVP
+					;
+					;
+trnuaf::jsr	r1,trnlog		;
+	.asciz	/SLU/			;SLU
+					;
+trnlog:	tst	(sp)+			;
+	clrb	lognam			;assume we get none
+	$trnlog	#area, r1, #0, #0, #0, #0, #2!4
+	bcs	20$			;no translation
+	cmp	r0,#^ryes		;assigned to yes?
+	beq	10$			;fine
+	sec				;no
+10$:	return				;
+20$:	bic	r0,r0			;we really failed
+	return				;
+lognam:	.asciz	/XXX/			;the logical name
+
+;	check for kernel control flags
+;	following routine is called in kernel mode
+
+lo$kc0::bit	rp.p0(r5),@#s$ykc0	;this bit set?
+	beq	10$			;nope
+	return				;
+10$:	.soft	0			;set c-bit
+
+;	Display SY:LOGINS.TXT
+;
+;	Not displayed for subprocess creation
+
+	.enabl	lsb
+logtxt:					;display sy:logins.txt
+	mov	#100$,r1		;
+distxt::.purge	#0			;purge it first
+	.lookup	#area, #0, r1, #0	;find the file
+	bcs	30$			;no such file
+	clr	r1			;setup the block number
+	mov	$text,r2		;point to the buffer
+10$:	.readw	#area, #0, r2, #256., r1;read next block
+	bcs	20$			;no more data
+	movb	#200,512.(r2)		;terminate it
+	.print	r2			;display it
+	inc	r1			;next block
+	br	10$			;get some more
+20$:	.purge	#0			;purge it again
+	tst	(pc)+			;
+30$:	sec				;
+	return				;all done
+100$:	.rad50	/sy loginstxt/		;SY:LOGINS.TXT
+	.dsabl	lsb			;
+.sbttl	timer routines
+
+;	Post a timeout routine.
+;
+;	Must be careful about being in an overlay.
+
+mrktim::call	cantim		;cancel them all
+	inc	k$mtmo		;remember we are timing
+	.mrkt	#area, #10$, #timout, #1
+	return			;
+10$:	.word	0, 20.*55.	;international minute
+
+;	Cancel timeout routine
+
+cantim::clr	k$mtmo		;clear the timeout flag
+	.cmkt	#area, #0	;cancel all calls
+	return			;
+.sbttl	state and data
+
+;	State mechanism
+;
+;	pr.nam	ph.nam	ph.usn	state
+; 0	user	user	user	logged in
+; 1	logoff	user	user	logging out - SY:LOGOFF.COM
+; 2	logout	user	user	internal login in progress
+; 3	login			waiting for terminal 
+; 3	logon			interactive login in progress
+;
+;	The process names login and logout are not permitted.
+
+getsta:	kernel	#100$			;get the status
+	bcs	10$			;oops - no access rights
+	asl	r0			;save it as an offset
+	return				;
+10$:	print	<?DCL-E-DCL.SYS not installed - contact your system manager>
+	mov	k$mwor,r0		;get the table
+	clr	$km(r0)			;kmon no longer in memory
+	bis	#error$*256.,errbyt	;setup the error code
+	.spnd				;wait for resume
+	.exit				;and try it again
+
+;	Return state in r0
+
+100$:	mov	@#p$hpcr,r4		;get the pcr
+	mov	pr.nam(r4),p.rnam	;pr.nam
+	mov	pr.nam+2(r4),p.rnam+2	;
+	mov	@#p$hnam,p.hnam		;
+	mov	@#p$hnam+2,p.hnam+2	;
+	mov	@#p$hpe0,p.hpe0		;
+	mov	@#p$hpe1,p.hpe1		;
+	mov	#<1*256.>+4.,@#p$huic	;change the UIC
+	mov	#<1*256.>+4,pr.uic(r4)	;reset the UIC
+	bis	#pelgo$,@#p$hpe1	;set logout in progress
+	$cmsch				;block the scheduler for this
+
+;	Check phaze 0
+
+	cmp	pr.nam(r4),#^rlog	;are we in some login state?
+	beq	120$			;probably
+110$:	clr	rp.r0(r5)		;force logged in
+	mov	#^rlog,pr.nam(r4)	;and setup logging out
+	mov	#^rout,pr.nam+2(r4)	;
+	br	160$			;
+
+;	Check phaze 1
+;
+;	logout to logoff
+
+120$:	cmp	pr.nam+2(r4),#^rout	;are we logging out?
+	bne	140$			;no - check logging in
+130$:	mov	#1,rp.r0(r5)		;report phaze 1
+	mov	#^roff,pr.nam+2(r4)	;
+	br	160$			;
+
+;	Check phaze 2
+;
+;	logoff to login
+
+140$:	cmp	pr.nam+2(r4),#^roff	;this phaze 2?
+	bne	150$			;no - try phaze 2
+	mov	#2,rp.r0(r5)		;phaze two
+	mov	#^rin,pr.nam+2(r4)	;force phaze 3
+	br	160$			;
+
+;	Check phaze 3
+;
+;	login/logon to login/logon with username=0
+
+150$:	cmp	pr.nam+2(r4),#^ron	;are we logging in?
+	beq	155$			;yes
+	cmp	pr.nam+2(r4),#^rin	;are we logging in?
+	bne	110$			;no
+155$:	mov	#3,rp.r0(r5)		;return this phaze
+	clr	@#p$husn		;no user now
+	clr	@#p$husn+2		;
+	clr	@#p$hnam		;clear the internal name
+	clr	@#p$hnam+2		;
+					;
+160$:	$cmpro				;back to process state
+	return				;
+					;
+p.rnam:	.word	0,0			;
+p.hnam:	.word	0,0			;
+p.hpe0:	.word	0			;process enables
+p.hpe1:	.word	0			;
+s.ykc0:	.word	0			;kernel control
+					;
+;	Followed by SHOTIM clock routines
+                                                                                                           

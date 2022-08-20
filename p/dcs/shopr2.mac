@@ -1,0 +1,848 @@
+Y2K=1
+;.title	shopr2
+.sbttl	display routines
+
+sysver:	type	<V>		;version
+	output	dec par=s.yver	;version
+	type	<.>		;
+	output	dec par=s.yupd	;update
+	return
+
+;	pid	zero filled octal - six wide
+
+prcpid:	output	oct par=pcr+pr.pid ctl=#zer cnt=#6
+	return
+
+;	process	ascii six wide
+
+prcnam:	output	nam par=#pcr+pr.nam cnt=#6
+	return
+
+acnnam:	output	nam par=#p.hacn cnt=#6
+	return
+
+prcdsk:	output	dev par=p.hdsk ctl=#upr cnt=#4
+	return
+
+prcinp:	mov	t.enam,r1	;got a named terminal?
+	bne	10$		;yes
+	mov	p.hinp,r1	;no - use this instead
+10$:	output	dev par=r1 ctl=#upr cnt=#4
+	return
+prcter:	output	dev par=t.enam ctl=#upr cnt=#4
+	return
+
+;	user	ascii six wide
+
+usenam:	output	nam par=#p.huse cnt=#6
+	return
+
+;	image	ascii six wide
+
+imgnam:	bit	#primg$,p.hsta	;got an image at present?
+	beq	10$		;no - must be dcl
+	output	nam par=#p.himg+fn.fil cnt=#6
+	br	20$
+10$:	type	<(DCL) >	;put one in
+20$:	return
+
+;	uic	with []
+
+fuluic:	output	uic par=pcr+pr.uic
+	return
+
+;	uic	without []
+
+abruic:	output	uic par=pcr+pr.uic ctl=#zer
+	return
+
+biocnt:
+	mov	p.hbio,r0	;get high order
+	beq	10$		;no high order
+	mov	p.hbio+2,r1	;get low order
+	div	#10000.,r0	;divide it
+	pshs	<r1,r0>		;save low order
+	output	dec par=(sp)+	;display high order
+	output	dec par=(sp)+ ctl=#zer cnt=#4 ;and low order
+	return			;
+10$:	output	dec par=p.hbio+2 cnt=#6
+	return
+
+;	dio	decimal six wide
+
+diocnt:
+	mov	p.hdio,r0	;get high order
+	beq	10$		;no high order
+	mov	p.hdio+2,r1	;get low order
+	div	#10000.,r0	;divide it
+	pshs	<r1,r0>		;save low order
+	output	dec par=(sp)+	;display high order
+	output	dec par=(sp)+ ctl=#zer cnt=#4 ;and low order
+	return			;
+
+10$:	output	dec par=p.hdio+2 cnt=#6
+	return
+diorig:	output	dec par=p.hdio+2 ctl=#rig cnt=#6
+	return
+
+;	mem	decimal four wide
+
+.enabl	lsb
+memrig:	psh	#rig		;right justified
+	br	10$		;
+memsiz:	clr	-(sp)		;
+10$:	mov	pcr+pr.len,r1	;memory size in pages
+	clr	r0		;
+	div	#mmpib.,r0	;get the number of blocks
+	output	dec par=r0 ctl=(sp)+ cnt=#4
+	return
+.dsabl	lsb
+
+memuse:	call	wsused		;get pages used
+	output	dec par=r2 ctl=#rig cnt=#4
+	return
+
+;	Return pages used in r1
+;	Return pages rounded to segments in r2
+
+wsused:				;compute working set usage
+	mov	pcr+pr.len,r1	;memory size in pages
+	clr	r0		;
+	div	#mmpib.,r0	;get the number of blocks
+	psh	r0		;(sp) = maximum pages
+
+	mov	p.htop,r1	;get the top address
+	beq	5$		;zero is special
+	add	#2,r1		;point to first free
+5$:	clc			;compute words to avoid overflow
+	ror	r1		;
+	add	#377,r1		;round up to a page
+	clrb	r1		;
+	swab	r1		;pages
+	psh	r1		;save it
+	add	#15.,r1		;round up to segments
+	bic	#15.,r1		;
+	psh	r1		;save it
+
+	mov	p.hrmc,r1	;get the rmon base
+	sub	p.husr,r1	;get the bytes used
+	add	#ph.bbs,r1	;add in the phd
+	clc			;make words
+	ror	r1		;
+	add	#377,r1		;round up to a page
+	clrb	r1		;
+	swab	r1		;pages
+	mov	r1,r2		;compute segments
+	add	#15.,r2		;
+	bic	#15.,r2		;
+
+	add	(sp)+,r2	;r2 = physical memory required
+	add	(sp)+,r1	;r1 = pages required
+	cmp	r1,(sp)		;more than we have?
+	blos	10$		;no
+	mov	(sp),r1		;yes
+10$:	cmp	r2,(sp)		;is this more than we have?
+	blos	20$		;no
+	mov	(sp),r2		;yes
+20$:	tst	(sp)+		;
+	return
+
+;	wai	process wait condition
+
+prcwai:	movb	pcr+pr.wai,r1	;state
+	mul	#4,r1		;four per state
+	add	#10$,r1		;point to them
+	output	str 		;display the wait
+	return
+10$:	.irp	$,<COM,INP,OUT,RES,QUO,I/O,SIG,HIB,TIM,SUS,MES,REC,MUT,LOG>
+	.asciz	&$&
+	.endr
+	.even
+
+;	pri	process priority
+
+prcpri:	mov	pcr+pr.que,r1	;priority
+	sub	#s$cp00,r1	;remove base queue
+	clr	r0		;
+	div	#sc.bbs,r0	;recompute priority
+	output	dec par=r0 ctl=#rig cnt=#2
+	return
+
+;	baspri	process base priority
+
+	assume	sc.bbs eq 4	;
+baspri:	mov	pcr+pr.bqu,r1	;get the base priority
+	sub	#s$cp00,r1	;remove the base
+	asr	r1		;/2
+	asr	r1		;/4
+	output	dec par=r1 ctl=#rig cnt=#2
+	return
+toppri:	mov	pcr+pr.tqu,r1	;get the top priority
+	sub	#s$cp00,r1	;remove the base
+	asr	r1		;/2
+	asr	r1		;/4
+	output	dec par=r1 cnt=#2
+	return
+
+prcprt:	output	prt par=p.hpro ctl=#opsgn$ ;
+	return
+.sbttl	time
+
+;	cpu	cpu time
+;	day	day time
+;
+; Compute the time for some displays
+;
+;	r0,r1	time in ticks (50 or 60 herz)
+;
+;	First divide must extract seconds since word quotient required
+
+gettim:	.gtim	#area, #time
+	.date
+	mov	r0,date
+	return
+
+uptime:	mov	c.lhot,r0	;get current ticks
+	mov	c.llot,r1	;
+;	sub	t.iblo,r1	;compute uptime
+;	sbc	r0		;
+;	sub	t.ibhi,r0	;r0/r1 = uptime
+	psh	#opday$!opmil$	;display the lot
+	br	comtm2
+
+contim:	mov	c.lhot,r0	;current time
+	mov	c.llot,r1	;
+	sub	p.hali+2,r1	;login time
+	sbc	r0		;
+	sub	p.hali,r0	;
+	psh	#opday$!opmil$	;days time.cc
+	br	comtm2		;
+
+.enabl	lsb
+cpuday:	psh	#opday$!opmil$	;d time.cc
+	br	10$
+cputim:	psh	#opmil$		;time.cc
+10$:	mov	#p.hcpu,r2	;point to cpu time
+	br	comtim		;
+.dsabl	lsb
+
+dattik:	psh	#opmil$		;date time.cc
+	tst	(pc)+		;
+dattim:	clr	-(sp)		;date time
+	call	putdat		;
+	type	< >		;
+	mov	#time,r2	;get the time
+	br	comtim		;
+
+daytik:	psh	#opmil$		;time.cc
+	tst	(pc)+		;
+daytim:	clr	-(sp)		;time
+	mov	#time,r2	;get the time
+	br	comtim		;
+.sbttl	output time
+
+; Assumes that time will be less than 24 hours
+
+map	opday$,,200	;days
+map	opmil$,,100000	;milliseconds
+
+;	comtim
+;
+;	r2 ->	.word	hot, lot
+;	(sp)	.word	[opday$]![opmil$]
+;
+;	comtm2:
+;
+;	r0	hot
+;	r1	lot
+;
+;	time/<freq*60>	quo=minutes, rem=seconds*ticks
+;	minutes/60	quo=hours, rem=minutes
+;	seconds		quo=seconds, rem=ticks
+;	ticks*100/freq	
+
+comtim:	mov	(r2)+,r0	;high order
+	mov	(r2),r1		;low order
+
+comtm2:	call	getday		;remove the days
+	bit	#opday$,(sp)	;should we display the days?
+	beq	10$		;no
+	pshs	<r1,r0>		;yes
+	output	dec par=r2
+	type	< >
+	pops	<r0,r1>		;
+
+10$:	mov	t.ifre,r3	;compute second factor
+	mul	#60.,r3		;r3 = seconds factor
+
+	div	r3,r0		;extract seconds
+	mov	r0,r2		;r2 = minutes/hours/days
+	clr	r0		;
+	div	t.ifre,r0	;get ticks & seconds
+	psh	r1		;ticks
+	psh	r0		;seconds
+	clr	r0		;
+	mov	r2,r1		;minutes/hours
+	div	#60.,r0		;
+	psh	r1		;minutes
+	psh	r0		;hours
+	mov	#3,r2		;count again
+	br	30$		;do another
+20$:	type	<:>		;separator
+30$:	pop	r1		;
+	psh	r0		;save this
+	output	dec par=r1 ctl=#zer cnt=#2
+	pop	r0		;
+	sob	r2,20$		;count them
+
+	pop	r1		;get the ticks
+	bit	#opmil$,(sp)+	;display milliseconds?
+	beq	50$		;no
+	type	<.>		;yes
+	mul	#100.,r1	;*100
+	clr	r0		;
+	div	t.ifre,r0	;/frequency
+	asl	r1		;round it up
+	cmp	r1,t.ifre	;this a half a point?
+	blo	40$		;no
+	inc	r0		;yes
+40$:	mov	r0,r1		;get the value
+	output	dec par=r1 ctl=#zer cnt=#2
+50$:	return
+.dsabl	lsb
+
+getday:	mov	t.ih24,r2	;time
+	mov	t.il24,r3	;
+10$:	clr	r4		;days
+20$:	cmp	r0,r2		;got another day?
+	blo	30$		;no
+	bhi	25$		;yes
+	cmp	r1,r3		;really?
+	blo	30$		;no
+25$:	inc	r4		;count the day
+	sub	r3,r1		;divide
+	sbc	r0		;
+	sub	r2,r0		;
+	br	20$		;
+30$:	mov	r4,r2		;r2 = days
+	return
+.sbttl	date
+
+putdat:	mov	date,r1		;day
+	asl	r1		;r1 = day
+	asl	r1
+	asl	r1
+	swab	r1
+	bic	#^c<37>,r1
+	output	dec par=r1 ctl=#zer cnt=#2
+	type	<->		;
+
+	mov	date,r1		;month
+	asr	r1		;r1 = month
+	swab	r1
+	asr	r1		;
+	bic	#^c<17>,r1	;clean up			;Y2K fix
+	dec	r1		;remove month zero
+	cmp	r1,#11.		;in range ?
+;	blo	10$		;yes
+	blos	10$		;do not ignore december -ewald-
+5$:	mov	#12.,r1		;
+10$:	asl	r1		;
+	asl	r1		;
+	add	#20$,r1		;point to the month
+	output	str par=r1	;
+	type	<->		;
+	
+	mov	date,r1		;year
+	bic	#^c<37>,r1	;r0 = year
+.if eq Y2K
+	add	#72.,r1		;year
+.iff
+	psh	date		;handle era
+	swab	(sp)		;
+	asr	(sp)		;
+	bic	#^c<140>,(sp)	;
+	bis	(sp)+,r1	;
+	add	#1972.,r1	;year
+.endc
+	output	dec par=r1	;
+	return
+
+20$:	.irp	$,<Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec,Bad>
+	.asciz	&$&
+	.endr
+	.even
+.sbttl	get name & errors
+
+getnam:	mov	$input,r5	;get the input string
+	mov	#name,r4	;and the output
+	edit	<#\#####>,50$	;numeric process name
+	edit	<@\@@@@@!@~>,,10$ ;get the name
+	edit	<!*> ,,20$	;must be the end
+10$:	jmp	invnam		;invalid name
+20$:	mov	#name,r1	;point to it
+	call	conar		;get rad50 of it
+	mov	r0,prcnax	;store rad50 version
+	call	conar		;
+	mov	r0,prcnax+2	;
+	mov	#name,r1	;convert to uppercase
+30$:	movb	(r1),r0		;get the next
+	beq	40$		;
+	call	upper		;convert it
+	movb	r0,(r1)+	;
+	br	30$		;
+40$:	return
+50$:	mov	#name,r5	;point to digits
+	call	getocn		;get the number
+	mov	r0,pid		;save it for later
+	return
+
+;	errnam	0	invalid name
+;	errprc	1	invalid process
+
+invnam:	mov	#errnam,r1	;force invalid name
+prcerr:				;r1 = error code
+	cmp	r1,#maxerr	;in range?
+	blo	10$		;yes
+	mov	#maxerr,r1	;no
+10$:	asl	r1
+	psh	20$(r1)		;save the address
+	output	clr		;clear it up
+	type	<?DCL-E->	;
+	output	str par=(sp)+	;display the string
+	type	< >		;
+	output	str #name	;
+	print
+	jmp	setfat		;fatal error
+
+errnam=0
+errprc=1
+maxerr=2
+20$:	.word	100$,101$,102$;,103$,104$,105$
+100$:	.ascii	_Invalid process name_<200>
+101$:	.ascii	_Non-existent process_<200>
+102$:	.ascii	_System error_<200>
+	.even
+.sbttl	get process information
+
+initab:	mov	$text,buflow	;setup the pointers
+	inc	buflow
+	bic	#1,buflow
+	mov	j$btop,buftop	;settop
+	return
+
+;	get process names
+;
+;	pid	process id
+;	prcrax	process name in rad50
+;
+;	We move back the full PCR and some information from the
+;	process header.
+;
+;	We handle the null process specially
+
+getker:	clr	sererr
+
+	mov	#clrfrm,r0	;clean up
+5$:	clr	(r0)+		;
+	cmp	r0,#clrto	;
+	blo	5$		;
+
+	$cmkrnl	#area, #kerget, pic=yes
+	bcc	30$		;fine
+	movb	errbyt,r1	;get the error code
+	cmp	r1,#errprc	;this an invalid process?
+	bne	10$		;no - error
+	tst	target		;are we searching for all?
+	bne	20$		;yes - no more processes
+10$:	jmp	prcerr		;display it
+20$:	sec			;no more processes
+	return
+30$:	return
+
+kerget:
+
+;	Get kernel information
+
+meta	<move src,dst,cnt><jsr r5,move><.word src,dst-.,cnt>
+
+				;should check wrap around
+	call	@#ti$tik	;get the current ticks
+	mov	r0,c.lhot	;
+	mov	r1,c.llot	;
+	move	t$ibhi,t.ibhi,4	;boot time
+	move	t$ih24,t.ih24,4	;midnight
+
+	move	t$ifre,t.ifre,2	;time frequency
+	move	s$yver,s.yver,1	;system version number
+	move	s$yupd,s.yupd,1	;system update
+	move	s$ynod,s.ynod,4	;node name
+	move	s$ynid,s.ynid,2	;nodes and node id
+
+;	Check null process
+
+	call	getnul		;check for null process
+	bcc	200$		;it was the null process
+
+;	Select via pid
+
+	movb	pid,r0		;specified a pid?
+	beq	10$		;no
+	cmp	r0,@#p$rprs	;got too many of these?
+	bhis	invprc		;yes
+	asl	r0		;get the pcr address
+	mov	p$rmap(r0),r4	;r4 -> pcr
+	bne	50$		;got one
+
+	tst	target		;doing multiple processes?
+	beq	invprc		;no
+	inc	target		;yes
+	mov	target,pid	;try again
+	br	kerget		;
+
+;	Check self
+
+10$:	tst	prcnax		;is this us?
+	bne	20$		;perhaps not
+	mov	@#p$hpcr,r4	;get our pcr
+	br	50$		;join common
+
+;	Select via name
+
+20$:	mov	#p$rmap,r0	;get the map
+	mov	@#p$rprs,r1	;and count them
+30$:	mov	(r0)+,r4	;get the next
+	beq	40$		;this is not it
+	cmp	pr.nam(r4),prcnax ;this it?
+	bne	40$		;no
+	cmp	pr.nam+2(r4),prcnax+2 ;really?
+	beq	50$		;yes
+40$:	dec	r1		;any more?
+	bne	30$		;yes
+	br	invprc		;no
+
+;	Get pcr & phd information
+;
+;	r4 ->	pcr
+
+50$:
+	mov	r4,r0		;r0 -> pcr
+	mova	pcr,r1		;server pcr address
+	mov	#pr.bbs/2,r2	;the count
+60$:	mov	(r0)+,(r1)+	;move them in
+	sob	r2,60$		;
+
+;	Get terminal information
+
+	clr	t.esig		;assume none
+	clr	t.enam		;assume no terminal
+	mov	pr.ter(r4),r3	;get the terminal
+	beq	70$		;is none
+	mov	te.sig(r3),t.esig ;store it
+	mov	te.nam(r3),t.enam ;store the terminal number
+
+70$:	psh	@#m$kip6	;save this
+	mov	pr.phd(r4),@#m$kip6 ;map the phd
+	call	movphd		;move in the phd stuff we need
+	call	movpla		;move plas stuff
+	call	movreg		;
+	pop	@#m$kip6	;restore it
+
+200$:	return			;and quit
+
+invprc:	.soft	errprc		;invalid process
+
+;	Get PHD information
+;
+;	We map the target PHD to par6
+
+	lodis. = m$mpa6-m$mpa2	;offset from par1 to par6
+meta	<move src,dst,cnt><jsr r5,move><.word src+lodis.,dst-.,cnt>
+
+movphd:	move	p$hsta,p.hsta,2	;status
+	move	p$himg,p.himg,8.;image name
+	move	p$hbio,p.hbio,4.;biocnt
+	move	p$hdio,p.hdio,4.;diocnt
+	move	p$havo,p.havo,2.;volumes mounted
+	move	p$haim,p.haim,2.;images executed
+	move	p$hali,p.hali,4.;login time
+	move	p$huse,p.huse,4	;username
+	move	p$hacn,p.hacn,4	;account name
+	move	p$hcpu,p.hcpu,4	;cpu time
+	move	p$hdsk,p.hdsk,2	;default disk
+	move	p$hinp,p.hinp,8.;input
+	move	p$hpri,p.hpri,2.;base priority
+	move	p$hpr0,p.hpr0,8.;privileges
+	move	p$hmr0,p.hmr0,8.;missing rights
+	move	p$hpro,p.hpro,2	;protection
+	move	p$hquo,p.hquo,pq.bbs ;quotas
+	move	p$hlim,p.hlim,pq.bbs ;limits
+
+	move	p$husr,p.husr,2	;bottom of control section
+				;also ph.ctl/p.hctl
+	move	p$hrmc,p.hrmc,2	;top of control section
+	move	p$htop,p.htop,2	;top of user section
+
+	move	p$hast,p.hast,2	;ast state
+	move	p$hasq,p.hasq,2	;ast queue
+	move	p$hsig,p.hsig,2	;ast signals
+	move	p$hjsw,p.hjsw,2	;jsw
+	move	p$hcfs,p.hcfs,2	;command file
+
+	move	a$pchn,a.pchn,1.;channel number
+	move	a$popr,a.popr,1.;acp operation
+	move	a$plog,a.plog,2	;logical name
+	move	a$pfna,a.pfna,8.;filename
+	move	a$pr0,a.pr0,2	;result r0
+	move	a$psta,a.psta,2	;error
+
+	move	p$hjob,p.hjob,2	;job address
+	move	p$hjoc,p.hjoc,2	;job count
+	move	p$hmet,p.hmet,2	;meta buffer
+	move	p$hmel,p.hmel,2	;meta length
+	move	p$hedb,p.hedb,2	;edit buffer
+	move	p$heds,p.heds,2	;edit lines
+	move	p$hlos,p.hlos,2	;log buffer
+	move	p$hlob,p.hlob,2	;log buffer
+	move	p$hlof,p.hlof,2	;log buffer
+	move	p$hktc,p.hktc,2	;kernel to user mapping
+
+	move	p$hsfp,p.hsfp,10.;spfa, scca, trpset, serr, imf, cfdn
+	move	p$hset,p.hset,2	;set options
+	move	p$htcr,p.htcr,2	;terminal configuration
+	move	p$hinx,p.hinx,2	;ind
+;
+	mov	p.hlob,r0	;get the buffer
+	beq	90$		;none there
+	sub	p.hktc,r0	;
+	add	#lodis.,r0	;
+	mova	f.ocon,r1	;get destination
+	mov	#<f.obbs/2>,r2	;
+80$:	mov	(r0)+,(r1)+	;
+	sob	r2,80$		;more
+
+90$:	$cmsch			;keep context
+	move	p$hcrp,p.hcrp,2	;request
+	mov	p.hcrp,r0	;got one?
+	beq	110$		;no
+	add	#lodis.,r0	;point to it
+	mova	r.pchn,r1	;yes
+	mov	#rp.bbs/2,r2	;
+100$:	mov	(r0)+,(r1)+	;
+	sob	r2,100$		;
+110$:	$cmpro			;back to process state
+	return
+
+
+; process registers
+
+movreg:
+	cmp	r4,@#p$hpcr	;is this us?
+	bne	20$		;no
+	mfpi	sp		;usp
+	pop	c.xusp		;
+	mov	sp,c.xksp	;ksp
+	mov	pc,r1		;pc (mov pc,c.xpc => Z error)
+	mov	r1,c.xpc	;
+	mov	@#ps,c.xpsw	;psw
+	br	50$		;
+
+20$:	$cmsch			;stop the scheduler to keep context
+	mov	pr.ksp(r4),r1	;get the kernel sp
+	add	#lodis.,r1	;point to our copy
+	tst	@#p$hfpu+lodis. ;using floating point?
+	bne	30$		;yes
+	sub	#cx.fbs,r1	;no - adjust for it
+30$:	mov	r1,c.xksp	;compute stack
+	add	#cx.bbs,c.xksp	;
+	sub	#lodis.,c.xksp	;relocate it
+
+	mov	cx.pc(r1),c.xpc	;
+	mov	cx.ps(r1),c.xpsw;
+	$cmpro			;
+50$:	return
+
+movpla:				;move plas stuff
+	move	p$hxmr,p.hxmr,2	;got plas?
+	mov	p.hxmr,r0	;
+	beq	20$		;no
+	mova	xmr,r1		;server pcr address
+	mov	#xm.bbs/2,r2	;the count
+10$:	mov	(r0)+,(r1)+	;move them in
+	sob	r2,10$		;
+20$:	return
+
+move:	mov	(r5)+,r0	;r0 = src
+	mov	r5,r1		;r1 = dst base
+	add	(r5)+,r1	;r1 = dst address
+	mov	(r5)+,r2	;r2 = count
+10$:	movb	(r0)+,(r1)+	;move them
+	sob	r2,10$		;
+	rts	r5		;
+.sbttl	routine to return null process information
+
+getnul:	tst	pid		;is this a non-zero pid?
+	bne	10$		;yes - not us
+	tst	target		;are we wildcarding?
+	bne	100$		;yes - this is the null process
+	cmp	#^rnul,prcnax	;want it by name?
+	bne	10$		;no
+	cmp	#^rl,prcnax+2	;really?
+	beq	100$		;yes
+10$:	br	200$		;not null process
+
+100$:
+
+; pcr
+	mov	#s$cp00,pcr+pr.que	;priority = 0
+	mov	#^rnul,pcr+pr.nam	;process name
+	mov	#^rl,pcr+pr.nam+2
+					;wait = 0 = computable
+					;length = 0
+; phd
+
+	mov	#primg$,p.hsta		;status - has image
+	mov	#^rsha,p.himg+2		;image name
+	mov	#^rre,p.himg+4
+					;bio
+					;dio
+					;avo
+					;aim
+	mov	@#t$ibhi,p.hali		;login time
+	mov	@#t$iblo,p.hali+2	;
+	mov	#^rsys,p.huse		;username
+	mov	#^rtem,p.huse+2
+	mov	@#s$ycpu,p.hcpu		;idle time
+	mov	@#s$ycpu+2,p.hcpu+2	;
+					;dsk
+					;inp
+					;pri
+
+					;state stuff
+
+	tst	(pc)+			;it was the null process
+200$:	sec				;was not null process
+	return
+.sbttl	data
+
+;	data must follow the server
+
+sererr:	.word	0		;server error return
+				;1 = address error
+				;2 = no room
+buflow:	.word	0		;start of buffers
+buftop:	.word	0		;last available address
+
+casx:	.word	0		;remember dcl case variable
+nopts:	.word	0		;/no options
+opts:	.word	0		;show process options
+disopt:	.word	0		;display options
+target:	.word	0		;0=> show process, n=show system pid
+pid:	.word	0		;
+name:	.asciz	/      /	;ascii process name
+	.even			;
+prcnax:	.rad50	/      /	;rad50 process name
+
+area:	.blkw	7		;
+
+;	PCR
+
+clrfrm:
+pcr:	.blkb	pr.bbs		;process pcr
+
+;	PHD
+
+p.hsta:	.word	0
+p.himg:	.word	0,0,0,0
+p.hbio:	.word	0,0
+p.hdio:	.word	0,0
+p.havo:	.word	0
+p.haim:	.word	0
+p.hali:	.word	0,0
+p.huse:	.word	0,0
+p.hacn:	.word	0,0		;
+p.hcpu:	.word	0,0
+p.hinp:	.word	0,0,0,0
+p.hpri:	.word	0		;base priority
+p.hdsk:	.word	0
+p.hpr0:	.word	0,0,0,0		;
+p.hmr0:	.word	0,0,0,0		;
+p.hpro:	.word	0		;protection
+p.hquo:	.blkb	pq.bbs		;quotas
+p.hlim:	.blkb	pq.bbs		;limits
+p.hctl:
+p.husr:	.word	0		;bottom of control
+p.hrmc:	.word	0		;top of control
+p.htop:	.word	0		;top of user section
+p.hast:	.word	0		;ast state
+p.hasq:	.word	0		;ast queue
+p.hsig:	.word	0		;ast signals
+p.hjsw:	.word	0		;jsw
+p.hcfs:	.word	0		;command file
+a.pfna:	.word	0,0,0,0		;filename
+a.popr:	.word	0		;byte actually
+a.pchn:	.word	0		;channel
+a.plog:	.word	0		;logical name
+a.pr0:	.word	0		;result r0
+a.psta:	.word	0		;error
+
+p.hjob:	.word	0		;
+p.hjoc:	.word	0		;
+p.hmet:	.word	0		;metas - user symbols
+p.hmel:	.word	0		;metas - byte size
+p.hedb:	.word	0		;user symbol buffer
+p.heds:	.word	0		;symbol buffer size
+p.hlos:	.word	0		;logger status
+p.hlob:	.word	0		;log file buffer
+p.hlof:	.word	0		;logger flags
+p.hktc:	.word	0		;kernel to user mapping
+f.ocon:	.word	0		;\ logger buffer
+f.ocnt:	.word	0		;! characters in buffer
+f.oalc:	.word	0		;! alloated size
+f.oblk:	.word	0		;! blocks used
+f.ofil:	.blkw	4		;/ filename
+f.obbs	= .-f.ocon		;
+
+p.hsfp:	.word	0		;\ sfpa
+p.hscc:	.word	0		;! scca
+p.htrp:	.word	0		;! trpset
+p.hser:	.word	0		;! serr
+p.himf:	.byte	0		;! image flags
+p.hcdf:	.byte	0		;/ channels defined
+p.hset:	.word	0		;process set options
+p.htcr:	.word	0		;terminal config
+p.hinx:	.word	0		;ind
+
+c.xpc:	.word	0		;current pc
+c.xksp:	.word	0		;kernel sp
+c.xusp:	.word	0		;user sp
+c.xpsw:	.word	0		;psw
+
+p.hcrp:				;current rp
+r.pchn:	.blkb	rp.bbs		;
+
+p.hxmr:	.word	0		;xmr pointer
+xmr:	.blkb	xm.bbs		;xm record
+
+t.esig:	.word	0		;terminal signals
+t.enam:	.word	0		;rad50 terminal name
+cluste:	.word	0		;cluster
+clrto:
+
+;	KDA etc.
+
+c.lhot:	.word	0		;current ticks
+c.llot:	.word	0
+t.ibhi:	.word	0		;boot ticks
+t.iblo:	.word	0		;
+t.ih24:	.word	0		;24:00 hot
+t.il24:	.word	0		;24:00 lot
+t.ifre:	.word	0		;time frequency
+s.yver:	.word	0		;system version
+s.yupd:	.word	0		;system update
+s.ynod:	.word	0,0		;node name
+s.ynid:	.word	0		;node id
+assume	.-kerget lt 20000	;routine exceeds one par
+
+.end
+

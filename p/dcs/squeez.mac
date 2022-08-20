@@ -1,0 +1,321 @@
+.title	squeeze
+.include "dcs:dcl.mac"
+.psect	squeeze
+.iif ndf rsj$c,rsj$c=0
+.if ne rsj$c
+.macro cright xxx
+.endm
+.iff
+$srdef		;system rights
+.endc
+
+;	+---------------------------
+;	| Also used as KMS:SQUEEZE.MAC
+;	+---------------------------
+;
+;	DCL SQUEEZE, INIT, CREATE, FORMAT, BACKUP, ERASE commands
+;
+;	All these commands can destroy things
+;	All these commands require special treatment for VRT.
+;
+;	%build
+;	macro dcs:squeez /object=dcb:squeez
+;	%end
+;	%date
+;	<01-Nov-2004 16:42:14.22>
+;	%edit
+;	<18   >
+
+set	vip 1, dup 2
+
+;	SQUEEZE	
+;
+;	squeeze dev:		run vip dev:*.*=dev:*.*/n:rep
+
+squeeze::
+;ase <initialize,dump,differences,create,format,patch,backup,erase,.search>
+;ase <initia,dump,differ,create,format,0,backup,erase,.search,sort>
+case <initia,dump,differ,create,format,sort,backup,erase,.search,md,rd,analys>
+	cright	#sropr.			;operator rights required
+	setup	$squeeze		;set it up
+	scan	<^MW=1x=1N="*"x=0>  	;default output name
+	scanend	<^IF=1Q="Device? "> 	;get the device
+
+	edit	<l1C1"/W">		;if log and pip
+	edit	<q1C1"/Q">		;if query & pip
+	edit	<q3C2"/Y">		;if noquery & dup
+	edit	<w1C1"/E"|w1"/W">	;if wait pip=/E, dup=/W
+
+	edit	<C1>,,20$		;its dup
+	edit	<C="VIP""/N:SQU">	;vip is O=I/N:SQUE
+	mov	$input,r5		;process input
+	edit	<^O@\@@\:|?>		;get device name
+	edit	<*?>			;no filename
+	edit	<"*.*">			;setup output file
+	edit	<I=O>			;and duplicate it
+	br	30$			;
+20$:	edit	<C2"/S"C="DUP">		;dup is /squeeze
+30$:	jmp	program			;and do it.
+
+$squeeze:
+option	OUTPUT		1 _	dup	s.outp l=0
+option	QUERY		1 _	null	s.quer
+option	NOQUERY		1 _	null	s.noqu
+option	WAIT		1 _	null	s.wait
+
+option	SOFT		1 _	vip
+option	HARD		1 _	dup	s.hard
+option	LOG		1 _	null	s.log
+option	NOLOG		1 _	null	s.nolog
+option	SYSTEM		1 Y	vip
+option	NOBOOT		1 X	dup
+option
+
+s.log:	edit	<l=1>			;remember /log
+	return
+s.query:edit	<q=1>			;flag query
+s.nolog:edit	<l0l=3>			;flag nolog
+	return
+s.noquery:edit	<q=3>			;flag noquery
+	return
+s.wait:	edit	<w=1>			;flag wait
+	return
+s.outp:	call	output			;get output spec
+	fall	s.hard			;check rights
+s.hard:	cright	#sropr.			;oper rights required
+	cright	#srpio.			;physical i/o rights required
+	return
+.sbttl	init
+set	dup 1, filex 2, printer 3, bup 4, vip 5
+
+;	Init
+;
+;	/EXTRA:N	Extra words.
+;	/RT11X		/Z:3
+
+initial::setup	$init		;set it up
+	cright	#sropr.		;operator rights required
+	cright	#srpio.		;physical i/o rights required
+	edit	<W=1N="*">	;it gets a default name
+	edit	<x=1T=".BOT">	;default type
+	scan	<^M>		;get the command switches
+	scanend	<^IF=1Q="Device? ">;get the device
+	edit	<q0"/Z">	;add zero switch unless /extra or /rt11x
+	edit	<M=II=OO=MM="">	;swap I and O for init, clear M
+;	edit	<o1"/B">	;/badblocks				;V4
+;	edit	<o2"/B:RET">	;/bad:retain				;V4
+	edit	<C1C="VUP"|C4C="BUP"|C="FILEX"> ;get the right cusp
+	jmp	program		;and go build it
+
+$init:
+option	QUERY		1 _
+option	NOQUERY		1 Y
+option	FILE		1 _	dup	output	l=0
+option	SEGMENTS	1 N	dup	value.
+option	DOS		1 S	filex		;l=0		;v5.1
+option	INTERCHANGE	1 U	filex	value	;l=0		;v5.1
+option	VOLUMEID	1 V	null	value			;v5.1
+option	BADBLOCKS	1 B	dup	value
+;ption	BADBLOCKS	1 _	dup	i.bad
+;ption	RETAIN		1 _	dup	i.ret
+option	REPLACE		1 R	dup	value
+option	WAIT		1 W	null
+option	RESTORE		1 D	dup
+option	BACKUP		1 _	bup
+option	EXTRA		1 _	dup	i.extr
+option	RT11X		1 _	dup	i.rtx
+option	LOG		1 L	dup		;VUP only
+option	NOLOG		1 _
+;
+option
+
+i.extr:	edit	<"/Z">
+	edit	<q=1>
+	call	value.
+	return
+i.rtx:	edit	<"/Z:3">
+	edit	<q=1>
+	return
+
+.if ne 0
+i.bad:	edit	<o=1>
+	return
+i.ret:	edit	<o=2>
+	return
+.endc
+.sbttl	create
+
+;	Create
+;
+;	Create or extend file.
+;	Create process.
+
+create::setup	$create c.lex	;support [size]
+	scan	<^M>		;default output name
+	movb	#4,@$column	;to accept /allocate
+	scan	<^OF=1Q="File? "> ;get the device
+	tstb	(r5)		;this should be all
+	beq	10$		;it is
+	edit	<?>		;invalid command
+10$:	edit	<e0"/C">	;
+	edit	<C="VUP">	;the cusp
+	jmp	program		;and do it.
+
+$create:
+option	START		1 G	dup	value.
+option	EXTENSION	1 T	dup	c.exte
+option	TRUNCATION	1 e	dup	c.exte
+option	ALLOCATE	1 _	null	allocate l=0
+.if eq rsj$c
+option	PROCESS		1 _	null	c.proc
+.endc
+option
+
+;	Handle CREATE FILE[size] case
+
+c.lex:	cmpb	r0,#'[		;this a file size?
+	bne	20$		;no
+	inc	r5		;yes - skip the bracket
+	call	alloc2		;pickup the size
+	cmpb	(r5)+,#']	;get the terminator
+	beq	10$		;fine
+	edit	<?>		;oops
+10$:	movb	(r5),r0		;get the new terminator
+20$:	return
+
+.if eq rsj$c
+c.proc:	mov	#pro.cre,r0	;create/process
+	jmp	process		;create a process
+.endc
+
+c.star:	call	value.		;get the value
+	cright	#sropr.		;operator rights required
+	cright	#srpio.		;physical i/o rights required
+	return			;
+				;
+c.exte:	call	value.		;get the value
+	edit	<e=1>		;remember extend
+	cright	#sropr.		;operator rights required
+	cright	#srpio.		;physical i/o rights required
+	return
+.sbttl	format
+
+format::setup	$format
+	tst	k$mvrt		;is this vrt?
+	bne	10$		;yes - not supported
+	cright	#sropr.		;operator rights required
+	cright	#srpio.		;physical i/o rights required
+	scan	<^MW=1x=1N="*"x=0>  ;default output name
+	scanend	<^IF=1Q="Device? "> ;get the device
+	edit	<C="FORMAT">	;the cusp
+	jmp	program		;and do it.
+10$:	jmp	optnot		;not under VRT
+
+$format:
+option	QUERY		1 _
+option	NOQUERY		1 Y
+option	WAIT		1 W
+option	VERIFY		1 V	null	value
+option	SINGLEDENSITY	1 S
+option	PATTERN		1 P	null	value
+option
+.sbttl	backup
+set	pip 1, bup 2
+
+;	BACKUP command
+;
+;	Requires operator rights
+;
+;	/INITIALIZE	/Z	Magtape init
+;	/NOLOG		/W
+;	/NOQUERY	/Y
+;	/OUTPUT[:filespec]	Directory output file
+;	/NOREWIND	/M	Does not rewind tape between savesets
+;	/NOSCAN		/G	Does not scan disk for bad blocks
+;	/SAVESET	/S	Use with RESTORE/DEVICE/FILES and MT:
+;				to indicate saveset containing file
+;	/VERIFY:ONLY	/V:ONL	With /RESTORE (/X) 
+;
+;	/DEVICE		/I
+;	/RESTORE	/X
+;	/FILE		/F
+;	/VERIFY		/V
+
+backup::cright	#sropr.		;operator rights required
+	setup	$backup		;set it up
+	scan	<W=1F=0^M>	;zero files into major
+	scan	<F=6^IQ="From? ">;6 files into input
+	scanend	<F=1^OQ="To  ? ">;1 file into output
+	edit	<C="BUP">	;the cusp
+	jmp	program		;and do it.
+
+$backup:	
+option	DEVICE		1 I	bup 		l=0	;
+option	RESTORE		1 X	bup		l=0	;
+option	FILE		1 F	bup		l=0	;
+
+option	PRINTER		1 _	null	printer  l=0
+option	TERMINAL	1 _	null	terminal l=0
+option	OUTPUT		1 _	null	output	 l=0
+option	ALLOCATE	1 _	null	allocate l=0
+
+option	LOG		1 _	bup
+option	NOLOG		1 W	bup
+option	QUERY		1 _	bup
+option	NOQUERY		1 Y	bup
+
+option	REWIND		1 _	bup
+option	NOREWIND	1 M	bup	l=0
+option	SCAN		1 _	bup
+option	NOSCAN		1 G	bup	l=0
+option	SAVESET		1 S	bup	l=0
+option	VERIFY		1 V	bup	value	l=0	;
+option	INITIALIZE	1 Z	bup	l=0
+option	
+.sbttl	erase
+
+set	eras 1
+
+erase::	setup	$erase		;set it up
+	scan	<F=0^M>		;zero files into major
+	scanend	<F=6W=0^IQ="Device or files? ">	;1 file into output
+	edit	<C="ERASE">	;the cusp
+	jmp	program		;and do it.
+
+$erase:	
+option	DEVICE		1 D	eras
+option	NOQUERY		1 Y	eras
+option	RETAIN		1 N	eras
+option	FOREIGN		1 F	eras
+option	IGNORE		1 I	eras
+option	
+.sbttl	md - make directory
+
+md::	setup	$md
+;	scan	<F=0^M>		;zero files into major
+;	scanend	<^IF=1Q="Directory? "> ;get the directory
+	edit	<C="MD">	;the cusp
+	jmp	program		;and do it.
+
+$md:
+;option	QUERY		1 _
+;option	NOQUERY		1 Y
+;option	WAIT		1 W
+option	ALLOCATE	1 A	null	value.
+option	SEGMENTS	1 N	null	value.
+option	EXTRA		1 Z	null	value.
+option
+.sbttl	rd - remove directory
+
+rd::	setup	$rd
+;	scan	<F=0^M>		;zero files into major
+;	scanend	<^IF=1Q="Directory? "> ;get the directory
+	edit	<C="RD">	;the cusp
+	jmp	program		;and do it.
+
+$rd:
+option	QUERY		1 _
+option	NOQUERY		1 Y
+option
+.end
+

@@ -1,0 +1,99 @@
+.title	reset
+.pass
+.mcall	.sreset
+set blkey 256, chkey 260
+$metas = 52
+
+;	Reset commands
+;
+;	reset all channels
+;	reset tables
+;	reset dcl cache
+;	reset rt11 monitor (i.e. $rmon=137)
+;	reset blkey/chkey (redundant)
+;
+;	reset paths
+;	reset commands
+;	reset retries
+;	reset all
+
+reset$::tstb	(r5)		;anything coming?
+	beq	reset1		;no - this is the default
+
+	setup	$reset,r.lex	;setup for the command
+	scanend	<^M>		;get the switches
+	edit	<?>		;should never get here
+
+$reset:
+option	PATHS		1 _	null	r.path
+option	COMMANDS	1 _	null	r.meta
+option	RETRY		1 _	null	r.retry
+option	ALL		1 _	null	r.all
+option
+r.lex:	edit	<r%r r="/">	;and replace non-zero spaces
+	edit	<r%c%?|c=1>	;one option only
+	return
+.sbttl	reset routines
+
+;	reset all
+
+r.all:	call	rescom		;call the common
+r.all$::call	reset5		;retries (called here by logout)
+	call	reset3		;metas
+	br	reset4		;paths
+				;system (from paths)
+;	default reset
+
+reset1:	clr	jsw		;force all channels to zero
+	.sreset			;redundant
+	call	reset2		;
+	call	host		;get the host clean
+	clr	$km(r0)		;r0 from host call
+	.exit
+
+;	reset rmon
+
+reset2:	mov	sysptr,r0	;point to the monitor
+	mov	#137,(r0)	;restore the first word
+	clr	blkey(r0)	;clear the directory cache
+	clr	chkey(r0)	;
+	return
+
+;	reset commands
+
+r.meta:	call	rescom
+reset3:	mov	k$mwor,r0	;get the world
+	mov	$metas(r0),r0	;point to them
+	beq	20$		;forget it
+10$:	clrb	(r0)+		;clear one
+	cmpb	(r0),#-1	;this the end?
+	bne	10$		;nope
+20$:	return
+
+;	reset paths
+
+r.paths:call	rescom
+reset4:	mov	k$mwor,r0	;get the table
+	mov	$paths(r0),r0	;get a pointer
+	beq	20$		;forget it
+10$:	clr	(r0)+		;clear them
+	cmp	(r0),#-1	;end of them?
+	bne	10$		;yep
+20$:	br	reset2		;and do a system reset as well
+
+; 	reset retries
+
+r.retry:call	rescom		;reset SDE retry table
+reset5:	mov	k$mwor,r0	;get the world
+	mov	$retry(r0),r0	;get the list
+	beq	20$		;oops - is none, ignore it
+	mov	#7,r1		;length of the table
+10$:	clr	(r0)+		;clear it
+	dec	r1		;thus
+	bne	10$		;
+20$:	return			;and exit
+
+rescom:	call	eol		;must have eol
+	call	@(sp)+		;coroutine back to them
+	jmp	kmon		;and quit
+.end

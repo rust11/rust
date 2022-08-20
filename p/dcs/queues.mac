@@ -1,0 +1,257 @@
+.title	queues
+.include "dcs:dcl.mac"
+.psect	queues
+$rmdef
+
+;	RUST/XM spooler commands
+;
+;	%build
+;	macro	dcs:queues /object=dcb:queues
+;	%end
+;	%date
+;	<16-Apr-2003 25:33:20.20>
+;	%edit
+;	<38   >
+;
+;
+;	RUST/XM spooler commands
+; 
+;	/a	abort		/j			/s	stop
+;	/b			/k			/t	top
+;	/c	consignment	/l	list		/u
+;	/d:dit	diversion	/m	modify		/v
+;	/e			/n	next		/w
+;	/f			/o			/x
+;	/g	go/start	/p	printer		/y	yes
+;	/h			/q	requeue		/z:itm	no
+;	/i:rep	install		/r	remove
+; 
+;	divert/options device queue
+;	consign/options queue printer
+;	install/printer printer
+; 
+;	remove/diversion
+;	remove/consignment
+;	remove/printer
+; 
+;	show diversions	
+;	show consignments
+;	show printers
+; 
+;	start/everything
+;	stop/everything
+
+objact:	.word	0
+act:	.word	0		;
+acts:	.word	insdiv, remdiv
+	.word	inscon, remcon
+	.word	inspri, rempri
+	.word	shodiv, shocon, shopri
+	.word	stacom, stocom
+
+;	install/remove commands
+
+queues::			;queue entry point
+	psh	acts(r0)	;save the start address
+	cmp	r0,#.qstar	;this a start or stop?
+	bhis	20$		;yes
+	setup	$queue		;setup for it
+	edit	<W=1>		;use wildcards
+	scan	<F=0^M>		;
+20$:	call	@(sp)+		;call the routine
+;	edit	<C="QUEUE">	;
+	call	setnam		;setup cusp name
+30$:	jmp	program		;and dispatch it
+
+;	int:que=div:/i/d
+
+insdiv:	scan	<^IF=1D="DK:"Q="Device? ">
+	edit	<e1>,10$	;pipeline does not need queue
+	scanend	<^OF=1D="QUE:"Q="Queue? ">
+10$:	edit	<"/I/D">	;setup
+	return
+remdiv:	call	getdiv
+	edit	<"/R">
+	return
+getdiv:	scanend	<^IF=1D="DK:"Q="Device? ">
+	edit	<"/D">
+	return
+
+;	pri:=int:que:/i/c
+
+inscon:	scan	<^IF=1D="QUE:"Q="Queue? ">
+	scanend	<^OF=1D="DK:"Q="Printer? ">
+	edit	<"/I/C">	;setup
+	return
+remcon:	call	getcon
+	edit	<"/R">
+	return
+getcon:	scanend	<^IF=1D="QUE:"Q="Queue? ">
+	edit	<"/C">
+	return
+
+;	pri:/i/p
+
+inspri:	call	getpri
+	edit	<"/I">	;
+	return
+rempri:	call	getpri
+	edit	<"/R">
+	return
+;getpri:	scanend	<^IF=1D="*:"Q="Printer? ">
+getpri:	scanend	<^IF=1D="*"Q="Printer? ">
+	edit	<"/P">
+	return
+
+shodiv:	edit	<^I"/L/D">
+	return
+shocon:	edit	<^I"/L/C">
+	return
+shopri:	edit	<^I"/L/P">
+	return
+
+;	+------------------------------------------------------+
+;	! Start/Stop options catch /I and /B for special cases !
+;	+------------------------------------------------------+
+
+$queue: 
+option	DIVERSION	1 _	null	q.dive	
+option	CONSIGNMENT	1 _	null	q.cons
+option	PRINTER		1 _	null	q.prin
+
+option	ABORT		1 A	null	q.prin
+option	NEXT		1 N	null	q.prin
+option	REQUEUE		1 Q	null	q.prin
+option	MODIFY		1 M	null
+option	STOP		1 S	null
+option	START		1 G	null
+option	TOP_OF_FORM	1 T	null	q.prin
+
+option	LOGICAL		1 _	null	q.log
+option	PHYSICAL	1 _	null	q.phy
+option	LOOKUP		1 _	null	q.loo
+option	PURGES		1 _	null	q.pur
+;option	GENERIC		1 _	null	q.gen
+option	PIPELINE	1 _	null	q.pip
+option	HOLD		1 _	null	q.hol
+option	NOLOGICAL	1 _	null	q.nlog
+option	NOPHYSICAL	1 _	null	q.nphy
+option	NOLOOKUP	1 _	null	q.nloo
+option	NOPURGES	1 _	null	q.npur
+;option	NOGENERIC	1 _	null	q.ngen
+option	NOPIPELINE	1 _	null	q.npip
+option	NOHOLD		1 _	null	q.nhol
+option 
+
+q.dive:	mov	#getdiv,objact
+	return
+q.cons:	mov	#getcon,objact
+	return
+q.prin:	mov	#getpri,objact
+	return
+
+q.log:	edit	<"/Y:LOG">
+	return
+q.phy:	edit	<"/Y:PHY">
+	return
+q.loo:	edit	<"/Y:LOO">
+	return
+q.pur:	edit	<"/Y:PUR">
+	return
+;q.gen:	edit	<"/Y:GEN">
+;	return
+q.pip:	edit	<"/Y:PIP">
+	edit	<e=1>
+	return
+q.hol:	edit	<"/Y:HOL>
+	return
+
+q.nlog:	edit	<"/Z:LOG">
+	return
+q.nphy:	edit	<"/Z:PHY">
+	return
+q.nloo:	edit	<"/Z:LOO">
+	return
+q.npur:	edit	<"/Z:PUR">
+	return
+;q.ngen:	edit	<"/Z:GEN">
+;	return
+q.npip:	edit	<"/Z:PIP">
+	return
+q.nhol:	edit	<"/Z:HOL">
+	return
+.sbttl	stop
+
+;	stop		Stop current process - never gets here
+;	stop pid	Stop a different process
+;	stop/id		Stop a process
+;
+;	[the reason this code is wierd is because I cannot remember
+;	 how the DCL interpreter works at the moment]
+
+stocom:
+	tstb	(r5)		;is this a command file stop?
+	bne	10$		;nope
+	world			;get the pointer
+	clr	$jobc(r0)	;clear the command file counter
+	call	@$job(r0)	;and remove the hook
+	jmp	kmon		;and exit
+
+;	stop printer/consignment 
+
+10$:	cmpb	(r5),#'/	;got an option?
+	beq	30$		;it has an option
+20$:	mov	#.spsto,r0	;stop process
+	jmp	setpro		;
+
+30$:	movb	1(r5),r0	;get the character
+	call	cv$acu		;get uppercase
+	cmpb	r0,#'I		;/ident?
+	beq	20$		;yes
+	cmpb	r0,#'B		;/batch
+	bne	40$		;no
+	mov	#sto.bat,r0	;yes
+	jmp	batch		;dcs:batch
+40$:	call	stasto		;call the general stuff
+	edit	<"/S">		;stop it
+	return
+
+stacom:	movb	1(r5),r0	;get the character
+	call	cv$acu		;get uppercase
+	cmpb	r0,#'B		;/batch?
+	bne	10$		;no
+	mov	#sta.bat,r0	;
+	jmp	batch		;dcs:batch
+10$:	call	stasto		;
+	edit	<"/G">		;
+	return
+
+stasto:	clr	objact		;
+	setup	$queue		;
+	scan	<^M>		;get the major switchs
+	mov	objact,r0	;get the act
+	bne	10$		;we have one
+	mov	#getpri,r0	;assume a print
+10$:	call	(r0)		;
+	call	setnam		;setup cusp name
+	return
+
+;	Set up QUEUE or QUEUEX
+;
+;	QUEUEX if /pipeline specified or SPOOLX running
+
+setnam:	edit	<C="QUEUE">		;assume spool
+	edit	<e1> 10$		;/pipeline specified
+	$cmkrnl	#area, #30$, pic=yes	;
+	bcs	20$			;spoolx not setup
+10$:	edit	<C="QUEUEX">		;it's spoolx
+20$:	return				;
+
+30$:	tst	@#s$pspp		;spoolx installed?
+	beq	40$			;nope
+	return				;
+40$:	.soft	0			;yes
+
+area:	.blkw	10.			;
+.end
+

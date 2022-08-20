@@ -1,0 +1,515 @@
+;***;	KMS:BOOT - ancient serial/parallel bootstraps
+.title	boot command
+.pass
+.mcall	.trpset
+.mcall	.gtlin
+
+set	cha %0, hold %4, l.byt %0
+set	l.adr %1, l.bc %2, l.cksm %5, index %3
+set	altmod 175
+set	djmp 160000, int0 2000, int1 2200, dpc 172000
+set	blkon 30, blkoff 20, char 100000, apoint 114000
+set	lvk 100, lbr lvk+2
+
+set	dup 1
+
+;	0	unused
+;	1	dm11?	- 8-bit serial - 6-bit code
+;	2	dr11	- 16-bit parallel
+;	3	dl11	- 8-bit serial - probably not tested
+;	4	dw11	- wb11 16-bit serial
+;	5	wd11	- wd11 16-bit serial dma
+
+boot::	setup	$boot		;boot a local device
+	world			;get the world
+	tst	k$mjob		;is this share?
+	beq	30$		;nope
+	tst	k$mrus		;rust?
+	bne	40$		;yes
+.if ne 0
+	rights	<u.sopr>	;must be operator
+	tst	k$mvrt		;is this VRT?
+	bne	10$		;yes - just leave
+	scan	<^M>		;get the options
+	edit	<q1> 20$	;/noquery specified
+	mov	#line,r1	;
+	.gtlin	r1,#prompt	;get a confirmation
+	cmpb	(r1),#'Y	;are they sure?
+	beq	20$		;yes
+	cmpb	(r1),#'y	;two ways to do this
+	beq	20$		;yep
+10$:	jmp	kmon		;nope
+20$:	jmp	reboot		;go reboot
+.endc
+
+30$:
+.if ne 0
+	tstb	k$msat		;a satellite?
+	beq	40$		;
+	tstb	(r5)		;a filespec ?
+	beq	star		;nope
+.endc
+40$:	setup	$boot		;boot a local device
+	edit	<D="SY:"T=".SYS">
+	scan	<F=0^M>		;get the command switches
+	tst	k$mrtx		;
+	beq	50$		;
+	scanend	<F=1^I> ;get the device
+	br	60$		;
+50$:	scanend	<F=1^IQ="Device or file? "> ;get the device
+60$:	edit	<"/O">		;the zero operation
+	edit	<C="VUP">	;get the right cusp
+	jmp	program		;and go build it
+
+$boot:
+option	WAIT		1 W	dup
+option	FOREIGN		1 Q	dup
+option	NOQUERY		1 _	null	b.noqu
+option
+
+b.noqu:	edit	<q=1>		;set noquery
+	return
+
+.if ne 0
+star:	world	r5		;get net in r5
+	mov	$csr(r5),r0	;get the csr adress
+	mov	r0,r1		;to get the type
+	bic	#7,r0		;clear the type out
+	bic	#^c7,r1		;clear the csr out
+	asl	r1
+	jmp	@1$(r1)
+1$:	nogo,dm11,dr11,dl11
+	dw11,wd11,nogo,nogo
+
+nogo:	.abort	<Use a manual boot>
+.endc
+
+; boots return here with the goto on the stack
+
+launch:	return		;back to boot, or launch them
+line:	.blkb	84.	;
+prompt:	.ascii	&SHARE/Boot; Are you sure? &<200>	
+	.even
+.end
+.if ne 0
+.sbttl	dl	six bit boot
+
+meta <$print a><mov a,r0><call $print>
+
+dl11:	mov	#dl11is,r1
+	add	r0,(r1)+	;form addresses
+	add	r0,(r1)+
+	add	r0,(r1)+
+	add	r0,(r1)+
+	.trpset	#area,#dl8	;check for 8 bits
+	tst	166000		;see if the 6 bit prom is there
+	reset
+	mov	#7,@dl11is	;tell the host
+	mov	dl11os,r2
+;	inc	(r2)
+;	jsr	r3,outlit
+;	.word	0
+1$:	tstb	(r2)
+	bpl	1$
+	clr	(r2)+		;just imitated the sync
+	mov	#'C-100,(r2)	;send the boot request command
+2$:	call	getchr
+	br	2$
+
+dl11is:	.word	0
+dl11ib:	.word	2
+dl11os:	.word	4
+dl11ob:	.word	6
+.endc
+.if ne 0
+.sbttl	get and puts
+
+; get a cha, skip nulls
+
+getchr:	call	getdl
+	cmpb	cha,#altmod
+	bne	1$
+	call	getdl
+	cmpb	cha,#'L
+	beq	loader
+1$:	rts	pc
+
+; get a cha, really skip nulls
+
+getdl:	tstb	@dl11is
+	bpl	getdl
+	movb	@dl11ib,cha
+	mov	#7,@dl11is
+	bic	#-200,cha
+	beq	getdl
+	rts	pc
+
+; get a legal sixbit character
+
+getsix:	call	getchr
+	cmpb	cha,#40
+	blt	l.bad
+	cmpb	cha,#137
+	bgt	l.bad
+getext:	rts	pc
+
+; output two characters
+
+outlit:	tstb	@dl11os
+	bpl	outlit
+	movb	(r3)+,@dl11ob
+1$:	tstb	@dl11os
+	bpl	1$
+	movb	(r3)+,@dl11ob
+	rts	r3
+.endc
+.if ne 0
+.sbttl	get 8 bit stuff
+
+; assemble 8 bits from 6 bits
+
+get8:	call	getsix
+	mov	l.byt,-(sp)
+	tst	(index)+
+	jmp	get8tb-2(index)
+get8tb:	br	getb1
+	br	getb2
+	br	getb3
+getb4:	mov	#2,index
+
+getb1:	call	getsix
+	mov	l.byt,hold
+	asl	l.byt
+	asl	l.byt
+	aslb	l.byt
+	rolb	(sp)
+	aslb	l.byt
+	rolb	(sp)
+	mov	(sp)+,l.byt
+	rts	pc
+
+getb2:	asl	l.byt
+	asl	l.byt
+	aslb	l.byt
+	rolb	hold
+	aslb	l.byt
+	rolb	hold
+	aslb	l.byt
+	rolb	hold
+	aslb	l.byt
+	rolb	hold
+	mov	hold,l.byt
+	mov	(sp)+,hold
+	rts	pc
+
+getb3:	rol	l.byt
+	rolb	l.byt
+	ror	hold
+	rorb	l.byt
+	ror	hold
+	rorb	l.byt
+	tst	(sp)+
+	rts	pc
+.endc
+.if ne 0
+.sbttl	the actual factual loader
+
+loader:	clr	index
+
+; search for a new load frame
+
+l.ld2:	clr	l.cksm
+	call	l.ptr
+	decb	l.byt
+	bne	l.ld2
+	call	l.ptr
+	call	l.gwrd
+	mov	l.byt,l.bc
+	sub	#4,l.bc
+	cmp	#2,l.bc
+	beq	l.jmp
+	call	l.gwrd
+	mov	l.byt,l.adr
+
+; load data
+
+l.ld3:	call	l.ptr
+	bge	l.ld4
+	tstb	l.cksm
+	beq	l.ld2
+l.bad:
+1$:	br	1$
+l.ld4:	movb	l.byt,(l.adr)+
+	br	l.ld3
+
+; get byte and word
+
+l.ptr:	call	get8
+	add	l.byt,l.cksm
+	dec	l.bc
+	rts	pc
+l.gwrd:	call	l.ptr
+	mov	l.byt,-(sp)
+	call	l.ptr
+	swab	l.byt
+	bis	(sp)+,l.byt
+	rts	pc
+
+; program loaded, go to it
+
+l.jmp:	call	l.gwrd
+	mov	l.byt,-(sp)
+	call	l.ptr
+	tstb	l.cksm
+	bne	l.bad
+	jsr	r3,outlit
+	.byte	altmod,'G
+	bit	#1,(sp)
+	beq	1$
+	br	l.bad
+1$:	jmp	launch		;go crack the champagne
+.endc
+.if ne 0
+.sbttl	dr	16 bit parallel
+
+set	dob 2, dib 4, ib 1, tb 2
+set	byte %0, point %1, count %2, word %3, flag %4
+meta <getbyte><call (r5)>
+meta <getword><call (r5)><call (r5)>
+
+dr11:	mov	r0,flag		;where we need it
+	reset
+	mov	#1000,sp
+	mov	#2,@#102	;stop lsi clocks
+	mov	#102,@#100
+1$:;	mov	#dis,flag	;get a pointer
+	mov	#ib,(flag)	;set a boot bit
+	mov	#3,dob(flag)	;send the code byte
+	com	flag		;set up the flag
+	jsr	r5,6$		;get this adress in r5
+	swab	byte
+	com	flag
+	bpl	8$
+9$:	tstb	(flag)
+	bpl	9$
+	mov	dib(flag),byte
+	bit	#ib,(flag)	;is it valid ?
+	bne	8$		;yes
+	clr	byte		;no way
+8$:	movb	byte,(word)	;accumulate a word
+	swab	(word)		;position the byte in the word
+	dec	count		;count for caller
+5$:	rts	pc
+6$:	mov	sp,word		;for a couple of sneakies
+2$:	clr	count		;lets start with zero
+	getbyte			;get a byte
+	decb	byte		;is it start of data ?
+	bne	2$		;nope
+	getbyte			;skip a byte
+	getword			;get a word
+	add	(word),count	;this is the byte count
+	getword			;get another for later
+	beq	10$
+	mov	(word),point	;its the adress pointer
+3$:	getbyte			;get a data byte
+	bmi	2$		;no more left,look for new block
+	movb	byte,(point)+	;store the byte
+	br	3$
+10$:	jmp	launch
+.endc
+.if ne 0
+.sbttl	dm	8 bit serial
+
+set	dis 175610, dib 175612, dos 175614, dob 175616
+set	dbs dos, ib 1, tb 1
+set	byte %0, point %1, count %2, word %3, flag %4
+
+meta <getbyte><call (r5)>
+meta <getword><call (r5)><call (r5)>
+
+dm11:	reset
+8$:	mov	#1000,sp
+	mov	#dbs,flag	;get a pointer
+	mov	#ib,(flag)	;set a boot bit
+	mov	#3,@#dob	;send the code byte
+
+	jsr	r5,6$		;get this adress in r5
+9$:	tstb	@#dis
+	bpl	9$
+	mov	@#dib,byte
+	bit	#tb,(flag)	;is it valid ?
+	beq	9$		;get another
+	movb	byte,(word)	;accumulate a word
+	swab	(word)		;position the byte in the word
+	dec	count		;count for caller
+5$:	return
+
+6$:	mov	sp,word		;for a couple of sneakies
+
+2$:	clr	count		;lets start with zero
+	getbyte			;get a byte
+	decb	byte		;is it start of data ?
+	bne	2$		;nope
+	getbyte			;skip a byte
+	getbyte
+	getbyte
+	add	(word),count	;this is the byte count
+	getbyte
+	getbyte
+	beq	7$		;its the goto
+	mov	(word),point	;its the adress pointer
+3$:	getbyte			;get a data byte
+	bmi	2$		;no more left,look for new block
+	movb	byte,(point)+	;store the byte
+	br	3$
+7$:	jmp	launch
+.endc
+.if ne 0
+.sbttl	dl	 8 bit serial boot
+
+; dl traps here if not a 6 bit machine
+
+set	dis 175610, dib 175612, dos 175614, dob 175616, dbs dis
+set	ib 4, tb 2000
+set	byte %0, point %1, count %2, word %3, flag %4
+meta <getbyte><call (r5)>
+meta <getword><call (r5)><call (r5)>
+
+dl8:	reset
+8$:	mov	#1000,sp
+	mov	#dbs,flag	;get a pointer
+	mov	#ib,(flag)	;set a boot bit
+	mov	#3,@#dob	;send the code byte
+	jsr	r5,6$		;get this adress in r5
+9$:	tstb	@#dis
+	bpl	9$
+	mov	@#dib,byte
+	bit	#tb,(flag)	;is it valid ?
+	beq	9$		;get another
+	movb	byte,(word)	;accumulate a word
+	swab	(word)		;position the byte in the word
+	dec	count		;count for caller
+5$:	return
+6$:	mov	sp,word		;for a couple of sneakies
+2$:	clr	count		;lets start with zero
+	getbyte			;get a byte
+	decb	byte		;is it start of data ?
+	bne	2$		;nope
+	getbyte			;skip a byte
+	getbyte
+	getbyte
+	add	(word),count	;this is the byte count
+	getbyte
+	getbyte
+	beq	7$		;its the goto
+	mov	(word),point	;its the adress pointer
+3$:	getbyte			;get a data byte
+	bmi	2$		;no more left,look for new block
+	movb	byte,(point)+	;store the byte
+	br	3$
+7$:	jmp	launch
+area:	.blkw	5
+.endc
+.if ne 0
+.sbttl	dw	16 bit serial boot
+
+;	WB11 boot
+
+set	dis 175610, dib 175612, dos 175614, dob 175616
+set	dbs dis, ib 1, tb 2
+set	byte %0, point %1, count %2, word %3, flag %4
+meta <getbyte><call (r5)>
+meta <getword><call (r5)><call (r5)>
+
+dw11:	reset
+	mov	#1000,sp
+	mov	#2,@#102	;stop lsi clocks
+	mov	#102,@#100
+1$:	mov	#dis,flag	;get a pointer
+	mov	#ib,(flag)	;set a boot bit
+	mov	#3,@#dob	;send the code byte
+	com	flag		;set up the flag
+	jsr	r5,6$		;get this adress in r5
+	swab	byte
+	com	flag
+	bpl	8$
+9$:	tstb	(flag)
+	bpl	9$
+	mov	@#dib,byte
+	bit	#ib,(flag)	;is it valid ?
+	bne	8$		;yes
+	clr	byte		;no way
+8$:	movb	byte,(word)	;accumulate a word
+	swab	(word)		;position the byte in the word
+	dec	count		;count for caller
+5$:	rts	pc
+6$:	mov	sp,word		;for a couple of sneakies
+2$:	clr	count		;lets start with zero
+	getbyte			;get a byte
+	decb	byte		;is it start of data ?
+	bne	2$		;nope
+	getbyte			;skip a byte
+	getword			;get a word
+	add	(word),count	;this is the byte count
+	getword			;get another for later
+	beq	7$		;its the goto
+	mov	(word),point	;its the adress pointer
+3$:	getbyte			;get a data byte
+	bmi	2$		;no more left,look for new block
+	movb	byte,(point)+	;store the byte
+	br	3$
+
+7$:	jmp	launch
+
+.sbttl	wd	16 bit serial boot - dma
+
+;	WD11 boot
+
+set	dis 175610, dib 175616, dos 175610, dob 175616
+set	dbs dis, ib 1, tb 2
+set	byte %0, point %1, count %2, word %3, flag %4
+meta <getbyte><call (r5)>
+meta <getword><call (r5)><call (r5)>
+
+wd11:	reset
+	mov	#1000,sp
+	mov	#2,@#102	;stop lsi clocks
+	mov	#102,@#100
+1$:	mov	#dis,flag	;get a pointer
+	mov	#ib,(flag)	;set a boot bit
+	mov	#3,@#dob	;send the code byte
+	com	flag		;set up the flag
+	jsr	r5,6$		;get this adress in r5
+	swab	byte
+	com	flag
+	bpl	8$
+9$:	tstb	(flag)
+	bpl	9$
+	mov	@#dib,byte
+	bit	#ib,(flag)	;is it valid ?
+	bne	8$		;yes
+	clr	byte		;no way
+8$:	movb	byte,(word)	;accumulate a word
+	swab	(word)		;position the byte in the word
+	dec	count		;count for caller
+5$:	rts	pc
+6$:	mov	sp,word		;for a couple of sneakies
+2$:	clr	count		;lets start with zero
+	getbyte			;get a byte
+	decb	byte		;is it start of data ?
+	bne	2$		;nope
+	getbyte			;skip a byte
+	getword			;get a word
+	add	(word),count	;this is the byte count
+	getword			;get another for later
+	beq	7$		;its the goto
+	mov	(word),point	;its the adress pointer
+3$:	getbyte			;get a data byte
+	bmi	2$		;no more left,look for new block
+	movb	byte,(point)+	;store the byte
+	br	3$
+
+7$:	jmp	launch
+
+.end	boot
+

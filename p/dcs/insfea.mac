@@ -1,0 +1,218 @@
+Y2K=1
+.title	insfea
+.include "dcs:dcl.mac"
+.psect	insfea
+
+;	DCL INSTALL/FEATURE command
+;	DCL REMOVE/FEATURE command
+;	DCL SHOW FEATURES command
+;
+;	%build
+;	macro	dcs:(insfea+shotim) /object=dcb:insfea
+;	%end
+;	%date
+;	<27-Feb-2008 22:35:28.00>
+;	%edit
+;	<58   >
+
+$fedef		;feature
+$mmdef		;mmu
+$opdef		;output
+$srdef		;
+
+;	install/feature name	run sy:name.fea /i
+;	remove/feature name	run sy:name.fea /r
+;	show features
+;
+;	/W=n	workspace size in blocks
+;
+;	NOTE: this module is compiled with SHOTIM. The SHOTIM module must
+;	remain adjacent to the end of this module for $cmkrnl.
+;
+;	PLAS	RT-11/XM support
+;	TRACE	Trace sub-system
+;
+;	DEBUG	Process and kernel debugger
+;	TSX	TSX subsystem
+;	MTT	Multi-terminal
+;	RSX	RSX subsystem
+;	UNIX	UNIX subsystem
+;	KERMIT	
+
+ins.fea==0
+rem.fea==1*2
+sho.fea==2*2
+
+act:	.word	0		;
+
+insfea::	
+	mov	r0,act		;remember the act
+	clr	heaflg		;init header flag
+	cmp	r0,#sho.fea	;this a show command?
+	beq	shofea		;yes
+;	rights	<u.sopr>	;must have operator rights
+	cright	#sropr.		;must have operator rights
+				;reset the image header
+	setup	$featur		;set it up
+	scan	<D=0^M>		;skip the command
+10$:	edit	<D="SY:"T=".FEA">
+	scan	<^IF=1Q="Feature? "> ;get next device
+20$:	edit	<^Z"run "_I}"/">;
+	movb	#'I,(r4)	;assume install
+	cmp	act,#rem.fea	;remove?
+	bne	30$		;no
+	movb	#'R,(r4)	;yes
+30$:	inc	r4		;
+	edit	<_S_M}"^C">	;
+	jmp	build
+
+$featur:
+option	WORKSPACE	1 W	null	value.
+option	
+.sbttl	show feature
+
+;rint<Slot Feature Purpose           Version Trans   UIC   Access Block Words> 
+;    <0001 PLAS    XM requests       V01.00      2 100,100   SOGW  7160   786
+
+shofea:				;show features
+	call	gettim		;in shotim
+	clr	fid		;start low
+	call	shohea		;force a header
+
+10$:	call	getfea		;get the feature
+	bcs	20$		;none to report
+
+	mov	f.efid,r1	;			;Slot
+	output	dec par=r1 ctl=#zer cnt=#4
+	type	< >
+
+	output	str par=#f.enas ctl=#upr cnt=#7		;Feature_
+	type	<  >
+	output	str par=#f.epur cnt=#18.
+	type	< >
+
+	type	<V>					;V00.00__
+	movb	f.ever,r1
+	output	dec par=r1 ctl=#zer cnt=#2
+	type	<.>
+	movb	f.eupd,r1
+	output	dec par=r1 ctl=#zer cnt=#2
+	type	<  >
+
+	output	dec par=f.eref ctl=#rig cnt=#5		;Trans_
+	type	< >
+
+	output	uic par=f.euic ctl=#zer			;000,000_
+	type	< >
+	call	1000$		;display protection	;__SOGW_
+	type	< >
+
+	mov	f.epag,r1	;get the page number	;block_
+	assume	mmpib. eq 8.	;get block number
+	clc			;
+	ror	r1		;
+	asr	r1		;
+	asr	r1		;
+	output	dec par=r1 ctl=#rig cnt=#5
+	type	< >
+
+	mov	f.elen,r1	;byte size		;words
+	clc			;
+	ror	r1		;
+	output	dec par=r1 ctl=#rig cnt=#5
+	print
+	br	10$		;
+20$:	jmp	kmon
+
+1000$:	mov	#1200$,r0	;build protect string
+	mov	#1300$,r1	;
+1110$:	bit	(r0)+,f.epro	;permitted?
+	bne	1120$		;no
+	movb	(r0),(r1)+	;yes
+1120$:	tst	(r0)+		;
+	tst	(r0)		;any more
+	bne	1110$		;
+	clrb	(r1)		;
+	output	str par=#1300$ ctl=#rig cnt=#6
+	return
+1200$:	.word	17,'S,360,'O,7400,'G,170000,'W,0
+1300$:	.asciz	/SOGW/		;
+	.even
+.sbttl	display utilities
+meta	<bits c,d><.word c><.ascii _d_<200>><.even>
+
+shohea:
+	tst	heaflg		;already done this?
+	bne	10$		;yes
+	inc	heaflg		;no
+	type	<RUST/XM V>
+	output	dec par=s.yver	
+	type	<.>
+	output	dec par=s.yupd
+.if eq Y2K
+	type	< Features on >
+.iff
+	type	< Features on  >
+.endc
+	call	dattik
+	type	<  Uptime >
+	call	uptime
+	print
+print <Slot Feature Purpose           Version Trans   UIC   Access Block Words> 
+;     <0001 PLAS    XM requests       V01.00      2 100,100   SOGW  7160   786
+10$:	return
+.sbttl	get next feature
+
+getfea:	$cmkrnl	#area, #100$ pic=yes
+	return
+
+100$:	call	getclo		;get the clock information
+	mov	fid,r1		;get the next one
+	inc	fid		;
+	cmp	r1,@#f$efes	;all done?
+	blo	130$		;no
+	.soft	0		;yes
+130$:	asl	r1		;
+	mov	f$emap(r1),r3	;r3 = page number
+	beq	100$		;not in use
+	mov	r3,@#m$kip6	;map to it
+	mov	#m$mpa6,r0	;
+	mova	fer,r1		;
+	mov	#fe.bbs/2,r2	;
+140$:	mov	(r0)+,(r1)+	;
+	sob	r2,140$		;move it in
+	return			;
+.sbttl	data
+
+.macro	entry	name length=2
+	assume	.-fer eq fe.'name
+f.e'name:.blkb	length
+.endm
+
+fid:	.word	0
+heaflg:	.word	0
+
+fer:
+entry	bot
+entry	gua
+entry	nam	word*2
+entry	ver	byte
+entry	upd	byte
+entry	dat
+entry	gen
+entry	ctl
+entry	len
+entry	uic
+entry	pro
+entry	ref
+entry	fid
+entry	pag
+entry	bit
+entry	exi
+entry	fr2
+entry	fr3
+entry	nas	byte*8.
+entry	pur	byte*18.
+
+;Fall thru to clock module
+

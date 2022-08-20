@@ -1,0 +1,1324 @@
+;	SHOW PROGRAM -- just the ident
+;	SHOW DRIVER "?W-No settings recorded"
+;	SHOW MEMORY -- RT-11 
+;	SHOW VOLUME -- general status
+dln$c=1
+.title	show
+.pass
+.library "lib:rust.mlb"
+$jbdef
+$rmdef
+$cpdef
+
+set	resorc 1, layout 2, prog 3, handle 4
+set	trans 5, logic 6
+
+show::	clr	s$lall		;
+	setup	$show,s.lex	;setup for the command
+	tstb	(r5)		;is this the null command?
+	bne	10$		;nope
+	mov	#sho.ass,r0	;yes
+	jmp	shodev		;display them
+10$:	scan	<^M>		;get the switches
+	edit	<C1> 30$	;its resorc				;?242+
+	edit	<C2> 30$	;its layout
+	edit	<C5> 50$	;translate
+	edit	<C6> 60$	;logical
+	setup	$dummy		;no more options
+	scanend	<^IF=1(C3Q="Program? "|C4Q="Driver? ")>
+30$:	edit	<*?>		;oops - not end of line
+	edit	<C1S0"/L">
+;	edit	<C2> 40$	;show layout
+;	edit	<(C1C="RESORC"|C3C="PROGRA"|C4C="HANDLE")>		;?242.
+	edit	<C4> 35$
+	edit	<(C1C="RESORC"|C3C="PROGRA">
+	jmp	program		;and call resorc
+35$:	edit	<^Z"R DRIVER"}"SHOW "_I}"EXIT"}>
+	jmp	build
+;40$:	edit	<^Z"R LAYOUT"}>	;
+;	jmp	build
+50$:	jmp	s.trans		;show trans
+60$:	jmp	s.logic		;show logical
+
+$show:
+option	ALL		1 A	null	s.all	;all	all	con
+option	CON		1 Z	null	s.conf	;con	con	con
+option	CONFIGURATION	1 Z	null	s.conf	;con	con	con
+option	DEVICES		1 D	null	s.dev l=0 ;con	con	?
+option	TERMINALS	1 _	null	s.term	;new	new	new	
+option	TT		1 _	null	s.term	;
+;ption	JOBS		1 J	resorc	s.jobs	;jobs	sha	?
+;ption	QUEUES		1 _	null	optnot	;not	new	new
+;ption	ERRORS		1 _	null	optnot	;not	not	not
+;ption	NEWS		1 _	null	s.news	;news	news	news
+;ption	SETTINGS	1 _	null	s.set	;set	set	set
+option	PATHS		1 _	null	s.path	;path	path	path	;?154
+;ption	SYMBOLS		1 _	null	s.meta	;meta	meta	meta	;?198
+;ption	HANDLER		1 _	handle		;hand	hand	hand	;?242+
+option	DRIVER		1 _	handle		;hand	hand	hand	;?242+
+;ption	LAYOUT		1 _	null	s.memor	;not	lay	not
+option	PROGRAM		1 _	prog					;?242.
+;ption	RETRY		1 _	null	s.retry	;retry	vamp	not	;?247
+option	TRANSLATIONS	1 _	trans					;?270
+option	LOGICAL		1 _	logic					;?270
+;ption	DIVERSIONS	1 _	null	s.diver
+;ption	CONSIGNMENTS	1 _	null	s.consi
+;ption	PRINTERS	1 _	null	s.print				;?276
+;ption	IMAGES		1 _	null	s.images			;
+option	DEFAULT		1 _	null	s.default			;
+option	PROCESS		1 _	null	s.process			;
+;ption	SYSTEM		1 _	null	s.syste	;jobs	
+option	MEMORY		1 _	null	s.memor	;mem	layout	not	;316
+option	SUBSETS		1 _	null	s.subs				;?316
+option	MOUNTS		1 _	null	s.moun
+option	USERS		1 U	null	s.users				;?316
+option	DATE		1 _	null	s.time
+option	TIME		1 _	null	s.time
+;ption	DAYTIME		1 _	null	s.time
+;ption	KERNEL		1 _	null	s.kernel
+option	PERMANENT	1 _	null	s.permanent
+;ption	PEOPLE		1 _	null	s.people
+option	VOLUME		1 _	null	s.volu
+;ption	SLOTS		1 _	null	s.slot
+option	COMMANDS	1 _	null	s.meta
+option	RT11		1 _	prog	s.rt11
+option	RSX11		1 _	prog	s.rsx
+option
+s.lex:	edit	<c0r%r r="/"c=1>
+	return
+
+;	/RT11/RSX	
+
+s.rt11:	edit	<"/T:RT11">	
+	return
+s.rsx:	edit	<"/T:RSX">
+	return
+
+s.all:	inc	s$lall		;
+	edit	<l=1>		;flag all
+	return
+
+s.dev:	edit	<!:>,,20$	;no colon, not resorc
+	psh	r4		;yes
+	edit	<^I>		;into output
+	edit	<@\@@!:>,,10$	;
+	edit	<":">		;
+10$:	edit	<"/D">		;put in the switch
+	pop	r4		;fine
+	edit	<C=1>		;force it to resorc
+	return			;
+20$:	clr	r0		;
+	jmp	shodev		;go show devices
+
+s.time:	mov	#dat.tim,r0	;dispatch code
+	jmp	date		;
+.if ne 0
+s.time:	mov	#new.tim,r0	;dispatch code
+	br	newcom		;
+s.news:	clr	r0		;for the dispatch
+newcom:	call	eol		;test for end of line
+	jmp	news		;do the news
+.endc
+
+s.term:	mov	#sht.set,r0	;show terminal
+	br	setcom
+s.set:	mov	#sho.set,r0	;dispatch to set/show
+setcom:	call	eol		;test for end of line
+	jmp	set		;and do it
+s.meta:;call	eol		;test for end of line
+	mov	#sho.met,r0	;dispatch to meta show			;?198
+	jmp	meta		;go do it				;?198
+s.moun:	call	eol		;
+	mov	#sho.mnt,r0	;show subset
+	jmp	mount
+s.subs:	call	eol		;
+	mov	#sho.sub,r0	;show subset
+	jmp	mount
+
+.if ne 0
+s.memor:tst	k$mjob		;share or vrt?
+	bne	10$		;yes
+	edit	<C=1>		;nope - force resorce
+;
+	edit	<^I"/X">	;
+;
+	br	20$		;
+10$:	tst	k$mvrt		;is this VRT?
+	bne	30$		;yes
+	call	eol		;
+	mov	#ker.poo,r0	;show kernel
+	jmp	pool
+20$:	return
+30$:	jmp	optnot		;not in VRT
+.endc
+
+.if ne 0
+s.kern:	call	eol
+	mov	#sho.poo,r0	;show pool
+	jmp	pool
+
+s.system:
+	tstb	(r5)		;was this all?
+	beq	10$		;yes
+	setup	$shsys		;
+	scanend	<^I>		;get the /continuous option
+	edit	<^Z"R STARE"}"^C"}>
+	jmp	build
+10$:	jmp	s.jobs		;nope
+$shsys:
+option	CONTINUOUS	1 _	null
+	.word	0
+.dsabl	lsb
+.endc
+
+;	SHOW VOLUME command
+;
+;	/full	
+;	/verify
+
+s.volu:
+	setup	$shovol		;set it up
+	scan	<D=0^M>		;skip the command
+	scanend	<F=6^IQ="Device? ">
+	edit	<C="VOLUME">	;
+	jmp	program		;dispatch it
+
+$shovol:
+option	BRIEF		1 _	null		;default
+option	FULL		1 F	null
+option	VERIFY		1 V	null
+option
+
+.if ne 0
+s.slot:				;SHOW SLOTS
+	call	eol		;test for end of line
+	jmp	shoslo		;and do it - (kms:shodev)
+.endc
+
+.if ne 0
+;	SHOW COMMANDS
+;
+;	RUN SY:UCL TT:=
+
+s.comm:	edit	<O="TT:">	;
+	tstb	(r5)		;got any more coming?
+	beq	10$		;no - show system/processes is default
+	setup	$scomm
+	scan	<^M>		;get the next
+10$:	edit	<^Z"R UCL"}_O"="}> ;R UCL TT:=
+	jmp	build		;
+.endc
+
+$scomm:
+option	TERMINAL	1 _	null	terminal l=0
+option	PRINTER		1 _	null	printer l=0
+option	OUTPUT		1 _	null	output l=0
+option	ALLOCATE	1 _	null	allocate l=0
+option	
+
+s.conf:
+	print	<>
+	mov	@$syassg,r1
+	type	<Booted from >
+	call	unpackf
+	cmp	@#256,#^rRTX
+	bne	5$
+	print	<:RTX.TSK V3.8>
+	print	<Running under RSX-11M>
+	br	6$
+5$:	print	<:RUST.SAV V3.8>
+6$:	mov	j$bsys,r1
+	movb	rm.emu(r1),r1
+	beq	50$
+	type	<Running under >
+	bneb	r1,#cpv11.,10$
+	print	<V11>
+	br	50$
+10$:	bneb	r1,#cpe11.,20$
+	print	<E11>
+	br	50$
+20$:	bneb	r1,#cpsmh.,30$
+	print	<SIMH>
+
+30$:
+50$:	print	<>
+	jmp	s.set
+
+s.drive:
+.sbttl	show paths
+
+s.paths:call	eol		;check for end of line			;?154+
+	world			;get the table
+	mov	$paths(r0),r4	;get a pointer
+10$:	cmp	(r4),#-1	;end of them?
+	beq	50$		;yep
+	mov	r4,r5		;get another pointer
+	mov	(r5)+,r1	;get the next one
+	beq	40$		;oops - its empty
+	call	unpacf		;type it
+	type	< = >		;
+	mov	(r5)+,r1	;get the next assignment
+beq	30$
+20$:
+.if ne dln$c
+	mov	r1,r0		;
+	call	dn$tmp		; is it a temp?
+	bcs	25$		; nope
+	call	dn$trn		; yep - translate it
+.endc
+25$:	call	unpack		;type it
+	mov	(r5)+,r1	;get the next
+	beq	30$		;nope
+	type	<, >		;yep
+	br	20$		;go get it
+30$:	print			;end of line
+40$:	add	#path*2,r4	;point to the next?
+	br	10$		;look for the next
+50$:	jmp	kmon		;done					;?154-
+.sbttl	show logical, translation
+
+; show permanent	
+; show default		show trans dk:
+; show translation	show all translation steps
+; show logical		show equivalence names
+
+	.enabl	lsb
+s.permanent:			;show permanent DK:, SY:, BO:
+	call	eol		;
+	psh	#kmon		;force return here
+	call	shocat		;
+	
+	mov	$syassg,r4	;point to them
+	mov	#^rdk,r1	;DK:
+	mov	-2(r4),r2	;
+	call	10$		;
+	mov	#^rsy,r1	;
+	mov	(r4),r2		;SY:
+	call	10$		;
+	mov	#^rbo,r1	;BO:
+	mov	sysptr,r0	;point to the system
+	movb	syunit+1(r0),r2	;get the unit number
+	movb	syindx(r0),r0	;build the physical boot-device
+	add	$pname,r0	;point to the name
+	add	(r0),r2		;get the physical name
+	add	(pc)+,r2	;add in the rad50 constant
+	.rad50	/  0/		;
+10$:	call	unpacf
+	mov	r2,r1
+	bne	20$
+	call	shound
+	br	30$
+20$:	type	< = >
+	call	unpacf
+30$:	print
+	return
+
+shocat:	tst	(pc)+
+revcat:	sec
+	mov	#rxSTA.,r1	;
+	mov	@#j$bsys,r2	;
+	mov	rm.cal(r2),r2	;
+	bne	10$		;
+	bcc	10$		;
+	return
+	.dsabl	lsb
+.sbttl	default, logical, translations
+
+s.trans:edit	<m=1>		;m=1 => translation
+s.logic:edit	<q=1>		;m=0 => logical
+s.syst:
+s.logx:	call	100$		;count the names
+	clr	(pc)+		;column counter for /logical
+4$:	.word	0		;
+	tstb	(r5)		;any more coming?
+	bne	400$		;yes - do single
+				;
+	clr	r4		;start low
+5$:	mov	#-1,r3		;this is the high limit
+	clr	r5		;remember the index
+	clr	r1		;get a logical name
+	psh	#2		;count down
+;	edit	<m1>,10$	;/translate
+;	clr	(sp)		;/logical
+
+10$:	call	indexes		;map it
+	sbc	(sp)		;this the last?
+	bcs	11$		;all done
+	mov	@.unam2,r0	;get this one
+	beq	10$		;nope
+	tst	@.unam1		;this setup?
+	beq	10$		;nope (redundant)
+	bnew	s$lall,111$	;
+	beqw	r0,#^rSY$,10$	;ignore these
+	beqw	r0,#^rDK$,10$	;ignore these
+111$:	cmp	r0,r3		;this higher?
+	bhis	10$		;yes (catchs DK/SY case as well)
+	cmp	r0,r4		;this lower?
+	blos	10$		;yes
+	mov	r0,r3
+	mov	r1,r5		;save the index+2
+	br	10$		;get the next
+400$:	jmp	s.sing
+
+11$:
+.if ne dln$c
+	clr	d$nptr		;
+	call	dn$fst		;get the first
+	bcs	220$		;
+210$:	mov	d$ncur,r0	;
+	cmp	dn.log(r0),r3	;this higher?
+	bhi	220$		;yes
+	cmp	dn.log(r0),r4	;this lower?
+	blos	220$		;yes
+	mov	dn.log(r0),r3	;
+	mov	r0,d$nptr	;
+220$:	call	dn$nxt		;
+	bcc	210$		;
+	beqw	d$nptr,230$	;
+	mov	r3,r1		;
+	call	unpac3		;
+	type	< = >		;
+;	bnew	s$ldyn,225$	; wants the dynamic name
+	mov	#-1,r0		;
+	call	dn$unp		;
+	print			;
+	mov	r3,r4		;
+	br	5$
+230$:
+.endc
+	mov	r5,r1		;get the result index
+	beq	20$		;oops
+	sub	#2,r1		;back up
+	call	indexes		;recompute it
+	psh	@.unam2		;save the new low
+	mov	@.unam2,r0	;nope, translate
+	edit	<m1> 13$	;this is translate
+	mov	r0,r1		;/logical
+	call	unpacf		;display it
+	type	< = >		;
+	mov	@.unam1,r1	;get the equivalence
+	call	unpacf		;display it
+.if ne dln$c
+	br	14$
+.iff
+	tst	115$		;are we single column?
+	bmi	14$		;yes
+	inc	4$		;get the next column
+	cmp	4$,#4		;time for [return]?
+	bhis	12$		;yes
+	type	< 	>	;[space][tab]
+	br	16$		;
+12$:	clr	4$		;yes
+	br	14$		;go print
+.endc
+13$:	call	tranam		;translation
+.if ne dln$c
+;	mov	d$neqv,(sp)	;use device name
+.endc
+14$:	print
+16$:	pop	r4		;
+	br	5$		;all done
+20$:	tst	4$		;got to do a return?
+	beq	30$		;nope
+	print
+30$:	call	revcat		;reveal catch-all if defined
+	jmp	kmon		;done
+
+;	We do a multi-column SHOW LOGICAL if there are
+;	8 or more logical names. Multi-column looks dumb
+;	if there's only a couple of them.
+
+100$:				;count the logical names
+	mov	#-8.,115$	;must be at least 8
+	mov	$unam2,r1	;point to them
+	mov	$slots,r2	;
+110$:	tst	(r1)+		;is this set up?
+	beq	120$		;nope
+	inc	(pc)+		;increment threshold
+115$:	.word	-8.
+120$:	sub	#2,r2		;any more slots?
+	bne	110$		;yes
+	return
+
+s$lall:	.word	0
+.sbttl	translate single name
+
+	.enabl	lsb
+s.default::			;show default
+	edit	<^I"DK:">	;
+	br	5$
+
+s.sing:				;show/translation			;?270+
+	setup	$dummy		;no more options
+	edit	<! >		;no default, skip a space
+	call	chkcal		;check catch-all
+	scanend	<^ID=0F=6Q="Logical names? ">
+5$:	mov	$input,r5	;
+10$:	call	getdevice	;get the device
+	mov	name,r0		;
+	psh	r5		;save this
+	call	tranam		;translate ite
+	print
+	pop	r5		;restore the pointer
+	tstb	(r5)		;any more?
+	bne	10$		;yes
+	jmp	kmon		;					;?270.
+	.dsabl	lsb
+
+tranam:				; << r0 = name
+	clr	-(sp)		;saved translation
+	clr	-(sp)		;count them
+	psh	r0		;save it
+	mov	r0,r1		;
+	call	unpacf		;
+15$:	mov	(sp),r0		;get the name again
+	edit	<m1> 16$	;its translate
+;	call	tralog		;
+call trasys
+	bcc	20$		;fine
+	edit	<m0> 25$	;end of the line for logical
+16$:	mov	(sp),r0		;get it again
+	call	trasys		;try this first
+	bcc	17$		;fine
+	mov	(sp),r0		;get it again
+.if eq dln$c
+	call	translate	;translate it
+	bit	#1,dtype	;is it defined?
+	beq	25$		;nope - check for undefined
+.endc
+
+17$:	mov	(sp),r1		;test for xx0 translation
+	add	#<^r  0>,r1	;
+	cmp	r0,r1		;was this all?
+	bne	20$		;nope
+	incb	2(sp)		;remember its ok
+	mov	r0,(sp)		;put it on the stack
+	mov	r0,4(sp)	;in case we print it later
+	br	15$		;and quit
+
+20$:	tstb	2(sp)		;was this the first?
+	beq	22$		;yes
+	cmp	r0,(sp)		;was this the last one?
+	beq	25$		;yes
+22$:	incb	2(sp)		;count it
+	incb	3(sp)
+	mov	r0,(sp)		;get it again
+	mov	r0,r1		;get it again
+	type	< = >
+	call	unpack		;
+	br	15$		;
+
+25$:	tstb	2(sp)		;did we do at least one?
+	bne	27$		;yes - dont say its undefined
+	call	shound		;
+	br	30$
+27$:	tstb	3(sp)		;did we print one at least?
+	bne	30$		;yes
+	mov	4(sp),r1	;nope
+	type	< = >
+	call	unpacf		;get the original somehow
+30$:	add	#6,sp		;pop the temps
+	return
+
+shound:	type	< = (undefined)>;
+	return
+
+chkcal:	cmpb	(r5),#'*	;define * xxx?
+	bne	90$		;nope
+	cmpb	1(r5),#32.	;exactly "*"
+	bhi	90$		;nope
+	edit	<W=1>
+	edit	<q=1>		;translated 
+90$:	return
+.sbttl	show process
+
+s.user:	print	<Nobody but you!>
+	jmp	kmon
+
+s.process:
+	call	eol
+	world	r5		;get the world
+	type	<Username: >
+	mov	r5,r4		;point to it
+	add	#$user,r4
+	mov	#1,uppers	;one upper case letter
+	call	unpac4		;unpack it
+	clr	uppers		;no upper case letters
+	call	unpac4
+	type	< [>	
+	movb	$uic+1(r5),r1
+	call	octbyt
+	type	<,>
+	movb	$uic(r5),r1
+	call	octbyt
+;	print	<]>
+	type	<]>
+	jmp	kmon
+
+.if ne 0
+
+	movb	$satn(r5),r1		;this a satellite?
+	beq	5$			;nope, forget it
+	type	<  Satellite: >
+	call	number
+5$:	movb	$jobn(r5),r1		;get the job number
+	beq	6$			;single user satellite
+	type	<  Job: >
+	call	number			;
+6$:	print
+
+
+	type	<Rights:   >
+	mov	$rights(r5),r5
+	mov	#rights,r4
+10$:	bit	(r4)+,r5		;got this one?
+	beq	20$			;nope
+	.print	r4			;yes
+	type	< >
+20$:	tstb	(r4)+
+	bpl	20$
+	inc	r4
+	bic	#1,r4
+	tst	(r4)
+	bne	10$
+	print	<>
+	jmp	kmon
+
+meta	<right c,d><.word c><.ascii _d_<200>><.even>
+rights:	right	u.sman	<Manager>
+	right	u.sopr	<Operate>
+	right	u.suse	<System>
+	right	u.sphy	<Init>
+	right	u.stel	<Tell Stop>
+	right	u.scli	<Cli>
+	right	u.scty	<Ctrly>
+	.word	0
+.endc
+.sbttl	utilities
+
+octal:	mov	#octa,radix
+	mov	#'0,blanks	
+	br	numcom
+
+number:	mov	#deci,radix
+	clr	blanks
+
+numcom:	psh	r0
+	psh	r1
+	psh	r2
+	psh	r3
+	psh	r4
+	mov	blanks,r0	;
+	mov	radix,r4	;get the exponent
+	mov	#num.a,r3	;set up destination
+3$:	mov	#-1,r2		;look for a digit
+4$:	inc	r2		;step up dividend
+	sub	(r4),r1		;subtract
+	bcc	4$		;go again
+	add	(r4)+,r1	;bumb it back to positive
+	tst	r2		;now look at format
+	bne	5$		;something to do
+	mov	r0,r2		;leading blanks ?
+	beq	7$		;nope nothing
+	br	6$		;put in output stream
+5$:	mov	#'0,r0		;no more blanks
+	add	r0,r2
+6$:	movb	r2,(r3)+	;output it
+7$:	tst	(r4)		;any more to do ?
+	bne	3$		;yes
+	add	#'0,r1		;generate last digit
+	movb	r1,(r3)+	;do the last digit
+	movb	#200,(r3)
+	mov	#num.a,r1	;output
+8$:	movb	(r1)+,r0
+	bmi	9$
+	.ttyout
+	br	8$
+9$:	pop	r4
+	pop	r3
+	pop	r2
+	pop	r1
+	pop	r0
+	return
+blanks:	.word	0
+radix:	deci
+deci:	10000.,1000.,100.,10.,0
+octa:	100000,10000,1000,100,10,0
+num.a:	.byte	0,0,0,0,0,0,0,0
+
+.sbttl	show memory
+s$hiop:	.word	0
+
+s.memory:
+print	<>
+print	<Address  Module   Words>
+print	<-------  ------   ----->
+
+	mov	#s$mrmn,r3		
+	mov	sysptr,r4
+	mov	rm.mes(r4),r5
+	.rept	6
+	asl	r5
+	.endr
+	mov	r5,r0
+	clc
+	ror	r0
+	mov	#100000,r1
+	sub	r0,r1
+	psh	r1
+
+	mov	r5,r1
+	cmp	r5,#160000		; too low?
+	bhis	5$			;
+	mov	#160000,r1		;
+	mov	#4096.,(sp)
+5$:	call	octal
+	type	<   IOPAGE   >		; IOPAGE
+	pop	r1
+	mov	r1,s$hiop		; remember size
+	call	number
+	print	<.>
+
+	cmp	r5,#160000
+	bhis	6$
+	mov	r5,r1
+	call	octal
+	type	<   (void)   >		; (void)
+	mov	#160000,r1
+	sub	r5,r1
+	clc
+	ror	r1
+	call	number
+	print	<.>
+	
+6$:	call	sm$slt			; RMON
+	mov	r4,r5
+
+	mov	#s$musr,r3
+	mov	k$mwor,r4
+	mov	$us(r4),r4
+	call	sm$slt			; USR
+	mov	r4,r5
+
+10$:	mov	r4,r5			; Drivers
+	call	sm$fnd
+	tst	r3			; got one?
+	beq	20$			; nope
+	call	sm$drv			; show it
+	br	10$
+
+20$:	beqw	k$mrus,25$		;
+	mov	#^rDLN,r0		;
+	call	dm$ptr			;
+	mov	#s$mdln,r3		; directories
+	mov	r0,r4			;
+	call	sm$slt			;
+	mov	r4,r5			;
+					;
+	mov	#^rUCF,r0		;
+	call	dm$ptr			;
+	mov	#s$mmet,r3		; UCF
+	mov	r0,r4			;
+	call	sm$slt			;
+	mov	r4,r5			;	
+	br	30$			;
+
+25$:	mov	#s$mmet,r3		; UCF
+	mov	k$mwor,r4		;
+	mov	$metas(r4),r4		;
+	cmp	r4,sysptr		; still in the monitor?
+	bhi	30$			; yep
+	call	sm$slt			; show it
+	mov	r4,r5			;
+
+30$:	mov	sysptr,r4		; get top
+	mov	$top(r4),r4		;
+	mov	k$mwor,r3
+	tst	$jobc(r3)		; got a command file?
+	beq	40$			;
+	mov	#s$mcom,r3		;
+	call	sm$slt			; Command file
+	mov	r4,r5
+
+40$:	clr	r4
+	mov	#s$mapp,r3
+	call	sm$slt			; (free)
+
+	mov	@#j$bsys,r1
+	mov	rm.mpt(r1),r0
+	add	r1,r0
+	mov	-(r0),r1		; total mmu pages
+	.rept	5			; convert to words
+	clc				;
+	ror	r1			; 64
+	.endr				;
+	cmp	s$hiop,#32.		; RTX I/O page?
+	bne	45$			; nope
+	inc	r1			; yes, 32kw, not 31kw
+45$:	print	<>
+	call	number
+	print	<kw physical memory>	; Physical memory
+50$:	jmp	kmon
+
+; Out:  r2	driver size
+;	r3	device name
+;	r4	driver address
+	ha.lqe = 6
+
+sm$fnd:	mov	$hentr,r0
+	clr	r3
+	clr	r4
+10$:	mov	(r0),r1		; the entry point
+	beq	20$		; is no entry point
+	sub	#ha.lqe,r1	; adjust for RT-11 magic
+	cmp	r1,r5
+	bhis	20$
+	cmp	r1,r4
+	blo	20$
+	mov	r1,r4
+	mov	r0,r3		; save the slot address
+20$:	tst	(r0)+
+	cmp	(r0),#-1
+	bne	10$
+	tst	r3		; find anything?
+	beq	30$		; nope
+	sub	$hentr,r3	; get the slot offset
+	mov	r3,r2		;
+	add	$pname,r3
+	mov	(r3),r3		; pname
+	add	$hsize,r2
+	mov	(r2),r2		; driver size
+	tst	(pc)+
+30$:	sec
+	return
+
+sm$drv:	mov	r4,r1
+	add	r2,r1
+	cmp	r1,r5		; followed by free space
+	beq	20$		; perfect
+	bhi	10$		; oops
+	psh	r1
+	call	octal
+	type	<   (empty)  >
+	mov	r5,r1
+	pop	r5
+	sub	r5,r1
+	call	sm$len
+	br	20$
+
+10$:	psh	r1
+	call	octal		; display 
+	type	<   (over)   >
+	pop	r1
+	sub	r5,r1
+	call	sm$len
+
+20$:	mov	r4,r1
+	call	octal
+	type	<   >
+	mov	r3,r1
+	call	unpacu
+	type	<      >
+	br	sm$dif
+
+sm$slt:	mov	r4,r1
+	call	octal
+	type	<   >
+	.print	r3
+sm$dif:	mov	r5,r1
+	sub	r4,r1
+sm$len:	clc	
+	ror	r1
+	call	number
+	print	<.>
+	return
+
+s$mrmn:	.ascii	|RMON     |<200>
+s$musr:	.ascii	|USR      |<200>
+s$mdln:	.ascii	|Logicals |<200>
+s$mmet:	.ascii	|Commands |<200>
+s$mcom:	.ascii	|@file    |<200>
+s$mapp:	.ascii	|(free)   |<200>
+;		|Logicals |<200>
+;		|Paths    |<200>
+	.even
+.if ne 0
+.sbttl	diversions, consignments, printers
+meta	<system c><.word iot,^rsys,c>
+set	sy.uba -26, sy.mat -24
+meta	<state1 d><.ascii &d&<200>><.even>
+meta	<state c,d><jsr r5,statit><.word c><state1 <d>>
+
+s.queue:edit	<q=1>		;its show queues
+s.diver:
+	mov	#^rrer,r3	;do the routes
+	call	ta$start	;find the first
+10$:	beq	20$
+	call	unfil2		;show two files
+	tst	(r4)		;got any bits set?
+	beq	15$		;nope
+	mov	#-1,stacol	;setup column 1
+	type	< options=(>
+	state	ar.log	<logical>
+	state	ar.loo	<lookup>
+	state	ar.pur	<purges>
+	type	<)>
+15$:	print
+20$:	call	@(sp)+		;get the next
+	br	10$
+
+s.consig::
+	mov	#^rcon,r3	;
+5$:	call	ta$start	;find the first
+10$:	beq	20$
+	call	unfil2		;show two files
+	call	states		;check the states
+15$:	print
+20$:	call	@(sp)+		;get the next
+	br	10$
+
+s.print:
+	mov	#^rpri,r3	;show the printers
+	call	ta$start	;get the first
+10$:	beq	50$		;ignore unused
+	call	unfile		;print the name
+	call	states
+	print
+50$:	call	@(sp)+
+	br	10$
+
+states:	tst	(r4)		;any requests?
+	beq	20$		;nope
+	type	< requests=>
+	call	state2
+20$:	tst	(r4)+		;check the state
+	tst	(r4)
+	beq	30$		;no state?
+	type	< state=>
+	call	state2
+30$:	return
+
+state2:	mov	#-1,stacol
+	type	<(>
+	state	ss.act	<active>
+	state	ss.sto	<stop>
+	state	ss.sta	<start>
+	state	ss.sus	<susp>
+	state	ss.nex	<next>
+	state	ss.abo	<abort>
+	state	ss.top	<top_of_file>
+	state	ss.bac	<backspace>
+	state	ss.req	<requeue>
+	state	ss.ier	<i/o error>
+	state	ss.oer	<i/o error>
+	state	ss.der	<directory error>
+	type	<)>
+	return
+statit:	bit	(r5)+,(r4)	;this one set?
+	beq	50$		;nope
+	inc	stacol		;this the first?
+	beq	40$		;yes
+	type	<,>		;nope
+40$:	.print	r5		;print the message
+50$:	tstb	(r5)+		;skip till the end
+	bpl	50$
+	inc	r5
+	bic	#1,r5
+	rts	r5
+stacol:	.word	-1
+.endc
+.if ne 0
+.sbttl	show images
+
+s.image:			;show the cache
+	clr	images		;in case of reentrance
+	mov	#t.image,trail	;come here when we're done
+	mov	#^rima,r3	;select the cache
+	call	ta$st2		;start up
+10$:	beq	30$		;
+	call	unfile		;
+	tst	(r4)		;is this active?
+	bne	20$		;yes
+	type	< (not open)>	;
+20$:	print
+	br	40$		;dont count this
+30$:	inc	images		;count free slots
+40$:	call	@(sp)+		;get the next
+	br	10$		;and do the next
+
+t.image:
+	mov	images,r1	;
+	call	number
+	print	< free slots>	;
+	jmp	kmon		;and quit
+
+images:	.word	0		;
+.endc
+.if ne 0
+.sbttl	show jobs
+
+	aj.kmn	=	400
+	aj.smn	=	1000
+
+s.jobs:
+	tst	k$msha		;this share?
+	bne	5$		;yes
+	tst	k$mvrt		;is this vrt?
+	bne	4$		;yes
+	jmp	kmon		;ignore it
+4$:	edit	<^Z"vax show system"}>
+	jmp	build
+5$:	system	sy.uba		;get the job buffer
+	mov	#^rjsh,(r0)+	;select
+	system	sy.mat		;go set them up
+	mov	#^rjob,r3	;search job table
+	call	ta$start	;get the next
+print	<Job	User	  UIC  State Pri Program	File>
+10$:	psh	r3
+	psh	r2
+	psh	r1
+	mov	r2,r1		;get the number
+	dec	r1		;
+	beq	20$		;ignore job 0
+	type	<j>
+	call	number
+	type	<	>
+	mov	#1,uppers
+	call	unpac4
+	clr	uppers
+	call	unpac4
+	type	<	>
+
+	movb	(r4)+,r1	;uic
+	call	octbyt
+	type	<,>
+	movb	(r4)+,r1
+	call	octbyt
+	type	<	>
+
+	psh	(r4)+		;state
+	movb	(sp),r1		;get the wait state
+	asl	r1		;get the wait state
+	.print	waits(r1)	;
+	type	<   >
+	mov	(r4)+,r1	;priority
+	call	number		;
+	type	<  >
+
+	add	#10,r4		;skip to program
+	call	unfile
+	type	<	>
+	sub	#20,r4		;back to file name
+	call	unfile
+	type	<	>	;display the queue
+
+	bit	#aj.smn,(sp)	;is at the monitor prompt?
+	beq	15$		;nope
+	type	<(DCL prompt)>	
+	br	18$
+15$:	bitb	#aj.kmn,(sp)
+	beq	18$
+	type	<(DCL running)>
+18$:	tst	(sp)+
+	print
+20$:	pop	r1
+	pop	r2
+	pop	r3
+	cmpb	r2,k$mjom	;this the last job?
+	bhi	40$		;yes
+	call	@(sp)+
+	br	10$
+40$:	jmp	kmon
+50$:	return
+
+waits:	.word	10$,11$,12$,13$,14$,15$,16$,17$
+meta <waitm c,d><1'c'$: .ascii &d&<200>>
+
+waitm	0	run
+waitm	1	wio
+waitm	2	wti
+waitm	3	wto
+waitm	4	wvo
+waitm	5	who
+waitm	6	wch
+waitm	7	wsi
+	.even
+.endc
+
+octbyt:	mov	#111,r3	;their once was a glichette named brigette
+1$:	clr	r0	;who fancied the occassional fidget
+2$:	aslb	r1	;well, its fetch a bit here
+	rol	r0	;and fudge a bit there
+3$:	aslb	r3	;when it itches, ya just find ya digit
+	bcc	2$	;keep fiddling
+	add	#60,r0	;start or continue printing
+	.ttyout		;print it
+	tst	r3	;done all digits ?
+	bne	1$	;nope, go scritch it
+	return
+.if ne 0
+.sbttl	show users
+
+users:	.word	0
+
+s.user:
+
+;tst	k$msat		;is this a satellite?
+;	beq	4$		;nope
+;	jmp	s.star		;show star-eleven
+4$:	tst	k$msha		;this share?
+	bne	5$		;yes
+	return			;nope
+5$:	print
+	mov	#-1,users	;count the number of users
+	system	sy.uba		;get the job buffer
+	mov	#^rjsh,(r0)+	;select
+	system	sy.mat		;go set them up
+	mov	#^rjob,r3	;search job table
+	call	ta$start	;get the next
+10$:	psh	r3
+	psh	r2
+	psh	r1
+	mov	r2,r1		;get the number
+	dec	r1		;
+	beq	20$		;ignore job 0
+	cmpb	r1,k$mjob	;is this us?
+	beq	20$		;yes - ignore this
+	tst	(r4)		;are they logged in?
+	beq	20$		;nope
+;	cmp	r2,k$mjom	;
+;	bhis	15$		;the last - no comma
+	tst	users		;is this the first?
+	bmi	15$		;yes no comma
+	type	<, >		;
+15$:	mov	#1,uppers	;one upper case letter
+	call	unpac4		;unpack it
+	clr	uppers		;no upper case letters
+	call	unpac4
+	inc	users		;and count it
+
+20$:	pop	r1
+	pop	r2
+	pop	r3
+	cmpb	r2,k$mjom	;this the last job?
+	bhi	40$		;yes
+	call	@(sp)+
+	br	10$
+40$:	tst	users		;did we get anyone at all?
+	bmi	45$		;nope - use resorc
+	print	< and you.>	
+	br	48$
+
+45$:	print	<Nobody but you!>
+48$:	jmp	kmon
+50$:	return
+.endc
+.if ne 0
+.sbttl	show people
+.mcall	.lookup	.readw	.purge
+
+;	Displays the users logged onto the system.
+;
+;	Uses channel 14. and the $text area.
+;
+;	SHOW LOGINS
+;
+
+s.people:
+	call	eol		;
+	.purge	#14.		;purge the channel
+	.lookup	#area,#14.,#usenam ;lookup the name
+	bcs	70$		;user not found
+	mov	$text,r2	;point to it
+	.readw	#area,#14.,r2,#256.,#0 ;read it in
+	bcs	70$		;user not found
+	.purge	#14.
+	mov	#256./3-1,r3	;maximum number of entries
+
+50$:	mov	#fstjob,curjob	;setup the first
+55$:	call	nxtjob		;get the next
+	bcs	70$		;no more
+;	tst	(r2)		;all done?
+;	beq	70$		;yes
+	call	satjob		;display the satellite & job.
+	mov	r2,r4		;point to the name
+	mov	#1,uppers	;one upper case letter
+	call	unpac4		;unpack it
+	clr	uppers		;no upper case letters
+	call	unpac4
+	print
+60$:;	add	#6,r2		;skip to the next
+	dec	r3		;count them
+	bne	55$		;possibly more
+70$:	jmp	kmon
+
+
+satjob:				;4(r2) = job, node
+	mov	#8.,r1		;count the characters
+				;r4 = string
+	movb	5(r2),r3	;get the satellite
+	beq	10$		;is none
+	type	<s>		;
+	dec	r1		;
+	call	30$		;
+10$:	movb	4(r2),r3	;get the job
+	beq	50$		;is none
+	type	<j>		;
+	dec	r1		;
+	call	30$		;
+20$:	type	< >		;
+	dec	r1
+	bne	20$
+	return
+
+30$:	cmpb	r3,#10.		;higher than 10?
+	blo	40$		;nope
+	type	<1>		;
+	dec	r1		;
+	sub	#10.,r3		;
+40$:	add	#'0,r3		;make the low digit
+	.ttyout	r3		;
+	dec	r1		;
+50$:	return
+usenam:	.rad50	/sy users sys/
+
+
+curjob:	.word	30134
+fstjob:	.blkw	3
+lstjob:	.word	0,0,-1		;maximum
+
+nxtjob:	mov	$text,r2	;get the buffer
+	mov	curjob,r4	;get the current job
+	mov	#lstjob,r5	;get the last job
+10$:	tst	(r2)		;any more here?
+	beq	30$		;nope
+	cmp	4(r2),4(r4)	;is this higher?
+	blos	20$		;nope
+	cmp	4(r2),4(r5)	;is this lower
+	bcc	20$		;nope
+	mov	r2,r5		;yes - swap it
+20$:	add	#6,r2		;get the next
+	br	10$		;and look for it
+30$:	cmp	4(r5),#-1	;is this us?
+	beq	40$		;
+	mov	r5,r2		;nope - swap them
+	mov	r2,curjob	;and store it for next time
+	tst	(pc)+		;and say we got one
+40$:	sec			;no more
+	return
+.endc
+.sbttl	show star
+.if eq 1
+
+s.star:
+	.lookup	#area,#14.,#users ;look for the file
+	bcs			;not available
+	.readw	#area,#13.,$text,#256.,#0
+	bcc			;fine
+20$:	mov	$text,r1	;
+30$:	tst	(r1)		;any more?
+	beq			;nope
+.endc
+.if ne 0
+.sbttl	table utilities
+
+;	r2	element number
+;	r3	table name
+
+ta$start:
+	clr	trail		;
+ta$st2:
+	call	eol		;check end of line
+	call	sharex		;share exclusive
+	clr	r2		;
+10$:	system	sy.uba		;get the job buffer
+	mov	#^rsel,(r0)+	;select
+	mov	r3,(r0)+	;table
+	mov	r2,(r0)+	;n
+	inc	r2		;for the next
+	mov	r0,r4		;r4 -> return area
+	system	sy.mat		;call the table manager
+	tst	r0		;any errors?
+	beq	15$		;nope
+	jmp	optnot		;this is probably VMS
+15$:	cmp	(r4)+,(r4)+	;
+	cmp	(r4),#-1	;this all?
+	beq	20$		;yes - we are done
+	tst	(r4)		;this one empty?
+;	beq	10$		;yes
+	call	@(sp)+		;do it
+	br	10$		;and get the next
+20$:	tst	trail		;got a trailer?
+	beq	30$		;nope
+	jmp	@trail		;yes
+30$:	jmp	kmon		;quit
+trail:	.word	0		;
+
+unfil2:	call	unfile		;do the first
+	type	< = >
+unfile:	call	unpac4
+	type	<:>
+	call	unpac4
+	call	unpac4
+	tst	(r4)+		;got a type?
+	beq	10$		;nope
+	tst	-(r4)		;backup
+	type	<.>
+	call	unpac4
+10$:	return
+
+.endc
+.if ne 0
+.sbttl	show retries
+
+meta <displa c><jsr r2,s.rdis><.ascii _c_<200>><.even>
+
+s.retry:call	eol		;check eol				;?247
+	world			;get the world
+	mov	$retry(r0),r5	;get the retry table
+	beq	20$		;oops is none
+	displa <Header checks	>
+	displa <Data checks	>
+	displa <Queue length	>
+	displa <Time-out	>
+	displa <Host abort	>
+	displa <Host restart	>
+	displa <Retry fail	>
+	type   <Hardware	>
+
+	world			;get the world again
+	mov	$csr(r0),r0	;get the bootid
+	bic	#^c7,r0		;get the boot id
+	cmp	r0,#5		;valid number?
+	blos	10$		;yes
+	clr	r0		;unknown
+10$:	asl	r0		;get a word offset
+	mov	desc(r0),r0	;get the string
+	.print			;and print it
+20$:	jmp	kmon		;and quit
+
+desc:	.word	10$,20$,30$,40$,50$,60$
+10$:	.asciz	/Unknown/
+20$:	.asciz	/DM11/	
+30$:	.asciz	/DR11/
+40$:	.asciz	/DL11/
+50$:	.asciz	/WB11/
+60$:	.asciz	/WD11/
+	.even
+
+s.rdis:
+	.print	r2		;print the message
+10$:	tstb	(r2)+		;skip it
+	bpl	10$		;
+	inc	r2
+	bic	#1,r2
+	mov	r2,(sp)		;setup return path
+	mov	(r5)+,r1	;get the number
+	call	number		;print it
+	print
+	return
+.endc
+
+
+.end
+

@@ -1,0 +1,106 @@
+wri$c=0
+.title	rename, protect, unprotect, set file
+.psect	rename
+.pass
+set pip 1
+
+;-------------------------------;
+; rename			;
+;-------------------------------;
+
+rename::setup	$rename		;set it up
+	world			;get the net table
+	movb	$card(r0),r0	;get the wildcard setting
+	edit	<W=1r0N="*"T=".*">
+	scan	<^M>		;get the command options
+	scan	<F=6^IQ="From? ">;get the input files
+	scanend	<F=1^OQ="To  ? ">;get the output file
+	call	vax		
+	br	renpro		;join rename/protect common
+
+;-------------------------------;
+; protect/unprotect/set file	;
+;-------------------------------;
+
+setfil::setup	$setfil		;set file
+	edit	<V=1>		;
+	br	setpro		;acts as a rename
+unprote::edit	<u="/Z">
+	br	procom
+protect::edit	<u="/F">
+procom:	setup	$protec
+setpro:	world			;get the net table
+	movb	$card(r0),r0	;get the wildcard setting
+	edit	<W=1r0N="*"T=".*"> ;default name and type
+	scan	<^M>		;get the command options
+	scanend	<^IF=6Q="Files? "> ;get the files
+;	edit	<l0W3"/W">	;if not mute!query, PIP and wildcards
+	edit	<_u>		;send the protect/unprotect
+	call	vax		;check for vax
+renpro:	edit	<V0"/R">	;the rename command
+	edit	<l0W3"/W">	;log unless nolog
+;	edit	<V1C="VIP"|C="PIP"> ;setup the cusp
+	edit	<V1C="VIP"|C="VIP"> ;setup the cusp
+	jmp	program
+
+$rename:
+option	REPLACE		1
+option	NOREPLACE	1 N	pip
+$setfil:
+$protect:
+option	PROTECTION	1 _	pip	r.prot
+option	NOPROTECTION	1 Z	pip
+.if ne wri$c
+;ption  DELETE		1 ?	pip
+;option	NODELETE	1 	pip
+option  WRITE		1 ?	pip
+option	NOWRITE		1 	pip
+.endc
+
+option	LOG		1 W	null	nolog
+option	NOLOG		1 _	null	nolog
+option	QUERY		1 Q	pip	nolog
+option	SYSTEM		1 Y	pip
+option	NEWFILES	1 C	pip
+option	WAIT		1 E	pip
+option	VAX		1 _	null	r.vax
+option	DATE		1 C	pip	value.
+option	SINCE		1 I	pip	value.
+option	BEFORE		1 J	pip	value.
+option	SETDATE		1 T	pip	value.
+option	INFORMATION	1 X	pip
+option	UIC		1 U	pip	valuic
+option	EXCLUDE		1 P	pip
+option	IGNORE		1 G	pip
+option	BY_OWNER	1 Q	pip	valuic
+option	EXTENSION	1 _	pip	r.ext
+option	TRUNCATION	1 _	pip	r.tru
+option	SIZE		1 _	pip	r.siz
+option
+nolog:	edit	<l=1>
+	return
+r.vax:	edit	<V=1>
+	return
+r.prot:	call	gtprt			;get protection
+	bcc	10$			;got some
+	edit	<"/F">			;/PROTECTION
+10$:	return				;
+
+.if ne wri$c
+r.nowri:edit	<"/F:WRI">		;/NOWRITE
+	return				;
+r.wri:	edit	<"/Z:WRI">		;/WRITE
+	return
+.endc
+
+r.ext:	edit	<"/R:EXT">		;/Extend
+	br	setsiz			;
+r.tru:	edit	<"/R:TRU">		;/Truncate
+	br	setsiz			;
+r.siz:	edit	<"/R:SIZ">		;/Size
+setsiz:	edit	<"/K">			;
+	call	value.			;
+	return
+
+.end
+

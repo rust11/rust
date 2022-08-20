@@ -1,0 +1,160 @@
+.title	gt command
+.pass
+
+gt::	setup	gt$opt,gt$lex
+	scan	<^M>
+	scanend	<^IF=0>
+	jmp	build
+
+gt$lex:	edit	<c0r%r r="/"c=1>
+	return
+gt$opt:	option	ON		1 _	null	gt$on
+	option	OFF		1 _	null	gt$off
+	option
+gt$on:	edit	<^Z"load gt"}>
+	return
+gt$off:	edit	<^Z"remove gt"}>
+	return
+
+.end
+.title	gt command
+.pass
+set usrloc 352		;must update real usr address
+
+; GT ON sets the scroll buffer to 2k or so
+; GT OFF sets the scroll buffer to 1/2 k
+; GT TINY sets thw scroll buffer to 64. words
+
+	vs	=	42.
+
+	djmp	=	160000
+	char	=	100000
+	int4	=	3000
+	int2	=	2400
+	int0	=	2000
+	lpoff	=	100
+	point	=	114000
+	dstop	=	173000
+	dpc	=	172000
+	dps	=	dpc+2
+	blkon	=	30
+	blkoff	=	20
+	statsa	=	170000
+	sync	=	4
+
+	paij	=	-10
+	page	=	-6
+	pdp	=	-4
+	pai	=	-2
+
+.if	eq,	1
+; copy of the end of the scroll buffer (sr.mac)
+
+	djmp,	pai		;end of scroll buffer
+-06	.word	page
+-04	.word	pdp
+-02	.word	pai		;normal
+ 00	.word	pai		;variable
+	jmp	inten		;rmon beginning
+
+; copy of scroller header (sc.mac)
+
+pdp:	pai
+pfp:	pfi
+pnp:	pni
+
+; copy of scroller buffer header (sc.mac)
+
+pai:	.rept	vs
+	.word	lf
+	.endr
+	.byte	0
+pfi=.
+	.byte	0
+pni:	djmp,	page
+	.	=	pai+pm
+pzi:	djmp,	pai
+	.word	pdp		;for gt off command
+	.word	pai		;usual size
+$pai:	.word	pai		;current size
+
+.endc
+.sbttl	gt command
+
+gt::	mov	mon,r3		;get a pointer
+	bit	#$$gt,$con(r3)	;got a gt ?
+	bne	10$		;its o.k.
+;	fatal	<No VT-11 hardware>
+10$:	mov	$top(r3),r0	;compute clean system
+	tst	(r0)+		;bump plus two
+	sub	-(r3),r0	;compute equality, (see sr.mac)
+	beq	20$		;its o.k.
+	fatal	<GT ON/OFF illegal from command file>
+20$:	setup	$gt$		;setup our table
+	edit	<D=0>		;aint no device
+	scan	<^M>		;skip the first space
+	scanend	<F=1^I>		;get the element
+	mov	$input,r5	;now look for it here
+	mov	#$on$,table	;get our table
+	call	search		;and get the option
+	bcs	30$		;oops, not there
+	mov	mon,r3		;supply the monitor address
+	tst	-(r3)		;we sit just below the monitor
+	call	@4(r2)		;call the command
+	return
+30$:	jmp	illegal		;its a bad command
+$gt$:
+option	LINES	1 _	null	.lines
+option	TOP	1 _	null	.top
+option	SIZE	1 _	null	.size
+option
+
+.size:
+.top:
+.lines:	fatal	<Option not in system>
+
+$on$:
+option	ON	1 _	null	on
+option	OFF	1 _	null	off
+option	TINY	1 _	null	tiny
+option
+
+tiny:	mov	r3,r2
+	sub	#100.,r2
+	mov	r2,(r3)
+	br	setgt
+on:	mov	pai(r3),(r3)	;set low address
+	br	setgt
+off:	mov	r3,r2		;get the top
+;	sub	#1200,r2	;form the start address
+	sub	#400,r2		;try this version
+	mov	r2,(r3)
+setgt:	mov	#stop,dpc	;stop the dp
+1$:	tst	dps		;wait for it to stop
+	bpl	1$
+	mov	#vs,r1		;we are going to clear the screen
+2$:	.feed			;to get line count sync
+	dec	r1
+	bne	2$		;until cleared
+	mov	(r3),r2		;get the low address
+	mov	pdp(r3),r0	;get the pdp block (see sc.mac)
+	mov	r2,(r0)+	;store the goto
+	mov	#vs,r1
+3$:	mov	#lf,(r2)+	;build the display buffer
+	dec	r1		;by moving in lf's
+	bne	3$
+	clrb	(r2)+		;blindly imitate scroll code
+	mov	r2,(r0)+	;set up pni
+	clrb	(r2)+
+	mov	r2,(r0)+	;set up pnf
+	mov	#djmp,(r2)+	;build the scroller exit code
+	mov	page(r3),(r2)	;where to goto
+	mov	(r3),paij(r3)	;update the wrap pointer
+	mov	(r3)+,$top(r3)	;update the usr location pointer
+	sub	#2,$top(r3)	;needs to be -2 for fortran
+	mov	$top(r3),usrloc(r3) ;update real usr address
+	mov	(r2),dpc	;restart the dp
+	return
+stop:	dstop,dstop,0,0
+.end
+

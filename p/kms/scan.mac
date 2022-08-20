@@ -1,0 +1,382 @@
+.sbttl	store string
+
+; << r5 -> input; r4 -> output;  >> line stored
+
+store:	mov	#line,r2	;we need this frequently
+1$:	clrb	(r4)		;make sure its terminated
+	movb	(r5)+,r0	;get the next
+	cmpb	r0,#'"		;got a quote?
+	bne	5$		;nope
+	movb	r0,(r4)+	;yes - move it
+2$:	movb	(r5),(r4)+	;move another
+	beq	5$		;oops - end of string
+	cmpb	(r5)+,#'"	;got another?
+	bne	2$		;nope - keep going
+	br	1$		;and start again
+5$:	edit	<r!r=z>		;'!' replace by zero
+	edit	<r	r= >	;replace tabs with spaces
+	cmpb	r0,#ff		;is it a formfeed?
+	beq	1$		;yes, ignore it
+15$:	cmpb	r0,#'/		;is it a slash?
+	beq	17$		;yes, check for space-slash
+	cmpb	r0,#space	;is it a space?
+	bne	20$		;nope
+	cmp	r4,r2		;start of line?
+	beq	1$		;yes, skip it
+17$:	cmpb	-(r4),#space	;was the last a space
+	beq	20$		;yes, forget the space
+	inc	r4		;nope, keep the last guy
+20$:	cmpb	r0,#'$		;dollar sign?
+	bne	25$		;nope
+	cmp	r4,r2		;at start of line?
+	beq	1$		;yep, ignore it
+25$:	tstb	r0		;is it end of line?
+	beq	30$		;yes, its already there
+	call	s.put		;store the character
+	br	1$		;and get another
+30$:	tstb	(r2)		;is it a null line?
+	beq	kmon		;yep, forget the whole thing
+35$:	clrb	(r4)		;terminate the line for loop
+	cmpb	-(r4),#space	;end with a space?
+	beq	35$		;remove it
+	cmpb	(r4),#'-	;continuation?
+	bne	40$		;nope, thats it
+	clr	r3		;no prompt
+	jmp	restart		;now restart it all
+40$:	return
+.sbttl	scan
+
+scan::	clrb	@$assume	;clear the first file name (why?)
+more::	call	nonest		;clear the string stack
+	incb	@$column	;get the next column
+	tstb	(r5)		;anymore coming?
+	bne	item		;yes, use it
+	mov	$query,r3	;for the test (and print later)
+	mov	r3,r1		;get another copy
+	tstb	(r1)		;is it optional?
+	beq	dupe		;yes, forget it
+	movb	#space,(r5)+	;no, step past it
+	mov	r5,r4		;and setup to collect more
+5$:	tstb	(r1)+		;skip to the end
+	bne	5$		;keep skipping
+	movb	#200,-(r1)	;and terminate it
+	jmp	restart		;and restart it
+dupe::	return			;dupe must remain a clean return!
+
+item:	call	lexical		;translate next into r0
+	add	r0,pc		;dispatch it
+	br	s.space
+	br	s.option
+	br	s.comma
+	br	s.file
+
+s.space:call	pull		;forget diversions
+	tstb	(r5)		;is it end of line?
+	beq	110$		;yes, dont skip it
+	inc	r5		;field done, skip the space
+110$:	return			;and return to caller
+
+s.file:	decb	@$files		;count the file
+	bmi	510$		;oops, too many files
+	call	file		;get the file spec
+	br	item		;and get the next thing
+510$:	fatal	<Too many files>
+
+s.option:inc	r5		;skip the slash
+	call	search		;search for option
+	bcs	illopt		;no good
+	cmpb	(r2)+,@$column	;in the right column?
+	bhi	invpos		;nope, too early
+	movb	(r2)+,r0	;got a switch
+	cmpb	r0,#'0		;this a local switch?
+	bne	300$		;nope
+	clr	r0		;yes, signal it
+300$:	psh	r0		;save it
+	beq	305$		;nope
+	mov	r4,(sp)		;save us instead
+	call	address		;swap to the address
+	bcs	syserr		;theoretically impossible
+	psh	r1		;save the update pointer
+	mov	6(r1),r4	;and use the updated pointer
+305$:	movb	(r2)+,r0	;get the switch
+	cmpb	r0,#'_		;is it a null?
+	beq	310$		;yes, forget it
+	edit	<"/"_r>		;dump the switch
+310$:	movb	(r2)+,r0	;get the cusp
+	beq	340$		;zero, forget it
+	edit	<C=r>		;and shove it in
+340$:	mov	(r2),r2		;get the routine address
+	beq	345$		;no routine
+	call	(r2)		;handle the action
+345$:	pop	r1		;get the return slot
+	beq	item		;we didnt push
+	mov	r4,6(r1)	;update the pointer
+	pop	r4		;and return r4
+	br	item		;and look for more
+syserr::fatal	<System error>
+
+s.comma:inc	r5		;skip the comma
+	call	pull		;check for a push
+	movb	#',,r0		;and duplicate the comma
+	call	s.put		;dump it
+	br	item		;and return
+
+pull::	mov	nest,r0		;did we push?
+	beq	nonest		;nope
+	mov	r0,r4		;go back to it
+nonest:	clr	nest		;now turn off the flag
+	clrb	@$index		;and revert to standard defaults
+	clrb	@$prior		;no previous filename
+nofile:	clr	pna		;no allocate allowed
+	return
+
+push::	tst	nest		;already pushed?
+	bne	nofile		;forget it
+	mov	r4,nest		;save it
+	br	nofile
+
+eol::	tstb	(r5)		;any more coming?
+	bne	illegal		;yes
+	return			;nope - ok
+
+invpos::fatal	<Invalid option position>
+illegal::fatal	<Invalid command>
+illopt::fatal	<Invalid option>
+optnot::fatal	<Option not in system>
+.sbttl	lexical
+
+; decode next state and test transition matrix.
+; handle input/output/checking of commas
+; commas are copied to the output stream
+;
+; n		    n+1
+; 	col1	space	file	option	comma
+;space	yes	no*	yes	no	no
+;option	yes	yes	no	yes	yes
+;comma	no	no	yes	no	no
+;file	no	yes	no	yes	yes
+;
+; * impossible condition
+
+set .space 10, .file 4, .option 2, .comma 1, .col1 400
+
+; state		[.space/$$space][$space]
+;		[  10  /  40   ][ 0  /mask]
+meta <state c d e f><.byte c,d><.word $*400!e><$=$+2>
+
+states:	$=0
+state	40	.space	.option!.comma
+state	57	.option	.file
+state	54	.comma	.col1!.space!.option!.comma
+state	0	.file	.col1!.file		;must be last
+meta state
+
+colum1::incb	@$column	;force column 1
+	mov	#.option!.comma,state ;setup space state
+	return			;
+
+lexical:movb	(r5),r0		;get the character
+	call	@bypass		;let them modify it
+	mov	#states-4,r1	;now look for it
+10$:	cmp	(r1)+,(r1)+	;get the next one
+	tst	r0		;end of line?
+	beq	20$		;yes, its the first in list
+	tstb	(r1)		;look at the state
+	beq	20$		;we're at file
+	cmpb	r0,(r1)		;got it?
+	bne	10$		;nope, keep looking
+20$:	inc	r1		;skip the character
+25$:	bitb	(r1)+,state	;is this transition legal?
+	bne	50$		;nope, illegal command
+	movb	(r1)+,state	;get the new state
+	movb	(r1)+,r0	;get the col1 bit and offset
+	asr	r0		;column 1 test required?
+	bcc	30$		;nope
+	cmpb	@$column,#1	;is this column 1?
+	beq	50$		;yes, its illegal
+30$:	asl	r0		;and shift it for word offset
+	return			; >> r0 = word offset
+50$:	jmp	illegal		;it bombs
+
+; setup	table,bypass,flags
+
+setup::	mov	(r3)+,table	;save the table address
+	mov	(r3)+,bypass	;and the lexical bypass
+	tst	(r3)+		;???
+	clr	state		;and reset the state
+	call	fix		;remember we're in memory
+	rts	r3		;and return
+
+endline::edit	<! |?>		;must have end of line
+	edit	<C0C=1>
+	mov	$switch+2,r4	;pick the end of line switches
+	return
+.sbttl	search
+
+; >> table -> symbol table
+; >> r5 -> string
+; << c=0 => r2 -> points to entry plex
+; << c=1 => string not found
+
+search::clr	-(sp)		;for the result
+	psh	r5		;remember the starting position
+	clr	r3		;best character count
+	mov	table,r1	;get the current symbol table
+10$:	mov	r1,r2		;get the plex pointer
+	tst	(r1)		;end of list?
+	beq	50$		;yes
+	add	#6,r1		;advance to the ascii stuff
+	mov	(sp),r5		;get the pointer back
+20$:	movb	(r5),r0		;get the next
+	edit	<!+>,,30$	;we want alphanumerics
+	tstb	(r1)		;overrun?
+	beq	40$		;yep, skip it
+	cmpb	r0,#'a		;is it a lower case?			;?100+
+	blo	25$		;nope
+	cmpb	r0,#'z		;really?
+	bhi	25$		;nope
+	sub	#'a-'A,r0	;make it lower case			;?100-
+25$:	cmpb	r0,(r1)+	;got a match?
+	beq	20$		;yep
+	br	40$		;and ignore it
+30$:	sub	(sp),r5		;compute length
+	beq	40$		;zero length
+	cmp	r5,r3		;this longer?
+	blo	40$		;nope
+	beq	70$		;oops, its ambiguous
+	mov	r5,r3		;swap count
+	mov	r2,2(sp)	;and result in r0
+	tstb	(r1)		;exact match?
+	beq	50$		;yes, use it now
+40$:	call	even		;skip to end of it
+	br	10$		;do it again
+50$:	pop	r5		;get r5 back again
+	sec			;c=1 r5=entry value for not found
+	pop	r2		;get the result pointer
+	beq	60$		;not found
+	edit	<!\+~>		;c=0 r5->past object for found
+60$:	return
+70$:	cmp	table,#symbot	;command or option?
+	bhi	80$		;optio
+	fatal	<Ambiguous command>
+80$:	fatal	<Ambiguous option>
+.sbttl	errors
+
+error::	bcs	fatal		;c=1 => fatal
+	call	even		;skip the message
+	rts	r1		;return
+even::	tstb	(r1)+		;step it up
+	bgt	even		;till it ends
+	inc	r1		;even it up
+	bic	#1,r1		;thuswise
+	return
+
+fatal::	mov	r1,r0		;r1 is message
+fatex::	clr	r1		;no item
+fatexi::psh	r1		;item
+	psh	r0		;string
+				;
+	mov	k$mwor,r0	;get the net table
+	clr	$km(r0)		;fatal errors clear kmon flag
+				;
+	psh	#error$*256.!'E	;fatal
+	fall	comexi		;
+comexi:	type	<?DCL->		;the prefix
+	.ttyout	(sp)		;the character
+	type	<->		;
+	clrb	(sp)		;remove it
+	bis	(sp)+,errbyt	;setup userrb
+	.print	(sp)+		;the message
+	pop	r0		;got an item?
+	beq	10$		;no
+	.print			;yes
+10$:	br	kmonj		;
+
+setfat::bisb	#sever$,userrb	;set fatal
+setwar::bisb	#warn$,userrb	;set warning
+	cmp	@$expand,#2	;is it in debug mode?			;?155
+	bne	kmonj		;nope					;?155
+	jmp	debug		;during debug only			;?155
+kmonj:	jmp	kmon
+
+;	ctrl/c control
+
+	.enabl	lsb
+km$dcc::mov	#k$mscc,30$	; disable ctrl/c
+	clr	k$mscc		; ignore previous abort
+	br	10$		;
+km$ecc::clr	30$		; enable ctrl/c
+10$:	psh	r0		; save that
+	mov	#20$,r0		;
+	emt	^o375		; .scca ...
+	pop	r0		;
+	bmiw	k$mscc,kmonj	; we were zonked
+	return			;
+20$:	.byte	0,emscc.	; .scca
+30$:	.word	k$mscc		;
+k$mscc::.word	0		; status 
+	.dsabl	lsb		;
+
+save::	psh	r4
+	psh	r3
+	psh	r2
+	psh	r1
+	psh	r0
+	psh	r5
+	mov	14(sp),r5
+	call	@(sp)+
+	pop	r0
+	pop	r1
+	pop	r2
+	pop	r3
+	pop	r4
+	pop	r5
+	return
+.sbttl	kmon emts
+
+;	meta <string a,t=0><.ascii &a&<t>><.even>
+;	meta <.ttin><call ttin.>
+;	meta <.feed><call feed.>
+;	meta <.ttou a><.iif nb,a,movb a,r0><emt 341>
+;	
+;	meta <print s><jsr r1,print.><string <s>>
+;	meta <type s><jsr r1,type.><string <s>,200>
+
+km$abo::mov	k$mwor,r0	;get the table
+	clr	$km(r0)		;zap it
+;??	clr	$job(r0)	;and the command file
+	clr	$jobc(r0)	;and the command file
+km$fat::jmp	fatal		;same as fatal
+
+km$fee::jsr	r1,km$pri	;print it
+	.byte	cr,lf,200,0	;display newline
+	return
+km$typ::
+km$pri::call	km$dis		;display it
+	rts	r1		;and return
+
+km$dis::psh	r0		;save this
+10$:	movb	(r1)+,r0	;get the next
+	tstb	r0		;what is this?
+	beq	30$		;end of line
+	bpl	20$		;a character
+	bic	#177600,r0	;end of line?
+	beq	40$		;yes
+20$:	.ttyout
+	br	10$
+30$:	call	km$fee		;new line
+40$:	inc	r1
+	bic	#1,r1
+	pop	r0		;
+	clc			;
+	return
+
+km$tti::.ttyin			;get one
+	cmpb	r0,#cr		;this a cr?
+	beq	km$tti		;yes
+	cmpb	r0,#lf		;this a lf?
+	bne	km$exi		;no
+	clr	r0		;yes
+km$exi:	clc			;return happy
+	return
+.end	once

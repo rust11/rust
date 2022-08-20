@@ -1,0 +1,793 @@
+
+; Device    Status                   CSR     Vector(s)
+; ------    ------                   ---     ---------
+;   DL      Resident                174400   160
+;   DM      Not installed           177440   210
+;   DU      Not installed           172150   154
+;   DX      131144                  177170   264
+;   DY      Not installed           177170   264
+;   LD      Installed               000000   000
+;   LP      Not installed           177514   200
+;   LS      Not installed           176500   470 474 300 304
+;   MM      Not installed           172440   224
+;   MT      Not installed           172520   224
+
+Dev
+DU:  Installed
+     Loaded
+     
+;show drivers
+;Device Type    Driver  Words  Address CSR    Vectors
+;
+;DU:    RT11A   DUV.SYS 1224.  134000  172150 120 
+;ED:    Editor  EDV.SYS 964.   133004  
+;LS:    Printer LSV.SYS 1234.  134004  175000 300, 304
+;TR:    Trace   TR .SYS 2008.  127456
+;NF:    Network NFV.SYS 1200.  
+
+;-------
+;  DU    
+
+
+.title	shodev	shoslo
+.pass
+.include "lib:share.mac"
+$rmdef
+;.mcall	$defma	$defbu	$defsc	$defki
+;$defma				;system macros
+;$defbu				;pool buffers
+;$defsc				;system calls
+
+shodev::
+	case	<shoass>	;show RT-11 assignments
+	clr	heaflg		;clear the header flag
+	setup	$kernel,i.lex	;set it up
+	scan	<D=0^M>		;skip the command
+	tstb	(r5)		;end of line?
+	bne	10$		;we have more
+	bit	#wild$,opts	;is this a wildcard search?
+	bne	5$		;yes
+	bis	#wild$,opts	;make it all
+	call	eol		;yes
+5$:	jmp	alldev		;yes - do the wild card search
+10$:	scan	<^IF=1Q="Device? "> ;get next device
+	psh	r5		;save input pointer for loop
+	mov	$input,r5	;$input -> ascii device name
+	call	getdev		;process the device name
+	mov	name,r0		;				;V4
+	mov	r0,pname	;remember the device name
+	mov	r0,dname+2	;put it in the dblk
+	call	onedev		;show one device
+	pop	r5		;get this back
+	tstb	(r5)		;any more?
+	bne	10$		;yes
+	jmp	kmon		;nope
+
+i.lex:	edit	<r,r=" ">	;replace commas with spaces
+	return
+
+$kernel:
+;option	FULL		1 _	null	s.full	;
+option	ALL		1 _	null	s.all	;all devices
+option	KERNEL		1 _	null	s.kern	;kernel only
+option	REMOTE		1 _	null	s.remo	;remote only
+option	LOCAL		1 _	null	s.loca	;local only
+option	UTILITY		1 _	null	s.util	;utility only
+option	HOST		1 _	null	s.host	;host only
+option	SYSTEM		1 _	null	s.syst	;system only
+option
+
+meta	<subopt c d e><setopt d><c: bis #e,opts><return>
+meta	<setopt c><c=$><$=$*2>
+$=1
+
+;subopt	s.full	full$	full$			;/full
+subopt	s.all	all$	wild$			;/all
+subopt	s.kern	kern$	kern$!local$!pseud$	;/kernel
+subopt	s.remo	remot$	host$!remot$		;/remote
+subopt	s.loca	local$	kern$!local$!pseud$	;/local
+subopt	s.util	util$	util$			;/utility
+subopt	s.host	host$	host$!remot$		;/host
+subopt	s.syst	pseud$	pseud$!local$!kern$	;/pseudo
+		lock$=$				;device locked on host
+
+wild$ = all$!kern$!remot$!local$!util$!host$!pseud$
+.sbttl	data
+
+opts:	.word	0		;command options
+class:	.word	0		;class of this device
+slot:	.word	0		;current slot number
+pname:	.word	0		;$pname of device
+dstat:
+stat:	.word	0		;stat of device
+hsize:	.word	0		;$hsize
+entry:	.word	0		;entry point of device
+dvsiz:	.word	0		;$dvsiz
+
+dvrec:	.word	0		;$dvrec
+dtype:	.word	0		;$type
+sysgen:	.word	0		;sysgen options
+pnamek:	.word	0		;kernel $pname address
+;hand0:	.blkw	256.		;space for block 0
+;vecs:	.blkw	32.		;upto 32 vectors
+
+;	offsets from $pname to other tables (always 31. slots)
+
+;meta	<offset c><c=$><$=$+<31.*2>>
+;$=0
+;offset	pname.
+;offset	entry.
+;	$=$+2			;entry is two longer
+;offset	stat.
+;offset	dvrec.
+;offset	hsize.
+;offset	dvsiz.
+;offset	dtype.
+
+set	h.siz 52, h.dvsz 54, h.dsts 56, h.gen 60
+set	h.vec 0, h.isr 2, h.pri 4, h.lqe 6, h.cqe 10
+set	v.bus 4, pr7 340
+set	erl$g 1, mmg$t 2, tim$it 4
+.sbttl	shoslo
+
+s$shou:	.word	0			;host used
+s$shof:	.word	0			;host free
+s$slou:	.word	0			;local used
+s$slof:	.word	0			;local free
+
+shoslo::
+	clr	r1			;
+	clr	s$shou			;clear host used
+	clr	s$shof			;and host free
+	clr	s$slou			;clear local used
+	clr	s$slof			;and local free
+	tst	k$mvrt			;this vrt?
+	bne	ss$vrt			;yes - ignore it
+10$:	call	indexes			;get the next
+	bcs	40$			;all done
+	mov	#s$shou,r5		;get the counters
+	cmp	r1,$hosts		;this a host slot?
+	blo	20$			;yes
+	add	#4,r5			;no, point to locals
+20$:	tst	@.pname			;free?
+	bne	30$			;no
+	add	#2,r5			;point to the free
+30$:	inc	(r5)			;count this
+	br	10$			;and do the next
+
+40$:	print	<		Used	Free	Total>
+
+	tst	k$msha			;this share?
+	beq	50$			;no
+	type	<Kernel/Host	>
+	br	60$			;
+50$:	type	<Host		>	;
+60$:	mov	s$shou,r1		;get host used
+	call	decimal			;and display
+	type	<.	>		;
+	mov	s$shof,r1		;get host free
+	call	decimal			;and display
+	type	<.	>
+	mov	s$shou,r1		;get host ...
+	add	s$shof,r1		;...and locals
+	call	decimal			;display
+	print	<.>			;
+	tst	k$msha			;this share?
+	beq	70$			;no
+	type	<Utility		>
+	br	80$
+70$:	type	<Local		>	;
+80$:	mov	s$slou,r1		;get locals used
+	call	decimal
+	type	<.	>
+	mov	s$slof,r1		;
+	call	decimal
+	type	<.	>
+	mov	s$slou,r1
+	add	s$slof,r1
+	call	decimal
+	print	<.>			;
+	jmp	kmon
+
+ss$vrt:	jmp	kmon			;ignore
+.sbttl	all & one
+
+meta	<infdev a><jsr r1,infdev><string <a>,200>
+nxtdev:	.word	0
+
+alldev:					;show them all
+	mov	$pname,nxtdev		;get the first one
+	sub	#2,nxtdev		;
+10$:	add	#2,nxtdev		;get the next
+	cmp	nxtdev,$hentry		;all done?
+	bhis	50$			;yes
+	mov	@nxtdev,pname		;get the next
+	beq	10$			;all done
+	call	20$
+	br	10$
+20$:	mov	sp,errsp
+	mov	pname,dname+2		;
+	call	findev			;go find it first
+	bit	opts,class		;does this fit us?
+	beq	30$			;nope
+	bit	#remot$,class		;this remote?
+	beq	25$			;nope
+	tst	entry			;this loaded?
+	beq	30$			;nope - ignore it
+25$:	call	showit			;yes - display it
+30$:	return
+50$:	jmp	kmon			;we are done
+
+onedev:					;install kernel handler
+	mov	sp,errsp
+	call	findev			;find it first
+	call	showit
+	return
+
+errsp:	.word	0			;in case we continue
+
+infdev:;psh	r0
+	type	<?DCL-I->
+	.print	r1
+	type	< >
+	call	xdevice			;display the name
+	print
+	mov	errsp,sp
+	return
+.sbttl	show
+
+; This is the default SHOW command
+;
+;	dev
+;
+;	DV__(status) = logs		(Resident) (Loaded)
+;	____DVu_=_log, log, log
+;		=_log, log,
+;	nn free slots
+
+
+syass:	.word	0			;sy assignment
+dkass:	.word	0			;dk assignment
+
+	set	s.free 0, s.count 2, s.unit 4
+
+shoass::
+	call	syslst			;check sy & dk	
+	clr	-(sp)			;s.unit = 0
+	psh	$slots			;get the slot count
+	asr	(sp)			;s.slot = slot count
+	psh	(sp)			;s.free starts as s.slots
+	mov	$pname,r5		;point to the permanent names
+10$:	mov	(r5)+,r4		;get the next
+	beq	30$			;not occupied
+	dec	(sp)			;reduce s.free
+	mov	r4,pname		;save the name
+	psh	#15$			;in case it aborts
+	mov	sp,errsp		;catch errors
+	call	findev			;and point to it
+	tst	(sp)+			;pop the catcher
+
+15$:	tst	entry			;is it loaded?
+	bne	16$			;yes
+	bit	#remot$,class		;is this a remote device?
+	bne	30$			;yes - ignore it
+16$:	mov	r4,r1			;display it
+	call	unpacu			;dump it
+	tst	entry			;is it loaded?
+	beq	17$			;nope
+	tst	k$mrus
+	bne	17$
+	type	< (>			;set it up
+	call	xclass			;show the class
+	type	<)>			;terminate it
+	br	18$
+17$:	call	rstcla			;rust class
+
+18$:	call	shomaj			;display generic
+	add	#<^r  0>,r4		;get unit zero
+	mov	#8.,s.unit(sp)		;count the units
+20$:	call	shomin			;get a sublist
+	inc	r4			;get the next
+	dec	s.unit(sp)		;all done?
+	bne	20$			;nope
+30$:	dec	s.slot(sp)		;count them
+	bne	10$			;we have more
+	pop	r1			;get the free slot count
+	call	decimal			;type it
+	print	< free slots>		;
+	jmp	kmon			;done
+
+	set	s.col 0, s.slot 2, s.equa 4, s.head 6
+
+shomaj:	psh	(pc)+			;s.head <> 0 => header printed
+shomin:	clr	-(sp)			;s.head == 0 => not printed
+	clr	-(sp)			;s.equa
+	psh	$slots			;
+	asr	(sp)			;s.slot = slot count
+add #2,(sp)
+	clr	-(sp)			;s.col
+	mov	$unam1,r2		;physical names
+	mov	$unam2,r3		;logical names
+	clr	chars			;init pad counter
+30$:	cmp	(r2),r4			;is this us?
+	bne	70$			;nope
+	call	sysass			;check for sy/dk
+	bcs	70$			;ignore this one
+	tst	s.head(sp)		;done the name yet?
+	bne	40$			;yes
+	inc	s.head(sp)		;once only
+	mov	r4,r1			;nope
+	type	<    >			;indent
+	call	unpacu			;unpack it
+40$:	tst	s.equa(sp)		;done the equals?
+	bne	50$			;yes
+	inc	s.equa(sp)		;flag it done
+	type	< = >			;
+50$:	cmp	(sp),#12.		;done enough columns?
+	bne	60$			;nope
+	clr	(sp)			;yes - reset s.col
+	print
+	type	<          >
+60$:	tst	(sp)			;is this the first?
+	beq	65$			;yes
+	type	<, >			;nope
+62$:	dec	chars			;should we pad?
+	bmi	65$			;nope
+	.ttyout	#space			;yes
+	br	62$			;
+65$:	mov	(r3),r1			;get the translation
+	mov	#3,uppers		;force upper
+	mov	#3,chars		;count how many characters done
+	call	unpack			;type it
+	inc	(sp)			;s.col - increment column number
+70$:	cmp	(r2)+,(r3)+		;pop to next pair
+	dec	s.slot(sp)		;all done?
+	bne	30$			;nope
+	tst	s.head(sp)		;did we do something?
+	beq	80$			;nope
+	print				;yes
+80$:	add	#10,sp			;pop them
+	return
+
+syslst:	mov	#^rsy,r0		;get SY translation
+	call	conlp			;get its physical
+	mov	r0,syass		;store it
+	mov	#^rdk,r0		;the same for DK
+	call	conlp
+	mov	r0,dkass		;
+	return
+
+sysass:	cmp	(r3),#^rsy		;is this SY?
+	bne	10$			;nope
+	cmp	r4,syass		;is this the real one?
+	bne	30$			;nope
+	br	20$			;yes
+10$:	cmp	(r3),#^rdk		;this DK?
+	bne	20$			;nope
+	cmp	r4,dkass		;is this it?
+	bne	30$			;nope
+20$:	tst	(pc)+			;o.k.
+30$:	sec				;ignore it
+	return
+.sbttl	brief description
+
+showit:	tst	(pc)+			;this the first?
+heaflg:	.word	0			;
+	bne	20$			;yes
+	inc	heaflg
+	print	<Device	Handler	Structure  Bus	Size>
+;	bit	#pseud$,class		;/system selected?
+;	beq	20$			;nope - no terminal
+;	print	<TT:	system	sequential 16		Terminal>
+20$:
+brief:					;brief description
+	call	xdevice			;
+	type	<	>
+	call	xclass
+	type	<	>
+
+	bit	#lock$,class		;this locked?
+	beq	25$			;nope
+	print	<			(locked)>
+	br	40$			;not available for locked devices
+
+25$:	call	xstruct
+	call	xbus
+	type	<	>
+	call	xblocks
+	type	<	>
+	call	xdesc
+	tst	entry			;is this loaded?
+	bne	30$			;yes
+	type	< (not loaded)>		;nope
+30$:	print
+40$:	return
+.sbttl	display utilities
+meta	<bits c,d><.word c><.ascii _d_<200>><.even>
+
+;	DD:
+
+xdevice:
+	mov	pname,r1		;
+	mov	#3,uppers		;
+	call	unpack			;display the name
+	type	<:>
+	return
+
+;	local, remote, pseudo, host, utility, kernel
+
+xclass:	psh	r4			;save these
+	psh	r5			;
+	mov	#100$,r4		;the list
+	mov	class,r5		;the variable
+	call	bitsx			;one only
+	pop	r5
+	pop	r4
+	return
+
+100$:	bits	local$	<local>
+	bits	remot$	<remote>
+	bits	pseud$	<system>
+	bits	host$	<host>
+	bits	util$	<utility>
+	bits	kern$	<kernel>
+	.word	0
+
+;	rt11, foreign, w/o, r/o, none
+	
+xstruct:
+	bit	#filst$,stat		;this RT-11
+	beq	10$			;nope
+	type	<rt-11     >		;yes
+	br	100$
+10$:	bit	#specl$,stat		;foreign?
+	beq	20$			;nope
+	cmp	pname,#^rvx		;is this VX?
+	bne	15$			;nope
+	type	<vax/vms   >		;yes
+	br	100$			;
+15$:	type	<foreign   >
+	br	100$
+20$:	mov	stat,r0			;get ronly/wonly
+	bic	#^c<ronly$!wonly$>,r0	;r/w?
+	bne	30$			;nope
+	type	<sequential>
+	br	100$
+30$:	cmp	r0,#wonly$		;
+	bne	40$			;yes
+	type	<write-only>
+	br	100$
+40$:	cmp	r0,#ronly$		;ronly?
+	bne	50$			;nope
+	type	<read-only >
+	br	100$
+50$:	type	<none      >
+100$:	type	< >
+	return
+
+xblocks:
+	bit	#util$,class		;this utility?
+	bne	30$			;yes
+	bit	#varsz$!specl$,stat	;this variable?
+	beq	10$			;nope
+	type	<varies>
+	br	30$
+10$:	mov	dvsiz,r1		;
+	beq	30$			;none
+	call	decimal
+	type	<.>
+30$:	return
+
+xbus:	bit	#util$,class		;this utility?
+	bne	50$			;yes - no bus
+	bit	#ty.dmx,dtype		;22-bit?
+	beq	10$			;nope
+	type	<22>
+	br	50$
+10$:	bit	#ty.dma,dtype		;18-bit?
+	beq	20$			;nope
+	type	<18>
+	br	50$
+20$:	type	<16>
+50$:	return
+
+xdesc::
+	clr	r1
+	mov	#200$,r5
+	movb	stat,r1
+	bmi	50$		;oops - not known
+	bne	10$		;not RK05 (code=0)
+	tst	stat		;this really a disk?
+	bpl	50$		;nope - dont say its an rk05
+10$:	dec	r1		;check the next
+	bmi	80$		;got it
+20$:	tstb	(r5)+		;skip to next
+	bgt	20$		;keep skipping
+	tstb	(r5)		;was this the last?
+	bne	10$		;nope
+50$:	mov	#300$,r5
+60$:	cmp	(r5)+,pname	;this one of ours?
+	beq	80$		;yes
+70$:	tstb	(r5)+
+	bgt	70$
+	inc	r5
+	bic	#1,r5
+	tst	(r5)
+	bne	60$
+	br	100$
+80$:	.print	r5
+100$:	return
+
+
+200$:
+meta	<desc s><.ascii _s_<200>>
+	desc	<RK05 disk>
+	desc	<TC11 DECtape>
+	desc	<Error logger>
+	desc	<Line printer>
+	desc	<Terminal>
+	desc	<RL01/RL02 disk>
+	desc	<RX02 floppy disk>
+	desc	<PC11 paper tape>
+	desc	<Paper tape punch>
+	desc	<TU10 magtape>
+	desc	<RF11 disk>
+	desc	<TA11 cassette>
+	desc	<CR11/CM11 card reader>
+	desc	<>
+	desc	<RJS03/RJS04 fixed-head disk>
+	desc	<>
+	desc	<TJU16 magtape>
+	desc	<RP02/RP03 disk>
+	desc	<RX01 floppy disk>
+	desc	<RK06/RK07 disk>
+	desc	<>
+	desc	<Null device>
+	desc	<DECnet>
+	desc	<DECnet>
+	desc	<DECnet>
+	desc	<CTS-300 LQ:>
+	desc	<CTS-300 LR:>
+	desc	<CTS-300 LS:>
+	desc	<TU58 DECtape II>
+	desc	<TS11 magtape>
+	desc	<PDT-11/130>
+	desc	<PDT-11/150>
+	desc	<>
+	desc	<Serial line printer>
+	desc	<Message queue>
+	desc	<MRRT DRV11J 4-port serial>
+	desc	<MRRT down-line load>
+	desc	<>
+	desc	<Logical disk>
+	desc	<Virtual memory disk>
+	desc	<RA80,RC25 MSCP disk>
+	desc	<Single-line editor>
+	desc
+	.byte	0
+	.even
+meta	<desc c,d><.rad50 _c_><.ascii _d_<200>><.even>
+300$:
+	desc	VX	<VAX connection>
+	desc	ED	<Command editor>
+	desc	TR	<TRACE utility>
+	desc	DB	<Debug utility>
+	desc	EI	<EIS emulator>
+	desc	VM	<Virtual memory>
+	desc	QU	<Spooler queue>
+	desc	RE	<Record locking>
+	desc	LP	<Line printer>
+	.word	0
+
+;	r4	list
+;	r5	variable
+
+bitsx:
+30$:	bit	(r4)+,r5		;got this one?
+	beq	40$			;nope
+	.print	r4			;yes
+40$:	tstb	(r4)+
+	bpl	40$
+	inc	r4
+	bic	#1,r4
+	tst	(r4)
+	bne	30$
+50$:	return
+.sbttl	find device
+
+;	Find the device and setup the device tables
+;
+;	.dstat		initial information
+;			for STAR this is all the information
+;
+
+findev:	clr	dtype		;
+	clr	entry		;in case its not loaded
+	clr	class		;
+20$:	clr	r1		;search for the index
+30$:	call	indexes		;look for it
+	bcc	40$		;
+	infdev	<Device not installed>
+40$:	cmp	@.pname,pname	;nah?
+	bne	30$		;nope
+	tst	-(r1)		;back off to our guy
+	mov	r1,slot		;remember the slot
+
+	tst	k$msha		;is this share?	
+	beq	300$		;its star
+	call	gstat		;get local status
+	bit	#ty.rem,dtype	;this remote?
+	beq	210$		;nope
+	bis	#remot$,class	;yes
+	br	230$		;
+210$:	cmp	r1,$hosts	;local or jobspace?
+	bhis	220$		;utility
+	bis	#kern$,class	;
+	br	230$		;
+220$:	bis	#util$,class	;utility
+230$:	return
+
+300$:	tst	k$msat		;is this a satellite?
+	beq	400$		;nope - must be vrt
+	call	500$		;check for local utility
+	bcc	350$		;it is - don't dstat this one
+	.dstat	#dstat,#pname	;get the status
+	bcc	305$		;
+;;	infdev	<Device not installed>
+	bis	#lock$,class	;this is locked
+;;
+305$:	mov	@.hentr,entry	;get the local entry point
+	cmp	r1,$hosts	;this local or remote?
+	bhis	310$		;local
+	bis	#ty.rem,dtype	;remote
+	bis	#remot$,class	;remote
+	br	350$
+
+310$:	psh	stat		;get the status
+	bic	#^c<ronly$!wonly$>,(sp)
+	cmp	(sp)+,#ronly$!wonly$ ;this a utility handler?
+	beq	320$		;yes
+	bis	#local$,class	;local
+	br	350$		;
+320$:	bis	#util$,class	;utility
+350$:	return
+
+
+
+400$:	call	gstat		;get local status
+	mov	@.type,dtype	;get VRT dtype
+	cmp	r1,$hosts	;this kernel or jobspace?
+	bhis	410$		;jobspace
+	bis	#pseud$,class	;its kernel
+	br	450$		;
+410$:	bis	#util$,class	;its utility
+450$:	return
+
+; Check for local utility handler
+
+500$:	psh	@.stat		;get the status
+	bic	#^c<ronly$!wonly$>,(sp)
+	cmp	(sp)+,#ronly$!wonly$ ;this a utility handler?
+	bne	510$		;no
+	call	gstat		;set it up
+	bis	#util$,class	;yes
+	tst	(pc)+		;
+510$:	sec
+	return
+
+gstat:	mov	@.stat,stat
+	mov	@.hsize,hsize
+	mov	@.hentry,entry
+	mov	@.dvsiz,dvsiz
+	mov	@.dvrec,dvrec
+	mov	@.type,dtype
+	return
+.sbttl	rust class
+
+rstcla:	beqw	entry,20$	; not loaded
+	mov	@#sysptr,r0	;
+	bhisw	entry,r0,10$	; definitely system
+	beqw	slot,rm.syi(r0),10$ ; system device
+	type	<(Loaded) >	;
+	br	20$		;
+10$:	type	<(Resident) >	;
+20$:	return
+
+.sbttl	get the handler
+.if eq 1
+
+gethan::
+	bit	#full$,opts		;want it full?
+	beq				;nope
+	bit	#pseud$,opts		;this a pseudo handler?
+	bne	yes			;
+	.purge	#0			;purge a channel
+	bit	#ty.dma!ty.dmx,dtype	;is this a mapped handler?
+	beq	20$			;nope
+	add	#<^r  X>,dname+2	;yes the mapped version
+20$:	.lookup	#area,#0,#dname		;
+	bcc	30$			;we have it with suffix
+	infdev	<Handler not found>	;
+					;should read 512. words		;???
+30$:	.readw	#area,#0,#hand0,#256.,#0;read it in			;?34
+	bcc	40$			;fine
+35$:	infdev	<Handler input error>
+
+40$:	mov	#hand0,r5		;point to ourbuf
+	clr	entry			;no hentry yet
+	mov	h.dsts(r5),stat		;$stat
+	mov	sysptr,r0		;get the monitor
+	mov	c.sblk+4(r0),dvrec	;$dvrec	(will be wrong for vx)
+	inc	dvrec			;plus one
+	mov	h.siz(r5),hsize		;$hsize = size in bytes
+	mov	h.dvsz(r5),dvsiz	;$dvsize
+	mov	h.gen(r5),sysgen	;sysgen
+	mov	hand0+176,csr		;get the csr
+
+prevec:
+	mov	#vecs,r0		;point to the vector list
+	mov	handu,r1		;get the vector pointer
+	mov	(r1),r1			;get the vector list
+	beq	30$			;there are none
+	bmi	10$			;its a vector list	
+	mov	r1,(r0)+		;single vector
+	br	30$			;
+10$:	asl	r1			;vector list
+20$:	mov	(r1),(r0)+		;get the next
+	beq	30$			;that was the last
+	add	#6,r1			;point to the next
+	br	20$			;and get another
+30$:	clr	(r0)			;terminate the list
+	return
+.endc
+.sbttl	number
+
+;	r1 = number
+
+decimal:mov	#deci,radix
+	br	number
+octal:	mov	#octa,radix
+	fall	number
+
+number:	psh	r0
+	psh	r1
+	psh	r2
+	psh	r3
+	psh	r4
+	clr	r0		;set number flag
+	mov	radix,r4	;get the exponent
+	mov	#num.a,r3	;set up destination
+3$:	mov	#-1,r2		;look for a digit
+4$:	inc	r2		;step up dividend
+	sub	(r4),r1		;subtract
+	bcc	4$		;go again
+	add	(r4)+,r1	;bumb it back to positive
+	tst	r2		;now look at format
+	bne	5$		;something to do
+	mov	r0,r2		;leading blanks ?
+	beq	7$		;nope nothing
+	br	6$		;put in output stream
+5$:	mov	#'0,r0		;no more blanks
+	add	r0,r2
+6$:	movb	r2,(r3)+	;output it
+7$:	tst	(r4)		;any more to do ?
+	bne	3$		;yes
+	add	#'0,r1		;generate last digit
+	movb	r1,(r3)+	;do the last digit
+	movb	#200,(r3)
+	mov	#num.a,r1	;output
+8$:	movb	(r1)+,r0
+	bmi	9$
+	.ttyout
+	br	8$
+9$:	pop	r4
+	pop	r3
+	pop	r2
+	pop	r1
+	pop	r0
+	return
+radix:	deci
+deci:	10000.,1000.,100.,10.,0
+octa:	100000,10000,1000,100,10,0
+num.a:	.byte	0,0,0,0,0,0
+.end

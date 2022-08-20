@@ -1,0 +1,126 @@
+.title	news, date and time
+.include "lib:share.mac"
+$srdef		;system rights
+set usrloc 352
+
+;	RUST/XM V5.0
+;	Daily news file
+;	Good something message
+;
+;	Space: 
+
+date::	call	daytim		;check for host or satellite
+	jmp	setdat		;go set it
+time::	call	daytim		;check for host/satellite
+	jmp	settim
+daytim:	tstb	(r5)		;trying to set it?
+	bne	10$		;yes
+	mov	#kmon,(sp)	;fudge the return
+	jmp	clock
+10$:	cright	#sropr.		;must be operator
+	return			;stand-alone
+
+news::	call	fix		;fix us in place
+	case	<date,time,wait.>
+	call	endline		;make sure nothing followed
+id:	call	chkmon		;check for correct kmon
+	type	<RUST/XM V>	;
+	movb	k$mspv,r1	;version
+	call	number		;
+	type	<.>		;
+	movb	k$mspu,r1	;update
+	call	number		;
+	print			;
+50$:	call	clock		;time and date
+	jmp	daily
+.sbttl	space
+
+space:	type	<Space: >
+	mov	mon,r1
+	mov	usrloc(r1),r1	;get the real usr address
+	psh	r1		;save it for 'words'
+	clrb	r1		;divide by 1k*2
+	swab	r1
+	asr	r1
+	asr	r1
+	asr	r1
+	jsr	pc,number	;print the k count
+	type	<k >		;terminate it
+	pop	r1		;get byte count again
+	asr	r1		;make it words
+	bic	#^c1777,r1	;isolate word remainder
+	beq	1$		;no remainder
+	jsr	pc,number	;print the remainder
+	type	<w>		;terminate it
+1$:	print			;
+20$:	return
+
+;	input in r1, number is printed, r5 is not changed
+
+number:	clr	r0		;set number flag
+	mov	#8$,r4		;get the exponent list
+	mov	#9$,r3		;set up destination
+3$:	mov	#-1,r2		;look for a digit
+4$:	inc	r2		;step up dividend
+	sub	(r4),r1		;subtract
+	bcc	4$		;go again
+	add	(r4)+,r1	;bumb it back to positive
+	tst	r2		;now look at format
+	bne	5$		;something to do
+	mov	r0,r2		;leading blanks ?
+	beq	7$		;nope nothing
+	br	6$		;put in output stream
+5$:	mov	#'0,r0		;no more blanks
+	add	r0,r2
+6$:	movb	r2,(r3)+	;output it
+7$:	tst	(r4)		;any more to do ?
+	bne	3$		;yes
+	add	#'0,r1		;generate last digit
+	movb	r1,(r3)+	;do the last digit
+	movb	#200,(r3)
+	mov	#9$,r0		;output
+	.print
+	return			;done
+8$:	10000.,1000.,100.,10.,0
+9$:	.byte	0,0,0,0,0,0
+.sbttl	news
+
+daily:	print			;
+	mov	#3$,r0		;do a lookup
+	emt	375
+	bcs	good		;ignore the news on error
+	clr	2$+2		;back the block number
+1$:	mov	#2$,r0		;do a read
+	emt	375
+	bcs	good		;treat as eof
+	.print	#buf		;now print it
+	inc	2$+2		;next block
+	br	1$		;do the next
+2$:	.word	10*400,0,buf,400,0;the readw block
+3$:	.word	400,5$,0	; the lookup block
+5$:	.rad50	/sy news  new/	; the file name
+
+; good morning etc
+
+good:	type	<Good >		;print the preambule
+	mov	hour,r1		;get the hour
+	mov	#10$,r2		;point to pointers
+21$:	mov	(r2)+,r0	;the string
+	tst	(r2)		;end of list?
+	beq	22$		;yes, we make sure
+	cmp	hour,(r2)+	;this it?
+	bhis	21$		;nope
+22$:	.print
+	jmp	kmon
+
+10$:	1$,6.,2$,12.,3$,17.,4$,0;hours.
+meta <entry l s><l: .asciz /s/>
+entry	1$ luck
+entry	2$ morning
+entry	3$ afternoon
+entry	4$ evening
+entry	crlf
+	.even
+buf:	.blkb	1000
+	.word	200
+.end

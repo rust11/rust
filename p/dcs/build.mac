@@ -1,0 +1,88 @@
+.title	build
+;.include "dcs:dcl.mac"
+.psect	build
+
+;	DCL BUILD command
+;
+;	%build
+;	macro	dcs:build /object=dcb:build
+;	%end
+;	%date
+;	<16-Apr-2003 25:26:27.30>
+;	%edit
+;	<35   >
+;
+;	@@filespec			
+; 
+;	BUILD	filespec  parameters
+;		/OUTPUT:filespec
+;		/DEVICE:DEV
+;		/TYPE:TYP
+;		/LOG		
+;		/DIRECTORY
+;		/BACKUP
+;		/CREATE
+; 
+;	BUILD/OUTPUT:filespec
+;	<text>
+;	^Z
+; 
+;	BUILD filespec parameters
+; 
+;	For @@ form r5 -> second @.
+
+buildc::setup	$build			;set up options
+	edit	<D="DK:">		;setup default device
+	cmpb	(r5),#'@		;this the @@ entry point?
+	bne	5$			;no
+	inc	r5			;yes - skip it
+	call	colum1			;force column1
+	br	10$			;and join back in
+5$:	scan	<^M>			;get the options
+	tstb	@$out			;got an output spec?
+	beq	10$			;no - force input
+	tstb	(r5)			;got an input spec?
+	beq	20$			;no - don't force one
+10$:	scan	<^IF=1Q="File? ">	;get the filespec
+
+	edit	<e0>,20$		;
+	edit	<O*>,20$		;already have /output=...
+	scan	<^OF=1Q="Output? ">	;
+	
+20$:	edit	<^Z"R BUILD"}>		;
+	edit	<_O"="_I_S>		;the input spec
+	tstb	(r5)			;end of line?
+	beq	30$			;yes
+	edit	<"/P"}>			;no - it has parameters
+	edit	<*~>			;send the parameters
+30$:	edit	<}>			;terminate it
+	edit	<"^C"}>			;
+	jmp	build			;and build the command
+
+$build: 
+option	OUTPUT		1 _	null	output	l=0
+option	DEFAULT		1 _	null	b.dev
+option	DEVICE		1 _	null	b.dev
+option	TYPE		1 _	null	b.typ
+option	LOG		1 L	null
+option	BACKUP		1 B	null	b.bck
+option	DIRECTORY	1 D	null	
+option	CREATE		1 C	null	
+option 
+
+b.bck:	edit	<e=1>			;
+	return				;
+
+b.dev:	psh	r4			;
+	edit	<!:>,,20$		;ignore null options
+	edit	<^D@\@@!:\":"|?>	;change the device default
+20$:	pop	r4			;
+	return				;
+					;
+b.typ:	psh	r4			;
+	edit	<!:>,,20$		;ignore null options
+	edit	<^T!\.!\"."@\@@|?>	;change the type default
+20$:	pop	r4			;
+	return				;
+.end 
+

@@ -1,0 +1,183 @@
+.title	send, tell & phone
+.pass
+.mcall	.gtlin .sdatw .ttyout
+
+;	SEND		Send a message
+;	TELL		Send a command
+;	PHONE		Call another job (with the PHONE utility)
+;
+;	Send J2		Job address
+;	Send S2		Satellite address
+;	Send S2::J2	Satellite/Job address
+;	Send S2J2	Satellite/Job address
+;
+;	Send <string>	Process user-symbols
+;			Process system-symbols
+;			Process system jobnames
+
+send::	mov	#'C,sentel	;remember this
+	case	<tell,display,phone>
+	edit	<c=7>		;setup flag and bell code
+	mov	#'M,sentel	;remember its SEND
+	br	telsen
+phone::
+	movb	#'Q,sentel	;remember its phone (Quiet messages)
+	br	telsen
+tell::	rights	<u.stel>	;check rights
+telsen:	setup	$dummy		;setup for it
+	edit	<D=0>		;no device
+	scan	<^M>		;and no options
+	tstb	(r5)		;is the satellite spec there?
+	bne	10$		;yes
+	scan	<^OF=1Q="Address? ">;no, ask the question
+10$:	clr	gotdst		;we must get something
+	mov	#header,r4	;get the header
+	movb	sentel,(r4)+	;put in the message type
+	jsr	r2,getnum	;get a number
+	.byte	'S,'s		;the satellite
+	.word	dstsat		;the satellite number
+	jsr	r2,getnum	;get a job number
+	.byte	'J,'j		;
+	.word	dstjob		;
+	clrb	(r4)		;terminate it
+	tst	gotdst		;got a destination?
+	bne	40$		;yes
+30$:	edit	<?>		;no
+
+; check for valid addresses
+
+40$:	tstb	k$msat		;are we a satellite?			;?260
+	bne	50$		;yes
+
+; stand-alone share
+
+	tst	dstsat		;no - trying to send to a satellite?
+	bpl	adrerr		;yes - error
+45$:	cmpb	dstjob,k$mjom	;J## too high?
+	bhi	adrerr		;yes
+	br	getmsg		;no
+
+; satellite
+
+50$:	tst	dstsat		;sending to a satellite?
+	bpl	60$		;yes
+	tstb	k$mjob		;local jobs available?			;?260
+	bne	45$		;yes - check the limit
+	br	adrerr		;nope - error
+
+60$:	bne	65$		;not the host
+	edit	<c0> adrerr	;oops - tell to host is invalid
+65$:	cmpb	dstsat,k$msam	;satellite number too high?		;?260
+	blos	getmsg		;nope
+	fall	adrerr		;yes
+
+adrerr:	type	<?DCL-F-Invalid address >
+	jmp	generr		;
+
+getmsg:
+	cmp	sentel,#'Q	;is this phone?
+	bne	60$
+	edit	<^Z"R PHONE"}>	;run the utility
+	call	movhea		;move in the header
+	edit	<}>		;terminate it
+	clrb	(r4)		;terminate it
+	jmp	build		;and quit here
+
+60$:	edit	<W=1>		;permit wildcards in the message
+	edit	<! !^I\*~|*?>	;pull off a space
+	edit	<^Q(c0"Command? "|"Message? ")>
+	movb	#200,(r4)	;terminate the string
+70$:	edit	<I%> 90$	;we have a message
+	edit	<c0> 80$	;dont set case for tell
+	bis	#$$cas,jsw	;enable lower case
+80$:	.gtlin	$input,$query	;and get a line
+	bic	#$$cas,jsw
+	br	70$		;go check the message
+
+90$:;	strip	$input		;strip the message of ""
+	mov	#message,r4	;output area
+	call	movhea		;move the header in
+	movb	#space,(r4)+	;
+	edit	<_c>		;put a bell maybe
+	mov	$input,r5	;get the message
+110$:	movb	(r5)+,(r4)+	;do the next
+	beq	120$		;done
+	cmp	r4,#message+76	;too far?
+	blo	110$		;nope
+120$:	.sdatw #area,#message,#40;no error
+	bcc	130$		;fine
+	type	<?DCL-F-Mailbox full >
+	br	generr		;
+130$:	jmp	kmon
+
+generr:	.print	#header+1	
+	jmp	setfatal	;fatal error
+
+movhea:	mov	#header,r5	;the header
+100$:	movb	(r5)+,(r4)+	;move in the header
+	bne	100$		;
+	movb	#'<,-1(r4)	;store the job number
+	jsr	r2,putnum
+	.word	k$msat
+	.word	'S
+	jsr	r2,putnum
+	.word	k$mjob
+	.word	'J
+	return
+
+gotdst:	.word	0
+dstsat:	.word	0
+dstjob:	.word	0
+.sbttl	getnum, putnum
+
+getnum:	mov	#-1,@2(r2)	;make it null
+	cmpb	(r5),(r2)	;this is?
+	beq	10$		;yes
+	cmpb	(r5),1(r2)	;really us?
+	bne	30$		;nope
+10$:	inc	gotdst		;remember it
+	movb	(r2),(r4)+	;store it
+	inc	r5		;skip this
+	clr	@$begin		;clear the receptor
+	psh	r4
+	edit	<^b#\#|?>	;get the digit we need
+	pop	r4
+	mov	$begin,r0	;point to the digits
+	clr	r3		;get an accumulator
+20$:	movb	(r0)+,r1	;get the number
+	movb	r1,(r4)+	;store it
+	clrb	(r4)		;terminate it
+	sub	#'0,r1		;strip it
+	asl	r3		;multiply by 10.
+	add	r3,r1
+	asl	r3
+	asl	r3
+	add	r1,r3
+	tstb	(r0)		;any more?
+	bne	20$		;yes
+	mov	r3,@2(r2)	;save it
+30$:	add	#4,r2		;skip the defaults
+	rts	r2		;exit
+
+putnum:	mov	@(r2)+,r1	;get the number
+	beq	20$		;forget it
+	movb	(r2),(r4)+	;build the header
+	cmpb	r1,#9.		;higher than a nine?
+	blos	10$		;nope
+	movb	#'1,(r4)+	;yes
+	sub	#10.,r1		;reduce number
+10$:	add	#'0,r1		;make it ascii
+	movb	r1,(r4)+	;put it in
+	clrb	(r4)		;terminate it
+20$:	tst	(r2)+		;skip it
+	rts	r2
+
+sentel:	.word	0		;
+header:	.asciz	/CS99J99/	;destination string
+$dummy:	.word	0
+area:	.blkw	5
+message:.blkb	77		;exactly our length
+	.byte	-1
+	.even
+.end
+

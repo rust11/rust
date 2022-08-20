@@ -1,0 +1,776 @@
+n$ins:
+v54=1
+.sbttl	kernel interface
+.include "lib:share.mac"
+$rmdef
+
+;	All the kernel code executes in one hit so that we can't be
+;	interrupted - i.e. the operation is interlocked. Theoretically this
+;	should let us replace an inactive handler on-the-fly.
+;
+;	The system routine SY$INS takes care of mapping us to par1.
+;	However, we could start anywhere within the first 32. word page
+;	of par1.
+;
+;	SY$INS supplies us with a pointer to a small database of constants
+;	we need for installation. These are located outside par1.
+;
+;	The first phaze checks to see if the resources are available.
+;
+;	1.	Makes sure the device does not already exist.
+;		If it does checks for /replace and handler inactive.
+;		If /replace and inactive, removes the handler
+;	2.	Checks that the vectors are available.
+;	3.	Checks installation CSR and calls handler installation check.
+;		We steal the kernel bus trap for this - theoretically no
+;		other trap should occur - and any that does would crash the
+;		system anyway.
+;	4.	Allocates a buffer (this must be last).
+;
+;		If either 2. or 3. fails and we were doing /replace then
+;		we just lost a handler.
+;
+;	Having acquired the buffer we can be guaranteed of succeeding.
+;	Phaze two fills everything in.
+;
+;	1.	Copies the handler from previous mode
+;	2.	Fills in the vectors
+;	3.	Fills in the handler tables.
+;	4.	Fills in the kernel & and all job impure tables
+;
+;	r5 ->	kernel interface table (from $defki)
+;	r4 ->	server origin thruout
+.sbttl	server
+
+;	r4 ->	our origin
+
+meta	<abort c><jsr r0,in$abo><.word c>
+
+in$beg:				;start of it
+	jmp	in$sta		;start 
+vecs:	.blkw	16.		;vectors to check
+hand0:	.blkw	256.		;block zero of handler
+der:	.blkb	de.bbs		;device record
+crash:	bis	#1,2(sp)	;/ setup the trap
+	rti
+
+;	Following routines used by user and kernel mode
+;
+;	Check v54 CSR
+;
+;	v54han	set for v54
+;	h.acqe	copy of ha.cqe of handler
+;
+;	r1 ->	installation CSR (176)
+;		PDP csr if v5.4 and mod2=v2 and installation CSR=0
+
+v54csr:	cmp	hand0,#^rhan	;this v5.4 handler?
+	bne	10$		;no
+	tst	(r1)		;got an installation CSR?
+	bne	10$		;yes - use that
+	bit	#40000,h.acqe	;mod2=v2?
+	beq	10$		;no
+	tst	-(r1)		;yes - point to real csr
+10$:	return			;
+
+;	V54 vector check
+;
+;	r1 ->	first vector table
+;
+;	Check for Pro/PDP vector table pair
+;	Inhibit FETCH utility if 2 vector sets
+;	Use second set unless first not 470/474
+;
+;	c=0	fine
+;	r1 ->	appropriate vector table
+;
+;	c=1	second vector table not found;
+
+v54vtb:	tst	(pc)+		;remove entry point
+v54vec:	sec			;install entry point
+	psh	#12.		;count the vectors in the first table
+	bcc	10$		;remove - get second table
+	cmp	hand0,#^rhan	;this v5.4?
+	bne	30$		;no - forget this
+	bit	#40000,h.acqe	;this got two sets?
+	beq	30$		;no
+	inc	disfet		;yes - disable kernel fetch routine
+	cmp	(r1),#470	;this the dummy vector?
+	bne	30$		;no - it has been patched
+	bis	#dev2h$,dcont	;use second set on exit
+				;
+10$:	tst	(r1)+		;skip to next table
+	ble	30$		;that was it
+	add	#4,r1		;no - try next vector
+	dec	(sp)		;done too many?
+	bne	10$		;no
+	br	40$		;error in structure
+30$:	tst	(pc)+		;fine
+40$:	sec			;error in structure
+	inc	(sp)+		;skip the count
+	return			;
+.sbttl	kernel data
+
+;	ACP list
+
+	assume	acrtn. eq 0
+	assume	acrta. eq 1
+	assume	acrtx. eq 2
+	assume	acrts. eq 3
+acpnms:	.rad50	/rt11n /	
+	.rad50	/rt11a /
+	.rad50	/rt11x /
+	.rad50	/rt11s /
+
+in$abo:	mov	(r0)+,result	;save the error
+in$exi:	mov	(pc)+,sp	;get back the stack
+i$nsp:	.word	0		;saved stack
+.if ne v54
+	tst	r.mdrp		;got a driver area?
+	beq	10$		;no
+	clr	@r.mdrp		;yes - turn off the region name
+.endc
+10$:	$cmpro			;return to process mode
+	return			;and quit
+
+task:	.word	0		;0=install, 1=remove
+opts:	.word	0		;command options
+ctls:	.word	0		;command controls (more options)
+ovrs:	.word	0		;overrides
+mous:	.word	0		;mount flags
+result:	.word	0		;0 => no error - n => error code
+hanrea:	.word	0		;reason install was rejected
+slots:	.word	0		;highest slot number available
+slot:	.word	0		;current slot number
+pname:	.word	0		;$pname of device
+entry:	.word	0		;entry point of device
+stat:	.word	0		;stat of device
+dvrec:	.word	0		;$dvrec
+hsize:	.word	0		;$hsize
+dvsiz:	.word	0		;$dvsiz
+dtype:	.word	0		;$type
+dcont:	.word	0		;$control
+dcsr:	.word	0		;csr address
+dvec:	.word	0		;primary vector
+dvec2:	.word	0		;secondary vector
+dpri:	.word	0		;device priority
+dque:	.word	0		;device queue
+				;
+fixed:	.word	0		;fixed length
+blocks:	.word	0		;force dvsiz of device
+sysgen:	.word	0		;
+handx:	.word	0		;user address of extended handler area
+handu:	.word	0		;user-space address
+handk:	.word	0		;kernel address
+handwc:	.word	0		;handler word-count for move
+xhands:	.word	0		;external handler size
+pnamek:	.word	0		;kernel $pname address
+$p1ext:	.word	0		;kernel address of p1ext
+derk:	.word	0		;kernel der address
+unrk:	.word	0		;kernel unr address
+timio:	.word	0		;external timio pointer
+				;
+mstcon:	.word	0		;mount set un.con
+mclcon:	.word	0		;mount clear un.con
+macp:	.word	0		;mount acp
+mpro:	.word	0		;mount unit protection
+;dpro:	.word	0		;mount directory protection
+fpro:	.word	0		;mount file protection
+mstpro:	.word	0		;mount set protection (noshare,group)
+muic:	.word	0		;mount uic
+munit:	.word	0		;mount unit
+munits:	.word	0		;mount unit bit map
+mlabel:	.word	0,0		;mount label
+macpna:	.blkw	4		;mount acp name
+mlog:	.word	0		;mount logical name
+ovrinp:	.word	0		;override input in action
+upri:	.word	0		;unit priority specified
+				;
+r.mdrp:	.word	0		;$driver database pointer
+utlerr:	.word	0		;UTL error code
+h.acqe:	.word	0		;saved ha.cqe from image
+disfet:	.word	0		;disable FETCH routine
+defcon:	.word	0		;handlr DE.CON 
+deftyp:	.word	0		;handlr DE.TYP
+
+;	offsets from $pname to other tables (always 31. slots)
+
+meta	<offset c><c=$><$=$+<31.*2>>
+$=0
+offset	pname.
+offset	entry.
+	$=$+2			;entry is two longer
+offset	stat.
+offset	dvrec.
+offset	hsize.
+offset	dvsiz.
+offset	dtype.
+
+set	h.siz 52, h.dvsz 54, h.dsts 56, h.gen 60
+set	h.vec 0, h.isr 2, h.pri 4, h.lqe 6, h.cqe 10
+set	h.sta 12 h.vbas 14 h.vsiz 16			;vm base/size
+set	v.bus 4, pr7 340
+set	erl$g 1, mmg$t 2, tim$it 4
+.sbttl	kernel install
+
+;	Main dispatcher & install/load
+;
+; ???	Install disables the scheduler for a long time
+; ???	Install steals the bus vector - must avoid debugger
+
+in$sta:					;start up
+	$cmsch				;stop the scheduler
+	mov	sp,i$nsp		;save the stack for exits
+	mov	@#sysptr,r0		;compute kernel pname address
+.if ne v54
+	mov	rm.drp(r0),r.mdrp	;store the pointer
+	beq	10$			;wrong version of SHARE
+	mov	pname,@r.mdrp		;setup the name
+.endc
+10$:	add	pnptr(r0),r0		;
+	mov	r0,pnamek		;store it
+	add	task,pc			;dispatch it
+	jmp	in$ins			;install
+	jmp	in$rem			;remove
+	jmp	in$rem			;remove
+	jmp	in$rem			;remove
+
+;	Check device is not already loaded
+;	Removed loaded device if /replace
+
+in$ins:
+10$:	mov	pname,r0		;look for this
+	call	in$slot			;find the slot
+	bcs	30$			;good - its not there
+	bit	#repla$,opts		;/replace?
+	bne	20$			;yes
+	abort	er$dai			;device already installed
+20$:	call	in$rem			;remove it (may abort)
+					;we may come back again to remove
+;	Find a slot for the device
+
+30$:	clr	r0			;look for an empty slot
+	call	in$slot			;find the slot
+	bcc	100$			;fine
+	abort	er$nsa			;no slot available
+
+;	Ensure vectors are available
+
+100$:	mova	vecs,r0			;point to the vector list
+110$:	mov	(r0)+,r1		;get the next
+	beq	150$			;no more - allocate buffer
+	tst	(r1)+			;skip to second word
+	cmp	-2(r1),r1		;is this the pattern?
+	bne	120$			;nope - cant get vectors
+	cmp	(r1),#iot		;is this the iot?
+	beq	110$			;yes
+120$:	abort	er$vao			;vector already occupied
+
+;	Installation check next
+
+150$:	mov	@#v.bus,(pc)+		;save the bus trap
+160$:	.word	0			;kernel bus vector
+	mova	crash,@#v.bus		;put in our catcher
+	psh	r5			;save this
+	psh	r4			;and this
+	mova	hand0+176,r1		;point to installation csr
+	call	v54csr			;r1 -> real csr pointer
+	mova	hand0+200,r5		;r5 pointer to installation routine
+	mov	#er$ccf,r2		;in case we fail
+	bit	#nocsr$,opts		;/nocsr_check?
+	bne	170$			;no
+	tst	@(r1)+			;test the CSR address
+	bcs	175$			;oops - no such CSR
+170$:	call	preins			;setup for installation check
+	clc				;
+	bit	#noins$,opts		;/noinstall_check?
+	bne	175$			;yes - don't check it - c=0
+	tst	(r5)			;got an installation check?
+	beq	175$			;nope - c=0
+	mova	der,r2			;point to the der
+	mov	@#t$istb,r3		;and the stb date
+	mov	#^rshp,r4		;supply the values
+	call	(r5)			;r5 points past routine
+	bic	r2,r2			;no default reason - c=?
+175$:	pop	r4			;get back context
+	pop	r5			;
+	mov	160$,@#v.bus		;restore kernel bus trap
+	bcc	180$			;fine
+	jmp	errins			;installation error
+180$:	call	posins			;post check it
+
+;	Create body record
+
+200$:	psh	#pohar.			;type is handler
+	psh	hsize			;length of handler
+	call	@#po$cre		;create handler record
+	mov	r0,handk		;save the address
+	bne	220$			;fine
+210$:	abort	er$ips			;insufficient pool space
+
+;	Create device record
+
+220$:	psh	#poder.!poclr$		;type
+	psh	#de.bbs			;byte length
+	call	@#po$cre		;create a pool element
+	mov	r0,derk			;der kernel address
+	bne	240$			;we got it
+	psh	handk			;delete the handler body
+	call	@#po$del		;
+	br	210$			;and quit
+
+;	Copy device record
+
+240$:	mova	der,r0			;fill in the device record
+	mov	derk,r1			;
+	mov	#de.bbs/2,r2		;
+245$:	mov	(r0)+,(r1)+		;
+	sob	r2,245$			;
+
+;	Copy handler from job to kernel
+
+250$:	mov	handu,r0		;get the handler address
+	mov	handk,r1		;
+	mov	handwc,r2		;get the word-count
+260$:	mfpd	(r0)+			;get the next word
+	pop	(r1)+			;and store it
+	sob	r2,260$			;and store it
+
+;	r1 ->	end of handler
+;	Fill in the handler pointers
+
+300$:	bit	#exter$,ctls		;this external?
+	bne	400$			;yes - has no pointers
+	mov	#fk$enq,-(r1)		;fork
+	mov	#in$int,-(r1)		;inten
+	bit	#tim$it,hand0+h.gen	;got timeout?
+	beq	310$			;nope
+	mov	#io$tid,-(r1)		;yes - plug in dummy
+	bit	#timio$,opts		;want the real thing?
+	beq	310$			;nope
+	mov	#io$tio,(r1)		;yes - use the real one
+310$:	bit	#erl$g,hand0+h.gen	;got error logging?
+	beq	320$			;nope
+	mov	#io$erd,-(r1)		;yes - use the dummy
+320$:	bit	#mmg$t,hand0+h.gen	;got memory management?
+	beq	330$			;nope
+	mov	#io$ptw,-(r1)		;yes - fill them in
+	mov	#io$ptb,-(r1)		;
+	mov	#io$gtb,-(r1)
+	mov	#io$chp,-(r1)
+	mov	#io$cum,-(r1)
+330$:	fall	400$
+
+;	Setup the vectors
+
+400$:	mov	handk,r2		;get the handler start
+	mov	(r2)+,r1		;h.vec
+	beq	450$			;oops, no vector
+	bmi	430$			;a vector table
+	mov	r2,(r1)			;store the base
+	add	(r2),(r1)+		;add in h.isr offset
+	mov	#pr7,(r1)		;get the ps
+	br	450$			;join the common stuff
+430$:	asl	r1			;read sysmac for this
+	add	r2,r1			;point to the table
+	bit	#exter$,ctls		;is this external?
+	bne	440$			;yes - correct vector table
+	call	v54vec			;point to real vector table
+					;ignore errors - already checked
+440$:	mov	(r1)+,r0		;get the vector
+	ble	450$			;no more vectors
+	mov	r1,(r0)			;relocate
+	add	(r1)+,(r0)+		;to the ast
+	mov	(r1)+,(r0)		;move in the users ps
+	bis	#pr7,(r0)		;and put ours on top
+	br	440$			;look for more
+
+;	Fill in the device record
+
+450$:	mov	derk,r2			;r2 -> device record
+	mov	handk,de.ent(r2)	;de.ent - handler entry point
+	add	#ha.lqe,de.ent(r2)	;
+	mov	handk,de.han(r2)	;de.han - handler start
+	mov	slot,de.ind(r2)		;de.ind - index number
+
+;	Setup base priority
+
+	movb	de.pri(r2),r0		;did install check setup priority?
+	bne	460$			;yes
+	mov	dpri,r0			;get the priority
+	bne	460$			;they specified one
+	movb	@#s$cdio,r0		;get the default priority
+460$:	bic	#^c37,r0		;clean it up
+	movb	r0,de.pri(r2)		;store the priority
+	assume	sc.bbs eq 4		;two word queue elements
+	asl	r0			;make it a word
+	asl	r0			;
+	add	#s$cp00,r0		;offset to queue element
+	mov	r0,de.que(r2)		;and setup the queue
+
+;	Fill in kernel device tables
+
+600$:	call	extqco			;setup external qcomp links
+
+	mov	pnamek,r0		;get the system pname table
+	add	slot,r0			;point to our slot
+	mov	pname,(r0)		;fill in the name
+	mov	handk,entry.(r0)	;point to the entry point
+	add	#h.lqe,entry.(r0)	;and offset to LQE
+
+;	Fill in device map
+
+	mov	slot,r0			;r0 = device slot
+	mov	derk,d$emap(r0)		;and fill us in
+
+;	Call the load routine
+
+.if ne v54
+	tst	disfet			;fetch routine disabled
+	bne	640$			;
+;	bit	#exter$,ctls		;this external?
+;	bne	640$			;yes - no handler mapped yet
+	mova	hand0,r0		;point to it
+	mov	derk,r2			;r2 -> device record
+	cmp	(r0)+,#^rhan		;this a V5.4 handler?
+	bne	640$			;no - ignore it
+	assume	dr.ptr eq word		;
+	psh	drunc.(r0)		;get unload
+	bis	drrlc.(r0),(sp)+	;and release
+	beq	620$			;no such thing
+	bis	#deunl$,de.typ(r2)	;remember it later
+620$:	tst	drloc.(r0)		;got a LOAD routine?
+	beq	640$			;no - forget it
+	mov	#drloc.,r0		;load function
+	clr	r1			;channel is zero
+	call	@#io$p1x+word		;call fetch code
+	bcc	640$			;fine
+	mov	r0,utlerr		;store the UTL error code
+	mov	derk,r2			;get device record
+	bic	#deunl$,de.typ(r2)	;don't call unload routine
+	call	in$rem			;remove the handler
+	abort	er$uti			;utl call error
+.endc
+640$:	jmp	in$exi			;quit
+.sbttl	install utilities
+
+;	Adjust before and after installation check
+
+preins:
+	mova	hand0,r1	;get the handler
+	mova	der,r2		;get the device record
+	mov	de.sta(r2),ha.sta(r1)
+	mov	de.dsz(r2),ha.dsz(r1) ;copy these 
+	mov	de.hsz(r2),ha.hsz(r1)
+	mov	de.syg(r2),ha.syg(r1)
+	return
+
+posins:				;compute de.con
+	mova	hand0,r1	;the handler
+	mova	der,r2		;device record
+	mov	ha.sta(r1),de.sta(r2)
+	mov	ha.dsz(r1),de.dsz(r2)
+	mov	ha.hsz(r1),de.hsz(r2)
+	mov	ha.syg(r1),de.syg(r2)
+
+	bis	#de16b$,de.con(r2) ;this is always set
+	movb	#as16c$,de.asp(r2) 
+	bit	#de18b$,de.con(r2) ;is this 18-bit?
+	bne	15$		;yes
+	bit	#dedma$,de.typ(r2) ;this 18-bit?
+	beq	20$		;no
+15$:	bis	#dedma$,de.typ(r2) ;set 18-bit
+	bis	#de18b$,de.con(r2)
+	movb	#as18c$,de.asp(r2)
+20$:	bit	#de22b$,de.con(r2) ;this 22-bit?
+	bne	25$		;yes
+	bit	#dedmx$,de.typ(r2) ;this 22-bit?
+	beq	30$		;no
+25$:	bis	#dedmx$,de.typ(r2) ;set 22-bit
+	bis	#de22b$!de18b$,de.con(r2)
+	movb	#as22c$,de.asp(r2)
+30$:	bit	#devab$,de.con(r2) ;did they set virtual?
+	beq	40$		;no
+	bis	#devab$!de22b$!de18b$!de16b$,de.con(r2)
+	movb	#asvac$,de.asp(r2)
+
+40$:	bit	#mmg$t,de.syg(r2) ;this a mapped handler?
+	beq	50$		;no
+	bis	#demap$,de.con(r2)
+50$:	bisb	de.con(r2),de.asp(r2)
+	return
+
+;	Installation check error
+;
+;	r2 ->	error routine
+;	r2=0	=> er$icf or handler reason
+;
+;	The handler can select three options:
+
+errins:	mov	r2,result		;r1 has the reason
+	bne	10$			;csr fail
+	mov	#er$icf,result		;installation fail
+	cmp	r0,#^rshp		;got a message for us?
+	bne	10$			;no
+	cmp	r1,#^rstb		;this an STB problem?
+	bne	20$			;no
+	mov	#er$stb,result		;yes
+10$:	clr	r1			;
+20$:	mov	r1,hanrea		;store the reason
+	jmp	in$exi			;and quit
+.sbttl	remove, slot
+
+;	remove, mount, dismount
+
+in$rem::				;remove a handler
+	mov	pname,r0		;get the name
+	call	in$slo			;find the kernel slot
+	bcc	20$			;fine - we found it
+	abort	er$dni			;device not installed
+
+20$:	add	pnamek,r1		;r1 -> pname slot
+	mov	entry.(r1),r0		;get the entry point
+	bne	30$			;its loaded
+	abort	er$dnl			;installed not loaded
+30$:	mov	r0,entry		;r0 -> h.lqe
+
+	mov	slot,r3			;get the slot number
+	add	#d$emap,r3		;r3 -> device map slot
+
+	mov	(r3),r2			;r2 -> der
+	mov	r2,derk			;remember this
+	add	task,pc			;go to the remainder
+	jmp	35$			;install/replace
+	jmp	35$			;remove
+	jmp	in$mou			;mount
+	jmp	in$mou			;dismount
+
+;	Install/replace, remove
+;
+;	slot	slot number
+;	derk	der
+;	entry	entry point
+;	r0 ->	device handler
+;	r1 ->	pname slot
+;	r2 ->	der
+;	r3 ->	device map
+
+35$:	tst	h.cqe-h.lqe(r0)		;check CQE
+	beq	40$			;fine
+	abort	er$dib			;device is busy
+
+40$:	tst	de.acc(r2)		;got anybody mounted?
+	beq	100$			;no
+	abort	er$dim			;device is mounted
+
+100$:
+.if ne v54
+	tst	disfet			;ignore fetch routines?
+	bne	200$			;yes
+	bit	#deunl$,de.typ(r2)	;got fetch routines?
+	beq	200$			;no
+	assume	dr.ptr eq word		;
+	tst	drunc.(r0)		;got an UNLOAD routine?
+	beq	200$			;no - forget it
+	pshs	<r5,r4,r3,r2,r1,r0>	;save them all
+	mov	#drunc.,r0		;unload function
+	clr	r1			;channel is zero
+	call	@#io$p1x+word		;call the handler
+	bcc	110$			;fine
+	mov	r0,utlerr		;store the UTL error code
+	abort	er$utr			;utl call error
+110$:	pops	<r0,r1,r2,r3,r4,r5>	;
+.endc
+
+200$:	clr	(r3)			;remove der from device map
+	clr	(r1)			;clear kernel $pname
+	clr	entry.(r1)		;and kernel $entry
+					;release the vectors
+300$:	sub	#h.lqe,r0		;point back to the start
+	mov	(r0)+,r1		;h.vec
+	beq	350$			;oops, no vector
+	bmi	330$			;a vector table
+	tst	(r1)+			;
+	mov	r1,-2(r1)		;store the trap address
+	mov	#iot,(r1)		;store the IOT
+	br	350$			;join the common stuff
+					;
+330$:	asl	r1			;read sysmac for this
+	add	r0,r1			;point to the table
+	bit	#deext$,de.typ(r2)	;this an external handler?
+	bne	340$			;yes - only one vector set
+	bit	#dev2h$,de.con(r2)	;this got 2 vector sets?
+	beq	340$			;no
+	call	v54vtb			;yes - get the real vector list
+340$:	mov	(r1)+,r0		;get the vector
+	ble	350$			;no more vectors
+	cmp	(r1)+,(r1)+		;skip the vector spec
+	tst	(r0)+			;point to second word of vector
+	mov	r0,-2(r0)		;trap catcher
+	mov	#iot,(r0)		;
+	br	340$			;look for more
+350$:	fall	500$
+
+					;clear from the job tables
+500$:					;free the pool space
+	mov	derk,r2			;release all units
+	psh	de.han(r2)		;remove the handler
+	call	@#po$del		;delete the pool element
+
+	mov	#8.,r3			;count this
+	add	#de.unm,r2		;point to the unit map
+510$:	mov	(r2)+,r0		;get the next
+	beq	520$			;not in use
+	psh	r0			;
+	call	@#po$del		;delete the record
+520$:	sob	r3,510$			;do eight of them
+	psh	derk			;now delete device record
+	call	@#po$del		;delete the device record
+	return
+
+;	find a slot
+;
+;	r0=0	to find a free slot
+;	r0=n	to find physical device "n"
+;
+;	c=0	r1=slot number
+
+in$slo:	mov	pnamek,r1		;point to kernel $pname
+	mov	slots,r2		;get the host slot count
+	asr	r2			;make it a counter
+10$:	tst	(r1)+			;avoid TT: like the plague
+	dec	r2			;all done?
+	beq	20$			;yes
+	cmp	(r1),r0			;is this the one?
+	bne	10$			;nope
+	sub	pnamek,r1		;calculate slot number
+	mov	r1,slot			;remember the slot
+	tst	(pc)+			;c=0
+20$:	sec				;redundant
+	return
+.sbttl	mount & dismount
+
+;	r2 ->	device record
+
+in$mou:					;mount
+	mov	munit,r1		;get the unit number
+	asl	r1			;twic
+	add	#de.unm,r1		;unit map
+	add	r2,r1			;r1 -> unit slot in map
+	mov	(r1),r3			;get the unit
+	add	task,pc			;and keep on with it
+	jmp	in$exi			;cant happen
+	jmp	in$exi			;cant happen
+	jmp	10$			;mount
+	jmp	in$dis			;dismount
+
+10$:	clr	-(sp)			;assume already mounted
+	tst	r3			;do we already have a unit?
+	bne	100$			;yes - just handle changes
+	mov	r1,(sp)			;no - setup to plug device record
+
+	inc	@#p$havo		;account for it
+
+	bis	#uncac$,mstcon		;default is /cache
+
+	psh	#pounr.!poclr$		;type
+	psh	#un.bbs			;size
+	call	@#po$cre		;create unit record
+	mov	r0,unrk			;get the address
+	bne	20$			;fine
+	abort	er$ips			;no pool
+
+20$:	mov	derk,r2			;r2 -> device record
+	mov	r0,r3			;r3 -> unit record
+					;
+	assume	un.suc eq 0		;
+	mov	r3,(r3)			;un.suc
+	mov	r3,un.pre(r3)		;un.pre
+					;un.pcr
+					;
+					;un.acc
+					;un.ioc
+					;un.own
+;	Select the ACP
+
+	mov	macp,r0			;get acp code
+	bmi	50$			;they specified one
+	movb	de.act(r2),r0		;get the default then
+50$:	bic	#100000,r0		;clean it up
+	asl	r0			;get the address
+
+	mova	acpnms,r1		;get the acp name list
+	add	r0,r1			;
+	add	r0,r1			;4 bytes per
+	mov	(r1)+,un.acn(r3)	;move in the name
+	mov	(r1)+,un.acn+2(r3)	;
+
+	mov	a$cmap(r0),un.acp(r3)	;setup the acp
+
+60$:	mov	r2,un.der(r3)		;un.der - device record
+	movb	de.ind(r2),un.ind(r3)	;un.ind - device index
+	movb	munit,un.uni(r3)	;un.uni - unit number
+
+	bis	mstcon,un.con(r3)	;un.con - set these
+	bic	mclcon,un.con(r3)	;	  clear these
+
+	mov	muic,un.uic(r3)		;un.uic
+	mov	mpro,un.pro(r3)		;un.pro - unit protection
+	bis	mstpro,un.pro(r3)	;	- /group/noshare
+	mov	fpro,un.fpr(r3)		;un.fpr - file protection
+	movb	de.pri(r2),un.pri(r3)	;un.pri - priority
+	tst	upri			;specified priority?
+	beq	65$			;no
+	mov	dpri,un.pri(r3)		;yes - set it up
+65$:	movb	de.asp(r2),un.asp(r3)	;un.asp - unit address space
+					;un.lab - label
+					;un.mcc - mount check code
+					;un.fre - free blocks
+;	Check the /noshare logic
+
+	bis	#unloa$,un.con(r3)	;device is loaded
+	mov	(sp),r1			;r1 -> device slot
+	beq	100$			;it was already mounted
+	mov	r3,(r1)			;plug in the unit
+
+;	Reset the segment cache
+
+100$:	tst	(sp)+			;was this the first?
+	call	in$pur			;go purge them
+	mov	un.vid(r3),r0		;setup the vid
+	$bypass	b$ymnt			;go mount it
+130$:	return
+	jmp	in$exi			;and quit
+
+in$dis:
+	tst	r3			;is it mounted?
+	bne	10$			;yes
+	abort	er$dnm			;unit not mounted
+10$:	call	in$pur			;purge the caches
+	psh	un.vid(r3)		;save the vid
+	tst	un.acc(r3)		;got any accesses?
+	beq	20$			;no
+	bis	#undsm$,un.con(r3)	;set dismount pending
+	abort	er$dmp			;dismount pending
+
+20$:	clr	(r1)			;take us out of the der
+	psh	r3			;get the address of the unit
+	call	@#po$del		;delete the record
+	pop	r0			;get the vid
+	$bypass	b$ydsm			;dismount things
+	jmp	in$exi			;and quit
+
+;	Purge caches
+;
+;	r3 ->	unit record
+
+in$pur:	bis	#unpur$,un.con(r3)	;setup the purge flag
+	mov	@#t$bfir,r0		;
+	beq	130$			;very strange
+120$:	cmp	tb.vid(r0),un.vid(r3)	;same unit?
+	bne	125$			;no
+	clr	tb.sta(r0)		;purge all segments
+125$:	mov	tb.nxt(r0),r0		;get the next
+	bne	120$			;there are no more
+130$:	return
+

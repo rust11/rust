@@ -1,0 +1,717 @@
+.title	setpro
+.include "dcs:dcl.mac"
+;.pass
+$fndef		;filename
+$fodef		;logger
+$jbdef		;job
+$mmdef		;mmu
+$rpdef		;rp
+$prdef		;process
+$scdef		;scheduler
+$sidef		;signals
+$srdef		;system rights
+$tedef		;terminal
+.include "dcs:getval.mac"
+
+;	set process
+;	suspend process
+;	resume process
+;	stop/identification process
+;
+;	set process
+;
+;	/identification:pid
+;	/name=newname
+;	/priority=n		altpri, group, world
+;	/top_priority=n		altpri, group, world
+;	/[no]resume
+;	/[no]suspend		group, world
+;
+;	/privileges=(list)	setprv
+;	/[no]resource_wait
+;	/[no]swapping		pswapm
+;
+;	/batch			1/3
+;	/interactive		4/31
+;
+;	/delete
+;	/stop
+;	/wake
+;	/exit
+;	/detach
+
+map	lonam$,,1		;name was specified
+map	lopri$,,2		;/priority was specified
+map	lores$,,4		;/resume was specified
+map	losus$,,10		;/suspend was specified
+map	lorwt$,,20		;/resource_wait
+map	lonrw$,,40		;/noresource_wait
+map	loswa$,,100		;/swapping
+map	lonsw$,,200		;/noswapping
+map	loide$,,400		;/identification
+map	lotpr$,,1000		;/top_priority
+map	lorig$,,2000		;/rights
+map	lodet$,,4000		;/detach
+;
+map	loexi$,,10000		;/exit
+map	lowak$,,20000		;/wake
+map	losto$,,40000		;/stop
+map	lodel$,,100000		;/delete
+
+; r0 =	0	.spset	set process
+;	1*2	.spsus	suspend
+;	2*2	.spres	resume
+;	3*2	.spsto	abort
+;	4*2	.spdel	delete
+
+setpro::			;show process
+	mov	cases(r0),case	;get the case
+	setup	$setpro,s.lex	;catch the options
+	edit	<W=1D="",T="">	;wildcards are o.k.
+	mov	#zerfrm,r0	;get the data area
+5$:	clr	(r0)+		;clear it
+	cmp	r0,#zerto	;all done?
+	bne	5$		;no
+	clrb	@$input		;zero the name
+	tstb	(r5)		;any more coming?
+	beq	10$		;no
+	scan	<^M>		;yes get the remaining options
+
+10$:	tst	pid		;got a pid?
+	bne	11$		;yes - name is optional and ignored
+	tst	case		;suspend, resume or delete?
+	bne	15$		;yes - force prompt
+
+11$:	tstb	(r5)		;any more
+	beq	20$		;no - simple show process
+
+15$:	scanend	<^ID=0F=1Q="Process? ">
+	edit	<*?>		;one only
+;	bis	case,opts	;handle suspend & resume
+	mov	$input,r5	;
+	call	getnam		;get the name
+20$:	bis	case,opts	;handle suspend & resume
+	clr	k$mprf		;force a new access for system rights
+	call	getker		;
+	clr	k$mprf		;force a new access for system rights
+	jmp	kmon		;
+
+case:	.word	0		;
+cases:	.word	0		;set process
+	.word	losus$		;suspend
+	.word	lores$		;resume
+	.word	losto$		;abort, stop
+	.word	lodel$		;delete
+
+$setpro:
+option	DELETE		1 _	null	s.dele	;/delete
+option	STOP		1 _	null	s.stop	;/stop
+option	WAKE		1 _	null	s.wake	;/wake
+option	EXIT		1 _	null	s.exit	;/exit
+option	PRIORITY	1 _	null	s.prio	;/priority=n
+option	TOP_PRIORITY	1 _	null	s.topp	;/top_priority=n
+option	RESUME		1 _	null	s.resu	;/resume
+option	NORESUME	1 _	null	s.susp	;/noresume
+option	SUSPEND		1 _	null	s.susp	;/suspend
+option	NOSUSPEND	1 _	null	s.resu	;/nosuspend
+option	RESOURCE_WAIT	1 _	null	s.reso	;/resorce_wait
+option	NORESOURCE_WAIT	1 _	null	s.nres	;/noresource_wait
+option	SWAPPING	1 _	null	s.swap	;/swapping
+option	NOSWAPPING	1 _	null	s.nswa	;/noswapping
+option	DETACH		1 _	null	s.deta	;/detach
+option	BATCH		1 _	null	s.batc	;/batch
+option	INTERACTIVE	1 _	null	s.inte	;/interactive
+
+option	NAME		1 _	null	s.name	;/name=name
+
+option	RIGHTS		1 _	null	s.righ	;/rights=(m,n)
+option	PRIVILEGES	1 _	null	s.priv	;/privileges=()
+option	ALL		1 _	null	s.all	;/privileges=(all)
+option	NOSAME		1 _	null	s.nsam	;/privileges=nosame
+
+option	ACNT		1 _	null	ACNT
+option	ALLSPOOL	1 _	null	ALLSPOOL
+option	ALTPRI		1 _	null	ALTPRI
+option	BUGCHK		1 _	null	BUGCHK
+option	BYPASS		1 _	null	BYPASS
+option	CMEXEC		1 _	null	CMEXEC
+option	CMKRNL		1 _	null	CMKRNL
+option	DETACH		1 _	null	DETACH
+option	DIAGNOSE	1 _	null	DIAGNOSE
+option	EXQUOTA		1 _	null	EXQUOTA
+option	GROUP		1 _	null	GROUP
+option	GRPNAM		1 _	null	GRPNAM
+option	LOG_IO		1 _	null	LOG.IO
+option	MOUNT		1 _	null	MOUNT
+option	NETMBX		1 _	null	NETMBX
+option	OPER		1 _	null	OPER
+option	PFNMAP		1 _	null	PFNMAP
+option	PHY_IO		1 _	null	PHY.IO
+option	PRMCEB		1 _	null	PRMCEB
+option	PRMGBL		1 _	null	PRMGBL
+option	PRMMBX		1 _	null	PRMMBX
+option	PSWAPM		1 _	null	PSWAPM
+option	SETPRV		1 _	null	SETPRV
+option	SHMEM		1 _	null	SHMEM
+option	SYSGBL		1 _	null	SYSGBL
+option	SYSLCK		1 _	null	SYSLCK
+option	SYSNAM		1 _	null	SYSNAM
+option	SYSPRV		1 _	null	SYSPRV
+option	TMPMBX		1 _	null	TMPMBX
+option	VOLPRO		1 _	null	VOLPRO
+option	WORLD		1 _	null	WORLD
+
+option	NOACNT		1 _	null	ACNT+2
+option	NOALLSPOOL	1 _	null	ALLSPOOL+2
+option	NOALTPRI	1 _	null	ALTPRI+2
+option	NOBUGCHK	1 _	null	BUGCHK+2
+option	NOBYPASS	1 _	null	BYPASS+2
+option	NOCMEXEC	1 _	null	CMEXEC+2
+option	NOCMKRNL	1 _	null	CMKRNL+2
+option	NODETACH	1 _	null	DETACH+2
+option	NODIAGNOSE	1 _	null	DIAGNOSE+2
+option	NOEXQUOTA	1 _	null	EXQUOTA+2
+option	NOGROUP		1 _	null	GROUP+2
+option	NOGRPNAM	1 _	null	GRPNAM+2
+option	NOLOG_IO	1 _	null	LOG.IO+2
+option	NOMOUNT		1 _	null	MOUNT+2
+option	NONETMBX	1 _	null	NETMBX+2
+option	NOOPER		1 _	null	OPER+2
+option	NOPFNMAP	1 _	null	PFNMAP+2
+option	NOPHY_IO	1 _	null	PHY.IO+2
+option	NOPRMCEB	1 _	null	PRMCEB+2
+option	NOPRMGBL	1 _	null	PRMGBL+2
+option	NOPRMMBX	1 _	null	PRMMBX+2
+option	NOPSWAPM	1 _	null	PSWAPM+2
+option	NOSETPRV	1 _	null	SETPRV+2
+option	NOSHMEM		1 _	null	SHMEM+2
+option	NOSYSGBL	1 _	null	SYSGBL+2
+option	NOSYSLCK	1 _	null	SYSLCK+2
+option	NOSYSNAM	1 _	null	SYSNAM+2
+option	NOSYSPRV	1 _	null	SYSPRV+2
+option	NOTMPMBX	1 _	null	TMPMBX+2
+option	NOVOLPRO	1 _	null	VOLPRO+2
+option	NOWORLD		1 _	null	WORLD+2
+$stopro:
+option	IDENTIFICATION	1 _	null	s.ident	;/identification:n
+option
+
+;	d:	c=0 => set privilege
+;	d+2:	c=1 => clear privilege
+;
+;	priv	nac ACNT
+;
+;	acnt:	tst	(pc)+
+;		sec
+;		jsr	r1,priv
+;		.word	srnac.
+
+.macro	priv c d
+d:	tst	(pc)+
+	sec
+	jsr	r1,priv
+	.word	sr'c'.
+.endm
+
+priv	nac	ACNT		;NOACNT
+priv	asp	ALLSPOOL
+priv	pri	ALTPRI		;SETPRI
+priv	bug	BUGCHK
+priv	byp	BYPASS
+priv	cme	CMEXEC
+priv	cmk	CMKRNL
+priv	det	DETACH
+priv	dia	DIAGNOSE
+priv	quo	EXQUOTA
+priv	grp	GROUP
+priv	gna	GRPNAM
+priv	lio	LOG.IO
+priv	mnt	MOUNT
+priv	nmb	NETMBX
+priv	opr	OPER
+priv	pfn	PFNMAP
+priv	pio	PHY.IO
+priv	peb	PRMCEB
+priv	pgb	PRMGBL
+priv	pmb	PRMMBX
+priv	swp	PSWAPM
+priv	prv	SETPRV
+priv	shm	SHMEM
+priv	sgb	SYSGBL
+priv	slk	SYSLCK
+priv	sna	SYSNAM
+priv	sys	SYSPRV
+priv	tmb	TMPMBX
+priv	vol	VOLPRO
+priv	wor	WORLD
+
+priv:	movb	(r1)+,r0	;word offset
+	movb	(r1),r1		;bit number
+	bcs	10$		;this is /no
+	bis	30$(r1),prvset(r0)
+	br	20$		;
+10$:	bis	30$(r1),prvclr(r0) ;/nopriv
+20$:	pop	r1		;restore r1
+	return
+30$:	.word	1,2,4,10,20,40,100,200,400,1000
+	.word	2000,4000,10000,20000,40000,100000
+
+;	Convert (a,b,c,d) to /a/b/c/d
+
+s.lex:	tst	prvinp		;privileges in progress?
+	beq	30$		;no
+	cmpb	r0,#'=		;this an equals?
+	bne	5$		;no
+	cmpb	1(r5),#'(	;followed by parenthesis?
+	bne	15$		;no
+	inc	r5		;yes - skip = and replace ( with /
+	br	15$		;
+5$:	cmpb	r0,#'(		;this a (
+	beq	15$		;yes
+10$:	cmpb	r0,#',		;got a comma?
+	bne	20$		;no
+15$:	movb	#'/,r0		;yes
+	br	30$		;
+20$:	cmpb	r0,#')		;got a )
+	bne	30$		;no
+	inc	r5		;yes - skip it
+	movb	(r5),r0		;yes - and get the next
+	clr	prvinp		;no privileges in progress
+30$:	return
+.sbttl	options
+
+;	/[no]resource_wait
+;	/[no]swapping		pswapm
+
+s.ident:call	getoct		;get the pid
+	mov	r0,pid		;save it
+	return
+
+s.batc:	bis	#lopri$!lotpr$,opts
+	mov	#1,baspri	;base priority
+	mov	#3,toppri	;top priority
+	return
+
+s.inte:	bis	#lopri$!lotpr$,opts
+	mov	#4,baspri	;base priority
+	mov	#31.,toppri	;top priority
+	return
+
+s.prio:	bis	#lopri$,opts	;remember it
+	call	getval		;get the value
+	mov	r0,baspri	;set it up
+	return
+
+s.topp:	bis	#lotpr$,opts	;remember it
+	call	getval		;get the priority
+	mov	r0,toppri	;save it
+	return
+
+s.resu:	bis	#lores$,opts	;remember it
+	return
+s.susp:	bis	#losus$,opts	
+	return
+
+s.reso:	bis	#lorwt$,opts	;/resource_wait
+	return
+
+s.nres:	bis	#lonrw$,opts	;/noresource_wait
+	return
+
+s.swap:	bis	#loswa$,opts	;/swapping
+	return
+s.nswa:	bis	#lonsw$,opts
+	return
+
+s.name:	bis	#lonam$,opts	;remember the option
+	return
+
+;	Rights are handled by converting keywords into options.
+;	( ,	/
+;	)	space
+
+s.priv:
+s.righ:				;/rights
+	bis	#lorig$,opts	;remember it to clear mask
+	inc	prvinp		;set privileges in progress
+	return
+
+s.all:	mov	#prvset,r0	;
+	mov	#4,r1		;
+10$:	mov	#-1,(r0)+	;set them all
+	sob	r1,10$		;
+	return
+
+s.nsam:	mov	#prvclr,r0	;
+	mov	#4,r1		;
+10$:	mov	#-1,(r0)+	;set them all
+	sob	r1,10$		;
+	return
+
+s.dele:	bis	#lodel$,opts	;/delete
+	return
+s.wake:	bis	#lowak$,opts	;/wake
+	return
+s.stop:	bis	#losto$,opts	;/stop
+	return
+s.exit:	bis	#loexi$,opts	;/exit
+	return
+s.deta:	bis	#lodet$,opts	;/detach
+	return
+.sbttl	get name & errors
+
+getnam:	mov	$input,r5	;get the input string
+	mov	#name,r4	;and the output
+	edit	<#\#####>,50$	;its a pid
+	edit	<@\@@@@@> ,,10$	;get the name
+	edit	<!*> ,,20$	;must be the end
+10$:	jmp	invnam		;invalid name
+20$:	mov	#name,r1	;point to it
+	call	conar		;get rad50 of it
+	mov	r0,prcnax	;store rad50 version
+	call	conar		;
+	mov	r0,prcnax+2	;
+	mov	#name,r1	;convert to uppercase
+30$:	movb	(r1),r0		;get the next
+	beq	40$		;
+	call	upper		;convert it
+	movb	r0,(r1)+	;
+	br	30$		;
+40$:	return
+50$:	mov	#name,r5	;get the name
+	call	getocn		;get the octal number
+	mov	r0,pid		;setup the pid
+	return
+
+;	errnam	0	invalid name
+;	errprc	1	invalid process
+
+invnam:	mov	#errnam,r1	;force invalid name
+prcerr:				;r1 = error code
+	cmp	r1,#maxerr	;in range?
+	blo	10$		;yes
+	mov	#maxerr,r1	;no
+10$:	asl	r1
+	psh	20$(r1)		;save the address
+	type	<?DCL-E->
+	.print	(sp)+
+	print
+	jmp	setfat		;fatal error
+
+errnam=0
+errprc=1
+insprv=3
+maxerr=4
+20$:	.word	100$,101$,102$,103$,104$;,105$
+100$:	.ascii	_Invalid process name_<200>
+101$:	.ascii	_Non-existent process_<200>
+103$:	.ascii	_Missing rights_<200>
+102$:
+104$:	.ascii	_System error_<200>
+	.even
+.sbttl	set process information
+meta	<mova c d><mov pc,d><add #c-.,d>
+meta	<chkprv c><jsr r3,chkprv><.word c>
+meta	<tstprv c><jsr r3,tstprv><.word c>
+
+;	pid	process id
+;	prcrax	process name in rad50
+
+getker:
+	clr	k$mprf		;we might change process rights
+	$cmkrnl	#area, #kerget, pic=yes
+	bcc	30$		;fine
+	movb	errbyt,r1	;get the error code
+10$:	jmp	prcerr		;display it
+30$:	return
+
+kerget:
+
+;	Select via pid
+
+	movb	pid,r0		;specified a pid?
+	beq	10$		;no
+	cmp	r0,@#p$rprs	;got too many of these?
+	bhis	5$		;yes
+	asl	r0		;get the pcr address
+	mov	p$rmap(r0),r4	;r4 -> pcr
+	bne	50$		;got one
+5$:	jmp	invprc		;
+
+;	Check self
+
+10$:	tst	prcnax		;is this us?
+	bne	20$		;perhaps not
+	mov	@#p$hpcr,r4	;get our pcr
+	br	50$		;join common
+
+;	Select via name
+
+20$:	mov	#p$rmap,r0	;get the map
+	mov	@#p$rprs,r1	;and count them
+30$:	mov	(r0)+,r4	;get the next
+	beq	40$		;this is not it
+	cmp	pr.nam(r4),prcnax ;this it?
+	bne	40$		;no
+	cmp	pr.nam+2(r4),prcnax+2 ;really?
+	beq	50$		;yes
+40$:	dec	r1		;any more?
+	bne	30$		;yes
+	jmp	invprc		;no
+
+;	Setup the information
+;
+;	r3 ->	phd
+;	r4 ->	pcr
+;	r5 ->	rp
+
+50$:
+	lodis. = m$mpa6-m$mpa2	;offset from par1 to par6
+meta	<move src,dst,cnt><jsr r5,move><.word src+lodis.,dst-.,cnt>
+
+	psh	@#m$kip6	;save this
+	mov	pr.phd(r4),@#m$kip6 ;map the phd
+	mov	#p$hroo+lodis.,r3 ;r3 -> phd
+
+;	/RESUME
+;
+;	Set /resume & and a wakeup
+;	We do not need to check for access rights.
+;	If this is the only option then skip the rest.
+
+	bit	#lores$,opts	;this a resume?
+	beq	200$		;no
+	bis	#prwak$,pr.sta(r4) ;set a wakeup
+	bic	#prsus$,pr.sta(r4) ;turn off suspend
+
+	cmp	opts,#lores$	;was this just a resume?
+	bne	200$		;no
+	jmp	1000$		;yes - we are done
+
+;	Check access to process	
+
+200$:	cmp	@#p$huic,ph.uic(r3) ;do we own this process?
+	beq	215$		;yes
+	cmpb	@#p$hgic,ph.gic(r3) ;this the same group?
+	bne	210$		;no - we need world
+	chkprv	srgrp.		;we need group
+	br	215$		;fine
+210$:	chkprv	srwor.		;we need world
+
+;	/SUSPEND
+
+215$:	bit	#losus$,opts	;/suspend?
+	beq	220$		;no
+	bis	#prsus$,pr.sta(r4) ;yes - suspend it
+
+;	/DETACH
+;
+;	Detach the process terminal
+;
+;	Move to root or foreground if possible
+;
+;	r4 =	old pcr
+;	r0 ->	ter
+;	r1 ->	new pid
+
+220$:	bit	#lodet$,opts		;/detach?
+	beq	250$			;no
+	$cmsch				;yes
+	$float				;block it all
+	mov	pr.ter(r4),r0		;get the terminal
+	beq	245$			;no terminal
+	clr	pr.ter(r4)		;terminal detached
+	mov	pr.phd(r4),@#m$kip6 	;map it
+	clr	@#p$hter+mmp62.		;clear it
+	mov	#te$tiq,@#p$htti+mmp62.	;make this one quiet
+	mov	#te$toq,@#p$htto+mmp62.	;
+	mov	#fofio$,@#p$hlof+mmp62.	;force the logger
+
+;	Leave terminal floating if no root
+;
+;	r0 ->	ter
+
+	clrb	te.fgd(r0)		;no foreground
+	clr	te.pcr(r0)		;it has no process
+	movb	te.roo(r0),r1		;get the root
+	beq	245$			;has no root
+	cmpb	r1,pr.pid(r4)		;were we the root?
+	bne	235$			;no
+	clrb	te.roo(r0)		;yes - take us out
+	br	245$		
+
+;	Return terminal to root
+;
+;	r0 ->	ter
+;	r1 =	new pid
+;	r1 ->	pcr
+
+235$:	asl	r1			;get the terminal slot
+	mov	p$rmap(r1),r1		;r1 -> new pcr
+	beq	245$			;no such process
+	mov	r0,pr.ter(r1)		;attach it
+	mov	r1,te.pcr(r0)		;and in here too
+	mov	#tecat$,te.sig(r0) 	;signal attach
+	psh	r4			;save this
+	mov	r1,r4			;
+	mov	#siter$,r0		;signal the process
+	call	@#as$pms		;send the signal
+	pop	r4			;back to own process
+240$:
+245$:	$land				;
+	$cmpro				;back to process	
+
+;	/DELETE	
+
+250$:	bit	#lodel$,opts	;is this a delete?
+	beq	260$		;no
+	psh	pr.pid(r4)	;get the pid
+	$delprc	#p$hare, pid=sp, prn=#0
+	tst	(sp)+		;
+	jmp	1000$		;
+
+;	/STOP
+
+260$:	bit	#losto$,opts	;is this a stop?
+	beq	280$		;no
+	call	@#ab$pos	;yes - abort it
+
+;	Clear missing rights
+
+280$:	bit	#lorig$,opts	;specified /rights?
+	beq	300$		;no
+	movi	ph.mr0,r3,r0	;yes - clear missing mask
+	clr	(r0)+		;
+	clr	(r0)+		;
+	clr	(r0)+		;
+	clr	(r0)+		;
+
+;	/RESOURCE_WAIT
+;	/SWAPPING
+;
+;	/PRIORITY
+
+300$:	clr	-(sp)		;missing rights flag
+	bit	#lopri$,opts	;/priority:n?
+	beq	400$		;no
+	mov	baspri,r1	;get the new one
+	cmp	r1,#31.		;is this too high?
+	blos	310$		;no
+	mov	#31.,r1		;yes - limit it
+310$:	cmpb	r1,ph.pri(r3)	;this higher?
+	blos	320$		;no
+	tstprv	srpri.		;setpri required
+;	bcs	400$		;don't have it - ignore it
+	bcc	320$		;fine
+	inc	(sp)		;signal missing right
+	br	400$		;ignore it
+320$:	movb	r1,ph.pri(r3)	;set it up
+	mul	#sc.bbs,r1	;convert to queue offset
+	add	#s$cp00,r1	;make it a queue address
+	mov	r1,pr.bqu(r4)	;setup the base queue
+	fall	400$
+
+;	/TOP_PRIORITY
+
+400$:	bit	#lotpr$,opts	;/priority:n?
+	beq	500$		;no
+	mov	toppri,r1	;get the new one
+	cmp	r1,#31.		;is this too high?
+	blos	410$		;no
+	mov	#31.,r1		;yes - limit it
+410$:	cmpb	r1,ph.tpr(r3)	;this higher?
+	blos	420$		;no
+	tstprv	srpri.		;setpri required
+;	bcs	500$		;don't have it - ignore it
+	bcc	420$		;
+	inc	(sp)		;signal missing right
+	br	500$		;ignore it
+420$:	movb	r1,ph.tpr(r3)	;set the new priority
+	mul	#sc.bbs,r1	;convert to queue offset
+	add	#s$cp00,r1	;make it a queue address
+	mov	r1,pr.tqu(r4)	;setup the base queue
+	fall	500$
+
+;	/RIGHTS
+;
+;	ph.sr0	current system rights
+;	ph.ar0	authorized
+;	ph.pr0	process
+;	ph.ir0	image
+
+500$:;	clr	-(sp)		;(sp)<>0 => missing rights
+	bit	#srprv$,@#p$har0+sr.prv ;do they have setprv?
+	bne	520$		;yes - they can have them all
+	movi	ph.ar0,r3,r0	;no - mask out missing rights
+	mova	prvset,r1	;set them
+	mov	#4,r2		;
+510$:	psh	(r0)+		;
+	psh	(r1)		;
+	bic	2(sp),(sp)	;remove the allowed bits
+	com	2(sp)		;make it negative
+	tst	(sp)+		;are any missing?
+	beq	515$		;no
+	bis	#srprv$,@#p$hmr0+sr.prv ;yes - remember missing right
+	inc	2(sp)		;remember some were missing
+515$:	bic	(sp)+,(r1)+	;remove unauthorized
+	sob	r2,510$		;
+				;
+520$:	mova	prvset,r0	;r0 -> set, 10(r0) = clear
+	movi	ph.sr0,r3,r1	;
+	mov	#4,r2		;
+530$:	bic	10(r0),(r1)	;clear current privileges
+	bic	10(r0),ph.pr0-ph.sr0(r1);clear process privileges
+	bis	(r0),(r1)	;set current privileges
+	bis	(r0),ph.pr0-ph.sr0(r1)  ;set process privileges
+	bis	ph.ir0-ph.sr0(r1),(r1)	;reset image privileges
+	cmp	(r0)+,(r1)+	;
+	sob	r2,530$		;
+	tst	(sp)+		;did we get an error?
+	beq	1000$		;no
+	pop	@#m$kip6	;
+	call	1010$		;
+	.soft	insprv		;
+1000$:	pop	@#m$kip6	;restore it
+1010$:	clr	r0		;null signal
+	call	@#as$pms	;post a monitor signal to them
+	return			;and quit
+
+invprc:	.soft	errprc		;invalid process
+
+.enabl	lsb
+chkprv:	call	100$		;do we have it?
+	bcc	50$		;yes - return
+	.soft	insprv		;report the missing right
+
+tstprv:	call	100$		;do we have it?
+50$:	rts	r3		;
+
+100$:	pshs	<r1,r0>		;
+	movb	(r3)+,r0	;word offset
+	movb	(r3)+,r1	;bit in word
+	clc			;assume o.k.
+	bit	w$omap(r1),p$hpr0(r0) ;do we have it?
+	bne	110$		;yes
+	bis	w$omap(r1),p$hmr0(r0) ;no - remember error
+	sec			;no
+110$:	pops	<r0,r1>		;
+	return
+.sbttl	data
+
+zerfrm:
+opts:	.word	0		;option flags
+prvinp:	.word	0		;privileges in progress flag
+pid:	.word	0		;pid
+name:	.asciz	/      /	;ascii process name
+	.even			;
+prcnax:	.rad50	/      /	;rad50 process name
+
+area:	.blkw	7		;
+
+prvset:	.blkw	4		;rights to set
+prvclr:	.blkw	4		;rights to clear
+baspri:	.word	0		;priority
+toppri:	.word	0		;top_priority
+zerto:
+.end
+

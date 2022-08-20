@@ -1,0 +1,810 @@
+.title	setdev
+.include "dcs:dcl.mac"
+.psect	setdev	;user 
+.psect	setdkc	;kernel code
+.psect	setdkd	;kernel data
+.psect	setdev	;user
+$ardef		;access rights
+$asdef		;address space
+$dedef		;device
+$opdef		;output
+$srdef		;system rights
+$undef		;unit
+.include "dcs:getval.mac"
+
+;	RUST/XM ALLOCATE command
+;	RUST/XM DEALLOCATE command
+;	RUST/XM SET DEVICE command
+;	RUST/XM SET DD: handler command
+; 
+;	%build
+;	macro	dcs:setdev	/object:dcb:setdev
+;	%end
+;
+;	%date
+;	<16-Apr-2003 25:34:22.40>
+;	%edit
+;	<22   >
+;
+;	%commands
+;	ALLOCATE dev/options logical-name
+;	DEALLOCATE dev/options
+;	DEALLOCATE/ALL
+;	SET DEVICE dev/options
+;	SET ddn/options items
+;	%end
+;
+;	%rights
+;	SET DEVICE requires OPER rights
+;	ALLOCATE requires READ access to the device unit
+;	ALLOCATE not permitted if device mounted
+;	DEALLOCATE requires device allocated to process
+;	SET ddn requires OPER rights
+;	%end
+;
+; ???	SET DEVICE/FOREIGN not really possible yet
+;
+;	dev	logical name
+;	_dev	permanent name - do not perform translation
+; 
+;	Allocate and deallocate synchronise in scheduler state.
+;	Set device synchronises initially in scheduler state.
+;	Device and unit record modifications are made in system state.
+;	Individual set/clear operations are interlocked at PR7.
+;
+;	Set device/allocate/deallocate are not recommended.
+;	They are included for maintenance purposes.
+;
+;	SET DEVICE:
+;	Two local DER's are built. One is used to clear the kernel DER,
+;	the other is used to set it. Two local UNR's perform the same
+;	function for the kernel UNR.
+.sbttl	static
+
+;	SET DEVICE data
+;
+;	Most of the data is required by the kernel routine
+
+.save					;save psect
+.psect	sdevkd				;kernel data area
+
+;	Impure data
+;
+;	This area is cleared at the start of each command
+
+s$diml:					;impure low
+s$down:	.word	0			;process number
+s$dpdn:	.word	0			;<>0 => physical device name
+s$dunm:	.word	0			;unit record modified flag
+s$duni:	.word	0			;unit number
+s$ddeo:	.word	0			;device record only
+s$duno:	.word	0			;unit only
+s$ddna:	.asciz	"ddu"			;device name ascii
+s$ddnr:	.rad50	/ddu/			;device name rad50
+s$dcdr:	.blkb	de.bbs			;clear der
+s$dsdr:	.blkb	de.bbs			;set der
+s$dcur:	.blkb	un.bbs			;clear unr
+s$dsur:	.blkb	un.bbs			;set unr
+s$dimh:					;impure high
+					;
+.restore				;restore previous psect
+
+;	SET DEVICE internal error codes
+
+map	sddnf.,,1			;device not found
+map	sdunl.,,2			;unit not load
+map	sdmsr.,,3			;missing system rights
+map	sdidn.,,4			;invalid device name
+map	sdalc.,,5			;device is allocated
+map	sdcnf.,,6			;create name failed
+map	sddam.,,7			;device already mounted
+map	sddna.,,8.			;device was not allocated
+map	sdall.,,9.			;device allocated log
+map	sdhna.,,10.			;handler name not available
+
+;	Message strings
+
+s$derr:	.word	100$,101$,102$,103$,104$,105$,106$,107$,108$,109$,110$
+100$:	.byte	200			;cant happen
+;	%message
+;	SET DEVICE 
+101$:	.ascii	_Device not found_<200>
+102$:	.ascii	_Unit not loaded_<200>
+103$:	.ascii	_Missing rights READ to_<200>
+104$:	.ascii	_Invalid device name_<200>
+105$:	.ascii	_Device is allocated by another user_<200>
+106$:	.ascii	_wDevice allocated; logical name creation failed_<200>
+107$:	.ascii	_Device is mounted_<200>
+108$:	.ascii	_iDevice was not allocated_<200>
+109$:	.ascii	_iDevice allocated_<200>
+110$:	.ascii	_Device not installed; use HANDLR utility_<200>
+;	%end
+	.even
+
+;	Set/Clear local records
+; 
+;	These MACRO's are used to set and clear items in local records.
+
+meta	<sdcdr$ bit off con><bis bit,s$dcdr+off><.iif b <con>,return>
+meta	<sdsdr$ bit off con><bis bit,s$dsdr+off><.iif b <con>,return>
+meta	<sdcur$ bit off con><bis bit,s$dcur+off><.iif b <con>,br sd$unm>
+meta	<sdsur$ bit off con><bis bit,s$dsur+off><.iif b <con>,br sd$unm>
+.sbttl	allocate
+
+;	ALLOCATE command
+; 
+;	ALLOCATE/options device [logical-name]
+;
+;	r5 ->	command input
+;	r4 ->	output area - largely unused
+;
+;	READ access to device required to allocate it
+
+alloc::					;allocate
+	call	sd$ini			;setup
+	setup	s$dalc,sd$lex		;set it up
+	scan	<D=0^M>			;skip the command
+	scan	<^IF=1Q="Device? "> 	;get the device
+	scanend	<^OF=1Q="">		;get optional logical name
+	call	sd$nam			;parse device name
+					;
+	inc	s$dunm			;we modify the unit
+	$cmkrnl	#k$mare, #sd$kal pic=yes;perform kernel operations
+	call	sd$err			;check errors
+	mov	$out,r1			;get logical name
+	tstb	(r1)			;got a name?
+	beq	20$			;no
+	mov	$input,r2		;get equivalence name
+;	cmpb	(r2),#'_		;this the physical indicator?
+;	bne	10$			;no
+;	inc	r2			;yes - skip it
+10$:	$crelog	#area, #2, r1, r2, #0	;create the logical name
+	bcc	20$			;
+	mov	#sdcnf.,r0		;create name failed
+	call	sd$err			;report it
+20$:	edit	<l0> 30$		;no warning required
+	mov	#sdall.,r0		;setup the message
+	call	sd$err			;report it	
+30$:	jmp	kmon			;done
+
+s$dalc:
+option	NOLOG		1 _	null	
+option	LOG		1 _	null	s.dlog
+option
+
+s.dlog:	edit	<l=1>			;log it
+	return
+.sbttl	deallocate
+
+;	DEALLOCATE command
+; 
+;	DEALLOCATE/options device
+;	DEALLOCATE/ALL
+;
+;	r5 ->	command input
+;	r4 ->	output area - largely unused
+
+deallo::				;deallocate
+	call	sd$ini			;setup
+	setup	s$ddlc,sd$lex		;set it up
+	scan	<D=0^M>			;skip the command
+	edit	<e1> 50$		;deallocate all
+					;
+	scan	<^IF=1Q="Device? "> 	;get the device
+	scanend	<^OF=1Q="">		;get optional logical name
+	call	sd$nam			;parse device name
+					;
+	inc	s$dunm			;we modify the unit
+	$cmkrnl	#k$mare, #sd$kdl pic=yes;perform kernel operations
+	cmp	r0,#sddna.		;not allocated anyway?
+	bne	20$			;no
+	edit	<l2> 30$		;/NOLOG is suppressing it
+20$:	call	sd$err			;check errors
+30$:	jmp	kmon			;done
+
+50$:	edit	<*?>			;must be end of line
+	$cmkrnl	#k$mare, #sd$kda pic=yes;deallocate/all
+	jmp	kmon			;
+
+s$ddlc:					;deallocate option
+option	ALL		1 _	null	s.dall
+option	NOLOG		1 _	null	s.dnlg
+option					;
+
+;	DEALLOCATE/ALL			;
+
+s.dall:	edit	<e=1>			;remember it
+	return
+s.dnlg:	edit	<l=2>			;setup nolog
+	return
+.sbttl	set device
+
+;	SET DEVICE command
+; 
+;	SET DEVICE/options _device
+;
+;	r5 ->	command input
+;	r4 ->	output area - largely unused
+; 
+;	s$dopt	set device option list
+; 
+;	OPER	Required to set any device attribute
+
+setdev:: 
+sd$set:	cright	#sropr.			;needs operator rights
+	call	sd$ini			;setup
+					;get our process number
+					;
+	setup	s$dopt,sd$lex		;set it up
+	scan	<D=0^M>			;skip the command
+					;
+	scanend	<^IF=1Q="Device? "> 	;get the device
+	call	sd$nam			;parse device name
+	$cmkrnl	#k$mare, #sd$ksd pic=yes;perform kernel operations
+	call	sd$err			;check errors
+	jmp	kmon			;done
+
+;	Lexical bypass
+;
+;	Called by SCAN to perform lexical conversion
+;	Pickup '_' which signals permanent device names
+
+sd$lex:	cmpb	r0,#'_			;this a permanent device?
+	bne	10$			;no
+	inc	s$dpdn			;yes - flag physical device name
+	inc	r5			;skip it
+	movb	(r5),r0			;and replace it
+10$:	return
+
+;	Setup routine for SET DEVICE, ALLOCATE & DEALLOCATE
+
+sd$ini:	output	clr			;clear it
+	mov	#s$diml,r0		;clear impure area
+10$:	clr	(r0)+			;
+	cmp	r0,#s$dimh		;all done?
+	blo	10$			;no
+	return				;
+.sbttl	set device options
+
+;	SET/DEVICE option table
+
+s$dopt: 
+option	DEVICE		1 _	null	s.devi	;/device
+option	UNIT		1 _	null	s.unit	;/unit
+option	22BIT		1 _	null	s.22bi	;/22bit
+option	NO22BIT		1 _	null	s.n22b	;/no22bit
+option	SINGLE		1 _	null	s.sing	;/single
+option	NOSINGLE	1 _	null	s.nsin	;/nosingle
+option	ABORT		1 _	null	s.abor	;/abort
+option	NOABORT		1 _	null	s.nabo	;/noabort
+option	FUNCTIONS	1 _	null	s.func	;/functions
+option	NOFUNCTIONS	1 _	null	s.nfun	;/nofunctions
+						;
+option	CACHE		1 _	null	s.cach	;/cache
+option	NOCACHE		1 _	null	s.ncac	;/nocache
+						;
+option	WRITE		1 _	null	s.writ	;/write
+option	NOWRITE		1 _	null	s.nwri	;/nowrite
+option	SHARE		1 _	null	s.shar	;/share
+option	NOSHARE		1 _	null	s.nsha	;/noshare
+option	GROUP		1 _	null	s.grou	;/group
+option	NOGROUP		1 _	null	s.ngro	;/nogroup
+option	SYSTEM		1 _	null	s.syst	;/system
+option	NOSYSTEM	1 _	null	s.nsys	;/nosystem
+option	FOREIGN		1 _	null	s.fore	;/foreign
+option	NOFOREIGN	1 _	null	s.nfor	;/noforeign
+option	SERIALIZE	1 _	null	s.seri	;/serialize
+option	NOSERIALIZE	1 _	null	s.nser	;/noserialize
+
+;	Unit specific options
+
+option	LABEL		1 _	null	s.labe	;/label=label
+option	ACP_NAME	1 _	null	s.acpn	;/acp_name=name
+option	OWNER_UIC	1 _	null	s.owne	;/owner_uic=[,]
+option	PRIORITY	1 _	null	s.prio	;/priority=n
+option	PROTECTION	1 _	null	s.prot	;/protection=()
+option	FILE_PROTECTION	1 _	null	s.fpro	;/file_protection
+
+option	NOFILE_PROTECTION 1 _	null	s.nfpr	;/file_protection
+option	NODISMOUNT	1 _	null	s.ndis	;/nodismount
+option	NOALLOCATED	1 _	null	s.nalc	;/noallocated
+option	ALLOCATE	1 _	null	s.allo	;/allocate:n
+option
+.sbttl	option drivers
+
+;	Option drivers
+; 
+;	These routines are called during option processing.
+;	Most routines set or clear isolated bits in local records.
+;	Others need to pick up values from the command stream.
+; 
+;	r5 ->	command string
+
+s.sing:	sdsdr$	#desin$	de.con		;/single
+s.nsin:	sdcdr$	#desin$	de.con		;/nosingle
+s.abor:	sdsdr$	#deabo$	de.typ		;/abort
+s.nabo:	sdcdr$	#deabo$	de.typ		;/noabort
+s.func:	sdsdr$	#despf$	de.con		;/functions
+s.nfun:	sdcdr$	#despf$	de.con		;/nofunctions
+					;
+s.cach:	sdsur$	#uncac$	un.con		;/cache
+s.ncac:	sdcur$	#uncac$	un.con	con=yes	;/nocache
+	sdsur$	#unpur$ un.con		;force segment cache purge
+s.writ:	sdcur$	#unnwr$	un.con		;/write
+s.nwri:	sdsur$	#unnwr$	un.con		;/nowrite
+s.shar:	sdsur$	#unsha$	un.con		;/share
+s.nsha:	sdcur$	#170360	un.pro	con=yes	;/noshare
+	sdcur$	#unsha$	un.con		;
+s.grou:	sdsur$	#ungrp$	un.con	con=yes	;/group
+	sdsur$	#170000	un.pro		;
+s.ngro:	sdcur$	#ungrp$	un.con		;/nogroup
+s.syst:	sdsur$	#unpub$!unsha$	un.con	;/system
+s.nsys:	sdcur$	#unpub$!unsha$	un.con	;/nosystem
+;	mov	#100000+acrtn.,macp	;force foreign
+s.fore:	sdsur$	#unfor$	un.con		;/foreign
+s.nfor:	sdcur$	#unfor$	un.con		;/noforeign
+s.seri:	sdsur$	#unser$	un.con		;/serial
+s.nser:	sdcur$	#unser$	un.con		;/noserial
+s.nfpr:	sdcur$	#unfpr$	un.con		;/nofileprotect
+s.ndis:	sdcur$	#undsm$	un.con		;/nodismount
+s.nalc:	movb	#-1,s$dcur+un.own	;clear owner
+	sdcur$	#unalc$	un.con		;/noallocate
+					;
+sd$unm:	inc	s$dunm			;signal unit record modified
+	return				;
+					;
+s.prio:	movb	#377,s$dcur+un.pri	;/priority
+	call	gv$dec			;/priority=n
+	movb	r0,s$dsur+un.pri	;
+	br	sd$unm			;
+					;
+s.owne:	sdcur$	#177777	un.uic con=yes	;clear it first
+	call	gv$uic			;get the uic
+	sdsur$	r0	un.uic		;and set it
+					;
+s.prot:	sdcur$	#177777	un.pro	con=yes	;/protection=()
+	clr	r0			;no default mask
+	call	gv$prt			;get protection
+	sdsur$	r0	un.pro		;setup the protection
+					;
+s.fpro:	sdsur$	#unfpr$	un.con	con=yes	;/file:protection
+	cmpb	(r5),#'=		;got some protection?
+	bne	10$			;no
+	sdcur$	#177777	un.fpr	con=yes	;clear the mask
+	clr	r0			;no default mask
+	call	gv$prt			;get the protection
+	sdsur$	r0	un.fpr		;setup
+10$:	br	sd$unm			;
+					;
+s.labe:	edit	<!:>,,10$		;got a label?
+	mov	#s$dsur+un.lab,r2	;yes - get the label
+	mov	r5,r1			;point to the string
+	call	cv$arf			;do two words
+	mov	r0,(r2)+		;store them
+	call	cv$arf			;do two words
+	mov	r0,(r2)+		;store them
+	edit	<!@~>			;get the trailing stuff
+10$:	sdcur$	#177777	un.lab	con=yes	;label
+	sdcur$	#177777	un.lab+word 	;
+					;
+s.acpn:	edit	<!:>,,10$		;got a label?
+	mov	#s$dsur+un.acn,r2	;yes - get the label
+	mov	r5,r1			;point to the string
+	call	cv$arf			;do two words
+	mov	r0,(r2)+		;store them
+	call	cv$arf			;do two words
+	mov	r0,(r2)+		;store them
+	edit	<!@~>			;get the trailing stuff
+10$:	sdcur$	#177777	un.acn	con=yes	;label
+	sdcur$	#177777	un.acn+word 	;
+					;
+s.allo:	mov	k$mjob,r0		;get default process number
+	edit	<!:>,,10$		;allocate to us
+	dec	r5			;backup
+	call	gv$oct			;get the value
+	bcc	10$			;got one
+	edit	<?>			;no
+10$:	movb	r0,s$dsur+un.own	;setup owner
+	movb	#-1,s$dcur+un.own	;clear it first
+	sdsur$	#unalc$ un.con		;and allocate it
+
+	loasp$ = as16b$!as18b$!as22b$
+s.22bi:	bisb	#loasp$,s$dsur+un.asp	;force 22-bit addressing
+	inc	s$dunm			;changed unit
+	sdsdr$	#loasp$	de.con		;change device record
+s.n22b:	bisb	#as22b$,s$dcur+un.asp	;clear 22-bit addressing
+	inc	s$dunm			;changed unit
+	sdcdr$	#as22b$	de.con		;change device record
+
+s.devi:	inc	s$ddeo			;device record only
+	return
+s.unit:	inc	s$duno			;unit record only
+	return
+.sbttl	set handler
+
+;	SET ddn option command
+; 
+;	r5 ->	command input
+;	r4 ->	output area - largely unused
+; 
+;	s$dhan	set device option list
+; 
+;	OPER	Required to set any device attribute
+
+sd$han::cright	#sropr.			;needs operator rights
+	call	sd$ini			;setup
+					;get our process number
+	setup	s$dhan,sd$lex		;set it up
+	scan	<^IW=1F=1Q="Device? "> 	;get the device
+;	edit	<Q="Option? "e1Q="">	;/22bit adjustment
+;	scanend	<^OF=1>			;get the option
+	edit	<^O(@\*~|?)>		;copy the option field
+	call	sd$nam			;parse device name
+	$cmkrnl	#k$mare, #sd$ksh pic=yes;perform kernel operations
+	call	sd$err			;check errors
+	call	sd$cfn			;convert filename to ascii
+	edit	<^Z"r handlr"}"set">	;call cusp
+	edit	<e0> 10$		;no 22bit option
+	edit	<"/22bit">		;
+10$:	tst	s$duni			;got a unit number?
+	beq	20$
+	add	#60,s$duni		;convert to ascii
+	edit	<"/unit=">		;
+	movb	s$duni,(r4)+		;
+20$:	edit	<" "_L>			;get filename
+	edit	<" "_O}"exit"}>		;
+	jmp	build			;issue command
+
+s$dhan:
+option	22BIT	1 _	null	s.h22b	;
+option
+
+s.h22b:	edit	<e=1>			;
+	return
+
+;	Convert filename from device record to ascii stream
+
+sd$cfn:	mov	$linker,r1		;get an output stream
+	mov	#s$dsdr+de.fnm,r2	;get the filename
+	mov	(r2)+,r0		;get device name
+	call	cv$rfl			;rad50 to ascii, lower case
+	movb	#':,(r1)+		;colon for device name
+	mov	(r2)+,r0		;first part of filename
+	call	cv$rfl			;
+	mov	(r2)+,r0		;possible second part
+	beq	10$			;none there
+	call	cv$rfl			;
+10$:	movb	#'.,(r1)+		;filetype dot
+	mov	(r2)+,r0		;convert filetype
+	call	cv$rfl			;
+	clrb	(r1)			;terminate string
+	return				;
+.sbttl	get name, errors
+
+;	Get the device name
+;
+;	c=1	invalid name
+
+sd$nam:	mov	$input,r3		;point to the name
+	mov	r3,r1			;point to it
+	call	cv$asu			;convert to upper case
+	mov	r3,r5			;point again
+	edit	<!@\@@>,,100$		;skip the device name
+	edit	<!@> 100$		;maximum of three characters
+	clrb	(r5)			;terminate it
+	tst	s$dpdn			;physical device name?
+	bne	20$			;yes - do not translate it
+	mov	#20.,r1			;count this
+10$:	$trnlog	#k$mare, r5, #0, r5, #0, #0, #0
+	bcs	20$			;no more
+	sob	r1,10$			;more
+	br	100$			;invalid device name
+					;
+20$:	mov	r3,r5			;point again
+	edit	<!@\@@>			;skip to the end of it
+	movb	#':,(r5)+		;make it a device name
+	mov	r3,r5			;point again
+	mov	#s$ddna,r4		;get the device name
+	edit	<@\@@!:>,,100$ 		;get the name itself
+	mov	#s$ddna,r1		;point to the name
+	call	cv$arf			;convert to rad50
+	mov	r0,s$ddnr		;store the name in rad50
+	beq	100$			;
+	return				;
+100$:	mov	#sdidn.,r0		;invalid device name
+	fall	sd$err			;report and quit
+
+;	Display error messages
+;
+;	r0	message code - zero is not an error
+
+sd$err:
+	tst	r0			;got an error?
+	beq	10$			;no
+	asl	r0			;yes
+	mov	s$derr(r0),r2		;point to the message
+	messag	<> txa=r2 rou=str par=$input ;display message and quit
+10$:	return
+.sbttl	kernel allocate
+.psect	setdkc
+
+;	KERNEL allocate routine
+;
+;	r2 ->	device record.
+;	r3 ->	unit record. zero => none.
+;	r4	unit number
+;
+;	r0=0	fine
+;	r0=n	error code
+;
+;	Must have read access to the device.
+
+sd$kal:	call	sd$kfd			;find the device
+	bcs	40$			;oops - no device
+	mov	#sdalc.,rp.r0(r5)	;assume allocated
+	movb	un.own(r3),r0		;is it allocated
+	beq	20$			;nope
+	cmpb	r0,@#p$hprn		;allocated by us?
+	beq	30$			;yes - its ours
+	br	40$			;no - already allocated
+					;
+20$:	mov	#sddam.,rp.r0(r5)	;assume already mounted
+	bit	#unmou$,un.con(r3)	;already mounted?
+	bne	40$			;yes
+					;
+	call	sd$gar			;get access rights
+	mov	#sdmsr.,rp.r0(r5)	;missing rights
+	asr	r0			;do we have read rights?
+	bcs	40$			;missing read rights
+	movb	@#p$hprn,un.own(r3)	;set us up
+	bis	#unalc$,un.con(r3)	;remember it
+30$:	clr	rp.r0(r5)		;no errors
+40$:	$cmpro				;back to process mode
+	return
+.sbttl	kernel deallocate
+.psect	setdkc
+
+;	Deallocate one device
+
+sd$kdl:	call	sd$kfd			;find the device
+	bcs	40$			;oops - no device
+	mov	#sddna.,rp.r0(r5)	;assume not allocated
+	movb	un.own(r3),r0		;is it allocated
+	beq	40$			;nope
+	cmpb	r0,@#p$hprn		;allocated by us?
+	bne	40$			;nope - can't change
+20$:	clrb	un.own(r3)		;no longer allocated
+	bic	#unalc$,un.con(r3)	;remember it
+30$:	clr	rp.r0(r5)		;no errors
+40$:	$cmpro				;back to process mode
+	return				;
+
+;	Deallocate all devices
+;
+;	Update SPS:SDP.MAC and DCS:POLL.MAC for any changes.
+
+sd$kda:	$cmsch				;dont schedule under this
+	mov	#d$edes,r0		;r0 -> devices
+	mov	(r0)+,r1		;r1 = device count
+30$:	mov	(r0)+,r2		;r2 = device
+	beq	60$			;not loaded
+	psh	r1			;save device count
+	add	#de.unm,r2		;r2 -> device map
+	mov	#8.,r1			;r1 = units
+40$:	mov	(r2)+,r3		;get next unit
+	beq	50$			;not loaded
+	cmpb	@#p$hprn,un.own(r3) 	;owned?
+	bne	50$			;no
+	bic	#unalc$,un.con(r3) 	;yes
+	clrb	un.own(r3)		;deallocate it
+50$:	sob	r1,40$			;more
+	pop	r1			;device count
+60$:	sob	r1,30$			;more devices
+	$cmpro				;back to the process
+	clr	rp.r0(r5)		;no errors
+	return				;
+.sbttl	set device kernel routine
+.psect	setdkc
+
+;	SET DEVICE kernel routine
+;
+;	PIC code
+;
+;	s$ddnr is rad50 device name
+;	Local records contain set/clear information
+;	OPER rights required
+;
+;	r2 ->	device record.
+;	r3 ->	unit record. zero => none.
+;	r4	unit number
+;
+;	r0=0	fine
+;	r0=n	error code
+
+sd$ksd:	call	sd$kfd			;find device
+	bcs	40$			;oops - no device
+					;
+	$float				;go into system state
+	tst	s$duno			;unit record only?
+	bne	20$			;yes - skip device
+	mova	s$dcdr,r0		;get the device clear record
+	mova	s$dsdr,r1		;device set
+	mov	#de.bbs/word,r4		;supply a count
+	call	100$			;do it
+					;
+20$:	tst	s$ddeo			;device only?
+	bne	30$			;yes
+	mova	s$dcur,r0		;clear unit
+	mova	s$dsur,r1		;set unit
+	mov	r3,r2			;point to it
+	mov	#un.bbs/word,r4		;count it
+	call	100$			;modify it
+30$:	$land				;return from system state
+40$:	$cmpro				;back to process mode
+	return
+
+100$:	bic	(r0)+,(r2)		;clear it
+	bis	(r1)+,(r2)+		;set it
+	sob	r4,100$			;do it again
+	return
+.sbttl	kernel set handler
+.psect	setdkc
+
+;	Set handler kernel routine
+;
+;	pic code
+;
+;	s$dsdr	return handler filename
+;	s$dsur	return unit number
+
+sd$ksh:	call	sd$kfd		;find the device
+	bcc	5$		;fine
+	cmp	#sddnf.,rp.r0(r5) ;device not found?
+	bne	5$		;nope
+	mov	#sdhna.,rp.r0(r5) ;handler name not available
+	br	20$		;and quit
+5$:	clr	rp.r0(r5)	;no error
+	add	#de.fnm,r2	;point to filename
+	mova	s$dsdr,r0	;get our device record
+	add	#de.fnm,r0	;point to filename
+	mov	#4,r1		;get a counter
+10$:	mov	(r2)+,(r0)+	;copy it in
+	sob	r1,10$		;
+20$:	return			;
+.sbttl	kernel utilities
+.psect	setdkc
+
+;	Find device
+;
+;	r2	->	device record
+;	r3	->	unit record
+;	s$duni	=	unit number
+;
+;	sddnf.	device not found
+;	sdunl.	unit not loaded
+
+sd$kfd:					;kernel - find device
+	$cmsch				;block scheduler
+	mov	s$ddnr,r0		;get rad50 device name
+	tst	s$dpdn			;want physical device?
+	bne	10$			;yes - don't translate it
+	mov	#sddnf.,rp.r0(r5) 	;assume device not found
+	call	@#na$clp		;convert logical to permanent
+	bcs	30$			;oops - invalid device
+10$:	call	@#na$cpi		;convert permanent to index
+	bcs	30$			;device not installed
+	mov	r3,s$duni		;save unit number
+	call	@#na$cir		;get the records
+	tst	r2			;got a device record?
+	beq	30$			;no - this should not occur
+	mov	#sdunl.,rp.r0(r5) 	;assume not loaded
+	tst	r3			;got a unit record?
+	bne	20$			;yes
+	tst	s$dunm			;unit modifications?
+	bne	30$			;yes - device not loaded
+20$:	clr	rp.r0(r5)		;no error
+	tst	(pc)+			;device found
+30$:	sec				;not found 
+	return
+.sbttl	get device access rights
+.psect	setdkc
+
+;	Build composite:
+;	Add VOLPRO
+;	Remove write if /nowrite
+;	Remove all if allocated somewhere else
+;	Add read if /execute and channel=17.
+;
+;	r1 =	target uic
+;	r2 =	target protection (negative)
+;	r3 ->	unit record
+;
+;	r0 =	access rights - negative
+
+sd$gar:				;get access rights
+ap$car:				;check access rights
+	mov	un.uic(r3),r1	;get unit uic
+	mov	un.pro(r3),r2	;get the protection
+	call	ar$gpm		;get process mask
+	bit	#srvol$,@#p$hsr0+sr.vol ;do we have volume rights?
+	beq	10$		;nope
+	clr	r0		;yes take all (negative)
+10$:	return
+
+;	Get access composite
+;
+;	ar$gpm	get current process access rights
+;	ar$ggm	get generic access rights (r0 -> arr)
+;
+;	r0 ->	accessor arr
+;		p$harr for ar$gpm
+;	r1	target uic
+;	r2	target protection negative
+;
+;	r0 =	access rights negative
+
+ar$gpm:	mov	#p$harr,r0	;get process access mask
+ar$ggm:				;get generic access mask
+	call	ar$gga		;get generic access
+	com	r0		;get positive
+	psh	r0		;save this a second
+	ash	#-4,r0		;move this across
+	bis	r0,(sp)		;set these in
+	movb	1(sp),r0	;get the high byte
+	bisb	(sp)+,r0	;get the low byte
+	com	r0		;get negative
+	return
+.sbttl	get access rights
+.psect	setdkc
+
+;	Get access rights
+;
+;	ar$gpa	get process access rights (p$harr = arr)
+;	ar$gga	get generic access rights (r0 -> arr)
+;
+;	r0 ->	access rights record
+;		ar.uic
+;		ar.pro
+;		ar.ar0
+;		ar.ar1
+;		ar.ar2
+;		ar.ar3
+;
+;	r1	target uic
+;	r2	target protection (negative)
+;
+;	r0	access rights (negative)
+
+	assume	ar.uic eq 0	;
+	assume	ar.gic eq 1	;
+ar$gpa:	mov	#p$harr,r0	;r0 -> process access rights record
+ar$gga:	psh	r3		;get generic access rights
+	mov	#aral$p,r3	;assume all rights (positive)
+	bit	#srbyp$,ar.sr0+sr.byp(r0) ;do they have bypass?
+	bne	30$		;yes - all rights
+				;
+	cmp	r1,(r0)		;is this the owner?
+	beq	10$		;yes
+	bic	#arow$p,r3	;its not owner
+				;
+	psh	r1		;no - get group
+	swab	(sp)		;get it low
+	cmpb	(sp)+,ar.gic(r0);this the group?
+	beq	10$		;its the group
+	bic	#argr$p,r3	;its not group
+				;
+10$:	bit	#srsys$,ar.sr0+sr.sys(r0) ;do they have sysprv?
+	bne	20$		;yes
+	cmpb	ar.gic(r0),@#s$ygrp  ;are they in a system group?
+	blos	20$		;yes
+	bic	#arsy$p,r3	;nope - remove system access
+				;
+20$:	mov	r3,r0		;get potential protection (positive)
+				;r0 = all potential rights (positive)
+	bic	r2,r0		;remove missing rights
+				;r0 = granted rights (positive)
+30$:	com	r0		;convert it to a negative
+	pop	r3		;
+	return
+.end
+

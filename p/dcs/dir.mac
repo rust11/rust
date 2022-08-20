@@ -1,0 +1,136 @@
+.title	dir command
+.include "dcs:dcl.mac"
+.psect	dir
+
+;	+---------------------------+
+;	| KMS:KMON uses this file   |
+;	+---------------------------+
+
+;	RUST/XM DIRECTORY command
+;
+;	%build
+;	macro	dcs:dir	/object=dcb:
+;	%end
+;	%date
+;	<16-Apr-2003 25:26:48.00>
+;	%edit
+;	<21   >
+;
+;	BAD	DUP
+;	DOS	FILEX
+;	INTER	FILEX
+;	BACKUP	DUP
+
+;set	dir 1, dup 2, filex 3, snoop 4, bup 5, vir 6, build 7
+
+map	dir,,1
+map	dup,,2
+map	filex,,3
+map	snoop,,4
+map	bup,,5
+map	vir,,6
+map	build,,7
+
+direct::setup	$dir
+	world			;get the net table
+	movb	$card(r0),r0	;get the wildcard status
+	edit	<W=1r0N="*"T=".*">;setup the defaults
+	scan	<F=0^M>		;get the first part
+	scanend	<F=6^I>		;get the optional filespecs
+	edit	<I0I="DK:">	;default input
+	edit	<O0O="TT:">	;default output
+	call	vax		;
+	edit	<C2|b1"/F">	;fast for DIR and FILEX
+	edit	<V1"/L"|C3"/L"|C5"/L">	;/L for VIP, FILEX & BUP
+	edit	<w1C1"/E"|w1"/W">;if wait pip=/E, dup/filex=/W
+;edit	<V1C="VIR"|C1C="DIR"|C2C="DUP"|C3C="FILEX"|C4C="SNOOP"|C="BUP">
+;edit	<V1C="VIR"|C1C="VIR"|C2C="DUP"|C3C="FILEX"|C4C="SNOOP"|C="BUP">
+edit <V1C="VIR"|C1C="VIR"|C2C="VUP"|C3C="FILEX"|C4C="SNOOP"|C7C="BUILD"|C="BUP">
+	jmp	program		;and generate it
+
+$dir:
+option	BUILD		1 D	build
+option	DETAILED	1 _	snoop		;not RT-11
+option	BLOCKS		1 B	dir
+option	POSITION	1 B	dir
+option	BRIEF		1 _	null	brief
+option	FAST		1 _	null	brief
+option	FULL		1 E	dir
+option	SUMMARY		1 N	dir
+option	COLUMNS		1 C	dir	value.
+option	ORDER		1 S	dir	value
+option	SORT		1 S	dir	value
+option	EXCLUDE		1 P	dir
+option	ALPHABETIZE	1 A	dir
+option	OCTAL		1 O	dir
+option	NEWFILES	1 D	dir
+option	DATE		1 D	dir	value.
+option	SINCE		1 J	dir	value.
+option	BEFORE		1 K	dir	value.
+option	FREE		1 M	dir
+option	NOHEADERS	1 _	dir	d.nhd
+option	INTERCHANGE	1 U	filex		l=0
+option	DOS		1 S	filex		l=0
+option	TOPS		1 T	filex		l=0
+option	OWNER		1 _	filex	owner	l=0
+option	BADBLOCKS	1 K	dup
+option	FILES		1 F	dup
+option	DELETED		1 Q	dir
+option	REVERSE		1 R	dir
+option	BEGIN		1 G	dir
+option	PRINTER		1 _	null	printer  l=0
+option	TERMINAL	1 _	null	terminal l=0
+option	OUTPUT		1 _	null	output	 l=0
+option	ALLOCATE	1 _	null	allocate l=0
+option	VERIFY		1 H	dup
+option	START		1 G	dup	value.
+option	END		1 E	dup	value.
+;option	DUMP		1 I	dir	value.
+option	VAX		1 _	null	d.vax
+option	SIZE		1 B	dir
+;
+option	BACKUP		1 _	bup
+option	PROTECTION	1 T	dir
+option	NOPROTECTION	1 U	dir
+;
+option	VOLUMEID	1 V	null	value		;dir/filex only
+option	WAIT		1 _	null	d.wait
+option	BY_OWNER	1 Q	dir	valuic
+;
+option	TIME		1 _	dir	d.tim
+option	UIC		1 _	dir	d.uic
+option	LIST		1 _	dir	d.lst
+option	ORGANIZATION	1 _	dir	d.org
+option	VERSION		1 _	dir	d.ver
+option	TENTATIVE	1 _	null	d.tent	;/q:ten
+option 	MODIFIED	1 _	dir	d.mod
+;
+;option	OPEN		1 ?	null	d.open	;/l:ope
+option	LOG		1 L	dup		;VUP only		;V4
+option	NOLOG		1 _
+option	
+
+d.mod:	edit	<"/S:DAT/R">	;/modified
+	return
+d.tent:	edit	<"/Q:TEN">	;/tentative only
+	return			;
+brief:	edit	<b=1>		;remember its fast
+	return
+d.vax:	edit	<V=1>		;remember its vax
+	return
+d.wait:	edit	<w=1>		;remember its wait
+	return
+d.tim:	edit	<"/L:TIM">	;
+	return
+d.uic:	edit	<"/L:UIC">	;
+	return
+d.lst:	edit	<"/L:LIS">	;
+	return
+d.org:	edit	<"/L:ORG">	;
+	return
+d.ver:	edit	<"/L:VER">	;
+	return
+d.nhd:	edit	<"/L:QUI">	;/noheaders
+	return
+.end
+

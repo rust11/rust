@@ -1,0 +1,56 @@
+.title	rights
+.pass	
+
+	u.sman	==	1	;system manager
+	u.sopr	==	2	;system operator
+	u.sphy	==	4	;physical i/o
+	u.suse	==	10	;system user
+	u.sboo	==	10	;boot
+	u.slog	==	20	;logout
+	u.scli	==	40	;set cli
+	u.scty	==	100	;set ctrly
+	u.stel	==	200	;tell and stop
+	u.spro	==	400	;change file-protection
+
+meta	<right c,d><.word c><.ascii &d&<200>><.even>
+
+lefts::
+right	u.sman	<Manager>
+right	u.sopr	<Operator>
+right	u.suse	<System>
+right	u.sphy	<Init/Squeeze>
+right	u.stel	<Tell/Stop>
+right	u.scli	<Cli>
+right	u.scty	<Ctrly>
+;right	u.slog	<Logout>
+	.word	0
+
+; this module checks rights for KMON commands	
+
+wrong::	type	<?DCL-F-Insufficient rights>
+	mov	-(r5),r2	;get the right
+	call	begin
+10$:	bit	r2,(r1)
+	bne	20$
+	call	next
+	bcc	10$
+	jmp	setfat
+
+20$:	type	<: >
+	tst	(r1)+
+	.print	r1
+	print
+	jmp	setfat
+
+begin:	mov	#lefts,r1
+	return
+next:	tst	(r1)+
+10$:	tstb	(r1)+
+	bpl	10$
+	inc	r1
+	bic	#1,r1
+	tst	(r1)
+	bne	20$
+	sec
+20$:	return
+.end

@@ -1,0 +1,102 @@
+.title	delete command
+.psect	delete
+.pass
+set pip 1, filex 2, spool 3, symb 4, prc 5
+
+;V5	Noted - /QUERY logic is wierd and redundant
+
+;-------------------------------;
+; delete			;
+;-------------------------------;
+delete::case	<rename,print,type,press,protec,unprot>
+	setup	$delete
+	world			;get the net table
+	movb	$card(r0),r0	;get the wildcard setting
+	edit	<W=1r0N="*"T=".*"> ;default name and type
+;-------------------------------;
+; search for DELETE/JOB		;
+;-------------------------------;
+	cmpb	(r5),#'/	;slash following?
+	bne	5$		;nope
+	movb	1(r5),r0	;
+	call	cv$acu		;convert to upper
+	cmpb	r0,#'J		;this delete/job?
+	bne	5$		;nope
+	mov	#dej.bat,r0	;
+	jmp	batch		;dcs:batch
+				;
+5$:	scan	<^M>		;get the command options
+	edit	<C4> 10$	;delete symbol				;?239
+	scanend	<^IF=6Q="Files? "> ;get the files
+	call	vax		;check for vax				;?288
+	edit	<q3|C1W3"/Q">	;/query for pip
+	edit	<"/D">
+;	edit	<V1C="VIP"|C2C="FILEX"|C="PIP">				;?284
+	edit	<V1C="VIP"|C2C="FILEX"|C="VIP">				;?284
+	jmp	program
+;-------------------------------;
+; delete/symbol			;
+;-------------------------------;
+10$:	edit	<c1> 20$	;is it all?				;?239+
+	tstb	(r5)		;got a symbol coming?
+	bne	15$		;yes - don't prompt
+	scanend	<^IF=1Q="Symbol? ">	
+15$:	edit	<!\ >		;strip the space off
+	mov	#del.met,r0	;signal delete meta
+	jmp	meta		;and delete it
+;-------------------------------;
+; delete/symbol/all		;
+;-------------------------------;
+20$:	world			;get the symbol table
+	mov	$metas(r0),r0	;get the list
+	beq	40$		;ignore it - there are none
+;30$:	clrb	(r0)+		;clear the next
+;	cmpb	(r0),#-1	;this the end of them?
+;	bne	30$		;yes
+	mov	#dpuse.,r0	;user symbols
+	clr	r1		;delete the space too
+	call	dp$adj		;remove them all
+40$:	jmp	kmon		;and exit				;?239.
+
+;-------------------------------;
+; /J.. jumps to DELETE/JOB	;
+;-------------------------------;
+$delete:
+option	QUERY		1 Q	pip	noquery
+option	NOQUERY		1 _	null	noquery
+option	NOLOG		1 _	pip
+option	LOG		1 W	pip	noquery
+option	SYSTEM		1 Y	pip
+option	NEWFILES	1 C	pip
+option	EXCLUDE		1 P	pip
+option	POSITION	2 M	pip	value.	l=0
+option	DOS		2 S	filex		;l=0			;v5.1
+option	INTERCHANGE	2 U	filex		;l=0			;v5.1
+option	WAIT		1 E	pip
+option	ENTRY		2 M	null	optnot
+option	NAME		1 _	null	optnot
+option	SYMBOLS		1 S	symb					;?239
+option	ALL		1 A	symb	all				;?239
+option	VAX		1 _	null	d.vax				;?284
+;
+option	DATE		1 C	pip	value.
+option	SINCE		1 I	pip	value.
+option	BEFORE		1 J	pip	value.
+option	INFORMATION	1 X	pip
+option	BY_OWNER	1 Q	pip	valuic
+;
+option	PROCESS		1 _	prc	d.proc
+option
+
+;query:	edit	<q=1>		;remember query
+;	return
+noquery:edit	<q=3>		;remember noquery
+	return
+all:	edit	<c=1>		;remember /ALL				;?239
+	return
+d.vax:	edit	<V=1>		;					;?284
+	return
+d.proc:	mov	#.spdel,r0	;delete/process
+	jmp	setpro		;
+.end
+

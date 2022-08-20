@@ -1,0 +1,86 @@
+.title	link command
+.pass
+set .link 1
+
+;	count /link/debug files for too many files
+
+link::	setup	$link
+	edit	<x=2D="LP:">	;setup the listing default
+	scan	<F=6^I>		;get switches and /link:aaa's
+	edit	<,>		;get a trailing comma
+	edit	<m0x=2D="DK:">	;change to DK: if not generic map	;?293
+	scanend	<Q="Files? ">	;get the files
+	tstb	@$files		;too many files?
+	bpl	10$		;nope, its o.k.
+	fatal	<Too many files>;nope, its not o.k.
+10$:	edit	<x=1e0f0^f_D_a>	;setup the execute name
+	edit	<x=2m%f0^f_D_a>	;setup the map name
+	edit	<x=3l%f0^f_D_a>	;setup the stb name
+	edit	<^Z"R LINK"}>	;run the compiler
+	edit	<x=1_f","x=2_f","x=3_fx=0"="_O,_I_S}> ;the command line
+	edit	<"^C"}>		;kill the compiler
+	edit	<s1"R "x=1_[f}>	;run the file
+	jmp	build		;go copy it out
+
+$link:
+option	EXECUTE		1 _	null	l.execute l=0
+option	NOEXECUTE	1 _	null	noexecute
+option	MAP		1 _	null	map	l=0
+option	NOMAP		1 _	null
+option	LIBRARY		1 _	null	l.link	l=O
+option	LINKLIBRARY	1 _	null	l.link	l=O
+option	DEBUG		1 _	null	l.debug	l=O
+option	RUN		1 _	null	l.run
+option	INCLUDE		1 I	.link
+option	FOREGROUND	1 R	.link	value
+option	FILL		1 Z	.link	value
+option	WIDE		1 W	.link
+option	SLOWLY		1 S	.link
+option	LDA		1 L	.link
+option	STACK		1 M	.link	value
+option	BOTTOM		1 B	.link	value
+option	TRANSFER	1 T	.link	value
+option	EXTEND		1 E	.link	value
+option	ROUND		1 U	.link	value
+option	BOUNDARY	1 Y	.link	value
+option	PROMPT		1 /	.link
+option	ALLOCATE	1 _	null	allocate l=0
+option	BITMAP		1 _	.link
+option	NOBITMAP	1 X	.link
+option	ALPHABETIZE	1 A	.link
+option	TOP		1 H	.link	value
+option	XM		1 V	.link
+option	SYMBOLTABLE	1 _	.link	table	l=0
+;
+option	DUPLICATE	1 D	null
+option	GLOBAL		1 N	null
+option	CROSSREFERENCE	1 N	null
+option	LIMIT		1 K	null	value.
+option	LOAD		1 Q	null
+;ption	G MULTIPLE=LARGESt
+;ption	P LIB ROUTINES=N
+option
+
+.enabl	lsb
+l.debug:edit	<!:> 10$	;use their name
+	edit	<"DK:ODT"> 15$	;use ours instead
+l.link:	edit	<!:>,,20$	;no colon, no action
+10$:	edit	<,(@|?)\@@\:|"DK:")(@\@@@@@\|.?)(.\@@@\)>
+15$:	decb	@$files		;count object files
+20$:	return
+.dsabl	lsb
+
+l.run:	edit	<s=1>		;remember to run it
+	return
+
+noexecute:edit	<e1|e=K>	;remember no execute file
+	return
+
+l.execute:edit	<r=1>		;set it up
+	br	complex		;and go handle it
+map:	edit	<r=2m=1>	;doing list, setup the flag
+	br	complex		;and fall into the files handler
+table:	edit	<r=3l=1>	;wants a symbol table
+	fall	complex
+				;FILES.MAC followes here
+

@@ -1,0 +1,286 @@
+rtx$c=1
+v11$c=1		;V11 tests
+.title	host
+.pass
+.include "lib:share.mac"
+$dcdef
+$jbdef
+$rmdef
+$rxapi
+$vedef
+$vrdef
+meta <.idle c><mov c,r0><emt 361>
+set	syindx 364, syunit 274
+
+o$pmes::
+os$hom::
+op$clr::
+ov$ini::
+os$har::
+os$ini::
+os$clp::return
+
+; setup kmon and satellite monitor tables.
+
+host::				;out: r0 -> world
+	psh	r1		;save this guy
+	call	ho$v11		;V11 tests
+.if ne rtx$c
+	call	ho$rtx		;RTX tests
+.endc
+	world			; r0 -> net table
+	mov	#k$mrig,r1	;point to us
+	cmp	(r1),#$rights	;setup already?
+	bne	5$		;yes
+	add	r0,(r1)+	;
+	add	r0,(r1)+	;
+5$:	mov	$csr(r0),k$msys	;get the system flag			;?180
+	cmp	k$msys,#2	;rust?
+	bne	6$		;nope
+	call	gslots		;get the slots
+	br	55$		;
+6$:	clr	k$mrus		;not rust
+	.gslots	#$slots		;get the slot tables
+	tst	k$msys		;share?
+	beq	60$		;yep
+	mov	limit+2,r2	;get the workspace
+	.idle	r2		;go get the results
+	world			;get the world
+	movb	(r2),$sid(r0)	;qa2 satellite number
+	mov	(r2)+,$satn(r0)	;get the satellite number and maximum	;?208
+	mov	(r2)+,@$syassg	;qa3 system device
+	mov	sysptr,r1	;get the monitor
+	mov	(r2)+,syunit(r1);qa4 system unit
+	mov	(r2)+,syindx(r1);qa5 system index
+	call	slotch		;check the host slot count
+
+	mov	#$pname,r5	;the list of lists
+	call	fill		; $pname
+	call	fill		; $hentry
+
+	tst	(r2)+		;skip the -1 after hentry		;?186
+10$:	tst	-(r4)		;is it loaded
+	beq	20$		;nope
+	mov	sysptr,(r4)	;make it resident
+20$:	cmp	r4,$hentry	;was this the last?
+	bne	10$		;nope
+	call	fill		; $stat
+
+	tst	$locals		;any local devices?
+	beq	60$		;nope, forget the others
+30$:	call	fill		; $dvrec, $hsize, $dvsize
+	tst	(r5)		;any more?
+	bne	30$		;yep
+	mov	$pname,r3	;get the pname list			;?112+
+	mov	$pname,r1	;get the local list
+	add	$hosts,r1	;point to the local list
+40$:	cmp	r1,$hentry	;done them all?
+	bhis	60$		;yep
+	mov	(r1)+,r2	;get the next
+	mov	$pname,r3	;
+50$:	cmp	(r3)+,r2	;search for a duplicate
+	bne	50$		;must be found
+	cmp	r3,r1		;was it ourselves?
+	beq	40$		;yes, look at the next
+	clr	-(r3)		;nope, remove host duplicate
+	br	40$		;and look at the next			;?112-
+55$:	mov	#1,k$mrus	;specifically rust
+	mov	$stat,r0	;
+	cmpb	2(r0),#denfc.	;NF:?
+	bne	80$		;nope
+	inc	k$mrnf		;RUST on NF
+	neg	k$mrus		;RUST on NF: is -1
+	br	80$		;nothing special for IND
+60$:	world			;get the world				;?209
+	mov	$satn(r0),k$msat;sat # and max
+	mov	$jobn(r0),k$mjob;job # and max
+	beq	70$		;not share or vrt
+	call	sharet		;test for share
+	bcc	65$		;share
+	inc	k$mvrt		;specifically vrt
+	br	80$		;
+65$:	inc	k$msha		;specifically share
+70$:	world
+	tst	$ind+4(r0)	;got a job name yet?
+	bne	80$		;yes
+	movb	k$msat,r3	;nope get the satellite
+	asl	r3
+	mov	n$sats(r3),$ind+4(r0)
+	movb	k$mjob,r3	;get the job number
+	asl	r3
+	add	n$jobs(r3),$ind+4(r0)
+80$:	world			;return R0
+	pop	r1
+	return			;nope
+
+;	Copy host slots to satellite.
+;
+;	Maximum host slots used is 25.
+;	If the host has more than us, we ignore some
+;	If we have more than the host we skip some.
+
+fill:	mov	(r5)+,r4	;get the next list
+	mov	$hosts,r3	;get the count
+	asr	r3		;divide it
+	beq	30$		;crazy
+10$:	mov	(r2)+,(r4)+	;get the bugger
+	dec	r3		;any more
+	bne	10$		;yep
+	mov	$skip,r3	;do we have to skip some?
+	bpl	30$		;nope
+20$:	tst	(r2)+		;skip one
+	add	#2,r3		;count them
+	bne	20$		;thus
+30$:	return
+
+slotch:	mov	r2,r0		;first word of $pname
+10$:	cmp	(r0)+,#-1	;must be found
+	bne	10$		;
+	tst	-(r0)		;backup
+	sub	r2,r0		;get the number of slots
+	asr	r0		;r0 = host slot count
+	mov	$hosts,$skip	;compute difference
+	sub	r0,$skip	;$skip = create_slots-host_slots
+	beq	20$		;we are correct
+	bmi	20$		;we've too few - some host slots lost
+	mov	r0,$hosts	;we've too many - use actual host count
+20$:	return
+
+share::	tstb	k$mjob		;are we a satellite?
+	bne	10$		;yes
+iotpro==.
+	fatal	<SHARE-eleven required>
+10$:	return
+
+right::	bit	(r5)+,@k$mrig	;do we have this right?
+	bne	10$		;yes
+	jmp	wrong		;nope
+10$:	rts	r5		;o.k.
+
+gslots:	save			;
+	mov	@#j$bsys,r5	; RUST gslots
+	mov	r5,r4		;
+	add	rm.pnp(r5),r4	; r4 -> $pname
+	mov	#$slots,r3	; r3 -> local table
+	movb	rm.sl2(r5),r2	; r2 = slots * 2
+	mov	r2,(r3)+	; $slots
+	clr	(r3)+		; $hosts
+	mov	r2,(r3)+	; $locals
+	mov	r4,r1		;
+	sub	r2,r1		;
+	bit	-(r1),-(r1)	; over sy/dk
+	mov	r1,4(r3)	; $unam2
+	tst	-(r1)		;
+	mov	r1,2(r3)	; syassg
+	tst	-(r1)
+	sub	r2,r1		;
+	mov	r1,(r3)+	; $unam1
+	cmp	(r3)+,(r3)+	; syassg, $unam2
+	mov	r4,(r3)+	; $pname
+	add	r2,r4		;
+	mov	r4,(r3)+	; $hentry
+	add	r2,r4		;
+	tst	(r4)+		; skip terminator
+	mov	r4,(r3)+	;
+	mov	#4,r1		;
+10$:	add	r2,r4		;
+	mov	r4,(r3)+	; $stat, $dvrec, $hsize, $dvsiz
+	sobw	r1,10$		;
+	return
+
+.if ne v11$c
+ho$v11:	psh	v$eiot			; save it
+	psh	v$eiot+2		;
+	mov	#20$,@#v$eiot		; setup a trap catcher
+	clr	v$eiot+2		;
+	mov	sp,r1			;
+	psh	#vrDET.			; detect
+	iot				;
+	.word	vrSIG.			;
+;	mov	r0,b$tv11		; remember it
+;	mov	#1,b$temu		; is an emulator
+	beqb	r0,#vrPDP.,10$		; PDP-11 mode
+	inc	k$mvrt			; it's VRT
+10$:	inc	k$mv11			; V11
+20$:	mov	r1,sp			; dump trap
+	pop	v$eiot+2		; restore
+	pop	v$eiot			; 
+	return				;
+.endc
+
+.if ne rtx$c
+ho$rtx:	rxdet$
+	bne	10$
+	mov	@#j$brtx,k$mrtx
+10$:	return
+.endc
+
+$skip::	.word	0	;host slots to skip
+
+$slots::.word	0	;\total slot count
+$hosts::.word	0	;|host slot count
+$locals::.word	0	;|local slot count
+$unam1::.word	0	;|pointers to first slot
+$syassg::.word	0	;|
+$unam2::.word	0	;|
+$pname::.word	0	;|
+$hentr::.word	0	;|
+$stat::	.word	0	;|
+$dvrec::.word	0	;|
+$hsize::.word	0	;|
+$dvsiz::.word	0	;|
+	.word	-1	;/end of list
+k$msys::.word	0	;0=> share, <>0=> satellite or rust
+k$msat::.byte	0	;satellite number (zero if not satellite)	;?208
+k$msam::.byte	0	;maximum satellite number			;?208
+k$mjob::.byte	0	;job number (zero if satellite or RUST)		;?208
+k$mjom::.byte	0	;maximum job number				;?208
+k$msha::.word	0	;specifically share
+k$mvrt::.word	0	;specifically VRT
+k$mrus::.word	0	;specifically rust (a satellite with no locals)	;V4
+			;-1 => RUST on NF:
+k$mrnf::.word	0	; 1 =  RUST on NF:
+k$mwin::.word	0	;running under windows emulator
+k$mv11::.word	0	;V11 emulator
+k$mrtx::.word	0	;RTX emulator
+
+k$mwor::.word	0	;the world
+k$mrig::.word	$rights	;$rights pointer
+k$mter::.word	$terms	;$terms pointer	
+
+n$sats: .rad50	/00 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 /
+n$jobs: .rad50	/  0  1  2  3  4  5  6  7  8  9/
+.end
+.sbttl	rust get slots
+
+getslo:
+	clr	$hosts
+	mov	sysptr,r1	;get the monitor
+	add	pnptr(r1),r1	;point to the list
+	mov	r1,$pname	;$pname
+10$:	cmp	(r1)+,#-1	;look for the end of entry
+	bne	10$		;it must be found
+	mov	r1,$stat	;
+	mov	r1,r0		;
+	tst	-(r0)		;back off
+	sub	$pname,r0	;get the length
+	asr	r0		;$slots * 2
+	mov	r0,$slots	;slots
+	mov	r0,$local	;
+	add	r0,r1		;
+	mov	r1,$dvrec	;
+	add	r0,r1		;
+	mov	r2,$hsize	;
+	add	r0,r1		;
+	mov	r1,$dvsiz	;
+	mov	$pname,r1
+	sub	r0,r1
+	cmp	-(r1),-(r1)
+	mov	r1,$unam2	
+	tst	-(r1)
+	mov	r1,$syass
+	tst	-(r1)
+	sub	r0,r1
+	mov	r1,$unam1
+	return
+.end
