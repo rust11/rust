@@ -1,7 +1,9 @@
-file	dikbd - keyboard display
+file	gkkbd - keyboard character codes display
 include	rid:rider
-include	gkb:gkmod
 include	rid:mxdef
+include	gkb:gkmod
+
+;	special mode, rctrlo?
 
   func	gk_kbd
 	dcl : * dcTdcl
@@ -10,26 +12,37 @@ include	rid:mxdef
 	opt : * char
 	cnt : int
 
-;	special mode, rctrlo
-	PUT("?DIAG-I-Type characters, then return\n")
+	PUT("?KBD-I-Type characters, then <enter>\n")
+
       repeat
-	PUT("> ")
-	ipt = buf, cnt = mxLIN-1
+	PUT("KBD> ")
+	ipt = buf, cnt = mxLIN-3
 	while cnt--
 	   *ipt = rt_tin (1, 1)
-	   quit if *ipt eq '\r'
-	   ++ipt
-	end
-	rt_tin (1)			; get/skip lf
+	   quit if *ipt eq '!'
+	   quit if *ipt eq '\r'		; return
+	   ++ipt			;
+	end				;
+
+	rt_tin (1) if *ipt ne '!'	; get/skip lf
 	cnt = ipt - buf			;
 	opt = buf
-	PUT("\n[")
+
+	PUT("[")
 	while cnt--
 	   PUT("%o", *opt++ & 0377)	; next character
-	   quit if !cnt
+	   quit if !cnt			; nothing - we are done
 	   PUT(", ")
 	end
-	PUT("]\n")
+	PUT("] ")
+
+	next PUT("\n") if *ipt ne '!'
+	repeat
+	   PUT("%c", *ipt)
+	   *ipt = rt_tin (1, 1)
+	   quit if *ipt eq '\r'		; return
+	end				;
+	PUT("\n")
      forever
 	fine
   end
