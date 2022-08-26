@@ -11,13 +11,16 @@
 LOOP$:
 hdr$ gkmod
 rid$ geek
+mac$ gkimg
 mac$ gkbau
 !ac$ gkdev
+rid$ gkdlv
 mac$ gkflk
 rid$ gkkbd
 mac$ gklow
 mac$ gkmac
-mac$ gkmem
+mac$ gkmch
+!ac$ gkmem
 mac$ gkmmu
 rid$ gkpdp
 mac$ gkrad
@@ -32,8 +35,11 @@ mac$ gkvec
 LINK:
 log$ GKB:GEEK.SAV
 
-link gkb:geek/exe:gkb:/map:gkb:,lib:crt/prompt/cross/bottom:2000
+link /exe:gkb:geek/map:gkb:geek/prompt/cross/bottom:2000
+gkb:geek
+gkb:gkimg
 lib:output
+lib:crt
 gkb:gkkbd/o:1
 gkb:gksim
 gkb:gksna
@@ -45,12 +51,15 @@ gkb:gkmem/o:1
 gkb:gkmmu
 gkb:gklow
 !kb:gkdev
+gkb:gkdlv/o:1
 gkb:gkcfg/o:1
 gkb:gkrtx
 gkb:gkslo
 gkb:gkrad/o:1
 gkb:gkvec/o:1
-rvb:env/o:1
+gkb:gkmch/o:1
+rvb:bda,ere
+rvb:env,etx!
 //
 end$:
 end$

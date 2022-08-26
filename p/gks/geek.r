@@ -1,5 +1,6 @@
-;+++;	KANDR declar
-;+++;	GEEK processes must return to engine when possible
+;&&&;	ITS:LOGICA
+;&&&;	KANDR declar
+;&&&;	GEEK processes must return to engine when possible
 ;
 ;	SETUP CONSOL
 ;	SETUP DATIME
@@ -21,7 +22,7 @@
 ;	baud needs csr
 ;	rmon config|devices|etc
 ;
-file	GEEK - programmer tool box
+file	GEEK - programmer tool box
 include	rid:rider
 include	rid:dcdef
 include	gkb:gkmod
@@ -29,10 +30,6 @@ include rid:imdef
 
 	_cuABO := "I-RUST toolbox GEEK.SAV V1.0"	; ABOUT string
 
-  type	cuTctl
-  is	Pdcl : * dcTdcl
-	V1   : int
-  end
 	ctl : cuTctl = {0}
 
 code	cuAdcl - DCL processing
@@ -49,6 +46,7 @@ code	cuAdcl - DCL processing
 ;      "CONSOLE     Set console I/O addresses"
        "CPU         Force a cpu trap"
        "FLAKEY      Test process memory"
+       "DLV csr     Report DLV11 input"
        "HALT        Halt the processor"
        "KEYBOARD    Show input codes"
        "LOWMAP      Show protected vectors"
@@ -81,17 +79,22 @@ code	cuAdcl - DCL processing
 
      1, "AS*CII",	gk_asc, <>,	0, dcEOL_
      1,	"BA*UD",	dc_act, <>,	0, dcNST_
-     2,  <>,		dc_val,&ctl.V1,0,dcOCT|dcOPT_
+     2,  <>,		dc_val,&ctl.V1, 0, dcOCT|dcOPT_
      2,  <>,		cu_bau, <>,	0, dcEOL_
      1,	"BP*T",		gk_bpt, <>,	0, dcEOL_
      1,	"BU*S",		gk_bus, <>,	0, dcEOL_
      1,	"CO*NFIG",	gk_cfg, <>,	0, dcEOL_
      1,	"CP*U",		gk_cpu, <>,	0, dcEOL_
+     1,	"DL*V",		dc_act,	<>,	0, dcNST_
+      2,  <>,		dc_val,&ctl.Vcsr,0, dcOCT
+      2,  <>,		gk_dlv, <>, 	0, dcEOL_
      1,	"FL*AKEY",	gk_flk, <>,	0, dcEOL_
      1,	"HA*LT",	gk_hlt, <>,	0, dcEOL_
-     1,	"KE*YBOARD",	gk_kbd, <>,	0, dcEOL_
+     1,	"KE*YBOARD",	dc_act,	<>,	0, dcNST_
+      2,  <>,		gk_kbd, <>, 	0, dcEOL_
+      2, "/CO*MMENT",	dc_set,&ctl.Qcmt,1,0
      1,	"LO*WMAP",	gk_low, <>,	0, dcEOL_
-     1,	"MA*CHINE",	en$sta, <>,	0, dcEOL_
+     1,	"MA*CHINE",	gk_mch, <>,	0, dcEOL_
      1,	"ME*MORY",	cu_mem, <>,	0, dcEOL_
      1,	"PD*P*",	gk_pdp, <>,	0, dcEOL_
      1,	"PQ*",		gk_pqt, <>,	0, dcEOL_
