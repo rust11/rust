@@ -1,0 +1,298 @@
+.title	XRTMAC - XXRT System Macros
+
+;	%build
+;	libr/macro ctb:xrtmac cts:xrtmac
+;	copy ctb:xrtmac.mlb lib:xrtmac.mlb
+;	%end
+;
+;	------------------------------------------------------------------------
+;	XXAPI$ - XXDP+/XXRT system service calls
+;	------------------------------------------------------------------------
+;	XXDP has three addressing modes for EMTs that supply addresses:
+;	generic, position-indepenent and relocated. The APIR0A macro
+;	handles these as below (using SetLin as an example):
+;
+;	SetLin	adr		; MOV  adr,r0 - generic
+;	SetLin	adr,A		; MOVA adr,r0 - position-independent
+;	SetLin	adr,R		; MOVR adr,r0 - relocated
+
+.MACRO	XXAPI$
+	.MACRO	API NAM COD
+	 .macro	nam
+	   emt	^o<cod>
+	 .endm
+	.ENDM
+
+	.MACRO	MOV$ ADR,REG,MOD
+	  .if nb <adr>
+	    .if dif <adr>,<reg>
+	      .if idn <adr>,<#0>
+	        clr reg
+	      .iff
+	        mov'mod adr,reg
+	      .endc
+	    .endc
+	  .endc
+	.ENDM
+
+	.MACRO	APIR0 nam,cod,mod
+	  .macro nam,obj
+	    mov$ obj,r0,mod
+	    emt	 ^o<cod>
+	  .endm
+	.ENDM
+
+	.MACRO	APIR0A nam,cod
+	  .macro nam,obj,mod
+	    mov$ obj,r0,mod
+	    emt	 ^o<cod>
+	  .endm
+	.ENDM
+
+	API	GetLin 0	;
+	API	ParFld 1	;
+	APIR0	TypMon 2	; TypMon adr
+	APIR0A	TypMsg 3	; TypMsg adr[,A|R]
+	APIR0	PutCha 4,B	; PutCha cha
+	API	GetTer 5	;
+	API	GetCha 6	;
+	API	NewLin 7	;
+	API	PutTab 10	;
+	API	ParOct 11	;
+	APIR0A	OpnFil 12	; OpnFil adr[,A|R]
+	API	CloFil 13	;
+	API	LoaFil 14	; r0,r1
+	API	ReaWrd 15	;
+	API	ReaByt 16	;
+	APIR0	PutTer 17,B	; PutTer cha
+	API	ReaNxt 20	;
+	API	ReaBlk 21	;
+	APIR0A	SetAbt 22	; SetAbt adr[,A|R]
+	APIR0	JmpAbt 23	; JmpAbt adr
+	API	CmpSpc 24	; r0,r2
+	API	SpcAsc 25	; r1,r2
+	APIR0A	SetLin 26	; SetLin adr[,A|R]
+	API	GetDat 27	;
+	API	OctAsc 30	;
+	API	GetDev 31	;
+	API	RptFld 32	;
+	API	LptMod 33	;
+	API	TerMod 34	;
+	API	LoaSup 35	;
+	API	ParDec 36	;
+	API	PadTer 37	;
+	API	PshBat 40	;
+	API	PopBat 41	;
+	API	GetCom 42	;
+	API	GetSys 43	;
+	APIR0A	TypBrk 44	;
+.ENDM
+;	------------------------------------------------------------------------
+;	XXSYS$ - XXDP+/XXRT System Data Offsets
+;	------------------------------------------------------------------------
+;
+.MACRO	XXCFG$ 
+	syLTC$	= 1		; line clock present
+	syKWP$	= 2		; programmable clock present
+	syLPT$	= 4		; line printer present
+	syNUB$	= 10		; NoUniBus
+	sy50H$	= 20		; 50 Hertz clock
+.ENDM
+
+.MACRO	XXSYS$
+;
+	null = 0
+	byte = 1
+	word = 2
+;
+;	System Area (includes all the table)
+;
+
+map	sy.sys,	null,0		;  
+map	sy.swi,	byte*24.	;  batch/CLI switch buffer
+map	sy.gto,	word*58.	;  batch GOTO buffer		(hack)
+map	sy.stk,	null		;  system stack top
+map	sy.tra,	word		;  -> .5k transient area	(init)
+map	sy.per,	word		;  -> permanent memory area	(init)
+map	hw.ltc,	word		;  line clock
+map	hw.kwp,	word		;  KW11P programmable clock
+map	sy.rel,	word		;  relocation constant		(init)
+map	sy.rpt,	word		;  diagnostic repeat count
+map	sy.dev,	word		;  -> d$pdev: .ascii "DDu"<lmd>	(init)
+map	sy.sup,	word		;  ACT supervisor load address	(init)
+map	sy.tps,	word		;  TPS/LPT csr pointer		(init)
+map	sy.tpb,	word		;  TPB/LPB buffer pointer	(init)
+map	fi.bct,	word		;  ReaByt file byte count
+map	sy.top,	word		;  top of memory		(init)
+map	fi.ptr,	word		;  file buffer pointer
+map	fi.lck,	word		;  LDA load file read checksum
+map	cl.lin,	word		;\ resident command pointer	(init)
+map	cl.len,	word		;/ line length			(init)
+map	cl.nxt,	word		;  points to next command field
+map	fi.pos,	word		;  current file position
+map	fi.svp,	word		;  saved/restored file position
+map	cl.fld,	word		;  current field pointer
+map	sy.f00,	word		;  ???				(note)
+map	sy.dat,	word		;  system DOSbatch date
+map	sy.abt,	word		;  setabt/jmpabt address
+map	sy.emt,	word*2		;  saved EMT vector during image load
+map	sy.sta,	word		;  image START command address and type
+map	sy.act,	word		;  image activate address
+map	fi.rck,	word		;  ReaBlk checksum
+map	fi.sck,	word		;  Batch saved ReaBlk checksum
+map	sy.5ck,	word		;  .5k area checksum		(init)
+map	sy.f01,	byte		;\ LOAD in-progress flag
+map	sy.f02,	byte		;/ cli RUN in-progress flag
+map	sy.f03,	byte		;  halt after load flag		.	
+map	sy.f04,	byte		;  ??? was s$ypad
+map	sy.col,	byte		;  column (for tabbing)
+map	sy.pnd,	byte		;  pending input character
+map	sy.f05,	byte		;  PopBat flag (i.e. not PshBat)
+map	sy.qui,	byte		;  negative => quiet mode
+map	cl.clb,	word		;  command line backstop
+map	cl.buf,	byte*42.	;  command line buffer
+map	cl.bfz,	word		;
+map	ba.sfn,	word*5		;  fil - saved batch file name
+map	ba.fnm,	word*5		;  fil - batch file name
+map	fi.rec,	byte*512.	;
+map	fi.rcz,	word		;  buffer parse & print terminator
+;
+;	Configuration Area
+;
+map	sy.com,	null		;
+map	sy.csr,	word		;\ CSR address			(init)
+map	sy.f06,	word		;| ???				(note)
+map	sy.uni,	word		;| unit number			(init)
+map	sy.cfg,	word		;| config flags (LPT$ etc)	(init)
+map	sy.lpt,	word		;| LPT CSR if present		(init)
+map	sy.kwd,	word		;| kwords memory size		(init)
+map	sy.ltc,	word*3		;|\ LTC ISR and block
+map	sy.ltk,	word		;|/ LTC clock-ticks    (50hz=50.)(init)
+map	sy.kwp,	word*3		;|\ KWP ISR and block
+map	sy.ktk,	word		;|/ KWP clock-ticks    (50hz=50.)(init)
+map	sy.qvs,	word		;| /QV quick verify switch
+map	sy.bat,	byte		;| 1+=batch mode and level
+map	sy.f07,	byte		;| ???			(added)(note)
+map	sy.pgs,	word		;| MMU 32w-pages-1 (777=16kw-1pg)(init)
+map	sy.err,	word		;/ apps report errors to batch here
+;
+;	XXRT area
+;
+map	sy.iob, word		;  -> system IOB
+map	fi.nxt,	word		;  RUST/RT next block
+map	fi.lst,	word		;  RUST/RT last block
+;				;
+map	sy.hst,	byte		;  -1=RUST/BOOT, 0=RUST, 1=RT-11
+map	sy.emu,	byte		;  -1=SimH, 0=none, 1=V11
+map	sy.scp,	byte		;  VT100 mode flip/flop
+map	sy.she, byte		;  XXRT-as-Shell
+map	sy.cli,	byte		;  host CLI single-line command flag
+map	sy.new, byte		;  CLI prompt newline control
+map	sy.ver, byte		;  system version (XXRT starts as V3)
+map	sy.upd, byte		;  system update
+.ENDM
+;	------------------------------------------------------------------------
+;	XXIOB$ - XXDP Driver I/O Block
+;	------------------------------------------------------------------------
+
+.MACRO	XXDEV$
+   map	dv.nam,,0	;"DL"	; driver name
+   map	dv.uni,,2	;"0"	; device unit
+   map	dv.med,,3	;mdDL.	; media code
+.ENDM
+;
+;	DR.xxx - describe the driver context
+;	IO.xxx - describe the I/O transfer block
+;
+.MACRO	XXIOB$
+   map	dr.buf,,-22.	; 752	; buffer pointer
+   map	dr.ent,,-20.	; 754	; directory entry number in segment
+   map	dr.fnm,,-18.	; 756	; rad50 filename
+   map	dr.sbl,,-12.	; 764	; first file block
+   map	dr.opn,,-10.	; 766	; open file function
+   map	dr.rst,,-8.	; 770	; read monitor function
+   map	dr.tra,,-6	; 772	; transfer function
+   map	dr.dev,,-4	; 774	; get device info function
+   map	dr.uni,,-2	; 776	; device unit
+   map	dr.sts,,-1	; 777	; operation status
+    map	drSUC.,,0		; an absence of errors
+    map	drTRA.,,-1		; dr.tra - transfer error
+    map	drFNF.,,1		; dr.opn - file not found
+;
+;	Base address
+;
+   map	dr.csr,, 0	; 000	; CSR address
+   map	io.wct,, 2	; 002	; word count
+   map	io.buf,, 4	; 004	; buffer address
+   map	io.blk,, 6	; 006	; block number
+   map	io.ufd,, 8.	; 012	; (user file) directory start block
+   map	io.spc,, 10.	; 014	; ascii filespec
+.ENDM
+;	------------------------------------------------------------------------
+;	XXMED$ - XXDP Media Codes
+;	------------------------------------------------------------------------
+;
+;	The following drivers were (not) located on random XXDP+ volumes:
+;
+;	RKDP76 has a DC driver
+;
+;	CT:	XXDP80.DSK	V1 Cassette
+;	DA:	XXDPE0.DSK	V1 Early DU:
+;	DQ:	(not found)	V1 Early DU:
+;	PE:	XXDPE0.DSK	V1 PE TR78 tape formatter
+;
+;	New drivers added for XXRT with new media codes assigned.
+;
+;	DC:	RC11 disk.                 Driver from RT-11 V3.
+;	RF:	RF11 disk.                 Driver from RT-11 V3.
+;	HD:	E11/V11 Hypothetical Disk. Driver from RUST/SJ.
+;	VM:	Virtual memory disk.       Driver from RUST/SJ.
+;
+.MACRO	XXMED$
+;
+;	Non-file structured
+;
+;	Media  Code	;V12 Device
+;	-----  ----	;--- -----
+   map	mdAC.,,0	;?   ACT11
+   map	mdKB:,,0	;1   KB: Low  speed reader, Keyboard
+   map	mdPT.,,0	;1   PT: Low  speed punch
+   map	mdPR.,,0	;1   PR: High speed reader
+   map	mdPP.,,0	;1   PP: High speed punch
+   map	mdLP.,,0	;1   LP: Lineprinter
+;
+;	File structured
+;
+   map	mdDT.,,1	;1   DT: TU56 dectape
+   map	mdDK.,,2  	;1   DK: RK05 disk		(RT-11 RK:)
+   map	mdDP.,,3  	;1   DP: RP02 disk (02/03) 
+   map	mdMT.,,4	;1   MT: TM10 magtape
+   map	mdCT.,,5	;1   CT: TA11 cassette		(TADP/XXDP80))
+   map	mdMM.,,6  	;12  MM: TU16 magtape 		(TM02/TJU16)
+   	    ;,,7	;        Unused
+   map	mdDX.,,10	;1   DX: RX01 floppy		(no XXDP boot) 
+   map	mdDB.,,11 	;12  DB: RP04 disk (04/05/06)
+   map	mdDS.,,12 	;1   DS: RS03 disk (03/04)	(RJS03)
+   map	mdDM.,,13 	;12  DM: RK06 disk (06/07)
+   map	mdDL.,,14 	;12  DL: RL01 disk
+   map	mdDY.,,15	;12  DY: RX02 floppy
+   map	mdDR.,,16 	;12  DR: RM02 disk (02/03)
+   map	mdDD.,,17	;1   DD: TU58 cassette
+			;
+   map	mdPD.,,20	;1   PD: TU58 cassette 		(PDT)
+   map	mdMS.,,21	;12  MS: TS04 tape		(TS11)
+   map	mdPE.,,22	;1   PE: TM78 tape formatter
+   map	mdDU.,,23	;12  DU: UDA  disk (MSCP)
+   map	mdMR.,,24	;1   M?: TR79 tape
+   map	mdDQ.,,25 	;1   DA: RX50 disk (MSCP)(V2=DU)(RT-11 CTI DZ:)
+   map	mdDA.,,26 	;1   DQ: RC25 disk (MSCP)(V2=DU)
+   map	mdMU.,,27	; 2  MU: TK50 tape (MSCP)
+;
+;	XXRT Additions	
+;
+   map	mdDC.,,40	;    RC: RC11 disk		(RS64)
+   map	mdRF.,,41	;    RF: RF11 disk
+   map	mdHD.,,42	;    HD: Hypothetical Disk	(E11/V11) 
+   map	mdVM.,,43	;    VM: Virtual Memory disk	(RT-11)
+.ENDM
+

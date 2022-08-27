@@ -1,0 +1,788 @@
+.title	xrtlib - xxrt thunk for rider
+.include "lib:xrt.mac"
+$aldef
+$emdef
+$jbdef
+$jsdef
+$psdef
+$vedef
+.radix 8
+xxsys$
+xxiob$
+xxapi$
+fbdef$
+smini$
+inf$c = 0	; don't include image info
+
+;	XXRT version of DECUS-C CLS:CSV.MAC
+;
+;	%build
+;	macro cts:xrtlib/obj:ctb:
+;	library/create ctb:xrt ctb:xrtlib
+;	copy ctb:xrt.obj lib:xrt.obj
+;	%end
+
+.sbttl	DECUS-C startup code
+
+;	DECUS-C runtime root
+
+	.globl	c$pmtr, c$auto
+	.iif ndf c$pmtr, c$pmtr	= 4	;formal[n] @ c$pmtr+<n*2>(r5)
+	.iif ndf c$auto, c$auto	= -10	;local[n]  @ c$auto-<n*2>(r5)
+	.iif ne	c$pmtr-4, .error bad definition of c$pmtr
+	.iif ne	c$auto+10, .error bad definition of c$auto
+
+;	Define a weak pointer to the image usage string
+
+.asect	
+	.if ne inf$c
+	assume j$biai eq <^o140>
+	. = j$biai
+	.rad50	/inf/		; guard word
+	.weak	imAinf		; zero if not defined
+	.word	imAinf		; pointer info string
+	.endc
+
+cccod$
+
+;	CSV$ - Save registers
+;
+;	Save R4-R2 and make a one-word temp slot on the stack.
+;
+;	jsr	r5,c$sav
+
+c$sav::				
+csv$::	mov	r5,r1		; r1 -> return path
+	mov	sp,r5		; r5 -> paramater stack frame
+	psh	r4		; save
+	psh	r3		;
+	psh	r2		;
+	clr	-(sp)		; no profile area
+	call	(r1)		; <tst -(sp),jmp (r1)>
+
+;	CRET% - Restore registers
+;
+;	Pop r2-r4 and restore stack linkage registers.
+
+c$ret::	
+cret$::	mov	r5,r2		; r2 -> current stack frame
+	mov	-(r2), r4	; restore backwards
+	mov	-(r2), r3	;
+	mov	-(r2), r2	;
+c$rets::mov	r5,sp		; funny whitesmith's entry
+	pop	r5		; restore prior frame pointer
+	return
+.sbttl	cc$sta - image startup/rundown
+
+ccdat$
+c$cexi::.word	cc$qui			; final step
+x$xrel:	.word	0			; XXRT relocation constant
+x$xiob:	.word	0			; XXRT IOB pointer
+x$xstk:	.word	0			; saved XXRT stack (for exit)
+x$xtop:	.word	0			; fake .SETTOP
+x$xgln:	.blkb	82.			; get line buffer
+x$xlow:	.limit				; low address of program
+x$xhgh=.-2				; high address of progam
+cccod$
+
+;	CC$STA - Rider and C program startup
+
+cc$sta::mov	sp,x$xstk		; save XX stack for exit
+	mov	r5,x$xiob		; save the system IOB address
+					;
+	mov	x$xhgh,@#j$btop		; high address of app
+	GetSys				;
+	mov	sy.sup(r0),sp		; DRS supervisor base is our SP
+	mov	sp,x$xtop		; for .settop
+	sub	#10000,x$xtop		; space for stack
+					;
+	mov	sy.rel(r0),x$xrel	; XXRT relocation constant
+
+	clr	@#v$ebpt		; clear BPT vector for V11 debug
+					; (some diagnostics corrupt low memory)
+	call	cc$ccc			; check concise command
+					;
+	call	em$cap			; capture emts
+					; (XXRT restores them for us)
+	call	start			; call the start routine
+					;
+cc$exi::jmp	@c$cexi			; do the exit chain
+					;
+cc.qui::				; quit program (C label)
+cc$qui::mov	x$xstk,sp		; restore XX stack
+	return				; back to XXRT
+
+;	CC$CCC - Check RT-11 concise command
+
+cc$ccc:	clr	@#j$bcct		; assume no commands pending
+	GetSys				;
+	mov	cl.lin(r0),r0		; r0 -> command line
+	bneb	(r0)+,#'X,20$		; not "X"
+	bneb	(r0)+,#32.,20$		; not a space
+	beqb	(r0),20$		; null line
+	mov	#j$bcst,r1		;
+10$:	inc	j$bcct			; count them
+	movb	(r0)+,(r1)+		;
+	bne	10$			;
+	GetSys				;
+	bisb	#1,sy.new(r0)		; suppress extra newline
+20$:	return
+
+;	XX.IOB - Convert IOB pointer for rider
+
+  proc	xx.iob
+	p1	ptr
+	mov	ptr(sp),r0
+	sub	#dr.csr-dr.buf,r0
+  end
+.sbttl	EMT intercept
+
+xxVemt::	
+x$xemt:	.word	0
+x$xprm:	.word	0
+x$xbuf:	.word	0
+x$xflg:	.word	0
+	.even
+
+;	EM$CAP - Capture EMTs
+;
+;	Capture EMTS to handle some RT-11 system services
+
+em$cap:	mov	@#v$eemt,x$xemt ; save XXRT EMT vector
+	mov	#em$dis,@#v$eemt; insert ours
+	return
+
+;	EM$DIS - Dispatch RT-11 EMT
+
+	stack	r4,r5,pc,ps
+em$dis:	pshs	r5,r4
+	mov	sp.pc(sp),r4	;
+	movb	-2(r4),r4	;
+	bhib	r4,#^o45,10$	; one of ours
+	pops	r4,r5		;
+	jmp	@x$xemt		; pass EMT to XXRT
+	
+;	Handle select RT-11 EMTs:
+;
+;	.exit	.gtlin	.print	.settop .ttyin	.ttyout
+;
+;	o These EMTs are sufficient to support basic Rider utilities.
+
+	stack	r0,r1,r2,r3,r4,r5,pc,ps
+10$:	pshs	<r3,r2,r1,r0>
+	bic	#cbit,sp.ps(sp)	; clear EMT carry bit
+				;
+	bneb	r4,#emSTP.,20$	; 
+	mov	x$xtop,sp.r0(sp); .settop
+	br	100$
+
+20$:	bneb	r4,#emEXI.,30$	; .exit
+	jmp	cc$exi		;
+
+30$:	bneb	r4,#emPRI.,40$	; .print
+	mov	r0,r1		; r1 -> line string
+35$:	bleb	(r1),36$	; EOL
+	movb	(r1)+,r0	; out
+	PutCha			;
+	br	35$		;
+36$:	bmi	37$		; .ascii "..."<200>
+	NewLin			; .asciz "..."
+37$:	br	100$		; done
+
+40$:	bneb	r4,#emTTI.,50$	;
+	GetCha			; .ttyin
+	mov	r0,sp.r0(sp)	;
+	br	100$		;
+
+50$:	bneb	r4,#emTTO.,60$	;
+	PutCha			; .ttyout
+	br	100$
+
+60$:	bneb	r4,#emCSS.,100$	; not .csispc
+	jmp	em$csi		; .csixxx/.gtlin
+
+100$:	
+em$rti:	pops	<r0, r1,r2,r3,r4,r5>
+	rti
+
+;	EM$CSI - looking for .GTLIN
+;
+;	Pickup the .CSISPC parameters
+
+em$csi:	mov	sp.prm(sp),x$xprm ; prompt - save CSI arguments
+	mov	sp.buf(sp),x$xbuf ; buffer
+	mov	sp.flg(sp),x$xflg ; flags
+
+	stack	r0,r1,r2,r3,r4,r5,pc,ps,nul,prm,flg,buf,bbs
+
+	jsr	r3,bo$rot	; rotate the stack
+	.byte	4		; number of words to rotate
+	.byte	sp.bbs		; usually sp.bbs
+	add	#4*2,sp		; dump them
+
+;	stack	r1,r2,r3,r4,r5,pc,ps
+
+em$gln:	bneb	x$xflg,#1,80$	; not .gtlin
+
+	mov	@#j$bcct,r1	; got a CCL command?
+	beq	50$		; no
+	clr	@#j$bcct	; once-only
+	mov	#j$bcst,r2	; yes
+	mov	x$xbuf,r3	; command buffer
+10$:	movb	(r2)+,(r3)+	;
+	dec	r1		;
+	bne	10$		;
+	br	80$		;
+
+;	Prompt for input
+
+50$:	beqw	x$xprm,55$	; no prompt
+	beqb	@x$xprm,55$	; null prompt
+	.print	x$xprm		; display it
+55$:	mov	x$xiob,r5	; restore XXRT r5
+	mov	x$xbuf,r1	; 
+	GetLin			;
+	bcc	50$		; Batch EOF - null response
+
+;	Handle line termination
+
+60$:	beqb	(r0),#lf.,70$	; elide lf
+	beqb	(r0),70$	; EOL
+	movb	(r0)+,(r1)+	;
+	br	60$		;
+70$:	clrb	(r1)		; terminate
+80$:	jmp	em$rti
+
+
+;	BO$ROT - Rotate the stack 
+;
+;	BO$ROT handles stack rotates for EMTs with stack parameters.
+;
+;	r0	unchanged
+;	r1:r2	burnt
+;	r2	returns first of the stack
+;	r3	burnt
+;	r4:r5	unchanged
+;
+;	jsr	r3,bo$rot
+;	.byte	cnt		number of words to rotate
+;	.byte	lim		usually sp.bbs
+
+bo$rot:	movb	(r3)+,r2	; r2 is the count
+10$:	movb	(r3),r1		; point to it
+	add	sp,r1		; sp -> top of stack
+	mov	(r1),(sp)	; rotate to the bottom
+20$:	mov	-(r1),word(r1)	; move one up
+	cmp	r1,sp		; moved them all?
+	bne	20$		; no
+	dec	r2		; got another
+	bne	10$		; yes
+	cmpb	(r3)+,(sp)+	; inc r3 and pop dummy
+	jmp	(r3)		; go back to them
+.sbttl	Rider/C terminal output
+
+;	XXRT terminal output routines
+
+putc::
+fi.ptb::
+  proc	fi.pch	<r4>
+	p1	fil,r4
+	p2	cha,r0
+	call	fi$pch
+  end
+
+;	r4 ->	file
+;	r0 =	character
+
+$$putc::psh	r1			; called by $$prtf
+	psh	r0			;
+	call	fi$pch			;
+	pop	r0			;
+	pop	r1			;
+	return
+
+fi$pch::bpsw	#fbBIN$,(r4),10$	; not sequential
+	bneb	r0,#lf.,10$		; not lf
+	mov	#cr.,r0			;
+	call	fi$pch			; write cr first
+	mov	#lf.,r0			; continue sir
+10$:	bpcw	#fbTER$,(r4),20$	; not the terminal
+	PutCha				;
+	br	30$			;
+20$:;	call	bs$put			; write the little bugger
+30$:	return
+
+code	XXRT API interface
+
+	.macro	MapIOB
+	mov	x$xiob,r5
+	.endm
+
+code	GetLin : (**char, *int) bool
+
+;	lin : ** char	; line or <>
+;	ter : * int	; terminator or <> to ignore
+;	sta : bool	; status
+;
+;	sta = GetLin (&lin, [&ter|<>])
+
+	.enabl	lsb
+  proc	GetLin	<r2,r5>
+	p1	lin
+	p2	ter
+	MapIOB
+
+	clr	r2
+	GetLin
+	 adc	r2		; c=1 => fine
+	beqw	r2,10$		; fail
+	mov	r0,@lin(sp)
+	beqw	ter(sp),10$
+	mov	r1,@ter(sp)
+10$:	mov	r2,r0
+	end
+	.dsabl	lsb
+
+code	ParFld : (**char, *int) int
+
+;	fld : * char
+;	ter : * int
+;	sta : bool
+;
+;	sta = ParFld (&fld, [&ter|<>])
+
+  proc	ParFld	<r2>
+	p1	fld
+	p2	ter
+
+	mov	#1,r2
+	ParFld
+	 clr	r2		; lin eq 0 => EOL
+	beqw	r2,10$		; failed
+	mov	r0,@fld(sp)
+	beqw	ter(sp),10$
+	mov	r1,@ter(sp)
+10$:	mov	r2,r0
+	end
+
+code	TypMon : (*char)
+
+;	TypMon is reserved for the monitor.
+;
+;	msg : * char
+;
+;	TypMon (msg)
+
+; proc	TypMon
+;	p1	msg
+;
+;	TypMon	msg(sp)
+; end
+
+code	TypMsg : (*char)
+
+;	msg : * char
+;
+;	TypMsg (msg)
+
+  proc	TypMsg
+	p1	msg
+
+	TypMsg	msg(sp)
+  end
+
+code	PutCha : (int) int
+
+;	cha : int
+;	avl : int
+;
+;	avl = PutCha (cha)
+
+  proc	PutCha
+	p1	cha,r0
+
+	PutCha
+  end
+
+code	GetTer : () int
+
+;	cha : int
+;
+;	cha = GetTer ()
+
+  proc	GetTer
+	GetTer
+  end
+
+code	GetCha : () int
+
+;	cha : int
+;
+;	cha = GetCha ()
+
+  proc	GetCha	<r5>
+	MapIOB
+
+	GetCha
+  end
+
+code	NewLin : ()
+
+;	NewLin ()
+
+  proc	NewLin
+	NewLin
+  end
+
+code	PutTab : ()
+
+;	PutTab ()
+
+  proc	PutTab
+	PutTab
+  end
+
+code	ParOct : (*int, *int) int
+
+;	val : int
+;	ter : *char
+;	sta : bool
+;
+;	sta = ParOct (&val, [&ter|<>])
+
+  proc	ParOct	<r2>
+	p1	val
+	p2	ter
+
+	mov	#1,r2
+	ParOct
+	 clr	r2
+	beqw	r2,10$
+	mov	r0,@val(sp)
+	beqw	ter(sp),10$
+	mov	r1,@ter(sp)
+10$:	mov	r2,r0
+	end
+
+
+code	OpnFil : (*char)
+
+;	spc : * char
+;
+;	OpnFil (spc)
+
+  proc	OpnFil	<r5>
+	p1	spc,r0
+	MapIOB
+
+	OpnFil
+  end
+
+code	CloFil : ()
+
+;	Deprecated
+
+  proc	CloFil
+	CloFil
+  end
+
+code	LoaFil : (*char, *void) : int
+
+;	spc : * char	; file spec
+;	bas : * int	; load base address
+;	sta : * int	; start address
+;
+;	sta = LoaFil (spc, bas)
+
+  proc	LoaFil
+	p1	spc,r0	
+	p2	adr,r1
+
+	LoaFil
+	mov	r1,r0		; r1 = activate address
+  end
+
+code	ReaWrd : () int
+
+;	cha : int
+;
+;	cha = ReaWrd ()
+
+  proc	ReaWrd	<r5>
+	MapIOB
+
+	ReaWrd
+  end
+
+code	ReaByt : () int
+
+;	cha : int
+;
+;	cha = ReaByt ()
+
+  proc	ReaByt	<r5>
+	MapIOB
+
+	ReaByt
+  end
+
+code	PutTer : (int)
+
+;	cha : int
+;	avl : int	; available input character
+;
+;	avl = PutTer (cha)
+
+  proc	PutTer
+	p1	cha,r0
+
+	PutTer	
+  end
+
+code	ReaNxt : () int
+
+;	ReaNxt ()
+;
+;	fine	next block read
+;	fail	EOF
+
+  proc	ReaNxt	<r2,r5>
+	MapIOB
+
+	mov	#1,r2
+	ReaNxt
+	 clr	r2
+	mov	r2,r0
+  end
+
+code	ReaBlk : (*void, int)
+
+;	buf : * void
+;	blk : int
+;
+;	ReaBlk (buf, blk)
+
+  proc	ReaBlk	<r2,r3,r5>
+	p1	buf
+	p2	blk
+	MapIOB
+
+	mov	buf(sp),io.buf(r5)
+	mov	blk(sp),io.blk(r5)
+	ReaBlk
+  end
+
+code	SetAbt : (*void)
+
+;	adr : * void
+;
+;	SetAbt (adr)
+
+  proc	SetAbt
+	p1	adr,r0	
+
+	SetAbt
+  end
+
+code	JmpAbt : (*char)
+
+;	msg : * char
+;
+;	JmpAbt ([msg]|<>])
+;???
+  proc	JmpAbt 
+	p1	msg,r0
+
+	beqw	r0,10$
+	sub	x$xrel,r0
+10$:	JmpAbt
+  end
+
+code	CmpSpc : (*char, *char) : int
+
+;	src : * char
+;	dst : * char
+;	res : int
+;
+;	res = CmpSpc (src, dst)
+
+  proc	CmpSpc	<r2,r3>
+	p1	src,r0
+	p2	dst,r2
+
+	mov	#1,r3	; assume fine
+	CmpSpc
+	 clr	r3	; failed
+	mov	r3,r0
+  end
+
+code	SpcAsc (*int, *char)
+
+;	src : * int	; rad50
+;	dst : * char	; ascii
+;
+;	SpcAsc (src, dst)
+
+  proc	SpcAsc	<r2>
+	p1	src,r1
+	p2	dst,r2
+
+	SpcAsc
+  end
+
+code	SetLin : (*char, int, *int) : *char
+
+;	buf : * char
+;	len : int
+;	siz : int
+;
+;	siz = SetLin (buf, len, [aln|<>])
+;???
+  proc	SetLin
+	p1	buf,r0
+	p2	len,r1
+	p3	siz
+
+	SetLin
+	beqw	siz(sp),10$
+	mov	r1,@siz(sp)
+10$:	end
+
+code	GetDat : () int
+
+;	dat : int
+;
+;	dat = GetDat ()
+
+  proc	GetDat
+	GetDat
+  end
+
+code	OctAsc : (int, *char)
+
+;	val : int
+;	asc : * char
+;
+;	OctAsc (val, asc)
+
+  proc	OctAsc
+	p1	val,r0
+	p2	buf,r1
+
+	OctAsc
+  end
+
+code	GetDev : (*xxTdev)
+
+;	dev : * xxTdev
+;
+;	dev = GetDev ()
+
+  proc	GetDev
+	GetDev
+  end
+
+code	RptFld : ()
+
+;	RptFld
+
+  proc	RptFld
+	RptFld
+  end
+
+code	LptMod : ()
+
+  proc	LptMod
+	LptMod
+  end
+
+code	TerMod : ()
+
+  proc	TerMod
+	TerMod
+  end
+
+code	LoaSup : ()
+
+;	Load supervisor is reserved for .BIC diagnostics
+;
+;	LoaSup ()
+
+  proc	LoaSup	<r5>
+	MapIOB
+
+	LoaSup
+  end
+
+code	ParDec : (*int) : int
+
+;	val : int
+;	sta : int
+;
+;	sta = ParDec (&val)
+
+  proc	ParDec	<r2>
+	p1	val
+
+	mov	#1,r2
+	ParDec
+	 clr	r2
+	beqw	r2,10$
+	mov	r0,@val(sp)
+10$:	mov	r2,r0	; status
+	end
+
+code	PadTer : ()
+
+;	PadTer
+
+code	PshBat : (*char)
+
+;	spc : * char	; batch file spec
+;
+;	PshBat (spc)
+
+; proc	PshBat
+;	p1	spc,r0
+;	PshBat
+; end
+
+code	PopBat : ()
+
+; proc	PopBat
+;	PopBat
+; end
+
+code	GetCom : () *void
+
+;	adr : * void
+;
+;	adr = GetCom ()
+
+  proc	GetCom
+	GetCom
+  end
+
+code	GetSys : () * void
+
+;	adr : * xxTsys
+;
+;	adr = GetSys ()
+
+  proc	GetSys
+	GetSys
+  end
+
+code	TypBrk : (*char)
+
+;	msg : * char
+;
+;	TypBrk (msg)
+;
+  proc	TypBrk
+ 	p1	msg,r0
+
+	TypBrk
+  end
+
+.end	cc$sta
