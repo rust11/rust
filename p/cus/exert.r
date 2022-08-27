@@ -1,3 +1,5 @@
+;	Add DATE to set the date
+;	Add VERIFY to display chain files regardless of QUIET
 ;	Add TRAPS to set trap catchers.
 ;
 ;	Add XXIOB offsets
@@ -8,10 +10,20 @@ include	rid:dcdef
 include rid:imdef
 include rid:xxsys
 
+;	Dependencies
+;
+;	@@xrs:xrt rebuilds all the following:
+;
+;	cts:xrt.mac
+;	cts:xrtmac.mac
+;	cts:xrtlib.mac
+;	cts:xxsys.d
+;	cus:exert.r
+;
 ;	%build
 ;	rider cus:exert/object:cub:
 ;	link cub:exert,lib:xrt,lib:crt/exe:cub:exert.bin/lda/map:cub:exert
-;	!link cub:exert,lib:crt/exe:tmp:xxdig.sav/map:tmp:xxdig
+;	!link cub:exert,lib:crt/exe:tmp:xxdig.sav/map:tmp:exert
 ;	copy cub:exert.bin sy:/nolog
 ;	%end
 
@@ -35,6 +47,7 @@ code	cuAdcl - DCL processing
        "HELP       Display help"
        "LOW        Display low memory"
        "SHOW       Display configuration"
+       "TRAPS      Rebuild vector traps"
 	<>
 	<>
   end
@@ -59,15 +72,17 @@ code	cuAdcl - DCL processing
      1,	<>,		<>, 	<>,	0, dcEOL_
      0,	 <>,		<>,	<>,	0, dcEOL_
   end
+code	start 
 
   func	start
   is	dcl : * dcTdcl
 	im_ini ("EXERT")
 	dcl = ctl.Pdcl = dc_alc ()
-	dcl->Venv = dcCLI_|dcCLS_	; DCL as CLI and single line command 
-;	dcl->Venv |= dcCLI_
+	dcl->Venv = dcCLI_|dcCLS_
 	dc_eng (dcl, cuAdcl, "EXERT> ")
   end
+
+code	cu_hlp - display help
 
   func	cu_hlp
 	dcl : * dcTdcl
@@ -78,8 +93,7 @@ code	cuAdcl - DCL processing
 	fine
   end
 
-
-code	start
+code	cu_all - show all
 
   func	cu_all
   is	cu_mon ()
@@ -137,7 +151,6 @@ code	cuAdcl - DCL processing
 	PUT("Unibus" ) otherwise
 	NewLin ()
 
-
 	PUT("Host System:     ")
 	case sys->Vsyhst
 	of 0 PUT("RUST/SJ")
@@ -155,7 +168,7 @@ code	cuAdcl - DCL processing
 	end
 
 	PUT("Terminal is set: ")
-	PUT("NO") if !sys->Vsyvtx
+	PUT("NO") if !sys->Vsyscp
 	PUT("SCOPE")
 	NewLin ()
 	NewLin ()
@@ -165,6 +178,8 @@ code	cuAdcl - DCL processing
 code	cu_mon - display monitor variables
 
 	xxVemt : WORD+
+
+code	cu_mon - show monitor variables
 
   func	cu_mon
   is	sys : *xxTsys = GetSys ()
@@ -207,7 +222,7 @@ code	cu_cfg - show configuration
 	NewLin ()
   end
 
-code	cu_flg - flags
+code	cu_flg - show system flags
 
   func	cu_flg
   is	sys : * xxTsys = GetSys ()
@@ -226,7 +241,7 @@ code	cu_flg - flags
 	NewLin()
 	PUT("sy.hst=%o ", sys->Vsyhst)
 	PUT("sy.emu=%o ", sys->Vsyemu)
-	PUT("sy.vtx=%o ", sys->Vsyvtx)
+	PUT("sy.scp=%o ", sys->Vsyscp)
 	PUT("sy.she=%o ", sys->Vsyshe)
 	PUT("sy.cli=%o ", sys->Vsycli)
 	PUT("sy.new=%o ", sys->Vsynew)
@@ -234,7 +249,7 @@ code	cu_flg - flags
 	NewLin()
   end
 
-code	cu_low - low memory
+code	cu_low - show low memory
 
   func	cu_low
   is	mem : * word = 0
@@ -249,7 +264,7 @@ code	cu_low - low memory
 	fine
   end
 
-code	cu_mem - memory structure
+code	cu_mem - show memory structure
 
   func	cu_mem
   is	sys : * xxTsys = GetSys ()
@@ -282,37 +297,7 @@ code	cu_stk - check stack area
 	cu_dmp (gto, cuSTK)
 	NewLin ()
   end
-code	system calls
-
-  func	cu_gtl
-  is	lin : * char
-	fld : * char
-	ter : int
-	NewLin ()
-      repeat
-	PUT("GetLin>")
-	quit if !GetLin (&lin, &ter)
-	cu_lin ("line: ", lin, ter)
-	repeat
-	   quit if !ParFld (&fld, &ter)
-	   cu_lin ("field: ", fld, ter)
-	end
-      end
-  end
-
-code	cu_lin - display line, fields
-
-  func	cu_lin
-	hdr : * char
-	lin : * char
-	ter : int
-  is	PUT("%s [%s] ", hdr, lin)
-	PUT("<%o> \n", ter) if ter le ' '
-	PUT("[%c] \n", ter) otherwise
-  end
-
-
-code	reset trap catchers
+code	cu_trp - reset trap catchers
 
   func	cu_trp
   is	emt : WORD
@@ -352,4 +337,35 @@ code	cu_lin - display line, fields
 	   ..  PUT("%o\t", *mem++)
 	.. PUT("\n")
   end
-
+end file
+
+code	system calls
+
+  func	cu_gtl
+  is	lin : * char
+	fld : * char
+	ter : int
+	NewLin ()
+      repeat
+	PUT("GetLin>")
+	quit if !GetLin (&lin, &ter)
+	cu_lin ("line: ", lin, ter)
+	repeat
+	   quit if !ParFld (&fld, &ter)
+	   cu_lin ("field: ", fld, ter)
+	end
+      end
+  end
+
+code	cu_lin - display line, fields
+
+  func	cu_lin
+	hdr : * char
+	lin : * char
+	ter : int
+  is	PUT("%s [%s] ", hdr, lin)
+	PUT("<%o> \n", ter) if ter le ' '
+	PUT("[%c] \n", ter) otherwise
+  end
+
+
