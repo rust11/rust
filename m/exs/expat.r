@@ -1,6 +1,13 @@
+;	COPY/DETAB
+;	show protected status
+;	total files
+;	Cancel FNF for aborts
+;	UIC/protection/columns
+;	dir file/block counts
+;	still not listing sub-directories
 ;	ctl.Vcnt
 ;	dr_scn retuns maximum filename size
-
+;
 ;	Windows LPT
 ;	readme.txt
 ;	/OWNER
@@ -153,7 +160,6 @@
 ;	EXPAT> dir [1,54]\xxdl82\	! => "[1,54]XXDL82.DSK"
 data	local definitions
 include rid:rider	; rider
-include	rid:cldef	; command line
 include	rid:codef	; command line
 include	rid:dcdef	; DCL
 include rid:fidef	; files
@@ -164,8 +170,9 @@ include rid:mxdef	; maxima
 include rid:tidef	; time
 include	rid:vfdef	; virtual files
 include	exb:exmod	; expat
-If Win			; windows
-include rid:stdef	; strings (exhausts DECUS-C memory)
+If Win			; DECUS-C runs out of memory
+include	rid:cldef	; command line
+include rid:stdef	; strings
 End
 
 data	local structures
@@ -185,10 +192,8 @@ code	start - expat mainline
 code	overlay thunks
 
 ;	For RUST/SJ the DCL engine and VF driver are located in the
-;	same overlay region. Thus to return to DCL we must first reload
+;	same overlay region. To return to DCL we must first reload
 ;	the DCL overlay, which we do with CU_OVL() (see EXDCL.R).
-
-;	ctl.Vlin = ctl.Qlin ? 0 ?? -1	; count page lines
 
   func	cv_cop
 	dcl : * dcTdcl
@@ -198,14 +203,14 @@ code	start - expat mainline
 
   func	cv_del
 	dcl : * dcTdcl
-  is	ctl.Vflg = cuFNF_|cuNAT_|cuQUE_
+  is	ctl.Vflg = cuFNF_|cuNAT_|cuRTV_|cuQUW_
 	fine cu_dis (dcl, &cm_del)
   end
 
   func	cu_dir
 	dcl : * dcTdcl
-  is	cv_xdp (dcl) if ctl.Qxdp
-	cv_dir (dcl) otherwise
+  is	cv_xdp (dcl) if ctl.Qxdp	; dir/xxdp
+	cv_dir (dcl) otherwise		; dir
 	fine
   end
 
@@ -214,6 +219,12 @@ code	start - expat mainline
   is	ctl.Vflg = cuFNF_|cuOPT_|cuSUB_
 	fine cu_dis (dcl, &cm_dir)
   end
+
+;  func	cv_pro
+;	dcl : * dcTdcl
+;  is	ctl.Vflg = cuFNF_|cuNAT_
+;	fine cu_dis (dcl, &cm_pro)
+;  end
 
   func	cv_xdp
 	dcl : * dcTdcl
@@ -229,8 +240,8 @@ code	start - expat mainline
 
   func	cv_tou
 	dcl : * dcTdcl
-  is	ctl.Vflg = cuFNF_|cuNAT_
-	++ctl.Qdat
+  is	++ctl.Qdat
+	ctl.Vflg = cuFNF_|cuNAT_|cuRTV_
 	fine cu_dis (dcl, &cm_tou)
   end
 
@@ -249,12 +260,14 @@ code	start - expat mainline
 	dcl : * dcTdcl
 	fun : * (*vfTobj, *vfTent) int	; literal cmTfun for DECUSC
   is	src : * vfTobj~ = &Isrc		; source object
+	spc : * char = src->Aspc	; source file spec
 	ent : * vfTent~			; destination object
+	flg : int~ = ctl.Vflg		; context flags
 	err : int = 0			; error flag
-	flg : int = ctl.Vflg		; context flags
+	que : int			; query status
 					;
 	ctl.Vflg |= cuINI_		; flag init to command routine
-	ctl.Vcnt = 0			; init file count
+	ctl.Vcnt = -1			; init file count
 	ctl.Vtot = 0			; total blocks
 	ctl.Vcol = 0			; directory column zero
 					;
@@ -270,17 +283,26 @@ code	start - expat mainline
 	quit if !vf_scn (src)		; scan the directory
 	ent = &src->Pscn->Ient		; entry
 					;
+	if FLG(cuQUW_)			; /QUERY if wildcards
+	&& st_int ("?%*", spc, <>)	; spec has wildcards (intersection)
+	.. ctl.Vflg |= cuQUE_		; flag wildcards present
+	ctl.Qque = 1 if FLG(cuQUE_)	;
+					;
 	cu_opn ()			; open listing file
+	ctl.Vcnt = 0			; counting files now
 					;
 	while vf_nxt (src) ne		; get next entry
 	   st_low (ent->Anam)		; lower case name
 					;
-	   if !FLG(cuSUB_)		;
+	   if !FLG(cuSUB_)		; exclude sub-directories?
 	   .. next if cu_sub (ent->Anam); ignore subdirectories
 	   next if !cu_cdt (ent)	; /BEFORE/DATE/NEWFILES/SINCE
 					;
+	   que =  cu_que (ent->Anam)	; /query
+	   next if que eq		; ignore this file
+	   quit if que lt		; terminate operation
+					;
 	   ++ctl.Vcnt			; another file found
-	   next if !cu_que (ent->Anam)	; /query
 	   cu_log (ent->Anam)		; /log
 					;
 	   if FLG(cuACC_)		; access file
@@ -288,6 +310,8 @@ code	start - expat mainline
 					;
 	   (*fun)(src, ent)		; call the file processor
 	   quit ++err if !that		; failed
+					;
+	   vf_dac (src) if FLG(cuACC_)	; deaccess file
 	end
       end block
 	cu_clo ()			; close any listing file
@@ -350,15 +374,31 @@ code	cu_pag - /page output every 24 lines
 code	cu_que - /query operation
 
 ;	FILNAM.SPC ?
+;
+;	out	 1  => fine
+;		 0  => no
+;		-1  => quit operation
 
   func	cu_que
 	nam : * char
-  is	str : [mxNAM] char~
-	fine if !ctl.Qque		; not /QUERY
-	st_cop (nam, str)		;
-	st_upr (str)			; upper case it
-	PUT("%13s", str)		; "  FILNAM.TYP"
-	reply cl_que (" ? ")		; "  FILNAM.TYP ? "
+  is	prm : [mxNAM] char~		; command prompt
+	cmd : [mxLIN] char~		; command input
+					;
+	fine if !ctl.Qque || ctl.Qnqu	; not /QUERY
+					;
+	st_cop (nam, prm)		;
+	st_upr (prm)			; upper case it
+	st_app ("? ", prm)		;
+	cl_cmd (prm, cmd)		; get response
+					;
+	st_low (cmd)			; lower case
+	case cmd[0]			; Y/A/L/Q
+	of 'y' fine			; Yes 
+	of 'a' fine ctl.Qque = 0	; All
+	of 'l' fine ctl.Qque=0,ctl.Qlog=1; all and Log
+	of 'q' reply -1			; Quit
+	of other fail			; No
+	end case
   end
 code	utilities
 
@@ -366,14 +406,16 @@ code	cu_f63 - format 6.3 file name
 
   func	cu_f63
 	nam : * char~
-	fmt : * char~
+	fmt : * char
   is 	ptr : * char~ = fmt
-	col : int = 0
+	col : int~ = 0
+
 	while col lt 10
-	   if (*nam eq '.') && (col lt 6)
-	   .. next *ptr++ = ' ', ++col
-	   *ptr++ = *nam++ if *nam
-	   *ptr++ = ' ' otherwise
+	   if ((*nam eq '.') && (col lt 6))
+	   || !*nam
+	      *ptr++ = ' '
+	   else
+	   .. *ptr++ = *nam++
 	   ++col
 	end
 	*ptr = 0
@@ -415,9 +457,11 @@ code	cu_len - normalize block length
 code	cu_nat - check native file
 
   func	cu_nat
-	obj : * vfTobj
-  is	fine if obj->Vsys eq vfNAT	; is native path
-	im_rep ("E-Incompatible operation [%s]\n", obj->Apth)
+	obj : * vfTobj~
+  is	sys : int~ = obj->Vsys
+	fine if sys eq vfNAT	; is native path
+	fine if cuSYS eq vfRTA && FLG(cuRTV_)
+	im_rep ("E-Incompatible path for operation [%s]", obj->Apth)
 	fail
   end
 
@@ -427,6 +471,7 @@ code	cu_opn - open listing file
   func	cu_opn
   is	opt : * char~ = ctl.Aopt	; output spec
 					;
+	fine if !FLG(cuOPT_)		; no listing required
 	ctl.Vlin = -1			; assume not paging
 	if ctl.Qpag || FLG(cuPAG_)	;
 	&& !ctl.Qnpg			;
@@ -472,9 +517,9 @@ code	cu_sub - check for subdirectory
 
   func	cu_sub
 	sub : * char
-  is	reply st_fnd (".DIR", sub) ne	; subdirectory?
+  is	reply st_fnd (".dir", sub) ne	; subdirectory?
   end
-code	dates and /exclude
+code	filter /dates and /exclude
 
 ;	/BEFORE/DATE/NEWFILES/SINCE 
 
@@ -535,4 +580,4 @@ code	cu_cdi - check date item
 	fine if dif lt && cas lt; /since
 	fail
   end
-
+                                                                                                                                                                                                                                                                   
