@@ -86,8 +86,8 @@ code	gk_dlv - report DLV input
 	fail if ctx.Vcnt eq
 
 	FMT(opt, "(%o %o)", rec->Vcsr, rec->Vbuf)
-	st_app ("* \n"), ctx.Vovr=0 if ctx.Vovr
-	st_app ("  \n", opt) otherwise
+	st_app ("* \r\n"), ctx.Vovr=0 if ctx.Vovr
+	st_app ("  \r\n", opt) otherwise
 
 	--ctx.Vcnt
 	++ctx.Vget
