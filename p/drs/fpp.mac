@@ -1,11 +1,22 @@
-;	%build
-;	macro drs:fpp/obj:drb:fpp
-;	link drb:fpx/nobitmap/exe:drb:fpx.sys/map:drb:
-;	%end
-mmg$t=1
+.include "lib:rust.mac"
+.library "lib:drvmac.mlb"
+mmg$t=0
 rst$c=1
+$cndef
+$drdef
+$hkdef
+$jbdef
+$rmdef
+$vedef
 ;
 ;	.TITLE FPU-EMULATOR
+;
+;	%build
+;	macro drs:fpp/obj:drb:fpv
+;	!link drb:fpv/nobitmap/exe:drb:fpv.sys/map:drb:
+;	link/nobitmap/execute:drb:fpv.sys drb:fpv/map:drb:fpv/boundary:1000
+;	fpload
+;	%end
 ;
 ;	EMULATOR FOR FPU INSTRUCTONS ON PDP-11
 ;
@@ -42,9 +53,31 @@ rst$c=1
 ;     INTERRUPT ON UNDEFINED VARIABLE (-0) IS NOT IMPLEMENTED.
 ; INITIALIZATION CODE
 
+.if ne rst$c
+	.drdef	fp,377,ronly$!wonly$,0,0,0
+	.drest	class=dvc.ps
+	$drptr
+
+	.drins	fp
+	tst	(pc)+		   ;c=0	; data
+	br	10$		   ;c=0	; system=no
+	mov	@#j$bsys,r0	   ;c=0	; get the system
+	bit	#cnfpu$,rm.cfg(r0) ;c=0	; got fpu?
+	beq	20$		   ;c=0	; nope - they need us
+10$:	sec				; c=1 => don't install
+20$:	return
+
+
+;roof	1000
+.drbeg	fp
+.drast	fp,0
+.drfin	fp
+
+.iff
 	.MCALL .DRDEF,.DSTATUS
 	FPCODE=373
 	.DRDEF	FP,FPCODE,0,0,0,0	;THIS IS A PSEUDO-HANDLER
+	$drptr
 	TRAPPC=10
 	TRAPPS=12
 	RMON=54
@@ -54,14 +87,12 @@ rst$c=1
 
 ;	42 222
 
-ONTRN:
-bpt
-	MOV	PC,R2		;R2=ACTUAL ADDRESS
+ONTRN:	MOV	PC,R2		;R2=ACTUAL ADDRESS
 	ADD	#DBLK0-.,R2	;R2=ACTUAL ADDRESS OF DBLK0
 	MOV	PC,R1		;R1=ACTUAL ADDRESS
 	ADD	#ENAM-.,R1	;R1=ACTUAL ADDRESS OF ENAM
-;	.DSTATUS R2,R1		;GET STATUS OF THIS HANDLER
-;	BCS	BAD		;IF NOT INSTALLED, BRANCH
+	.DSTATUS R2,R1		;GET STATUS OF THIS HANDLER
+	BCS	BAD		;IF NOT INSTALLED, BRANCH
 	CMPB	DBLK0,#FPCODE	;RIGHT DRIVER ?
 	BNE	BAD		;NO !
 	TST	DBLK0+4		;TEST TO SEE IF LOADED
@@ -88,9 +119,15 @@ OFFRTN:	MOV	SAVEPS,@#TRAPPS	;RESTORE LOC 12
 	BR	GOOD
 DBLK0:	.BLKW 4			;DSTATUS DATA BLOCK
 ENAM:	.RAD50	/FP/		;NAME OF DRIVER IN RAD50
+.endc
 ;  DRIVER CODE FOR DEALING WITH INSTRUCTIONS
 
+.if ne rst$c
+fp$cpu:	vehgh$	e$icpu			; cpu vector hook
+.iff
 	.DRBEG	FP		;DRIVER CODE  OLD PSW,PC ON STACK
+.endc
+;bpt
 .IF EQ,MMG$T
 	TST	-(SP)		;SPACE FOR OLD SP
 	MOV	SP,(SP)		;STORE SP
@@ -134,6 +171,7 @@ ENAM:	.RAD50	/FP/		;NAME OF DRIVER IN RAD50
 SAVEPS:	.WORD	0		;OLD PSW FROM LOC 12
 	MOV	(PC)+,-(SP)	;STACK OLD PC FOR LOC 10
 SAVEPC:	.WORD	0		;OLD PC FROM LOC 10
+;bpt
 	RTI			;JUMP TO THE PREVIOUS TRAP HANDLER
 ;GET A WORD FROM THE USER'S SPACE IN EITHER MAPPED OR NON-MAPPED SYSTEMS.
 
@@ -223,6 +261,7 @@ DOEXIT:	CMP	NEWSP(SP),OLDSP(SP)	;CHANGE SP?
 	MOV	(SP)+,OLDPC-16.(SP)	;UPDATE USER PC
 	MOV	(SP)+,OLDPSW-18.(SP)	;UPDATE USER PSW
 	ADD	#OLDSP-NEWPSW,SP	;POINT STACK TO PC,PSW
+;bpt
 	RTI
 ;ROUTINES TO HANDLE ERRORS
 
@@ -1206,8 +1245,36 @@ $FEA:	.WORD	0	;Floating Exception Address register
 $AC0:	.BLKW	24.	;storage for floating ACcumulators
 
 ; END OF HANDLER
+.if ne rst$c
+.drend	fp
+.endc
+.if ne rst$c
+.sbttl	load/unload
+.psect	fpload
+
+dr$fet:
+dr$loa:	mov	(r5),r4			;
+	sub	#dr.lqe,r4		;
+;	mov	@#j$bsys,r1		;
+;	add	#$mtps,r1		;
+;	mov	r1,i.mtps(r4)		;
+	vecap$	#v$ecpu,#fp$cpu,r4	; capture  instruction traps
+	clc				;
+	return
+
+dr$rel:
+dr$unl:	mov	(r5),r4			;
+	sub	#dr.lqe,r4		;
+	verel$	#v$ecpu,#fp$cpu,r4	;
+	clc				;
+	return
+
+$vepkg
+$hkpkg
+;drinf$
+.iff
 
 	.DRAST	FP,7
+.endc
 	.DRFIN	FP		;DUMMY INTERRUPT ROUTINE AS NEVER INTERRUPTED
-	.DREND	FP		;DRIVER END
 	.END
