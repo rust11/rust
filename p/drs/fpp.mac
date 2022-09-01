@@ -1,6 +1,5 @@
 .include "lib:rust.mac"
 .library "lib:drvmac.mlb"
-mmg$t=0
 rst$c=1
 $cndef
 $drdef
@@ -8,13 +7,16 @@ $hkdef
 $jbdef
 $rmdef
 $vedef
-;
+.iif ndf mmg$t, mmg$t=0
+
 ;	.TITLE FPU-EMULATOR
 ;
 ;	%build
 ;	macro drs:fpp/obj:drb:fpv
-;	!link drb:fpv/nobitmap/exe:drb:fpv.sys/map:drb:
-;	link/nobitmap/execute:drb:fpv.sys drb:fpv/map:drb:fpv/boundary:1000
+;	macro drs:(mmg$t+fpp)/obj:drb:fpp
+;	link/nobit/exe:drb:fpv.sys drb:fpv/map:drb:fpv/boundary:1000
+;	fpload
+;	link/nobit/exe:drb:fpp.sys drb:fpp/map:drb:fpp/boundary:1000
 ;	fpload
 ;	%end
 ;
@@ -123,10 +125,11 @@ ENAM:	.RAD50	/FP/		;NAME OF DRIVER IN RAD50
 ;  DRIVER CODE FOR DEALING WITH INSTRUCTIONS
 
 .if ne rst$c
-fp$cpu:	vehgh$	e$icpu			; cpu vector hook
+fp$cpu:	vehgh$	f$pcpu		; cpu vector hook
 .iff
 	.DRBEG	FP		;DRIVER CODE  OLD PSW,PC ON STACK
 .endc
+	BIS	#$FD,$FPSR	;set n bit
 ;bpt
 .IF EQ,MMG$T
 	TST	-(SP)		;SPACE FOR OLD SP
@@ -167,11 +170,14 @@ fp$cpu:	vehgh$	e$icpu			; cpu vector hook
 1$:	MOV	(SP)+,R0	;RESTORE R0
 	MOV	(SP)+,R1	;RESTORE R1
 	ADD	#DSTEA,SP	;RESTORE STACK.POINTER
+.if ne rst$c
+	jmp	@f$pcpu		;jump to previous trap handler
+.iff
 	MOV	(PC)+,-(SP)	;STACK OLD PSW FOR LOC 12
 SAVEPS:	.WORD	0		;OLD PSW FROM LOC 12
 	MOV	(PC)+,-(SP)	;STACK OLD PC FOR LOC 10
 SAVEPC:	.WORD	0		;OLD PC FROM LOC 10
-;bpt
+.endc
 	RTI			;JUMP TO THE PREVIOUS TRAP HANDLER
 ;GET A WORD FROM THE USER'S SPACE IN EITHER MAPPED OR NON-MAPPED SYSTEMS.
 
