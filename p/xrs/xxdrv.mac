@@ -1,0 +1,2058 @@
+.sbttl	XXDRV - XXRT Driver Collection
+inf$c=0
+mcp$c=0
+
+;	XXRT DRIVER COLLECTION
+;
+;	XXDP provides system level drivers for most PDP-11 disks, magtapes
+;	and cassettes. XXRT supports only the disks drivers.
+; but supports allDP. The list of drivers is shown
+;	below. In addition to the XXDP drivers I also wanted to support
+;	HD:, a common simulator disk and VM:, a virtual memory driver.
+;
+;	V3.x:             DF: RK: DL: DM: DP:     DS: DT:     DX: DY:
+;	V5.3: DB: DC: DD: DF: RK: DL: DM: DP: DR: DS: DT: DU: DX: DY:
+;	V5.3: DB: DC: DD: DF: RK: DL: DM: DP: DR: DS: DT: DU: DX: DY:
+;	XXDP:     DC: DD: DF: DK: DL: DM: DP: DR: DS: DT: DU: DX: DY:
+;	RUST:	      DD:     RK: DL:			      DX: DY: HD: VM:
+;
+;	The XXRT implementation has two problems to solve: first, where it
+;	gets those drivers from, and second, how drivers are incorporated
+;	in the XXRT distribution kit.
+;
+;	There were three possible driver sources: to use RT-11 bootstrap
+;	drivers, or the XXDP+ monitor drivers or the XXDP/M stand-alone
+;	drivers. After initially attempting to use the RT-11 drivers I
+;	settled on using the XXDP monitor drivers. This required extracting
+;	and reverse-assembling the drivers from each of the device-specific
+;	XXDP+ monitors. The extraction task was relatively simple because
+;	all drivers are located in exactly the same address range in each
+;	of the monitors.
+;
+;	A full reverse-assembly of the drivers would have been too time-
+;	consuming. Instead I devised a method of "literal reverse 
+;	assembly" which aimed simply at making the result code functional.
+;	The fragment below illustrates the process. The address labels, such
+;	as "dk6676" are derived from the locations within the monitor. The
+;	literals used by the code, such as "#13" are left untranslated.
+;	Using this method most drivers could be processed in less than
+;	an hour.
+;
+;	dk$tra:	dvbeg$	DK
+;	dk6676:	psh	r0
+;		psh	r1
+;		mov	#13,r4
+;		clrb	-1(r5)
+;	dk6712:	dec	r4
+;		ble	dk7052
+;		mov	(r5),r3
+;		mov	6(r5),r1
+;		mov	#14,r2
+;		clr	r0
+;	dk6732:	sub	r2,r1
+;
+;	To deal with the second issue I decided to package all the drivers
+;	within the XXRT executable and to then select and copy the drivers
+;	into place in the XXRT monitor at runtime.
+;
+;	XXDP+ monitors can be patched to support alternate device control
+;	register addresses. One way to handle this under RT-11 is to acquire
+;	the addresses from the associated host RT-11 or RUST11 system. 
+;	However, some XXDP drivers do not have RT-11 V5.3 equivalents.
+;	Another way is to use a command switch, which is cumbersome. The
+;	third approach is to a SET CSR command and to store settings in an
+;	init file. The problem here is users might forget the setting over
+;	time and then wonder why a disk drive at the standard address is
+;	not functioning. This functionality is deferred to a second release.
+.sbttl	XXMED$ - XXDP Device media codes
+
+;	This macro is copied from XXMAC.MAC/XXMAC.MLB.
+;
+;	The following drivers were (not) located on random XXDP+ volumes:
+;
+;	CT:	XXDP80.DSK	V1 Cassette
+;	DA:	XXDPE0.DSK	V1 Early DU:
+;	DQ:	(not found)	V1 Early DU:
+;	PE:	XXDPE0.DSK	V1 PE TR78 tape formatter
+;
+;	New drivers added for XXRT with new media codes assigned.
+;
+;	DC:	RS64 disk.                 Driver from RT-11 V3.
+;	DF:	RF11 disk.                 Driver from RT-11 V3.
+;	HD:	E11/V11 Hypothetical Disk. Driver from RUST/SJ.
+;	VM:	Virtual memory disk.       Driver from RUST/SJ.
+;
+;.MACRO	XXMED$
+;
+;	Non-file structured
+;
+;	Media  Code	;V12 Device
+;	-----  ----	;--- -----
+   map	mdAC.,,0	;?   ACT11
+   map	mdKB.,,0	;1   KB: Low  speed reader, Keyboard
+   map	mdPT.,,0	;1   PT: Low  speed punch
+   map	mdPR.,,0	;1   PR: High speed reader
+   map	mdPP.,,0	;1   PP: High speed punch
+   map	mdLP.,,0	;1   LP: Lineprinter
+;
+;	File structured
+;
+   map	mdDT.,,1	;1   DT: TU56 dectape
+   map	mdDK.,,2  	;1   DK: RK05 disk		(RT-11 RK:)
+   map	mdDP.,,3  	;1   DP: RP02 disk (02/03) 
+   map	mdMT.,,4	;1   MT: TM10 magtape
+   map	mdCT.,,5	;1   CT: TA11 cassette		(TADP/XXDP80))
+   map	mdMM.,,6  	;12  MM: TU16 magtape 		(TM02/TJU16)
+   	    ;,,7	;        Unused
+   map	mdDX.,,10	;1   DX: RX01 floppy		(no XXDP boot) 
+   map	mdDB.,,11 	;12  DB: RP04 disk (04/05/06)
+   map	mdDS.,,12 	;1   DS: RS03 disk (03/04)	(RJS03)
+   map	mdDM.,,13 	;12  DM: RK06 disk (06/07)
+   map	mdDL.,,14 	;12  DL: RL01 disk
+   map	mdDY.,,15	;12  DY: RX02 floppy
+   map	mdDR.,,16 	;12  DR: RM02 disk (02/03)
+   map	mdDD.,,17	;1   DD: TU58 cassette
+			;
+   map	mdPD.,,20	;1   PD: TU58 cassette 		(PDT)
+   map	mdMS.,,21	;12  MS: TS04 tape		(TS11)
+   map	mdPE.,,22	;1   PE: TM78 tape formatter
+   map	mdDU.,,23	;12  DU: UDA  disk (MSCP)
+   map	mdMR.,,24	;1   MR: TR79 tape
+   map	mdDQ.,,25 	;1   DA: RX50 disk (MSCP)(V2=DU)(RT-11 CTI DZ:)
+   map	mdDA.,,26 	;1   DQ: RC25 disk (MSCP)(V2=DU)
+   map	mdMU.,,27	; 2  MU: TK50 tape (MSCP)
+;
+;	XXRT Additions	
+;
+   map	mdDC.,,40	;    DC: RC11 disk		(RS64)
+   map	mdDF.,,41	;    DF: RF11 disk
+   map	mdHD.,,42	;    HD: Hypothetical Disk	(E11/V11) 
+   map	mdVM.,,43	;    VM: Virtual Memory disk	(RT-11)
+;.ENDM
+.sbttl	DVxxx$ - Driver macros
+
+;	DVxxx$ - Driver interface macros
+
+    map dc.rad,,0	;^rDL	; rad50 device name	(added)(note)
+    map	dc.asc		;"DL"	; ascii device name
+    map	dc.uct,1	;2	; unit count
+    map	dc.med,1	;12.	; media code
+    map	dc.csr		;174000	; CSR address
+    map	dc.beg		;dl$tra	; driver start address
+    map	dc.end		;dl$end ; driver end address
+    map	dc.ini		;dl$ini	; init routine (optional)
+    map	dc.exi		;dl$exi	; exit routine (optional)
+    map	dc.bbs		;dl$tra ; start of driver
+
+	.MACRO	DVDEF$ NAM, CSR, UCT, MED, INI, EXI
+	  DVENT$
+	 .rad50	"NAM"
+	 .ascii	"NAM"
+	 .byte	UCT
+	 .byte	MED
+	 .word	CSR
+	 .word	nam'$tra
+	 .word	nam'$end
+	 .if nb <INI>
+	  .word	nam'$ini
+	 .iff
+	  .word	dv$ini
+	 .endc
+	 .if nb <EXI>
+	  .word	nam'$exi
+	 .iff
+	  .word	dv$exi
+	 .endc
+	.ENDM
+
+	.MACRO	DVENT$ NAM MED UNX LOC
+	  .if lt dvmax.-dvidx.
+	    .error dvmax.-dvidx.
+	  .iff
+	    devavl == dvmax.-dvidx.
+	    dvloc. = .
+	    . = d$vlst + <dvidx.*2>
+	    .word  dvloc.
+	    dvidx. = dvidx.+1
+	    . = dvloc.
+	  .endc
+	.ENDM
+
+	.MACRO	DVBEG$ NAM
+	 $$$ = nam'$tra-d$rlow
+	.ENDM
+
+	.MACRO	DVSUC$
+	 return
+	.ENDM
+
+	.MACRO	DVERR$
+	 jmp	dr$msg-$$$
+	.ENDM
+
+	.MACRO	DVMSG$ MSG
+	 .iif nb <msg>,mov msg,r0
+	 jmp	dr$msg-$$$
+	.ENDM
+
+	.MACRO	DVEND$ NAM
+	  nam'xsiz == nam'$end-nam'$tra
+	  .if gt nam'xsiz-drvavl
+	    .error nam'xsiz 	; nam: too big
+	  .endc
+	  .if gt nam'xsiz-drvmax
+	    drvmax == nam'xsiz	; we're bigger
+	    drvfre == drvavl-nam'xsiz
+	    peravl == drvavl-drvmax	; remainder for permanent area
+	  .endc
+	.ENDM
+
+;	D$VLST - Device driver list
+;
+;	The list is filled in by DVDEF$/DVENT$ macros
+
+	dvidx.	= 0
+	dvmax.	= 20.
+
+d$vlst:	.blkw	dvmax.
+	.word	0
+.sbttl	Load XXDP monitor driver
+
+;	RT$DRV - Load driver
+;
+;	We use the device, unit and driver specified by the XXRT image.
+;	Thus <R RK1:XXRT> will use RK: unit 1 and the RK: driver.
+
+	.enabl	lsb
+rt$drv::mov	#d$vlst,r0	; the driver list
+				;
+	mov	r$tdev,r2	; device name
+	cmp	r2,#^rDL	; default DL: driver?
+	beq	30$		; yep - do nothing
+	cmp	r2,#^rRK	; RK:?
+	bne	10$		; nope
+	mov	#^rDK,r2	; RK: is DK: for XXRT
+
+;	Find the driver
+
+10$:	mov	(r0)+,r1	; the next candidate
+	beq	40$		; no more, no more
+	assume	dc.rad eq 0	;
+	cmp	(r1),r2 	; is this me?
+	bne	10$		; not yet
+
+;	Setup the driver pointers
+
+	mov	dc.csr(r1),d$rcsr ; CSR address
+	mov	dc.csr(r1),s$ycsr ;
+	mov	dc.asc(r1),d$pdev ; ascii device name
+	movb	dc.med(r1),d$pmed ; xxdp media code
+	movb	dc.med(r1),r$tmed ; rust/rt area copy
+	movb	r$tuni,r0	  ; get the unit number
+	add	#'0,r0		  ; make ascii
+	movb	r0,d$puni	  ; reflect
+
+;	Call the init routine
+
+	call	@dc.ini(r1)	; init check
+	bcs	40$		; failed
+
+;	Copy the driver into place
+
+	mov	dc.beg(r1),r2	; where it comes from
+	mov	#d$rlow,r3	; where it goes to
+20$:	mov	(r2)+,(r3)+	; one by one
+	cmp	r2,dc.end(r1)	; till we're done
+	blo	20$		; so much fun
+dv$ini:				; default init routine
+dv$exi:
+30$:	tst	(pc)+		; fine: driver found
+40$:	sec			; fail: not found
+	return
+	.dsabl	lsb
+.sbttl	LD: and sub-directories
+
+.sbttl	driver interface
+
+;	r0/r1/r5 may not be altered
+;	r2/r3/r4 are free
+.sbttl	DB: driver
+
+;	DB$TRA - DB: transfer function
+
+	dvdef$	DB,dbCSR.,2,mdDB.
+	dbCSR.	= 176700
+
+db$tra:	dvbeg$	DB
+db6676:	psh	r0
+	psh	r1
+	mov	#13,r4
+	clrb	-1(r5)
+db6712:	dec	r4
+	ble	db7100
+	mov	(r5),r3
+	movb	-2(r5),10(r3)
+	mov	#10000,32(r3)
+	mov	#23,(r3)
+	mov	2(r5),2(r3)
+	neg	2(r3)
+	mov	4(r5),4(r3)
+	mov	6(r5),r1
+	mov	#26,r2
+	clr	r0
+db6772:	sub	r2,r1
+	bcs	db7002
+	inc	r0
+	br	db6772
+
+db7002:	add	r2,r1
+	psh	r1
+	clr	r1
+	mov	#23,r2
+db7014:	sub	r2,r0
+	bcs	db7024
+	inc	r1
+	br	db7014
+db7024:	add	r2,r0
+	swab	r0
+	bis	(sp)+,r0
+	mov	r0,6(r3)
+	mov	r1,34(r3)
+	mov	#71,(r3)
+db7046:	bit	#100200,(r3)
+	beq	db7046
+	bpl	db7112
+	mov	(r3),r0
+	mov	#40,10(r3)
+db7066:	tstb	(r3)
+	bpl	db7066
+	bit	#40000,r0
+	beq	db6712
+db7100:	dverr$
+db7112:	pop	r1
+	pop	r0
+	dvsuc$
+
+db$end:	dvend$	DB
+.sbttl	DC: driver
+
+;	DC$TRA - DC: transfer function
+;
+;	Adapted from the RT-11 RC: driver bootstrap.
+;	(XXDP does not have an RC:/DC: driver)
+;
+;	This disk is so ancient that XXDP does not assign it a media
+;	code and its CSR address was reappropriated by the RK611.
+;	(It may have been assigned the unused media code #7).
+;
+;	SimH has an emulation of the disk. That emulation has been
+;	tested 	against the XXDP diagnostics below. Such thorough 
+;	testing is rare.
+;
+;	ZRCAB0.BIC
+;	ZRCBB0.BIC
+;	ZRCCB0.BIC
+
+	rc.blk	= 177442	;disk address register
+	rc.csr	= 177446	;disk control & status register
+
+	dvdef$	DC,177446,1,mdDC.
+
+dc$tra:	dvbeg$	DC
+	psh	r5
+	psh	r0
+	psh	r1
+	mov	io.blk(r5),r0
+	mov	io.wct(r5),r1
+	mov	io.buf(r5),r2
+	clrb	-1(r5)
+	mov	(r5),r3
+	sub	#rc.csr-rc.blk,r3
+
+	mov	r0,r5		;get block number
+	asl	r5		;calculate disk adr for rcda
+	asl	r5		;(unit,track # & sector adr)
+	asl	r5		;[32 * 8=256]
+	mov	r5,(r3)		;ind proper disk adr
+	add	#12,r3		;pt to current adr reg + 12
+	mov	r2,-(r3)	;buffer add.
+	mov	r1,-(r3)	;word count
+	neg	(r3)		;(negative)
+	mov	#5,-(r3)	;start disk read
+10$:	tstb	(r3)		;wait until complete
+	bpl	10$
+	tst	(r3)		;any errors?
+	bmi	20$		;hard halt on error
+	pop	r1
+	pop	r0
+	pop	r5
+	dvsuc$
+20$:	dverr$
+dc$end:	dvend$	DC
+.sbttl	DD: driver
+
+;	DD$TRA - DD: transfer function
+;
+;	Some drivers have the following behaviour:
+;
+;	clrb	-1(r5)		; clear the error byte
+;	...
+;	mov	-2(r5),xxx	; copy the unit number
+;
+;	However, the unit number is a byte variable, not a word.
+;	The error is benign because of the earlier <clrb -1(r5)>.
+;	I have marked, but not corrected these errors.
+
+	dvdef$	DD,ddCSR.,2,mdDD.
+	ddCSR.	= 176500
+	ddCS2.	= 176510
+
+dd$tra:	dvbeg$	DD
+dd6676:	psh	r0
+	psh	r1
+	clrb	-1(r5)
+	mov	(r5),r0
+	mov	#10,dd7460
+dd6716:	mova	dd7442,r4
+	mov	r4,dd7462
+	mov	#5002,(r4)+
+	mov	#2,(r4)+
+	mov	-2(r5),(r4)+	; should be <movb>
+	clr	(r4)+
+	mov	2(r5),(r4)
+	asl	(r4)+
+	mov	6(r5),(r4)+
+	call	dd7146
+	call	dd7122
+	mov	4(r5),r4
+
+dd6774:	call	dd7350
+	mov	r3,dd7442
+	cmpb	#1,r3
+	bne	dd7024
+	mov	r3,dd7456
+	call	dd7060
+	br	dd6774
+dd7024:	cmpb	#2,r3
+	beq	dd7046
+	dec	dd7460
+	beq	dd7300
+	call	dd7370
+	br	dd6716
+
+dd7046:	call	dd7212
+	pop	r1
+	pop	r0
+	dvsuc$
+
+dd7060:	call	dd7174
+	dec	r2
+dd7066:	call	dd7350
+	dec	r2
+	bmi	dd7112
+	mov	r3,(r4)+
+	add	r3,dd7456
+	adc	dd7456
+	br	dd7066
+dd7112:	cmp	r3,dd7456
+	bne	dd7312
+	return	
+
+dd7122:	call	dd7174
+	mov	dd7462,r1
+dd7132:	mov	(r1)+,r3
+	call	dd7330
+	dec	r2
+	bpl	dd7132
+	return	
+
+dd7146:	call	dd7174
+	clr	r3
+	mov	dd7462,r1
+
+dd7160:	add	(r1)+,r3
+	adc	r3
+	dec	r2
+	bne	dd7160
+	mov	r3,(r4)
+	return	
+
+dd7174:	movb	dd7443,r2
+	bic	#177400,r2
+	asr	r2
+	inc	r2
+	return	
+
+dd7212:	mov	r3,r4
+	mov	r3,dd7442
+	mov	#5,r2
+	mova	dd7444,r1
+
+dd7232:	call	dd7350
+	dec	r2
+	bmi	dd7252
+	mov	r3,(r1)+
+	add	r3,r4
+	adc	r4
+	br	dd7232
+dd7252:	cmp	r3,r4
+	bne	dd7312
+	mov	dd7444,r1
+	cmpb	#100,r1
+	bne	dd7300
+	tst	dd7454
+	bmi	dd7300
+	return	
+
+dd7300:	dverr$	
+dd7312:	dvmsg$	#m$schk		; checksum error
+
+dd7324:	call	(pc)
+	call	(pc)
+dd7330:	call	(pc)
+	movb	r3,6(r0)	; 2(r0)
+	swab	r3
+dd7340:	tstb	4(r0)
+	bpl	dd7340
+	return	
+
+dd7350:	call	(pc)
+dd7352:	clrb	r3
+dd7354:	tstb	(r0)
+	bpl	dd7354
+	bisb	2(r0),r3
+	swab	r3
+	return	
+
+dd7370:	clr	r3
+	inc	4(r0)
+	call	dd7324
+	dec	4(r0)
+	mov	#2004,r3
+	tst	2(r0)
+	call	dd7330
+	call	dd7352
+	swab	r3
+	cmpb	#20,r3
+	beq	dd7440
+	br	dd7300
+dd7440:	return	
+
+
+dd7442:	.byte	0
+dd7443:	.byte	0
+dd7444:	.word	0
+	.word	0
+	.word	0
+	.word	0
+dd7454:	.word	0
+dd7456:	.word	0
+dd7460:	.word	0
+dd7462:	.word	0
+
+dd$end:	dvend$	dd
+.sbttl	PD: driver
+
+;	PD$TRA - PD: transfer function
+;
+;	DD: and PD: are almost identical. The two differences are
+;	commented below.
+
+	dvdef$	PD,dyCSR.,2,mdPD.
+	pdCSR.	= 172520
+
+pd$tra:	dvbeg$	PD
+pd6676:	psh	r0
+	psh	r1
+	clrb	-1(r5)
+	mov	(r5),r0
+	mov	#10,pd7460
+pd6716:	mova	pd7442,r4
+	mov	r4,pd7462
+	mov	#5002,(r4)+
+	mov	#2,(r4)+
+	mov	-2(r5),(r4)+	; should be <movb>
+	clr	(r4)+
+	mov	2(r5),(r4)
+	asl	(r4)+
+	mov	6(r5),(r4)+
+	call	pd7146
+	call	pd7122
+	mov	4(r5),r4
+pd6774:	call	pd7350
+	mov	r3,pd7442
+	cmpb	#1,r3
+	bne	pd7024
+	mov	r3,pd7456
+	call	pd7060
+	br	pd6774
+
+pd7024:	cmpb	#2,r3
+	beq	pd7046
+	dec	pd7460
+	beq	pd7300
+	call	pd7370
+	br	pd6716
+
+pd7046:	call	pd7212
+	pop	r1
+	pop	r0
+	return	
+
+pd7060:	call	pd7174
+	dec	r2
+pd7066:	call	pd7350
+	dec	r2
+	bmi	pd7112
+	mov	r3,(r4)+
+	add	r3,pd7456
+	adc	pd7456
+	br	pd7066
+
+pd7112:	cmp	r3,pd7456
+	bne	pd7312
+	return	
+
+pd7122:	call	pd7174
+	mov	pd7462,r1
+pd7132:	mov	(r1)+,r3
+	call	pd7330
+	dec	r2
+	bpl	pd7132
+	return	
+
+pd7146:	call	pd7174
+	clr	r3
+	mov	pd7462,r1
+pd7160:	add	(r1)+,r3
+	adc	r3
+	dec	r2
+	bne	pd7160
+	mov	r3,(r4)
+	return	
+
+pd7174:	movb	pd7443,r2
+	bic	#177400,r2
+	asr	r2
+	inc	r2
+	return	
+
+pd7212:	mov	r3,r4
+	mov	r3,pd7442
+	mov	#5,r2
+	mova	pd7444,r1
+pd7232:	call	pd7350
+	dec	r2
+	bmi	pd7252
+	mov	r3,(r1)+
+	add	r3,r4
+	adc	r4
+	br	pd7232
+pd7252:	cmp	r3,r4
+	bne	pd7312
+	mov	pd7444,r1
+	cmpb	#100,r1
+	bne	pd7300
+	tst	pd7454
+	bmi	pd7300
+	return	
+
+pd7300:	dverr$
+
+pd7312:	dvmsg$	#m$schk
+pd7324:	call	(pc)
+	call	(pc)
+pd7330:	call	(pc)
+	movb	r3,2(r0)	; DD: <movb r3,6(r0)>
+	swab	r3
+pd7340:	tstb	4(r0)
+	bpl	pd7340
+	return	
+
+pd7350:	call	(pc)
+pd7352:	clrb	r3
+pd7354:	tstb	(r0)
+	bpl	pd7354
+	bisb	2(r0),r3
+	swab	r3
+	return	
+
+pd7370:	clr	r3
+	inc	4(r0)
+	call	pd7324
+	clr	4(r0)		; DD: <dec 4(r0)>
+	mov	#2004,r3
+	tst	2(r0)
+	call	pd7330
+	call	pd7352
+	swab	r3
+	cmpb	#20,r3
+	beq	pd7440
+	br	pd7300
+pd7440:	return	
+
+pd7442:	.byte	0
+pd7443:	.byte	0
+pd7444:	.word	0
+	.word	0
+	.word	0
+	.word	0
+pd7454:	.word	0
+pd7456:	.word	0
+pd7460:	.word	0
+pd7462:	.word	0
+
+pd$end:	dvend$	PD
+.sbttl	DF: driver
+
+;	DF$TRA -  DF: transfer routine
+;
+;	Adapted from the RT-11 DF: driver bootstrap.
+;	(XXDP does not have an DF: driver)
+;
+;	r0	block
+;	r1	word count
+;	r2	buffer address
+
+	dfCSR.	= 177460
+	df.csr	= 0		;control & status register
+	df.wct	= 2		;word count
+	df.buf	= 4		;memory address
+	df.blk	= 6		;disk address
+	df.ext	= 10		;disk address extension
+	df.dat	= 12		;data buffer
+
+;	r0	block
+;	r1	word count
+;	r2	buffer address
+;	r3	unit
+;	r4	csr
+
+	dvdef$	DF,dfCSR.,1,mdDF.
+df$tra:	dvbeg$	DF
+	psh	r5
+	psh	r0
+	psh	r1
+	mov	io.blk(r5),r0
+	mov	io.wct(r5),r1
+	mov	io.buf(r5),r2
+;	movb	dr.uni(r5),r3
+	clrb	-1(r5)
+
+	mov	(r5),r3
+	add	#df.blk,r3
+
+	mov	r0,r5		;copy block number
+	swab	r5		;multiply by 256 to get word # on disk
+	mov	r5,r4		;save high order disk address
+	clrb	r5		;make da an even block number
+	mov	r5,(r3)+	;put low order address in controller
+	bic	#177740,r4	;isolate high order address
+	mov	r4,(r3)		;put it in controller
+	tst	-(r3)		;reset pointer
+	mov	r2,-(r3)	;buffer add.
+	mov	r1,-(r3)	;word count
+	neg	(r3)		;(negative)
+	mov	#5,-(r3)	;start disk read
+10$:	tstb	(r3)		;wait until complete
+	bpl	10$
+	tst	(r3)		;any errors?
+	bmi	20$		;hard halt on error
+	pop	r1
+	pop	r0
+	pop	r5
+	dvsuc$
+20$:	dverr$
+df$end:	dvend$	DF
+.sbttl	DK:/RK: driver
+
+;	DK$TRA - DK:/RK: transfer function
+
+	dvdef$	DK,dkCSR.,8.,mdDK.	; DK:/RK: driver
+	dkCSR.	= 177404
+
+dk$tra:	dvbeg$	DK
+dk6676:	psh	r0
+	psh	r1
+	mov	#13,r4
+	clrb	-1(r5)
+dk6712:	dec	r4
+	ble	dk7052
+	mov	(r5),r3
+	mov	6(r5),r1
+	mov	#14,r2
+	clr	r0
+dk6732:	sub	r2,r1
+	bcs	dk6744
+	add	#20,r0
+	br	dk6732
+dk6744:	add	r2,r1
+	add	r1,r0
+	movb	-2(r5),r1
+	ccc	
+	ror	r1
+	ror	r1
+	ror	r1
+	ror	r1
+	bis	r1,r0
+	mov	r0,6(r3)
+	mov	2(r5),2(r3)
+	neg	2(r3)
+	mov	4(r5),4(r3)
+	mov	#5,(r3)
+dk7020:	bit	#100200,(r3)
+	beq	dk7020
+	bpl	dk7064
+	bit	#40000,(r3)
+	bne	dk7052
+	mov	#1,(r3)
+dk7042:	bit	#100200,(r3)
+	beq	dk7042
+	bpl	dk6712
+dk7052:	dverr$
+dk7064:	pop	r1
+	pop	r0
+	dvsuc$
+
+dk$end:	dvend$	dk
+.sbttl	DM: driver
+
+;	DM$TRA - DM: transfer function
+
+	dvdef$	DM,dmCSR.,8.,mdDM.
+	dmCSR.	= 177440
+
+dm$tra:	dvbeg$	DM
+	br	dm6700
+dm6676:	.word	0
+
+dm6700:	psh	r0
+	psh	r1
+	mov	(r5),r0
+	call	dm7350
+	call	dm6742
+	 br	dm6730
+	pop	r1
+	pop	r0
+	tst	dm7334
+	dvsuc$
+
+dm6730:	dverr$
+
+dm6742:	call	dm7052
+	 br	dm7012
+	mov	#12,r4
+dm6754:	call	dm7014
+	psh	#21
+	bis	dm6676,(sp)
+	pop	(r0)
+	call	dm7146
+	beq	dm7006
+	bmi	dm7012
+	dec	r4
+	bne	dm6754
+dm7006:	add	#2,(sp)
+dm7012:	return	
+
+dm7014:	mov	dm7352,20(r0)
+	mov	dm7402,6(r0)
+	mov	2(r5),2(r0)
+	neg	2(r0)
+	mov	4(r5),4(r0)
+	return	
+
+dm7052:	psh	#2
+dm7056:	dec	(sp)
+	bmi	dm7142
+	mov	#100000,(r0)
+	mov	-2(r5),10(r0)	; should be <movb>
+	psh	#5
+	bis	dm6676,(sp)
+	pop	(r0)
+	call	dm7146
+	bgt	dm7056
+	psh	#3
+	bis	dm6676,(sp)
+	pop	(r0)
+	call	dm7146
+	bne	dm7142
+	add	#2,2(sp)
+dm7142:	tst	(sp)+
+	return	
+
+dm7146:	bit	#100200,(r0)
+	beq	dm7146
+	bmi	dm7200
+dm7156:	tst	12(r0)
+	bpl	dm7156
+dm7164:	tstb	12(r0)
+	bpl	dm7164
+	clr	dm7334
+	br	dm7332
+dm7200:	mov	#1,dm7334
+
+dm7206:	tst	12(r0)
+	bpl	dm7206
+	clr	r1
+	bit	#40,14(r0)
+	beq	dm7244
+	com	dm6676
+	bic	#175777,dm6676
+	com	r1
+	br	dm7302
+dm7244:	bit	#10000,10(r0)
+	bne	dm7274
+	bit	#40000,14(r0)
+	bne	dm7274
+	bit	#1,12(r0)
+	bne	dm7302
+dm7274:	com	r1
+	neg	dm7334
+dm7302:	mov	#40,10(r0)
+	tst	r1
+	bne	dm7332
+	psh	#13
+	bis	dm6676,(sp)
+	pop	(r0)
+	call	dm7340
+dm7332:	tst	(pc)+
+dm7334:	.word	0
+	return	
+
+dm7340:	dec	(pc)+	; timing loop (65536 times)
+	.word	0
+	bne	dm7340
+	return	
+
+dm7350:	clr	(pc)+
+dm7352:	.word	0
+	mov	6(r5),r3
+	mov	#102,r2
+dm7364:	sub	r2,r3
+	bcs	dm7376
+	inc	dm7352
+	br	dm7364
+dm7376:	add	r2,r3
+	clr	(pc)+
+dm7402:	.byte	0
+dm7403:	.byte	0
+	mov	#26,r2
+dm7410:	sub	r2,r3
+	bcs	dm7422
+	incb	dm7403
+	br	dm7410
+dm7422:	add	r2,r3
+	movb	r3,dm7402
+	return	
+
+dm$end:	dvend$	DM
+.sbttl	DP: driver
+
+;	DP$TRA - DP: transfer function
+
+	dvdef$	DP,dpCSR.,8.,mdDP.
+	dpCSR.	= 176714
+
+dp$tra:	dvbeg$	DP
+	br	dp6700
+dp6676:	.word	0
+
+dp6700:	psh	r0
+	psh	r1
+	mov	#13,r4
+	clrb	-1(r5)
+dp6712:	dec	r4
+	ble	dp7070
+	mov	(r5),r3
+	movb	-2(r5),r0
+	swab	r0
+	mov	r0,(r3)
+	mov	2(r5),2(r3)
+	neg	2(r3)
+	mov	4(r5),4(r3)
+	mov	6(r5),r1
+	mov	#12,r2
+	clr	r0
+dp6762:	sub	r2,r1
+	bcs	dp6772
+	inc	r0
+	br	dp6762
+dp6772:	add	r2,r1
+	psh	r1
+	clr	r1
+	mov	#24,r2
+dp7004:	sub	r2,r0
+	bcs	dp7014
+	inc	r1
+	br	dp7004
+dp7014:	add	r2,r0
+	swab	r0
+	bis	(sp)+,r0
+	mov	r0,10(r3)
+	mov	r1,6(r3)
+	movb	#5,(r3)
+dp7036:	bit	#100200,(r3)
+	beq	dp7036
+	bpl	dp7102
+	bit	#40000,(r3)
+	beq	dp7070
+	movb	#1,(r3)
+dp7060:	bit	#100200,(r3)
+	beq	dp7060
+	bpl	dp6712
+dp7070:	decb	-1(r5)
+	dverr$
+dp7102:	pop	r1
+	pop	r0
+	dvsuc$
+
+dp$end:	dvend$	DP
+.sbttl	DR: driver
+
+;	DR$TRA - DR: transfer function
+
+	dvdef$	DR,drCSR.,8.,mdDR.
+	drCSR.	= 176700
+
+dr$tra:	dvbeg$	DR
+dr6676:	psh	r0
+	psh	r1
+	mov	(r5),r0
+	clrb	-1(r5)
+	clr	(pc)+
+dr6712:	.word	0
+	mov	6(r5),r3
+	mov	#240,r2
+dr6724:	sub	r2,r3
+	bcs	dr6736
+	inc	dr6712
+	br	dr6724
+dr6736:	add	r2,r3
+	clr	(pc)+
+;???
+dr6742:	.byte	0
+dr6743:	.byte	0
+	mov	#40,r2
+dr6750:	sub	r2,r3
+	bcs	dr6762
+	incb	dr6743
+	br	dr6750
+dr6762:	add	r2,r3
+	movb	r3,dr6742
+dr6770:	mov	#40,10(r0)
+	movb	-2(r5),10(r0)
+	psh	#11
+	pop	(r0)
+	call	dr7134
+	bne	dr6770
+	mov	#23,(r0)
+	mov	#10000,32(r0)
+	mov	#12,r4
+dr7036:	mov	dr6712,34(r0)
+	mov	dr6742,6(r0)
+	mov	2(r5),2(r0)
+	neg	2(r0)
+	mov	4(r5),4(r0)
+	psh	#71
+	pop	(r0)
+	call	dr7134
+	beq	dr7126
+	bmi	dr7114
+	dec	r4
+	bne	dr7036
+dr7114:	decb	-1(r5)
+	dverr$
+dr7126:	pop	r1
+	pop	r0
+	tst	dr7226
+	dvsuc$
+
+dr7134:	bit	#100200,(r0)
+	beq	dr7134
+	bmi	dr7160
+dr7144:	tstb	12(r0)
+	bpl	dr7144
+	clr	dr7226
+	return	
+
+dr7160:	clr	r1
+	bit	#40000,14(r0)
+	beq	dr7174
+	dec	r1
+dr7174:	tst	r1
+	bne	dr7202
+	inc	r1
+dr7202:	mov	r1,dr7226
+	bis	#40,10(r0)
+	pop	(r0)
+dr7216:	dec	(pc)+
+dr7220:	.word	0
+	bne	dr7216
+dr7224:	tst	(pc)+
+dr7226:	.word	0
+	return	
+
+dr$end:	dvend$	DR
+.sbttl	DS: driver
+
+;	DS$TRA - DS: transfer function
+
+	dvdef$	ds,dsCSR.,8.,mdDS.
+	dsCSR. 	= 172040
+
+ds$tra:	dvbeg$	DS
+	br	ds6702
+ds6676:	.word	0
+ds6700:	.word	0
+
+ds6702:	psh	r0
+	psh	r1
+	mov	#13,r4
+	clrb	-1(r5)
+	mov	(r5),r3
+	mov	2(r5),ds6676
+	mov	6(r5),ds6700
+	mov	4(r5),4(r3)
+ds6742:	dec	r4
+	ble	ds7076
+	movb	-2(r5),10(r3)
+ds6754:	mov	ds6700,r1
+	asl	r1
+	asl	r1
+	mov	r1,6(r3)
+	cmp	ds6676,#400
+	ble	ds7010
+	mov	#400,2(r3)
+	br	ds7016
+
+ds7010:	mov	ds6676,2(r3)
+ds7016:	neg	2(r3)
+	mov	#71,(r3)
+ds7026:	bit	#100200,(r3)
+	beq	ds7026
+	bmi	ds7054
+	sub	#400,ds6676
+	blos	ds7110
+	inc	ds6700
+	br	ds6754
+ds7054:	mov	(r3),r0
+	mov	#40,10(r3)
+ds7064:	tstb	(r3)
+	bpl	ds7064
+	bit	#40000,r0
+	beq	ds6742
+ds7076:	dverr$
+ds7110:	pop	r1
+	pop	r0
+	dvsuc$
+
+ds7116:	movb	-2(r5),r0
+	add	#60,r0
+	movb	r0,ds7144
+	mova	ds7142,r0
+	return	
+
+ds7142:	.word	51504
+ds7144:	.word	5000
+
+ds$end:	dvend$	DS
+.sbttl	DT: driver
+
+;	DT$TRA - DT: transfer function
+
+	dvdef$	dt,dtCSR.,8.,mdDT.
+	dtCSR. 	= 177340
+
+dt$tra:	dvbeg$	DT
+dt6676:	psh	r0
+	psh	r1
+	mov	#12,r2
+	clrb	-1(r5)
+dt6712:	dec	r2
+	blt	dt7026
+	mov	(r5),r3
+	clr	r4
+	bisb	-2(r5),r4
+	swab	r4
+	mov	2(r5),2(r3)
+	neg	2(r3)
+	mov	4(r5),4(r3)
+	bis	#3,r4
+	mov	6(r5),r1
+	bpl	dt6770
+	neg	r1
+	bis	#4000,r4
+dt6770:	call	dt7044
+	clrb	r4
+	bis	#5,r4
+	mov	r4,(r3)
+	call	dt7222
+	 br	dt6712
+	 br	dt6712
+	movb	#1,(r3)
+	pop	r1
+	pop	r0
+	dvsuc$
+
+dt$err:
+dt7026:	movb	#1,(r3)
+	dverr$
+
+dt7044:	mov	#12,r0
+dt7050:	dec	r0
+	blt	dt7204
+dt7054:	mov	r4,(r3)
+	call	dt7222
+	 br	dt7142
+	 br	dt7050
+	cmp	6(r3),r1
+	blt	dt7100
+	bgt	dt7142
+	br	dt7054
+
+dt7100:	bit	#4000,(r3)
+	beq	dt7054
+	bic	#4000,(r3)
+dt7112:	inc	(r3)
+	call	dt7222
+	 br	dt7054
+	 br	dt7050
+	sub	#3,6(r3)
+	cmp	6(r3),r1
+	blt	dt7112
+	br	dt7054
+dt7142:	bit	#4000,(r3)
+	bne	dt7054
+dt7150:	bis	#4001,(r3)
+	call	dt7222
+	 br	dt7054
+	 br	dt7050
+	add	#3,6(r3)
+	cmp	6(r3),r1
+	bgt	dt7150
+	br	dt7054
+dt7202:	return	
+
+dt7204:	movb	#1,(r3)
+	dvmsg$	#dt7545-$$$	; search error
+
+dt7222:	bit	#100200,(r3)
+	beq	dt7222
+	bpl	dt7242
+	tst	177776(r3)
+	bpl	dt7246
+	br	dt7252
+dt7242:	add	#2,(sp)
+dt7246:	add	#2,(sp)
+dt7252:	return	
+
+dt7545:	.asciz	"?Search error"
+	.even
+
+dt$end:	dvend$	DT
+.sbttl	DU: driver
+
+;	DU$TRA - DU: transfer function
+;
+;	The <mcp$c> conditionals below sketch support for multi-
+;	partition MSCP support.
+
+	dvdef$	DU,duCSR.,8.,mdDU.
+	duCSR. = 172150
+
+du$tra:	dvbeg$	DU
+du6676:	br	10$
+.if ne mcp$c
+d$uuni:	.word	0		; MSCP unit
+d$upar:	.word	0		; MSCP partition
+.endc
+10$:	psh	r0
+	psh	r1
+	mov	(r5),r4		; r4 -> csr
+	clrb	-1(r5)		; clear error byte
+
+	call	du7544		; setup rings
+
+	mov	#11,du7460	; online
+	call	du7022		;
+	bne	du6772		; error
+
+	mov	#41,du7460	; read
+	mov	2(r5),du7464	; word count
+	asl	du7464		; byte count
+	mov	6(r5),du7504	; block
+.if ne mcp$c
+	mov	d$upar,du7506	; partition
+.endc
+	mov	4(r5),du7470	; buffer address
+	call	du7022
+	beq	du7014
+
+du6772:	clr	(r4)
+	dvmsg$	#du7722-$$$	;?UDA error
+
+du7014:	pop	r1
+	pop	r0
+	dvsuc$
+
+du7022:	clrb	du7447
+	mov	du7442,r2
+.if eq mcp$c
+	mov	-2(r5),du7454	; unit - should be <movb>
+.iff
+	mov	d$uini,du7444	; mscp unit
+.endc
+	mov	#60,du7444
+	mov	#100000,du7536
+	mov	#100000,du7542
+	mov	(r4),r1
+du7064:	dec	r1
+	bne	du7074
+	dec	r2
+	bmi	du7102
+du7074:	tst	2(r4)
+	beq	du7112
+du7102:	clr	(r4)		; force ini
+	call	du7544		; init
+	br	du7022
+
+du7112:	tst	du7542
+	bmi	du7064
+du7120:	tst	du7536
+	bmi	du7120
+	mov	du7462,r0
+	movb	#222,du7447
+	mov	#100000,du7542
+
+;	Clear packet
+
+du7146:	mova	du7450,r2
+	mov	#60,r1
+du7160:	clrb	(r2)+
+	dec	r1
+	bne	du7160
+	bic	#177740,r0
+	return	
+
+du7442:	.word	0
+du7444:	.word	0	; function
+du7446:	.byte	0
+du7447:	.byte	0
+
+d$upkt:
+du7450:	.word	0	; command reference
+	.word	0
+du7454:	.word	0	; mscp unit
+	.word	0
+du7460:	.word	0	; function
+du7462:	.word	0	; status
+du7464:	.word	0	; byte count
+	.word	0
+du7470:	.word	0	; buffer address
+	.word	0
+	.word	0
+	.word	0
+	.word	0
+	.word	0
+du7504:	.word	0	; block - low order
+du7506:	.word	0	; block - high order - partition
+	.word	0
+	.word	0
+	.word	0
+	.word	0
+	.word	0
+	.word	0
+	.word	0
+	.word	0
+	.word	0
+	.word	0
+du7534:	.word	0	; ring pointers
+du7536:	.word	0
+du7540:	.word	0
+du7542:	.word	0
+
+;	Setup the rings
+				;  r3 -> AFTER the instruction
+du7544:	mov	pc,r3		;\ r3 -> du7546
+du7546:	tst	2(r4)		;|
+	beq	du7676		;| no init required
+				;|
+	clr	du7442		;|
+	clr	r2		;|
+	sub	#12,r3		;| r3 -> du7534
+	mov	r3,du7624	;|
+	sub	#64,r3		;| r3 -> du7540
+	mov	r3,du7634	;|
+	mov	r3,du7632	;|
+	mov	r4,r1		;|
+	mov	r0,(r1)+	;|
+	mov	#4000,r0	;|
+	mov	pc,r3		;| r3 -> du7620
+du7620:	br	du7636		;|
+				;|
+du7622:	.word	100000		;|
+du7624:	.word	du7534		;|
+du7626:	.word	0		;|
+	.word	1		;|
+du7632:	.word	du7450		;|
+du7634:	.word	du7450		;|
+				;|
+du7636:	tst	(r3)+		;| r3 -> du7622
+du7640:	tst	(r1)		;|
+	bmi	du7700		;|
+	inc	r2		;|
+	bne	du7654		;|
+	inc	du7442		;|
+du7654:	bit	(r1),r0		;|
+	beq	du7640		;|
+	mov	(r3)+,(r1)	;| r3 -> du7624
+	asl	r0		;|
+	bpl	du7640		;|
+	mov	(r3)+,du7534	;| r3 -> du7626
+	mov	(r3),du7540	;/
+du7676:	return	
+
+du$err:
+du7700:	dverr$
+
+du7722:	.asciz	"?UDA error"
+	.even
+
+du$end:	dvend$	DU
+.sbttl	DX: driver
+
+;	DX$TRA - DX: transfer function
+
+	dvdef$	DX,dyCSR.,2,mdDX.
+	dxCSR.	= 177170
+	dxCS2.	= 177174
+
+dx$tra:	dvbeg$	DX
+dx6676:	clrb	-1(r5)
+	psh	r0
+	psh	r1
+	mov	(r5),r0
+	mov	6(r5),(pc)+
+dx6714:	.word	0
+	call	dx7260
+	mov	2(r5),(pc)+
+dx6726:	.word	0
+	mov	4(r5),(pc)+
+dx6734:	.word	0
+dx6736:	psh	#12
+dx6742:	clr	r1
+	jsr	r4,dx7116
+	 .word	7
+	call	dx7150
+	call	dx7172
+	call	dx7062
+	beq	dx7026
+	clr	r1
+	jsr	r4,dx7116
+	 .word	40013
+	mov	dx7144,(r0)
+	call	dx7062
+	dec	(sp)
+	bne	dx6742
+	dverr$
+
+dx7026:	tst	(sp)+
+	sub	#100,dx6726
+	ble	dx7054
+	add	#200,dx6734
+	call	dx7240
+	br	dx6736
+dx7054:	pop	r1
+	pop	r0
+	dvsuc$
+
+dx7062:	psh	#100040
+	br	dx7074
+dx7070:	psh	#100200
+dx7074:	tst	r1
+	bne	dx7110
+dx7100:	bit	(sp),(r0)
+	beq	dx7100
+	bpl	dx7110
+	inc	r1
+dx7110:	tst	(sp)+
+	tst	r1
+	return	
+
+;	jsr	r4,177116
+;	 .word	code
+
+dx7116:	psh	-2(r5)		; should be <movb>
+	beq	dx7130
+	mov	#20,(sp)
+dx7130:	bis	(r4)+,(sp)
+	call	dx7062
+	bne	dx7142
+	mov	(sp),(r0)
+dx7142:	pop	(pc)+
+dx7144:	.word	0
+	rts	r4
+
+dx7150:	call	dx7070
+	mov	r3,2(r0)
+	call	dx7070
+	mov	r2,2(r0)
+	return	
+
+dx7172:	mov	#116024,dx7226
+	jsr	r4,dx7116
+	 .word	3
+	br	dx7210
+dx7210:	mov	dx6734,r4
+	psh	#200
+
+dx7220:	call	dx7070
+	bne	dx7236
+dx7226:	movb	2(r0),(r4)+
+	dec	(sp)
+	bne	dx7220
+dx7236:	br	dx7110
+dx7240:	inc	(pc)+
+dx7242:	.word	0
+	bit	#3,dx7242
+	bne	dx7274
+	inc	dx6714
+
+dx7260:	psh	dx6714
+	asl	(sp)
+	asl	(sp)
+	pop	dx7242
+dx7274:	mov	dx7242,r3
+	mov	#10,r2
+dx7304:	cmp	#6400,r3
+	bhi	dx7316
+	add	#171400,r3
+dx7316:	rol	r3
+	dec	r2
+	bgt	dx7304
+	movb	r3,r2
+	clrb	r3
+	swab	r3
+	cmp	#14,r3
+	rol	r3
+	asl	r2
+	add	r2,r3
+	add	r2,r3
+	add	r2,r3
+	asr	r2
+	inc	r2
+dx7354:	sub	#32,r3
+	bge	dx7354
+	add	#33,r3
+	return	
+
+dx$end:	dvend$	DX
+.sbttl	DY: driver
+
+;	DY$TRA - DY: transfer function
+
+	dvdef$	DY,dyCSR.,2,mdDY.
+	dyCSR.	= 177170
+	dyCS2.	= 177150
+
+dy$tra:	dvbeg$	DY
+dy6774:	clrb	-1(r5)
+	psh	r0
+	psh	r1
+	mov	(r5),r0
+	mov	6(r5),(pc)+
+dy6712:	.word	0
+	call	dy7270
+	mov	2(r5),(pc)+
+dy6724:	.word	0
+	mov	4(r5),(pc)+
+dy6732:	.word	0
+	mov	#100,r1
+	cmp	dy6724,r1
+	beq	dy6750
+	add	r1,r1
+dy6750:	mov	r1,dy7230
+dy6754:	psh	#12
+dy6760:	clr	r1
+	jsr	r4,dy7130
+	 br	dy7006
+	call	dy7162
+	call	dy7204
+	call	dy7074
+	beq	dy7040
+dy7006:	clr	r1
+	jsr	r4,dy7130
+	 bic	r4,(r3)
+	mov	dy7156,(r0)
+	call	dy7074
+	dec	(sp)
+	bne	dy6760
+	dverr$
+
+dy7040:	tst	(sp)+
+	sub	#200,dy6724
+	ble	dy7066
+	add	#400,dy6732
+	call	dy7250
+	br	dy6754
+dy7066:	pop	r1
+	pop	r0
+	dvsuc$
+
+dy7074:	psh	#100040
+	br	dy7106
+dy7102:	psh	#100200
+dy7106:	tst	r1
+	bne	dy7122
+dy7112:	bit	(sp),(r0)
+	beq	dy7112
+	bpl	dy7122
+	inc	r1
+dy7122:	tst	(sp)+
+	tst	r1
+	return	
+
+dy7130:	psh	-2(r5)		; should be <movb>
+	beq	dy7142
+	mov	#20,(sp)
+dy7142:	bis	(r4)+,(sp)
+	call	dy7074
+	bne	dy7154
+	mov	(sp),(r0)
+dy7154:	pop	(pc)+
+dy7156:	.word	0
+	rts	r4
+
+dy7162:	call	dy7102
+	mov	r3,2(r0)
+	call	dy7102
+	mov	r2,2(r0)
+	return	
+
+dy7204:	jsr	r4,dy7130
+	 br	dy7220
+	call	dy7102
+	bne	dy7246
+dy7220:	mov	dy7230,2(r0)
+	br	dy7232
+
+dy7230:	.word	0
+dy7232:	call	dy7102
+	bne	dy7246
+	mov	dy6732,2(r0)
+dy7246:	return	
+
+dy7250:	inc	(pc)+
+dy7252:	.word	0
+	bit	#1,dy7252
+	bne	dy7302
+	inc	dy6712
+dy7270:	psh	dy6712
+	asl	(sp)
+	pop	dy7252
+dy7302:	mov	dy7252,r3
+	mov	#10,r2
+dy7312:	cmp	#6400,r3
+	bhi	dy7324
+	add	#171400,r3
+dy7324:	rol	r3
+	dec	r2
+	bgt	dy7312
+	movb	r3,r2
+	clrb	r3
+	swab	r3
+	cmp	#14,r3
+	rol	r3
+	asl	r2
+	add	r2,r3
+	add	r2,r3
+	add	r2,r3
+	asr	r2
+	inc	r2
+dy7362:	sub	#32,r3
+	bge	dy7362
+	add	#33,r3
+	return	
+
+dy$end:	dvend$	DY
+.sbttl	HD: driver
+$dcdef
+$dedef
+hddef$
+
+;	HD$TRA - HD: transfer function
+;
+;	Adapted from the RUST/SJ HD: driver bootstrap.
+;	(XXDP does not have an HD: driver)
+;	(E11 and V11 support HD:, SimH does not)
+
+	dvdef$	HD,hdCSR.,8.,mdHD.
+	hdCSR.	= 177110
+	hdREA	= 2+1		; hddef$ hdREA. has interrupt enable
+
+hd$tra:	dvbeg$	HD
+	psh	r0
+	psh	r1
+	mov	io.blk(r5),r0
+	mov	io.wct(r5),r1
+	mov	io.buf(r5),r2
+	movb	dr.uni(r5),r3
+	clrb	-1(r5)
+
+	mov	(r5),r4			; r4 -> CSR
+	mov	r2,hd.bu0(r4)		; the buffer
+	clr	hd.bu1(r4)		;
+	asl	r1			; make a byte count
+	mov	r1,hd.bct(r4)		; the count
+	mov	r0,hd.lb0(r4)		; the block
+	clr	hd.lb1(r4)		;
+	bic	#^c7,r3			; clean it up
+	swab	r3			; high byte
+	asl	r3			; starts at bit 9
+	bis	#hdREA,r3		; set function and go
+	mov	r3,(r4)			; the function
+
+20$:	tstb	(r4)			; wait for it
+	bpl	20$			; should be synchronous
+	tst	(r4)			; check status
+	bmi	30$			;
+	pop	r1
+	pop	r0
+	dvsuc$
+30$:	dverr$
+
+hd$end:	dvend$	HD
+.sbttl	VM: driver
+$mmdef
+$psdef
+$vedef
+
+;	VM: Virtual Memory disk driver
+;
+;	Adapted from the RUST/SJ VM: driver bootstrap.
+;	(XXDP does not have a VM: driver)
+;
+;	VM: can't be used by diagnostics that modify extended memory.
+;	This probably applies to any diagnostic that tests devices
+;	that support extended memory, such as disk drives.
+
+	dvdef$	VM,vmCSR.,1,mdVM.
+	vmCSR.	= 0
+
+	.enabl	lsb
+vm$tra:	dvbeg$	VM
+vm$loa:	psh	r1
+	jsr	r0,10$			; setup & save count
+v$mbus:	.word	0			; their bus vector
+	bis	#vbit,ve.ps(sp)		; our bus routine
+	rti				;
+10$:	mov	@#v$ebus,(r0)+		; save their bus vector
+	mov	r0,@#v$ebus		; use ours to detect memory errors
+
+	mov	#8.,r2			; r2 = window count
+	clr	r3			; r3 = mapping offset
+	mov	#m$kip0,r4		; r4 -> page registers
+	$ = m$kip0			; origin
+20$:	mov	#mmd4k.,m$uid0-$(r4)	; kernel page size
+	mov	#mmd4k.,m$kid0-$(r4)	; user page size
+	mov	r3,m$uip0-$(r4)		; user par
+	mov	r3,(r4)+		; kernel par
+	add	#mmpis.,r3		; the next segment
+	sob	r2,20$			; c=0
+					;
+	mov	#mmi22.,r3		; assume 22-bit I/O page
+	bis	#mm22b$,@#m$msr3	; enable 22-bit
+	bvc	30$			; is 22-bit
+	mov	#mmi18.,r3		; v=1 => 18-bit I/O page
+30$:	mov	r3,-(r4)		; setup I/O page
+	inc	@#m$msr0		; enable memory management
+	bis	#mmpum$,@#ps		; setup mode
+					;
+	clrb	-1(r5)			; clear error flag
+	mov	io.blk(r5),r0		; r0 = block
+	assume	mmpib. eq 8.		; eight pages per block
+	add	(pc)+,r0		; add in base block
+v$mbas:	.word	mmp18./mmpib.		; end of 16-bit space
+	asl	r0			; get the page address
+	asl	r0			;
+	asl	r0			; r0 = page address
+	mov	r0,@#m$uip1		; page address
+
+	mov	io.buf(r5),r0		; r2 -> buffer
+	mov	io.wct(r5),r3		; r1 = word count
+
+;	r0 ->	buffer
+;	r1 ->	MMU memory window
+;	r2 =	window word count
+;	r3 =	total word count
+
+;	copy loop
+
+40$:	mov	#m$mpa1,r1		; vm buffer
+	mov	r3,r2			; remaining count
+	beq	70$			; all over
+	cmp	r2,#2048.		; in window?
+	blo	50$			; yep
+	mov	#2048.,r2		; truncate
+50$:	sub	r2,r3			; adjust 
+60$:	mfpi	(r1)+			; read - fetch vm
+	bvs	90$			; oops
+	pop	(r0)+			; store user
+	sob	r2,60$			;
+	add	#2048./mmwip.,@#m$uip1	;
+	br	40$
+					;
+70$:	call	100$			; cleanup
+	pop	r0
+	pop	r1
+	dvsuc$
+
+90$:	call	100$			; restore MMU
+	pop	r0
+	pop	r1
+	dverr$				; memory error
+
+100$:	bic	#mmpum$,@#ps		; not previous user mode
+	clr	@#m$msr0		; disable management
+;	clr	@#m$msr3		; clear 22-bit (ignore error)
+	mov	v$mbus,@#v$ebus		; restore bus
+	return
+	.dsabl	lsb
+
+vm$end:	dvend$	VM
+.end start
+.sbttl	VM: driver
+$mmdef
+$psdef
+$vedef
+
+;	VM: Virtual Memory disk driver
+;
+;	Adapted from the RUST/SJ VM: driver bootstrap
+;	(XXDP does not have a VM: driver)
+;
+;	VM:XXRT crashes if diagnostics use extended memory.
+;	For example, disk drivers with 18-bit/22-bit support.
+;
+;	r0	block
+;	r1	word count
+;	r2	buffer address
+
+	dvdef$	VM,vmCSR.,1,mdVM.
+	vmCSR.	= 0
+
+	.enabl	lsb
+vm$tra:	dvbeg$	VM
+vm$loa:	psh	r5
+	psh	r1
+	psh	r0			;
+
+	mov	io.blk(r5),r0		; copy parameters
+	mov	io.wct(r5),r1		;
+	mov	io.buf(r5),r2		;
+	clrb	-1(r5)			;
+
+	jsr	r1,10$			; setup & save count
+v$mbus:	.word	0			; their bus vector
+	bis	#vbit,ve.ps(sp)		; our bus routine
+	rti				;
+10$:	mov	@#v$ebus,(r1)+		; save their bus vector
+	mov	r1,@#v$ebus		; use ours to detect memory errors
+					;
+	assume	mmpib. eq 8.		; eight pages per block
+	add	(pc)+,r0		; add in base block
+v$mbas:	.word	mmp18./mmpib.		; end of 16-bit space
+	asl	r0			; get the page address
+	asl	r0			;
+	asl	r0			;
+					;
+	clr	r3			; the mapping offset
+	mov	#m$kip0,r4		;
+	mov	#8.,r5			;
+	$ = m$kip0			; origin
+20$:	mov	#mmd4k.,m$uid0-$(r4)	; kernel page size
+	mov	#mmd4k.,m$kid0-$(r4)	; user page size
+	mov	r3,m$uip0-$(r4)		; user par
+	mov	r3,(r4)+		; kernel par
+	add	#mmpis.,r3		; the next segment
+	sobw	r5,20$			; c=0
+					;
+	mov	#mmi22.,r3		; assume 22-bit I/O page
+	bis	#mm22b$,@#m$msr3	; enable 22-bit
+	bvc	30$			; is 22-bit
+	mov	#mmi18.,r3		; v=1 => 18-bit I/O page
+30$:	mov	r3,-(r4)		; setup I/O page
+	inc	@#m$msr0		; enable memory management
+	bis	#mmpum$,@#ps		; setup mode
+
+	mov	r0,@#m$uip1		; page address
+	mov	r2,r0			; memory buffer
+	pop	r3			; get count back 
+
+;	r0 ->	buffer
+;	r1 ->	MMU memory window
+;	r2 =	window word count
+;	r3 =	total word count
+
+;	copy loop
+
+40$:	mov	#m$mpa1,r1		; vm buffer
+	mov	r3,r2			; remaining count
+	beq	70$			; all over
+	cmp	r2,#2048.		; in window?
+	blo	50$			; yep
+	mov	#2048.,r2		; truncate
+50$:	sub	r2,r3			; adjust 
+60$:	mfpi	(r1)+			; read - fetch vm
+	bvs	90$			; oops
+	pop	(r0)+			; store user
+	sob	r2,60$			;
+	add	#2048./mmwip.,@#m$uip1	;
+	br	40$
+					;
+70$:	call	100$			; cleanup
+	pop	r0
+	pop	r1
+	pop	r5
+	dvsuc$
+
+90$:	call	100$			; restore MMU
+	dverr$				; memory error
+
+100$:	bic	#mmpum$,@#ps		; not previous user mode
+	clr	@#m$msr3		; clear 22-bit
+	clr	@#m$msr0		; disable management
+	mov	v$mbus,@#v$ebus		; restore bus
+	return
+	.dsabl	lsb
+
+vm$end:	dvend$	VM
+.end	start
+.sbttl	NF: driver
+$iqdef
+$vadef
+
+;	RUST/SJ NF: transfer routine
+
+	dvdef$	NF,nfCSR.,8.,mdNF.	;
+	nfCSR.	= 0
+
+	viSYS.	= 110706
+	viNFD.	= 4
+	ntCOD.	= 205
+	vxini$ = <vaini$/256.>&255.
+	vxdsk$ = <vadsk$/256.>&255.
+
+nf$tra:	dvbeg$	NF
+	clrb	-1(r5)			; clear error status
+	mova	n$fque,r4		; get the queue element
+	mov	io.blk(r5),i.qblk(r4)	;
+	mov	io.wct(r5),i.qwct(r4)	;
+	mov	io.buf(r5),i.qbuf(r4)	;
+					;
+	psh	(pc)+			;
+b$oini:	.word	vxINI$			; init node
+	clr	b$oini			;
+	bis	#vxdsk$,(sp)		; boot disk read
+	psh	#vaBOO.			; BOOT channel
+	psh	r4			; i/o queue element
+	psh	#viNFD.			; NF: driver interconnect code
+	iot				; 
+	.word	viSYS.			; V11 interconnect
+	add	#8.,sp			;
+	beqw	r0,10$			; oops
+	dvsuc$
+10$:	dverr$
+
+n$fque:	.blkb	i.qbbs			; queue element
+
+nf$end:	dvend$	NF
+.if ne inf$c
+
+;	exclude LD:
+.sbttl	 Driver information
+
+d$vpor:	.word	0
+d$vcsr:	.word	0
+d$vuni:	.word	0
+d$vpar:	.word	0
+d$vdrv:	.rad50	/sy       sys/		; 
+
+;	DV$CSR - Get the CSR address
+;
+;	The host drivers may have alternate CSR addresses
+;	The CSR address is buried in the driver
+;
+;	RUST	The driver name is "ddV.SYS"
+;		If that's missing, it's "dd.SYS"
+;	RT-11	The driver name is plain "dd.SYS"
+
+dv$csr:	pshs	<r2,r1,r0>		;
+	mov	#d$vdrv,r1		; rad50 /sy ddv   sys/
+	mov	r$tdev,2(r1)		; device name
+
+;	RUST/SJ "ddV.sys"
+
+	bneb	r$thst,10$		; RT-11
+	add	#^r<  V>,2(r1)		; .rad50 /ddV/
+	.lookup	#r$temt,#0,r1		; open the driver
+	.purge	#0			;
+	bcc	20$			; it's a RUST/SJ driver
+
+;	RUST/SJ or RT-11/SJ "dd.SYS"
+
+10$:	mov	r$tdev,2(r1)		; try for "DD.SYS"
+	.lookup	#r$temt,#0,r1		;
+	dichk$	<Driver not found>	; can't really happen
+
+;	Read the first block of the driver
+
+20$:	mov	#f$ibuf,r1		; use the XXRT buffer
+	.readw	#r$temt,#0,r1,#256.	; read driver block #0
+	dichk$	<Error reading driver>	;
+	beqw	(r1),#^r<HAN>,30$	; sanity test
+	dierr$	<Invalid driver image>	; insanity
+	.purge	#0			;
+
+;	Get the CSR address
+
+30$:	add	#ha.xxx,r1		; r1 -> @#174
+	mov	d$vpor,r2		; get the port number
+40$:	bpsw	#1,(r1),50$		; odd address
+	bhiw	(r1),#160000,60$	; I/O page
+50$:	dierr$	<Invalid CSR>
+60$:	dec	r2			; search for port
+	bpl	40$			; more to go
+	mov	(r1),d$vcsr		; we have the CSR
+	pops	<r0,r1,r2>		;
+	return
+
+.endc
+.if ne inf$c
+.sbttl	Get driver MSCP port, unit and partition
+
+;	DV$MCP - DU: MSCP CSR, port, MSCP unit and partition
+
+
+dv$mcp:	mov	#r1		; rad50 /sy ddv   sys/
+	mov	r$tdev,(r1)		; device name
+	.purge	#0
+	.lookup	#r$temt,#0,r1
+	dvchk$	<Error accessing device
+	mov	#1,r2		; assume before V5.6
+	bltb	r$tupd,		; was before V5.6
+	mov	#130.,r2	;
+10$:	.spfun	#r$temt,#0,#sf.tab,r1,r2,#0
+	beqw	r2,20$		; before V56
+	dvchk$	<Error accessing MSCP table>
+	beqw	(r1),#^r<>		;
+
+d$vudh:	.blkw	2		; uda info header
+d$vu
+
+
+
+d$vtab:	.blkb	130.
+
+.endc
+
