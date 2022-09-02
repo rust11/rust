@@ -1927,8 +1927,8 @@ r$trfs:	.byte	0	; run-from-shell
 r$tdsc:	.byte	0	; don't shell xxrt->rt-11 command
 r$tmed:	.byte	0	; XXDP media code
 r$tchn:	.byte	0	; chain command
-r$tmcp:	.byte	0	; mscp fix
-	.byte	0
+r$tmcb:	.byte	0	; mscp fix - before XXRT launch
+r$tmca:	.byte	0	; mscp fix after
 .if ne dbg$c
 r$tdbg:	.blkw	6
 .endc
@@ -1939,9 +1939,9 @@ r$tdbg:	.blkw	6
 	$imginf	fun=sav aut=ijh use=<XXDP meets RT-11 XXRT.SAV>
 	$imgham	yrs=<2021> oth=<>
 ;	%date
-	$imgdat	<03-Sep-2022 01:22:44>
+	$imgdat	<01-Sep-2022 08:50:39>
 ;	%edit
-	$imgedt	<221  >
+	$imgedt	<220  >
 
 
 .sbttl	Error handling 						(rust)
@@ -2065,8 +2065,19 @@ rt$eng:	mov	sp,r$tstk	; save the stack for the exit path
 
 ;	We're ready for diagnostic heaven
 
-	reset			; lights out (clears all interrupts)
-	.mtps	#340		; doors locked
+.if ne mcp$c
+	beqb	r$tmcb,5$	; /X or /Z - before launch?
+	.hreset			; stop most activities
+	clr	@r$ttks		; disable the terminal
+	clr	@r$ttps		;
+	bit	#syLTC$,r$tcfg	; got a line clock?
+	beq	6$		; no
+	bic	#100,@#LTC	; yes - zap it
+	br	6$
+.endc
+
+5$:	reset			; lights out (clears all interrupts)
+6$:	.mtps	#340		; doors locked
 				;
 ;	RUST/RT is history now	;
 				;
@@ -2221,12 +2232,12 @@ rt$rst:	pop	r3		; r3 -> command code
 
 ;	Re-enable the hardware
 
-.if ne mcp$c
-	tstb	r$tmcp		; /M mscp fix?
-	bne	31$		; yes - don't reset MSCP
-.endc
 	cmpb	r$tmed,#mdDU.	; DU:?
 	bne	31$		; nope
+.if ne mcp$c
+	beqb	r$tmca,31$	; /Y or /Z - mscp after fix?
+	bne	31$		; yes - don't reset MSCP
+.endc
 	mov	r0,@#ducsr.	; yes - force MSCP init
 
 31$:;	reset			; 
@@ -2312,11 +2323,15 @@ rt$rcv:	bmib	r$thst,50$	; rust/boot
 
 40$:
 .if ne mcp$c
-	cmpb	c$lbuf,#'/	; "XXRT/"
-	bne	45$		; 
-	cmpb	c$lbuf+1,#'M	; "XXRT/M" - MSCP patch
-	bne	45$		;
-	incb	r$tmcp		; yes - remember that
+	mov	#c$lbuf,r0	; check for /X, /Y or /Z
+	bneb	(r0)+,"'/,45$	; nope
+	bneb	(r0),#'X,41$	; /X - before?
+	incb	r$tmcb		; yes
+	br	50$		; 
+41$:	beqb	(r0),#'Y,43$	; /Y - after
+42$:	bneb	(r0),#'Z,45$	; /Z - before and after
+	incb	r$tmcb		; before
+43$:	incb	r$tmca		; and after
 	br	50$		; and ignore the command line
 .endc
 45$:	incb	s$ycli		; single line command coming
