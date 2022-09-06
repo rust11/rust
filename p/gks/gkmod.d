@@ -1,11 +1,13 @@
 header	gkmod - diag module definitions
 include	rid:dcdef
+include	rid:mxdef
 
   type	cuTctl
   is	Pdcl : * dcTdcl
 	V1   : int
 	Qcmt : int		; gkkbd - keyboard/comment
 	Vcsr : WORD		; gkdlv - dlv/csr=%o
+	Astr : [mxLIN] char	; display
   end
 
 	ctl : cuTctl+
@@ -18,6 +20,7 @@ include	rid:dcdef
 	gk_bpt : dcTfun
 	gk_bus : dcTfun
 	gk_cpu : dcTfun
+	gk_dis : dcTfun
 	gk_res : dcTfun
 	gk_hlt : dcTfun
 	gk_hrs : dcTfun

@@ -46,6 +46,7 @@ code	cuAdcl - DCL processing
 ;      "CONSOLE     Set console I/O addresses"
        "CPU         Force a cpu trap"
        "FLAKEY      Test process memory"
+       "DISPLAY     Display string"
        "DLV csr     Report DLV11 input"
        "HALT        Halt the processor"
        "HRESET      Issue RT-11 .HRESET"
@@ -87,6 +88,9 @@ code	cuAdcl - DCL processing
      1,	"BU*S",		gk_bus, <>,	0, dcEOL_
      1,	"CO*NFIG",	gk_cfg, <>,	0, dcEOL_
      1,	"CP*U",		gk_cpu, <>,	0, dcEOL_
+     1,	"DI*SPLAY",	dc_act,	<>,	0, dcNST_
+      2,  <>,		dc_fld,&ctl.Astr,64,dcSTR
+      2,  <>,		gk_dis, <>, 	0, dcEOL_
      1,	"DL*V",		dc_act,	<>,	0, dcNST_
       2,  <>,		dc_val,&ctl.Vcsr,0, dcOCT
       2,  <>,		gk_dlv, <>, 	0, dcEOL_
@@ -143,6 +147,14 @@ code	cuAdcl - DCL processing
 	dcl : dcTdcl
   is	cu_map ("BAUD")
 	gk_bau (ctl.V1)
+	fine
+  end
+
+  func	gk_dis
+	dcl : dcTdcl
+  is	str : * char = ctl.Astr
+	st_eli ("\"", str, str)
+	PUT("%s\n", ctl.Astr)
 	fine
   end
 
