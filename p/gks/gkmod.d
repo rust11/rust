@@ -20,12 +20,14 @@ include	rid:dcdef
 	gk_cpu : dcTfun
 	gk_res : dcTfun
 	gk_hlt : dcTfun
+	gk_hrs : dcTfun
 	gk_flk : dcTfun
 	gk_rmn : dcTfun
 	gk_pdp : dcTfun
 	gk_mch : dcTfun
 	gk_mem : dcTfun
 	gk_mmu : dcTfun
+	gk_mrs : dcTfun
 	gk_cfg : dcTfun
 	gk_dev : dcTfun
 	gk_rtx : dcTfun
