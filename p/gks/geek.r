@@ -12,7 +12,6 @@
 ;	PSECT in-file [out-file]
 ;	GLOBALS in-file [out-file]
 ;
-;
 ;	add MOUSE
 ;	flakey return
 ;	config text
@@ -21,7 +20,6 @@
 ;	devices
 ;	baud needs csr
 ;	rmon config|devices|etc
-;
 file	GEEK - programmer tool box
 include	rid:rider
 include	rid:dcdef
@@ -96,18 +94,28 @@ code	cuAdcl - DCL processing
       2,  <>,		gk_dlv, <>, 	0, dcEOL_
      1,	"FL*AKEY",	gk_flk, <>,	0, dcEOL_
      1,	"HA*LT",	gk_hlt, <>,	0, dcEOL_
-     1,	"HR*ESET",	gk_hrs, <>,	0, dcEOL_
+;    1,	"HR*ESET",	gk_hrs, <>,	0, dcEOL_
+     1,	"HR*ESET",	dc_act, <>,	0, dcNST_
+      2,  <>,		dc_fld,&ctl.Aspc,64,dcSPC|dcOPT_
+      2,  <>,		gk_hrs, <>, 	0, dcEOL_
      1,	"KE*YBOARD",	dc_act,	<>,	0, dcNST_
       2,  <>,		gk_kbd, <>, 	0, dcEOL_
       2, "/CO*MMENT",	dc_set,&ctl.Qcmt,1,0
      1,	"LO*WMAP",	gk_low, <>,	0, dcEOL_
      1,	"MA*CHINE",	gk_mch, <>,	0, dcEOL_
      1,	"ME*MORY",	cu_mem, <>,	0, dcEOL_
-     1,	"MS*CP",	gk_mrs, <>,	0, dcEOL_
+;    1,	"MS*CP",	gk_mrs, <>,	0, dcEOL_
+     1,	"MS*CP",	dc_act, <>,	0, dcNST_
+      2,  <>,		dc_fld,&ctl.Aspc,64,dcSPC|dcOPT_
+      2,  <>,		gk_mrs, <>, 	0, dcEOL_
      1,	"PD*P*",	gk_pdp, <>,	0, dcEOL_
      1,	"PQ*",		gk_pqt, <>,	0, dcEOL_
      1,	"RA*DIX",	gk_rad, <>,	0, dcEOL_
-     1,	"RE*SET",	gk_res, <>,	0, dcEOL_
+;    1,	"RE*SET",	gk_res, <>,	0, dcEOL_
+     1,	"R*ESET",	dc_act, <>,	0, dcNST_
+      2,  <>,		dc_fld,&ctl.Aspc,64,dcSPC|dcOPT_
+      2, "/NU*LL",	dc_set,&ctl.Qnul,1,0
+      2,  <>,		gk_res, <>, 	0, dcEOL_
      1,	"RT*X",		gk_rtx, <>,	0, dcEOL_
      1,	"RM*ON",	gk_rmn, <>,	0, dcEOL_
      1,	"SL*OTS",	gk_slo, <>,	0, dcEOL_
@@ -154,7 +162,58 @@ code	cuAdcl - DCL processing
 	dcl : dcTdcl
   is	str : * char = ctl.Astr
 	st_eli ("\"", str, str)
+
 	PUT("%s\n", ctl.Astr)
 	fine
   end
-
+code	gktmo - timeout test
+include	rid:tidef
+
+	Ibef : tiTval = {}
+	Isee : tiTval = {}
+	Hfil : * FILE = <>
+
+  func	gk_bef
+  is	fil : * FILE = &Hfil
+	buf : [2] char
+
+	if ctl.Aspc[0]		; specified a device?
+	   fil = Hfil = fi_opn (ctl.Aspc, "r+", "")
+	   im_exi () if fail	; oops
+	.. ;fi_rea (fil, buf, 2); seek to block zero
+
+	gk_wai ()		; wait for terminal inactive
+	ti_clk (&Ibef)		; store before clock time
+	fail if ctl.Qnul	;
+	fine
+  end
+
+  func	gk_aft
+  is	fil : * FILE = Hfil
+	aft : tiTval
+	elp : tiTval
+	see : tiTval
+	plx : tiTplx
+	buf : [2] char
+
+	ti_clk (&aft)		; store after clock time
+
+	if fil ne		; got a file
+	   fi_see (fil, 2048L, "") ; seek to block 4
+	   fi_rea (fil, buf, 2)	; read
+	   ti_clk (&see)	; store the time
+	.. fi_clo (fil)		;
+
+	ti_sub (&Ibef, &aft, &elp) ; get difference (elapsed time)
+	ti_plx (&elp, &plx)
+	PUT("%02d:%02d:%02d ", 
+	   plx.Vhou, plx.Vmin, plx.Vsec)
+
+	fine if !fil
+
+	ti_sub (&Ibef, &see, &elp) ; get difference (seek time)
+	ti_plx (&elp, &plx)
+	PUT("%02d:%02d:%02d ", 
+	plx.Vhou, plx.Vmin, plx.Vsec)
+	gk_zap ()
+  end

@@ -33,26 +33,47 @@ pq:	text	<pqbd>
 	.byte	200
 	.even
 .sbttl	reset, hreset, mscp reset, bpt, cpu, bus 
+$hwdef
 
-gk.res::reset
-	.print	#10$
+gk.wai::bit	#100,@#177564
+	bne	gk.wai
+	return
+gk.zap::bis	#100,@#177560
+	return
+
+gk.res::call	gk.bef
+	tst	r0
+	beq	10$		; /null
+	reset
+	bis	#100,@#h$wlks	; reenable clock
+10$:	call	gk.aft
+	.print	#20$
 	mov	#1,r0
 	return
 
-10$:	.asciz	/?GEEK-I-Reset returned/
+20$:	.asciz	/?GEEK-I-Reset returned/
 	.even
 
-gk.hrs::.hreset
+gk.hrs::call	gk.bef
+	mov	r0,r2
+	.savest #20$,#0,#30$  
+	.hreset
+	.reopen #20$,#0,#30$  
+	call	gk.aft
 	.print	#10$
 	mov	#1,r0
 	return
 
 10$:	.asciz	/?GEEK-I-.HRESET returned/
 	.even
+20$:	.blkw	5
+30$:	.blkw	5
 
 map	d$ucsr,,172150		;standard CSR
 
-gk.mrs::clr	@#d$ucsr
+gk.mrs::call	gk.bef
+	clr	@#d$ucsr
+	call	gk.aft
 	.print	#10$
 	mov	#1,r0
 	return
