@@ -1,6 +1,8 @@
+;???;	DRS:VMV - SET VM: SHOW crashes
+;&&&;	DRS:VMV - Add auto-init to fetch routine and SET [NO]INIT
 boo$c=1	; new boot protocol to get memory size
 sav$c=1	; save/restore user pars and exception
-stk$c=1	; protect mfpi/mtpi stack against kernel interrupts
+stk$c=1	; protect mfpi/mtpi stack against kernel interrupts (unused???)
 .title	vmv - RUST/SJ VM: driver
 .include "lib:rust.mac"
 .library "lib:drvmac.mlb"
@@ -31,9 +33,9 @@ $vedef
 $imgdef	VM 1 0
 $imginf fun=drv cre=hammo aut=ijh use=<RUST/SJ virtual memory driver VM:>
 ;	%date	
-$imgdat <29-Oct-2008 13:27:59.27>
+$imgdat <07-Sep-2022 19:09:11>   
 ;	%edit
-$imgedt <55   >
+$imgedt <57   >
 .endm
 
 	$drini
@@ -73,7 +75,7 @@ $imgedt <55   >
 	.dsabl	lsb
 .sbttl	notes
 
-;	IOPAGE remapping approach (not used here):
+; IOPAGE remapping approach (not used here):
 ;
 ;	Map user space to kernel space, with MMU switched off.
 ;	Point the IOPAGE to point at the VM data area.
@@ -81,7 +83,7 @@ $imgedt <55   >
 ;	Use some interrupt to return to kernel mode.
 ;	Exception interrupts also return to kernel mode.
 ;
-;	MFPI/MTPI approach (used here):
+; MFPI/MTPI approach (used here):
 ;
 ;	Use stack as transfer buffer. Slightly slower than above.
 ;	Ensure kernel mode stack is below user mode stack transfer buffer.
@@ -127,11 +129,11 @@ st$sho:	mov	v$mbas,r1		;
 	psh	@#v$emmu		;
 	psh	@#ps			;
 	psh	@#m$msr0		;
-v$m22s:	psh	@#m$msr3		;
+v$m22s:	psh	@#m$msr3	;tst #	;~tst #m$msr3
 	mov	#m$uip0,r0		; user pars
 	mov	#8.,r1			; eight of them
 10$:	psh	(r0)+			; save them
-	sob	r1,10$			;
+	sob	r1,10$			; (all MMU machines have SOB)
 	mov	sp,v$mstk		; save exception stack
 v$mexc:	mov	#0,@#v$emmu		; exceptions come to us
 .endc
@@ -176,12 +178,10 @@ vm$map:	clr	r0			; the mapping offset
 	add	#mmpis.,r0		; next kernel segment
 	cmp	r0,#mmpis.*8.		; done them all?
 	bne	10$			; nope
-v$m22i:	mov	#mmi22.,-(r2)		;~setup i/o page
-v$m22b:	bis	#mm22b$,@#m$msr3	;~enable 22-bit
-;	tst	-(sp)
+v$m22i:	mov	#mmi22.,-(r2)	;cmp ##	;~setup i/o page
+v$m22b:	bis	#mm22b$,@#m$msr3;cmp ##	;~enable 22-bit
 	inc	@#m$msr0		; enable management
 	bis	#mmpum$,@#ps		; setup mode
-;	tst	(sp)+
 	fall	vm$trn			;
 	.dsabl	lsb			;
 
@@ -228,13 +228,13 @@ vm$exi:	mov	#m$uip7+2,r0		; user pars
 	mov	#8.,r1			;
 10$:	pop	-(r0)			; restore them
 	sobw	r1,10$			;
-v$m22r:	pop	@#m$msr3		;~restore 22bit
+v$m22r:	pop	@#m$msr3	;tst #	;~restore 22bit
 	pop	@#m$msr0		;
 	pop	@#ps			;
 	pop	@#v$emmu		; restore vector
 .iff
 vm$exi:	clr	@#ps			; clear previous user
-v$m22c:	clr	@#m$msr3		;~clear 22-bit
+v$m22c:	clr	@#m$msr3	;tst #	;~clear 22-bit
 	clr	@#m$msr0		; disable management
 .endc
 vm$fin:
@@ -310,7 +310,7 @@ b$obus:	.word	0			; their bus vector
 	mov	#2048.,r2		; truncate
 50$:	sub	r2,r3			; adjust 
 60$:	mfpi	(r1)+			; read - fetch vm
-	bvs	80$			; oops
+	bvs	90$			; oops
 	pop	(r0)+			; store user
 	sob	r2,60$			;
 	add	#2048./mmwip.,@#m$uip1	;
@@ -320,7 +320,8 @@ b$obus:	.word	0			; their bus vector
 	clr	@#m$msr0		; disable management
 	mov	b$obus,@#v$ebus		; restore bus
 	return				;
-80$:	jmp	bioerr			; boot i/o error
+80$:	tst	(sp)+			; pop saved r1
+90$:	jmp	bioerr			; boot i/o error
 	.dsabl	lsb
 
 $drloc	574
@@ -387,7 +388,8 @@ dr$fet:	mov	(r5),r2			; r5 -> hentry
 	mov	#022727,v$m22b(r2)	; bis (pc)+,@# to cmp (pc)+,(pc)+
 .if ne sav$c
 	mov	#5727,v$m22s(r2)	; patch save
-	mov	#5727,v$m22i(r2)	; patch restore
+;	mov	#5727,v$m22i(r2)	; patch restore
+	mov	#5727,v$m22r(r2)	;
 .iff
 	mov	#5727,v$m22c(r2)	; clr @# to tst (pc)+
 .endc
