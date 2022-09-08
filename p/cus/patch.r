@@ -158,7 +158,7 @@ include rid:rvpdp
 	   ++swi
 	end
 	if ctl.Vmem
-	ctl.Vmem ? 0 ?? 010			; no files for /MEMORY
+;	ctl.Vmem ? 0 ?? 010			; no files for /MEMORY
 	   next if !cs_val (&csi, 0, 0)		; required, permitted files
 	else
 	.. next if !cs_val (&csi, 010, 010)	; required, permitted files
@@ -355,7 +355,7 @@ code	cu_abt - check abort
 	 of '@' adr = val if dig	;
 		adr = ch_get (adr)	; @	indirect
 	 of ']' adr = rev.Vdst		; >	Destination
-	 of '='	adr = val if dig	;	got an address
+	 of '='	adr = val if dig	; =	got an address
 		cu_val (&cmd,&val,&lng,"") ;	get required value
 		next if fail		;	nothing doing
 		ch_put (adr, val)	;	change word
@@ -593,10 +593,9 @@ code	cu_swd - store word
   func	cu_swd
 	adr : elTadr
 	val : elTwrd
-  is	wrd : elTwrd
-	fine if ctl.Vins		; inspect only
+  is	fine if ctl.Vins		; inspect only
 	if ctl.Vmem
-	   fine if me_pok (<word>adr, &wrd, 2)
+	   fine if me_pok (<word>adr, &val, 2)
 	   PUT("?PATCH-W-Invalid memory address ")
 	   cu_adr (adr), PUT("\n")
 	.. fail
@@ -801,9 +800,9 @@ code	cu_dmp - dump ascii
 	$imginf	fun=sav use=<RUST image patch utility PATCH.SAV V3.0>
 	$imgham	yrs=<2011> oth=<>
 ;	%date
-	$imgdat	<28-Jul-2022 21:53:45>   
+	$imgdat	<09-Sep-2022 05:23:16>   
 ;	%edit
-	$imgedt	<66   >
+	$imgedt	<67   >
 
 .end
 code	LDA support
@@ -820,4 +819,4 @@ code	ld_imp - import LDA as saved image
 	ld_scn (lda, imp)
 	lda->Hexp = fx_opn (exp, "rb+", "", ext)
 
-                                                                                    
+                                                                                                
