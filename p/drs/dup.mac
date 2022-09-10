@@ -1,3 +1,6 @@
+;???;	DRS:DUP - boot once-only code .BLKB gap
+;???;	DRS:DUp - Assemble without falcon stuff
+;&&&;	DRS:DUP - How about a network DU:, NU:/VU: - universal net disk
 .title	dup
 .include "lib:rust.mac"
 bup$c=1	; boot unit/partition map
@@ -15,7 +18,7 @@ dbg$c=0	; debug
 ;	%build
 ;	goto 'p1'
 ;	macro	drs:dup/object:drb:duv
-;	macro	drs:drmmgt+drs:dup/object:drb:dup
+;	macro	drs:mmg$t+drs:dup/object:drb:dup
 ;	link:
 ;	link	drb:duv/exe:drb:duv.sys/map:drb:duv/nobit/bound:1000
 ;	duboot
@@ -62,9 +65,9 @@ $imgdef DU 1 0
 $imginf fun=drv cre=hammo aut=ijh use=<RUST MSCP/UDA disk driver DU:>
 $imgham	yrs=<1986,2004> oth=<>
 ;	%date	
-$imgdat <29-Oct-2008 13:29:05.19>
+$imgdat <11-Sep-2022 02:47:00>   
 ;	%edit
-$imgedt <71   >
+$imgedt <75   >
 .endm
 
 .macro	dupre$	cod
@@ -154,7 +157,7 @@ $brdef		;RT-11 bootstrap
 $chdef		;channel
 $dcdef		;device codes
 $dedef		;device
-$drdef
+$drdef		;drivers
 $dsdef		;device status
 $fkdef		;fork
 $hadef		;handler
@@ -941,7 +944,6 @@ du$prp:	call	du$pnt			;get the pointers
 ;	r1	high order * 32.
 ;
 ;	Response ring precedes command ring always
-;
 
 du$dsc:
      xm	ash	#-4,r1			;get high order in place
@@ -997,7 +999,7 @@ bo$jmp:	jmp	@#bo$boo-$
 boloc$	70
 b$ounm:	.byte	0,1,2,3,4,5,6,7		;boot unit map
 boloc$	104
-b$opam:	.byte	0,0,0,0,0,0,0		;boot partition map
+b$opam:	.byte	0,0,0,0,0,0,0,0		;boot partition map
 
 .sbttl	boot read
 
@@ -1141,7 +1143,7 @@ b$opkt:;.blkb	ud.bbs			;mscp packet
 
 	.if ne fal$c
 bo$fal:	psh	r0			;
-	mov	#bofal.,b$ofal		; once-only
+	mov	#bofal.,b$ofal		; overwrite once-only branch
 	mov	r1,r0			; two copies
 	psh	@(r0)+			; save cpu vector
 	mov	r0,@(r1)+		; setup rti trap routine
