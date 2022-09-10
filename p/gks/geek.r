@@ -196,11 +196,13 @@ include	rid:tidef
 	plx : tiTplx
 	buf : [2] char
 
+;	ti_wai (1000L)
 	ti_clk (&aft)		; store after clock time
 
 	if fil ne		; got a file
 	   fi_see (fil, 2048L, "") ; seek to block 4
 	   fi_rea (fil, buf, 2)	; read
+;	   ti_wai (1000L)
 	   ti_clk (&see)	; store the time
 	.. fi_clo (fil)		;
 
