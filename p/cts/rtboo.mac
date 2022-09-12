@@ -16,24 +16,24 @@ rsx$c=1		; read block 0 for RSX
 nf7$c=1		; default NF: and NF0: to NF7:
 .title	rtboo - boot rt-11 device/file
 .include "lib:crt.mac"
-$aldef		;alphabet
-$brdef		;boot rt-11
-$chdef		;channel
-$cidef		;channel information
-$cndef		;config
-$dcdef		;device codes
-$didef		;device info
-$dsdef		;device status
-$fndef		;filename
-$gddef		;generic disk
-$hadef		;handler
-$hodef		;homeblock
-$jbdef		;job
-$mmdef		;memory management
-$rmdef		;rmon
-;psdef		;psw
-$sfdef		;special functions
-$vedef		;vector
+$aldef		; alphabet
+$brdef		; boot rt-11
+$chdef		; channel
+$cidef		; channel information
+$cndef		; config
+$dcdef		; device codes
+$didef		; device info
+$dsdef		; device status
+$fndef		; filename
+$gddef		; generic disk
+$hadef		; handler
+$hodef		; homeblock
+$jbdef		; job
+$mmdef		; memory management
+$rmdef		; rmon
+;psdef		; psw
+$sfdef		; special functions
+$vedef		; vector
 smini$
 
 ;	%build
@@ -90,7 +90,7 @@ meta	<bofai$ adr><jsr r2,bo$fai><.word adr>
 meta	<bochk$ adr><jsr r2,bo$chk><.word adr>
 meta	<boerr$ adr><jsr r2,bo$err><.word adr>
 
-	.irpc	let,<ABCDEFGHIJKLM>
+	.irpc	let,<ABCDEFGHIJKLMNOPQRSTUVWXYZ>
 	.macro 'let'
 	psh	r0
 	.ttyou	#upr'let'.
@@ -119,8 +119,7 @@ meta	<boerr$ adr><jsr r2,bo$err><.word adr>
 	mov	spc(sp),b$ospc		; capture
 	bne	10$			; got a spec
 	mov	#b$odef,b$ospc		; default spec is SY:
-10$:
-	call	rx.scn b$ospc,#b$ofil	; get the filename
+10$:	call	rx.scn b$ospc,#b$ofil	; get the filename
 20$:	call	rt.dst b$ospc,#0	; make sure it's installed
 	bofai$	b$oins			; device not installed
 					;
@@ -173,7 +172,6 @@ bo$err:	mov	b$ostk,sp		; reset stack
 
 rt$boo::
 	mov	sp,b$ostk
-
 	clr	b$odrv			; assume not driver boot
 	mov	b$obuf,r5		; r5 -> buffer
 	mov	#b$oemt,r4		; r4 -> emt area
@@ -231,13 +229,11 @@ rt$boo::
 
 46$:	bpcw	#csSUB$,b$ocst,50$	; not a directory channel?
 	boerr$	b$odir			; yep
-					; 
 50$:	call	bo$vol			; do a volume check
 					;
 	.readw	r4, #0, r5, #256., #0	; read block zero of the device
 	bochk$	b$oiox			; i/o error
-					; 
-	bnew	b$ofor,54$		; foreign
+	bnew	b$ofor,55$		; foreign
 	mov	b$omem,r0		; got a memory copy?
 	beq	53$			; it's a file
 	movi	br$sec,r5,r1		; point to the secondary boot
