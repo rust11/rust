@@ -184,7 +184,7 @@ include	rid:tidef
 
 	gk_wai ()		; wait for terminal inactive
 	ti_clk (&Ibef)		; store before clock time
-	fail if ctl.Qnul	;
+	fail ti_wai (3000L) if ctl.Qnul
 	fine
   end
 
