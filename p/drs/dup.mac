@@ -1,14 +1,14 @@
-;???;	DRS:DUP - boot once-only code .BLKB gap
-;???;	DRS:DUp - Assemble without falcon stuff
-;&&&;	DRS:DUP - How about a network DU:, NU:/VU: - universal net disk
+;!!!;	DRS:DUP - Remove falcon code
 .title	dup
 .include "lib:rust.mac"
-bup$c=1	; boot unit/partition map
-def$c=1	; some defensive stuff
+bup$c=0	; boot unit/partition map
+def$c=0	; some defensive stuff
 tim$c=1	; host timeout
-fat$c=1	; falcon check
-fal$c=1	; falcon
 dbg$c=0	; debug
+
+rpt$c=1	; boot report
+mov$c=1	; MOV instead of TST
+uni$c=0	; boot unit test
 
 ;	RUST DU: handler
 ;
@@ -65,9 +65,9 @@ $imgdef DU 1 0
 $imginf fun=drv cre=hammo aut=ijh use=<RUST MSCP/UDA disk driver DU:>
 $imgham	yrs=<1986,2004> oth=<>
 ;	%date	
-$imgdat <11-Sep-2022 02:47:00>   
+$imgdat <12-Sep-2022 22:31:29>   
 ;	%edit
-$imgedt <75   >
+$imgedt <76   >
 .endm
 
 .macro	dupre$	cod
@@ -90,8 +90,6 @@ $imgedt <75   >
 .iff				;
 	drum$=0			;
 	drxm$=1			;
-	fat$c=0			; falcon check
-	fal$c=0			; falcon
 .endc				;
 
 meta	<um c d e f g h i j><drIF$ drum$ <c> <d> <e> f g h i j>
@@ -231,12 +229,6 @@ set	ersar$,200
 	.drins	du			;DU: installation
 	nop				;data
 ;sic]	nop				;system
-	.if ne fat$c
-	jsr	r1,in$fal		;check for falcon
-	.word	v$ecpu			;cpu trap routine
-	rti				;
-	bcs	30$			;falcon not installed
-	.endc				;					;
 	.if ne mmg$t			;
 	cmp	r4,#^rshp		;this RUST/XM?
 	bne	20$			;no
@@ -248,29 +240,6 @@ set	ersar$,200
 20$:	tst	(pc)+			;fine
 30$:	sec				;forget it
 	return
-
-	.if ne fat$c
-;	Falcon check
-;
-;	jsr	r1,in$fal
-;	.word	v$ecpu			; cpu vector
-;	rti				; trap routine
-;	assume	. lt 400		; for r0 byte compare
-
-in$fal:	mov	r1,r0			; two copies
-	psh	@(r0)+			; save cpu vector
-	mov	r0,@(r1)+		; setup rti trap routine
-	clr	r0			; r0 = 0
-	mfpt				; get processor type
-	pop	@-(r1)			; restore vector
-	cmp	(r1)+,(r1)+		; skip 
-	bneb	r0,#4,10$		; not a falcon
-	tst	@#d$ufal		; got DU:?
-	nop				; T11
-	bcs	20$			; (DCL provides trap catcher)
-10$:	clc				; fine
-20$:	rts	r1			; c=0/1
-	.endc
 .sbttl	set
 
 	$drovl				; set overlay routines
@@ -988,6 +957,12 @@ du$cvt:	psh	@#m$kip1		;save par1
 	return				;
 	.endc
 .sbttl	bootstrap
+$aldef
+
+	.macro rpt$ let
+	jsr	r5,bo$rpt
+	.asciz	/let/
+	.endm
 
 ;	Link command puts this code on a 1000 byte boundary
 
@@ -1013,22 +988,26 @@ b$opam:	.byte	0,0,0,0,0,0,0,0		;boot partition map
 boloc$	120
 bo$rea:	movb	@#b$rdvu,(pc)+		;get the unit number
 b$ouni:	.word	0			;boot unit
-bo$loa:	asl	r1			;get byte count
+bo$loa:
+rpt$ L
+	asl	r1			;get byte count
 	mov	#durtc.,(pc)+		;boot retry count
 b$orty:	.word	durtc.			;retry counter
 	br	bo$trn			;do the transfer
 					;
-bo$rty:	dec	b$orty			;all done?
+bo$rty:
+rpt$ R
+	dec	b$orty			;all done?
 	bmi	bo$err			;yes - boot I/O error
-bo$ini:	bofal. = br + 3			;overwrites jsr r1,...
-b$ofal:	.if	ne fal$c		;
-	jsr	r1,bo$fal		;check for falcon csr
-	.word	v$ebus,rti		;
-;	assume	. lt 400		;for r0 byte compare
-	.endc				;					;
-	mov	(pc)+,r5		;r5 -> csr
+bo$ini:	mov	(pc)+,r5		;r5 -> csr
 b$ocsr:	.word	du$csr			;csr address
+rpt$ I
+.if ne mov$c
+	mov	r4,(r5)+
+.iff
+
 	mov	#0,(r5)+		;sic] reset interface
+.endc
 	mov	#b$ouid-$,r3		;r3 -> values
 	mov	#udst1$,r4		;r4 = uda step state
 10$:	tst	(r5)			;got an error?
@@ -1037,7 +1016,11 @@ b$ocsr:	.word	du$csr			;csr address
 11$:	sub	#2048.,#0		;wait 100usec
 	bne	11$			;for dilog
 	.endc				;
+.if ne mov$c
+	bit	(r5),r4
+.iff
 	bit	r4,(r5)			;got next step
+.endc
 	beq	10$			;no
 	mov	(r3)+,(r5)		;yes - write it
 	asl	r4			;done all steps?
@@ -1048,7 +1031,9 @@ b$ocsr:	.word	du$csr			;csr address
 	.endc
 	mov	#b$opkt-duboot,b$orpt	;setup the rings
 	mov	#b$opkt-duboot,b$ocpt	;(cleared by init)
-bo$onl:	jsr	r5,bo$pre		;set unit on-line
+bo$onl:
+rpt$ L
+	jsr	r5,bo$pre		;set unit on-line
 	.word	mconl.			;online request
 	mov	#1,(pc)+		;flag on-line request
 b$oonl:	.word	0			;
@@ -1057,6 +1042,7 @@ b$oonl:	.word	0			;
 bo$trn:	asr	(pc)+			;time to init?
 b$oini:	.word	1			;
 	bcs	bo$ini			;yes
+rpt$ T
 	jsr	r5,bo$pre		;setup for I/O
 	.word	mcrea.			;read request
 	.if ne bup$c
@@ -1068,8 +1054,13 @@ b$oini:	.word	1			;
 	mov	r2,mp.bu0(r4)		;buffer
 
 bo$opr:	mov	b$ocsr,r5		;point to csr
+rpt$ O
 	mov	#udown$,b$occt		;give the command to port
+.if ne mov$c
+	mov	(r5)+,r3	;ud.ipr	;initiate port poll
+.iff
 	tst	(r5)+		;ud.ipr	;initiate port poll
+.endc
 10$:	tst	(r5)		;ud.sar	;got an error?
 	bmi	bo$rty			;yes - retry
 	tst	b$occt			;is port done with command?
@@ -1095,6 +1086,7 @@ bo$err:	mov	#1,b$oini		;force init on next call
 ;	.word	message code
 
 bo$pre:	mov	#b$oclr-$,r4		;area to clear
+rpt$ P
 10$:	clr	-(r4)			;clear packet
 	cmp	r4,#b$omsg-$		;all clear?
 	bne	10$			;nope
@@ -1131,31 +1123,6 @@ b$occt:	.word	0			;command control
 b$omsg:	.word	ud.bbs		;ud.mbc	;message byte count
 	.word	0		;ud.cam	;unused
 b$opkt:;.blkb	ud.bbs			;mscp packet
-
-;	Falcon check
-;
-;	jsr	r1,bo$fal
-;	.word	v$ecpu			; cpu vector
-;	rti				; trap routine
-;	assume	. lt 400		; for r0 byte compare
-;
-;	Once-only code in MSCP packet (60. bytes)
-
-	.if ne fal$c
-bo$fal:	psh	r0			;
-	mov	#bofal.,b$ofal		; overwrite once-only branch
-	mov	r1,r0			; two copies
-	psh	@(r0)+			; save cpu vector
-	mov	r0,@(r1)+		; setup rti trap routine
-					; r0 != 4 (see assume above)
-	mfpt				; get processor type (in r0)
-	pop	@-(r1)			; restore vector
-	cmp	(r1)+,(r1)+		; past rti for rts r1
-	bneb	r0,#4,10$		; not a falcon
-	mov	#d$ufal,b$ocsr		; use falcon csr instead
-10$:	pop	r0			;
-	rts	r1
-	.endc
 .sbttl	hardware boot
 
 ;	mscp packet code area continues
@@ -1165,12 +1132,19 @@ bo$fal:	psh	r0			;
 	xxnam. = dunam.
     xm <xxnam. = xxnam. + drsfx.>
 bo$boo:	mov	#b$rksp,sp		;setup the stack
+rpt$ B
 	bic	#^c7,r0			;isolate unit number
-	mov	r0,b$ouni		;setup the unit number
+.if ne uni$c
+	beq	10$
+rpt$ Z
+	clr	r0
+.endc
+10$:	mov	r0,b$ouni		;setup the unit number
 	mov	#brsbn.,r0		;r0 = block
 	mov	#brswc.,r1		;r1 = word count
 	mov	#br$sec,r2		;r2 = buffer address
-	call	bo$loa			;load secondary boot
+	psh	#b$oclr-$		;return there
+	jmp	bo$loa			;
 
 	.if gt  ud.bbs-<.-b$opkt>
 	.blkb	ud.bbs-<.-b$opkt>	
@@ -1185,42 +1159,23 @@ b$oclr:	mov	#bo$rea-$,@#b$rrea	;fill in address of read routine
 	mov	#xxnam.,@#b$rdvn	;fill in device name
 	mov	b$ouni,@#b$rdvu		;setup unit number
 	br	br$sec+$		;start secondary boot
+
+.if ne rpt$c
+bo$rpt:	tstb	@#177564
+	bpl	bo$rpt
+	movb	(r5)+,@#177566
+	inc	r5
+	rts	r5
+.endc
+
 	assume	. le b$rtop+$		;check space for bioerr etc
 
 	.drend	du
 .sbttl	load/fetch
 .=duboot+1000
 
-du$loa:	mov	r5,r2			; driver entry
-	sub	#1000+ha.lqe,r2		; r2 -> base of driver file
-	.if ne fat$c
-	jsr	r1,lo$fal		; check for falcon
-	.word	v$ecpu
-	rti
-	.endc				;					;
-	clc
+du$loa:	clc
 	return
-
-	.if ne fat$c
-;	Falcon check
-;
-;	jsr	r1,bo$fal
-;	.word	v$ecpu			; cpu vector
-;	rti				; trap routine
-;	assume	. lt 400		; for r0 byte compare
-
-lo$fal:	mov	r1,r0			; two copies
-	psh	@(r0)+			; save cpu vector
-	mov	r0,@(r1)+		; setup rti trap routine
-	clr	r0			; r0 = 0
-	mfpt				; get processor type
-	pop	@-(r1)			; restore vector
-	cmp	(r1)+,(r1)+		; skip 
-	bneb	r0,#4,10$		; not a falcon
-	mov	#d$ufal+ud.ipr,d$uipr(r2); setup falcon addresses
-	mov	#d$ufal+ud.sar,d$usar(r2);
-10$:	rts	r1
-	.endc
 
 	drinf$				;see front page
 	.end
