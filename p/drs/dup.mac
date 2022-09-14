@@ -1,14 +1,17 @@
-;!!!;	DRS:DUP - Remove falcon code
+;!!!;	DRS:DUP - Removed falcon code
 .title	dup
 .include "lib:rust.mac"
-bup$c=0	; boot unit/partition map
+
+mov$c=1	; MOV instead of TST
+bup$c=1	; boot unit/partition map
+
+rpt$c=1	; boot report
+err$c=1
+
 def$c=0	; some defensive stuff
 tim$c=1	; host timeout
 dbg$c=0	; debug
 
-rpt$c=1	; boot report
-mov$c=1	; MOV instead of TST
-uni$c=0	; boot unit test
 
 ;	RUST DU: handler
 ;
@@ -65,9 +68,9 @@ $imgdef DU 1 0
 $imginf fun=drv cre=hammo aut=ijh use=<RUST MSCP/UDA disk driver DU:>
 $imgham	yrs=<1986,2004> oth=<>
 ;	%date	
-$imgdat <12-Sep-2022 22:31:29>   
+$imgdat <14-Sep-2022 21:55:20>   
 ;	%edit
-$imgedt <76   >
+$imgedt <77   >
 .endm
 
 .macro	dupre$	cod
@@ -112,6 +115,8 @@ meta	<xm c d e f g h i j><drIF$ drxm$ <c> <d> <e> f g h i j>
 	.endm			;
 .sbttl	notes
 
+;???;	DRS:DUP - DUP.SYS is RUST/XM specific (see DU$CVT:)
+;
 ;	XM version uses EIS instructions
 ;	Needs abort routine
 ;
@@ -609,7 +614,7 @@ du$byp:	dupre$	0			;get setup
 	mov	r1,lo.cmd+mp.bu0(r0)	;low order
 	mov	r2,lo.cmd+mp.bu1(r0)	;high order
      xm	pop	@#m$kip1		;restore that
-	.endc					;
+	.endc				;
 20$:	call	du$int			;get an interrupt
 	call	du$uda			;check uda errors - may retry
 du$exi:	br	du$don			;user checks mscp errors
@@ -747,7 +752,7 @@ du$onl:	duidt$	OL
 	bit	#msco$p,mp.sts(r3)	;got an error?
 	beq	20$			;no
 	call	du$ini			;yes - init it again
-	.word	0			;
+	.word	0			;command
 	br	10$			;and repeat it
 20$:	jmp	@(pc)+			;return
 d$uonl:	.word	0			;return address
@@ -858,7 +863,7 @@ d$uinp:	.word	d$uudi			;init list pointer
 
 	.if ne tim$c
 	call	du$prp			;setup a timeout packet
-	.word	mcscc.			;
+	.word	mcscc.			;command
 	movb	#duhto.,mp.hto(r3)	;setup host timeout
 	call	du$int			;do it
 	dutst$	#ertim$ TM		;
@@ -930,7 +935,7 @@ du$dsc:
 
 ;	Convert process virtual address to physical
 ;
-;???	Use V5.5 monitor link
+;???	Use V5.5 monitor P1EXT link
 ;
 ;	r0 =	virtual address
 ;
@@ -1042,7 +1047,7 @@ b$oonl:	.word	0			;
 bo$trn:	asr	(pc)+			;time to init?
 b$oini:	.word	1			;
 	bcs	bo$ini			;yes
-rpt$ T
+;rpt$ T
 	jsr	r5,bo$pre		;setup for I/O
 	.word	mcrea.			;read request
 	.if ne bup$c
@@ -1076,8 +1081,13 @@ rpt$ O
 	bcs	bo$trn			;yes - do transfer now
 bo$ret:	return				;back to caller
 
-bo$err:	mov	#1,b$oini		;force init on next call
+bo$err:
+.if ne err$c
+halt
+.iff
+	mov	#1,b$oini		;force init on next call
 	jmp	br$ioe+$		;i/o error
+.endc
 .sbttl	prepare, data
 
 ;	Prepare message & packet
@@ -1132,13 +1142,8 @@ b$opkt:;.blkb	ud.bbs			;mscp packet
 	xxnam. = dunam.
     xm <xxnam. = xxnam. + drsfx.>
 bo$boo:	mov	#b$rksp,sp		;setup the stack
-rpt$ B
+;rpt$ B
 	bic	#^c7,r0			;isolate unit number
-.if ne uni$c
-	beq	10$
-rpt$ Z
-	clr	r0
-.endc
 10$:	mov	r0,b$ouni		;setup the unit number
 	mov	#brsbn.,r0		;r0 = block
 	mov	#brswc.,r1		;r1 = word count
