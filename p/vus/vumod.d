@@ -41,8 +41,8 @@ header	vumod - vup module
 	cmNOB_ := BIT(11)	; /NOBOOT		SQUEEZE
 	cmFIL_ := BIT(12)	; /FILES		DIR/BAD
 	cmIGN_ := BIT(13)	; /IGNORE		COPY/DEVICE
-				;
-	cmLOG_ := BIT(14)	; /LOG (RUST)		DIR/BAD
+	cmLOG_ := BIT(14)	; /LOG (RUST)		DIR/BAD COPY/BOOT
+	cmQUE_ := BIT(15)	; /QUERY (RUST)		COPY/BOOT
 
   type	vuTobj
   is	Vblk : WORD		;\block  (see vuutl.r for initialisation)
