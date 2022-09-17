@@ -1,3 +1,4 @@
+log$c := 1
 ;***;	VUCOP.R - Add boot save/restore
 ;
 ;???	sysgen compatibility
@@ -93,6 +94,8 @@ code	cm_cop - copy bootstrap to device
 
 ;	Monitor (DL1:RUST.SYS)
 
+;???	mon.Anam - DL1:RUST.SYS
+
 	exit if !vu_opn (&mon, ipt.Pnam, "rb")	; "DL1:RUSTSJ[.SYS]"
 	vu_cln (&mon, &roo)			; clone control block
 	exit if !vu_rea (&mon, 1, roo.Pbuf, 2048) ; read secondary boot
@@ -110,6 +113,8 @@ code	cm_cop - copy bootstrap to device
 	rx_unp (cmVdrv, drv.Atmp) if cmVdrv	; got explicit driver
 						;
 						; select the RT-11 driver
+;dri.Aspc dev:drv.sys
+
 	if !rt_drv (dev.Anam, drv.Atmp, suf[0], &dri)
 	.. exit im_rep ("E-Driver not found [%s]", dri.Aspc)
 	drv.Pfil = dri.Pfil			; grab the file
@@ -122,6 +127,8 @@ code	cm_cop - copy bootstrap to device
 	.. exit im_rep ("E-Error reading driver boot [%s]", dri.Aspc)
 
 ;	Secondary boot header
+;
+;dri.Adrv - device name with suffix ???
 
 	rx_pck (dri.Adrv, &hdr->Vdvn, 1)	; device name with suffix
 	rx_scn (mon.Anam, img)			; convert monitor name
@@ -133,10 +140,18 @@ code	cm_cop - copy bootstrap to device
 ;	   if hdr->Vsyg ne xxx->Vsyg
 ;	   if !fi_exs ("SWAP.SYS")
 
+If log$c
+	if cmVopt & cmLOG_
+	   PUT("Monitor: %s, ", mon.Anam) 	; monitor
+	   PUT("Boot driver: %s, " , dri.Aspc) 	; bootstrap driver
+	   PUT("System driver: %s\n" , dri.Adrv); runtime driver with suffix
+	end
+End
+
 ;	Write boot block and secondary boot
 
-	if !rt_wri (dev.Pfil, 0, boo.Pbuf, 512/2, rtWAI)
-	|| !rt_wri (dev.Pfil, 2, roo.Pbuf, 2048/2, rtWAI)
+	if !rt_wri (dev.Pfil, 0, boo.Pbuf, 512/2, 1)
+	|| !rt_wri (dev.Pfil, 2, roo.Pbuf, 2048/2, 1)
 	.. exit im_rep ("E-Error writing bootstrap [%s]", dev.Anam)
   end
 

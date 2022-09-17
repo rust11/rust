@@ -4,7 +4,6 @@ include rid:ctdef
 include rid:fidef
 include rid:fsdef
 include rid:stdef
-include rid:rtdir
 include rid:rtdrv
 
 code	rt_drv - find & open RT-11 driver
@@ -53,7 +52,7 @@ code	rt_drv - find & open RT-11 driver
 
 	repeat
 	   fail if (sfx = *suf++) eq
-	   sfx = 0 if sfx eq '_'	; null case
+	   sfx = 0 if (sfx eq '_') || (sfx eq '$') ; null case
 	   inf->Asuf[0] = sfx		; return suffix
 	   FMT(inf->Adrv, "%s%c", inf->Adev, sfx)
 	   FMT(inf->Aspc, "%s%s.SYS", dev, inf->Adrv)
