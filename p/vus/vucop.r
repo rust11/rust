@@ -140,13 +140,15 @@ code	cm_cop - copy bootstrap to device
 ;	   if hdr->Vsyg ne xxx->Vsyg
 ;	   if !fi_exs ("SWAP.SYS")
 
-If log$c
-	if cmVopt & cmLOG_
+	if (cmVopt & cmLOG_) || (cmVopt & cmQUE_)
 	   PUT("Monitor: %s, ", mon.Anam) 	; monitor
 	   PUT("Boot driver: %s, " , dri.Aspc) 	; bootstrap driver
 	   PUT("System driver: %s\n" , dri.Adrv); runtime driver with suffix
 	end
-End
+
+	if cmVopt & cmQUE_
+	   "Copy/Boot "
+	.. fail if !rt_qry(that, mon.Anam,<>) 	; are you sure?
 
 ;	Write boot block and secondary boot
 
