@@ -1,0 +1,2163 @@
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54
+Table of contents
+
+    2-   1	RUST preface
+    4-   1	notes
+    5-   1	device information
+    6-   1	driver definitions
+    7-   1	installation
+    8-   1	set
+    9-   1	begin I/O entry, data
+   10-   1	start I/O
+   11-   1	unit table, volume size, bypass
+   12-   1	logical & physical I/O
+   13-   1	interrupt, done, online
+   14-   1	packet & uda status
+   15-   1	prepare for I/O
+   16-   1	setup mscp packet
+   17-   1	map addresses
+   18-   1	bootstrap
+   18-  21	boot read
+   19-   1	prepare, data
+   20-   1	hardware boot
+   21-   1	load/fetch
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 1
+
+
+      1					;!!!;	DRS:DUP - Removed falcon code
+      2					.title	dup
+      3					.include "lib:rust.mac"
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 2
+RUST preface
+
+      1					.sbttl	RUST preface
+      2					.enabl	lc, gbl, mcl
+      3			.list	ttm
+      4			.library "lib:rust.mlb"
+      5			.mcall	spl, .print
+      6		002022 	ma$yea=2022
+      7	000000		local
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 3
+RUST preface
+
+      1
+      2		000001 	mov$c=1	; MOV instead of TST
+      3		000001 	bup$c=1	; boot unit/partition map
+      4
+      5		000001 	rpt$c=1	; boot report
+      6		000000 	err$c=0
+      7
+      8		000000 	def$c=0	; some defensive stuff
+      9		000001 	tim$c=1	; host timeout
+     10		000000 	dbg$c=0	; debug
+     11
+     12
+     13			;	RUST DU: handler
+     14			;
+     15			;	Single port
+     16			;	No bad block replacement
+     17			;
+     18			;	%build
+     19			;	goto 'p1'
+     20			;	macro	drs:dup/object:drb:duv/list=drb:duv
+     21			;	macro	drs:mmg$t+drs:dup/object:drb:dup
+     22			;	link:
+     23			;	link	drb:duv/exe:drb:duv.sys/map:drb:duv/nobit/bound:1000
+     24			;	duboot
+     25			;	link	drb:dup,lib:share/execute:drb:dup.sys/nobitmap/bound:1000
+     26			;	duboot
+     27			;	driver:
+     28			;	@drs:check capture DUV
+     29			;	driver
+     30			;	set drb:duv name=DU
+     31			;	set drb:duv csr=172150
+     32			;	set drb:duv vector=154
+     33			;	set drb:duv retry=8
+     34			;	set drb:duv/unit=0 unit=0,part=0
+     35			;	set drb:duv/unit=1 unit=1,part=0
+     36			;	set drb:duv/unit=2 unit=2,part=0
+     37			;	set drb:duv/unit=3 unit=3,part=0
+     38			;	set drb:duv/unit=4 unit=4,part=0
+     39			;	set drb:duv/unit=5 unit=5,part=0
+     40			;	set drb:duv/unit=6 unit=6,part=0
+     41			;	set drb:duv/unit=7 unit=7,part=0
+     42			;	exit
+     43			;	@drs:check compare DUV
+     44			;	@drs:check capture DUP
+     45			;	driver
+     46			;	set drb:dup name=DUX
+     47			;	set drb:dup csr=172150
+     48			;	set drb:dup vector=154
+     49			;	set drb:dup retry=8
+     50			;	set drb:dup/unit=0 unit=0,part=0
+     51			;	set drb:dup/unit=1 unit=1,part=0
+     52			;	set drb:dup/unit=2 unit=2,part=0
+     53			;	set drb:dup/unit=3 unit=3,part=0
+     54			;	set drb:dup/unit=4 unit=4,part=0
+     55			;	set drb:dup/unit=5 unit=5,part=0
+     56			;	set drb:dup/unit=6 unit=6,part=0
+     57			;	set drb:dup/unit=7 unit=7,part=0
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 3-1
+RUST preface
+
+     58			;	exit
+     59			;	@drs:check compare DUP
+     60			;	end:
+     61			;	%end
+     62
+     63			.macro	drinf$
+     64			$imgdef DU 1 0
+     65			$imginf fun=drv cre=hammo aut=ijh use=<RUST MSCP/UDA disk driver DU:>
+     66			$imgham	yrs=<1986,2004> oth=<>
+     67			;	%date
+     68			$imgdat <18-Sep-2022 15:54:54>
+     69			;	%edit
+     70			$imgedt <78   >
+     71			.endm
+     72
+     73			.macro	dupre$	cod
+     74				call	du$pre
+     75				.word	cod
+     76			.endm
+     77
+     78			;	Driver conditionals
+     79			;
+     80			;	mmg$t=0	Unmapped driver
+     81			;	mmg$t=1	Mapped driver for RT-11/XM or RUST/XM
+     82
+     83			.iif	ndf	mmg$t,	mmg$t=0	;unmapped by default
+     84			.iif 	ndf	tim$it,	tim$it=mmg$t ;timeout flag
+     85			.iif	ndf	erl$g,	erl$g=0	;
+     86							;
+     87			.if eq mmg$t			;
+     88		000001 		drum$=1			;
+     89		000000 		drxm$=0			;
+     90			.iff				;
+     91				drum$=0			;
+     92				drxm$=1			;
+     93			.endc				;
+     94
+     95	000000		meta	<um c d e f g h i j><drIF$ drum$ <c> <d> <e> f g h i j>
+     96	000000		meta	<xm c d e f g h i j><drIF$ drxm$ <c> <d> <e> f g h i j>
+     97
+     98			;	drIF$ macro must produce following code
+     99			;
+    100			;	sop	opr
+    101			;	bop	src,dst
+    102			;   cnd bop/sop	src dst
+    103
+    104				.macro	drIF$ c d e f g h i j k ;if macro
+    105				.if ne c		;may be blank
+    106				.if nb <f>		;bop or macro
+    107					d e,f g h i j k	;
+    108				.iff			;sop
+    109					d	e	;
+    110				.endc			;
+    111				.endc			;
+    112				.endm			;
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 4
+Notes
+
+      1			.sbttl	notes
+      2
+      3			;???;	DRS:DUP - DUP.SYS is RUST/XM specific (see DU$CVT:)
+      4			;
+      5			;	XM version uses EIS instructions
+      6			;	Needs abort routine
+      7			;
+      8			;	SPFUN 371 - return command packet
+      9			;	RT-11 compatible UDA/MSCP device handler
+     10			;	Single port driver
+     11			;	All special functions
+     12			;	Does not support soft bad block replacement
+     13
+     14			;	MOUNT show analyse ports/partitions
+     15			;	.SPFUN to get/set partition information
+     16			;	PnP to decode changes to device heirarchy
+     17			;	handler size, dstatu
+     18			;	SMS sbs still wrong
+     19			;	no bad block replacement
+     20			;	RT-11 set functions
+     21			;	old bypass code
+     22			;	test physical and bypass
+     23			;	add unit/port/partition stuff to HANDLR
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 5
+Device information
+
+      1			.sbttl	device information
+      2
+      3			;	mp.uni	selects unit
+      4			;	mp.lb1	selects partition for large disks
+      5			;
+      6			;	DUC.SYS - Chester Wilson
+      7			;	o Additions to DEC driver
+      8			;	o Internal *driver* queuing, but single-stream to xcontroller
+      9			;
+     10			; DEC HACKS
+     11			;
+     12			; BAD BLOCK REPLACEMENT
+     13			;
+     14			;	Not supported.
+     15			;
+     16			;	Where the original concept was that MSCP media were perfect
+     17			;	and required no BBR, the resulting algortithm is a monster.
+     18			;
+     19			;	DUP bad block scans are sufficient.
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 6
+Driver definitions
+
+      1			.sbttl	driver definitions
+      2	000000		$brdef		;RT-11 bootstrap
+      3	000000		$chdef		;channel
+      4	000000		$dcdef		;device codes
+      5	000000		$dedef		;device
+      6	000000		$drdef		;drivers
+      7	000000		$dsdef		;device status
+      8	000000		$fkdef		;fork
+      9	000000		$hadef		;handler
+     10	000000		$iqdef		;i/o queue
+     11	000000		$jbdef		;job
+     12	000000		$mmdef		;memory management
+     13	000000		$prdef		;pcr
+     14	000000		$psdef		;psw
+     15	000000		$rmdef		;resident monitor
+     16	000000		$sfdef		;special functions
+     17	000000		$vedef		;vectors
+     18			.library "lib:drvmac.mlb"
+     19	000000		$drini		;
+     20	000000		dudef$		;du handler
+     21	000000		mcdef$		;mscp commands
+     22	000000		mpdef$		;mscp packet
+     23	000000		msdef$		;mscp status
+     24	000000		uddef$		;uda
+     25
+     26			.macro	duidt$ id
+     27			.if ne dbg$c
+     28				jsr	r1,co$idt
+     29				.ascii	/id/
+     30			.endc
+     31			.endm
+     32
+     33			.macro	dutst$ msk id
+     34			.if nb msk
+     35				mov	msk,d$utst
+     36			.endc
+     37				duidt$	id
+     38			.endm
+     39
+     40	000000		set	erfun$,1
+     41	000000		set	eravl$,2
+     42	000000		set	erpre$,4
+     43	000000		set	erpos$,10
+     44	000000		set	erini$,20
+     45	000000		set	ertim$,40
+     46	000000		set	erstp$,100
+     47	000000		set	ersar$,200
+     48
+     49			;	DU: definition
+     50			;
+     51			;	RT11A, special functions, variable size
+     52
+     53	000000		.drdef	du,deduc.,derta$!defun$!devar$,0,d$ucsr,d$uvec,dma=yes
+     54	000200		.drptr	load=du$loa, fetch=du$loa
+     55	000022		.drest	class=dedkt.	;disk class
+     56	000076		.drspf	durea.		;physical read
+     57	000032		.drspf	duwri.		;physical write
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 6-1
+Driver definitions
+
+     58	000032		.drspf	dusiz.		;get volume size
+     59			;.drspf	dutab.		;get DU tables
+     60	000032		.drspf	dubyp.		;MSCP bypass
+     61	000032		.drspf	duby2.		;alternate bypass code
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 7
+Installation
+
+      1			.sbttl	installation
+      2
+      3			;	Installation check
+      4			;
+      5			;	Force /22bit
+      6			;	May not be /external unless /par6
+      7			;
+      8			;	r2 ->	device record
+      9			;	r3 =	stb date
+     10			;	r4 =	^rstb
+     11			;
+     12			;	On a Falcon the standard CSR address is in the memory range.
+     13			;	The RT-11 driver simply assumes that one is present and
+     14			;	remaps the CSR in the LOAD code. We repeat the test.
+     15
+     16	000032			.drins	du			;DU: installation
+     17	000200	000240 		nop				;data
+     18			;sic]	nop				;system
+     19				.if ne mmg$t			;
+     20				cmp	r4,#^rshp		;this RUST/XM?
+     21				bne	20$			;no
+     22				mov	r4,r0			;handshake
+     23				mov	r4,r1			;reply with reason
+     24			     xm	bis	#de22b$,de.con(r2)	;force /22bit
+     25				bis	#deabo$,de.typ(r2)	;force /abort
+     26				.endc
+     27	000202	005727 	20$:	tst	(pc)+			;fine
+     28	000204	000261 	30$:	sec				;forget it
+     29	000206	000207 		return
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 8
+Set
+
+      1			.sbttl	set
+      2
+      3	000210			$drovl				; set overlay routines
+      4	000314			$drlim	400			;
+      5	000314		.drset	CSR,160003,du$csa,oct		;set csr
+      6	000412		.drset	VECTOR,500,du$vca,oct		;set vector
+      7	000422		.drset	RETRY,128.,du$rtr,num		;set retry
+      8	000432		.drset	PORT,du.por-byte,du$prt,num	;set port
+      9	000442		.drset	PART,du.par-byte,du$par,num	;set part
+     10	000452		.drset	UNIT,du.uni-byte,du$uni,num	;set unit
+     11	000462		.drset	NAME,1,xx$nam,oct		;set name
+     12
+     13			;	Set CSR
+     14			;
+     15			;	r3 =	160003
+     16			;	r0 =	new csr address
+     17
+     18	000472	130300 	du$csa:	bitb	r3,r0			;invalid address?
+     19	000474	001117 		bne	du$fai			;yes
+     20	000476	020003 		cmp	r0,r3			;too low?
+     21	000500	103515 		blo	du$fai			;yes
+     22	000502			assume	ud.ipr eq 0		;
+     23	000502	010067 		mov	r0,inscsr		;
+		177470
+     24	000506	010067 		mov	r0,discsr		;
+		177462
+     25	000512			$drget	b$ocsr,duboot,du	;read boot section
+     26	000524	010067 		mov	r0,b$ocsr-$		;setup boot CSR
+		000434
+     27	000530	004767 		call	dr$upd			;update and reread
+		177454
+     28	000534	010067 		mov	r0,d$uipr		;setup init/poll register
+		000030'
+     29	000540	062700 		add	#ud.sar,r0		;
+		000002
+     30	000544	010067 		mov	r0,d$usar		;setup status/address
+		000032'
+     31	000550	000470 		br	du$suc			;o.k.
+     32
+     33			;	Set unit/partition
+     34			;
+     35			;	r0	unit/partition number
+     36			;	r1 	DU: unit number or 100000
+     37			;	r3	du.uni-byte or du.par-byte
+     38
+     39	000552		du$uni:	assume	du.uni-byte eq -1	;set unit
+     40	000552		du$par:	assume	du.par-byte eq 1	;set part
+     41	000552	020027 		cmp	r0,#255.		;is this too high?
+		000377
+     42	000556	101066 		bhi	du$fai			;yes
+     43	000560			$drget	b$ounm,duboot,du	;read boot section
+     44	000572	110101 		movb	r1,r1			;isolate unit number
+     45	000574			assume	du.uni eq 0		;r3 = du.uni-1 is mi
+     46	000574			mova	b$ounm-$,r2		;yuk
+     47	000602	060102 		add	r1,r2			;unit
+     48	000604			bmiw	r3,10$			;partition
+     49	000610	062702 		add	#b$opam-b$ounm,r2	;
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 8-1
+Set
+
+		000014
+     50	000614	110012 	10$:	movb	r0,(r2)			;partition
+     51	000616	004767 		call	dr$upd			;write boot, get block 1 back
+		177366
+     52	000622			assume	du.ubs eq 4		;
+     53	000622	006301 		asl	r1			;
+     54	000624	006301 		asl	r1			;
+     55	000626			adda	d$utab,r1		;point to the table entry
+     56	000634	060301 		add	r3,r1			;add in the offset
+     57	000636	110061 		movb	r0,byte(r1)		;sic] store the unit or partition
+		000001
+     58	000642	000433 		br	du$suc			;
+     59
+     60			;	Set retry
+     61			;
+     62			;	r0	new retry count
+     63			;	r3	8
+     64
+     65	000644	020003 	du$rtr:	cmp	r0,r3			;too high?
+     66	000646	101032 		bhi	du$fai			;yes
+     67	000650	005200 		inc	r0			;one extra for internal use
+     68	000652	110067 		movb	r0,d$urtc		;setup the retry count
+		000424'
+     69	000656	000425 		br	du$suc			;o.k.
+     70
+     71	000660		xx$nam:	$drget	b$onam,duboot,du	;read boot section
+     72	000672	010067 		mov	r0,b$onam-$		;setup bootstrap name
+		000736
+     73	000676			$drupd				;write boot and switch back
+     74	000702	000413 		br	du$suc			;write out driver
+     75
+     76			;	Set vector
+     77			;
+     78			;	r0	new vector
+     79			;	r3	500
+     80
+     81	000704	020003 	du$vca:	cmp	r0,r3			;too high?
+     82	000706	103012 		bhis	du$fai			;yes
+     83	000710	010067 		mov	r0,dustrt+ha.vec	;driver vector
+		000000'
+     84	000714			assume	ud1vd. eq 4		;vector divisor
+     85	000714	006200 		asr	r0			;divide by four
+     86	000716	006200 		asr	r0			;
+     87	000720	142767 		bicb	#ud1v$p,d$uivc		;clear previous
+		000177
+		000034'
+     88	000726	150067 		bisb	r0,d$uivc		;setup this one
+		000034'
+     89	000732	005727 	du$suc:	tst	(pc)+			;fine
+     90	000734	000261 	du$fai:	sec				;not o.k.
+     91	000736	000207 		return				;
+     92	000740		du$prt:	bnew	r0,du$fai		;fail
+     93	000744	000772 		br	du$suc			;no additional ports
+     94
+     95	000746			$drlim	1000			;check space
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 9
+Begin I/O entry, data
+
+      1			.sbttl	begin I/O entry, data
+      2
+      3			;	Begin I/O entry, data
+      4
+      5	000746			.drbeg	du
+      6	000020	000547 		br	du$sio			;start I/O
+      7	000022	000000 	d$usta:	.word	0			;standard RT-11 error cell
+      8	000024	000000 	d$utst:	.word	0			;condition being tested
+      9	000026	000000 	d$ufai:	.word	0			;retry failure conditions
+     10	000030	172150 	d$uipr:	.word	du$csr+ud.ipr		;init/poll register address
+     11	000032	172152 	d$usar:	.word	du$csr+ud.sar		;status/address register address
+     12
+     13			;	UDA init list
+     14			;
+     15			;	.word	ud1gu$!<du$vec/ud1vd.>	;guard, interrupts, vector
+     16			;	.word	ud1gu$!ud1ie$!<du$vec/ud1vd.>;guard, interrupts, vector
+     17			;	.word	ud1gu$!ud1ie$		;guard, interrupts
+     18
+     19	000034	100033 	d$uivc:	duud1$ = ud1gu$!<du$vec/ud1vd.>	;no interrupt value
+     20	000034	100233 	d$uudi:	.word	duud1$!ud1ie$		;guard + interrupt
+     21	000036	000054'	d$uur0:	.word	d$uucr			;uda ring lo address
+     22	000040	000000 	d$uur1:	.word	0			;uda ring hi address
+     23	000042	000001 		.word	ud4go$			;go
+     24
+     25			;	UDA communications ring
+     26
+     27	000044	000000 		.word	0		;ud.f00	;reserved
+     28	000046	   000 		.byte	0		;ud.f01	;reserved
+     29	000047	   000 		.byte	0		;ud.apr	;adaptor purge request from port
+     30	000050	000000 	d$ucif:	.word	0		;ud.cif	;command interrupt flag
+     31	000052	000000 	d$urif:	.word	0		;ud.rif	;response interrupt flag
+     32	000054		d$uucr:					;uda communications ring origin
+     33	000054	000070'	d$urd0:	.word	d$urpk		;ud.rd0	;response descriptor low
+     34	000056	000000 	d$urd1:	.word	0		;ud.rd1	;response descriptor high
+     35	000060	000170'	d$ucd0:	.word	d$ucpk		;ud.cd0	;command descriptor low
+     36	000062	000000 	d$ucd1:	.word	0		;ud.cd1	;command descriptor high
+     37	000064			assume	.-d$uucr eq ud.rbs	;minimum ring size
+     38
+     39			;	UDA/MSCP response & command packets
+     40
+     41	000064	000074 	d$ures:	.word	ud.bbs		;ud.mbc	;response size - from port
+     42	000066	   000 		.byte	0		;ud.cam	;credits & message type
+     43	000067	   000 		.byte	0		;ud.cid	;connection id
+     44	000070		d$urpk:	.blkb	ud.bbs		;ud.txt	;response packet
+     45								;(command must follow response)
+     46	000164	000074 	d$ucmd:	.word	ud.bbs		;ud.mbc	;command size
+     47	000166	   000 		.byte	0		;ud.cam	;credits & message type
+     48	000167	   000 		.byte	0		;ud.cid	;connection id
+     49	000170		d$ucpk:	.blkb	ud.bbs		;ud.txt	;command packet
+     50
+     51			;	Unit table - RT-11 compatible
+     52
+     53	000264	016110 	d$uutb:	.rad50	/du /			;table preface
+     54	000266	000010 		.word	duunc.			;eight units
+     55	000270			assume	du.uni eq 0		;
+     56	000270			assume	du.ubs eq 4		;
+     57		000000 		ma$uni=0			;unit zero
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 9-1
+Begin I/O entry, data
+
+     58	000270	000010 	d$utab:	.rept	duunc.			;unit count
+     59				.word	ma$uni,0		;unit number, etc
+     60				ma$uni=ma$uni+1			;next unit
+     61				.endr				;
+     62
+     63			;	Fork block
+     64
+     65	000330		d$ufrk:	.blkb	fk.bbs			;fork block
+     66
+     67			;	Debug
+     68
+     69			.if ne dbg$c
+     70			tps = 177564
+     71			tpb = 177566
+     72			co$idt:	psh	<r0>
+     73				bic	#100,@#tps
+     74				call	10$
+     75				call	10$
+     76				movb	#32.,r0
+     77				call	20$
+     78				pop	<r0>
+     79				rts	r1
+     80
+     81			10$:	movb	(r1)+,r0
+     82			20$:	tstb	@#tps
+     83				bpl	20$
+     84				movb	r0,@#tpb
+     85				return
+     86			.endc
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 10
+Start I/O
+
+      1			.sbttl	start I/O
+      2
+      3			;	Setup unit and partition information
+      4			;
+      5			;	du$pnt sets up for the driver as follows:
+      6			;
+      7			;	r2 ->	d$ucpk	command packet
+      8			;	r3 ->	d$urpk	response packet
+      9			;	r4 ->	ducqe	i/o packet
+     10			;	r5 ->	@d$usar	device status register
+     11
+     12	000340	005067 	du$sio:	clr	d$utst			;no test condition yet
+		177460
+     13	000344	005067 		clr	d$ufai			;no fail conditions either
+		177456
+     14	000350	005067 		clr	d$uphy			;sic] not physical yet
+		000442
+     15	000354	004767 		call	du$pnt			;get the pointers
+		000130
+     16	000360	016400 		mov	iq.csw(r4),r0		;get the CSW
+		177776
+     17	000364			movzbw	ch.uni(r0),r1		;get the unit number
+     18	000372	020127 		cmp	r1,#duunc.		;unit too high?
+		000010
+     19	000376	103037 		bhis	du$der			;yes
+     20	000400			assume	du.ubs eq 4		;unit map
+     21	000400	006301 		asl	r1			;*2
+     22	000402	006301 		asl	r1			;*4
+     23	000404			adda	d$utab,r1		;r1 -> entry
+     24	000412			assume	du.uni eq 0		;
+     25	000412	012127 		mov	(r1)+,(pc)+		;store them
+     26	000414	000000 	d$uuni:.word	0			;current unit
+     27	000416			assume	du.par eq 2		;
+     28	000416	012127 		mov	(r1)+,(pc)+		;
+     29	000420	000000 	d$upar:	.word	0			;current partition
+     30	000422	012727 		mov	(pc)+,(pc)+		;reset retry count
+     31	000424	000011 	d$urtc:	.word	durtc.+1		;retry count
+     32	000426	000000 	d$urty:	.word	0			;
+     33
+     34			;	Dispatch request
+     35			;
+     36			;	Control passed here after errors or on-line requests
+     37			;	All pointers must have been restored to original values
+     38			;
+     39			;	r4 ->	queue element
+     40
+     41	000430		du$agn:					;again for retry
+     42	000430	116400 	du$dis:	movb	iq.fun(r4),r0		;get the function
+		000002
+     43	000434	001440 		beq	du$lgx			;logical I/O
+     44								;
+     45	000436	120027 		cmpb	r0,#duby2.		;this the new bypass code?
+		000360
+     46	000442	001540 		beq	du$byp			;yes
+     47	000444	120027 		cmpb	r0,#dubyp.		;the old one?
+		000371
+     48	000450	001535 		beq	du$byp			;invalid code
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 10-1
+Start I/O
+
+     49								;
+     50	000452	120027 		cmpb	r0,#dutab.		;the table function?
+		000372
+     51	000456	001430 		beq	du$tab			;yes
+     52								;
+     53	000460	120027 		cmpb	r0,#dusiz.		;volume size?
+		000373
+     54	000464	001460 		beq	du$siz			;yes
+     55								;
+     56	000466			assume	duwri. eq 376		;
+     57	000466			assume	durea. eq 377		;
+     58	000466	120027 		cmpb	r0,#duwri.		;
+		000376
+     59	000472	001545 		beq	du$wri			;physical write
+     60	000474	101146 		bhi	du$phy			;physical I/O
+     61	000476		du$der:	dutst$	#erfun$ FN		;
+     62	000504	000167 		jmp	du$her			;invalid function
+		000542
+     63
+     64			;	Setup various pointers
+     65
+     66	000510		du$pnt:	mova	d$ucpk,r2		;r2 -> command packet
+     67	000516			mova	d$urpk,r3		;r3 -> response packet
+     68	000524	016705 		mov	d$usar,r5		;r5 -> status/address register
+		177302
+     69	000530	016704 		mov	ducqe,r4		;r4 -> queue element
+		177254
+     70	000534	000207 		return				;z=1 => no queue element
+     71
+     72	000536	000530 	du$lgx:	br	du$log			;logical I/O branch
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 11
+Unit table, volume size, bypass
+
+      1			.sbttl	unit table, volume size, bypass
+      2
+      3			;	Read/write unit table
+      4			;
+      5			;	Word count of 0/1 is treated as default (18).
+      6			;	Larger-than-we-have word counts are truncated.
+      7			;
+      8			;	r4 ->	iq.blk
+      9
+     10	000540		du$tab:	mova	d$uutb,r0		;point to the table
+     11	000546		     um	mov	iq.buf(r4),r1		;their buffer
+     12	000552	012702 		mov	#du.ubs/word*8.,r2	;get a counter
+		000020
+     13	000556	016403 		mov	iq.wct(r4),r3		;get their count
+		000006
+     14	000562	100001 		bpl	10$			;a read
+     15	000564	005403 		neg	r3			;normalize
+     16	000566		10$:	bhiw	r3,#1,20$		;not default
+     17	000574	010203 		mov	r2,r3			;use default size
+     18	000576		20$:	bhisw	r3,r2,30$		;too much happiness?
+     19	000602	010302 		mov	r3,r2			;use their truncated size
+     20	000604		30$: xm	asl	r2			;byte transfer for xm
+     21	000604		40$:	bmiw	iq.wct(r4),50$		;a write
+     22	000612		     um	mov	(r0)+,(r1)+		;read
+     23	000614		     xm	movb	(r0)+,-(sp)		;get next
+     24	000614		     xm	call	@$ptbyt			;store it
+     25	000614	000401 		br	60$			;
+     26								;
+     27	000616		50$: um	mov	(r1)+,(r0)+		;store
+     28	000620		     xm	call	@$gtbyt			;get next
+     29	000620		     xm	movb	(sp)+,(r1)+		;store it
+     30	000620		60$:	sobw	r2,40$			;
+     31	000624	000467 		br	du$exi			;
+     32
+     33			;	Volume size
+     34			;
+     35			;	r3 ->	response packet
+     36			;	r4 ->	iq.blk
+     37			;
+     38			;	Init the unit first to force a check for volume size.
+     39			;	Perform on-line command to get volume size
+     40			;	Return 2^16-1 if volume larger than 2^16 blocks
+     41			;
+     42			;	Extended volume size:
+     43			;
+     44			;	iq.blk = sf.s32 == 1
+     45			;	iq.wct = 4
+     46			;
+     47			;	.word	partition
+     48			;	.word	0
+     49			;
+     50			;	.word	partitions remaining
+     51			;	.word	size
+     52
+     53	000626	004767 	du$siz:	call	du$onl			;get the unit on-line
+		000536
+     54	000632	004767 		call	du$chk			;check the result
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 11-1
+Unit table, volume size, bypass
+
+		000600
+     55	000636	012700 		mov	#1,r0			;r0 = 1, assume single word result
+		000001
+     56	000642	016702 		mov	d$upar,r2		;r2 = partition
+		177552
+     57	000646	062703 		add	#mp.us1,r3		;r3 -> high order size
+		000046
+     58	000652			assume	iq.blk eq 0		;
+     59	000652			bneb	(r4),#sfd32.,10$	;not the 32-bit function
+     60	000660	012700 		mov	#4,r0			;four words
+		000004
+     61	000664			bnew	iq.wct(r4),r0,50$	;wordcount must match
+     62	000672			psh	r2			;.word par
+     63	000674	005046 		clr	-(sp)			;.word 0
+     64	000676			psh	(r3)			;.word hi
+     65	000700	160216 		sub	r2,(sp)			;      hi-par
+     66	000702			assume	mp.us0 eq mp.us1-2	;
+     67	000702			psh	-(r3)			;.word lo
+     68	000704	000405 		br	30$			;
+     69								;
+     70	000706		10$:	psh	#-1			;(sp) = -1, assume full partition
+     71	000712			blob	(r3),r2,30$		;lower partitions extend
+     72	000716			assume	mp.us0 eq mp.us1-2	;
+     73	000716	014316 		mov	-(r3),(sp)		;.word lo
+     74	000720		30$: um	mov	iq.buf(r4),r1		;r1 -> buffer
+     75	000724		40$: um	pop	(r1)+			;store data
+     76	000726		     xm	call	@$ptwrd			;move the next
+     77	000726			sobw	r0,40$			;
+     78	000732	000424 		br	du$exi			;
+     79	000734	052774 	50$:	bis	#cseof$,@iq.csw(r4)	;EOF
+		020000
+		177776
+     80	000742	000420 		br	du$exi			;
+     81
+     82			;	User MSCP packet bypass
+     83			;
+     84			;	Setup UDA descriptors
+     85			;	Convert process virtual address
+     86			;	Issue request & check UDA errors
+     87
+     88		000070 		cmd = ud.pbs+mp.bbs+ud.pbs
+     89
+     90	000744		du$byp:	dupre$	0			;get setup
+     91				.if eq mmg$t			;
+     92	000752	016400 		mov	iq.buf(r4),r0		;get their uda envelope
+		000004
+     93			;	mov	#mp.bbs,ud.pbs+mp.bbs(r0) ;
+     94			;	mov	#1,ud.pbs*2+mp.bbs(r0)	;command reference number
+     95	000756	016401 		mov	iq.wct(r4),r1		;got a mappable address
+		000006
+     96	000762	001402 		beq	10$			;nope
+     97	000764	010160 		mov	r1,cmd+mp.bu0(r0)	;identity in sj
+		000110
+     98	000770	004767 	10$:   	call	du$dsc			;setup descriptors
+		001064
+     99				.iff
+    100				mov	r4,r5			;r5 -> iq.blk
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 11-2
+Unit table, volume size, bypass
+
+    101				cmp	(r5)+,(r5)+		;r5 -> iq.buf
+    102			     xm	call	@$mpptr			;get the physical address
+    103			     xm	stack	low hgh			;
+    104			     xm	pop	r0			;r0 = low order address
+    105			     xm	pop	r1			;r1 = high order address
+    106			     	call	du$dsc			;setup descriptors
+    107			     xm	mov	(r5),r0			;word count = buffer address
+    108				beq	20$			;is none
+    109			     xm	call	du$cvt			;convert virtual r0 to physical r1/r2
+    110			     xm	psh	@#m$kip1		;save par1
+    111			     xm	mov	iq.par(r4),@#m$kip1	;map the par
+    112				mov	iq.buf(r4),r0		;get the buffer
+    113				lo.cmd = ud.ebs+ud.pbs		;local offset to command packet
+    114				mov	r1,lo.cmd+mp.bu0(r0)	;low order
+    115				mov	r2,lo.cmd+mp.bu1(r0)	;high order
+    116			     xm	pop	@#m$kip1		;restore that
+    117				.endc				;
+    118	000774	004767 	20$:	call	du$int			;get an interrupt
+		000162
+    119	001000	004767 		call	du$uda			;check uda errors - may retry
+		000520
+    120	001004	000531 	du$exi:	br	du$don			;user checks mscp errors
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 12
+Logical & physical I/O
+
+      1			.sbttl	logical & physical I/O
+      2
+      3			;	Setup the transfer
+      4			;	Post process
+      5			;
+      6			;	r2 ->	command packet
+      7			;	r3 ->	response packet
+      8			;	r4 ->	queue element
+      9
+     10	001006	005464 	du$wri:	neg	iq.wct(r4)		;wct<0 => write operation
+		000006
+     11	001012	012727 	du$phy:	mov	#duphy$,(pc)+		;flag physical
+		100000
+     12	001016	000000 	d$uphy:	.word	0			;>=0 => logical
+     13	001020		du$log:	dupre$	mcrea.			;assume read command
+     14	001026			assume	iq.blk eq 0		;
+     15	001026	011462 		mov	(r4),mp.lb0(r2)		;setup logical block number
+		000034
+     16	001032	116762 		movb	d$upar,mp.lb1(r2)	;setup the high order partition
+		177362
+		000036
+     17								;
+     18	001040		     um	mov	iq.buf(r4),r0		;
+     19	001044		     um	clr	r1			;
+     20	001046		     xm	movi	iq.buf,r4,r5		;r5 -> buffer address
+     21	001046		     xm	call	@$mpptr			;convert to physical address
+     22	001046		     xm	pop	r0			;r0 = low order address
+     23	001046		     xm	pop	r1			;r1 = high order address * 16
+     24	001046		     xm	ash	#-4,r1			;r1 = high order address
+     25
+     26	001046	005767 		tst	d$uphy			;this a physical request?
+		177744
+     27	001052	001402 		beq	10$			;no
+     28	001054	062700 		add	#word,r0		;yes - skip status word
+		000002
+     29	001060		     xm	adc	r1			;adjust high order
+     30	001060	010062 	10$:	mov	r0,mp.bu0(r2)		;setup the buffer pointer
+		000020
+     31	001064	010162 		mov	r1,mp.bu1(r2)		;setup high order address
+		000022
+     32
+     33			;	Check physical address
+     34			;
+     35			;	Setup byte count
+     36
+     37	001070	016400 		mov	iq.wct(r4),r0		;get the word count
+		000006
+     38	001074	100003 		bpl	20$			;a read
+     39	001076	005400 		neg	r0			;a write
+     40	001100			assume	mcwri. eq mcrea.+1	;
+     41	001100	005262 		inc	mp.cod(r2)		;change to write request
+		000010
+     42
+     43			;	Truncate word count
+     44			;
+     45			;	r0 = word count
+     46			;
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 12-1
+Logical & physical I/O
+
+     47			;	Flag truncate with hard error code
+     48
+     49	001104	010062 	20$:	mov	r0,mp.bc0(r2)		;setup requested word count
+		000014
+     50	001110	062700 		add	#255.,r0		;get modulo count
+		000377
+     51	001114	105000 		clrb	r0			;
+     52	001116	000300 		swab	r0			;r0 = block count
+     53	001120	011401 		mov	(r4),r1			;get current block
+     54	001122	060001 		add	r0,r1			;get remaining blocks
+     55	001124	103007 		bhis	30$			;no overflow
+     56	001126	160100 		sub	r1,r0			;get whats left
+     57	001130	000300 		swab	r0			;make a word count
+     58	001132	010062 		mov	r0,mp.bc0(r2)		;setup remainder byte count
+		000014
+     59	001136	052771 		bis	#csher$,@iq.csw(r1)	;set the error flag later
+		000001
+		177776
+     60	001144	006362 	30$:	asl	mp.bc0(r2)		;make a byte count
+		000014
+     61	001150	004767 		call	du$int			;process it
+		000006
+     62	001154	004767 		call	du$chk			;check it
+		000256
+     63	001160	000443 		br	du$don			;done
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 13
+Interrupt, done, online
+
+      1			.sbttl	interrupt, done, online
+      2
+      3			;	Request interrupt
+      4			;
+      5			;	Called by standard, setup and bypass
+      6			;
+      7			;	mov's below become movb's to high byte when rings are mapped
+      8
+      9	001162		du$int:	pop	d$uint			;store continue address
+     10	001166	012767 		mov	#udown$,d$ucd1		;give ring to port (no interrupt)
+		100000
+		176666
+     11	001174	005777 		tst	@d$uipr			;init port poll
+		176630
+     12	001200	012767 		mov	#udown$!udint$,d$urd1	;get response with interrupt
+		140000
+		176650
+     13	001206	000207 	du$ret:	return
+     14
+     15	001210		du$stp:	pop	d$uint			;return address
+     16	001214	010077 		mov	r0,@d$usar		;do next step
+		176612
+     17			;	.mtps	#0			;
+     18	001220	000207 		return
+     19
+     20			;	Interrupt entry point
+     21
+     22	001222			.drast	du,udpri.		;interrupt
+     23	001232			.fork	d$ufrk			;fork
+     24	001240	004767 		call	du$pnt			;setup usual pointers
+		177244
+     25	001244	001760 		beq	du$ret			;no queue element - aborted
+     26	001246	000137 		jmp	@(pc)+			;continue request
+     27	001250	000000 	d$uint:	.word	0			;interrupt continue routine
+     28
+     29			;	I/O done - handle errors
+     30			;
+     31			;	r3 ->	response packet
+     32			;	r4 ->	I/O queue element
+     33
+     34	001252		du$her:	duidt$	HR
+     35			.if ne dbg$c
+     36				mov	d$utst,r0		;current condition
+     37				mov	d$ufai,r1		;
+     38			.endc
+     39	001252	056767 		bis	d$utst,d$usta		;save status
+		176546
+		176542
+     40	001260	052774 		bis	#csher$,@iq.csw(r4)	;sic] set the error flag
+		000001
+		177776
+     41	001266	005727 		tst	(pc)+			;c=0 => error
+     42	001270	000261 	du$don:	sec				;c=1 => fine
+     43	001272	016701 		mov	d$uphy,r1		;r1 = physical status
+		177520
+     44	001276	100025 		bpl	80$			;not a physical request
+     45	001300	103422 		bcs	70$			;no errors
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 13-1
+Interrupt, done, online
+
+     46	001302	032763 		bit	#mcbbr$,mp.flg(r3)	;bad block replaced?
+		000200
+		000011
+     47	001310	001403 		beq	50$			;no
+     48	001312	052701 		bis	#dubad$,r1		;yes - set that flag
+		000200
+     49	001316	000413 		br	70$			;skip other
+     50	001320	042763 	50$:	bic	#msco$n,mp.sts(r3)	;isolate error code
+		177740
+		000012
+     51	001326	026327 		cmp	mp.sts(r3),#msdat.	;this a data error?
+		000012
+		000010
+     52	001334	001402 		beq	60$			;yes - data error
+     53	001336	052701 		bis	#dufat$,r1		;no - fatal error
+		077400
+     54	001342	052701 	60$:	bis	#dudat$,r1		;data error
+		040000
+     55	001346		70$: um	mov	r1,@iq.buf(r4)		;return it
+     56	001352		     xm	psh	r1			;setup to return it
+     57	001352		     xm	call	@$ptwrd			;return it (needs r4 -> iq.blk)
+     58	001352		80$:	.drfin	du			;finish up
+     59
+     60			;	Set unit online
+     61			;
+     62			;	Must not call DU$CHK
+     63
+     64	001370		du$onl:	duidt$	OL
+     65	001370			pop	d$uonl			;return address
+     66	001374		10$:	dupre$	mconl.			;setup online request
+     67	001402	004767 		call	du$int			;process it
+		177554
+     68	001406	004767 		call	du$uda			;check uda errors
+		000112
+     69	001412	032763 		bit	#msco$p,mp.sts(r3)	;got an error?
+		000037
+		000012
+     70	001420	001404 		beq	20$			;no
+     71	001422	004767 		call	du$ini			;yes - init it again
+		000122
+     72	001426	000000 		.word	0			;command
+     73	001430	000761 		br	10$			;and repeat it
+     74	001432	000137 	20$:	jmp	@(pc)+			;return
+     75	001434	000000 	d$uonl:	.word	0			;return address
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 14
+Packet & uda status
+
+      1			.sbttl	packet & uda status
+      2
+      3			;	Check MSCP packet status
+      4			;
+      5			;	Respond to AVAILABLE status with ONLINE request
+      6			;	Not called for bypass requests
+      7			;
+      8			;	r3 ->	response packet
+      9
+     10				.enabl	lsb
+     11	001436		du$chk:	pop	d$uchk			;return there
+     12	001442			duidt$	CH
+     13	001442	004767 		call	du$uda			;check uda status - aborts
+		000056
+     14	001446	016300 		mov	mp.sts(r3),r0		;r0 = status code
+		000012
+     15	001452	042700 		bic	#msco$n,r0		;isolate status code
+		177740
+     16	001456	001420 		beq	10$			;fine
+     17	001460			dutst$	#eravl$ AV		;checking available
+     18	001466	020027 		cmp	r0,#msavl.		;device available?
+		000004
+     19	001472	001267 		bne	du$her			;no - hard error
+     20	001474			dutst$	#erpos$ PS		;checking postprocessing status
+     21	001502	005367 		dec	d$urty			;got retries left?
+		176720
+     22	001506	100661 	du$hrj:	bmi	du$her			;no
+     23	001510			duidt$	c?
+     24	001510	004767 		call	du$onl			;yes - get online
+		177654
+     25	001514	000167 		jmp	du$agn			;and try again
+		176710
+     26	001520	000137 	10$:	jmp	@(pc)+			;call them back
+     27	001522	000000 	d$uchk:	.word	0			;
+     28				.dsabl	lsb			;
+     29
+     30			;	Check UDA status
+     31
+     32	001524		du$uda:	duidt$	UD
+     33	001524	032777 		bit	#uderr$!udst1$,@d$usar
+		104000
+		176300
+     34	001532	001405 		beq	10$			;fine
+     35	001534	005726 		tst	(sp)+			;do not return to caller
+     36	001536	005067 		clr	d$uini			;force init
+		000010
+     37	001542	000167 		jmp	du$agn			;start again
+		176662
+     38	001546	000207 	10$:	return
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 15
+Prepare for I/O
+
+      1			.sbttl	prepare for I/O
+      2
+      3			;	Prepare for I/O
+      4			;
+      5			;	Initializes port if necessary
+      6			;	Build and return MSCP packet
+      7
+      8				.enabl	lsb			;
+      9	001550	005027 	du$ini:	clr	(pc)+			;force init
+     10	001552	000000 	d$uini:	.word	0			;init flag
+     11	001554			fall	du$pre			;
+     12								;
+     13	001554		du$pre:	pop	d$upre			;setup return address
+     14	001560			dutst$	#erini$	PR		;
+     15	001566	005767 		tst	d$uini			;is it initialized?
+		177760
+     16	001572	100007 		bpl	10$			;no
+     17	001574	032777 		bit	#uderr$!udst1$,@d$usar	;got a notable error?
+		104000
+		176230
+     18	001602	001474 		beq	50$			;nope
+     19	001604			dutst$	#ersar$	SA		;checking preprocessing status
+     20	001612	056767 	10$:	bis	d$utst,d$ufai		;
+		176206
+		176206
+     21	001620	105367 		decb	d$urty			;recover
+		176602
+     22	001624	100730 		bmi	du$hrj			;retries exhausted
+     23
+     24			;	Init port
+     25			;
+     26			;	Write anything to ud.ipr
+     27			;	Read ud.sar until next step set
+     28			;	Write next value to ud.sar
+     29			;	Wait for interrupt - except step4
+     30			;
+     31			;	1.	NV=no soft vector, QB=Q-bus, DI=wrap diagnostics
+     32			;		15 ! WR ! CRL ! RRL ! IE ! VEC/4
+     33			;		15		    ! IE ! VEC/4
+     34			;	2.	port type
+     35			;		RLA
+     36			;	3.
+     37			;		RHA
+     38			;	4.	CUV
+     39			;		LF ! GO
+     40
+     41	001626	012777 	20$:	mov	#0,@d$uipr		;sic] init controller
+		000000
+		176174
+     42	001634	012767 		mov	#udst1$,d$uini		;setup init flag
+		004000
+		177710
+     43	001642			mova	d$uucr,d$uur0		;setup UDR ring address
+     44	001654			mova	d$uudi,(pc)+		;set the preparation list
+     45	001664	000034'	d$uinp:	.word	d$uudi			;init list pointer
+     46
+     47			;	Come here on each step of initialization
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 15-1
+Prepare for I/O
+
+     48
+     49	001666		30$:	dutst$	#erstp$	ST		;
+     50	001674	017700 	35$:	mov	@d$usar,r0		;got an error?
+		176132
+     51	001700	100744 		bmi	10$			;yes - start again
+     52	001702	030067 		bit	r0,d$uini		;done current step?
+		177644
+     53	001706	001772 		beq	35$			;no - wait a bit
+     54	001710	017700 		mov	@d$uinp,r0		;next step
+		177750
+     55	001714	062767 		add	#word,d$uinp		;step up pointer
+		000002
+		177742
+     56	001722	006367 		asl	d$uini			;done them all?
+		177624
+     57	001726	100403 		bmi	40$			;yes
+     58	001730	004767 		call	du$stp			;no - get an interrupt
+		177254
+     59	001734	000754 		br	30$			;and do the next
+     60	001736	010077 	40$:	mov	r0,@d$usar		;do last step
+		176070
+     61				.if ne def$c			;
+     62			45$:	sub	#2048.,#0		;32 iterations
+     63				bne	45$			; should be 100usecs
+     64				.endc
+     65
+     66			;	Setup host timeout
+     67
+     68				.if ne tim$c
+     69	001742	004767 		call	du$prp			;setup a timeout packet
+		000032
+     70	001746	000004 		.word	mcscc.			;command
+     71	001750	112763 		movb	#duhto.,mp.hto(r3)	;setup host timeout
+		000000
+		000020
+     72	001756	004767 		call	du$int			;do it
+		177200
+     73	001762			dutst$	#ertim$ TM		;
+     74	001770	005715 		tst	(r5)			;got an error?
+     75	001772	100707 		bmi	10$			;yes - attempt retry
+     76				.endc
+     77
+     78			;	Continue processing
+     79
+     80	001774		50$:	psh	(pc)+			;reset return address
+     81	001776	000000 	d$upre:	.word	0			;return address
+     82	002000			fall	du$prp			;preprocess packet
+     83				.dsabl	lsb			;
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 16
+Setup mscp packet
+
+      1			.sbttl	setup mscp packet
+      2
+      3			;	Setup MSCP packet for caller
+      4			;
+      5			;	call	du$prp
+      6			;	.word	mscp opcode
+      7			;
+      8			;	Setup command and response rings
+      9			;	Clear command packet
+     10			;	Clear response header
+     11			;	Setup command reference, unit and command code
+     12			;
+     13			;	r2 ->	command buffer
+     14			;	r3 ->	response buffer
+     15			;
+     16			;	See du$dsc for user bypass setup.
+     17
+     18	002000	004767 	du$prp:	call	du$pnt			;get the pointers
+		176504
+     19	002004	010267 		mov	r2,d$ucd0		;r2 -> command packet
+		176050
+     20	002010	010367 		mov	r3,d$urd0		;r3 -> response packet
+		176040
+     21	002014	012701 		mov	#ud.bbs/word,r1		;get a counter
+		000036
+     22	002020	005022 	50$:	clr	(r2)+			;clear command buffer
+     23	002022			sobw	r1,50$			;more
+     24	002026	005043 		clr	-(r3)			;clear response preface
+     25	002030	005043 		clr	-(r3)			;
+     26								;
+     27	002032	004767 		call	du$pnt			;get the pointers again
+		176452
+     28	002036	005262 		inc	mp.cr0(r2)		;command reference id = 1
+		000000
+     29	002042	016762 		mov	d$uuni,mp.uni(r2)	;setup the unit number
+		176346
+		000004
+     30								;
+     31	002050			pop	r0			;point to the code
+     32	002052	012062 		mov	(r0)+,mp.cod(r2)	;setup the command
+		000010
+     33	002056	000110 		jmp	(r0)			;and continue
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 17
+Map addresses
+
+      1			.sbttl	map addresses
+      2
+      3			;	Setup UDA command/response descriptors
+      4			;
+      5			;	r0	low order address
+      6			;	r1	high order * 32.
+      7			;
+      8			;	Response ring precedes command ring always
+      9
+     10	002060		du$dsc:
+     11	002060		     xm	ash	#-4,r1			;get high order in place
+     12	002060	062700 		add	#ud.pbs,r0		;add in packet preface
+		000004
+     13	002064		     xm	adc	r1			;adjust high order address
+     14	002064	010067 		mov	r0,d$urd0		;setup response descriptor
+		175764
+     15	002070		     xm	mov	r1,d$urd1		;
+     16	002070		     um	clr	d$urd1			;
+     17	002074	062700 		add	#ud.pbs+mp.bbs,r0	;compute command ring address
+		000064
+     18	002100		     xm	adc	r1			;
+     19	002100	010067 		mov	r0,d$ucd0		;setup command descriptor
+		175754
+     20	002104		     xm	mov	r1,d$ucd1		;
+     21	002104		     um	clr	d$urd1			;
+     22	002110	000207 		return
+     23
+     24			;	Convert process virtual address to physical
+     25			;
+     26			;???	Use V5.5 monitor P1EXT link
+     27			;
+     28			;	r0 =	virtual address
+     29			;
+     30			;	call	du$cvt
+     31			;
+     32			;	r1	low order
+     33			;	r2	high order address
+     34
+     35				.if ne mmg$t
+     36			du$cvt:	psh	@#m$kip1		;save par1
+     37				movb	iq.job(r4),r1		;get the job number
+     38				bic	#iqjo$m,r1		;isolate job number
+     39				asr	r1			;get job*2
+     40				asr	r1			;
+     41				mov	p$rmap(r1),r1		;get the pcr
+     42				mov	pr.phd(r1),@#m$kip1	;map phd page in par1
+     43				pusha	10$			;return here
+     44				psh	#p$huip-<m$mpa2-m$mpa1>	;supply par table address
+     45				jmp	@#io$cvm		;convert the address
+     46								;r2/r1 par/buffer
+     47			10$:	call	@#io$cmp		;convert mapped to physical
+     48				ash	#-4,r2			;shift high order into place
+     49				pop	@#m$kip1		;restore par1
+     50				return				;
+     51				.endc
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 18
+Bootstrap
+
+      1			.sbttl	bootstrap
+      2	002112		$aldef
+      3
+      4				.macro rpt$ let
+      5				jsr	r5,bo$rpt
+      6				.asciz	/let/
+      7				.endm
+      8
+      9			;	Link command puts this code on a 1000 byte boundary
+     10
+     11	002112			meta	<boloc$ adr><.=duboot+adr>
+     12	002112			.drbot	du,bo$jmp,bo$rea,control=<umscp,qmscp>
+     13		000000'		$  =	duboot
+     14	000040		boloc$	40
+     15	000040	000137 	bo$jmp:	jmp	@#bo$boo-$
+		000530
+     16	000044		boloc$	70
+     17	000070	   000 	b$ounm:	.byte	0,1,2,3,4,5,6,7		;boot unit map
+	000071	   001
+	000072	   002
+	000073	   003
+	000074	   004
+	000075	   005
+	000076	   006
+	000077	   007
+     18	000100		boloc$	104
+     19	000104	   000 	b$opam:	.byte	0,0,0,0,0,0,0,0		;boot partition map
+	000105	   000
+	000106	   000
+	000107	   000
+	000110	   000
+	000111	   000
+	000112	   000
+	000113	   000
+     20
+     21			.sbttl	boot read
+     22
+     23			; in	r0	block
+     24			;	r1	word count
+     25			;	r2	buffer address
+     26			;
+     27			; local	r4 ->	mscp packet
+     28			;	r5 ->	csr/data
+     29
+     30	000114		boloc$	120
+     31	000120	113727 	bo$rea:	movb	@#b$rdvu,(pc)+		;get the unit number
+		004722
+     32	000124	000000 	b$ouni:	.word	0			;boot unit
+     33	000126		bo$loa:
+     34	000126		rpt$ L
+     35	000134	006301 		asl	r1			;get byte count
+     36	000136	012727 		mov	#durtc.,(pc)+		;boot retry count
+		000010
+     37	000142	000010 	b$orty:	.word	durtc.			;retry counter
+     38	000144	000447 		br	bo$trn			;do the transfer
+     39								;
+     40	000146		bo$rty:
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 18-1
+Boot read
+
+     41	000146		rpt$ R
+     42	000154	005367 		dec	b$orty			;all done?
+		177762
+     43	000160	100516 		bmi	bo$err			;yes - boot I/O error
+     44	000162	012705 	bo$ini:	mov	(pc)+,r5		;r5 -> csr
+     45	000164	172150 	b$ocsr:	.word	du$csr			;csr address
+     46	000166		rpt$ I
+     47			.if ne mov$c
+     48	000174	010425 		mov	r4,(r5)+
+     49			.iff
+     50				mov	#0,(r5)+		;sic] reset interface
+     51			.endc
+     52	000176	012703 		mov	#b$ouid-$,r3		;r3 -> values
+		000500
+     53	000202	012704 		mov	#udst1$,r4		;r4 = uda step state
+		004000
+     54	000206	005715 	10$:	tst	(r5)			;got an error?
+     55	000210	100756 		bmi	bo$rty			;yes
+     56				.if ne def$c			;
+     57			11$:	sub	#2048.,#0		;wait 100usec
+     58				bne	11$			;for dilog
+     59				.endc				;
+     60			.if ne mov$c
+     61	000212	031504 		bit	(r5),r4
+     62			.iff
+     63				bit	r4,(r5)			;got next step
+     64			.endc
+     65	000214	001774 		beq	10$			;no
+     66	000216	012315 		mov	(r3)+,(r5)		;yes - write it
+     67	000220	006304 		asl	r4			;done all steps?
+     68	000222	100371 		bpl	10$			;no
+     69				.if ne def$c
+     70			15$:	sub	#2048.,#0		;wait 100usec
+     71				bne	15$			;(delete this one first)
+     72				.endc
+     73	000224	012767 		mov	#b$opkt-duboot,b$orpt	;setup the rings
+		000530
+		000262
+     74	000232	012767 		mov	#b$opkt-duboot,b$ocpt	;(cleared by init)
+		000530
+		000260
+     75	000240		bo$onl:
+     76	000240		rpt$ L
+     77	000246	004567 		jsr	r5,bo$pre		;set unit on-line
+		000156
+     78	000252	000011 		.word	mconl.			;online request
+     79	000254	012727 		mov	#1,(pc)+		;flag on-line request
+		000001
+     80	000260	000000 	b$oonl:	.word	0			;
+     81	000262	000420 		br	bo$opr			;go online
+     82
+     83	000264	006227 	bo$trn:	asr	(pc)+			;time to init?
+     84	000266	000001 	b$oini:	.word	1			;
+     85	000270	103734 		bcs	bo$ini			;yes
+     86			;rpt$ T
+     87	000272	004567 		jsr	r5,bo$pre		;setup for I/O
+		000132
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 18-2
+Boot read
+
+     88	000276	000041 		.word	mcrea.			;read request
+     89				.if ne bup$c
+     90	000300	116364 		movb	b$opam-$(r3),mp.lb1(r4)	;partition
+		000104
+		000036
+     91				.endc
+     92	000306	010064 		mov	r0,mp.lb0(r4)		;block
+		000034
+     93	000312	010164 		mov	r1,mp.bc0(r4)		;byte count
+		000014
+     94	000316	001436 		beq	bo$ret			;seek
+     95	000320	010264 		mov	r2,mp.bu0(r4)		;buffer
+		000020
+     96
+     97	000324	016705 	bo$opr:	mov	b$ocsr,r5		;point to csr
+		177634
+     98	000330		rpt$ O
+     99	000336	012767 		mov	#udown$,b$occt		;give the command to port
+		100000
+		000156
+    100			.if ne mov$c
+    101	000344	012503 		mov	(r5)+,r3	;ud.ipr	;initiate port poll
+    102			.iff
+    103				tst	(r5)+		;ud.ipr	;initiate port poll
+    104			.endc
+    105	000346	005715 	10$:	tst	(r5)		;ud.sar	;got an error?
+    106	000350	100676 		bmi	bo$rty			;yes - retry
+    107	000352	005767 		tst	b$occt			;is port done with command?
+		000144
+    108	000356	100773 		bmi	10$			;no
+    109	000360	012767 		mov	#udown$,b$orct		;give response descriptor to port
+		100000
+		000130
+    110	000366	005715 	20$:	tst	(r5)		;ud.sar	;got an error?
+    111	000370	100666 		bmi	bo$rty			;yes - retry
+    112	000372	005767 		tst	b$orct			;is response available?
+		000120
+    113	000376	100773 		bmi	20$			;no
+    114	000400	105764 		tstb	mp.sts(r4)		;got an error?
+		000012
+    115	000404	001260 		bne	bo$rty			;yes - try again
+    116	000406	006267 		asr	b$oonl			;processing on-line request?
+		177646
+    117	000412	103724 		bcs	bo$trn			;yes - do transfer now
+    118	000414	000207 	bo$ret:	return				;back to caller
+    119
+    120	000416		bo$err:
+    121			.if ne err$c
+    122			halt
+    123			.iff
+    124	000416	012767 		mov	#1,b$oini		;force init on next call
+		000001
+		177642
+    125	000424	000167 		jmp	br$ioe+$		;i/o error
+		000234
+    126			.endc
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 19
+Prepare, data
+
+      1			.sbttl	prepare, data
+      2
+      3			;	Prepare message & packet
+      4			;
+      5			;	jsr	r5,bo$pre
+      6			;	.word	message code
+      7
+      8	000430	012704 	bo$pre:	mov	#b$oclr-$,r4		;area to clear
+		000624
+      9	000434		rpt$ P
+     10	000442	005044 	10$:	clr	-(r4)			;clear packet
+     11	000444	020427 		cmp	r4,#b$omsg-$		;all clear?
+		000524
+     12	000450	001374 		bne	10$			;nope
+     13	000452	012724 		mov	#ud.bbs,(r4)+		;reset length
+		000074
+     14	000456	005724 		tst	(r4)+			;r4 -> mscp packet
+     15				.if ne bup$c
+     16	000460	016703 		mov	b$ouni,r3		;get the unit
+		177440
+     17	000464	116364 		movb	b$ounm-$(r3),mp.uni(r4) ;actual unit
+		000070
+		000004
+     18				.iff
+     19				mov	b$ouni,mp.uni(r4)	;setup unit
+     20				.endc
+     21	000472	012564 	20$:	mov	(r5)+,mp.cod(r4)	;setup the command code
+		000010
+     22	000476	000205 		rts	r5			;
+     23
+     24			;	UDA init data
+     25
+     26	000500	100000 	b$ouid:	.word	ud1gu$			;guard,
+     27	000502	000514 		.word	b$orng-$		;ring low order address
+     28	000504	000000 		.word	0			;no high order address
+     29	000506	000001 		.word	ud4go$			;enable it
+     30
+     31			;	UDA header and rings
+     32
+     33	000510	000000 	b$ocif:	.word	0		;ud.cif	;command interrupt flag
+     34	000512	000000 	b$orif:	.word	0		;ud.rif	;response interrupt flag
+     35	000514		b$orng:					;UDA ring base
+     36	000514	000530 	b$orpt:	.word	b$opkt-$		;response ring pointer
+     37	000516	000000 	b$orct:	.word	0			;response control
+     38	000520	000530 	b$ocpt:	.word	b$opkt-$		;command pointer
+     39	000522	000000 	b$occt:	.word	0			;command control
+     40
+     41			;	UDA wrapper and MSCP packet
+     42
+     43	000524	000074 	b$omsg:	.word	ud.bbs		;ud.mbc	;message byte count
+     44	000526	000000 		.word	0		;ud.cam	;unused
+     45	000530		b$opkt:;.blkb	ud.bbs			;mscp packet
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 20
+Hardware boot
+
+      1			.sbttl	hardware boot
+      2
+      3			;	mscp packet code area continues
+      4			;
+      5			;	r0	unit number in low order 3 bits
+      6
+      7		016110 		xxnam. = dunam.
+      8	000530		    xm <xxnam. = xxnam. + drsfx.>
+      9	000530	012706 	bo$boo:	mov	#b$rksp,sp		;setup the stack
+		010000
+     10			;rpt$ B
+     11	000534	042700 		bic	#^c7,r0			;isolate unit number
+		177770
+     12	000540	010067 	10$:	mov	r0,b$ouni		;setup the unit number
+		177360
+     13	000544	012700 		mov	#brsbn.,r0		;r0 = block
+		000002
+     14	000550	012701 		mov	#brswc.,r1		;r1 = word count
+		002000
+     15	000554	012702 		mov	#br$sec,r2		;r2 = buffer address
+		001000
+     16	000560			psh	#b$oclr-$		;return there
+     17	000564	000167 		jmp	bo$loa			;
+		177336
+     18
+     19				.if gt  ud.bbs-<.-b$opkt>
+     20	000570			.blkb	ud.bbs-<.-b$opkt>
+     21				.endc
+     22
+     23			;	The once-only code above is overwritten by the MSCP packet.
+     24
+     25	000624			assume	.-b$opkt ge ud.bbs
+     26
+     27	000624	012737 	b$oclr:	mov	#bo$rea-$,@#b$rrea	;fill in address of read routine
+		000120
+		004730
+     28		000634'		b$onam = .+2			;for SET
+     29	000632	012737 		mov	#xxnam.,@#b$rdvn	;fill in device name
+		016110
+		004716
+     30	000640	016737 		mov	b$ouni,@#b$rdvu		;setup unit number
+		177260
+		004722
+     31	000646	000454 		br	br$sec+$		;start secondary boot
+     32
+     33			.if ne rpt$c
+     34	000650	105737 	bo$rpt:	tstb	@#177564
+		177564
+     35	000654	100375 		bpl	bo$rpt
+     36	000656	112537 		movb	(r5)+,@#177566
+		177566
+     37	000662	005205 		inc	r5
+     38	000664	000205 		rts	r5
+     39			.endc
+     40
+     41	000666			assume	. le b$rtop+$		;check space for bioerr etc
+P	000666	000002 	.error <.>-<b$rtop+$>
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 20-1
+Hardware boot
+
+     42
+     43	000666			.drend	du
+P	000666		.IIF LT	<duBOOT-.+^o664>,.ERROR;?SYSMAC-E-Primary boot too large;
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 21
+Load/fetch
+
+      1			.sbttl	load/fetch
+      2		001000'	.=duboot+1000
+      3
+      4	001000	000241 	du$loa:	clc
+      5	001002	000207 		return
+      6
+      7	001004			drinf$				;see front page
+      8		000001 		.end
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 21-1
+Symbol table
+
+ABTIO$  001000   	BR$IOE  000664   	B$RKSP  010000
+AMPSD.= 000046   	BR$REP  000672   	B$RLOT  005002
+ASTRX.= 000052   	BR$SEC  001000   	B$RNAM  004740
+ATSGN.= 000100   	BR$SJA  000040   	B$RREA  004730
+BELL. = 000007   	BR$SRA  000120   	B$RRMS  004736
+BIOERR  000664R     003	BR.EBO  000004   	B$RRST  004772
+BITS  = 177777   	BR.EBS  000006   	B$RSFX  004774
+BIT0$ = 000001   	BR.ECK  000003   	B$RSYG  004776
+BIT1$ = 000002   	BR.ECT  000001   	B$RTMV  004714
+BIT10$= 002000   	BR.EDT  000005   	B$RTOP  000664
+BIT11$= 004000   	BR.EFT  000002   	B$RV3P  000004
+BIT12$= 010000   	BR.EPT  000000   	B$RV4S  000006
+BIT13$= 020000   	BSLAS.= 000134   	CBIT    000001
+BIT14$= 040000   	BS.   = 000010   	CHEXT.  000001
+BIT15$= 100000   	BUP$C = 000001   	CHIMG.  000017
+BIT2$ = 000004   	BYTE  = 000001   	CHIPT.  177776
+BIT3$ = 000010   	B$BOOT  001000   	CHKER.  177775
+BIT4$ = 000020   	B$DEVN  004716   	CHMAX.  000374
+BIT5$ = 000040   	B$DEVU  004722   	CHMIN.  000001
+BIT6$ = 000100   	B$DNAM  016110   	CHOPT.  177777
+BIT7$ = 000200   	B$OCCT  000522R     003	CH.BBS  000012
+BIT8$ = 000400   	B$OCIF  000510R     003	CH.CSW  000000
+BIT9$ = 001000   	B$OCLR  000624R     003	CH.IOC  000010
+BOOTF   000740R     003	B$OCPT  000520R     003	CH.LEN  000004
+BO$BOO  000530R     003	B$OCSR  000164R     003	CH.PRO  000001
+BO$ERR  000416R     003	B$OINI  000266R     003	CH.SBL  000002
+BO$INI  000162R     003	B$OMSG  000524R     003	CH.UNI  000011
+BO$JMP  000040R     003	B$ONAM= 000634R     003	CH.USE  000006
+BO$LOA  000126R     003	B$OONL  000260R     003	CMD   = 000070
+BO$ONL  000240R     003	B$OPAM  000104R     003	COLON.= 000072
+BO$OPR  000324R     003	B$OPKT  000530R     003	COMMA.= 000054
+BO$PRE  000430R     003	B$ORCT  000516R     003	CR      000015
+BO$REA  000120R     003	B$ORIF  000512R     003	CRLFLF  000764R     003
+BO$RET  000414R     003	B$ORNG  000514R     003	CR.   = 000015
+BO$RPT  000650R     003	B$ORPT  000514R     003	CSACT$  100000
+BO$RTY  000146R     003	B$ORTY  000142R     003	CSEOF$  020000
+BO$TRN  000264R     003	B$OUID  000500R     003	CSHER$  000001
+BRCCB$  000004   	B$OUNI  000124R     003	CSIN$M  177701
+BRCCM$  000040   	B$OUNM  000070R     003	CSIN$N  177701
+BRCGE$  000100   	B$RBOT  000062   	CSIN$P  000076
+BRCQB$  000002   	B$RDAT  005004   	CSNPH$  002000
+BRCQM$  000020   	B$RDUF  000000   	CSNPU$  010000
+BRCUB$  000001   	B$RDUP  004734   	CSNRE$  000400
+BRCUM$  000010   	B$RDVN  004716   	CSNWR$  001000
+BRFRT.  000020   	B$RDVS  004720   	CSRW$M  176377
+BRIOE$  004167   	B$RDVU  004722   	CSRW$P  001400
+BRNBS.  000034   	B$READ  004730   	CSSPL$  004000
+BRP11.  000020   	B$REND  005006   	CSSUB$  040000
+BRRBS.  000014   	B$RENX  005012   	CSTEN$  000200
+BRSBN.  000002   	B$RERA  005010   	CSTTI$  000000
+BRSWC.  002000   	B$RERS  005006   	CSWLK$  000100
+BRV3N$  012700   	B$RFN0  004724   	CSWRI$  040000
+BRV4B$  000416   	B$RFN1  004726   	CTBSL.= 000034
+BRV4N$  004067   	B$RHOT  005000   	CTHAT.= 000036
+BRV5B$  000415   	B$RHTO  004732   	CTRLA.= 000001
+BR$BEG  000002   	B$RIMG  004762   	CTRLB.= 000002
+BR$BPT  000014   	B$RIMS  004700   	CTRLC.= 000003
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 21-2
+Symbol table
+
+CTRLD.= 000004   	DELPC.  000003   	DEUKT.  000000
+CTRLE.= 000005   	DELPT.  000007   	DEUNL$  000200
+CTRLF.= 000006   	DELSC.  000041   	DEVAB$  000010
+CTRLP.= 000020   	DEL.  = 000177   	DEVAR$  000400
+CTRLQ.= 000021   	DEMAP$  000020   	DEVMC.  000047
+CTRLR.= 000034   	DEMMC.  000020   	DEVMI.  000004
+CTRLS.= 000023   	DEMNT$  004000   	DEVTT.  000015
+CTRLT.= 000024   	DEMQC.  000042   	DEVVC.  000202
+CTRLU.= 000025   	DEMSC.  000035   	DEVXC.  000200
+CTRLV.= 000026   	DEMTC.  000011   	DEV2H$  040000
+CTRLW.= 000027   	DEMTT.  000005   	DEV2Q$  040000
+CTRLX.= 000030   	DEMUC.  000060   	DEWON$  020000
+CTRLY.= 000031   	DENCC.  000061   	DEXCC.  000057
+CTRLZ.= 000032   	DENFC.  000205   	DEXLC.  000057
+CTRSB.= 000035   	DENFQ$  100000   	DEXTC.  000044
+CTUND.= 000037   	DENFT$  000200   	DE.ACC  000050
+DBG$C = 000000   	DENIT.  000013   	DE.ACT  000017
+DEABO$  000100   	DENLC.  000025   	DE.ASP  000016
+DEABT$  002000   	DENLI.  000006   	DE.BBS  000076
+DEBAC.  000004   	DENLT.  000001   	DE.CON  000014
+DECAC$  010000   	DENQC.  000061   	DE.CSR  000032
+DECRC.  000014   	DENTC.  000201   	DE.DEV  000020
+DECTC.  000013   	DENUC.  000061   	DE.DSZ  000006
+DECTT.  000006   	DEPCC.  000007   	DE.ENT  000004
+DEDDC.  000034   	DEPDC.  000036   	DE.FNM  000022
+DEDEC.  000010   	DEPIC.  000054   	DE.HAN  000046
+DEDKT.  000004   	DEPPC.  000010   	DE.HSZ  000002
+DEDLC.  000005   	DEPQC.  000037   	DE.IND  000044
+DEDLT.  000012   	DEPRC$  000200   	DE.IOC  000052
+DEDMA$  000001   	DEPST.  000014   	DE.PRI  000040
+DEDMC.  000023   	DEP6H$  040000   	DE.QUE  000042
+DEDMI$  001000   	DEREM$  000002   	DE.SFR  000074
+DEDMT$  000002   	DERFC.  000012   	DE.STA  000000
+DEDMX$  000004   	DERKC.  000000   	DE.SYG  000010
+DEDPC.  000021   	DERON$  040000   	DE.TYP  000012
+DEDPT.  000011   	DERTA$  100000   	DE.UNM  000054
+DEDRC.  000043   	DESBT.  000020   	DE.VEC  000034
+DEDSC.  000016   	DESDC.  000062   	DE.VE2  000036
+DEDTC.  000001   	DESER$  020000   	DE16B$  000001
+DEDUC.  000050   	DESIN$  000100   	DE18B$  000002
+DEDWC.  000053   	DESIT.  000016   	DE22B$  000004
+DEDXC.  000022   	DESLC.  000051   	DE64U$  000400
+DEDXT$  000001   	DESNC.  000204   	DIG0. = 000060
+DEDYC.  000006   	DESOT.  000017   	DIG1. = 000061
+DEDZC.  000052   	DESPC$  010000   	DIG2. = 000062
+DEELC.  000002   	DESPC.  000055   	DIG3. = 000063
+DEEXT$  000400   	DESPF$  100000   	DIG4. = 000064
+DEFAC.  000203   	DESPO$  000020   	DIG5. = 000065
+DEFTC.  000204   	DESTC.  000063   	DIG6. = 000066
+DEFUN$  002000   	DESYI.  000002   	DIG7. = 000067
+DEFXC.  000206   	DESYN$  000010   	DIG8. = 000070
+DEF$C = 000000   	DETIM$  000040   	DIG9. = 000071
+DEGAB$  001000   	DETPC.  000205   	DISCSR  000174
+DEHAB$  004000   	DETPT.  000003   	DOLAR.= 000044
+DEHDC.  000175   	DETTC.  000004   	DOT.  = 000056
+DELDC.  000046   	DETTI.  000000   	DQUOT.= 000042
+DELOG$  000040   	DETTT.  000002   	DRFTC.  000000
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 21-3
+Symbol table
+
+DRFTP$  000001   	DR.FTP  000002   	DUBOOT  000000RG    003
+DRF0P$  000020   	DR.F0P  000016   	DUBYP.  000371
+DRGUA$  031066   	DR.GBP  177762   	DUBY2.  000360
+DRHDO$  040000   	DR.GUA  000000   	DUCAL$  000010
+DRHOL$  100000   	DR.HOL  001004   	DUCQE   000010RG    002
+DRLOC.  000004   	DR.HSZ  000052   	DUDAT$  040000
+DRLOP$  000004   	DR.IND  000200   	DUDSIZ  000000
+DRMUC.  000012   	DR.INS  000202   	DUECC$  000001
+DRNFL$  100000   	DR.ISR  001002   	DUEND = 002116RG    002
+DRNFQ$  100000   	DR.ITP  177774   	DUFAT$  077400
+DROVL.= 000001   	DR.LOP  000006   	DUGUA$  016110
+DRPFH.  000277   	DR.LQE  001006   	DUHTO.  000000
+DRPFL.  000240   	DR.MD2  001010   	DUINT   001224RG    002
+DRRLC.  000002   	DR.MOD  000021   	DULQE   000006RG    002
+DRRLP$  000002   	DR.MPP  177760   	DUNAM.  016110
+DRRSC.  000010   	DR.PBP  177764   	DUOFF$  000004
+DRSFP.  000020   	DR.PCS  000174   	DUPHY$  100000
+DRSFX.  000030   	DR.PTF  001012   	DUREA.  000377
+DRSHN$  000120   	DR.PTR  000002   	DURTC.  000010
+DRSHX$  000020   	DR.PWP  177766   	DURTY$  000002
+DRSLC.  000012   	DR.REP  000032   	DUSIZ.  000373
+DRSNO$  000200   	DR.RLP  177756   	DUSTRT  000000RG    002
+DRSNU$  000100   	DR.RSP  000004   	DUSTS   102450
+DRSOC$  000040   	DR.SBS  000202   	DUSUC$  000000
+DRSON$  000140   	DR.SET  000400   	DUSYS   000006RG    002
+DRUM$ = 000001   	DR.SFM  000022   	DUTAB.  000372
+DRUNC.  000006   	DR.SFT  000030   	DUUD1$= 100033
+DRUNP$  000010   	DR.SHP  000014   	DUUNC.  000010
+DRVT0.  000000   	DR.SMO  000007   	DUWRI.  000376
+DRVT1.  100000   	DR.SO0  000002   	DU$AGN  000430R     002
+DRV2Q$  040000   	DR.SO1  000004   	DU$BYP  000744R     002
+DRXM$ = 000000   	DR.SRO  000006   	DU$CHK  001436R     002
+DR$REA  000224   	DR.STA  000056   	DU$COD  000050
+DR$RES  000216   	DR.SVL  000000   	DU$CSA  000472
+DR$UPD  000210   	DR.SYG  000060   	DU$CSR= 172150 G
+DR$WRI  000236   	DR.TMP  177772   	DU$DER  000476R     002
+DR.AAE  177776   	DR.TYP  000072   	DU$DIS  000430R     002
+DR.AIE  000006   	DR.UNI  000074   	DU$DON  001270R     002
+DR.ARE  000000   	DR.UNP  000010   	DU$DSC  002060R     002
+DR.BEG  001012   	DR.USE  000102   	DU$END  002112RG    002
+DR.BLE  000064   	DR.VBS  000006   	DU$EXI  001004R     002
+DR.BPT  000062   	DR.VEC  001000   	DU$FAI  000734
+DR.BRD  000066   	DR.VEN  000000   	DU$HER  001252R     002
+DR.CCS  000172   	DR.VOF  000002   	DU$HRJ  001506R     002
+DR.CLA  000020   	DR.VPS  000004   	DU$INI  001550R     002
+DR.CQE  001010   	DR.VVC  000000   	DU$INT  001162R     002
+DR.CSR  000176   	DSCOD$  000377   	DU$LGX  000536R     002
+DR.DAF  000070   	DSFUN$  002000   	DU$LOA  001000R     003
+DR.DAL  000074   	DSGAB$  001000   	DU$LOG  001020R     002
+DR.DAP  000072   	DSHAB$  004000   	DU$NAM= 016110
+DR.DAT  000070   	DSRON$  040000   	DU$ONL  001370R     002
+DR.DCS  000174   	DSRTA$  100000   	DU$PAR  000552
+DR.DRI  001000   	DSSPC$  010000   	DU$PHY  001012R     002
+DR.DSZ  000054   	DSVAR$  000400   	DU$PNT  000510R     002
+DR.ELP  177770   	DSWON$  020000   	DU$PRE  001554R     002
+DR.FKP  177776   	DUBAD$  000200   	DU$PRP  002000R     002
+DR.FOP  000012   	DUBEND  001000RG    003	DU$PRT  000740
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 21-4
+Symbol table
+
+DU$RET  001206R     002	D$UINT  001250R     002	HAT.  = 000136
+DU$RTR  000644   	D$UIPR  000030R     002	HAVT0.  000000
+DU$SIO  000340R     002	D$UIVC  000034R     002	HAVT1.  100000
+DU$SIZ  000626R     002	D$UONL  001434R     002	HAXHS.  000002
+DU$STP  001210R     002	D$UPAR  000420R     002	HA.BBS  000006
+DU$SUC  000732   	D$UPHY  001016R     002	HA.BEG  000012
+DU$TAB  000540R     002	D$UPRE  001776R     002	HA.BLE  000064
+DU$UDA  001524R     002	D$URD0  000054R     002	HA.BPT  000062
+DU$UNI  000552   	D$URD1  000056R     002	HA.BRD  000066
+DU$VCA  000704   	D$URES  000064R     002	HA.CQE  000010
+DU$VEC= 000154 G 	D$URIF  000052R     002	HA.CSR  000176
+DU$WRI  001006R     002	D$URPK  000070R     002	HA.DSZ  000054
+DU.BUF  000002   	D$URTC  000424R     002	HA.ELP  177770
+DU.CNT  000002   	D$URTY  000426R     002	HA.FKP  177776
+DU.GUA  000000   	D$USAR  000032R     002	HA.GBP  177762
+DU.HBS  000004   	D$USTA  000022R     002	HA.HOL  000004
+DU.PAR  000002   	D$UTAB  000270R     002	HA.HSZ  000052
+DU.POR  000003   	D$UTST  000024R     002	HA.INS  000200
+DU.STA  000000   	D$UUCR  000054R     002	HA.ISR  000002
+DU.UBS  000004   	D$UUDI  000034R     002	HA.ITP  177774
+DU.UNI  000000   	D$UUNI  000414R     002	HA.LQE  000006
+DVC.CT  000006   	D$UUR0  000036R     002	HA.MOD  000007
+DVC.DE  000010   	D$UUR1  000040R     002	HA.MPP  177760
+DVC.DK  000004   	D$UUTB  000264R     002	HA.OP0  000002
+DVC.DL  000012   	D$UVEC  000154   	HA.OP1  000004
+DVC.DP  000011   	EDERG.  000001   	HA.PBP  177764
+DVC.LP  000007   	EDERU.  000144   	HA.PRI  000004
+DVC.MT  000005   	EOF$    020000   	HA.PWP  177766
+DVC.NI  000013   	EQUAL.= 000075   	HA.RLP  177756
+DVC.NL  000001   	ERAVL$= 000002   	HA.ROU  000006
+DVC.PS  000014   	ERFUN$= 000001   	HA.SBS  000010
+DVC.SB  000020   	ERINI$= 000020   	HA.SET  000400
+DVC.SI  000016   	ERL$G = 000000   	HA.SIO  000014
+DVC.SO  000017   	ERPOS$= 000010   	HA.STA  000056
+DVC.TP  000003   	ERPRE$= 000004   	HA.SYG  000060
+DVC.TT  000002   	ERR$C = 000000   	HA.TMP  177772
+DVC.UK  000000   	ERSAR$= 000200   	HA.VAL  000000
+DVC.VT  000015   	ERSTP$= 000100   	HA.VEC  000000
+DVM.DM  000002   	ERTIM$= 000040   	HA.VOF  000002
+DVM.DX  000001   	ESC.  = 000033   	HA.VPS  000004
+DVM.NF  000200   	FALSE = 000000   	HA.VVC  000000
+DVM.NS  000001   	FF.   = 000014   	HA.XKH  177776
+DV2.V2  040000   	FILST$  100000   	HA.22B  000000
+D$RBUF  000254   	FK.BBS  000010   	HA.22F  000002
+D$RIOB  000250   	FK.KPC  000002   	HA22B.  146402
+D$UCD0  000060R     002	FK.KR4  000006   	HDERR$  000001
+D$UCD1  000062R     002	FK.KR5  000004   	HNDLR$  004000
+D$UCHK  001522R     002	FK.SUC  000000   	HS2.BI  000001
+D$UCIF  000050R     002	HADON$  040000   	HS2.KI  000002
+D$UCMD  000164R     002	HAHOL$  100000   	HS2.KL  000004
+D$UCPK  000170R     002	HANFT$  100000   	HS2.KU  000010
+D$UCSR  172150   	HANOP$  000200   	HS2.MO  000020
+D$UFAI  000026R     002	HANUM$  000100   	HT.   = 000011
+D$UFAL  176150   	HAOCT$  000040   	IE      000100
+D$UFRK  000330R     002	HAQCO.  000270   	INSCSR  000176
+D$UINI  001552R     002	HARKO.  177772   	INSDAT  000200
+D$UINP  001664R     002	HASH. = 000043   	INSSYS  000202
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 21-5
+Symbol table
+
+IOAM$M  177770   	IQ.UNI  000003   	JB.HFT  000026
+IOAM$P  000007   	IQ.WCT  000006   	JB.HF0  000022
+IOCDM.  000004   	I$MDAG  001122RG    003	JB.HF1  000024
+IOCIM.  000000   	I$MDAT  001124RG    003	JB.HIC  000072
+IOCNO.  000002   	I$MIDT  001042RG    003	JB.HIT  000070
+IOCR$M  177776   	I$MNAM  001116RG    003	JB.HST  000400
+IOEOF.  000000   	I$MUSE  001004RG    003	JB.HSZ  000052
+IOERR   000753R     003	I.QBBS  000024   	JB.IAI  000140
+IOHER.  000001   	I.QBLK  000004   	JB.ICD  000144
+IOIOC.  000000   	I.QBUF  000010   	JB.ICI  000134
+IOKDM.  000005   	I.QCOM  000014   	JB.IED  000146
+IOKIM.  000001   	I.QCSW  000002   	JB.IFN  000130
+IOREA$  000100   	I.QFRE  000020   	JB.IIB  000132
+IOREA.  000010   	I.QFUN  000006   	JB.IIG  000116
+IORET.  000001   	I.QJOB  000007   	JB.INH  000200
+IOSDM.  000007   	I.QLNK  000000   	JB.INM  000124
+IOSIM.  000003   	I.QPAR  000016   	JB.INS  000202
+IOSPF$  000040   	I.QUNI  000007   	JB.IPS  001004
+IOSPF.  000032   	I.QWCT  000012   	JB.IRG  000114
+IOSUM$  000001   	JBAUN.  100000   	JB.ISD  000122
+IOUDM.  000006   	JBAUT.  177777   	JB.ISI  000120
+IOUIM.  000002   	JBECR$  000200   	JB.ISR  001002
+IOUSM$  000002   	JBEEX$  000377   	JB.IUN  000112
+IOWAI.  000000   	JBEIN$  100000   	JB.IUS  000142
+IOWRI$  000200   	JBETE$  177777   	JB.IUX  000172
+IOWRI.  000011   	JBRTX.  071670   	JB.IVN  000110
+IO.AST  000012   	JBVIC.  105353   	JB.JSP  001000
+IO.BLK  000002   	JB.AFN  000400   	JB.JSW  000044
+IO.BUF  000004   	JB.AMF  000776   	JB.KWL  000056
+IO.CHN  000000   	JB.AUL  000112   	JB.LEV  000053
+IO.COD  000001   	JB.AUR  000110   	JB.LOT  000064
+IO.COM  000010   	JB.AUT  000140   	JB.LQE  001006
+IO.FBS  000014   	JB.BDA  000070   	JB.MAP  000360
+IO.FUN  000011   	JB.BLE  000064   	JB.RBL  000062
+IO.MOD  000010   	JB.BPT  000062   	JB.REF  000060
+IO.TBS  000012   	JB.BRD  000066   	JB.ROS  000056
+IO.WCT  000006   	JB.CCT  000510   	JB.RRS  000052
+IQJO$M  177407   	JB.CFN  000500   	JB.RSS  000054
+IQUN$M  177770   	JB.CHA  000500   	JB.RTX  000254
+IQ.BBS  000024   	JB.CQE  001010   	JB.SEV  000053
+IQ.BLK  000000   	JB.CSR  000176   	JB.SIG  000256
+IQ.BUF  000004   	JB.CST  000512   	JB.SYG  000060
+IQ.COM  000010   	JB.CS0  000174   	JB.SYS  000054
+IQ.CSW  177776   	JB.CS1  000172   	JB.TOP  000050
+IQ.FRE  000014   	JB.DST  000056   	JB.TTF  000056
+IQ.FUN  000002   	JB.DSW  000046   	JB.TTN  000057
+IQ.JOB  000003   	JB.DSZ  000054   	JB.UPC  000040
+IQ.LNK  177774   	JB.EFL  000510   	JB.USA  000046
+IQ.PAR  000012   	JB.EIF  000512   	JB.USP  000042
+IQ.SAC  000014   	JB.EOF  000540   	JB.VC0  000000
+IQ.SID  000012   	JB.EPT  001012   	JB.VC1  000002
+IQ.SJN  000002   	JB.ERR  000052   	JB.VEC  001000
+IQ.SPC  000006   	JB.EXI  000000   	JB.VIC  000210
+IQ.SPR  000004   	JB.HBT  000022   	JB.VIE  000300
+IQ.SR0  000010   	JB.HCS  000600   	JB.VIF  000000
+IQ.SSU  000000   	JB.HDC  000020   	JB.VOT  000066
+IQ.UBS  000014   	JB.HDV  000021   	JB.VTO  000002
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 21-6
+Symbol table
+
+JSW     000044   	J$BJSP  001000   	LOWX. = 000170
+J$BAFN  000400   	J$BJSW  000044   	LOWY. = 000171
+J$BAMF  000776   	J$BKWL  000056   	LOWZ. = 000172
+J$BAUL  000112   	J$BLEV  000053   	LPARN.= 000050
+J$BAUR  000110   	J$BLOT  000064   	LSQIG.= 000173
+J$BAUT  000140   	J$BLQE  001006   	LSQUA.= 000133
+J$BBDA  000070   	J$BMAP  000360   	MADOL.= 001012
+J$BBLE  000064   	J$BRBL  000062   	MA$MOD= 000002
+J$BBPT  000062   	J$BREF  000060   	MA$REG= 000007
+J$BBRD  000066   	J$BROS  000056   	MA$TYP= 000027
+J$BCCT  000510   	J$BRRS  000052   	MA$UNI= 000010
+J$BCFN  000500   	J$BRSS  000054   	MA$VAL= 000173
+J$BCHA  000500   	J$BRTX  000254   	MA$YEA= 002022
+J$BCQE  001010   	J$BSEV  000053   	MCABO.  000001
+J$BCSR  000176   	J$BSIG  000256   	MCACC.  000020
+J$BCST  000512   	J$BSYG  000060   	MCACP.  000102
+J$BCS0  000174   	J$BSYS  000054   	MCALL$  000002
+J$BCS1  000172   	J$BTOP  000050   	MCASB$  000040
+J$BDST  000056   	J$BTTF  000056   	MCASY$  000020
+J$BDSW  000046   	J$BTTN  000057   	MCATN$  000200
+J$BDSZ  000054   	J$BUPC  000040   	MCATT$  000100
+J$BEFL  000510   	J$BUSA  000046   	MCAVA.  000100
+J$BEIF  000512   	J$BUSP  000042   	MCAVL.  000010
+J$BEOF  000540   	J$BVEC  001000   	MCBBR$  000200
+J$BEPT  001012   	J$BVIC  000210   	MCBBU$  000100
+J$BERR  000052   	J$BVIE  000300   	MCCL$P  000070
+J$BEXI  000000   	J$BVIF  000000   	MCCMP$  040000
+J$BHBT  000022   	J$BVOT  000066   	MCCMP.  000040
+J$BHCS  000600   	J$BVTO  000002   	MCCMR$  000001
+J$BHDC  000020   	LANGL.= 000074   	MCCMW$  000002
+J$BHDV  000021   	LBRAC.= 000133   	MCCOM$  000000
+J$BHFT  000026   	LF      000012   	MCCO$P  000007
+J$BHF0  000022   	LF.   = 000012   	MCC57$  000001
+J$BHF1  000024   	LONG  = 000004   	MCDAP.  000013
+J$BHIC  000072   	LOWA. = 000141   	MCDUP.  000101
+J$BHIT  000070   	LOWB. = 000142   	MCEND$  000200
+J$BHST  000400   	LOWC. = 000143   	MCERR$  001000
+J$BHSZ  000052   	LOWD. = 000144   	MCERS.  000022
+J$BIAI  000140   	LOWE. = 000145   	MCEXP$  100000
+J$BICD  000144   	LOWF. = 000146   	MCGCS.  000002
+J$BICI  000134   	LOWG. = 000147   	MCGUS.  000003
+J$BIED  000146   	LOWH. = 000150   	MCIMF$  000002
+J$BIFN  000130   	LOWI. = 000151   	MCIMM$  000000
+J$BIIB  000132   	LOWJ. = 000152   	MCLOG$  000040
+J$BIIG  000116   	LOWK. = 000153   	MCMAI$  000030
+J$BINH  000200   	LOWL. = 000154   	MCMRE.  000030
+J$BINM  000124   	LOWM. = 000155   	MCMSC$  000100
+J$BINS  000202   	LOWN. = 000156   	MCMWR.  000031
+J$BIPS  001004   	LOWO. = 000157   	MCNXU$  000001
+J$BIRG  000114   	LOWP. = 000160   	MCONL.  000011
+J$BISD  000122   	LOWQ. = 000161   	MCOTH$  000040
+J$BISI  000120   	LOWR. = 000162   	MCPRI$  000001
+J$BISR  001002   	LOWS. = 000163   	MCREA.  000041
+J$BIUN  000112   	LOWT. = 000164   	MCRIP$  000001
+J$BIUS  000142   	LOWU. = 000165   	MCRMV$  000200
+J$BIUX  000172   	LOWV. = 000166   	MCRPL.  000024
+J$BIVN  000110   	LOWW. = 000167   	MCSCC.  000004
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 21-7
+Symbol table
+
+MCSEC$  000200   	MMPLA$  040000   	MP.P12  000042
+MCSEQ$  000010   	MMPN$N  176000   	MP.P13  000044
+MCSER$  000100   	MMPRS$  000001   	MP.P14  000046
+MCSEX$  000207   	MMPUM$  030000   	MP.P15  000050
+MCSEX.  000007   	MMP12.  160000   	MP.P16  000052
+MCSPD$  000001   	MMP18.  001600   	MP.P17  000054
+MCSUC.  000012   	MMP22.  010000   	MP.P18  000056
+MCTHS$  000020   	MMP61.  120000   	MP.P2   000016
+MCTY$P  000300   	MMP62.  100000   	MP.P3   000020
+MCU57$  000004   	MMREG$  000003   	MP.P4   000022
+MCWPH$  020000   	MMROA$  020000   	MP.P5   000024
+MCWPS$  010000   	MMSPC$  000020   	MP.P6   000026
+MCWRI.  000042   	MMSYS$  000004   	MP.P7   000030
+MINUS.= 000055   	MMVIP.  000006   	MP.P8   000032
+MMBIP.  000100   	MMWIP.  000040   	MP.P9   000034
+MMCUM$  140000   	MM.P0   000000   	MP.RBS  000056
+MMDED$  000040   	MM.P1   000002   	MP.RB0  000014
+MMDED.  000040   	MM.P2   000004   	MP.RB1  000016
+MMDEF$  000001   	MM.P3   000006   	MP.RCC  000057
+MMDMO$  000100   	MM.P4   000010   	MP.RCS  000054
+MMDMO.  000100   	MM.P5   000012   	MP.SEQ  000006
+MMDNO.  000000   	MM.P6   000014   	MP.SHU  000040
+MMDPT$  000007   	MM.P7   000016   	MP.STS  000012
+MMDRA.  000001   	MM.SBS  000040   	MP.TI0  000024
+MMDRO.  000002   	MM22B$  000020   	MP.TRK  000044
+MMDRS$  077402   	MM22M$  000010   	MP.UI0  000024
+MMDRW.  000006   	MOV$C = 000001   	MP.UNF  000016
+MMDUM$  170000   	MP.BBS  000060   	MP.UNI  000004
+MMDWA.  000004   	MP.BC0  000014   	MP.US0  000044
+MMDWM.  000005   	MP.BC1  000016   	MP.US1  000046
+MMDWS$  077406   	MP.BUF  000020   	MP.VRS  000014
+MMD4K.  077406   	MP.BU0  000020   	MP.VS0  000052
+MMENB$  000001   	MP.BU1  000022   	MSABO.  000002
+MMG$T = 000000   	MP.CI0  000024   	MSAOL$  000400
+MMINC$  000170   	MP.CNF  000016   	MSAVL.  000004
+MMI18.  007600   	MP.COD  000010   	MSCDP$  000413
+MMI22.  177600   	MP.CR0  000000   	MSCDT$  000113
+MMKP0.  000000   	MP.CR1  000002   	MSCMD.  000001
+MMKP1.  000200   	MP.CTO  000020   	MSCMP.  000007
+MMKP2.  000400   	MP.CYL  000050   	MSCNT.  000012
+MMKP3.  000600   	MP.DV0  000034   	MSCO$N  177740
+MMKP4.  001000   	MP.DV1  000036   	MSCO$P  000037
+MMKP5.  001200   	MP.FB0  000034   	MSCTO$  000012
+MMKP6.  001400   	MP.FB1  000036   	MSDAT.  000010
+MMKP7.  001600   	MP.FLG  000011   	MSDCD$  000253
+MMMAP$  000002   	MP.GRP  000046   	MSDDE$  000353
+MMMOD$  000140   	MP.HTO  000020   	MSDIA.  000037
+MMNRA$  100000   	MP.LB0  000034   	MSDIF$  000305
+MMPAG$  000016   	MP.LB1  000036   	MSDIS$  000245
+MMPAV.  000015   	MP.MOD  000012   	MSDRV.  000013
+MMPA$M  017777   	MP.MT0  000034   	MSDSE$  000150
+MMPA$N  017777   	MP.MUC  000014   	MSDUN$  000200
+MMPA$P  160000   	MP.OR0  000014   	MSDUP$  000203
+MMPIB.  000010   	MP.OR1  000016   	MSEDE$  000112
+MMPIK.  000040   	MP.P1   000014   	MSFCD$  000145
+MMPIS.  000200   	MP.P10  000036   	MSFCE$  000045
+MMPIV.  002000   	MP.P11  000040   	MSFCH$  000105
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 21-8
+Symbol table
+
+MSFCU$  000345   	M$KIP6  172354   	PRSUS$  000040
+MSFER$  000010   	M$KIP7  172356   	PRSYI.  000002
+MSHCE$  000110   	M$MPA0  000000   	PRSYN.  000001
+MSHMP$  000211   	M$MPA1  020000   	PRWAK$  000400
+MSHST.  000011   	M$MPA2  040000   	PRWHI.  000007
+MSHWP$  020006   	M$MPA3  060000   	PRWIO.  000005
+MSICL$  000001   	M$MPA4  100000   	PRWLI.  000015
+MSIDS$  000152   	M$MPA5  120000   	PRWME.  000012
+MSLOS$  000213   	M$MPA6  140000   	PRWMU.  000014
+MSLRR$  000313   	M$MPA7  160000   	PRWQO.  000004
+MSMFE.  000005   	M$MSR0  177572   	PRWRC.  000013
+MSNME$  000151   	M$MSR1  177574   	PRWRE.  000003
+MSNOR$  000000   	M$MSR2  177576   	PRWSI.  000006
+MSNVM$  000043   	M$MSR3  172516   	PRWSU.  000011
+MSOBC$  000111   	M$SDD0  177260   	PRWTI.  000001
+MSOFL.  000003   	M$SDP0  177220   	PRWTO.  000002
+MSOTA$  000051   	M$SID0  172200   	PRWTW.  000010
+MSPOS$  000153   	M$SIP0  172240   	PR.ACQ  000064
+MSSCO$  000100   	M$UDD0  177620   	PR.ASQ  000020
+MSSOE$  000052   	M$UDP0  177660   	PR.AST  000016
+MSSOL$  001000   	M$UID0  177600   	PR.BBS  000066
+MSSPI$  000040   	M$UID1  177602   	PR.BQU  000012
+MSSTO$  000053   	M$UID2  177604   	PR.CHR  000040
+MSSUC.  000000   	M$UID3  177606   	PR.CHS  000042
+MSSU$N  000037   	M$UID4  177610   	PR.CNT  000043
+MSSU$P  177740   	M$UID5  177612   	PR.GIC  000055
+MSSU$R  000004   	M$UID6  177614   	PR.JIB  000044
+MSSWP$  010006   	M$UID7  177616   	PR.JOB  000046
+MSUDS$  000403   	M$UIP0  177640   	PR.KSP  000024
+MSUEE$  000350   	M$UIP1  177642   	PR.LEN  000030
+MSUIO$  000103   	M$UIP2  177644   	PR.MIC  000054
+MSUNK$  000003   	M$UIP3  177646   	PR.NAM  000060
+MSWPR.  000006   	M$UIP4  177650   	PR.OWN  000050
+MS1EE$  000410   	M$UIP5  177652   	PR.PAG  000026
+MS2EE$  000450   	M$UIP6  177654   	PR.PHD  000032
+MS3EE$  000510   	M$UIP7  177656   	PR.PHX  000036
+MS4EE$  000550   	NBIT    000010   	PR.PID  000052
+MS5EE$  000610   	NULL  = 000000   	PR.PRE  000002
+MS6EE$  000504   	PERCT.= 000045   	PR.PRN  000052
+MS7EE$  000710   	PLUS. = 000053   	PR.PRO  000056
+MS8EE$  000750   	PRABP$  040000   	PR.PRS  000053
+M$KDD0  177360   	PRABT$  100000   	PR.QUE  000004
+M$KDP0  177320   	PRACT$  000200   	PR.SIG  000022
+M$KID0  172300   	PRAST$  000002   	PR.STA  000010
+M$KID1  172302   	PRCHA$  000001   	PR.SUC  000000
+M$KID2  172304   	PRCLI$  000004   	PR.SWT  000007
+M$KID3  172306   	PRCOM$  000010   	PR.TER  000034
+M$KID4  172310   	PRCRI$  004000   	PR.TQU  000014
+M$KID5  172312   	PRDBG$  000020   	PR.UIC  000054
+M$KID6  172314   	PRDEL$  010000   	PR.WAI  000006
+M$KID7  172316   	PREXI$  020000   	PR0     000000
+M$KIP0  172340   	PRIMG$  000100   	PR4     000200
+M$KIP1  172342   	PRLOG$  001000   	PR5     000240
+M$KIP2  172344   	PRMAX.  000200   	PR6     000300
+M$KIP3  172346   	PRMIN.  000020   	PR7     000340
+M$KIP4  172350   	PRNLN.  000000   	PS      177776
+M$KIP5  172352   	PRREM$  002000   	PSCUM$  140000
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 21-9
+Symbol table
+
+PSDUM$  170000   	RM.CHK  000260   	RM.SYI  000364
+PSINV.  000002   	RM.CLG  000422   	RM.SYN  000324
+PSKER.  000000   	RM.CPU  000377   	RM.SYU  000274
+PSPR$V  000005   	RM.CSW  000004   	RM.SYV  000276
+PSPUM$  030000   	RM.CXT  000320   	RM.TCF  000424
+PSREG$  004000   	RM.DAT  000262   	RM.THP  000472
+PSSUP.  000001   	RM.DEC  000474   	RM.TIM  000320
+PSUSR.  000003   	RM.DFL  000264   	RM.TKB  000306
+PSW     177776   	RM.DRP  000350   	RM.TKS  000304
+QMARK.= 000077   	RM.DWT  000440   	RM.TPB  000312
+QUAD  = 000010   	RM.EDT  000452   	RM.TPL  000434
+QUOTE.= 000047   	RM.EMR  000400   	RM.TPS  000310
+Q$BLKN  000000   	RM.EMU  000503   	RM.TRS  000442
+Q$BUFF  000004   	RM.ERA  000414   	RM.UCF  000342
+Q$COMP  000010   	RM.ERC  000356   	RM.USA  000374
+Q$CSW   177776   	RM.ERL  000376   	RM.USL  000352
+Q$FUNC  000002   	RM.E16  000316   	RM.USR  000266
+Q$JNUM  000003   	RM.FOR  000453   	RM.V54  000456
+Q$LINK  177774   	RM.FRK  000402   	RM.V55  000506
+Q$TYPE  000002   	RM.F00  000455   	RM.WLD  000454
+Q$UNIT  000003   	RM.GTV  000354   	RM.XNR  000470
+Q$WCNT  000006   	RM.GVC  000436   	RM.XOF  000462
+Q$2UNI  000002   	RM.HUB  000460   	RM.XPB  000500
+Q.BLKN  000004   	RM.IDT  000366   	RM.XPS  000476
+Q.BUFF  000010   	RM.IDV  000426   	RONLY$  040000
+Q.COMP  000014   	RM.IML  000446   	RPARN.= 000051
+Q.CSW   000002   	RM.INS  000417   	RPT$C = 000001
+Q.ELGH  000016   	RM.INX  000416   	RSQIG.= 000175
+Q.FMSK  000017   	RM.JBS  000455   	RSQUA.= 000135
+Q.FUNC  000006   	RM.JNM  000322   	RTE$M = 000000
+Q.JMSK  074000   	RM.KMN  000450   	SEMI. = 000073
+Q.JNUM  000007   	RM.LMP  000326   	SFBCT$  000400
+Q.LINK  000000   	RM.MAX  000314   	SFBYP$  001000
+Q.TMSK  000200   	RM.MES  000420   	SFCLB.  000376
+Q.TYPE  000006   	RM.MFP  000362   	SFCLF.  000377
+Q.UMSK  003400   	RM.MNM  000406   	SFCNB.  000374
+Q.UNIT  000007   	RM.MON  000000   	SFCNF.  000375
+Q.WCNT  000012   	RM.MPT  000430   	SFCRW.  000373
+Q.2MSK  000160   	RM.MSZ  000420   	SFCTL$  000020
+Q.2UNI  000006   	RM.MTP  000360   	SFCWG.  000372
+RANGL.= 000076   	RM.NET  000342   	SFDGS.  000373
+RBRAC.= 000135   	RM.NUL  000444   	SFDMS.  000371
+REPORT  000672R     003	RM.PGD  000452   	SFDMX.  000360
+RMCLF.  177776   	RM.PNP  000404   	SFDPR.  000377
+RMCLT.  177777   	RM.P1X  000432   	SFDPW.  000376
+RMNET.  177776   	RM.QCO  000270   	SFDRB.  000374
+RMRSZ.  177776   	RM.QHK  000456   	SFDTT.  000372
+RMTCF.  177776   	RM.RTS  000464   	SFDWD.  000375
+RMXMP.  000004   	RM.RUN  000367   	SFD32.  000001
+RM.     000446   	RM.SCH  000244   	SFERB$  000010
+RM.BBS  000456   	RM.SCR  000302   	SFGVS.  000373
+RM.BLK  000256   	RM.SL2  000502   	SFLIM$  000002
+RM.CAL  000434   	RM.SPS  000504   	SFMBB.  000375
+RM.CFG  000300   	RM.SPU  000272   	SFMFB.  000376
+RM.CFS  000366   	RM.SUF  000412   	SFMPR.  000370
+RM.CF2  000370   	RM.SUP  000277   	SFMPW.  000371
+RM.CF3  000466   	RM.SYG  000372   	SFMRO.  000372
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 21-10
+Symbol table
+
+SFMRW.  000373   	UDMDG.  000001   	UD3V$P  000177
+SFMST.  000367   	UDMMN.  000017   	UD4B$P  000374
+SFMWE.  000377   	UDMSC.  000000   	UD4C$P  000377
+SFMWG.  000374   	UDMSQ.  000000   	UD4GO$  000001
+SFNAL.  000200   	UDMT$P  000340   	UD4LF$  000002
+SFNMA.  000203   	UDOWN$  100000   	UNDER.= 000137
+SFNPM.  000201   	UDPRI.  000005   	UPRA. = 000101
+SFNPR.  000202   	UDST$P  003777   	UPRB. = 000102
+SFNRE.  000205   	UDST1$  004000   	UPRC. = 000103
+SFNTR.  000204   	UDST2$  010000   	UPRD. = 000104
+SFONC$  000004   	UDST3$  020000   	UPRE. = 000105
+SFPHW$  040000   	UDST4$  040000   	UPRF. = 000106
+SFPHY$  000040   	UDUSP.  000000   	UPRG. = 000107
+SFREA$  000100   	UD.APR  177773   	UPRH. = 000110
+SFRWS$  100000   	UD.BBS  000074   	UPRI. = 000111
+SFUND$  020000   	UD.CAM  177776   	UPRJ. = 000112
+SFWCT$  000001   	UD.CD0  000004   	UPRK. = 000113
+SFWRI$  000200   	UD.CD1  000006   	UPRL. = 000114
+SFXBR.  000202   	UD.CID  177777   	UPRM. = 000115
+SFXCL.  000201   	UD.CIF  177774   	UPRN. = 000116
+SFXOF.  000205   	UD.DS0  000000   	UPRO. = 000117
+SFXRB.  000203   	UD.DS1  000002   	UPRP. = 000120
+SFXRS.  000204   	UD.EBS  000100   	UPRQ. = 000121
+SF.ADR  000002   	UD.F00  177770   	UPRR. = 000122
+SF.COD  000000   	UD.F01  177772   	UPRS. = 000123
+SF.CTL  000000   	UD.HBS  000010   	UPRT. = 000124
+SF.DAT  000002   	UD.IPR  000000   	UPRU. = 000125
+SF.DBS  000004   	UD.MBC  177774   	UPRV. = 000126
+SF.EBS  000006   	UD.PBS  000004   	UPRW. = 000127
+SF.FRE  000005   	UD.RBS  000010   	UPRX. = 000130
+SF.FUN  000004   	UD.RD0  000000   	UPRY. = 000131
+SI.   = 000016   	UD.RD1  000002   	UPRZ. = 000132
+SLASH.= 000057   	UD.RIF  177776   	VARSZ$  000400
+SO.   = 000017   	UD.SAR  000002   	VARY  = 000000
+SPACE.= 000040   	UD.TXT  000000   	VBAR. = 000174
+SPECL$  010000   	UD1CLM  004000   	VBIT    000002
+SPFUN$  002000   	UD1C$P  034000   	VEADR.  000010
+SP.   = 000040   	UD1DI$  000400   	VEBPT.  000003
+SQUOT.= 000047   	UD1GU$  100000   	VEBUG.  000017
+TAB.  = 000011   	UD1IE$  000200   	VEBUS.  000001
+TBIT    000020   	UD1NV$  002000   	VECPU.  000002
+TICK. = 000140   	UD1QB$  001000   	VEEMT.  000006
+TILDA.= 000176   	UD1RLM  001000   	VEFAT$  040000
+TIM$C = 000001   	UD1R$P  003400   	VEFPU.  000012
+TIM$IT= 000000   	UD1VD.  000004   	VEIOT.  000004
+TPB     177566   	UD1V$P  000177   	VEKSP.  000015
+TPS     177564   	UD1WR$  040000   	VEMAX.  000020
+TRUE  = 000001   	UD2C$P  000070   	VEMEM.  000011
+UDCR$P  000017   	UD2GU$  000200   	VEMMU.  000013
+UDDON$  040000   	UD2L$P  177776   	VENOP.  000000
+UDDUP.  000001   	UD2PI$  000001   	VEPOW.  000005
+UDEG0.  000000   	UD2P$P  003400   	VEPRC$  020000
+UDERR$  100000   	UD2R$P  000007   	VESST$  010000
+UDHA$P  000077   	UD2WR$  000100   	VESYS$  004000
+UDINT$  040000   	UD3IE$  000200   	VETRN$  001000
+UDMAI.  000255   	UD3PP$  100000   	VETRP.  000007
+UDMCR.  000002   	UD3R$P  077777   	VEUNV.  000016
+Dup	MACRO V05.06  Sunday 18-Sep-22 15:54  Page 21-11
+Symbol table
+
+VEUSE$  100000   	V$EMEM  000114   	...V12= 000370
+VEUSP.  000014   	V$EMMU  000250   	...V13= 000360
+VEWEA$  002000   	V$EPOW  000024   	...V14= 000000
+VE.BBS  000004   	V$ETER  000064   	...V15= 000312
+VE.PC   000000   	V$ETRP  000034   	...V16= 000001
+VE.PS   000002   	WONLY$  020000   	...V17= 000000
+VT.   = 000013   	WORD  = 000002   	...V18= 000000
+V$EBPT  000014   	XCLAM.= 000041   	...V19= 010000
+V$EBUS  000004   	XXNAM.= 016110   	...V2 = 000130
+V$ECLK  000100   	XX$NAM  000660   	...V20= 000000
+V$ECLP  000104   	ZBIT    000004   	...V21= 000000
+V$ECPU  000010   	$     = 000000R     003	...V22= 010000
+V$EEMT  000030   	$FKPTR  002114RG    002	...V3 = 000020
+V$EFPU  000244   	$INPTR  002112RG    002	...V4 = 000000
+V$EIOT  000020   	...V10= 000001   	...V7 = 177777
+V$EKBD  000060   	...V11= 000360   	...V9 = 000005
+V$EMAX  000600
+
+. ABS.	000746    000	(RW,I,GBL,ABS,OVR)
+      	000000    001	(RW,I,LCL,REL,CON)
+DUDVR 	002116    002	(RW,I,LCL,REL,CON)
+DUBOOT	001152    003	(RW,I,LCL,REL,CON)
+Errors detected:  2
+
+*** Assembler statistics
+
+
+Work  file  reads: 489
+Work  file writes: 389
+Size of work file: 30616 Words  ( 120 Pages)
+Size of core pool: 11264 Words  ( 44 Pages)
+Operating  system: RT-11
+
+Elapsed time: 00:00:02.47
+DRB:DUV,DRB:DUV=DRS:DUP
+                                                                                                                                                                                                                                                                                                                                                                                                                                                       
