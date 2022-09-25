@@ -1,48 +1,40 @@
+;	RUSTX to handle suffix
+;	Cleanup bo$onc
+;	Identify early versions
+;	Fixup SHOW captions
+;	CSISPC
+;???;	CUS:BOOT - boot> set x.y/??? ; no error message for "/???"
 .title	boot - RUST bootstrap manager
 .include "lib:rust.mac"
 
-;	cu_ptr is replaced by get/put to an intermediate structure
-;???;	BOOT - use EMTs for bo$chk and messages
-;???;	BOOT - BOOT> boot XXX crashes applying default .SYS (.csispc)
-;???;	BOOT - /SELF fails; BOOT must check for valid boot image
-;???;	BOOT - im.rep fails; printf crashes
-;---;	BOOT - driver not found reported as fnf
-;---;	BOOT - app exit kills memory somewhere
 ;---;	BOOT - stack location problem with RUSTx embedded boot
-;+++;	BOOT - look for more jmp-2-branch optimizations
 ;+++;	BOOT - Use NOAUTO instead of NOIMAGE
-;+++;	BOOT - Should be BOOT> SET dev:file explicitly
 ;+++;	BOOT - Add boot-time UI under BOOT
 ;+++;	BOOT - Add COPY/BOOT
-;xxx;	BOOT - BOOT>BOOT completed
-;xxx;	BOOT - repair and clean up
+;!!!;	BOOT - BOOT>BOOT completed
 
 ;???	Move all interactive stuff to BOOT extension
 ;???	Move back system detection logic
 
-rst$c=0		; restore monitor after boot driver fault
 sec$c=1		; use inc instead of bis to set cbit
 loo$c=1		; shorten lookup
-stk$c=0		; stack location
 csp$c=0		; .CSISPC attempt
-
-rxm$c=0		; default to RUST/SJ boot
-aut$c=1		; autoboot
-qui$c=0		; default to NOQUIET
+		;
 h50$c=1		; default to 50 hertz
+rxm$c=0		; default to RUST/SJ boot
+qui$c=0		; default to NOQUIET
+		;
+rst$c=0		; restore monitor after boot driver fault
+stk$c=0		; stack location
 
 suf$c=0		; boot suffix correction
-mes$c=0		; memory size
-ctr$c=0		; ctrl/h, ctrl/r support
-ctc$c=1		; ctrl/c recognition
-pwf$c=0		; power-fail trap (redundant)
 mnm$c=0		; move monitor name to rmon
-wri$c=0		; write memory test
-xdp$c=0		; xxdp support
+ctr$c=0		; ctrl/h, ctrl/r support
+pwf$c=0		; power-fail trap (redundant)
 seg$c=0		; additional directory segment checks
-clk$c=0
+clk$c=0		; set config for clock detected
+mtp$c=0		; .mtps #0
 hgh$c=0		; recover boot block after boot read fail (redundant)
-.asect		; entire module is an asect
 
 ;	BOOT.SYS is both a bootable and executable image.
 ;
@@ -56,30 +48,27 @@ hgh$c=0		; recover boot block after boot read fail (redundant)
 ; ???	When executed under BOOT.SYS itself it acts as a 
 ;	bootstrap manager.
 ;
-;	BOOT utility
+;	Build BOOT utility
 ;
 ;	%build
-;	@@cts:rtboo
-;	macro	cus:boot.r/object:cub:bootm/list:cub:bootm
-;	rider	cus:boot  /object:cub:bootr
-;	link cub:boot(m,r),ctb:rtboo/exe:cub:boot/map:cub:boot/cross,lib:crt
-;	!link	cub:bootm/exe:cub:/map:cub:/cross
-;	set 	program/traps/loop/jsw=41000 cub:boot
-;	exit
+;	!@@cts:rtboo
+;	macro cus:boot.r/object:cub:bootm
+;	rider cus:boot  /object:cub:bootr
+;	link  cub:boot(m,r),lib:crt/exe:cub:boot/map:cub:boot/cross
+;	set   program/traps/loop/jsw=41000 cub:boot
 ;	!
 ;	copy cub:boot.sav cub:rust.sys
 ;	cub:rust.sys
-;	set image BOOT.SAV
-;	set suffix V
+;	set cub:rust.sys/image=rust.sav/suffix=V
 ;	exit
 ;	!
 ;	copy cub:boot.sav cub:rustx.sys
 ;	cub:rustx.sys
-;	set image RUSTX.SAV
-;	set suffix P
+;	set cub:rustx.sys/image=rustx.sav/suffix=X
 ;	exit
 ;	end:
 ;	%end
+.sbttl	macros
 
 $brdef		;boot area
 $chdef		;channel
@@ -107,6 +96,7 @@ $sgdef		;sysgen
 $tcdef		;terminal config
 $txdef		;text
 $vedef		;vectors
+.asect		; entire module is an asect
 
 meta	<bosav$><jsr r5,bo$sav>
 meta	<bores$><jsr r5,bo$res>
@@ -115,8 +105,9 @@ meta	<borot$ cnt lim><jsr r3,bo$rot><.byte cnt,lim>
 meta	<asect$ adr val><.=adr><val>
 meta	<limit$ lim><assume . le lim>
 
+asect$	0	<.rad50 /MON/>		; identify monitor image
 .if eq stk$c
-asect$	j$busp	c$ustk
+asect$	j$busp	c$ustk			; BOOT.SAV stack
 .endc
 asect$	j$bjsw	jsovr$			; set overlay bit
 asect$	400				; image ident area
@@ -125,9 +116,23 @@ $imgdef	BOOT 4 0
 $imginf	fun=sbo cre=hammo aut=ijh use=<RUST bootstrap manager>
 $imgham	yrs=<1986,1987,1988,2004,2011,2022> oth=<BOOT>
 ;	%date
-$imgdat	<23-Jun-2022 05:43:48>   
+$imgdat	<23-Sep-2022 04:27:44>   
 ;	%edit
-$imgedt	<428  >
+$imgedt	<436  >
+
+;	Memory map
+
+	asect$	1000
+	b$obuf = 1000
+	b$osec:
+	b$olow=.-<512.*3>-256.		; low address of boot real estate
+	b$ostk=.-<512.*3>-82.-32.	; boot stack
+	b$olin=.-<512.*3>-82.		; input line
+	b$olnx=.-<512.*3>-1		; end of input line
+	b$oseg=.-<512.*3>		; boot directory segment buffer
+	b$oswp=.-512.			; low memory swap buffer
+	r$mmon=.		;000	; 67,0 - not RUST monitor
+	r$mcsw=.+4		;004	; csw area - once-only code
 
 ;	Relocation 
 
@@ -164,44 +169,28 @@ $imgedt	<428  >
 	limit$	r$mmon+rm.syu		; end of csw area
 	. = b$oloc
 	.endm
-.sbttl	boot start and rmon
 
 	.macro	bofre$	lab, off
 	assume <.-r$mmon> le off
 	lab =  <r$mmon+off>-.
 	asect$	r$mmon+off
 	.endm
+.sbttl	boot start and rmon
 
-	asect$	0
-	.rad50	/MON/			; identify as monitor image
-
-	asect$	1000
-	b$obuf = 1000
-	b$osec:
-	b$olow=.-<512.*3>-256.		; low address of boot real estate
-	b$ostk=.-<512.*3>-82.-32.	; boot stack
-	b$olin=.-<512.*3>-82.		; input line
-	b$olnx=.-<512.*3>-1		; end of input line
-	b$oseg=.-<512.*3>		; boot directory segment buffer
-	b$oswp=.-512.			; low memory swap buffer
-	r$mmon=.		;000	; 67,0 - not RUST monitor
-	r$mcsw=.+4		;004	; csw area - once-only code
-
-;	RT-11 has a fixed offset database (RMON) which we must replicate.
+;	RT-11 has a fixed offset database (RMON) which we replicate.
 ;	Once-only start-up code is stuffed into the dynamic areas of RMON.
 
-boXsec::
 bo$sec::nop				; RUST/BT RMON signature
 	mov	#bo$clk,v$eclk		; point to clock ps
 	clr	v$eclk+ve.ps		;
 	clr	r5			; location zero
 	mov	(r5),b$rdup		; save DUP flags
-10$:	clr	(r5)+			;0	trap catcher
-	clr	(r5)+			;2	trap catcher
-	mov	#bo$cat,(r5)+		;4	bus trap
-	clr	(r5)+			;6	cleared
-	mov	#bo$cat,(r5)+		;10	cpu trap
-	clr	(r5)+			;12	cleared
+10$:	clr	(r5)+		;000	; trap catcher
+	clr	(r5)+		;002	; trap catcher
+	mov	#bo$cat,(r5)+	;004	; bus trap
+	clr	(r5)+		;006	; cleared
+	mov	#bo$cat,(r5)+	;010	; cpu trap
+	clr	(r5)+		;012	; cleared
 
 	bvcw	@#ps,15$		; yep - we have a PS
 	mov	#bomf0.,b$omfp		; nope - use MTPS instead
@@ -214,7 +203,8 @@ bo$sec::nop				; RUST/BT RMON signature
 	tst	-(r5)			; backup
 
 ;	Copy ourselves to top of memory
-;	Copies the boot block to the swap buffer b$oswp
+;
+;	o Copies the boot block to the swap buffer b$oswp.
 ;
 ;	r5 -> 160000 (typical end-of-memory)
 ;	r0 -> b$renx+2 	end of primary/secondary/extension
@@ -223,8 +213,9 @@ bo$sec::nop				; RUST/BT RMON signature
 30$:	mov	-(r0),-(r5)		;
 	bnew	r0,30$			;
 
-;	r5 ->	
 ;	Relocate high copy 
+;
+;	r5 ->	relocation base of high memory copy
 
 	mov	#b$orel,r0		; relocation list
 40$:	mov	(r0)+,r2		; get the next
@@ -243,16 +234,12 @@ b$orel:					; relocation table inserted here
 
 ;	Remainder of RMON table
 
-b$osyu=.+1			;offset	; boot device unit
-r$msyu:	.word	0		;274	; system device unit (in high byte)
+				;offset	; boot device unit
+r$msyu:	.byte	0		;274	; system device unit (in high byte)
+b$osyu:	.byte	0		;275	; boot address of r$msyu
 r$msyv:	.byte	5		;276	; system version - always RT-11 version
 r$msup:	.byte	33		;277	; system update
-boXcfg::				; label for boot.r
-r$mcfg:	.if ne h50$c			; 50 hertz
-	.word	cn50h$		;300	; system configuration flags - built
-	.iff			;	; 60 hertz
-	.word	0		;300	; system configuration flags - built
-	.endc				;
+r$mcfg:	.word	0			; config
 r$mscr:	.word	0		;302	; GT control block address - unused
 r$mtks:	.word	h$wtks		;304	; console addresses
 r$mtkb:	.word	h$wtkb		;306	;
@@ -316,10 +303,7 @@ bo$vec:	mov	#bic,(r3)		; bic r0,r0
 	mov	(r0)+,(r1)+		; move in one
 	clr	(r1)+			; clear the next
 	br	10$			;
-20$:
-	.if ne clk$c
-	bis	#cnclo$,r$mcfg		; evidence of a clock
-	.iff
+20$:	.if ne mtp$c
 	.mtps	#0			; clear PS
 	.endc
 	return				;
@@ -356,32 +340,20 @@ bo$onc:
 	add	#40.,r0			; bump it back
 	sub	r0,b$osnm		; b$osnm - minus suffix
 
-	.if ne suf$c
-	movr	#b$rdvn,r0		; b$rdvn - with wrong suffix
-	mov	(r0)+,(r0)		; b$rdvs - initially null
-20$:	sub	#40.,(r0)		; get it down to the suffix
-	bhis	20$			; more
-	add	#40.,(r0)		; bump it back
-	sub	(r0),-(r0)		; b$rdvn - minus suffix
-	mov	(r0),b$osnm		; b$osnm - minus suffix
-;	add	b$rsfx,-(r0)		; b$rdvn - with correct suffix
-;	mov	b$rdvn,b$opnm+desyi.	; system device name
-;	mov	(r0),b$opnm+desyi.	; system device name
-;	add	b$rsfx,(r0)		; b$rdvn - with correct suffix
-	.endc
 	.if ne mnm$c
 	mov	b$rfn0,r$mmnm		; monitor name
 	mov	b$rfn1,r$mmnm+word	;
 	mov	b$rsfx,r$msuf		; suffix
 	.endc
+
 	beqw	b$rers,#<^rERA>,30$	; no era
 	clr	b$rera			;
 30$:	fall	bo$rst
-.sbttl	reset and commands
+.sbttl	Command processor and image exit
 
-;	Reset monitor
+;	Image exit - reset monitor
 
-bo$exi:	.enabl	lsb			; app exit
+bo$exi:					; app exit
 bo$rst:	mov	(pc)+,sp		; our stack
 b$pstk:	.wordr	b$ostk			; system stack
 	call	bo$vez			; reset vectors
@@ -390,13 +362,12 @@ b$pstk:	.wordr	b$ostk			; system stack
 	.if ne hgh$c			; (which should not occur)
 	call	bo$hgh			; force boot block high
 	.endc
-	.dsabl	lsb
 
 	clr	(pc)+			; clear flags
 b$olfd:	.word	0			; no line feed pending
 	tst	b$octc			; already done this?
 	bpl	bo$com			; yep
-	beqb	b$oqui,10$ 		; /QUIET - don't display "BOOT V2.3"
+	bneb	b$oqui,10$ 		; /QUIET - don't display "BOOT V2.3"
 	movr	#b$rnam,r0		; setup for print
 	.print				;
 10$:	mov	#ctrlc,(pc)+		; signal title done, let ctrl/c thru
@@ -435,8 +406,8 @@ b$ochn:	.byte	imchn.,emloo.		; chain lookup
 
 ;	Run image
 
-bo$run:	jsr	r0,bo$loa		;
-b$otlo:	.byte	imchn.,emloo.		; lookup
+bo$run:	jsr	r0,bo$loa		; load file
+	.byte	imchn.,emloo.		; lookup
 	.wordr	b$oimg			; image spec
 ;sic]	.word	0			; sequence - ignored
 
@@ -446,18 +417,11 @@ b$otlo:	.byte	imchn.,emloo.		; lookup
 
 bo$loa:	emt	375			; look it up
 	bcs	40$			; file not found
-.if ne xdp$c
-	mov	r0,t$llen		; file size
-.endc
 	movr	#b$otrr,r0		; read the root
 	emt	375			;
 	bcs	30$			; error reading block zero
 
 	mov	#b$obuf,r3		; point to the buffer
-.if ne xdp$c
-	cmp	2(3),#1			; an XXDP LDA file?
-	beq	bo$xdp			; yes
-.endc
 	call	bo$vec			; fill in vectors etc.
 	jsr	r3,bo$mbl		; move down block zero
 	.word	b$obuf			; source
@@ -502,11 +466,6 @@ b$otir:	.byte	imchn.,emrea.		; read image
 	.word	1000			; buffer
 b$otwc:	.word	0			; word count
 ;sic]	.word	0			; wait - ignored
-
-.if ne xdp$c
-tl$err:
-tl$adr:	
-.endc
 .sbttl	emt dispatch
 
 ;	Dispatch program request
@@ -573,6 +532,8 @@ bo$emt:	bic	#cbit,word(sp)		; clear the error bit
 	br	bo$emq			; no - just ignore it
 .sbttl	emt return
 
+;	EMT return path
+;
 ;	bo$emr	test cbit
 ;	bo$emf	fail
 ;	bo$emq	quit - no error
@@ -704,11 +665,12 @@ bo$csi:	stack	ret r0 r1 r2 r3 r4 r5 pc ps cmd ext out bbs
 	pop	r4			; r4 -> the prompt	typ
 	pop	r0			; r0 -> the flag	out
 	asr	r0			; is it set for another parameter?
-	bcc	bo$emf			; no - and its not gtlin
+bpt
+	bcc	5$;bo$emf		; no - and its not gtlin
 	stack	ret r0 r1 r2 r3 r4 r5 pc ps lin bbs
 	borot$	1 sp.bbs		; get the line buffer address
 ;sic]	pop	r2			; r2 -> the buffer
-	asr	r0			; was this csispc?
+5$:	asr	r0			; was this csispc?
 .if ne csp$c
 	bne	70$			; yes
 .iff
@@ -1382,8 +1344,7 @@ bo$pck: psh	(r5)+			; get the counter and terminator
 b$orad:	.byte	-22,'0,'9,-100,'A,'Z,-140,'a,'z,-11,'$,'$,0
 	.even
 	.dsabl	lsb
-;***;	BO$ROT - elegant - generalize to library
-.sbttl	stack rotate, move block
+.sbttl	stack rotate, move block
 
 ;	Rotate the stack 
 ;
@@ -1452,7 +1413,6 @@ reloc$				; build relocation table.
 b$rfre: brfre. == b$rims-.
 limit$	b$rims			; don't overwrite boot signature area
 asect$	b$rims			;
-boXspc==b$rims			;	- label for BOOT.R
 	b$oima:	.asciz "RUST.SAV" ;	- Executable ascii name
 		.byte	0,0,0	;	- See GTLIN
 
@@ -1462,18 +1422,17 @@ asect$	b$rtmv	0		;retver - RTEM version (rts$id)
 asect$	b$rdvn	0		;b$devn - device name in rad50 with suffix
 asect$	b$rdvs	0		;b$devs - device name without suffix
 asect$	b$rdvu	<.rad50 "bot">	;b$devu - device unit bot=bootable, rte=>rtem
-asect$	b$rfn0	0		;b$fnam - filename 0 (e.g. /RT1/
-asect$	b$rfn1	0		;	- filename 1 (e.g. /1FB/)
+asect$	b$rfn0	<.rad50 "boo">	;b$fnam - filename 0 (e.g. /RT1/
+asect$	b$rfn1	<.rad50 "t  ">	;	- filename 1 (e.g. /1FB/)
 asect$	b$rrea	0		;b$read - read routine start address
 asect$	b$rhto	0		;syhtop - system handler top address (unused)
 asect$	b$rdup	0		;dupflg - copied from @#0 - 0 if from DUP
 asect$	b$rrms	2048.		;$rmsiz - v3/v5 monitor size in bytes
-				;	- v3/v5 boot string - 28. bytes maximum
+				;bstrng	- v3/v5 boot string - 28. bytes maximum
 asect$	b$rnam	<.asciz "BOOT V2.4"> ;  - BOOT ident string
 b$oprm:	.ascii <cr>"boot> "<200>;	 boot prompt
 				;	- some free bytes here
 asect$	b$rimg			;	- BOOT image
-boXimg==b$rimg			;	- label for BOOT.R
 	.if ne rxm$c
 	b$oimg:	.rad50	/SY RUSTX SAV/ ;-
 	.iff
@@ -1481,7 +1440,6 @@ boXimg==b$rimg			;	- label for BOOT.R
 	.endc
 asect$	b$rrst	<.rad50 "RST">	;	- RUST ident (not standard RT-11)
 ;asect	b$rdvs	0		;b$devs - device suffix in rad50
-boXsuf==b$rsfx			;	  label for BOOT.R
 	.if ne rxm$c
 asect$	b$rsfx	<.rad50	"  P">	;suffx	- v5 rad50 handler suffix
 	.iff
@@ -1520,733 +1478,348 @@ include rid:bxdef
 include rid:ctdef
 include	rid:dcdef
 include rid:fidef
+include rid:fsdef
 include rid:imdef
 include rid:medef
 include rid:mxdef
 include rid:osdef
 include	rid:rtboo
+include	rid:rtcla
 include rid:rtrea
 include rid:rxdef
 include rid:stdef
 boo$c := 1
 include	rid:rtmon
 
-	_cuABO := "I-RUST boot utility BOOT.SAV V4.1"	; ABOUT string
+;&&&;	Include secondary boot in RUST/RUSTX
+;&&&;	SET/RUST/RUSTX
 
-data	control objects
-
-
-;	object		  blk cnt  mode	 default description
-	boIdev : vuTobj = {0,0,   "rbp+", "",    "device"}
-;	boIboo : vuTobj = {0,512, "rbp+", <>,    "boot block"}
-;	boIhom : vuTobj = {1,512, "rbp+", <>,    "home block"}
-	boIsec : vuTobj = {2,2048,"rbp+", <>,    "device secondary boot"}
-	boIslf : vuTobj = {1,2048,"rbp+", <>,    "self secondary boot"}
-	boIslf : vuTobj = {1,2048,"rbp+", <>,    "self secondary boot"}
-;	boIseg : vuTobj = {6,1024,"rbp+", <>,    "directory"}
-;	boIdrv : vuTobj = {0,1024,"rbp+", ".SYS","driver"}
-;	boIbas : vuTobj = {0,512, "rb+",  <>,    "driver"} ; driver base block
-;	boImon : vuTobj = {0,0,   "rb+",  ".SYS","monitor"}
-;	boIsrc : vuTobj = {0,0,   "rbp+", "",    "input device"}
-;	boIdst : vuTobj = {0,0,   "rbp+", "",    "output device"}
-
-  init	boAobj : [] * bxTobj
-  is	&boIdev, &boIboo, &boIhom, &boIroo, &boIseg,
-	&boIdrv, &boIbas, &boImon
-	&boIsrc, &boIdst,
-	0
-  end
-
-
-data	control data
+data	control block
 
   type	cuTctl
   is	Pdcl : * dcTdcl
-	Pbuf : * char
-	Hfil : * FILE 
-	Aboo : [mxSPC] char	; boot spec or SELF
-	Aimg : [mxSPC] char	; SET IMAGE
-	Asuf : [4] char		; SET SUFFIX
-
-	Q50h : int
-	Q60h : int
-	Qfor : int
-	Qqui : int
-	Qnqu : int
-	Qrun : int
-	Qnrn : int
-	Qnsf : int
-	Qslf : int
-
-	Vslf : int		; modifying self
-	Vboo : int		; BOOT is system
-	Vext : int		; BOOT extensions loaded
+	Pboo : * rtTmon		; boot image
+	Aboo : [mxSPC] char	; boot spec
+	Hboo : * FILE 		; boot file
+	Vblk : int		; file block
+	Icla : rtTcla		; boot file class
+				;
+	Vtyp : int		; cuSLF/cuDEV/cuFIL
+	Vsys : int		; cuRTA/cuRST
+				;
+	Q50h : int		; /50_hertz
+	Q60h : int		; /60_hertz
+	Qfor : int		; /foreign
+	Aimg : [mxSPC] char	; /image=spec
+	Qnim : int		; /noimage
+	Qqui : int		; /quiet
+	Qnqu : int		; /noquiet
+	Qrun : int		; /run
+	Qnrn : int		; /norun
+	Qrsj : int		; /rust
+	Qrxm : int		; /rustx
+	Qslf : int		; /self
+	Asuf : [4] char		; /suffix=char 
+	Qnsf : int		; /nosuffix
   end
 	ctl : cuTctl = {0}
 
-	cm_boo : dcTfun
-	cm_set : dcTfun
-	cm_sho : dcTfun
+ 	cuDEV  := 0		; device - Vtyp
+	cuFIL  := 1		; file
+	cuSLF  := 2		; self
+				;
+	cuRTA  := 1		; RT-11  - Vsys
+	cuRST  := 2		; RUST
 
-;	cu_ptr : ()
-;	cu_rea : ()
-;	cu_wri : ()
-;	cu_get : (WORD, *void, int)
-;	cu_put : (*void, WORD, int)
-;	SET [dev:|image]/[NO]xxx
-;	SHOW [image]
+	boSPC  := 12		; spec length
+	boIMG  := 8		; image name length
+	bo50H  := 040		; 50 hertz (60 is the complement)
+	boRST  := 071614	; .rad50 /rst/ signature
+	boSY   := 075250	; .rad50 /sy /
 
-data	cuAdcl - DCL processing
+	cm_boo : dcTfun		; boot file
+	cm_set : dcTfun		; SET
+	cm_sho : dcTfun		; SHOW
 
-;&&&;	Include secondary boot in RUST/RUSTX
-;&&&;	RESTART
-;&&&;	RESET SELF
+	cu_get : ()		; get boot from file
+	cu_put : ()		; put boot to file
+
+
+data	cuAdcl - DCL processing
 
   init	cuAhlp : [] * char
   is   "BOOT - RUST generic boot BOOT.SYS V4.1"
        ""
-       "ABOUT			Display BOOT program information"
-       "BOOT [spec]		Boot device or file"
+;      "BOOT [spec]		Boot device or file"
        "EXIT			Return to system"
        "HELP			Display this help frame"
-       "SHOW			Display bootstrap setup"
-;      "MAKE dev:spec		Make a new boot"
-;      "OPEN spec		Open a boot image for operations"
-       "SET [NO]IMAGE spec	Set (clear) bootstrap image filespec"
-       "SET [NO]QUIET 		Enable (disable) startup identification"
-       "SET [NO]SUFFIX char	Set (clear) default driver suffix"
-       "SET 50_HERTZ|60_HERTZ	Set bootstrap for 50 or 60 hertz clock"
+       "SHOW path		Display bootstrap setup"
+       "SET [\"self\"|dev:|file]	Configure bootstrap"
+       " /[NO]IMAGE=spec	Set (clear) bootstrap image filespec"
+       " /[NO]QUIET 	  	Enable (disable) startup identification"
+       " /[NO]RUN 	  	Do (don't) run the monitor image"
+       " /[NO]SUFFIX=char	Set (clear) default driver suffix"
+       " /50HERTZ|60HERTZ  	Set bootstrap for 50 or 60 hertz clock"
+       " /RUST			Set /IMAGE=RUST.SAV/SUFFIX=V"
+       " /RUSTX			Set /IMAGE=RUSTX.SAV/SUFFIX=X"
 	<>
   end
 
   init	cuAdcl : [] dcTitm
-; level symbol		task	P1	 V1 type|flags
-  is 1,	"BO*OT",	dc_act, <>,  	 0, dcNST_
-      2, "/FO*REIGN",	dc_set,&ctl.Qfor,0
-      2, "/SE*LF",	dc_set,&ctl.Qslf,0
-      2,  <>,		dc_fld,&ctl.Aimg,16,dcSPC|dcOPT_
-      2,  <>,		cm_boo, <>, 	 0, dcEOL_
-     1,	"EX*IT",	dc_exi, <>, 	 0, dcEOL_
+ ;level symbol		task	P1	 V1 type|flags
+  is 1,	"EX*IT",	dc_exi, <>, 	 0, dcEOL_
      1,	"HE*LP",	dc_hlp, cuAhlp,	 0, dcEOL_
-     1,	"SH*OW",	cm_sho, <>,	 0, dcEOL_
-     1,	"SE*T",		dc_kwd, <>,	 0, dcNST_
-       3,   <>,		dc_fld,ctl.Aboo,16, dcSPC
-      2,  "/50*HERTZ",	dc_set,&ctl.Q50h,0, 0
-      2,  "/60*HERTZ",	dc_set,&ctl.Q60h,0, 0
-      2,  "/IM*AGE",	dc_fld,Idst.Aimg,32,dcSPC|dcASS_
-      2,  "/NO*IMAGE",	cu_set,&ctl.Qnqu,0, 0
-      2,  "/QU*IET",	dc_set,&ctl.Qqui,0, 0
-      2,  "/NOQU*IET",	dc_set,&ctl.Qnqu,0, 0
-      2,  "/RU*N",	dc_set,&ctl.Qrun,0, 0
-      2,  "/NOR*UN",	dc_set,&ctl.Qnrn,0, 0
-      2,  "/SU*FFIX",	dc_fld,ctl.Asuf, 4, scSTR|dcASS_
-      2,  "/NOSU*FFIX",	dc_set,&ctl.Qnsf,0, 0
+
+;    1,	"BO*OT",	dc_act, <>,  	 0, dcNST_
+;     2,  <>,		dc_fld, ctl.Aboo,16,dcSPC|dcOPT_
+;     2,  <>,		cm_boo, <>, 	 0, dcEOL_
+;     2, "/FO*REIGN",	dc_set,&ctl.Qfor,1, 0
+;     2, "/SE*LF",	dc_set,&ctl.Qslf,1, 0
+     1,	"SH*OW",	dc_act, <>,	 0, dcNST_
+      2,   <>,		dc_fld, ctl.Aboo,16,dcSPC|dcOPT_
+      2,   <>,		cm_sho, <>,	 0, dcEOL_
+     1,	"SE*T",		dc_act, <>,	 0, dcNST_
+      2,   <>,		dc_fld, ctl.Aboo,16,dcSPC|dcOPT_
       2,   <>,		cm_set, <>,	 0, dcEOL_
+      2,  "/50*HERTZ",	dc_set,&ctl.Q50h,1, 0
+      2,  "/60*HERTZ",	dc_set,&ctl.Q60h,1, 0
+      2,  "/IM*AGE",	dc_fld, ctl.Aimg,32,dcSPC|dcASS_
+      2,  "/NO*IMAGE",	dc_set,&ctl.Qnim,1, 0
+      2,  "/QU*IET",	dc_set,&ctl.Qqui,1, 0
+      2,  "/NOQU*IET",	dc_set,&ctl.Qnqu,1, 0
+      2,  "/RU*N",	dc_set,&ctl.Qrun,1, 0
+      2,  "/NOR*UN",	dc_set,&ctl.Qnrn,1, 0
+      2,  "/RUST",	dc_set,&ctl.Qrsj,1, 0
+      2,  "/RUSTX",	dc_set,&ctl.Qrxm,1, 0
+      2,  "/SU*FFIX",	dc_fld, ctl.Asuf,4, dcSTR|dcASS_
+      2,  "/NOSU*FFIX",	dc_set,&ctl.Qnsf,1, 0
      0,	 <>,		<>,	<>,	 0, 0
   end
+
+
 code	bootstrap manager
 
   func	start
   is	dcl : * dcTdcl
 	ops : rtTops 
 
+	ctl.Pboo = me_alc (2048)	; boot buffer
 	cc_stk (2048)			; get a bigger stack
 	im_ini ("BOOT")			;
 					;
-	ctl.Vboo = rt_ops(&ops) eq osRBT; activated by RUST/BT
-	if ctl.Vboo			;
-	   PUT("Shell\n")		; acts as boot shell
-	end				;
+;	ctl.Vboo = rt_ops(&ops) eq osRBT; activated by RUST/BT
+;	if ctl.Vboo			;
+;	   PUT("Shell\n")		; acts as boot shell
+;	end				;
 
-	ctl.Hfil = fi_img ()		; image channel
-	ctl.Pbuf = me_alc (2048)	; boot buffer
+	ctl.Pboo = me_alc (2048)	; boot buffer
 					;
 	dcl = ctl.Pdcl = dc_alc ()	;
 	dcl->Venv = dcCLI_|dcCLS_	;
 	dc_eng (dcl, cuAdcl, "BOOT> ") 	; dcl dispatches commands
   end
 
-code	cu_set - set commands and qualifiers
 
-;	set self /image=rust
-;	set dl:/norun
-;	copy self dl:
-;	set self/default
+code	cm_set - configure boot
 
- 	cuDEV 	:= 0
-	cuFIL	:= 1
-	cuSLF	:= 2
+;	set
+;	set dev:[file] 
+;	set self
 
  func	cm_set
 	dcl : * dcTdcl
-  is	boo : * rtTmon
-	pth : [mxSPC] char
-	nam : [mxSPC] char
-	buf : [] char
+  is	boo : * rtTmon = ctl.Pboo
 	suf : * char = ctl.Asuf
+	spc : [mxSPC] char
+	nam : [mxSPC] char
+	img : [4] word
 	cas : int = cuDEV		; assume device
 
-	st_low (ctl.Aspc)		;
-	fs_ext (spc, pth, fsDEV_|fsDIR_)
-	fs_ext (spc, nam, fsNAM_|fsTYP_)
-	if *nam && st_sam (nam, "self")
-	   cas = cuSLF
-	elif *nam
-	   cas = cuFIL			; a file
-	   fi_def (pth, "SY:", spc) if *nam
+	fine if !cu_get ()		; get the image 
+	if ctl.Vsys ne cuRST
+	.. fail im_rep ("E-Not a RUST bootstrap image", ctl.Aboo)
+	cu_def ()			; setup defaults
+
+      begin
+	boo->Vcfg |= bo50H if ctl.Q50h
+	boo->Vcfg &= ~bo50H if ctl.Q60h
+	boo->Vqui = 1 if ctl.Qqui
+	boo->Vqui = 0 if ctl.Qnqu
+	boo->Vrun = 1 if ctl.Qrun
+	boo->Vrun = 0 if ctl.Qnrn
+	boo->Aimg[0] = 0 if ctl.Qnim
+	boo->Vsfx = 0 if ctl.Qnsf
+
+	if *suf
+	   st_upr (suf)
+	   if st_len (suf) ne 1
+	   || !ct_alp (*suf)
+	   .. quit im_rep ("E-Invalid suffix [%s]", suf)
+	.. boo->Vsfx = *suf - '@'
+
+	if ctl.Aimg[0]
+	   me_clr (spc, mxSPC)
+	   fi_def (ctl.Aimg, ".SYS", spc)
+	   st_upr (spc)
+	   fs_ext (spc, nam, fsNAM_|fsTYP_)
+	   me_cop (nam, boo->Aims, boSPC)
+
+	   rx_scn (spc, img)
+	   img[0] = boSY
+	   me_cop (img, boo->Aimg, boIMG)
 	end
-
-	case cas
-	of cuDEV
-
-;	if st_sam (nam, "self)
-
-
-
-;	ctl.Vslf = st_sam (ctl.Aspc, "self")
-	ctl.Hfil = fi_opn (ctl.Aspc, "rwb", "")
-	fine if fail
-
-	fail if !cu_opn ()
-	fail if !cu_rea ()
-
-	boo->Vhtz = 50 if ctk.V50h
-	boo->Vhtz = 60 if ctk.V60h
-	boo->Vqui = 1 if ctl.Vqui
-	boo->Vqui = 0 if ctl.Vnqu
-	boo->Vrun = 1 if ctl.Vrun
-	boo->Vrun = 0 if ctl.Vnrn
-	boo->Aimg[0] = 0 if ctl.Vnim
-	end case
-
-	cu_wri ()
-	cu_clo ()
-
-	fine
+	fine cu_put ()
+      end block
+	fi_prg (ctl.Hboo)
   end
 
-;	SET IMAGE filnam.typ
-;
-;	Device/directory ignored
+code	cu_def - apply /rust[x] defaults
 
-  func	cm_img
-	dcl : * dcTdcl~
-  is	img : [4] WORD
-	spc : * char = ctl.Aspc
-
-	cu_rea ()
-	st_upr (spc)
-	fi_def (spc, ".SYS", spc)
-	fail dc_inv (dcl) if fail
-	me_clr (st_end(spc), boSPC-st_len(spc))
-
-	if !rx_scn (spc, img)
-	.. fail im_rep ("W-Invalid specification %s", spc)
-
-	me_cop (spc, cuPspc, boSPC)
-	me_cop (img, cuPimg, boIMG)
-	cu_wri ()			; export
-	fine
+  func	cu_def
+  is	if ctl.Qrsj
+	   st_cop ("RUST", ctl.Aimg)
+	   st_cop ("V", ctl.Asuf)
+	elif ctl.Qrxm
+	   st_cop ("RUSTX", ctl.Aimg)
+	   st_cop ("P", ctl.Asuf)
+	else
+	   exit
+ 	end
+	ctl.Qnqu = 1
+	ctl.Qrun = 1
   end
 
-;	SHOW
+
+code	cm_sho - show command
 
   func	cm_sho
 	dcl : * dcTdcl~
-  is	spc : [boSPC] char
-	htz : int
-	qui : int
-	suf : int
+  is	boo : * rtTmon = ctl.Pboo
+	nam : * char = boo->Anam
+	img : * char = boo->Aims
+	suf : [4] char
+	ops : [mxSPC] char
 
-	cu_rea ()
-	*<*char>me_cop (cuPspc, spc, boSPC-1) = 0
-	htz = (*cuPcfg & bo50H) ? 50 ?? 60
-	qui = *cuPqui eq boQUI
-	suf = *cuPsuf ? *cuPsuf + '@' ?? 0
- 
-	PUT("Boot image is %s\n", spc) if *spc
-	PUT("Boot image is not setup\n") otherwise
+	fine if !cu_get ()
+	fi_prg (ctl.Hboo)
 
-	PUT("Boot startup is %sQUIET\n", qui ? "" ?? "NO")
+	if ctl.Vsys eq cuRTA
+	   (*nam eq 015) ? nam+2 ?? nam
+	   PUT("System: %s\n", that)
 
-	PUT("Boot suffix is \"%c\"\n", suf) if suf
-	PUT("Boot suffix is not setup\n") otherwise
+	   rx_fmt ("%r%r", boo->Aops, ops) 
+ 	   PUT("Image:  %s.SYS\n", ops)
+	else
+	   PUT("Proxy:  %s\n", nam)
 
-	PUT("Boot clock is %d_HERTZ\n", htz)
-	fine
-  end
-code	utilities
+	   *img ? img ?? "(none)"
+ 	   PUT("Image:  %s\n", that)
+	end
 
-code	cu_opn
+	boo->Vsfx ? boo->Vsfx + '@' ?? 0
+	PUT("Suffix: \"%c\"\n", that)
 
+	(boo->Vcfg & bo50H) ? 50 ?? 60
+	PUT("Clock:  %d Hertz\n", that)
 
+	cu_opt (boo->Vsgb)
 
-end file
-code	cu_boo - boot device or file
+	fine if ctl.Vsys eq cuRTA
 
-;	BOOT dev:
-;	  /FOREIGN
-; ???	  /NOQUERY
-;	  /SELF
-;	  /WAIT
-;	me_clr (cuPspc, boSPC)	; not sure why
-;	me_clr (cuPimg, boIMG)	; not sure why
+	PUT("Start:  ")
+	PUT("No") if !boo->Vqui
+	PUT("Quiet ")
+	PUT("No") if !boo->Vrun
+	PUT("Run\n")
 
-  func	cm_boo
-	dcl : * dcTdcl~
-  is	spc : * char = ctl.Aspc
-	qui : * WORD
-	run : * WORD
-	sec : * WORD = 0
-	spc = <> if !*spc
-a
-rt_bpt()
-	if 1;cuVslf		; a selfish boot?
-b
-	   sec = cuPsec		; pass the section
-	   spc = <>		;
-	   <*char>qui = boXqui
-	   <*char>run = boXrun
-	   *qui = boQUI		; NOP the .print
-	.. *run = boNRU		; skip the branch
-	rt_boo (spc,cuVfor,sec)	; boot it
-  end
-code	cu_rea - read/write, get/put
-
-;	These access routines can be modified to work with
-;	an in-memory copy of the data.
-
-  func	cu_rea
-  is	rt_rea (ctl.Hfil, 1, ctl.Pbuf, 1024, rtWAI) 
-	fail im_rep ("E-Error reading boot file") if fail
-  end
-	
-  func	cu_wri
-  is	rt_wri (ctl.Hfil, 1, ctl.Pbuf, 1024, rtWAI) 
-	fail im_rep ("E-Error writing boot file") if fail
-  end
-end file
-code	xxdp command
-
-;	XXDP file
-;	<run-by-name>
-
-code	id_xdp - identify XXDP image
-
-;	Identify an XXDP image
-
-  type	cuTidt
-  is	Vsys : int		; system
-	Vtyp : int		; image type
-	Pfil : FILE		; file
-	Vblk : WORD		; volume block #
-	Abuf : [256] WORD	; block
-  end
-
-;	The XXDP images that we support are "XXDP Formatted Binary"
-;	which inserts a successor block number at the start of each block.
-;	The opening signature is always:
-;
-;		+---------------+
-;	04	+ 6...n		+	byte count
-;		+---------------+
-;	02	+ 000001	+	LDA synch and signature	
-;		+---------------+
-;	00	+ next block	+	Never 1 (except perhaps DECtape)
-;		+---------------+
-
-  func	id_xdp
-	idt : * cuTidt
-  is	fail if buf[0] eq 1		; not us
-	fail if buf[1] ne 1		; not us
-	fail if buf[2] le 6		;
 	fine
   end
 
 
-end file
-;	Earlier version of RMON
+code	cu_opt - display sysgen options
 
-.sbttl	boot start and rmon
+	sgERL$ := 01
+	sgMMG$ := 02
+	sgTIM$ := 04
+	sgRTM$ := 010
+	sgFPU$ := 0400
+	sgMPT$ := 01000
+	sgSJT$ := 02000
+	sgMTT$ := 020000
+	sgSJB$ := 040000
+	sgTSX$ := 0100000
 
-	asect$	1000
-b$obuf=1000
-b$osec:
-b$olow=.-<512.*3>-128.			; low address of boot real estate
-b$ostk=.-<512.*3>-32.			; boot stack
-b$oseg=.-<512.*3>			; boot directory segment buffer
-b$opri=.-512.				; low memory swap buffer
-r$mmon=.			;000	67,0 - not RUST monitor
-r$mcsw=.+4			;004	csw area - once-only code
+	TST(x) := (opt & x)
 
-bo$sec::nop				; RUST/BT RMON signature
-	mov	#bo$clk,v$eclk		; point to clock ps
-	clr	v$eclk+ve.ps		;
-	clr	r1			; location zero
-	mov	(r1),b$rdup		; save DUP flags
-10$:	clr	(r1)+			;0	trap catcher
-	clr	(r1)+			;2	trap catcher
-	mov	#bo$cat,(r1)+		;4	bus trap
-	clr	(r1)+			;6	cleared
-	mov	#bo$cat,(r1)+		;10	cpu trap
-	clr	(r1)+			;6	cleared
+  func	cu_opt
+	opt : int
+  is	fine if !opt
+	PUT("Sysgen: ")
+	PUT("ERLG ")  if TST(sgERL$)
+	PUT("MMGT ")  if TST(sgMMG$)
+	PUT("TIMIT ") if TST(sgTIM$)
+	PUT("RTEM ")  if TST(sgRTM$)
+	PUT("FPU ")   if TST(sgFPU$)
+	PUT("MPTY ")  if TST(sgMPT$)
+	PUT("TIMER ") if TST(sgSJT$)
+	PUT("MTTY ")  if TST(sgMTT$)
+	PUT("STASK ") if TST(sgSJB$)
+	PUT("TSX ")   if TST(sgTSX$)
+	PUT("\n")
+  end
 
-	tst	@#ps			; got a PS?
-	bvc	20$			; yes
-	mov	#bomf0.,b$omfp		; nope - use MTPS instead
-	mov	#bomf1.,b$omfp+word	; mfps 2(sp)
 
-20$:	mov	(r1),r0			; check readable memory
-	bvs	30$			; end of readable memory
-;	mov	r0,(r1)			; writeable?
-;	bvs	30$			; end of writeable memory
-	add	#2,r1			; be reasonable
-	bne	20$			; more memory available
+code	cu_get - get boot image
 
-;	Copy ourselves to top of memory
+  func	cu_get
+  is	spc : * char = ctl.Aboo
+	cla : * rtTcla~ = &ctl.Icla
+	boo : * rtTmon~ = ctl.Pboo
+	fil : * FILE
 
-30$:	clr	r0			; move source
-	sub	#b$renx+2,r1	; +2	; move destination
-	mov	r1,r5			; base address
-	jsr	r3,bo$m01		; move block (r0,r1,r2)
-	.word	b$renx/2		; move count to middle
+	st_low (spc)		
+	if !*spc || st_sam (spc, "self")		;
+	   fil = ctl.Hboo = fi_img ()	; image channel
+	   ctl.Vblk = 1		;
+	   ctl.Vtyp = cuSLF		; is self
+	else
+	   fi_def (spc, "sy:.sys", spc)
+	   fil = ctl.Hboo = fi_opn (spc, "rb", "")	
+	   pass fail
 
-;	Relocate high copy 
+	   rt_cla (fil, cla)
+	   if cla->Vflg & fcDEV_
+	      ctl.Vblk = 2
+	      ctl.Vtyp = cuDEV
+	   else
+	      ctl.Vblk = 1
+	   .. ctl.Vtyp = cuFIL
+	end
 
-	mov	#b$orel,r0		; relocation list
-40$:	mov	(r0)+,r2		; get the next
-	beq	50$			; all done
-	add	r5,r2			; relocate pointer
-	add	r5,(r2)			; relocate value
-	br	40$			;
-50$:	add	#bo$onc,r5		; where we continue
-	jmp	(r5)			; continue
+	rt_rea (fil, ctl.Vblk, boo, 1024, rtWAI)
+	fail im_rep ("E-Error reading boot file", ctl.Aboo) if fail
 
-b$orel:
-
-;	Relocation table inserted here by .wordr and movr macros
-
-;	Next two can go
-
-	asect$	r$mmon+256	;
-r$mblk:.word	-1		;256	current directory segment
-r$mchk:	.word	0		;260	current directory device
-
-r$mdat:	.word	0		;262	date - from DUP time parameters
-r$mdfl:	.word	0		;264	directory operation flag - unused
-r$musr: .wordr	b$oseg		;266	usr address - top of user area
-r$mqco: .word	0		;270	qcomp address - unused
-r$mspu:	.word	0		;272	special device usr errors - unused
-b$osyu==.+1			;	boot device unit
-r$msyu:	.word	0		;274	system device unit (in high byte)
-r$msyv:	.byte	5		;276	system version - always RT-11 version
-r$msup:	.byte	33		;277	system update
-r$mcfg:	.word	cn50h$		;300	system configuration flags - built
-r$mscr:	.word	0		;302	GT control block address - unused
-r$mtks:	.word	h$wtks		;304	console addresses
-r$mtkb:	.word	h$wtkb		;306
-r$mtps:	.word	h$wtps		;310
-r$mtpb:	.word	h$wtpb		;312
-r$mmax:	.word	-1		;314	maximum block size (unused)
-r$me16: .word	0		;316	emt 16 group offset (unused)
-r$mtim: .word	0,0		;320	hot/lot time of day - from DUP
-r$msyn: .word	0		;324	.synch routine - unused
-				;
-r$mlmp:				;326    lowmap used for kernel stuff
-b$opnm:	.rad50	"TT "		;326	pname table
-b$osnm:	.rad50	"SY "		;330	system device permanent name
-
-bo$mfp:	psh	(sp)		;	make space for it
-b$omfp:	bomf0.=nop		;	nop
-	bomf1.=mfps+66		;	mfps 2(sp)
-	mov	@#ps,word(sp)	;	nop mfps 2(sp)
-	return			;
-
-	stack	pc ps		;	
-	assume	vbit eq 2	;	
-	assume	sp.ps eq 2	;	and so is rti
-bo$cat:	bis	(pc),sp.ps(sp)	;	set return vbit
-	rti			;	(pop (sp),sev,return)
-				;346
-				;350
-	assume <.-r$mmon> le 352;351	end of lowmap
-	asect$	r$mmon+352	;
-r$musl:	.word	0		;352	usr location - unused
-r$mgtv: .word	0		;354	gt shift out vector - unused
-r$merc:	.word	0		;356	error count from cusps - unused
-
-r$mmtp:	br	bo$mtp		;360	move to ps
-r$mmfp:	br	bo$mfp		;362	move from ps
-bo$mtp:	assume	desyi. eq rti	;	$mtps - changes word not byte
-
-r$msyi:	.word	desyi.		;364	system device index
-r$mcfs: .word	0		;366	command file status - unused
-r$mcf2:	.word	0		;370	confg2 - extension config word
-r$msyg:	.word	sgfpu$		;372	sysgen options - from boot impure
-r$musa:	.word	2		;374	size of usr in bytes - constant
-r$merl:	.byte	esdef$		;376	image abort level - unused
-r$mcfn:	.byte	16.		;377	command file nesting level - unused
-r$memr:	.word	;sy$fex-r$mmon	;400	emt return path - unused
-r$mfrk:	.word	;fk$enq-r$mmon	;402	offset to fork processor - unused
-r$mpnp:	.word	b$opnm-r$mmon	;404	pname table offset
-r$mmnm:	.rad50	/BOOT  /	;406	monitor name
-r$msuf:	.rad50	/  V/		;412	driver suffix
-r$mdcn:	.word	0		;414	decnet - spool - unused
-r$minx: .byte	0		;416	ind extension - unused
-r$mins: .byte	0		;417	ind status - unused
-r$mmes:	.word	1600		;420	sj/fb memory size in pages - constant
-b$ompt:				;	dummy memory map
-r$mclg:	.word	0		;422	new usage - unused
-r$mtcf:	.wordr	b$otcf		;424	pointer to ttcnfg
-r$midv:	.wordr	b$oidv		;426	pointer to ind dev name
-r$mmpt:	.word	b$ompt-r$mmon	;430	offset to memory map
-r$mp1x:	.word	0		;432	par1 externalisation routine - unused
-.if ne 0
-r$mgcs:	.word	;sy$ert		;434	getcsr - v5.1 - sec, return
-r$mgvc:	.word	;sy$ert		;436	getvec - v5.1 - sec, return
-r$mdwt:	.word	0		;440	dwtype - v5.1
-	assume <.-r$mmon> eq 442;442	v5.1 & v5.2 end
-r$mtrs:	.word	0		;442	trpset - xm trap list
-r$mnul:	.word	0		;444	$nuljb
-r$miml:	.word	0		;446	imploc
-r$mkmn:	.word	0		;450	kmonin
-r$mprd:	.byte	0,0		;452	progdf - ked,f4
-r$mwld:	.byte	1		;454	wildef - wildcards
-	.byte	0		;455	unused
-	assume <.-r$mmon> eq rm.v54
-.endc
-
-bo$sav:	pshs	<r4,r3,r2,r1,r0>	;save registers
-	jmp	(r5)			;destroys r5
-
-bo$res:	bit	(sp),(sp)+		;skip, don't change c-bit
-	pops	<r0,r1,r2,r3,r4>	;restore registers
-	rts	r5			;
-;	Earlier hardware detection
-
-.sbttl	hardware detection
-siz$c=0
-
-bo$det::
-.if ne det$c
-	mov	#h$wswr,r3		;r3 -> switch register
-	mov	#r$mcfg+byte,r4		;r4 -> config+1
-	mov	#r$mcf2,r5		;r5 -> confg2
+	if boo->Amon[0] eq 012737	; mov #,@#100
+	&& boo->Amon[2] eq 0100		; mov #x,v$eclk
+	   ctl.Vsys = cuRTA		; RT-11
 					;
-	assume	cpf11. eq 3		;f11 - byte code
-	assume	cpt11. eq 4		;t11 - word code
-	assume	cpj11. eq 5		;j11 - byte code
-20$:	mfpt			;r0=?	; get the cpu type
-	sub	#cpt11.,r0		; this a falcon?
-	bne	40$			; no
-boxtp.=0
-30$:	bofat$	xtp		;r0=0	; yes - T11 error
+	elif boo->Amon[0] eq 0240	; nop
+	&& boo->Amon[1] eq 012767	; mov #x,v$eclk
+	&& boo->Vrst ne cuRST		; .rad50 /rst/
+	   ctl.Vsys = cuRST		; RUST
+	else
+	.. fail im_rep ("E-Not a bootstrap image", ctl.Aboo)
+	fine
+  end
 
-;	Bus test
-;
-;	r0=-1	f11 - byte
-;	r0=0	t11
-;	r0=1	j11 - byte
-;	r0=12	???
 
-40$:	tst	@#1			; odd trap separation
-	bvs	50$			; unibus or 11/73
-					;
-	incb	r0		;f11=-1	; f11 or lsi
-	bne	60$			; not f11 - qbus 03
-	clr	(r3)		;r0=0	; h$wswp	- writable switch register?
-	bvs	60$			; no - qbus f11 - 11/23
-	fall	50$		;r0=0	; yes - unibus f11 - 11/24
-					;
-50$:	decb	r0		;j11=1	; j11 or unibus (44)
-	bne	70$			; unibus (44)
-	bit	#kjuni$,@#k$jcpm;r0=0	; unibus bit in maintenance register?
-	bvs	70$			; no - unibus j11 - 11/84
-	bne	70$			; yes - unibus j11 - 11/84
-					; no - qbus j11 - 11/73
-	assume	cnbus$ eq 100	;r0=?	;
-60$:	bis	r2,(r5)		;r2=100	; r$mcf2 - set the qbus bit
-70$:	fall	bo$opt			;
+code	cu_put - write boot
 
-;	Set boot config and confg2
-; 
-;	cnclo$ is set by clock interrupt 
+  func	cu_put
+  is	rt_wri (ctl.Hboo, ctl.Vblk, ctl.Pboo, 1024, rtWAI)
+	pass fine
+	fail im_rep ("E-Error writing boot file", ctl.Aboo)
+  end
 
-bo$opt:	bis	r2,@#h$wlks	;r2=100	;h$wlks - check & set clock
-	bvs	10$			;	  no clock register
-	assume	100*256. eq cnkwc$	;
-	bisb	r2,(r4)		;r2=100	;r$mcfg+1 cnkwc$ set
-10$:	tst	@#ps			;	  do we have a psw ?
-	bvc	20$			;	  yes
-	bisb	#cnp03$/256.,(r4)	;r$mcfg+1 cnp03$ set for 11/03
-	mov	#bomf0.,b$omfp		;$mfps	  patch for LSI
-	mov	#bomf1.,b$omfp+word	;	  to mfps 2(sp)
-.if eq siz$c
-	br	30$			;	  dont check for 11/60
-	assume	jmp eq 100		;
-20$:	mov	#30$,r1			;	  skip if it fails
-	med6x				;med	  11/60 med instruction
-	.word	111		;jmp @r1;	  read csp(11)
-	bis	#cnp60$,(r5)	;r0=?	;r$mcf2	  got an 11/60
-.iff
-20$:
-.endc
-	assume	cnlds$ eq 20		;	  ld status is 'dont care'
-	assume	cneis$ eq 400		;
-	assume	20*20  eq 400		;
-30$:	mov	#20,r1			;cnlds$	  get root of cneis$
-	mul	r1,r1			;	  should make 400
-	bis	r1,(r5)		;clv	;cncf2$	  set 400 or 20
-	setf			;v=?	;	  do we have fpu ?
-	bvs	40$			;	  no
-	assume	cnfpu$ eq 100		;
-	bisb	r2,-(r4)	;r2=100	;r$mcfg - we have fpu
-40$:	tst	(r3)		;r4=?	;h$wswr - got a switch register?
-	bvs	50$			;no
-	bis	#cnswr$,(r5)		;r$mcf2 - yes
-50$:	clr	(r3)			;h$wswr - can we write it?
-	bvs	60$			;	  no
-	bis	#cnsww$,(r5)		;r$mcf2 - yes
-60$:
-.if eq siz$c
-	bis	#hwcdp$,@#h$wccr	;	  disable cache parity errors
-	bvs	70$			;	  have no cache
-	bis	#cncac$,(r5)		;r$mcf2 - have cache
-.endc
-70$:
-.if eq siz$c
-	tst	@#h$wlss		;	  got system size register?
-	bvs	80$			;	  no - not an 11/70
-	bis	#cnp70$,(r5)		;r$mcf2 - yes - an 11/70
-.endc
-					;
-80$:
-.if eq siz$c
-	clr	r0		;clv	;0: 0,0	  r0 -> null descriptors
-	l2d0			;v=v	;	  load two descriptors
-	bvs	90$		;r0:r4?	;	  no cis
-	bis	#cncis$,(r5)		;r$mcf2	  got cis
-.endc
-.endc
 
-90$:	br	bo$rst
-.sbttl	introduction
-
-;	The key idea behind BOOT.SYS is that the 1024 words available in
-;	the secondary boot area suffice to implement a bare-bones RT-11-based
-;	operating system with just enough functionality to read from 
-;	the system device using the bootstrap driver as the system driver.
-;
-;	The bootstrap structure of an RT-11 disk-like device:
-;
-;		+---------------+
-;	6...	| Directory	| <62.
-;		+---------------+
-;	2..5	| Secondary boot|  4  1024.	4000
-;		+---------------+
-;	1	| Home block	|  1  256.	1000
-;		+---------------+
-;	0	| Boot block	|  1  256.	1000
-;		+---------------+
-;	Block	Purpose		Blocks Words	Bytes (octal)
-;
-;	RT-11 copies blocks 1 through 5 of a monitor image (e.g. RT11SJ.SYS)
-;	to the Secondary Boot area.
-.sbttl	operational overview
-
-;	When BOOTED:
-;
-;	IMAGE	Execute image
-;		Errors invoked NOIMAGE state
-;	NOIMAGE	Execute SHELL.
-;	SHELL	Execute BOOT.SAV as command shell
-;		First time loads extended boot monitor
-;		Errors to MONITOR CLI
-;	MONITOR	Execute simple Run-by-name commands from BOOT
-;
-;	When RUN from:
-;
-;	BOOT	Acts as command shell
-;	RUST...	Acts as configuration utility
-;
-;	SHELL COMMANDS:
-;
-;	<run-by-name>	Activate image
-;			CCL supported
-;	BOOT spec	Boot image
-;			/ROM/DEVICE
-;	DIR spec	Directory command
-;	XXDP spec	Activate XXDP image
-;
-;	CONFIGURATION COMMANDS:
-;
-;	SET ...
-;	Implementation Notes:
-;
-;	BOOT states:
-;
-;	Monitor	Activation	Role
-;	-------	----------	----
-;	RUST	RUN  BOOT.SAV	Setup commands, Boot command
-;	none	BOOT BOOT.SAV	Load BOOT monitor, execute startup
-; ???	BOOT	RUN  BOOT.SAV	Extend BOOT monitor, additional commands 
-;
-;	RMON TABLE:
-;
-;	RMON table is populated with bits of code in between the
-;	retained RMON entries. The channel area has once-only code.
-;	Channels are never cleared. Lookup doesn't check for channel open.
-;
-;	TERMINAL:
-;
-;	Terminal is not interrupt driven and there are no ring-buffers.
-;	The terminal output routine checks for [ctrl/s], [ctrl/q] and
-;	[ctrl/c] during output, throwing away most other input characters.
-;	Thus, there is no type-ahead. XXDP uses the same strategy.
-;
-;	BOOT COMMAND:
-;
-;	A soft boot requires a dummy read of block 0 the device+unit before 
-;	boot activation to mimic the action of a hardware boot. There is no
-;	easy general solution under BOOT.SYS which can only access a
-;	a single device and unit. In fact, the solution is to implement
-;	a routine that installs the driver of the target device to send
-;	a single 1-word read request to that driver.
-;
-;	The opportunity is taken to implement the driver load task as a
-;	library routine.
-;
-; ???	It is unclear whether the BOOT.SYS monitor has enough RT-11 depth
-;	to support a driver install and a dummy read. The RMON driver exit
-;	path will be required.
-
-end file
-
-;	more complex memory size calculation
-
-	.if ne mes$c
-	clr	r1			;
-20$:	mov	(r1),r0			; check readable memory
-	bvs	30$			;
-	inc	r$mmes			; count pages
-	add	#mmbip.,r1		; next page
-	br	20$			;
-30$:	clr	r0			; move source
-	sub	#b$renx+mmbip.,r1	; move destination
-	.iff
-20$:	mov	(r1),r0			; check readable memory
-	bvs	30$			; end of readable memory
-	.if ne	wri$c			;
-	mov	r0,(r1)			; writeable?
-	bvs	30$			; end of writeable memory
-	.endc				;
-	add	#2,r1			; be reasonable
-	bne	20$			; more memory available
-
-;	other stuff I forget
-
-.if ne r$mmes
-r$mmes:	.word	-1		;420\	; sj/fb memory size in pages - constant
-.iff
-r$mmes:	.word	1600		;420\	; sj/fb memory size in pages - constant
-.endc
+
