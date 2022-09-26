@@ -6,12 +6,11 @@ mov$c=1	; MOV instead of TST
 bup$c=1	; boot unit/partition map
 
 rpt$c=1	; boot report
-err$c=1
+err$c=0	; halt on error
 
 def$c=0	; some defensive stuff
 tim$c=1	; host timeout
 dbg$c=0	; debug
-
 
 ;	RUST DU: handler
 ;
@@ -20,7 +19,7 @@ dbg$c=0	; debug
 ;
 ;	%build
 ;	goto 'p1'
-;	macro	drs:dup/object:drb:duv
+;	macro	drs:dup/object:drb:duv!  /list=drb:duv
 ;	macro	drs:mmg$t+drs:dup/object:drb:dup
 ;	link:
 ;	link	drb:duv/exe:drb:duv.sys/map:drb:duv/nobit/bound:1000
@@ -68,9 +67,9 @@ $imgdef DU 1 0
 $imginf fun=drv cre=hammo aut=ijh use=<RUST MSCP/UDA disk driver DU:>
 $imgham	yrs=<1986,2004> oth=<>
 ;	%date	
-$imgdat <14-Sep-2022 21:55:20>   
+$imgdat <26-Sep-2022 20:25:41>   
 ;	%edit
-$imgedt <77   >
+$imgedt <79   >
 .endm
 
 .macro	dupre$	cod
@@ -1001,7 +1000,7 @@ b$orty:	.word	durtc.			;retry counter
 	br	bo$trn			;do the transfer
 					;
 bo$rty:
-rpt$ R
+;rpt$ R
 	dec	b$orty			;all done?
 	bmi	bo$err			;yes - boot I/O error
 bo$ini:	mov	(pc)+,r5		;r5 -> csr
@@ -1010,7 +1009,6 @@ rpt$ I
 .if ne mov$c
 	mov	r4,(r5)+
 .iff
-
 	mov	#0,(r5)+		;sic] reset interface
 .endc
 	mov	#b$ouid-$,r3		;r3 -> values
@@ -1037,7 +1035,7 @@ rpt$ I
 	mov	#b$opkt-duboot,b$orpt	;setup the rings
 	mov	#b$opkt-duboot,b$ocpt	;(cleared by init)
 bo$onl:
-rpt$ L
+rpt$ N
 	jsr	r5,bo$pre		;set unit on-line
 	.word	mconl.			;online request
 	mov	#1,(pc)+		;flag on-line request
