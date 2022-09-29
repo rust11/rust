@@ -10,7 +10,7 @@ prb$c=0;1	; probe device
 ;tk$c=1		; stack boot receive packet
 tim$c=0		; timeout
 rep$c=0		; driver debug reports
-wai$c=1		; wait mode
+wai$c=1		; set wait option
 odt$c=0		; terminal boot driver (obsolete)
 
 ;	RUST DD: driver
@@ -58,9 +58,9 @@ $imgdef	DD 1 0
 $imginf fun=drv cre=hammo aut=ijh use=<RUST TU58 DECtape II driver DD:>
 $imgham	yrs=<2004> oth=<>
 ;	%date	
-$imgdat <29-Sep-2022 05:25:08>   
+$imgdat <30-Sep-2022 05:07:34>   
 ;	%edit
-$imgedt <94   >
+$imgedt <96   >
 .endm
 
 $brdef		;RT-11 bootstrap
@@ -313,7 +313,7 @@ map	ddbrk$,,1		; break
 map	ddenb$,,100		; interrupt enable
 map	ddrdy$,,200		; function done
 
-;	packet types
+;	Packet types
 
 set	ddDAT. 	1	; <->	; data packet
 set	ddCTL. 	2	; <->	; control packet
@@ -322,16 +322,18 @@ set	ddBOO. 	10	;  ->	; boot command
 set	ddCON. 	20	; <-	; continue command
 set	ddNUL.	30.	; <-	; null data packet
 
-map	dp.typ,byte,0		; packet type
-map	dp.cnt,byte		; byte count
-map	dp.cod,byte		; operation code
-map	dp.sta,byte		; modifier or status (<0 => error)
-map	dp.uni			; device unit (and switches)
-map	dp.seq		; 0	; sequence number
-map	dp.bct			; byte count
-map	dp.blk			; block number
-map	dp.chk			; checksum
-map	dp.bbs			;
+;	Packet
+
+map	dp.typ,byte,0	;00	; packet type
+map	dp.cnt,byte	;01 	; byte count
+map	dp.cod,byte	;02 	; operation code
+map	dp.sta,byte	;03 	; modifier or status (<0 => error)
+map	dp.uni		;04 	; device unit (and switches)
+map	dp.seq		;06 	; sequence number
+map	dp.bct		;10 08	; byte count
+map	dp.blk		;12 10	; block number
+map	dp.chk		;14 12	; checksum
+map	dp.bbs		;16 14 	;
 
 ;	Opcodes
 
@@ -952,15 +954,18 @@ bo$ini:	dec	r1			; count inits
 	movb	#1,7(r5)		; set break
 	b$obk0 = .-2
 .iff
-	mov	#1,(r5)			; set break
+;old	mov	#1,(r5)			; set break
+	bis	#1,(r5)			; set break
 .endc
-	clr	r0			;
+;old	clr	r0			;
+	mov	#-1,r0			;
 	call	bo$ptw			; two of them
 .if ne dzv$c
 	clrb	7(r5)			; clear break
 	b$obk1 = .-2
 .iff
-	clr	(r5)			; clear break
+;old	clr	(r5)			; clear break
+	bic	#1,(r5)			;
 .endc
 	mov	(pc)+,r0		; send two inits
 	.byte	ddINI.,ddINI.		;

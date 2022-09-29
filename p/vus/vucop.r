@@ -1,3 +1,4 @@
+cio$c := 1	; use C I/O
 ;???	sysgen compatibility
 ;???	driver present
 ;???	BOOT.SYS present
@@ -97,6 +98,9 @@ code	cm_cop - copy bootstrap to device
 	rx_unp (cst.Vdev, dev.Atmp)		; unpack device name
 	st_cop (dev.Atmp, drv.Atmp)		; assume driver is the same
 	drv.Atmp[2] = 0				; zap unit number
+
+;	copy/boot=drv ...
+
 	rx_unp (cmVdrv, drv.Atmp) if cmVdrv	; got explicit driver
 
 ;	Select and read the driver
@@ -108,8 +112,9 @@ code	cm_cop - copy bootstrap to device
 	vu_alc (&drv)				; allocate control block
 	vu_cln (&drv, &bas)			; clone it
 	exit if !vu_get (&bas)			; read driver base
-						;
-						; read the driver bootstrap
+
+;	Read the driver bootstrap
+
 	if !bt_drv (drv.Pfil, boo.Pbuf, &hdr->Vrea, "")
 	.. exit im_rep ("E-Error reading driver boot [%s]", dri.Aspc)
 
@@ -138,10 +143,17 @@ code	cm_cop - copy bootstrap to device
 
 ;	Write boot block and secondary boot
 
+If cio$c
+	if !fi_see (dev.Pfil, 0L)
+	|| !fi_wri (dev.Pfil, boo.Pbuf, 512)
+	|| !fi_see (dev.Pfil, 1024L)
+	|| !fi_wri (dev.Pfil, roo.Pbuf, 2048)
+	.. exit im_rep ("E-Error writing bootstrap [%s]", dev.Anam)
+Else
 	if !rt_wri (dev.Pfil, 2, roo.Pbuf, 2048/2, 1)
 	|| !rt_wri (dev.Pfil, 0, boo.Pbuf, 512/2, 1)
 	.. exit im_rep ("E-Error writing bootstrap [%s]", dev.Anam)
-
+End
 	fi_clo (dev.Pfil, "")	
        ;fi_prg (dri.Pfil, "")	; channel was cloned
   end
