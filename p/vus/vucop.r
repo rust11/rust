@@ -150,8 +150,8 @@ If cio$c
 	|| !fi_wri (dev.Pfil, roo.Pbuf, 2048)
 	.. exit im_rep ("E-Error writing bootstrap [%s]", dev.Anam)
 Else
-	if !rt_wri (dev.Pfil, 2, roo.Pbuf, 2048/2, rtWAI)
-	|| !rt_wri (dev.Pfil, 0, boo.Pbuf, 512/2, rtWAI)
+	if !rt_wri (dev.Pfil, 0, boo.Pbuf, 512/2, rtWAI)
+	|| !rt_wri (dev.Pfil, 2, roo.Pbuf, 2048/2, rtWAI)
 	.. exit im_rep ("E-Error writing bootstrap [%s]", dev.Anam)
 End
 	fi_clo (dev.Pfil, "")	
