@@ -1,4 +1,4 @@
-cio$c := 1	; use C I/O
+cio$c := 0	; use C I/O
 ;???	sysgen compatibility
 ;???	driver present
 ;???	BOOT.SYS present
@@ -12,7 +12,7 @@ include rid:rtboo
 include rid:rtcst
 include rid:rtdir
 include rid:rtdrv
-;nclude rid:rxdef
+include rid:rtrea
 include	vub:vumod
 
 code	cm_cop - copy bootstrap to volume
@@ -150,8 +150,8 @@ If cio$c
 	|| !fi_wri (dev.Pfil, roo.Pbuf, 2048)
 	.. exit im_rep ("E-Error writing bootstrap [%s]", dev.Anam)
 Else
-	if !rt_wri (dev.Pfil, 2, roo.Pbuf, 2048/2, 1)
-	|| !rt_wri (dev.Pfil, 0, boo.Pbuf, 512/2, 1)
+	if !rt_wri (dev.Pfil, 2, roo.Pbuf, 2048/2, rtWAI)
+	|| !rt_wri (dev.Pfil, 0, boo.Pbuf, 512/2, rtWAI)
 	.. exit im_rep ("E-Error writing bootstrap [%s]", dev.Anam)
 End
 	fi_clo (dev.Pfil, "")	
