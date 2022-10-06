@@ -1,0 +1,228 @@
+;	nothing here, really
+vamini=0
+.title	fat16 - FAT16 ACP
+.include "lib:rust.mac"
+.psect	rt11s d
+$apdef		;acp packet
+$chdef		;csw
+$dcdef		;device codes
+$dedef		;device record
+$erdef		;error
+$evdef		;eva
+$fndef		;filename
+$iodef		;i/o
+$jsdef		;jsw
+$mmdef		;mmu
+$rsdef		;rt11s
+$tbdef		;tb
+
+meta	<acp c><jsr r1,rt$cal><.word c>		;acp call-back
+
+;	Stranger ACP
+;
+;	%build
+;	macro rxs:FAT16/object:rxb:FAT16
+;	%end
+;
+;	See RT11S.MAC for general comments.
+;
+;	Disks mounted /FAT are sent here.
+;	Directory requests are interpreted.
+;	Transfer requests are windowed.
+
+assume	acloo. eq 0
+assume	acent. eq 1
+assume	acren. eq 2
+assume	acdel. eq 3
+assume	acclo. eq 4
+assume	acpur. eq 5
+map	rsmac.,,6	;maximum acp code for us
+;
+;	a$pchn	byte	request channel
+;	a$pcod	byte	$io subcode
+;	a$pblk		a$pp0 - sequence number
+;	a$pbuf		a$pfna+fn.fil		
+;	a$pwct		a$pp1 - enter size		
+;	a$pmod	byte	iospf$	
+;	a$pfun	byte	acp code
+;	a$pcom		
+;
+;	a$pfna	filnam	penfilnamtyp
+;	a$pfnb	filnam	penfilnamtyp	rename only
+;	a$pfns		pen		penultimate name
+;			^rxvx
+;		byte	prn	process number
+;		byte	chn	channel number
+;		word	0	satellite information
+;			eve package - maximum 500. bytes
+;
+;	p$hspu		error code
+;	p$hsps		enter/lookup size
+.sbttl	fat16 acp
+
+;	RT11S stranger ACP
+;
+;	Process RT11S ACP requests
+;	Handle VAMP interface
+;	Process EVA messages
+;
+;	r4 ->	csw
+
+ft$acp::;mov	sp,a$posp		;save the stack
+	movb	a$popr,r5		;r5 = operation code
+	cmpb	r5,#rsmac.		;is this out of range for us?
+	bhis	80$			;yes - ignore this
+					;
+	call	tb$acq			;r3 -> tb
+	mov	r3,a$ptbr		;remember it
+	movi	tb.buf,r3,a$pbuf 	;store the buffer address
+					;
+	bis	#csten$,(r4)		;assume its an enter channel
+	bic	#cseof$!csher$,(r4) 	;ignore previous errors
+.if ne vamini
+					;VX: clears this for some
+	mov	a$pder,r2		;r2 -> device record
+	assume	de.sta eq 0		;
+	cmpb	(r2),#devxc.		;is this the VX: code?
+	bne	20$			;nope
+	cmpb	r5,#acdel.		;is this a delete?
+	beq	20$			;yes - dont signal reset to avoid loop
+	mov	#r$svre,p$hsre		;yes - force a reset
+.endc
+20$:					;ap.chn - channel
+					;ap.cod - $io subcode
+	mov	a$pp1,a$pblk		;ap.blk	- seqnum
+					;ap.buf - filename in TB buffer
+	mov	a$pp2,a$pwct		;ap.wct - enter length
+	clrb	a$pmod			;ap.mod - control function
+	movb	r$scvt(r5),a$pfun 	;ap.fun - setup the function
+	clr	a$pcom			;ap.com - wait i/o
+					;[build name in ap for debug/trace]
+	mov	#a$pfnb,r1		;point past filename
+	cmpb	r5,#acren.		;this a rename?
+	bne	30$			;no
+	add	#fn.bbs,r1		;yes - point past the name
+30$:	mov	a$pfna,(r1)+		;the penultimate name
+	mov	#^rxvx,(r1)+		;move in the flag
+	clrb	(r1)+			;process number filled by handler
+	movb	a$pchn,(r1)+		;move in the job channel number
+	clr	(r1)+			;and signal not a satellite.
+					;
+	mov	#a$pfna+fn.fil,r0	;r0 -> filename
+	mov	a$pbuf,r1		;r1 -> tb buffer
+	mov	#12.,r2			;2 filenames + 4 extra
+40$:	mov	(r0)+,(r1)+		;move them in
+	sob	r2,40$			;
+					;
+	call	100$			;check for EVA package
+	bic	(r1),(r1)		;assume none - clear previous
+	bcs	50$			;is none
+45$:	mov	(r0)+,(r1)+		;pass the package
+	sob	r2,45$			;
+					;
+50$:	clr	p$hspu			;paranoia clear
+
+	call				;do the task
+
+	$io	#a$pchn			;and issue the spfun
+	mov	#erdio.,r0		;assume directory i/o error
+	bcs	60$			;oops - directory i/o error
+	mov	p$hspu,r0		;got a special error?
+	beq	70$			;no - dont set the error flag
+60$:	bis	#acerr$,r0		;force an error code
+70$:	cmpb	r5,#acpur.		;was this a purge?
+	beq	80$			;yes - ignore purge errors & size
+	mov	r0,a$psta		;return the status for all but purge
+	mov	p$hssz,a$pr0		;return the size for all but purge
+80$:;	mov	a$posp,sp		;get back the stack
+					;
+;	Return EVA package		;
+					;
+	call	100$			;check for EVA package
+	bcs	95$			;not an EVA package
+90$:	mov	(r1)+,(r0)+		;return the package
+	sob	r2,90$			;move it all
+95$:	return				;
+
+;	Setup EVA package
+;
+;	a$pp4	par6 page	;
+;	a$pp5	par6 address	;
+;				;
+;	.rad50	/som/		;
+;	.word	6!f		;size and flag
+;	.word	bytes		;message byte size
+;
+;	c=0	have package	
+;	c=1	no package
+;	r0 ->	EVA package
+;	r1 ->	TB EVA area
+;	r2 =	EVA package wordcount
+
+100$:	mov	a$pp4,@#m$kip6		;point to the page
+	mov	a$pp5,r0		;point to EVE package
+	mov	a$pbuf,r1		;point to TB
+	add	#rs.eva,r1		;point to EVA area
+	cmp	(r0),#^rsom		;this an EVE package?
+	bne	110$			;no
+	mov	ev.hps(r0),r2		;get the size
+	cmp	r2,#rsebs.		;is this too long?
+	bhis	110$			;yes
+	asr	r2			;no - return word count
+	tst	(pc)+			;have a package
+110$:	sec				;no package
+	return				;
+.sbttl	VAMP reset & data
+
+;	VAMP reset.
+;
+;	Called by .sreset.
+;
+;	If ph$sre<>0 then reset VAMP with .delete vx7:%reset.job.
+;	We need to avoid an infinite loop that could be caused if
+;	the .delete failed (the image would abort and try to reset
+;	again). The loop is avoided by not setting p$hsre for delete.
+;
+;	This routine is not called via the ACP interface.
+
+rs$rex::				;check for vms abort
+.if ne vamini
+	mov	p$hsre,r0		;should we reset it?
+	beq	20$			;no
+	bit	#jsovr$,p$hjsw		;is the program overlayed?
+	beq	10$			;yes
+	mov	#r$sjre,r0		;no - reset them all
+10$:	clr	p$hsre			;once only for fails
+	emt	375			;reset & ignore errors
+20$:
+.endc
+	return
+.if ne vamini
+					;$sreset=vreset if VX i/o performed
+r$svre:	.word	0,10$,0			;chan=0,code=0=delete,dblk=10$,seqnum=0
+10$:	.rad50	/vx7sresetjob/		;
+r$sjre:	.word	0,10$,0			;chan=0,code=0=delete,dblk=10$,seqnum=0
+10$:	.rad50	/vx7jresetjob/
+.endc
+
+	table	byte, step=1
+r$scvt:;	rs code	acp code
+	item	rsloo.	acloo.		;lookup
+	item	rsent.	acent.		;enter
+	item	rsren.	acren.		;rename
+	item	rsdel.	acdel.		;delete
+	item	rsclo.	acclo.		;close
+	item	rsclo.	acpur.		;purge
+	assume	$ eq rsmac.		;check maximum acp code
+
+;	item	acsav.	acsav.		;savestatus
+;	item	acreo.	acreo.		;reopen
+;	item	acgfi.	acgfi.		;get file
+;	item	acsfi.	acsfi.		;set file
+;	item	acgvo.	acgvo.		;get volume
+;	item	acsvo.	acsvo.		;put volume
+;	item	acmnt.	acmnt.		;mount
+;	item	acdsm.	acdsm.		;dismount
+;	assume	$ eq acomx.		;make sure we do them all
+.end
+

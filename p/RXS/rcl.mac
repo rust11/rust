@@ -1,0 +1,485 @@
+V4=0
+half=1
+.title	rcl - resident CLI
+.include "lib:rust.mac"
+.psect	rcl d
+$cfdef		;command file
+$eddef		;terminal editor
+$erdef		;error
+$esdef		;severity
+$fndef		;filename
+$fodef		;formatted output
+$imdef		;image
+$jbdef		;rt-11 job
+$mmdef		;mmu
+$prdef		;pcr
+$sedef		;set
+$stdef		;state
+$tedef		;terminal signals
+$txdef		;text
+meta	<clierr c><jsr r0,cl$er0><.word c>
+
+;	RUST/XM resident command language interpreter
+;
+;	%build
+;	macro	rxs:rcl/object:rxb:rcl
+;	%end
+;
+; ??	SET commands (cli, verify, quiet)
+; ??	.EXIT from errors so we catch user CLI's
+; ??	Parse user-defined symbols (unless _symbol)
+;
+;	NOTE: as$dcs in kin assumes cl$ast is in default par1 overlay.
+;
+;	Called as client AST by [ctrl/y] or [ctrl/c].
+;	Called as client AST by HALT instruction.
+;	Called as client root after image exit.
+;
+;	Following are executed in-house:
+;
+;	continue	Continue current process
+;	reenter		Restart image
+;	start	address	Start image at address
+;
+;	examine	address	Examine a location
+;	deposit	address	Deposit in location
+;	base	address	Set relocation base
+;
+;	spawn		Create another process.
+;			Result process has copy of our phd.
+;			Calls DCL routine to complete the spawn.
+;			DCL routine does most of the work.
+;	attach/id nam	Connect terminal to another process
+;	debug		Enter the debugger
+;
+;	set item	[no]trace, [no]debug, [no]verify
+;
+;	Following stop the image:
+;
+;	stop		Abort current image
+;	exit		Exit current process
+;	close		Close image channels
+;
+;	Following exit the current image first:
+;
+;	r image		Run an image from sy:
+;	run image	Run an image from dk:
+;	get image	Get an image
+;	save image	Save image
+;
+;	All other exit current image and call DCL.
+.sbttl	cli asts
+
+;	CLI asts
+; 
+;			break	purge	suspend	repaint	exit
+;	[ctrl/t]	no	no	no	yes	no
+;	[attach]	no	no	no	yes	no
+;
+;	[ctrl/c]	yes	yes	yes	yes	yes
+;	[ctrl/y]	yes	yes	yes	yes	maybe
+;	[ctrl/h] bs	yes	yes	yes	yes	no
+;	[ctrl/f]	
+;	[ctrl/b]
+;	realtime	
+;	message		
+; 
+;	CLI AST commands are collected in p$haln.
+;
+;	r0 = tasks to perform
+
+cl$ast::bit	#tecrt$,r0	;got a realtime signal?
+	beq	30$		;no
+20$:	bic	#tecrt$,r0	;yes - cleanup the signal
+	mov	p$hsgl,r1	;got a realtime routine?
+	beq	30$		;no - ignore it
+	mov	r0,p$hsig	;catch terminal signals later
+	psh	#mmdum$		;ast ps
+	psh	r1		;ast pc
+	jmp	as$tca		;transfer client ast
+
+30$:	mov	r0,r3		;r3 = signals
+	.rctrlo			;reset this
+	bis	#prast$,p$hsta	;process is in cli ast
+	bit	#tectc$!tecty$,r3 ;should we clean up more?
+	beq	40$		;no
+	bic	#prcom$,p$hsta	;delete existing command
+	clr	p$hedc		;clean this up
+	clr	p$hedl		;and the line
+40$:	mov	#60$,r2		;get the list
+50$:	mov	(r2)+,r1	;get the routine
+	beq	cl$ctx		;is none - [ctrl/t] or [attach] done
+	bit	(r2)+,r3	;is this one active?
+	beq	50$		;no
+	call	(r1)		;call the routine
+	br	50$		;and look for the next
+
+60$:	.word	cl$ctc,	tectc$	;[ctrl/c]
+	.word	cl$cty,	tecty$	;[ctrl/y]
+	.word	cl$ctb,	tectb$	;[ctrl/b]
+	.word	cl$ctf,	tectf$	;[ctrl/f]
+	.word	cl$ctt,	tectt$	;[ctrl/t]
+.if ne half
+	.word	cl$cat,	tecat$	;[attach]
+.endc
+	.word	cl$asc,	tecli$	;continue with ast (must be last)
+	.word	0		;end
+
+cl$ctt:	mov	#erctt.,r0	;[ctrl/t] - the message
+	call	er$dis		;display it
+cl$cat:	jsr	r5,cl$sfo	;tell the logger
+	.word	foatt.		;we have attached
+	return
+
+cl$cty:	.print	#c$lcty		;display our prompt
+cl$asc:	tst	(sp)+		;ast continue - don't return
+	br	cl$cli		;call the cli
+
+cl$ctc:	.print	#c$lctc		;[ctrl/c] just print this
+	call	te$sco		;now set us quiet
+	br	cl$asx		;and quit
+c$lctc::.asciz	"[cancel]"	;command cancel
+c$lcty:	.asciz	"[interrupt]"	;command interrupt
+	.even
+.sbttl	cli signal, continue, stop, exit, exit-first
+
+;	Check pending signals
+
+cl$sig:	bit	#prabt$!prast$,(r5) ;abort or AST?
+	bmi	cl$ctx		;aborting - leave anyway
+	beq	10$		;not an ast
+	tst	p$hsig		;got a signal coming?
+	bne	20$		;yes
+10$:	return			;
+20$:	bis	#tecli$,p$hsig	;yes - come back to us afterward
+	fall	cl$con		;
+
+;	Continue, ast exit, ^T exit
+
+cl$con::bit	#prast$,(r5)	;continue - are we in an ast?
+	beq	cl$cli		;nope - just repeat us
+cl$asx:	bis	#edint$!edrpt$,p$hedc ;interrupt & repaint
+cl$ctx:	bic	#prast$,p$hsta	;we are no longer active
+	.astx			;quit
+
+;	Stop process image
+
+cl$sto::tstb	(r4)		;this a process stop?
+	bne	cl$dcl		;no - send it to DCL
+	bit	#prast$,(r5)	;are we in an ast?
+	beq	cl$cli		;no - ignore this
+cl$asq:	pshs	<r0,r4>		;save this
+	call	ab$prc		;yes - set the abort up
+	call	te$sco		;set the terminal quiet
+	pops	<r4,r0>		;
+	br	cl$asx		;and exit
+
+;	Exit first	
+;
+;	Exit only applies to CLI asts
+;	In other cases the image has already exited
+;
+;	Exit-first sets a flag to reprocess the command after the exit.
+
+cl$exf:	bit	#prast$,(r5)	;are we in an ast?
+	beq	10$		;no - ignore this
+;	clr	p$hjoc		;kill any command file
+;	bis	#prcom$!prexi$,(r5) ;yes - signal command in buffer
+	bis	#prcom$!prabt$,(r5) ;yes - signal command in buffer
+;	mov	#ab$rti,p$hrti	;use the exit path to get out
+	br	cl$asq		;and exit here
+10$:	return			;
+.sbttl	process command line
+
+;	Called after image exit or as client ast.
+;	Get command from terminal or command file.
+;	We have no RP and must maintain stack.
+;
+;	Exit	Get next command line.
+;	Ast	Get intermediate command line.
+
+cl$cli::
+10$:	mov	#p$hsta,r5	;r5 -> status thruout
+
+	mov	#p$hasl,r4	;assume it was ast line
+	bit	#prast$,(r5)	;in an ast?
+	bne	15$		;yes - use the ast line
+	mov	#p$hlin,r4	;r4 -> input line thruout
+	bit	#prcom$,(r5)	;got an ast command?
+	beq	15$		;no
+	bic	#prcom$,(r5)	;we have no command
+	movbuf	p$hasl,p$hlin,82. ;move the buffer
+	br	20$		;and process it
+
+15$:	mov	sp,r2		;save current stack
+	sub	#14.,sp		;get an area
+	losig$ = tectc$!tecty$!tectb$!tectf$ ;breakthru signals
+	$cmkrnl	sp, #te$glw, p0=#0, p1=#losig$, p2=#p$hdot, p3=#0, p4=r4
+	mov	r2,sp		;
+20$:	call	cl$sig		;see if we were interrupted
+	ovcal$	cl$skp	utl	;skip white space
+	tstb	(r4)		;anything to process?
+	beq	cl$qui		;no
+	mov	#c$lsym,r1	;point to symbols
+cl$fnc:	ovcal$	cl$fnd	utl	;go match the command
+	bcs	cl$ccl		;check for ccl
+	clr	r1		;r1 guaranteed zero
+	jmp	(r0)		;call the routine
+
+cl$set::mov	#c$lset,r1	;set command
+	br	cl$fnc		;try again
+
+cl$qui:	bit	#prast$,(r5)	;in an ast?
+	bne	cl$cli		;yes - just repeat
+	.exit			;try to exit again
+
+cl$ccl:	cmpb	(r4),#':	;this a colon?
+	beq	cl$ccr		;yes - run ccl
+	fall	cl$dcl		;no
+
+;	Call DCL 
+
+cl$dcl:				;send command to dcl
+	call	cl$exf		;exit current image first
+	clr	r3		;parameter is zero
+cl$dcx::			;call dcl with parameter in r3
+	mov	#imcha$!imres$!imnac$!imdcl$,r1 ;assume a chain to it
+	mov	p$hkma,r2	;is it already present?
+	beq	10$		;no
+	mov	#imopn$!imsta$!imres$!imnac$!imdcl$,r1 ;yes - just start it
+10$:	clr	p$hkma		;once-only for overlay errors
+	$imgact	#p$hare, img=#p$hcln, ctl=r1, sta=r2, par=r3
+	clr	p$hser		;invalid dcl - don't loop
+	clr	p$hkmf		;no DCL in memory
+	br	cl$ers		;report the error
+
+;	Error processing 
+;
+;	Abort command file unless SET ERROR NONE
+;
+;	jsr	r0,cl$er0
+;	.word	code
+
+cl$er0:	movb	(r0)+,p$herr	;get the error code
+	tst	(sp)+		;forget callers r0
+cl$ers:	movb	p$herr,r0	;report error in p$herr
+	bmi	cl$erp		;fine - a fatal error
+cl$err:	movb	#ercom.,r0	;invalid command
+cl$erp:	call	er$dis		;report error in r0
+	bit	#prast$,(r5)	;in an ast?
+	bne	cl$cli		;yes - just repeat
+	bisb	#eserr$,p$hinx	;report this to IND
+	bitb	#eserr$,p$herl	;stop on error$?
+	beq	10$		;no
+	clr	p$hjoc		;yes - stop the command file
+10$:	br	cl$qui		;and start over
+.sbttl	r, run, start, reenter
+
+;	R and RUN
+
+.enabl	lsb
+cl$rsy::mov	#^rsy,r0	;r sy:
+	br	10$		;join common
+cl$ccr:	mov	#p$hlin,r4	;ccl run - point to name again
+	ovcal$	cl$skp	utl	;skip white space
+cl$run::mov	#^rdk,r0	;run dk:
+10$:	call	cl$exf		;exit image first
+				;
+	mov	#a$pfnb,r1	;point to the file name
+	mov	r1,r3		;r3 -> filename
+	mov	r0,(r1)		;set the default device
+	mov	#^rsav,fn.typ(r1) ;set the default type
+	mov	r4,r0		;point to the string
+	call	na$caf		;get a filename
+	bcs	cl$err		;no file
+.if ne V4
+	tst	a$pfnb+fn.fil	;got a filename?
+	beq	cl$dcl		;no - could be a label
+.endc
+	mov	r0,r4		;get this back
+	tstb	(r4)		;are we at the end of the line?
+	bne	cl$dcl		;nope - send this to dcl
+	clr	r4		;r4 = control flags
+
+cl$rux::			;exit to run - used for ind
+	bis	#imdcl$,r4	;setup the image activation type
+	mov	sp,r2		;setup to clean up stack
+	sub	#14.,sp		;allocate emt area
+	$imgact	sp,r3,r4,#0	;r3 -> image name, r4 = control flags
+	mov	r2,sp		;restore stack
+	br	cl$ers		;display the error in p$herr
+.dsabl	lsb
+
+;	Reenter & start
+;
+;	r1 = 0
+
+.enabl	lsb
+cl$ree::mov	#imact$!imopn$!imree$!imdcl$,r2 ;reenter
+	br	10$		;
+cl$sta::mov	#imact$!imopn$!imsta$!imdcl$,r2 ;start
+	call	cl$exf		;exit the image first
+	tstb	(r4)		;end of line?
+	beq	10$		;yes - start at default address
+	ovcal$	cl$oct	utl	;get an octal number
+	bcs	cl$dcl		;not an address
+10$:	call	cl$exf		;exit first
+	$imgact	#p$hare, #p$himg, r2, r1, #0
+	bcs	cl$ers		;oops
+	jmp	cl$qui		;
+.dsabl	lsb
+.sbttl	attach & detach
+
+;	Attach [pid]
+;	Detach [pid]
+;	[ctrl/b]
+; 	[ctrl/f]
+;
+;	Attach leaves the process in a wait state.
+;	Detach returns from the AST to the process.
+;	Default PID is root process.
+;	[ctrl/b] returns process to root process.
+;	[ctrl/f] attachs process to most recent attached process.
+;
+;	r3 =	wait flag
+;	r4 ->	input stream
+;	r5 ->	p$hsta
+
+	.enabl lsb		;
+cl$det::clr	r3		;/nowait
+	br	10$		;join common
+cl$att::mov	#prsus$,r3	;attach process
+10$:	mov	p$hter,r1	;get the terminal
+	beq	20$		;it has none
+	movb	te.roo(r1),r1	;get the root process number
+	bne	30$		;we have one
+20$:	mov	p$hprn,r1	;default to ourself
+30$:	tstb	(r4)		;end of line?
+	beq	40$		;yes - use default
+	ovcal$	cl$gpn	utl	;get the process number
+	tstb	(r4)		;this must be the end of the command
+	bne	90$		;oops
+40$:	cmpb	r1,p$hprn	;is this ourselves?
+	beq	80$		;yes - ignore it
+
+	mov	#erprc.,p$herr	;assume process not found
+	tst	r1		;will $attach default to us?
+	beq	50$		;yes
+				;
+	bis	r3,p$hsta	;suspend us perhaps
+	call	cl$atp		;try for a process
+	bcc	60$		;fine
+50$:	jmp	cl$ers		;report the system error
+				;
+60$:	tst	r3		;should we wait?
+	bne	70$		;yes
+	jsr	r5,cl$sfo	;signal the logger
+	.word	fodet.		;
+	jmp	cl$con		;no - issue CONTINUE
+70$:	bit	#prsus$,p$hsta	;wait for an unsuspend
+	beq	80$		;abort or resumed
+	$float			;wait for a signal of somekind
+	$stall	#70$,prwsi.	;and wait for a signal
+80$:	jmp	cl$qui		;go again
+90$:	jmp	cl$err		;invalid command
+	.dsabl	lsb
+
+;	[ctrl/b] & [ctrl/f]
+;
+;	Check for exit display
+;	Check for init display
+
+cl$ctb:	tst	(pc)+		;c=0 => background
+cl$ctf:	sec			;c=1 => foreground
+	bis	#tectt$,r3	;assume we fail
+	pshs	<r2,r3>		;[sic] dispatch needs these
+	stack	r3,r2		;
+	mov	p$hprn,r4	;get our process number
+	mov	p$hter,r3	;get the terminal
+	beq	30$		;is none
+	movb	te.roo(r3),r1	;assume background
+	bcc	10$		;it is
+	movb	te.fgd(r3),r1	;no, its foreground
+10$:	beq	20$		;nothing there - ignore it
+	cmp	r1,r4		;are we already this process?
+	beq	20$		;yes
+				;check for exit display
+	call	cl$atp		;attach the process
+	bcs	30$		;it failed
+	bic	#tectt$,(sp)	;we won
+	jsr	r5,cl$sfo	;tell the feature we detached
+	.word	fodet.		;
+20$:	cmpb	r4,te.roo(r3)	;are we the root?
+	beq	30$		;yes
+	movb	r4,te.fgd(r3)	;no - make us the foreground
+30$:	pops	<r3,r2>		;[sic]
+	return
+
+cl$sfo:	psh	r3		;signal terminal feature
+	mov	(r5)+,r3	;(r5)+ = signal
+	call	te$fea		;signal the feature
+	pop	r3		;
+	rts	r5		;
+
+cl$atp:	psh	r1		;pid 
+	mov	sp,r2		;save stack
+	clr	-(sp)		;no tid
+	clr	-(sp)		;no process name
+	psh	r2		;point to pid
+	clr	-(sp)		;space for the emt code
+	$attach	sp		;attach to the process
+	mov	r2,sp		;clean up the stack
+	inc	(sp)+		;skip pid
+	bcc	20$		;fine
+	movb	p$herr,r0	;get the error code
+	bmi	20$		;fine
+	movb	30$(r0),p$herr	;setup error code
+
+; ???	update terminal map according to P$HSET
+
+20$:	return			;return with status
+30$:	.byte	erprc.		;invalid process
+	.byte	eracr.		;missing rights
+	.byte	erter.		;invalid terminal
+	.even			;
+
+;cl$exa:			;examine
+;cl$dep:			;deposit
+;cl$bas:			;base
+;	jmp	cl$dcl		;goto dcl at present
+.sbttl	set commands
+
+;	set nocli, [no]debug, [no]step, [no]trace, [no]verify
+;	set [no]break
+
+meta	<setbit c><mov c,r0><br cl$sbt>
+meta	<clrbit c><mov c,r0><br cl$cbt>
+
+cl$ncl::clrb	p$hclr		;set nocli
+	br	cl$stx		;
+
+cl$ver::bic	#cfqui$,p$hcfs	;set noquiet
+	clrbit	#senov$		;set verify
+cl$nve::bis	#cfqui$,p$hcfs	;set quiet
+	setbit	#senov$		;set noverify
+
+cl$dbg::setbit	#setdb$		;set debug
+cl$ndb::bic	#setdb$,p$hset	;
+	mov	p$hter,r0	;get the terminal
+	beq	10$		;none
+	bic	#tecth$,te.con(r0) ;remove terminalflag
+	bic	#tecth$,te.pco(r0) ;remove terminalflag
+10$:	clrbit	#setdb$		;set nodebug
+
+cl$ste::setbit	#seste$		;set step
+cl$nst::clrbit	#seste$		;set nostep
+
+cl$tra::mov	#settr$,r0	;set trace
+cl$sbt:	bis	r0,p$hset	;set bit
+	br	cl$stx		;
+cl$ntr::mov	#settr$,r0	;set notrace
+cl$cbt:	bic	r0,p$hset	;clear bit
+cl$stx:	jmp	cl$cli		;start over
+
+.end
+

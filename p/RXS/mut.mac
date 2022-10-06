@@ -1,0 +1,268 @@
+.title	mut - monitor utilities
+.include "lib:rust.mac"
+.psect	mut d
+$ardef		;access right
+$erdef		;error
+$mmdef		;mmu
+$rpdef		;rp
+$srdef		;system right
+$stdef		;state
+
+;	%build
+;	macro	rxs:mut/object:rxb:mut
+;	%end
+;
+;	Save all registers
+;
+;	jsr	r5,ut$sav
+;	stack	sav r0 r1 r2 r3 r4 r5
+;
+;	cbit	not changed
+
+ut$sav::pshs	<r4,r3,r2,r1,r0,r5>
+	stack	ret r0 r1 r2 r3 r4 r5
+	mov	sp.r5(sp),r5
+	call	@(sp)+
+	pops	<r0,r1,r2,r3,r4,r5>
+	return
+
+;	Restore registers
+;
+;	jsr	r5,ut$res
+;
+;	cbit	not changed
+
+	stack	r5d sav r0 r1 r2 r3 r4 r5
+ut$res::bit	(sp)+,(sp)+		;throw away r5 and sav
+	pops	<r0,r1,r2,r3,r4>	;restore these
+	rts	r5			;restore r5 and return
+
+;	Clear buffer
+;
+;	clrbuf	dst.sa, bct.sv
+;
+;	jsr	r3,ut$cbf
+;	.word	dst
+;	.word	bct
+;
+;	sbp spr
+
+	.enabl	lsb		;
+ut$cbf::pshs	<r2,r1,r0>	;save these
+	mov	(r3)+,r0	;r0 -> destination
+	mov	(r3)+,r1	;r1 = byte count
+10$:	clrb	(r0)+		;clear one
+	sob	r1,10$		;more
+	br	20$		;exit
+
+;	Move buffer
+;
+;	movbuf	src.sa, dst.sa, bct.sv
+;
+;	jsr	r3,ut$mbf
+;	.word	src
+;	.word	dst
+;	.word	bct
+;
+;	kbo rcl rim sbp spr
+
+ut$mbf::pshs	<r2,r1,r0>	;move block
+	mov	(r3)+,r0	;r0 = source
+	mov	(r3)+,r1	;r1 = destination
+	mov	(r3)+,r2	;r2 = byte count
+	call	ut$mvb		;move them
+20$:	pops	<r0,r1,r2>	;restore these
+	rts	r3
+
+;	Move byte or word block
+;
+;	r0 ->	source
+;	r1 ->	destination
+;	r2 =	byte or word count
+
+ut$mvb::asr	r2		;make a word count
+ut$mvw::			;generic move
+30$:	mov	(r0)+,(r1)+	;move one
+	sob	r2,30$		;count them
+ut$rtn:	return			;return
+	.dsabl	lsb		;
+.sbttl	minor routines
+
+;	Check not in ast
+; 
+;	erusr.	hard error issued if in AST
+; 
+;	main rch rmi rsi
+
+ut$nas::.enabl	lsb		;not permitted in ast
+	bit	#stact$,p$hast	;are we in an ast?
+	beq	ut$rtn		;nope - just return (above)
+	.hard	erusr.		;yes - invalid usr reply
+
+;	Convert to upper case
+; 
+;	r0 = 	character
+;	call	ut$cas
+;	r0 =	character converted to upper case
+;	c=0	character is alphabetic
+; 
+;	mer rcl rsi rte
+
+ut$cas::ovjmp$	sx$cas	sys;syx	;convert to upper case
+ut$dig::ovjmp$	sx$dig	sys;syx	;check digit
+
+;	Skip alphanumeric characters
+; 
+;	r0 ->	asciz stream
+;	call	ut$ska
+;	r0 ->	next non-alphanumeric
+; 
+;	mna rsi - ??? remove
+
+ut$ska::ovjmp$	sx$ska	sys;syx	;skip alphabetic
+.sbttl	get/put previous mode byte
+
+;	Get next byte
+;	Put next byte
+;
+;	mm$grb	Uses par1 from rp
+;	mm$gnb	Uses existing par1
+;
+;	r1 ->	previous mode address
+;
+;	call	mm$gnb
+;
+;	r1 ->	next character
+;	r0 =	byte
+;
+;	c=1	address error
+
+.enabl	lsb
+mm$grb::call	mm$op1		;map rp.op1
+	br	10$		;join the common
+mm$gnb::psh	@#m$kip1	;get next byte
+10$:	psh	r1		;save r1
+	bic	#1,(sp)		;clean it up
+	movfd	@(sp)+,r0,60$	;get the next
+	bit	#1,r1		;was it odd?
+	beq	15$		;no
+	swab	r0		;yes
+15$:	br	40$		;exit
+				;
+mm$prb::call	mm$op1		;put next request byte
+	br	20$		;join common
+mm$pnb::psh	@#m$kip1	;put next byte
+20$:	asr	r1		;what is it?
+	bcc	30$		;its even
+	asl	r1		;even it up
+	mfpd	(r1)		;get it
+	bvs	60$		;oops - none on stack
+	movb	r0,1(sp)	;put in even byte
+	mtpd	(r1)+		;put it back
+	bvs	70$		;oops - one on stack
+	br	50$		;
+				;
+30$:	asl	r1		;it was even
+	mfpd	(r1)		;get it
+	bvs	60$		;oops
+	movb	r0,(sp)		;put in even byte
+	mtpd	(r1)		;put it back
+	bvs	70$		;oops
+40$:	inc	r1		;step past it
+50$:	tst	(pc)+		;fine
+60$:	sec			;address error
+mm$rp1:	jmp	sy$rp1		;return restoring par1
+70$:	tst	(sp)+		;pop saved word
+	br	60$		;set c bit
+.dsabl	lsb
+.sbttl	request access
+
+;	These routines move to and from previous mode.
+;	Kernel par1 is mapped back to the caller with rp.op1.
+;
+;	Move from previous mode
+;
+;	r0 =	count (mm$mfc & mm$mtc only)
+;	r1 ->	previous mode source
+;	r2 ->	current mode destination
+;
+;	ve$xth	delivers exceptions, if defined.
+;	em$err	delivers exceptions if no kernel trap handler.
+
+	.enabl	lsb
+mm$mfc::			;move from counted
+10$:	call	mm$mfd		;move one
+	sob	r0,10$		;
+	return
+mm$mfd::call	mm$op1		;move from previous
+	movfd	(r1)+,(r2)+,40$	;get the next
+	br	mm$rp1		;restore par1 and return
+mm$mtc::			;move to counted
+20$:	call	mm$mtd		;move one
+	sob	r0,20$		;count it
+	return
+mm$mtd::call	mm$op1		;move to previous
+	movtd	(r2)+,(r1)+,40$ ;move it
+	br	mm$rp1		;restore par1 and return
+
+;	Move from word
+;	Move to word
+;
+;	r3 ->	address
+;	r0 =	value
+;	cc =	word
+
+mm$mfw::call	mm$ep1		;even up r3 and map old par1
+	movfd	(r3)+,r0,40$	;get the word
+	br	mm$rp1		;restore par1 and return
+mm$mtw::call	mm$ep1		;move to word
+	movtd	r0,(r3)+,40$	;
+	br	mm$rp1		;restore par1 and return
+
+;	Exception
+
+40$:	pop	@#m$kip1	;restore us
+	tst	p$hexc		;got an exception handler?
+	beq	50$		;no
+	jmp	ve$xth		;yes - deliver via it
+50$:	.hard	eradr.		;invalid address
+	.dsabl	lsb
+
+;	Even r3 and map rp.op1
+;	Map rp.op1
+
+mm$ep1:	bic	#1,r3		;even up and map old par1
+mm$op1:	psh	(sp)		;move down the return
+	stack	ret kp1		;
+	mov	@#m$kip1,sp.kp1(sp) ;save par1
+	mov	rp.op1(r5),@#m$kip1 ;map old par1
+	return
+.sbttl	check system rights
+
+;	$right	right-code
+;
+;	The user-right required for the operation is checked.
+;
+;	Check the user-right. 
+;	If it fails, set the bit in an error mask for debug.
+;	Trace should display the message.
+;
+;	jsr	r3,ar$cur	;
+;	.word	srXXX.		;right code
+;
+;	.byte	word-offset	;offset in rights mask
+;	.byte	bit-in-word	;
+
+sr$chk::			;check user right
+	pshs	<r1,r0>		;save these
+	movb	(r3)+,r0	;get the word offset
+	movb	(r3)+,r1	;get the bit offset
+	clc			;c=0 => assume success
+	bit	w$omap(r1),p$hsr0(r0)	;c=0 - do they have it?
+	bne	20$			;c=0 - yes
+	bis	w$omap(r1),p$hmr0(r0)	;c=0 - no - remember it was missing
+	sec			;c=1 => failure
+20$:	pops	<r0,r1>		;c=? - restore these
+	rts	r3		;
+.end
+

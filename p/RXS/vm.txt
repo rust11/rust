@@ -1,0 +1,147 @@
+RUST/VM
+
+Goal		Test Proof-Of-Concept of User Mode Virtual Memory
+Process header	Always mapped (that's the actual limit)
+Virtual I/O	Required to handle cross-segment I/O
+I/O Page Locks
+XM Overlays	Not supported; process is NOVIRT
+Fixed Page File	Initially at least
+Page File Map	1-bit per 4kw segment
+
+Page File	32kw process = 128 blocks
+		10x = 1280 blocks
+		50x = 6400 blocks
+
+		1MB = 1k * 1kb = 2k * 512b
+		4MB = 8k * 1kb = 8k * 512b
+
+16 prcesses per MB
+64 maximum
+
+Process Map	Eight entries, 1 per 4kw segment
+		1..1023	page file entry
+
+		6 bits
+		U=0	Unmapped
+		N=1	Non-resident
+		I=2	Incoming
+		O=3	Outgoing
+		R=4	Resident
+		P=5	Permanent (never paged)
+
+		O	Operation In Progress
+I/O LOCKS	Counted?
+		Search TBs?
+		Synchronous I/O only?
+
+PAGE FILE I/O	Page File I/O will be synchronous for POC.
+		No process activity during Page File I/O.
+		That includes ASTs
+
+Kernel Map	Max 64 processes, 8 segments per process
+TASKS::
+
+MARK SOURCES		
+MARK MEM REFS		
+$VMDEF			Definitions
+KVM.MAC			Permanent code
+VM.FEA			Where the rest goes
+PHD SLOTS		
+
+DEBUGGER		Display VM states and instruction translation
+			Access unloaded pages
+
+CONCEPTS::
+
+
+PDP-11 PAGE SIZE	4kw
+
+
+
+$VMDEF::
+
+;-----------------------;
+; RUST/VM		;
+;-----------------------;
+;
+.MACRO	$VMDEF
+map	vm.sta	,,0	; status
+map	vm.sr0		; mmu sr0 copy
+map	vm.sr1		;
+map	vm.sr2		;
+map	vm.pcp		; process context pointer
+;			;
+map	vm.psn		; process slot #
+;
+;
+;	Page file map
+;
+map	vmpct.,255.	; 
+;
+map	pm.map	,,8.*2	; eight 4kw page entries
+;
+;	Page Control
+;
+map	vmpag$,,7	; page in process mask (0..7)
+map	vmprc$,,770	; process # mask (1..63.) (0 = unused)
+;ap	vm$,,1000	;
+;ap	vm$,,2000	;
+;ap	vm$,,4000	;
+map	vmsto$,,10000	; copy in cache
+map	vmmem$,,20000	; copy in memory
+map	vmper$,,40000	; permanent
+;			; Unused is (per$ && !(sto$||mem$))
+map	vmmap$,,100000	; mapped in memory
+
+;
+;	Virtual 
+
+Process Map	Eight entries, 1 per 4kw segment
+		1..1023	page file entry
+
+		6 bits
+		U=0	Unmapped
+		N=1	Non-resident
+		I=2	Incoming
+		O=3	Outgoing
+		R=4	Resident
+		P=5	Permanent (never paged)
+
+		O	Operation In Progress
+
+Unmapped
+Incoming
+Outgoing
+Mapped
+Reflected
+
+
+I/O LOCKS	Counted?
+		Search TBs?
+		Synchronous I/O only?
+.ENDM
+ROUTINES::
+
+;	Translation
+
+vm$opf:		Open page file
+vm$rea:		Read from page file
+vm$wri:		Write to page file
+;
+;	Non-Resident Fixups
+;
+vm$a2p:		Virtual Address to Page #
+vm$i2a:		Instruction to Address
+vm$gpf:		Get Page Fail Slot	
+		In: MMR0, MMR1, MMR2
+		Out: Slot #
+vm$fps:		Fix Process State
+		In: MMR0, MMR1, MMR2
+		In: Process stack context
+		Out: Saved register context fixed
+;
+;	Page Status
+;
+
+
+

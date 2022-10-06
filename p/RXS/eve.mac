@@ -1,0 +1,378 @@
+explor=0
+.title	eve
+.include "lib:rust.mac"
+.psect	eve d
+$evdef		;eve
+$mmdef		;mmu
+$rpdef		;rp
+
+;	RUST/XM EVE processor
+;
+;	%build
+;	macro	rxs:eve/object:rxb:eve
+;	%end
+;	%date
+;	<20-Nov-2010 20:53:39.09>
+;	%edit
+;	<80   >
+;
+;	This module is linked with RUST/XM or the EV: handler.
+;	It interprets an EVE message.
+;
+;	Call with the following:
+;
+;	psh	#package	;address of the package
+;	psh	#table		;address of translation table
+;	call	ev$pro		;call the processor
+;
+;	RUST/XM routines call ev$pa6 to map par6.
+;
+;	p$hcrp	current rp
+;	rp.p0	points to start of buffer
+;	r0	offset to data block
+;
+;	See the EVE documentation for a description of the package
+;	and table structures.
+;
+;	No registers changed.
+; 
+;	c=0	interpreted o.k.
+;	c=1	error detected or no package
+; 
+;	The main dispatch table points to the group tables.
+;	The first pointer must indicate the general group.
+; 
+;	.word	nam,.-tab
+;	...
+;	.word	0
+; 
+;	Call tables specify the name, minimum length, a parameter and offset.
+; 
+;	.word	nam,len,par,.-rou
+;	...
+;	.word	0
+; 
+;	Calls routine with following:
+; 
+;	r0	first data word
+;	r1	callers parameter
+;	r2 	callers r2
+;	r3	callers r3
+;	r4 ->	item data area
+;	r5 ->	eve frame
+;
+;	2(r5)	item length
+;
+;	The routine may modify any register except r5.
+;
+;	To skip the remainder of the current group:
+;
+;	mov	ev.fng(r5),ev.fnc(5)
+;	return
+
+map	ev.fca	word,0		;current call address
+map	ev.fcl			;current call length - assumed by others
+map	ev.fnc			;next call
+map	ev.fgr			;current group - 0 => none
+map	ev.fng			;next group
+map	ev.fsv	null		;save return offset
+map	ev.fen			;end of package
+map	ev.fr0			;
+map	ev.fr1			;
+map	ev.fr2			;
+map	ev.fr3			;
+map	ev.fr4			;
+map	ev.fr5			;
+map	ev.frt			;return address
+map	ev.fta			;table address
+map	ev.fpa			;package address
+.sbttl	eve processor
+
+ev$pro::			;decode message
+				;ev.fpa - package addres
+				;ev.fta - table address
+				;ev.frt - return to caller
+	jsr	r5,ut$sav	;save <r5,r4,r3,r2,r1,r0>
+	tst	(sp)+		;dont return to save routine
+	stack	r5 r4 r3 r2 r1 r0
+	mov	#6,r0		;clear six
+5$:	clr	-(sp)		;clear next
+	sob	r0,5$		;
+;	clr	-(sp)		;ev.fen - frame end
+;	clr	-(sp)		;ev.fng - no next group
+;	clr	-(sp)		;ev.fgr	- no group
+;	clr	-(sp)		;ev.fnc - no next call
+;	clr	-(sp)		;ev.fcl - call data length
+;	clr	-(sp)		;ev.fca - no current call
+	mov	sp,r5		;r5 -> frame always
+	mov	ev.fpa(r5),(r5)	;point to the package
+	mov	(r5),r1		;
+	mov	(r5),r4		;remember the start
+
+;	ensure we have a valid header 
+
+	cmp	(r4)+,#^rsom	;this the first word of the header?
+	bne	490$		;no - not a message
+	mov	(r4)+,r0	;get the length
+	bic	#1,r0		;clean it up
+	cmp	r0,#6.		;is this the right length?
+	bne	490$		;no - ignore it
+	mov	(r4),ev.fen(r5)	;save package length to work out end
+	cmp	(r4)+,#500.	;is the message too long?
+	bhis	490$		;yes - message too long
+	add	r1,ev.fen(r5)	;finish end calculation
+	bcs	490$		;this is ridiculous
+	cmp	(r4)+,(r4)+	;skip the scratch stuff
+	mov	r4,ev.fnc(r5)	;set the next
+
+10$:	mov	(r5),r4		;get the item
+	bis	#evip$p,ev.idl(r4) ;remember we did it
+20$:	mov	ev.fnc(r5),r4	;get the next item
+	mov	r4,(r5)		;address of current call
+
+;	get the token in r0 
+
+	mov	(r4)+,r0	;r0 = token
+
+;	calculate length of item
+
+	mov	(r4)+,r1	;get the next length
+	bic	#evil$n,r1	;isolate the length
+	mov	r4,ev.fnc(sp)	;point past it
+	add	r1,ev.fnc(sp)	;add it in
+	cmp	ev.fnc(sp),ev.fen(sp) ;does this exceed the space?
+	bhi	490$		;yes - item is too long
+
+;	check for a system token
+; 
+;	<10.	invalid		catch crazy numbers
+;	nop	no operation	just acknowledge reception
+;	sog	start of group	setup a new group
+;	eom	end of message	exit happy
+
+50$:	cmp	r0,#10.		;is this valid?
+	blo	490$		;no
+	cmp	r0,#^rnop	;is this a nop?
+	beq	10$		;yes
+	cmp	r0,#^reom	;this end of message?
+	beq	500$		;yes - quit
+.if ne explor
+	cmp	r0,#^reve	;this an EVE explore?
+	bne	60$		;no
+	call	ev$eve		;yes - explore it
+	br	10$		;get the next item
+.endc
+60$:	cmp	r0,#^rsog	;is this a group?
+	bne	200$		;no - look for a token
+
+;	search for a group
+;
+;	.rad50	/sog/		; group item
+;	.word	4
+;	.word	gbs
+;	.rad50	/nam/
+;
+; 	.rad50	/grp/		; group dispatch
+;	.word	grptab-.
+;	...
+;	.word	0
+
+100$:	cmp	r1,#4			;right group length?
+	bne	490$			;no - we die
+	mov	(r5),ev.fng(r5)		;calculate next group
+	add	(r4)+,ev.fng(r5)	;point past
+	bcs	490$			;ridiculous - address overflow
+	cmp	ev.fng(r5),ev.fen(r5)	;out of bounds?
+	bhi	490$			;yes - ignore it
+
+	mov	ev.fta(r5),r3	;point at the groups
+110$:	cmp	(r4),(r3)	;is this our group?
+	beq	130$		;yes
+	cmp	(r3)+,(r3)+	;no - skip to next group
+	tst	(r3)		;any more groups?
+	bne	110$		;no
+
+;	skip a group
+
+120$:	clr	ev.fgr(r5)	;we no longer have a group
+	mov	ev.fng(r5),ev.fnc(r5) ;point to the next group
+	br	20$		;and do it
+
+;	found a group
+
+130$:	mov	r3,ev.fgr(r5)	;store a pointer to the group
+
+;	item completed
+
+140$:	br	10$		;item did o.k.
+
+;	search for the token in the group 
+;
+;	r0	token
+;	r1	length
+;
+;	.rad50	/nam/
+;	.word	len
+;	.word	par
+;	.word	rou-.
+
+200$:	mov	ev.fgr(r5),r3	;defined a group yet?
+	beq	490$		;no - invalid message
+	tst	(r3)+		;skip to the offset
+	add	(r3),r3		;yes - relocate it
+210$:	cmp	r0,(r3)+	;is this ours
+	bne	220$		;no
+	psh	(r3)		;get the length
+	bic	#evil$n,(sp)	;isolate the length
+	cmp	r1,(sp)+	;are we too long?
+	blos	230$		;no - we are o.k.
+				;yes - skip to next item
+220$:	add	#6,r3		;point at the next
+	tst	(r3)		;any more
+	bne	210$		;yes
+	br	20$		;no - ignore it
+
+230$:	mov	r1,ev.fcl(r5)	;2(r5) = data length
+	mov	(r3)+,r1	;get the length
+	bic	#evif$n,r1	;isolate the format
+	bit	#evif$p,-2(r4)	;do they want to know about it?
+	bne	235$		;no
+	bis	r1,-2(r4)	;yes - return it
+235$:	mov	(r4),r0		;r0 = first word of call
+;	mov	r1,ev.fcl(r5)	;2(r5) = data length
+	mov	(r3)+,r1	;r1 = parameter
+	psh	(r3)		;get the offset
+	add	r3,(sp)		;to the base
+				;r2 = callers r2
+	mov	ev.fr3(r5),r3	;r3 = callers r3
+				;r4 -> item data area
+				;r5 -> eve package
+	call	@(sp)+		;call the routine
+	br	140$		;\ get another
+	br	120$		;! skip a group
+490$:	inc	ev.fta(r5)	;! error
+500$:	mov	r5,sp		;/ finish up
+	add	#ev.fr0-2,sp	;setup for restore
+	jsr	r5,ut$res	;restore the registers
+	asr	2(sp)		;set status
+	pop	(sp)		;push out the parameters
+	pop	(sp)		;
+	return			;done
+.sbttl	eve explorer
+
+;	Explore EVE
+;
+;	.rad50	/groupname/
+;	.rad50	/callname/
+;	.word	callformat
+;	...
+;	.word	0
+;	.rad50	/groupname/
+;	.rad50	callname
+;
+;	ev.xct		negative processor skip count
+;	ev.xsg		group skip count - usually zero
+;			ignored if issued within a group
+;	ev.xsc		call skip count - usually zero
+;	ev.xda		data area
+;
+;	.word	gnm	group name
+;	.word	cnm	call name
+;	.word	cfm	call format
+;
+;	r0 ->	call dispatch table
+;	r1 = 	bytes/words to move
+;	r2 ->	next group
+;	r3 ->	groups or calls to skip
+;	r4 ->	package
+
+.if ne explor
+.enabl	lsb
+ev$eve:				;explore EVE
+	psh	r2		;save this guy
+	asr	r1		;get a word count
+	dec	r1		;room for the first?
+	bmi	60$		;no more
+	inc	(r4)+		;is this ours?
+	bne	60$		;no - forget it
+
+	dec	r1		;room for the first?
+	bmi	60$		;no more
+	mov	(r4)+,r3	;r3 = groups to skip
+	mov	ev.fgr(r5),r2	;are we in a group anyway?
+	bne	10$		;yes - start here
+	mov	ev.fta(r5),r2	;no - start with first
+
+10$:	tst	(r2)		;any more groups?
+	beq	60$		;no - forget it
+	dec	r3		;is this it?
+	bmi	20$		;yes
+	cmp	(r2)+,(r2)+	;skip it
+	br	10$		;and look again
+
+;	r2 ->	group entry
+
+20$:	dec	r1		;got calls to skip?
+	bmi	60$		;no more
+	mov	(r4)+,r3	;get the calls to skip
+
+30$:	dec	r1		;room for the group name?
+	bmi	60$		;no
+	mov	(r2)+,(r4)+	;move back the group name
+	beq	60$		;no more groups
+
+	mov	r2,r0		;r0 -> call table
+	add	(r2)+,r0	;r2 -> next group
+
+40$:	tst	(r0)		;last call in group?
+	beq	50$		;yes - terminate group and look for more
+	tst	r3		;is this our call?
+	beq	50$		;yes
+	dec	r3		;no - skip one more
+	add	#10,r0		;skip the call
+	br	40$		;
+
+50$:	dec	r1		;room for more?
+	bmi	60$		;no
+	mov	(r0)+,(r4)+	;yes - move in another
+	beq	30$		;done - look for more groups
+	dec	r1		;room for more?
+	bmi	60$		;no
+	mov	(r0)+,(r4)+	;move the rest
+	cmp	(r0)+,(r0)+	;skip internal stuff
+	br	50$		;fine
+60$:	pop	r2		;
+	return			;and quit
+.dsabl	lsb
+.endc
+.sbttl	map buffer
+
+;	Map user buffer to par6
+;
+;	This routine may not reside in par1
+;
+;	r0 =	callers buffer address
+;	r5 ->	rp
+;
+;	m$kip6	mapped page
+;
+;	r0 ->	mapped address
+
+ev$mbu::			;map the buffer
+	pshs	<r2,r1>		;
+	tst	rp.ps(r5)	;this from kernel or user mode?
+	bmi	10$		;user
+	psh	@#m$kip1	;save par1
+	mov	rp.op1(r5),@#m$kip1 ;map caller par1
+	call	io$ckm		;convert kernel address
+	pop	@#m$kip1	;restore par1
+	br	20$		;
+10$:	call	io$cum		;convert user address
+20$:	mov	r1,@#m$kip6	;map the buffer
+	bic	#m$mpa1,r2	;adjust for par6
+	bis	#m$mpa6,r2	;
+	mov	r2,r0		;return it in r0
+	pops	<r1,r2>		;restore these
+	return
+.end
+

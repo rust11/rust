@@ -1,0 +1,39 @@
+.title	dnl - nl: device
+.include "lib:rust.mac"
+.psect	dnl d
+$chdef		;channel
+$txdef		;text
+.qeldf		;rt-11 i/o queue
+
+;	SHAREplus NL: null device driver
+;
+;	%build
+;	macro	rxs:dnl/object:rxb:dnl
+;	%end
+;
+;	Original RP still available in p$hcrp.
+;
+;	This is not really a driver. It is part of the calling process.
+;	Does not have an I/O queue (although it has an I/O count).
+;	Passed the address of the queue element in r4.
+;	Handles multiple simultaneous requests.
+;	Complete with a return.
+;
+;	Virtual-address device. Buffer address is unmapped.
+;	Called in process state. Buffer is in previous mode.
+;
+;	r2 ->	csw area
+;	r3 ->	unit record
+;	r4 ->	queue element (q$blkn)
+;	r5 ->	tp
+;
+;	Driver header is in kernel dispatcher
+;	Executes in UTL overlay
+
+nl$sta::			;rt-11 null device handler
+	tst	q$wcnt(r4)	;this a read?
+	ble	10$		;no
+	bis	#cseof$,@q$csw(r4) ;yes
+10$:	return			;done
+.end
+

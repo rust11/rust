@@ -1,0 +1,232 @@
+rst$c=1
+.title	kti - kernel timer routines
+.include "lib:rust.mac"
+.psect	kti
+$addef		;ast delivery
+$pedef		;process enables
+$prdef		;pcr
+$stdef		;state
+$tidef		;timer
+
+;	Kernel time utilities
+;
+;	%build
+;	macro	rxs:kti/object:rxb:kti
+;	%end
+;
+;	%date
+;	<20-Nov-2010 20:53:37.42>
+;	%edit
+;	<45   >
+;
+;	Get system time.
+;
+;	r0 = high-order
+;	r1 = low order
+
+ti$tim::			;get time
+	call	ti$tik		;get the ticks
+	sub	t$ilod,r1	;remove low delta
+	sbc	r0		;propagate
+	sub	t$ihod,r0	;and this too
+	return
+
+;	Get tick count.
+;
+;	r0 = high-order ticks
+;	r1 = low-order ticks
+;
+;	Low-order overflow is rare. Rather than block interrupts
+;	simply check that the high-order did not change.
+;	High-order overflow occurs after a year or so.
+
+ti$tik::			;get ticks
+10$:	mov	c$lhot,r0	; r0 = high order
+	mov	c$llot,r1	; r1 = low order
+	cmp	c$lhot,r0	;did we roll?
+	bne	10$		;yes
+	return
+.sbttl	deliver timer
+
+;	Deliver timer AST's and trigger the scheduler timeslice.
+;	The clock ISR posts this fork routine when c$lsem is -1.
+;
+;	.MRKT	Process timer request.
+;		Post client AST and monitor timer signal to process.
+;	S$MARK	Real-time server timer request.
+;		Map server and call directly.
+;	.TIMIO	Handler timer request. External handlers only.
+;		Post kernel client AST to kernel handler.
+;
+;	System	kernel - Clock overflow. Interrupt & fork
+;	Process	kernel & user
+;	Idle	kernel - scheduler active
+
+ti$del::mov	#s$ycpu+2,r0		;[patch] assume system idle
+.if eq rst$c
+	add	c$lsem,(r0)		;account for lost ticks
+	adc	-2(r0)			;
+.endc
+	bit	#stact$,s$csta		;is the scheduler active?
+	bne	10$			;yes - dont interrupt it
+	bic	#stdor$,s$csta		;tell it can go again
+;	bit	#stlim$,s$csta		;in limbo?
+;	bne	10$			;yes - account as system
+	mov	#p$hcpu+2,r0		;no - account on process
+10$:	inc	(r0)			;count the tick
+	bne	20$			;no low-order overflow
+	inc	-(r0)			;increment high order
+
+;	Search for expired timer elements
+
+20$:	mov	t$ique,r0		;get the timer queue
+	beq	50$			;is none
+	cmp	ad.hot(r0),c$lhot 	;has this expired?
+	bhi	50$			;no - ignore it
+	blo	30$			;yes - definitely
+	cmp	ad.lot(r0),c$llot 	;truly?
+	bhi	50$			;no
+30$:	mov	(r0),t$ique		;yes - take it out
+	clr	(r0)			;and clear its link
+	mov	ad.cr1(r0),r4		;r4 -> pcr
+					;
+	cmp	ad.cr0(r0),#tirti. 	;this a realtime element?
+	bne	35$			;no
+	call	@ad.cpc(r0)		;yes - complete it
+	br	20$			;and we are done
+					;
+35$:	mov	r4,r2			;point to the queue
+	add	#pr.acq,r2		;point to the first
+40$:	mov	r2,r3			;keep current link
+	mov	(r3),r2			;any more?
+	bne	40$			;yes
+	mov	r0,(r3)			;link us in
+	clr	r0			;send a dummy signal to the process
+	call	as$pms			;post the signal
+	br	20$			;and look again
+50$:
+.if ne rst$c
+	dec	c$lsem			;all done?
+	bpl	ti$del			;nope - do another tick
+.iff
+	mov	#-1,c$lsem		;catch the next tick
+.endc
+	return
+
+;	Twait completion routine
+;
+;	Runs in target process context
+
+ti$twc::mov	p$hpcr,r4		;point to pcr
+	bis	#prwak$,pr.sta(r4) 	;wake them up
+	bic	#petwa$,p$hpe1		;clear twait pending bit
+	return
+.end
+.if eq 1
+;	clr	c$lsem		;reset the semaphore
+
+;	Trigger scheduler time-slice.
+;
+;	If the scheduler is active do not retrigger.
+;
+;	We must compute CPU time usage for the system, idle loop and
+;	processes.
+;
+;	interrupts	Handled by the clock service routine.
+;	idle		If scheduler is active (s$csta&stact$=1).
+;	process		Otherwise the current process.
+;
+;	We must determine who has to pay for the CPU time.
+;	Somebody has to pay for the CPU time. Either the current
+;	process or the system. If its the system we must determine
+;	whether its 
+
+10$:	mov	c$lsem,r0	;any overflow ticks?
+	beq	20$		;nope
+	add	r0,s$ylcp	;yes - count them
+	adc	s$yhcp		;
+	sub	r0,c$lsem	;and remove them
+	bne	10$		;oops - just went again
+
+
+	mov	c$lcpu,r0	;get the cpu time
+	sub	r0,c$lcpu	;and take it out
+	bit	#stact$,s$csta	;is the scheduler running?
+	beq			;yes - don't retrigger
+	add	r0,p$hlcp	;count the cpu time
+	adc	p$hhcp		;double word
+	br			;
+10$:	add	r0,s$clcp	;assign it to scheduler time
+	adc	s$chcp		;
+20$:	
+
+
+	mov	t$oque,r4		;get the queue
+	beq	20$			;nothing to check anymore
+	cmp	c$lhot,(r4)		;high order larger?
+	blo	20$			;its not
+	bhi	10$			;its ours
+	cmp	c$llot,c.lot(r4)	;really?
+	bhis	10$			;its ours
+	cmp	c$lhot,(r4)		;have we rolled over
+	blos	20$			;nope
+10$:	mov	c.link(r4),t$oque	;we have the queue
+	mov	c.seq(r4),r0		;send them the sequence number
+	mov	c.comp(r4),r3		;get the goto
+	clr	c.comp(r4)		;reset it
+					;r0 = sequence number
+					;r4 = timeout block
+	call	(r3)			;call them
+	br	to$deq			;get the next
+20$:	dec	c$lsem			;anything else just come?
+	bmi	30$			;nope
+	spl	7			;
+	mov	f$klqe,c$lfrk		;yes - queue another
+	mov	#c$lfrk,f$klqe		;
+	spl	0			;
+	return				;and try again
+
+30$:	inc	s$csem			;should we schedule?
+	beq	40$			;yes
+	dec	s$csem			;nope
+40$:	return
+.endc
+.end
+.sbttl	to$deq
+
+;	fork routine
+;	all registers available
+
+to$deq::
+	clr	c$lsem			;reset the semaphore
+	mov	t$oque,r4		;get the queue
+	beq	20$			;nothing to check anymore
+	cmp	c$lhot,(r4)		;high order larger?
+	blo	20$			;its not
+	bhi	10$			;its ours
+	cmp	c$llot,c.lot(r4)	;really?
+	bhis	10$			;its ours
+	cmp	c$lhot,(r4)		;have we rolled over
+	blos	20$			;nope
+10$:	mov	c.link(r4),t$oque	;we have the queue
+	mov	c.seq(r4),r0		;send them the sequence number
+	mov	c.comp(r4),r3		;get the goto
+	clr	c.comp(r4)		;reset it
+					;r0 = sequence number
+					;r4 = timeout block
+	call	(r3)			;call them
+	br	to$deq			;get the next
+20$:	dec	c$lsem			;anything else just come?
+	bmi	30$			;nope
+	spl	7			;
+	mov	f$klqe,c$lfrk		;yes - queue another
+	mov	#c$lfrk,f$klqe		;
+	spl	0			;
+	return				;and try again
+
+30$:	inc	s$csem			;should we schedule?
+	beq	40$			;yes
+	dec	s$csem			;nope
+40$:	return
+.end
+

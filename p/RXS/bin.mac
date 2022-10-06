@@ -1,0 +1,149 @@
+;	not implemented!
+;
+.title	bin - boot init file
+.include "lib:rust.mac"
+.psect	boo d
+$txdef		;ascii
+$budef		;build
+$endef		;environment
+indef$
+
+;	RUST/XM boot .INI file processor
+;
+;	Replaces SHAREplus SHAPE.SAV and SHAPE.DAT.
+;
+;	%build
+;	goto 'p1'
+;	macro rxs:bin/object:rxb:bin
+;	exit:
+;	%end
+;	%date
+;	<09-Mar-2008 16:14:15.25>
+;	%edit
+;	<2    >
+.sbttl	process ini file
+
+bt$ini::inopn$	#b$tini 30$		; open rustx.ini
+	insec$	#b$tsec	20$		; locate [boot] section
+	inint$	#b$tprf			; process preferences
+					;
+	mov	b$tter,r1		; setup the terminal
+	mov	#r$mtks,r2		; for boot messages
+	mov	#4,r3			;
+10$:	mov	r1,(r2)+		; 
+	add	#2,r1			; do vector later
+	sobw	r3,10$			;
+20$:	return				;
+30$:	inc	b$tvrb			; verbose if missing
+	inc	b$tifm			; ini file missing
+	return
+
+bt$ifm:	tst	(pc)+			; need a warning?
+b$tifm:	.word	0			; inst. file missing
+	beq	10$			; nope
+;	btwar$	<Initialisation file missing SY:RUSTX.INI>	
+10$:	return
+
+b$tini:	.rad50	/sy rustx ini/
+b$tsec:	.asciz	/[boot]/
+	.even
+
+b$tvrb:	.word	1		; verbose
+b$twar:	.word	1		; warnings
+b$tter:	.word	177560,60	; terminal csr/vector
+
+initm$	i$ndbg	boo verify	;off
+initm$	b$tvrb	boo verbose	;off
+initm$	b$twar	boo warnings	;on
+initm$	e$ndbg	boo debug	;off
+initm$	b$tter	csr terminal	;177560,60
+initm$	e$nsfn	str startup	;none, "sy:rustx.com"
+initm$		str sys		;=auto
+;				;
+initm$	b$twsd	dec ws_default	;128.
+initm$	b$tseg	dec vm_segments	;1.
+initm$	b$tmem	dec vm_limit	;none	memory_limit
+initm$	b$tkp6	pos par6 	;[no]reserve
+initm$	e$nu22	boo unibus	;18/22
+;
+initm$	b$tadc	dec ad_count	;10.	- move to SET
+initm$	b$ttbc	dec tb_count	;3	- move to SET
+initm$	b$ttpc	dec tp_count	;10.	- move to SET
+initm$	b$tpro	boo protection	;off	- move to SET
+initm$	b$tlog	dec login_timeout;10	- move to SET
+inend$
+.end
+.sbttl	setup variables
+
+en$bfp:	mov	#e$nsbr,r5			;r5 -> record
+	mov	#e$nbst,r4			;r4 -> error flags
+						;
+	jsr	r3,en$bmf			;move filename
+	.word	sb.scf,e$nsfn			;setup startup command file
+						;
+	jsr	r3,en$bmf			;move file name
+	.word	sb.sdh,e$nhfn			;system device handler
+						;
+	jsr	r3,en$bpl			;number of ad's
+	.word	sb.ads,sbadl.,sbadh.,b$oads	;sb.ads
+	mov	r0,b$oads			;set it up
+						;
+	jsr	r3,en$bpl			;number of tb's
+	.word	sb.tbs,sbtbl.,sbtbh.,b$otbs	;sb.tbs
+	mov	r0,b$otbs			;set it up
+						;
+	jsr	r3,en$bpl			;number of tp's
+	.word	sb.tps,sbtpl.,sbtph.,b$otps	;sb.tps
+	mov	r0,b$otps			;set it up
+						;
+	jsr	r3,en$bpl			;ws default
+	.word	sb.wsd,sbwsl.,sbwsh.,e$nwsd	;
+	mov	r0,e$nwsd			;setup default
+						;
+;	V2					;
+						;
+200$:	mov	#1,e$nvds			;setup default segments
+	clr	e$nkp6				;clear par6 reserve
+						;
+	jsr	r3,en$bpl			;vm segments
+	.word	sb.vds,sbvdl.,sbvdh.,e$nvds	;
+	mov	r0,e$nvds			;vm directory segments
+						;
+	mov	sb.kp6(r5),e$nkp6		;setup par6 reserve
+	cmp	sb.ver(r5),#3			;this the end of V2?
+						;
+300$:	clr	e$nu22				;not unibus 22-bit
+
+400$:	mov	sb.lim(r5),e$nlim		;yes - kiloword limit
+
+500$:	clr	e$ndbg				;not debugger
+
+.end
+;	-4=none
+;	-3=auto
+;	-2=off
+;	-1=on
+
+b$tprf:
+[boot]
+verify=off		{bool=off}
+verbose=off		{bool=off}
+warnings=on		{bool=on}
+debug=off		{bool=off}
+protection=on		{bool==on}
+console=177560,60	{csr=auto;vector=auto}
+startup="sy:rustx.com"	{file="sy:rustx.com"}
+sys_device=auto		{file=auto}
+login_timeout=10	{decimal=10}
+!
+! memory
+!
+ws_default=128		{decimal[4..128]=32}
+vm_segments=1		{decimal[1..4]=1}
+vm_limit=none		{decimal[64..4096]=none}
+par6_reserve=on		{bool=on}
+unibus=auto		{enum[18,22]=auto}
+ad_count=		{decimal=[3..32]=3}
+tp_count=		
+tb_count
+

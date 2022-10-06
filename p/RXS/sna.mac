@@ -1,0 +1,506 @@
+v3=1
+.title	sna
+.include "lib:rust.mac"
+.psect	sna d
+$erdef		;errors
+$mudef		;mutex
+$nadef		;names
+$rpdef		;rp
+$podef		;pool
+$qudef		;queues
+$srdef		;system rights
+
+;	RUST/XM logical name services
+;
+;	%build
+;	macro	rxs:sna/object:rxb:sna
+;	%end
+;
+;	%date
+;	<20-Nov-2010 20:53:39.09>
+;	%edit
+;	<46   >
+;
+;	create logical name
+;	delete logical name
+;	translate logical name
+;
+;	$crelog	tbl, log, equ, {acm}
+;	$dellog	tbl, log, acm
+;	$trnlog	log, {rsl,} buf, tba, {aca}, msk
+;
+;	tbl.dv	Table number: System=0, Group=1, Process=2
+;	log.da	Logical name string
+;	equ.da	Equivalence name string
+;	acm.dv	Access mode for process names. Unused.	
+;
+;	rsl.da	Result length. Not used by RUST/XM.
+;	buf.da	Buffer to store translated name
+;	msk.dv	Disable mask: System=1, Group=2, Process=4
+;	tba.da	Byte to store table number.
+;	aca.da	Byte to store access mode.
+;
+map	rp.tbl,,rp.p0
+map	rp.log,,rp.p1
+map	rp.equ,,rp.p2
+map	rp.acm,,rp.p3
+;
+;	sup	cre	Superseded existing entry
+;	not	del,trn	Logical name not found or not translated
+;	ivn	all	Invalid logical name
+;	ivt	all	Invalid table specification
+;	inm	cre	Insufficient dynamic memory; resource wait.
+;	inr	cre,del	Insufficient rights
+;
+;	Process	- we need no rights and no synchronisation.
+;	Group	- GRPNAM rights - synchronise on system process mainline
+;	System	- SYSNAM rights - synchronise on system process mainline
+;
+;	Create	- Requires rights & synchronisation.
+;	Delete	- Requires rights & synchronisation.
+;	Trans	- No rights or synchronisation required.
+;
+;	Not permitted in AST.
+.sbttl	directory names
+
+;	A simple entry consists of two rad50 values:
+;
+;	ln.log	.rad50	/log/
+;	ln.equ	.rad50	/equ/
+;
+;	A directory entry begins with a flag/count word:
+;	(The maximum value of a rad50 word is 175000-1 aka 64000.-1)
+;
+;	dn.sta	.word	175xxx
+;	dn.log	.rad50	/log/
+;	dn.equ	.rad50	/equ/
+;	dn.sub	.rad50	/subdir/
+;	...	more sub-directories
+;	.word	0	unused
+;
+;	XX is the entry byte size including dn.sta.
+;	176xxx marks empty entries.
+;
+;	A directory entry may span pool segments.
+;
+;	dev:\subdir\subdir\subdir\subdir\subdir\subdir\subdir\subdir\
+;	0	8	16	24	32	40	48	56	64
+;
+;	a$pdna:	.blkb	48.		; 48. bytes
+;	a$pdne:	.blkb	dn.sub + <6*4>	; 30. bytes
+.sbttl	database
+
+;	Logical name database
+;
+;	Drives create/delete and translate logical to equivalence.
+
+map	nm.msk,,0	;mask
+map	nm.tab		;table address
+map	nm.mut		;mutex address
+map	nm.gic		;group code or null
+map	nm.srb		;system right bit or null
+map	nm.sro		;system right offset (negative means none)
+map	nm.dsb		;disable bit
+map	nm.trn		;translate routine
+map	nm.lnk		;next in translate chain (process, group, system)
+map	nm.bbs		;
+
+nasyo$=nagrp$!naprc$	;system only
+nagro$=nasys$!naprc$	;group only
+napro$=nasys$!nagrp$	;process only
+
+n$mmap:	.word	n$msys, n$mgrp, n$mprc
+
+.enabl	lsb
+;	msk	tab	mut	gic	srb	sro	dsb	trn	lnk
+n$msys:
+.word	nasyo$,	n$asys,	n$asym,	10$,	srsna$,	sr.sna,	nasys$,	na$tsn,	0
+n$mgrp:
+.word:	nagro$,	n$agrp,	n$agrm,	p$hgic,	srgna$,	sr.gna,	nagrp$,	na$tgn,	n$msys
+n$mprc:
+.word	napro$,	p$hlog,	0,	10$,	0,	-2,	naprc$,	na$tpn,	n$mgrp
+
+10$:	.word	0	;sys & prc gic 
+.dsabl	lsb
+.sbttl	setup
+
+;	Initialize for create/delete
+;
+;	Check table number.
+;	Check system rights.
+;	Convert & store logical name.
+;	Setup system process mode.
+;
+;	r4 ->	name control block
+;	a$pfna	logical name
+;	r0	logical name
+
+meta	<namerr c><jsr r0,na$err><.word c>
+
+na$ini:	clr	a$pfna		;assume no name
+	mov	rp.log(r5),r1	;get the logical name
+	beq	10$		;there is none
+	call	na$gnm		;get the name
+
+10$:	mov	rp.tbl(r5),r4	;get the table number
+	cmp	r4,#natbs.	;valid table number?
+	blo	20$		;yes
+	.soft	naivt.		;invalid name table
+
+20$:	asl	r4		;get the entry
+	mov	n$mmap(r4),r4	;get the name plex
+
+	mov	nm.sro(r4),r0	;get the right to check
+	bmi	40$		;process requires none
+	bit	nm.srb(r4),p$hsr0(r0) ;do they have the right?
+	bne	30$		;yes
+	bis	nm.srb(r4),p$hmr0(r0) ;no - remember its missing
+	.soft	nainr.		;insufficient rights
+30$:
+.if ne v3
+	ovcal$	sy$cms	sys	;get system process context
+.iff
+	call	sy$cms		;get the system process context
+.endc
+	$mutex	write nm.mut(r4);write the mutex
+40$:	mov	a$pfna,r0	;send the name
+	call	@(sp)+		;call them back
+	fall	na$cmp		;
+
+na$cmp:	mov	nm.mut(r4),r3	;get the mutex
+	beq	10$		;is none
+	$mutex	unlock		;unlock the mutex
+.if ne v3
+	ovcal$	sy$cmp	sys	;free system process
+.iff
+	call	sy$cmp		;free system process
+.endc
+10$:	return
+
+na$err:	movb	(r0),rp.err(r5)	;setup the error
+	call	na$cmp		;back to process
+	jmp	em$err		;and exhaust
+.sbttl	create logical name
+
+;	Create logical name
+;
+;	$crelog area tbl log equ acm
+;	
+;	area ->	5-word emt area
+;	tbl =	Table selector: 0=system, 1=group, 2=process
+;	log ->	Asciz logical name
+;	equ ->	Asciz equivalence name
+;	acm =	Access mode (unused)
+;	
+;	r0	undefined
+;	0	Superseded existing entry
+;	1	Logical name not found
+;	2	Invalid logical name
+;	3	Invalid table specification
+;	4	Missing system rights
+;	5	Insufficient dynamic memory
+
+na$cre::mov	rp.equ(r5),r1	;get the equivalence first
+	call	na$gnm		;get the logical name
+	mov	r0,a$pfnb	;a$pfnb = equivalence
+	call	na$ini		;setup
+
+	call	na$trm		;get the logical name
+	bcs	10$		;name not found
+	call	na$ins		;insert the name
+	namerr	nasup.		;superseded name
+
+;	Not found. Search for empty slot.
+
+10$:	clr	r0		;clear logical name
+	call	na$trm		;find empty slot
+	bcc	na$ins		;we succeeded
+	tst	nm.sro(r4)	;is this the process table?
+	bmi	50$		;yes - it can't extend
+
+;	Extend group or system table.
+
+30$:	$crepo	#ponar.!poclr$,#na.bbs ;create a pool element
+	bcs	50$		;oops - no room
+	movb	@nm.gic(r4),na.gic(r0) ;setup the group number
+	mov	nm.tab(r4),r1	;get the table
+	insque	r0,r1,qu.pre(r1);insert at end of queue
+40$:	br	10$		;and try again
+
+50$:	namerr	nainm.		;insufficient memory
+
+na$rem:	clr	a$pfna		;remove logical name
+	clr	a$pfnb		;
+na$ins:	mov	a$pfna,(r2)	;move in our name
+	mov	a$pfnb,(r3)	;
+	return			;and quit
+.sbttl	delete logical name
+
+; ???	Need better protection during delete
+;	Delete logical name
+;
+;	$dellog area tbl log acm
+;
+;	r0 ->	4-word EMT area
+;	tbl =	Name table: 0=system, 1=group, 2=process
+;	log ->	Asciz logical name
+;	acm =	Access mode (unused)
+;	
+;	r0	undefined
+;	1	Logical name not found
+;	2	Invalid logical name
+;	3	Invalid table specification
+;	4	Missing system rights
+;
+;	If logical name is null then delete all names.
+
+na$del::call	na$ini		;get setup
+				;r0=name, r1=table
+	tst	r0		;delete all?
+	beq	100$		;yes
+	call	na$trm		;no - find the name
+	bcs	10$		;name not found
+	clr	(r2)		;delete logical
+	clr	(r3)		;delete equivalence
+	return			;
+
+10$:	namerr	nanot.		;not found
+
+;	Delete all names
+
+100$:	tst	nm.sro(r4)	;this group/system?
+	bpl	120$		;yes
+				;no - process name table
+	mov	#p$hlog,r0	;r0 -> logical names
+	mov	#p$hequ,r1	;r1 -> equivalence names
+	mov	#napct.,r2	;r2 = number of process names
+110$:	clr	(r0)+		;clear logical
+	clr	(r1)+		;clear equivalence
+	sob	r2,110$		;
+	return			;and quit
+
+;	Delete system or group table
+
+120$:	mov	nm.tab(r4),r1	;get the table
+130$:	mov	(r1),r1		;get the next element
+	cmp	(r1),nm.tab(r4)	;is this the end of them?
+	beq	140$		;yes
+	cmpb	na.gic(r1),@nm.gic(r4) ;same group?
+	bne	130$		;no
+	$cmsch			;stop the scheduler
+	remque	r0,r1		;yes remove it
+	$delpo	r0		;delete the pool element
+	$cmpro			;renable scheduler
+	br	120$		;continue
+140$:	return
+.sbttl	translate logical name
+
+;	Translate logical name
+;
+;	$trnlog area log rsl buf tba aca msk
+;
+; rp.p0	log =>	Asciz logical name
+; rp.p1	rsl =>	Result length, unused
+;?rp.p1	bln =	Result buffer length
+; rp.p2	buf =>	Result asciz equivalence name
+; rp.p3	tba =>	Result table number
+;		0 - found in system table
+;		1 - found in group table
+;		2 - found in process table 
+; rp.p4	aca =>	Result access mode, unused
+; rp.p5	msk =	Disable mask			Translation flags
+;		1 - exclude system table	100 - single-step
+;		2 - exclude group table		200 - return device only
+;		4 - exclude process table	400 - return fully-qualified
+;
+;	r0	Equivalence name in rad50
+;	1	Logical name not found
+;	2	Invalid logical name
+;	3	Invalid table specification
+;	4	Missing system rights
+;??	5	Result buffer overflow
+;
+;	If all tables are disabled it acts as a rad50 translation.
+; ???	Handle _ escape to avoid translation.
+; ???	Uses rp.exc to pass information to MER which is awful.
+
+na$trn::mov	r3,r1		;r1 -> logical name
+	call	na$gnm		;get the logical name
+				;r0 = name
+	mov	rp.p5(r5),r1	;r1 = mask
+	call	na$tlx		;translate the name
+				;r3 -> equivalence
+	bcc	10$		;fine we found it
+	clrb	r1		;no table number
+	mov	#a$pfna,r3	;return logical name instead
+	call	10$		;not found
+	.soft	nanot.		;no translation
+
+;	Return table number
+
+10$:	movb	r1,r0		;get the table result
+	mov	rp.p3(r5),r1	;do they want the table number?
+	beq	20$		;no
+	assume	<nasys$/2> eq nasys.
+	assume	<nagrp$/2> eq nagrp.
+	assume	<naprc$/2> eq naprc.
+	asr	r0		;1=>0, 2=>1, 4=>2
+	call	mm$prb		;put request byte
+
+;	Return equivalence name
+
+20$:	mov	(r3),rp.r0(r5)	;unsupported side affect
+	mov	rp.p2(r5),rp.exc(r5) ;get the buffer address
+	beq	30$		;none specified
+	mov	#erpr5.,r0	;put rad50 word
+	mov	(r3),r1		;get the value
+	call	er$dis		;send it back
+30$:	return
+.sbttl	get logical name
+
+;	Get logical name
+;
+;	r3 -> user mode address
+;
+;	r0 =	rad50 name
+;	a$pfna=	rad50 name
+; V4?	a$pdna=	directory name
+;
+;	naivn.	Invalid name.
+
+na$gnm:	call	ut$nas		;not from ast
+	tst	r1		;must have a name
+	beq	40$		;oops - invalid name
+	mov	#a$pfns,r2	;output area
+10$:	call	mm$grb		;get the next one
+	bcs	30$		;oops
+	cmpb	r0,#':		;ignore colons
+	beq	10$		;
+	movb	r0,(r2)+	;store it
+	beq	20$		;fine
+	cmp	r2,#a$pfns+3	;gone too far?
+	blos	10$		;no
+	br	30$		;yes - invalid name
+20$:	clrb	(r2)		;terminate it
+	movb	#':,-(r2)	;force colon
+	mov	#a$pfns,r0	;point to it
+	call	na$car		;convert to rad50
+	mov	r1,r0		;r0 = name
+	beq	30$		;invalid name
+	mov	r0,a$pfna	;return it there
+	return			;
+30$:	.soft	naivn.		;invalid name
+40$:	.hard	eradr.		;invalid address
+.sbttl	translate logical to equivalence
+
+;	Translate logical to equivalence
+;
+;	r0 =	logical name
+;	r1 =	disable mask
+;		100000 => create/delete - mutex already locked
+;	r1 =	table flag
+;
+;	call	na$tle
+;
+;	r0 =	equivalence name
+;	r1 =	table flag
+;	r2 ->	logical name
+;	r3 ->	equivalence name
+;	c=1	name not found
+;
+;	r4 ->	name table
+;	r5 ->	name plex
+;
+;	Null names accepted. Used to find an empty slot.
+
+na$trm:	mov	(r4),r1		;get the mask
+	bis	#100000,r1	;signal mutex already locked
+na$tlx::pshs	<r5,r4,r1>	;save these
+.psect	sna1	d,ovr		;patch point
+	nop
+	nop
+.psect	sna2	d
+	mov	#n$mprc,r5	;point to the process table
+	br	20$		;do the first
+10$:	mov	nm.lnk(r5),r5	;get the next
+	beq	30$		;oops - not found
+20$:	bit	nm.dsb(r5),(sp)	;is this one disabled?
+	bne	10$		;yes
+	mov	nm.tab(r5),r2	;r2 -> table
+	call	@nm.trn(r5)	;call the translate routine
+	bcs	10$		;not found
+	mov	nm.dsb(r5),(sp)	;r1 = name table flag
+	tst	(pc)+		;
+30$:	sec
+	pops	<r1,r4,r5>	;restore these
+	return
+
+;	Translate process name
+;
+;	For create/delete we ignore SYASSG and DKASSG.
+
+na$tpn:				;translate logical names
+	mov	#napct.+2,r4	;count them (+2 for dkassg/syassg)
+	tst	r1		;is this create/delete?
+	bpl	10$		;no
+	sub	#2,r4		;yes - ignore SYASSG & DKASSG
+10$:	cmp	r0,(r2)+	;this it?
+	beq	20$		;yes
+	sob	r4,10$		;look again
+	br	30$		;not found
+20$:	tst	-(r2)		;backup to the logical name
+	mov	r2,r3		;r2 -> logical name
+	add	#p$hequ-p$hlog,r3 ;r3 -> equivalence name
+	mov	(r3),r0		;r0 = equivalence name
+	tst	(pc)+		;c=0 => found
+30$:	sec			;c=1 => not found
+	return
+
+;	Translate group/system names
+;
+;	r0 =	logical name
+;	r2 =	free
+;	r3 =	free
+;	r5 ->	plex
+
+na$tgn:				;translate group name
+na$tsn:				;translate system name
+	cmp	(r2),r2		;is this table empty?
+	beq	80$		;yes - skip all this
+	tst	r1		;are we already locked on it?
+	bmi	20$		;yes
+	$mutex	read nm.mut(r5)	;no - go get it
+20$:	mov	(r2),r2		;get the next one
+	cmp	r2,nm.tab(r5)	;was this the last?
+	beq	60$		;yes
+
+	movb	na.gic(r2),r3	;get the group code
+	beq	30$		;is none - system table
+	cmpb	p$hgic,r3	;yes - is it the same?
+	bne	20$		;no
+
+30$:	movi	na.tab,r2,r3	;point to the table
+	mov	#naect.,r4	;count them
+40$:	cmp	(r3)+,r0	;is this it?
+	beq	50$		;yes
+	tst	(r3)+		;no
+	sob	r4,40$		;loop
+	br	20$		;not found, try next segment
+
+50$:	mov	r3,r2		;r3 -> logical name
+	tst	-(r2)		;r2 -> logical name
+	mov	(r3),r0		;r1 = logical name
+	tst	(pc)+		;fine
+60$:	sec			;not good
+	ror	-(sp)		;
+	tst	r1		;were we already locked?
+	bmi	70$		;yes
+	psh	r3		;
+	$mutex	unlock nm.mut(r5) ;no - unlock us
+	pop	r3		;
+70$:	rol	(sp)+		;setup the c bit
+	return			;
+80$:	sec			;completely empty table
+	return			;
+.end
+

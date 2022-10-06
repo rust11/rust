@@ -1,0 +1,65 @@
+rst$c=1	; closz/gsfinf
+.title	acp
+.include "lib:rust.mac"
+.psect	acp d
+
+;	RUST/XM ACP overlay dispatch
+;
+;	%build
+;	macro	rxs:acp/object:rxb:acp
+;	%end
+;
+;	Continue EMT dispatch to routines in ACP overlay.
+;
+;	MEP dispatchs ACP routines to dummies in MSY.
+;	MSY computes a dispatch index in r1, maps & calls us.
+;	We must compute the routine address, reset r1 to zero
+;	and test (r4) to set channel open status.
+;
+;	r0 =	rp.r0
+;	r1 =	dispatch index
+;	r2 =	free
+;	r3 =	rp.p0
+;	r4 ->	channel
+;	r5 ->	rp
+;
+;	call	ap$dis
+;
+;	r1 =	0
+;	n	n=1 => channel open
+
+ap$dis::			;dispatch the task
+	cmp	(sp)+,(sp)+	;dont return to msy
+	asl	r1		;r1 = dispatch variable
+	mov	10$(r1),r2	;r2 -> routine
+	clr	r1		;r1 = 0
+	tst	(r4)		;n=1 => channel open
+	jmp	(r2)		;and call the routine
+
+;	ACP overlay dispatch table
+;	Relative from top of table
+;	MSY and TSS:TEP assume this table structure.
+
+.if ne rst$c
+	.word	ap$clz		;closz
+	.word	ap$inf		;gsfinf
+.endc
+	.word	si$spc		;csispc
+	.word	si$gen		;csigen
+	.word	ap$dst		;dstatus
+	.word	ap$fet		;fetch
+	.word	ap$sfd		;sfdat
+	.word	ap$fpr		;fprot
+	.word	ap$sav		;savestatus
+	.word	ap$reo		;reopen
+	.word	ap$syx		;ap$sys
+	.word	ap$loo		;lookup
+	.word	ap$ent		;enter
+	.word	ap$ren		;rename
+	.word	ap$del		;delete
+	.word	ap$pur		;purge
+	.word	ap$clo		;close
+	.word	er$sof		;soft
+10$:	.word	er$har		;hard
+				;negative index off table end
+.end

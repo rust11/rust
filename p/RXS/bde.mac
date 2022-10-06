@@ -1,0 +1,465 @@
+.title	bde - build devices
+.include "lib:rust.mac"
+.psect	bde d
+$apdef		;acp
+$ardef		;access right
+$asdef		;address space
+$dcdef		;device codes
+$dedef		;device
+$endef		;environment
+$hadef		;handler
+$mmdef		;mmu
+$rtdef		;rt11a
+$scdef		;scheduler
+$sgdef		;sysgen
+$psdef		;ps
+$tidef		;time
+$uidef		;uic
+$undef		;unit
+$vedef		;vector
+
+;	RUST/XM build devices
+;
+;	%build
+;	macro	rxs:bde/object:rxb:bde
+;	%end
+;
+;	SY: VM: TT:
+;	NL: QU:
+;
+;	Fill in device & unit records.
+;	Fill in handler hooks and connect vectors.
+;
+;	Return no error codes - RT-11 is gone.
+;
+;	Lots of space so keep code easy to change.
+;
+;	Do not fill in any other structures here.
+;	We are followed by BKE which fills in KDA data structures.
+.sbttl	build SY:
+
+;	Build the system device
+;
+;	Most of the work has been done in the environmental section.
+;	Copy environment device record to the real one.
+;	Fill in the unit record.
+;	Connect the handler hooks.
+;	Connect the handler vectors.
+;
+;	No errors are returned - all have been checked ealier.
+;
+;	Must check vector later. Cancel any other device using our vector
+;	and setup a post-boot message. Most unlikely that any are using
+;	our vectors since we are the only device apart from the clock.
+;
+;	r2 ->	device record
+;	r3 ->	unit record
+;	r4 ->	handler
+;	r5 =	unit number
+
+bu$dsy::				;build system device
+	mov	#e$nsdr,r0		;get the environment version
+	mov	s$yder,r1		;get ours
+	mov	#de.bbs/2,r2		;get a word count
+10$:	mov	(r0)+,(r1)+		;move them
+	sob	r2,10$			;count it
+
+	mov	s$yder,r2		;r2 -> device record - partially filled
+	mov	s$yunr,r3		;r3 -> unit record
+	mov	de.han(r2),r4		;r4 -> handler
+	movb	b$osyu,r5		;r5 == system unit number
+
+;	Following have been filled in by EDE
+
+					;de.sta - rt-11 device status
+					;de.ent - entry point
+					;offset to lqe
+					;r$ment - rmon entry point
+					;de.dsz - setup the size
+					;de.syg - sysgen
+	
+					;de.typ - share type
+					;de.con - RUST/XM control
+					;de.asp - address space
+					;de.act - acp type
+					;de.dev - device name
+					;de.fnm - filename
+					;de.csr - csr
+					;de.vec - vector
+					;de.ve2	- second vector
+
+	mov	#scpio.,de.pri(r2)	;de.pri - default I/O
+	mov	#s$cpio,de.que(r2)	;de.que - synchronous
+	mov	#desyi.,de.ind(r2)	;de.ind - device index - byte
+					;de.han - handler start
+					;de.acc - acp access count
+					;de.ioc - i/o access count
+	mov	r5,r1			;compute unit slot
+	asl	r1			;make word offset
+	add	r2,r1			;add in der base
+	mov	r3,de.unm(r1)		;de.unm - point to the unit
+					;de.sfr - special function record
+
+;	Fill in the unit
+
+	mov	r3,un.suc(r3)		;un.suc - setup the queue
+	mov	r3,un.pre(r3)		;un.pre - predecessor
+	mov	r2,un.der(r3)		;un.der - point to device record
+
+	mov	#rt$11a,un.acp(r3)	;un.acp - acp address
+	bit	#derta$!despc$,de.sta(r2) ;is this really rt11a?
+	bmi	60$			;yes
+	bne	55$			;rt11s
+	mov	#rt$11n,un.acp(r3)	;rt11n - could be problematic
+	br	60$			;
+55$:	mov	#rt$11s,un.acp(r3)	;rt11s
+60$:	movb	#desyi.,un.ind(r3)	;un.ind	- device index
+	movb	r5,un.uni(r3)		;un.uni - device unit number
+	mov	de.dsz(r2),un.dsz(r3)	;un.dsz	- length
+
+	locon$=unsha$!unfil$!unfpr$!unpub$!uncac$
+	mov	#locon$,un.con(r3)	;un.con - control
+
+	mov	#uisys.,un.uic(r3)	;un.uic - uic = [1,4]
+	mov	#ardu$p,un.pro(r3)	;un.pro - default unit protection
+	mov	#ardf$p,un.fpr(r3)	;un.fpr	- default file protection
+	mov	#^rsys,un.lab(r3)	;un.lab - label
+	mov	#^rtem,un.lab+2(r3)	;
+	movb	de.pri(r2),un.pri(r3)	;un.pri - unit priority
+	movb	de.asp(r2),un.asp(r3)	;un.asp - unit address space
+
+	mov	#^rrt1,un.acn(r3)	;un.acn - acp name
+	mov	#^r1a,un.acn+2(r3)	;
+	bit	#derta$!despc$,de.sta(r2) ;really rt11a>
+	bmi	100$			;yes
+	bne	90$			;rt11s
+	mov	#^r1n,un.acn+2(r3)	;rt11n - crazy
+	bic	#unfil$!unfpr$!uncac$,un.con(r3) ;even more crazy
+	br	100$
+90$:	mov	#^r1s,un.acn+2(r3)	;no - must be rt11s
+
+;	Fill in handler hooks
+
+100$:	mov	r4,r1			;point to the handler
+	clr	ha.hol(r1)		;clear the handler hold flag
+	clr	ha.cqe(r1)		;clear nofetch flag
+	add	de.hsz(r2),r1		;r1 -> handler end
+	mov	#fk$enq,-(r1)		;link it up
+	mov	#in$int,-(r1)		;thus
+	bit	#sgtim$,de.syg(r2)	;does it have timeout?
+	beq	110$			;nope
+	mov	#io$tid,-(r1)		;yes - plug in the dummy
+110$:	bit	#sgerl$,de.syg(r2)	;does it have error logging?
+	beq	120$			;nope
+	mov	#io$erd,-(r1)		;yes - plug in the dummy address
+120$:	bit	#sgmmg$,de.syg(r2)	;xm handler?
+	beq	130$			;nope
+	mov	#io$ptw,-(r1)		;stuff xm routines in
+	mov	#io$ptb,-(r1)
+	mov	#io$gtb,-(r1)
+	mov	#io$chp,-(r1)		;map physical address
+	mov	#io$cum,-(r1)		;relocate user space address
+130$:	return
+
+;	Fill in vectors
+
+bu$dve::				;device vectors
+	mov	s$yder,r2		;r2 -> device record - partially filled
+	mov	s$yunr,r3		;r3 -> unit record
+	mov	de.han(r2),r4		;r4 -> handler
+200$:	mov	r4,r0			;get the handler
+	mov	(r0)+,r1		;h.vec
+	beq	250$			;oops, no vector
+	bmi	230$			;a vector table
+;	vector	r1			;register the vector
+;	bcs				;vector already in use
+	mov	r0,(r1)			;store the base
+	add	(r0),(r1)+		;add in h.isr offset
+	mov	#pr7,(r1)		;get the ps
+	br	250$			;join the common stuff
+
+;	Vector table
+
+230$:	asl	r1			;read sysmac for this
+	add	r1,r0			;point to the table
+240$:	mov	(r0)+,r1		;get the vector
+	ble	250$			;no more
+;	vector	r1			;register the vector
+;	bcs				;vector already in use
+	mov	r0,(r1)			;relocate
+	add	(r0)+,(r1)+		;to the ast
+	mov	(r0)+,(r1)		;move in the users ps
+	bis	#pr7,(r1)		;and put ours on top
+	br	240$			;look for more
+250$:	return				;done
+.sbttl	build VM:
+
+;	Build VM:
+
+bu$dvm::				;build vm
+	call	bu$vmd			;build the directory
+
+;	Fill in device record
+;
+;	r2 ->	device record
+;	r3 ->	unit record
+;	r4 ->	handler
+;	r5 =	unit
+
+60$:	mov	v$mder,r2		;r2 -> device record
+	mov	v$munr,r3		;r3 -> unit record
+	mov	#vm$han,r4		;r4 -> handler
+	clr	r5			;r5 = unit
+
+	losta$=derta$!devmc.
+	mov	#losta$,de.sta(r2)	;de.sta - rt-11 device status
+	mov	r4,de.ent(r2)		;de.ent - entry point
+	add	#ha.lqe,de.ent(r2)	;offset to lqe
+	mov	v$mdsz,de.dsz(r2)	;de.dsz - setup the size
+	mov	#sgmmg$,de.syg(r2)	;de.syg - sysgen
+	lotyp$=dedma$!dedmx$!desyn$	
+	locon$=de22b$!de18b$!de16b$!demap$!desin$!deprc$
+	loasp$=as22b$!as18b$!as16b$!asmap$!assin$!asprc$
+;	locon$=de22b$!de18b$!de16b$!demap$!desin$
+;	loasp$=as22b$!as18b$!as16b$!asmap$!assin$
+	mov	#lotyp$,de.typ(r2)	;de.typ - share type
+	mov	#locon$,de.con(r2)	;de.con - RUST/XM control
+	movb	#loasp$,de.asp(r2)	;de.asp - address space
+	movb	#acrta.,de.act(r2)	;de.act - acp type
+	mov	#^rvm,de.dev(r2)	;de.dev - device name
+					;de.fnm - no filename
+					;de.csr - no csr
+					;de.vec - no vector
+					;de.ve2	- no second vector
+					;de.pri - zero - synchronous
+					;de.que - synchronous
+	mov	#devmi.,de.ind(r2)	;de.ind - device index
+	mov	r4,de.han(r2)		;de.han - handler start
+					;de.acc - acp access count
+					;de.ioc - i/o access count
+	mov	r3,de.unm(r2)		;de.unm - point to the unit
+					;de.sfr - none
+
+;	Fill in unit record
+
+	mov	r3,un.suc(r3)		;un.suc - setup the queue
+	mov	r3,un.pre(r3)		;un.pre - predecessor
+	mov	r2,un.der(r3)		;un.der - point to device record
+	mov	#rt$11a,un.acp(r3)	;un.acp - acp address
+	movb	#devmi.,un.ind(r3)	;un.vid	- device index
+					;un.uni - unit
+	mov	de.dsz(r2),un.dsz(r3)	;un.dsz	- length
+					;we dont cache VM:
+	locon$=unsha$!unfil$!unpub$!unmou$
+	mov	#locon$,un.con(r3)	;un.con - control
+	mov	#uisys.,un.uic(r3)	;un.uic - uic = [1,4]
+	mov	#ardu$p,un.pro(r3)	;un.pro - default unit protection
+	mov	#ardf$p,un.fpr(r3)	;un.fpr	- default file protection
+	movb	de.pri(r2),un.pri(r3)	;un.pri - unit priority
+	movb	de.asp(r2),un.asp(r3)	;un.asp - unit address space
+	mov	#^rmem,un.lab(r3)	;un.lab - label
+	mov	#^rory,un.lab+2(r3)	;
+	mov	#^rrt1,un.acn(r3)	;un.acn - acp name
+	mov	#^r1x,un.acn+2(r3)	;
+					;un.fre - free blocks
+	return
+.sbttl	build TT:
+
+;	Build TT:
+;
+;	Fill in device record
+;
+;	r2 ->	device record
+;	r3 ->	unit record
+;	r4 ->	handler
+;	r5 =	unit
+
+bu$dtt::
+	mov	t$tder,r2		;r2 -> device record
+	mov	t$tunr,r3		;r3 -> unit record
+	mov	#tt$han,r4		;r4 -> handler
+	clr	r5			;r5 = unit
+
+	losta$=dettc.
+	mov	#losta$,de.sta(r2)	;de.sta - rt-11 device status
+	mov	r4,de.ent(r2)		;de.ent - entry point
+	add	#ha.lqe,de.ent(r2)	;offset to lqe
+					;de.dsz - null
+	mov	#sgmmg$,de.syg(r2)	;de.syg - sysgen
+	lotyp$=dedma$!dedmx$!desyn$	
+	locon$=demap$!de22b$!de18b$!de16b$!desin$!deprc$
+	loasp$=asmap$!as22b$!as18b$!as16b$!assin$!asprc$
+	mov	#lotyp$,de.typ(r2)	;de.typ - share type
+	mov	#locon$,de.con(r2)	;de.con - RUST/XM control
+	movb	#loasp$,de.asp(r2)	;de.asp - address space
+	movb	#acrtn.,de.act(r2)	;de.act - acp type
+	mov	#^rtt,de.dev(r2)	;de.dev - device name
+					;de.fnm - no filename
+					;de.csr - no csr
+					;de.vec - no vector
+					;de.ve2	- no second vector
+					;de.pri - zero - synchronous
+					;de.que - synchronous
+	mov	#detti.,de.ind(r2)	;de.ind - device index
+	mov	r4,de.han(r2)		;de.han - handler start
+					;de.acc - acp access count
+					;de.ioc - i/o access count
+	mov	r3,de.unm(r2)		;de.unm - point to the unit
+					;de.sfr - special function record
+
+;	Fill in unit record
+
+	mov	r3,un.suc(r3)		;un.suc - setup the queue
+	mov	r3,un.pre(r3)		;un.pre - predecessor
+	mov	r2,un.der(r3)		;un.der - point to device record
+	mov	#rt$11n,un.acp(r3)	;un.acp - acp address
+	movb	#detti.,un.ind(r3)	;un.vid	- device index
+					;un.uni - unit
+	mov	de.dsz(r2),un.dsz(r3)	;un.dsz	- length
+	locon$=unsha$!unonl$!unpub$
+	mov	#locon$,un.con(r3)	;un.con - control
+	mov	#uisys.,un.uic(r3)	;un.uic - uic = [1,4]
+	mov	#ardu$p,un.pro(r3)	;un.pro - default unit protection
+	mov	#ardf$p,un.fpr(r3)	;un.fpr	- default file protection
+	movb	de.pri(r2),un.pri(r3)	;un.pri - unit priority
+	movb	de.asp(r2),un.asp(r3)	;un.asp - unit address space
+	mov	#^rtt,un.lab(r3)	;un.lab - label
+					;un.fre - free blocks
+	mov	#^rrt1,un.acn(r3)	;un.acn - acp name
+	mov	#^r1n,un.acn+2(r3)	;
+	return
+.sbttl	build NL:
+
+;	Build null device
+;
+;	Fill in device record
+;
+;	r2 ->	device record
+;	r3 ->	unit record
+;	r4 ->	handler
+;	r5 =	unit
+
+bu$dnl::
+	mov	n$lder,r2		;r2 -> device record
+	mov	n$lunr,r3		;r3 -> unit record
+	mov	#nl$han,r4		;r4 -> handler
+	clr	r5			;r5 = unit
+
+	losta$=denlc.
+	mov	#losta$,de.sta(r2)	;de.sta - rt-11 device status
+	mov	r4,de.ent(r2)		;de.ent - entry point
+	add	#ha.lqe,de.ent(r2)	;offset to lqe
+					;de.dsz - null
+	mov	#sgmmg$,de.syg(r2)	;de.syg - sysgen
+	lotyp$=dedma$!dedmx$!desyn$	
+	locon$=devab$!de22b$!de18b$!de16b$!desin$!deprc$
+	loasp$=asvab$!as22b$!as18b$!as16b$!assin$!asprc$
+	mov	#lotyp$,de.typ(r2)	;de.typ - share type
+	mov	#locon$,de.con(r2)	;de.con - RUST/XM control
+	movb	#loasp$,de.asp(r2)	;de.asp - address space
+	movb	#acrtn.,de.act(r2)	;de.act - acp type
+	mov	#^rnl,de.dev(r2)	;de.dev - device name
+					;de.fnm - no filename
+					;de.csr - no csr
+					;de.vec - no vector
+					;de.ve2	- no second vector
+					;de.pri - zero - synchronous
+					;de.que - synchronous
+	mov	#denli.,de.ind(r2)	;de.ind - device index
+	mov	r4,de.han(r2)		;de.han - handler start
+					;de.acc - acp access count
+					;de.ioc - i/o access count
+	mov	r3,de.unm(r2)		;de.unm - point to the unit
+					;de.sfr - special function record
+
+; Fill in unit record
+
+	mov	r3,un.suc(r3)		;un.suc - setup the queue
+	mov	r3,un.pre(r3)		;un.pre - predecessor
+	mov	r2,un.der(r3)		;un.der - point to device record
+	mov	#rt$11n,un.acp(r3)	;un.acp - acp address
+	movb	#denli.,un.ind(r3)	;un.vid	- device index
+					;un.uni - unit
+	mov	de.dsz(r2),un.dsz(r3)	;un.dsz	- length
+	locon$=unsha$!unonl$!unpub$!unmou$
+	mov	#locon$,un.con(r3)	;un.con - control
+	mov	#uisys.,un.uic(r3)	;un.uic - uic = [1,4]
+;	mov	#ardu$p,un.pro(r3)	;un.pro - default unit protection
+;	mov	#ardf$p,un.fpr(r3)	;un.fpr	- default file protection
+	movb	de.pri(r2),un.pri(r3)	;un.pri - unit priority
+	movb	de.asp(r2),un.asp(r3)	;un.asp - unit address space
+	mov	#^rnul,un.lab(r3)	;un.lab - label
+	mov	#^rl,un.lab+2(r3)	;
+					;un.fre - free blocks
+	mov	#^rrt1,un.acn(r3)	;un.acn - acp name
+	mov	#^r1n,un.acn+2(r3)	;
+	return
+.end
+;	u n u s e d
+
+.sbttl	build QU:
+
+;	Build QU: device
+;
+;	Fill in device record
+;
+;	r2 ->	device record
+;	r3 ->	unit record
+;	r4 ->	handler
+;	r5 =	unit
+
+bu$dqu::mov	q$uder,r2		;r2 -> device record
+	mov	q$uunr,r3		;r3 -> unit record
+	mov	#qu$han,r4		;r4 -> handler
+	clr	r5			;r5 = unit
+
+	losta$=dequc.
+	mov	#losta$,de.sta(r2)	;de.sta - rt-11 device status
+	mov	r4,de.ent(r2)		;de.ent - entry point
+	add	#ha.lqe,de.ent(r2)	;offset to lqe
+					;de.dsz - null
+	mov	#sgmmg$,de.syg(r2)	;de.syg - sysgen
+	lotyp$=dedma$!dedmx$!desyn$	
+	locon$=devab$!de22b$!de18b$!de16b$!desin$!deprc$
+	mov	#lotyp$,de.typ(r2)	;de.typ - share type
+	mov	#locon$,de.con(r2)	;de.con - RUST/XM control
+	movb	#as22c$,de.asp(r2)	;de.asp - address space
+	movb	#acrtn.,de.act(r2)	;de.act - acp type
+	mov	#^rqu,de.dev(r2)	;de.dev - device name
+					;de.fnm - no filename
+					;de.csr - no csr
+					;de.vec - no vector
+					;de.ve2	- no second vector
+					;de.pri - zero - synchronous
+					;de.que - synchronous
+	mov	#dequi.,de.ind(r2)	;de.ind - device index
+	mov	r4,de.han(r2)		;de.han - handler start
+					;de.acc - acp access count
+					;de.ioc - i/o access count
+	mov	r3,de.unm(r2)		;de.unm - point to the unit
+					;de.sfr - special function record
+
+; Fill in unit record
+
+	mov	r3,un.suc(r3)		;un.suc - setup the queue
+	mov	r3,un.pre(r3)		;un.pre - predecessor
+	mov	r2,un.der(r3)		;un.der - point to device record
+	mov	#rt$11n,un.acp(r3)	;un.acp - acp address
+	movb	#dequi.,un.ind(r3)	;un.vid	- device index
+					;un.uni - unit
+	mov	de.dsz(r2),un.dsz(r3)	;un.dsz	- length
+	locon$=unsha$!unonl$!unpub$!unmou$
+	mov	#locon$,un.con(r3)	;un.con - control
+	mov	#uisys.,un.uic(r3)	;un.uic - uic = [1,4]
+;	mov	#ardu$p,un.pro(r3)	;un.pro - default unit protection
+;	mov	#ardf$p,un.fpr(r3)	;un.fpr	- default file protection
+	movb	de.pri(r2),un.pri(r3)	;un.pri - unit priority
+	movb	de.asp(r2),un.asp(r3)	;un.asp - unit address space
+	mov	#^rque,un.lab(r3)	;un.lab - label
+	mov	#^rue,un.lab+2(r3)	;
+					;un.fre - free blocks
+	mov	#^rrt1,un.acn(r3)	;un.acn - acp name
+	mov	#^r1n,un.acn+2(r3)	;
+	return				;
+.end
+

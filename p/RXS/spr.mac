@@ -1,0 +1,416 @@
+rst$c=1
+chncnt=1
+.title	spr - create process	
+.include "lib:rust.mac"
+.psect	spr d
+$asdef		;address space
+$chdef		;channel
+$erdef		;error
+$fndef		;filename
+$mmdef		;mmu
+$rpdef		;rp
+$pcdef		;create process errors
+$podef		;pool
+$prdef		;pcr
+$scdef		;scheduler
+$stdef		;states
+;$s$def		;system messages
+$tedef		;terminal
+
+meta	<chmker c><jsr r5,sy$cmk><.word c>
+
+.sbttl	create process
+
+;	RUST/XM Create process
+;
+;	%build
+;	macro	rxs:spr/object:rxb:
+;	%end
+;	%date	
+;	<22-Dec-1986 01:16:20.21>
+;	%edit
+;	<94   >
+;
+;	Called by system process to create a process.
+;	Called by system start to create operator process.
+;	Some routines used to build system process.
+;
+;	sy$cpr	Client mainline
+;	pr$cpe	Kernel create process error handler
+;	pr$cpx	Kernel create process exception
+;
+;	pr$cre	Kernel main create routine
+;	pr$cpc	Kernel fill-in pcr
+;	pr$cpm	Kernel process mapping
+;	pr$cph	Client fill process header
+;	pr$cps	Kernel schedule process
+;
+;	$crepr	area, flags, length, tid, chans
+;
+;	rp.p0	flags
+;	rp.p1	block length
+;	rp.p2	terminal id
+;	rp.p3	channels (0=>17)
+;
+;	rp.p4	vm: start block
+;	rp.p5	cmker address
+;
+;		0	;unused
+;	pcdup.,,1	;Duplicate name.
+;	pcexq.,,2	;Exceeded quota.
+;	pcidm.,,3	;Insufficient dynamic memory. Returns immediately.
+;	pcivl.,,4	;Invalid logical name.
+;	pcivq.,,5	;Invalid quota list.
+;	pcivs.,,6	;Invalid status flag.
+;	pcmsr.,,7	;Missing system right.
+;	pcslo.,,8.	;No slot available.
+;	pcipm.,,9.	;Insufficient permanent memory.
+;	pcacc.,,10.	;Access violation.
+;	pcifn.,,11.	;Invalid filename.
+;
+;	1	no room for pcr
+;	2	too many processes
+;	3	no room for body
+;	4	i/o error creating body
+;	5	no room for channels
+;	6	no room for message packet
+
+sy$cpr::
+	chmker	pr$cre		;create process
+	bcs	10$		;oops
+	mov	p$rpcr,r4	;supply our pcr
+	call	pr$cph		;fill in the process header
+	chmker	pr$cps		;and now schedule it
+10$:	return
+
+;	Kernel errors
+;
+;	jsr	r3,pr$cpe
+;	.word	soft-error code
+
+;meta	<crptst c d><jsr r3,pr$cpt><.word c!<d!100*256.>>
+;meta	<crperr c d><jsr r3,pr$cpe><.word c!<d!100*256.>>
+
+meta	<crptst c d><jsr r3,pr$cpt><.word d>
+meta	<crperr c d><jsr r3,pr$cpe><.word d>
+
+.enabl	lsb
+pr$cpt::			;create process error
+	bcs	pr$cpe		;we have an error
+	tst	(r3)+		;skip the error code
+	rts	r3		;and quit
+
+pr$cpe:	mov	(r3),s$merr	;setup the error
+	mov	p$rpcr,r4	;get partial pcr
+	call	pr$rem		;remove the process
+	.soft	1		;report it
+.dsabl	lsb
+.sbttl	create process body
+
+;	Create process structures
+;
+;	pcr	Create the pcr
+;	chr	Create the channel record
+;	body	Create the body file
+;		Map phd to usermode par2
+;
+;	Kernel routine
+;	System resource locked
+;	Not called for kernel process
+;
+;	r5 ->	rp
+;	b$p%%%	build process parameters
+;
+;	call	pr$cre
+;
+;	p$rpcr	pcr address - zero if none created
+;	pr.chr	chr address - zero if none created
+;	vm:	vm:prc%%%.prc is body file
+;	m$uip2	phd record mapped
+
+	.enabl	lsb
+pr$cre::			;create process
+
+;	Create pcr record
+
+	$crepo	#popcr.!poclr$,#pr.bbs ;create a pcr
+	mov	r0,r4		;\ point to it in r4 - zero if failed
+	mov	r0,p$rpcr	;| and again
+	crptst	s$inm. pcidm.	;/ insufficient space for pcr
+
+;	Get a process slot	
+
+	mov	#1,r0		;start with second slot
+10$:	asl	r0		;check the slot
+	tst	p$rmap(r0)	;this available?
+	beq	20$		;yes
+	asr	r0		;no
+	inc	r0		;next slot
+	cmp	r0,p$rprs	;anymore processes?
+	blo	10$		;yes
+	crperr	s$nsl. pcslo.	;no slot available (???2)
+				;
+20$:	asr	r0		;get a number
+	movb	r0,pr.prn(r4)	;save the slot number
+	call	pr$nam		;and build the name
+	mov	r0,p$rxpn	;setup the rad50 name
+	tst	b$pnam		;did they supply a name as well?
+	bne	25$		;yes
+	movbuf	p$rnam+fn.fil,b$pnam,4 ;no - supply a default
+25$:	mov	b$pnam,r2	;check for unique name
+	mov	b$pnam+2,r3	;
+	cmp	r2,#^rlog	;permit duplicate LOGIN name
+	bne	30$		;not LOG
+	cmp	r3,#^rin	;really LOGIN?
+	beq	40$		;yes
+30$:	psh	r4		;save our pcr
+	call	sy$fpn		;try to find it
+	pop	r4		;get our pcr back
+	bcs	40$		;does not exist
+	crperr	s$dpn. pcdup.	;duplicate process name
+
+;	Create the channel record
+
+40$:	jsr	r5,pr$mnx	;min/max channels
+.if ne chncnt
+	.word	b$pfil,2.,255.	;r1 = channels - minimum is two
+	cmpb	r1,#16.		;exactly 16. channels?
+	bne	50$		;no
+	incb	r1		;yes - enforce 17. channels
+.iff
+	.word	b$pfil,17.,255.	;r1 = channels
+.endc
+50$:	movb	r1,pr.chs(r4)	;retain the channel count
+	mul	#ch.bbs,r1	;10. bytes per channel
+	$crepo	#pochr.!poclr$,r1 ;create the channels
+	crptst	s$inm. pcidm.	;no room for channels
+	mov	r0,pr.chr(r4)	;remember the channel record
+
+;	Create the process body
+
+	jsr	r5,pr$mnx	;minimise/maximise body size
+	.word	b$pwsd,prmin.,prmax. ;r1 = body page size
+				;
+	.purge	#0		;purge this channel
+	.enter	#p$rare,#0,#p$rnam,r1 ;create the process body
+	crptst	s$inx. pcipm.	;insufficient permanent memory for body.
+
+;	Map process header to user par2
+; ???	Change to use par6
+				;r1 = block size of process
+	mov	p$hchr,r0	;get our kernel channel
+	mov	r1,ch.use(r0)	;setup the used length
+	mov	r1,p$hcsw+ch.use;ch.use - set used length for close
+	mov	ch.sbl(r0),r3	;get the start block
+				;
+	mul	#mmpib.,r3	;get the page number
+	mov	r3,pr.pag(r4)	;page number
+	mul	#mmpib.,r1	;get the length in pages
+	mov	r1,pr.len(r4)	;page length of process
+				;
+	add	r1,r3		;point to end of process
+	sub	#4*mmpik.,r3	;backoff by 4kw
+	mov	r3,pr.phd(r4)	;remember it
+	mov	r3,p$huip+<2*2>	;and point to it in par2
+	mov	r3,m$uip2	;and make it physical
+	return			;
+.dsabl	lsb
+.sbttl	create process headers
+
+;	Map header, pcr and memory	
+;
+;	Called by kernel mode from KBO with system phd mapped to par2.
+;	Called in user mode with target PHD mapped in par2.
+;
+;	r3 ->	client phd address
+;	r4 ->	pcr
+;	r5 ->	kernel phd address
+;
+;	Calls:
+;
+;	pr$cpc	finish pcr
+;	pr$phd	fill in phd
+;	pr$cpm	map process and schedule it
+	
+pr$cph::			;create process headers
+;	clrbuf	p$hroo,ph.bbs	;clear the phd
+	clrbuf	p$hroo,ph.r0s	;clear first part
+	movbuf	p$hr0s+mmp12.,p$hr0s,ph.r0e-ph.r0s ;move in static
+	clrbuf	p$hr0e,ph.bbs-ph.r0e
+	movbuf	b$pimg,p$himg,b$pend-b$pimg ;move in the build stuff
+				;
+	mov	#p$hroo,r3	;system process client phd address
+	mov	r3,r5		;r5 -> phd kernel address
+	cmp	pr.prn(r4),#prsyn. ;this the system process?
+	beq	10$		;yes - use kernel address
+	mov	pr.len(r4),r3	;get the process length
+	sub	#phdps.,r3	;subtract phd page size
+	mul	#mmbip.,r3	;get the byte address
+				;
+10$:	call	pr$cpc		;complete the pcr
+	call	pr$phd		;fill in the header
+	callr	pr$cpm		;map the process
+.sbttl	fill pcr and stack
+
+;	Fill in pcr & kernel stack
+;
+;	Also called by KBO to setup kernel process.
+;	PHD has been setup.
+;
+; ???	Add assumes from $cxdef
+;
+;	User mode routine
+;
+;	r3 ->	client address of phd
+;	r4 ->	pcr
+
+pr$cpc::				;fill in the pcr
+	mov	r4,(r4)			;pr.suc
+	mov	r4,pr.pre(r4)		;pr.pre
+	mov	p$rsta,pr.sta(r4)	;pr.sta	- initial state
+					;
+	movb	b$ppri,r1		;	- get base priority
+	mul	#sc.bbs,r1		;	- multiply by queue size
+	add	#s$cp00,r1		;	- add in the base
+	mov	r1,pr.que(r4)		;pr.que	- current queue
+				;byte	;pr.wai	- initial wait - null
+				;byte	;pr.svw - saved wait - unused
+					;
+	mov	r1,pr.bqu(r4)		;pr.bqu - base queue
+	movb	b$ppri+1,r1		;	- top priority
+	mul	#sc.bbs,r1		;	-
+	add	#s$cp00,r1		;	-
+	mov	r1,pr.tqu(r4)		;pr.tqu - top queue
+					;
+	mov	#stdor$,pr.ast(r4)	;pr.ast - dormant
+					;pr.asq - null
+					;pr.sig - null
+					;
+					;pr.ksp	- filled below
+;					;pr.pag - supplied
+					;pr.len - supplied
+					;pr.phd - phd page - supplied
+					;
+					;pr.ter - null
+					;pr.mer - message record - null
+					;pr.chr - channel record - supplied
+				;byte	;pr.chs	- number of channels - supplied
+				;byte	;pr.cnt - subprocess count - null 
+					;
+	mov	b$pjib,pr.jib(r4)	;pr.jib - job pcr
+					;pr.job - job pcr
+	mov	b$pown,pr.own(r4)	;pr.own - owner pcr
+				;byte	;pr.prn - process number - supplied
+;???	incb	pr.prs(r4)	;byte	;pr.prs - process sequence number
+					;
+	mov	b$puic,pr.uic(r4)	;pr.uic - uic 
+	mov	b$ppro,pr.pro(r4)	;pr.pro - protection
+	mov	b$pnam,pr.nam(r4)	;pr.pnm - process name
+	mov	b$pnam+2,pr.nam+2(r4)	;
+					;pr.phx - PHD switch page	;RXM
+
+;	Fill in the kernel stack
+
+	mov	#p$hkst,r0		;r0 ->	stack top
+	mov	#mmpum$,-(r0)		;ps	- initial client ps
+	mov	#im$ini,-(r0)		;pc	- image initialization
+	sub	#6*2,r0			;r0:r5	- initial registers
+	mov	#mmkp6.,-(r0)		;kp6	- initial kernel par6
+	mov	#mmkp1.,-(r0)		;kp1	- initial kernel par1
+	mov	#mmpum$,-(r0)		;kps	- initial monitor ps
+	mov	#1000,-(r0)		;usp	- initial user stack
+	mov	r0,pr.ksp(r4)		;pr.ksp	- kernel stack pointer
+100$:	mov	#152525,-(r0)		;fill the stack with an empty pattern
+	cmp	r0,#p$hksb		;all done?
+	bhi	100$			;nope
+	return				;
+.sbttl	map process
+
+;	Map a process
+;
+;	This routine sets up all physical memory pointers.
+;
+;	pr.pag	first page
+;	pr.len	length in pages
+;	phcps.	page size of client phd
+;	phkps.	page size of kernel phd
+;
+;	r3 ->	p$hrmn
+;	r4 ->	pcr
+;	r5 ->	p$hroo
+;
+;	Fill in p$huip and p$huid
+;
+;	User mode routine
+
+	lo.pdr	= 8.*2		;offset to descriptor
+	lo.plf	= 8.*2+1	;offset to length field
+
+pr$cpm::			;map the process
+.if ne rst$c
+	mov	pr.pag(r4),r0	;r0 = page
+.iff
+	mov	pr.pag(r4),r1	;r1 = page
+	mov	r1,r0		;r0 = page
+.endc
+	mov	pr.len(r4),r1	;r1 = length
+	cmpb	pr.prn(r4),#prsyn. ;this the system process?
+	beq	5$		;yes
+	sub	#phkps.-phcps.,r1 ;adjust for client access
+5$:	mov	#p$huip,r2	;client pars
+10$:	mov	r0,(r2)		;setup the page
+	add	#mmpis.,r0	;point to the next page
+	mov	#mmpis.-1*256.+mmdrw.,lo.pdr(r2) ;setup a 4k descriptor
+	cmp	r1,#mmpis.	;do we have another full page?
+	bhis	20$		;yes
+	movb	r1,lo.plf(r2)	;nope - use the remainder
+	decb	lo.plf(r2)	;pages-1 required
+20$:	tst	(r2)+		;get the next
+	sub	#mmpis.,r1	;reduce remaining length
+	bhi	10$		;and do the next
+30$:	cmp	r2,#p$huid	;have we done them all?
+	bhis	40$		;yes
+	clr	(r2)		;nope - clear the next
+	clr	lo.pdr(r2)	;and the descriptor
+	tst	(r2)+		;do the next
+	br	30$		;
+40$:	mov	#p$huip,r0	;copy to backup
+	mov	#p$hcip,r1	;
+	mov	#16.,r2		;
+50$:	mov	(r0)+,(r1)+	;move them
+	sob	r2,50$		;
+	fall	100$		;
+
+;	Compute address space type
+
+100$:	movb	#as18b$,p$hasp	;assume 18-bit process
+	cmp	p$huip,#mmp22.	;this in 22-bit space?
+	blo	110$		;nope
+	movb	#as22b$,p$hasp	;yes - set 22-bit space
+110$:	return			;
+.sbttl	schedule process
+
+;	Close the process body file.
+;	Fill in proces map.
+;	Schedule the process.
+;
+;	Kernel mode routine
+
+pr$cps::			;finish and schedule
+	mov	p$rpcr,r4	;point to the pcr
+				;
+	.close	#0		;close the body file
+	crptst	s$inx. pcipm.	;cant create body
+				;
+	mov	pr.pid(r4),p$rpid ;return result pid
+	clr	r0		;get the process number
+	bisb	pr.prn(r4),r0	;setup process map
+	asl	r0		;
+	mov	r4,p$rmap(r0)	;put us in the map
+				;
+	$float			;system state
+	$revive	pr.bqu(r4)	;setup in base queue
+	$land			;and continue
+	return			;we are done
+.end
+

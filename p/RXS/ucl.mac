@@ -1,0 +1,258 @@
+.title	ucl
+.include "lib:rust.mac"
+.psect	ucl d
+$prdef		;pcr
+$txdef		;text
+
+;	RUST/XM resident command language utilities
+;
+;	%build
+;	macro	rxs:ucl/object:rxb:ucl
+;	%end
+.sbttl	find command symbol
+
+;	Find command symbol
+;
+;	The symbol must terminate with whitespace or end-of-line.
+;
+;	ccc:cccccc	Run by name
+;	cccccc		If not command pass to dcl
+; 
+;	r1 ->	patterns
+;	r4 ->	target
+;	c=0	r0 -> routine
+;	c=1	not found or ambiguous
+; 
+;	r1 ->	patterns
+;	r2 ->	target
+;	r3 =	wildcard flag
+;	r4 ->	target
+
+;	r1 ->	symbol table
+;	r4 ->	command line
+
+cl$fnd::clr	-(sp)		;result
+10$:	clr	r3		;r3<>0 => wildcard seen
+	mov	(r1)+,(sp)	;store the result
+	beq	50$		;end of list
+	mov	r4,r2		;get the pointer back
+20$:	cmpb	(r1),#'*	;this the wildcard?
+	bne	24$		;nope
+	movb	(r1)+,r3	;yes - flag wildcard seen
+24$:	movb	(r2),r0		;get the next
+	call	cl$cas		;get a lower case letter
+	bcs	30$		;we are done
+	inc	r2		;skip it
+	tstb	(r1)		;overrun?
+	beq	40$		;yep, skip it
+25$:	cmpb	r0,(r1)+	;got a match?
+	beq	20$		;yep
+	br	40$		;try it on the next
+30$:	tstb	(r1)		;exact match?
+	beq	60$		;yes
+	tst	r3		;did we find it?
+	bne	60$		;yes - we have it
+40$:	tstb	(r1)+		;even up
+	bne	40$		;
+	inc	r1		;
+	bic	#1,r1		;
+	br	10$		;try the next
+50$:	sec			;not found
+	mov	r4,r2		;dont change the pointer
+60$:	pop	r0		;return the address
+	mov	r2,r4		;update the pointer
+	bcc	cl$skp		;success - check for whitespace
+	return
+
+cl$skp::			;skip whitespace
+	psh	#1		;c=1 => no whitespace found
+10$:	cmpb	(r4),#'!	;got a comment?
+	bne	15$		;no
+	clrb	(r4)		;yes - ignore the rest
+15$:	tstb	(r4)		;end of line?
+	beq	25$		;yes - whitespace seen
+	cmpb	(r4),#space	;this a space
+	beq	20$		;yes
+	cmpb	(r4),#ht	;this a tab?
+	bne	30$		;no
+20$:	inc	r4
+	clr	(sp)		;c=0 => whitespace seen
+	br	10$		;
+25$:	clr	(sp)		;
+30$:	asr	(sp)+		;c=1 => no whitespace seen
+	return
+
+cl$cas:	call	ut$cas		;make it lower & check for alphabetic
+	bcs	10$		;not an alphabetic
+	add	#'a-'A,r0	;make it lower case
+	clc
+10$:	return
+.sbttl	process number, octal, decimal
+
+;	Get process number
+;
+;	r4 ->	stream
+;	r1 	returns process number
+
+cl$gpn::clr	r1		;assume not found
+	movb	(r4),r0		;get the first
+	beq	50$		;nothing there
+	call	ut$dig		;check for a digit
+	bcc	cl$oct		;its a number
+	mov	r4,r0		;r0 -> string
+	call	na$car		;get the first word
+	mov	r1,r2		;r2 = first word
+	call	na$car		;r1 = second word
+	mov	r0,r4		;restore this
+	pshs	<r4,r3>		;save these
+	mov	#p$rprs,r0	;point at the processes
+	mov	(r0)+,r3	;
+10$:	mov	(r0)+,r4	;get the next
+	beq	20$		;not in operation
+	cmp	r2,pr.nam(r4)	;check the name
+	bne	20$		;not this one
+	cmp	r1,pr.nam+2(r4)	;
+	beq	30$		;we found it
+20$:	sob	r3,10$		;get more
+	clr	r1		;make it invalid
+	br	40$		;
+30$:	movb	pr.prn(r4),r1	;return the number
+40$:	pops	<r3,r4>		;restore these
+50$:	return
+
+;	Call conversion routines
+;
+;	r4 ->	our string
+;	r0 ->	conversion routine string
+;	r1 =	result value
+
+cl$oct::mov	r4,r0		;r0 -> string
+	call	na$cao		;r1 = octal number
+	mov	r0,r4		;r4 -> past string number
+	return
+.sbttl	command list
+
+; ???+
+;	Deassign [log]		! Process only
+;	Assign equ log		! Process only
+;	Stop			! Strengthen
+;	Login/Logout		! Small CLI
+;	Debug			! Start with [backspace]
+; ???
+;
+;	Process some user-defined commands first.
+;	Support system-wide user defined commands.
+;	Use a hash table to look for valid DCL commands
+
+meta	<entry c d><.word d><.asciz _c_><.even>
+
+c$lsym::		;cli commands
+entry	<r>		cl$rsy
+entry	<ru*n>		cl$run
+entry	<st*op>		cl$sto
+entry	<c*ontinue>	cl$con
+entry	<at*tach>	cl$att
+entry	<det*ach>	cl$det
+entry	<sta*rt>	cl$sta
+entry	<ree*nter>	cl$ree
+
+;	SET commands
+
+entry	<set>		cl$set
+c$lset::
+entry	<tr*ace>	cl$tra
+entry	<notr*ace>	cl$ntr
+entry	<deb*ug>	cl$dbg
+entry	<nodeb*ug>	cl$ndb
+entry	<nocl*i>	cl$ncl
+entry	<ver*ify>	cl$ver
+entry	<nove*rify>	cl$nve
+entry	<ste*p>		cl$ste
+entry	<nost*ep>	cl$nst
+	.word	0
+
+.end
+ABORT
+ASSIGN
+APPEND
+AUTHORIZE
+APL
+B
+BASIC
+BOOT
+BACKUP
+CALL
+COPY
+CREATE
+COMPILE
+CONSIGN
+CONVERT
+CLOSE
+D
+DEASSIGN
+DIRECTORY
+DATE
+DEFINE
+DELETE
+DUMP
+DIFFERENCES
+DIBOL
+DISPLAY
+DIVERT
+DISMOUNT
+EXECUTE
+EDIT
+FOCAL
+FORTRAN
+FILE
+FORMAT
+GET
+GAMMA
+GT
+HELP
+INSTALL
+IF
+INITIALIZE
+LINK
+LIBRARY
+LOAD
+LOG
+LOGIN
+LOGOUT
+MAKE
+MUNG
+META
+MACRO
+MAREE
+MOUNT
+P
+PR
+PASCAL
+PHONE
+PRINT
+PRESS
+PATCH
+PROTECT
+R
+RUN
+REENTER
+RESET
+REMOVE
+RENAME
+START
+SAVE
+SHOW
+SET
+SEND
+SQUEEZE
+START
+STOP
+TIME
+TECO
+TELL
+TYPE
+UNLOAD
+UNPROTECT
+VAX
+WAIT
+

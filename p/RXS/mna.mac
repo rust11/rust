@@ -1,0 +1,135 @@
+.title	mna - name translation
+.include "lib:rust.mac"
+.psect	mna
+$dedef		;device
+$nadef		;name
+
+;	Logical name routines
+;
+;	%build
+;	macro	rxs:mna/object:rxb:mna
+;	%end
+;
+;	calls	na$cli		logical to index
+;		na$clp		logical to permanent
+;
+;		na$cle		logical to equivalence
+;		na$cpi		permanent to index
+;		na$cir		index to record
+;
+;	names	logical		r0 = logical
+;		equivalence	r0 = equivalence
+;		permanent	r0 = permanent, r1 = penultimate
+;		device		r0 = permanent
+;		index		r2 = device index, r3 = unit number
+;		record		r2 -> device record, r3 -> unit record
+;
+;	tables	process		process header	
+;		group		name record
+;		system		s$ynam
+;		spooler		s$ynam	
+;		permanent	r$mpnm
+;
+;	users	acp	device names
+;		dstat	device status
+;		user	system calls
+;
+;	request	$tralog	area, mask, lognam, equnam
+;		$crelog	area, mask, lognam, equnam
+;		$dellog	area, mask, lognam
+;		$sholog	area, mask, tabadr, tablen
+;
+;	masks	naglo$	all tables
+;		naprc$	process table
+;		nagrp$	group table
+;		nasys$	system table
+;		naspo$	spooler tables
+;		naper$	permanent table
+.sbttl	logical to index, permanent, equivalence
+
+;	Convert logical to index
+;
+;	r0	logical name
+;	call	na$cli
+; 	r0	permanent name
+;	r1	penultimate name
+;	r2	device index
+;	r3	unit number
+;
+;	c=1	invalid name or unit not mounted
+
+na$cli::ovjmp$	ux$cli	utl;utx	;call utility
+
+; 	Convert logical to permanent/penultimate
+;
+;	r0	logical name
+;	call	na$clp
+;	r0	permanent name
+;	r1	penultimate name
+;	c=1	Invalid name or translate loop
+;		r0/r1 not defined
+;
+;	If the logical name is not found check for a catchall
+;	logical name *. If *=NO forget it.
+
+na$clp::ovjmp$	ux$clp	utl;utx	;logical to permanent/penultimate
+
+;	Convert logical to equivalence
+;
+;	r0	logical name
+;	call	na$cle
+;	r0	equivalence name
+;	c=1	not translated
+
+na$cle::ovjmp$	ux$cle	utl;utx	;call overlay
+.sbttl	convert permanent to index
+
+;	Convert permanent name to index
+;
+;	r0	permanent name
+;
+;	call	na$cpi
+;
+;	r2	volume index
+;	r3	unit number
+
+na$cpi::ovjmp$	ux$cpi	utl;utx	;convert permanent to volume
+
+;	Convert index to record
+;
+;	r2	device index
+;	r3	unit number
+;
+;	call	na$cir
+;
+;	r2	device record - 0 => not installed
+;	r3	unit record - 0 => not loaded
+;
+;	c=1	device or unit not mounted
+
+na$cir::ovjmp$	ux$cir	utl;utx	;convert index to record
+
+;	convert ascii to filename
+;
+;	r0 ->	input stream
+;	r1 ->	output block
+;
+;	c=0	filename present
+;	c=1	no filename found
+;
+;	r0 ->	past string
+;	r1 ->	output block (unchanged)
+;
+;	csigen	should not accept wildcards
+;	space	non-standard '_' representation
+
+na$caf::ovjmp$	sx$caf	sys;syx	;get a filename
+
+;	Convert ascii to rad50
+;
+;	r0 ->	input ascii stream (popped past)
+;	r1 =	output word
+
+na$car::ovjmp$	sx$car	sys;syx	;get rad50
+.end
+

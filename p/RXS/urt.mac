@@ -1,0 +1,279 @@
+.title	urt - realtime calls
+.include "lib:rust.mac"
+.psect	urt d
+$addef
+$cidef		;connect-interrupt
+$erdef		;errors
+$icdef		;image control
+$mmdef		;mmu
+$podef		;pool
+$prdef		;pcr
+$psdef		;psw
+$uvdef		;user vectors
+$vedef		;vectors
+
+;	RUST/XM RT-11 realtime calls
+;
+;	%build
+;	macro	rxs:urt/object:rxb:urt
+;	%end
+;	%date
+;	<20-Nov-2010 20:53:39.09>
+;	%edit
+;	<35   >
+;
+;	.protect	
+;	.unprotect	
+;	.device	
+;
+;	Protect sets up a vector dispatch entry.
+;	Unprotect releases it.
+;	.device specifies a list of entries in the I/O page.
+;	Only entries in the I/O page are affected.
+;
+;	The program must be marked with SET PROGRAM/REALTIME
+;	Interrupts are delivered at priority zero in user mode.
+;	Process wake up is issued if user vector is null.
+;
+;	The program must have change-mode-to-kernel rights
+;
+;	A client AD is required for each usermode AST
+.sbttl	.protect	
+
+;	.protec	area, addr			+-------+-------+
+;					r5 ->	!   31	!  0/1	!
+;	r0	unchanged			+-------+-------+
+;	0	already attached	r3/r4 =	!      addr	!
+;	1	invalid address			+-------+-------+
+
+em$prt::bit	#icrtm$,p$hic0	;this a realtime program?
+	beq	40$		;no - vector not available
+	mov	r3,r4		;r4 = vector address
+	tstb	(r5)		;is this unprotect?
+	bne	em$unp		;yes - do that
+	cmp	r4,#v$emax	;too high (above 600)?
+	bhis	10$		;yes
+	bit	#3,r4		;odd?
+	beq	20$		;no
+10$:	.soft	1		;invalid vector
+20$:	$obtain	#s$yque		;synchronise (zaps r3)
+	$crepo	#poidb.,#uv.bbs	;get some pool space
+	$divest	#s$yque		;release it
+	mov	r0,r3		;r3 -> CI block
+	beq	40$		;is none - no space - vector busy
+				;
+;	r0/r3->	CI block
+;	r4 ->	vector
+
+	mov	p$huvl,(r0)+	;uv.suc - link into list, point at isr
+	mov	r3,p$huvl	;	- put us up front
+				;
+	mov	#4537,(r0)+	;uv.isr - build the ISR
+	mov	#uv$int,(r0)+	;	- jsr r5,@#uv$int
+	mov	#-1,(r0)+	;uv.sem - setup the semaphore
+	clr	(r0)+		;uv.fsu - fk.suc
+	mov	#uv$frk,(r0)+	;uv.fpc - fk.fpc - post monitor ast
+	mov	r3,(r0)		;uv.fr5 - fk.fr5 - kernel ast block
+	add	#uv.kad,(r0)+	;
+	mov	p$hpcr,(r0)+	;uv.fr4 - fk.fr4 - pcr
+
+;	Build the kernel AD
+
+	clr	(r0)+		;uv.ksu - ad.suc - no successor
+	mov	#uv$ast,(r0)+	;uv.kpc - ad.kpc - conint kernel ast
+	mov	#mmpum$,(r0)+	;uv.kps - ad.kps - previous user mode
+	mov	@#m$kip1,(r0)+	;uv.kp1 - ad.kp1 - this overlay
+	mov	r4,(r0)+	;uv.kr4 - ad.kr4 - vector
+
+;	Allocate & setup vector	
+
+	assume	uv.isr eq word	;
+	mov	r3,r0		;in case we miss it
+	tst	(r3)+		;skip to uv.isr
+	spl	7		;fill in the vector
+	mov	(r4)+,r1	;get the vector contents
+	cmp	r4,r1		;is it available?
+	bne	30$		;no
+	mov	#pr7,(r4)	;priority 7
+	mov	r3,-(r4)	;the routine
+	spl	0		;down
+	return			;
+30$:	spl	0		;missed vector
+	mov	(r0),p$huvl	;link pool element out
+	call	uv$del		;delete pool element (r0->element)
+40$:	.soft	0		;vector busy
+.sbttl	unprotect	
+
+;	.unprot	area, addr			+-------+-------+
+;					r5 ->	!   31	!   1	!
+;						+-------+-------+
+;	r0	unchanged		r4 = 	!      addr	!
+;						+-------+-------+
+
+em$unp::mov	#p$huvl,r1	;get the list
+10$:	mov	(r1),r0		;
+	beq	uv$ret		;are no more
+	cmp	uv.vec(r0),r4	;this the vector?
+	beq	20$		;yes
+	mov	r0,r1		;no - try the next
+	br	10$		;
+20$:	mov	(r0),(r1)	;unlink it
+	fall	uv$det		;detach and return
+
+;	Detach vector
+
+uv$det:	mov	uv.vec(r0),r1	;get the vector
+	spl	7		;go up
+	mov	r1,(r1)		;fill in the address
+	add	#word,(r1)+	;
+	mov	#iot,(r1)	;
+	spl	0		;
+	fall	uv$del		;
+
+;	Delete pool element
+
+uv$del:	$obtain	#s$yque		;synchronise (zaps r3)
+	$delpo	r0		;get some pool space
+	$divest	#s$yque		;release it
+uv$ret:	return
+.sbttl	user vector AST
+
+;	The interrupt service routine is converted to an AST:
+;
+;	IDB	Service routine calls UV$INT to convert to fork routine.
+;	UV$INT	Checks throttle sempaphore, ignores if not first.
+;	UV$FRK	Posts monitor AST - this sets processor priority.
+;
+;	The interrupt service routine path is as follows:
+;
+;	Interrupt	Checks UV semaphore. Ignores if not -1.
+;	UV$INT		Passes control directly to IN$FRK. This builds
+;			an in-line fork routine.
+;
+;			UV$INT:	inc	(r5)+		;this the first?
+;				beq	in$frk		;yes
+;				dec	-(r5)		;no
+;				pop	r5		;restore that
+;				rti			;ignore it
+;
+;			The throttle makes sure the fork block and kernel
+;			AST block are not reused before they are free.
+;			But, a process can still deadlock by exhausting AD's.
+;???			Processes that use the .RSUM mechanism cannot deadlock.
+;
+;	Fork routine	The fork routine passes control to AS$PMA to post
+;	UV$FRK		a monitor AST. r4/r5 are supplied from the fork block.
+;			AS$PMA requires following:
+;
+;			r3 ->	scheduler queue - from uv$frk - s$cpuv
+;			r4 ->	pcr
+;			r5 ->	ad record
+;
+;	Monitor AST	See below. Wakes process, or schedules user AST.
+;	UV$AST		Opens interrupt throttle semaphore when done.
+;			UV$AST receives following:
+;
+;			r4	vector address
+;			r5 ->	uv.kad
+;			ps	previous user mode
+;
+;	User vector	ve.pc	user ISR
+;			ve.pc=0	just wake up
+;			ve.ps	user PSW cc's and trace flag
+;			bit15$	signals completion routine
+;
+;	User AST	The following enviroment is passed to AS$PCA.
+;
+;			r0	vector address
+;			r1	user p1 - real ps
+;			r2	user pc
+;			r3	user ps = adint.
+;
+;	AS$PCA		Posts client AST
+;	AS$DCA		Deliver client AST
+;
+;			Recognises AD.CPS=#ADINT. and pushs extra word
+;			 on user stack to simulate interrupt.
+
+uv$ast:	mov	r4,r0			;supply vector in r0
+	movfd	(r4)+,r2		;get the vector pc
+	beq	20$			;just a wake up
+	movfd	(r4)+,r1		;get the ps
+	lomsk$=cbit!vbit!zbit!nbit!tbit ;permitted bits
+	bic	#^clomsk$,r1		;clear all but cc's and trace flag
+	bis	#mmdum$,r1		;r3 = user ps
+	mov	#adint.,r3		;force user interrupt
+	call	@#as$pca		;post client ast
+	br	30$			;done
+
+;	In-line process wakeup (.RSUM)
+
+20$:	mov	p$hpcr,r4		;get the pcr
+	bis	#prwak$,pr.sta(r4) 	;set wake pending
+
+;	Reset throttle semaphore
+
+30$:	dec	uv.sem-uv.kad(r5)	;let next interrupt thru
+	return
+.sbttl	.device
+
+;	.device	area,addr,link			+-------+-------+
+;					r5 ->	!   14	! link	!
+;	r0	unchanged			+-------+-------+
+;					r3/r4 =	!      addr	!
+;						+-------+-------+
+;
+;	+-------+-------+
+;	!      succ	!	if link=1
+;	+-------+-------+
+;	!      addr	!	null address terminates list
+;	+-------+-------+
+;	!      value	!
+;	+-------+-------+
+;	      . . .
+;
+;	p$hxl0	header for unlinked element
+;	p$lxl1	header for linked list
+
+em$dev::bit	#icrtm$,p$hic0	;is this permitted?
+	beq	20$		;no - ignore it
+	mov	#p$hxl1,r0	;assume unlinked
+	tstb	(r5)		;is this linked?
+	beq	10$		;no
+	movtd	(r0)+,(r3),30$	;link us in
+10$:	mov	r3,-(r0)	;
+20$:	return			;
+30$:	.hard	eradr.		;address error
+
+;	User-vector exit	
+;	Called during image exit
+;	Free vector blocks, execute device lists
+;	Ignore errors
+
+uv$exi::mov	#p$hxl1,r3	;get the linked list
+10$:	mov	(r3),r2		;get the next one
+	beq	30$		;that was all
+	movfd	(r2)+,(r3),30$	;get the successor
+				;
+20$:	movfd	(r2)+,r0,30$	;get the address
+	beq	10$		;that was all in this list
+	movfd	(r2)+,r1,30$	;get the fill value
+	cmp	r0,#160000	;i/o page only
+	blo	20$		;ignore it
+	mov	r1,(r0)		;store it
+	bvs	30$		;ignore the rest of this list
+	br	20$		;get the next
+30$:	clr	(r3)		;terminate linked list for sure
+	mov	-(r3),r2	;get the unlinked list - perhaps
+	beq	50$		;done it or no list
+	clr	(r3)+		;once-only
+	br	20$		;fine
+				;
+50$:	mov	p$huvl,r0	;get the next vector
+	beq	uv$ret		;all done
+	mov	(r0),p$huvl	;take it out of the list
+	call	uv$det		;detach the vector
+	br	50$		;do it again
+
+.end
+

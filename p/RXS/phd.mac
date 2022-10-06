@@ -1,0 +1,620 @@
+xtm$c=1
+.title	phd - process header
+.include "lib:rust.mac"
+.psect	phd d
+.dsabl	gbl	;no external references permitted
+$cldef		;command language flags
+$mmdef		;memory management
+$apdef		;acps
+$cndef		;config and confg2
+$iqdef		;i/o queue element
+$pqdef		;process quota
+$rmdef		;rt-11 rmon
+$sgdef		;sysgen
+$tcdef		;RT-11 terminal config
+
+;	+-----------------------------------------------+
+;	! Update SPH for all changes to this module.	!
+;	+-----------------------------------------------+
+;
+;	RUST/XM Process header
+;
+;	%build
+;	macro	rxs:phd/object:rxb:
+;	%end
+;
+;	This module defines the process header.
+;
+;	The full process header has the following parts.
+;
+;	Dynamic per-process tables and structures
+;	The RT-11 device header
+;	The RT-11 RMON header
+;	The EXPERT header
+;	The SHAREplus native header
+;	Optional SHARE/plus header extensions
+;
+;	P$Hnam	The SHARE/plus name of each location.
+;	ph.nam	The SHARE/plus phd offset to each location.
+;
+;	The computations place the PHD as close to the top of par2 as possible.
+;	We must make sure that the system process never enters this area.
+
+phdbs.==4700		;assume it is this size (must be multiple of 64. (100))
+phdps.==phdbs./mmbip.	;phd page size
+p$hroo==m$mpa3-phdbs.	;
+$=0			;start offset
+
+s$yphd::.blkb	phdbs.	;reserve space for system phd
+
+;		native	compat	size	contents
+
+.macro	phd	c d	e=2
+ph.'d==:$
+p$h'd==:p$hroo+ph.'d
+$=$+<e>
+.endm
+.sbttl	device header
+
+;	RT-11 device header
+;
+;	Variable addresses supported.
+;	User mode access permitted.
+;
+;	Client data structures are mapped into the pvas.
+;	It is restricted to non-critical data.
+;	KMON is largely responsible for maintaining these structures.
+;
+;	The order of the tables is:
+;
+;	command file	dynamic.		@file
+;	device tables	adusted.		crelog/dellog mount/dismount
+;						assign/deassign
+;	path table	null - else 21.		assign/path deassign/path
+;	meta table	null - else 256. bytes	symbol:= delete/symbol
+;	cli buffer	null - else 16. bytes	SET CLI, $FORCE, .SETCLI
+;
+;	command file	
+;	devices		.rept	<>
+;	paths		.rept <log,eq1,eq2,eq3,eq4> , -1
+;	metas		.blkb data, .byte 0,0,-1,0
+;	cli		.blkb 16.
+;
+;	Process logical name assignment table
+
+phd	ph equ	word*31. 	;$unam1	equivalence names
+phd	ph dke	word		;dkassg	.rad50 /dk0/
+phd	ph sye	word		;syassg	.rad50 /sy0/
+phd	ph log	word*31.	;$unam2	logical names
+phd	ph dkl	word		;	.rad50 /dk /
+phd	ph syl	word		;	.rad50 sy /
+
+;	Following area is not used by the kernel.
+;	MCR uses this area for the RSX header.
+;	This area is reset during image activation.
+
+phd	ph rsx	null		;RSX process impure - $xhdef
+phd	ph pnm	word*31.	;$pname	permanent names
+phd	ph ent	word*32.	;$hentry	
+phd	ph dst	word*31.	;$stat	status
+phd	ph drc	word*31.	;$dvrec
+phd	ph hsz	word*31.	;$hsize
+phd	ph dsz	word*31.	;$dvsiz
+phd	ph typ	word*31.	;$type - expert
+.sbttl	rt-11 header
+
+;	RT-11 RMON header
+;
+;	Static RT-11 RMON header.
+;	User mode access permitted.
+	
+phd	ph mon	word*2		;$rmon	jmp @#inten
+phd	ph csw	word*5*17. 	;$csw	csw area	mch
+phd	ph blk			;blkey	unused
+phd	ph chk			;chkey	unused
+phd	ph dat			;$date	?
+phd	ph dfl			;dflg	unused
+phd	ph ctl	null		;$usrlc	ctl base address	
+phd	ph usr			;$usrlc	client @#rmon-2-devices
+phd	ph qco			;qcomp	unused	(ph.qcr) absolute
+phd	ph spu			;spusr	unused
+phd	ph syu			;syunit			build
+phd	ph syv	byte		;sysver	5
+phd	ph sup	byte		;sysupd	0
+phd	ph cfg			;config	XM		build
+phd	ph scr			;scroll	unused
+phd	ph tks			;ttks	dummy
+phd	ph tkb			;ttkb	
+phd	ph tps			;ttps	
+phd	ph tpb			;ttpb	
+phd	ph max			;maxblk	-1
+phd	ph e16			;e16lst	unused		-$rmon
+phd	ph tim	word*2		;$time	unused
+phd	ph syn			;synch	net pointer	absolute
+
+assume	rm.usl-rm.lmp eq 20.	;10-word lowmap
+phd	ph lmp	null		;lowmap - unused
+phd	ph tsx	word*6.		;tsx header
+phd	ph ucf	word*4.		;ucl filename
+
+phd	ph usl			;usrloc	usr address	=$rmon
+phd	ph gtv			;gtvect	unused
+phd	ph erc			;errcnt	unused
+phd	ph mtp			;$mtps	relative
+phd	ph mfp			;$mfps	relative
+phd	ph syi			;syindx	2
+phd	ph cfs			;statwd	command file status
+phd	ph cf2			;confg2	cnkms$!copy
+phd	ph syg			;sysgen	sgrtm$
+phd	ph usa			;useare	2
+phd	ph erl	byte		;errlev	fatal$!sever$!error$
+phd	ph cfn	byte		;ifmxns	16
+phd	ph emr			;emtrtn	ph.emx-ph.rmn
+phd	ph frk			;fork	ph.fkr		absolute
+phd	ph pnp		 	;pnptr	ph.pnm-ph.rmn
+phpnp.==ph.pnm-ph.mon
+phd	ph mnm	word*2		;moname	rustx
+phd	ph suf			;suffix	0
+phd	ph dcn			;decnet	unused
+phd	ph inx	byte		;extind	ind/kmon	cli
+phd	ph ins	byte		;indsta	ind/kmon	cli
+phd	ph mes			;$memsz	1600
+phd	ph clg			;conlog	dummy
+phd	ph tcf			;$tcfig client ph.tcr address (KED)
+phd	ph idv			;$inddv	client ph.idr address (IND)
+phd	ph mpt			;memptr	0
+phd	ph p1x			;p1ext	0
+phd	ph gcs			;getcsr -> p$hrcs sec/return 
+phd	ph gvc			;getvec -> p$hrcs sec/return
+phd	ph dwt			;dwtype = 0
+phd	ph prd	byte*4		;\ progdf ked, fortran, implicit, free
+				;! progdf located off back of $mtpr
+				;!
+;	move to/from ps		;!
+				;!
+phd	ph r0s	null		;!	start of rmon copy section 0
+phd	ph mtr	word*2		;!	move to ps
+phd	ph mfr	word*4 		;/	move from ps
+  phmtp.==ph.mtr-ph.mtp/2&377!br;for build
+  phmfp.==ph.mfr-ph.mfp/2&377!br;for build
+phd	ph inr	word*6		; 	inten
+phd	ph fkr	word*19.	; 	fork
+phd	ph ntr	word		;	client address of ph.net
+phd	ph snr	word*9.		;	sync routine = rts r5
+phd	ph tcr	word		;100200	ttcnfg
+phd	ph emx	word		;207	emt vector points here
+phd	ph clf	byte		;cliflg	.byte	cldcl$!clccl$!clucl$
+phd	ph clt	byte		;clityp	.byte	-1
+phd	ph idr	byte*4		;inddev	.ascii	/sy0:/
+phd	ph r0e	null		;	end of rmon copy section 0
+
+;v3phd	ph f00			;	unused			???
+
+;	corptr and inddev
+
+phd	ph rmz	word		;$ramsz	.word	ram_size
+phd	ph cpr	word*2		;	.word	0,client ph.cpr
+phcpr.==ph.cpr-ph.mon		;
+.sbttl	rmon routines
+
+;	Fill in static PHD data
+;
+;	This area is initially copied into place in system PHD.
+;	We do this because we cannot use the linker to place the PHD
+;	at the end of a par (we would have to specify the top address)
+;	and because we are too lazy to muck around with memory management.
+;
+;	This area is also copied from the system PHD to each child process.
+
+	.save				;save position
+;	.=s$yphd+ph.r0s			;position us
+ph$r0s::
+ph$mtr:	mov	(sp)+,(sp)		;drop the value		$MTPR
+	return				;2
+ph$mfr:	psh	(sp)			;move up one		$MFPR
+	clr	word(sp)		;return nothing
+	return				;4
+
+ph$inr:	psh	r4			;save r4		$INTEN
+	tst	(r5)+			;skip priority
+	call	(r5)			;call them back
+	pops	<r4,r5>			;restore these
+ph$rti:	rti				;and quit
+	assume	.-ph$inr eq 6*word	;
+ph$fkr:	pshs	<r4,r3,r2,r1,r0>	;save all these		$FORK
+	stack	r0 r1 r2 r3 r4 r5
+	mov	r5,r3			;get the fork block base
+	add	(r5)+,r3		;relocate the address
+	clr	(r3)+			;clear the first word
+	mov	r5,(r3)+		;save R5 in the second for the call
+	mov	sp.r5(sp),r5		;return callers R5
+	call	@-(r3)			;now call them
+	pops	<r0,r1,r2,r3,r4,r5>	;
+	return				;and get out of here
+	assume	.-ph$fkr eq word*19.	;
+
+ph$ntr:	.word	0			;\ NET pointer - filled in	$NET
+ph$snr:	cmp	(sp)+,(r5)+		;/ forget r5 & error return	$SYNCH
+	pshs	<r0,r1>			;save these two
+	mov	i.qbuf(r4),r0		;supply user r0 word
+	call	(r5)			;goto user
+	pops	<r1,r0>			;restore those
+	return				;return to fork routine
+	assume	.-ph$snr eq word*9.	;
+
+	lotcr$ = tc0tb$!tc0xn$!tc0lm$!tc0sc$ ;				TTCNFG
+ph$tcr:	.word	lotcr$			;ttcnfg
+ph$emx:	return				;emt vector points here		EMT
+	loclf$ = cldcl$!clccl$!clucl$	;cli flags
+ph$clf:	.word	loclf$			;ph.clf - cliflg		CLIFLG
+ph$idr:	.ascii	/SY0:/			;ph.idr - IND device		INDDEV
+ph$r0e::				;end of it
+
+;	Check alignment
+
+.macro	phchk$	NAM
+	assume	ph.'NAM-ph.r0s eq ph$'NAM-ph$r0s
+.endm
+
+	phchk$	mtr			;check it
+	phchk$	mfr			;check it
+	phchk$	inr			;check it
+	phchk$	fkr			;check it
+	phchk$	ntr			;check it
+	phchk$	snr			;check it
+	phchk$	tcr			;check it
+	phchk$	emx			;check it
+	phchk$	clf			;check it
+	phchk$	idr			;check it
+	phchk$	r0e			;check overall size
+	.restore
+.sbttl	expert header
+
+;	STAR-eleven/SHARE-eleven EXPERT header
+;
+;	Static position.
+;	User mode access permitted.
+;
+;	The expert header is currently part of native processes.
+;	There is a low probability that it may be dropped or reshaped,
+;	however KMON and JOBLIB are dependant on parts of its structure.
+;	These tables are setup and maintained by KMON.
+;
+;	Tables and buffers are dynamically built for the following:
+;
+;	@file	variable length buffer
+;	cli	16. byte cli buffer
+;	metas	256. byte meta buffer
+;	paths	21. word assignment path table
+;	line	82. byte line buffer
+;
+;	All address pointers are process virtual addresses.
+;
+;	native	compat	length	contents
+
+phd	ph net	byte		;$net	-		spare
+phd	ph for	byte		;$fort	fortran type (0=for, 1=f77)
+phd	ph cls			;$nets	cli status	spare
+phd	ph sid			;$sid	?		spare
+phd	ph csr			;$csr	?		spare
+phd	ph edi	byte		;$edit	edit type = ked
+phd	ph crd	byte		;$card	wildcard flag
+phd	ph job			;$job	client ph.rcs
+phd	ph jor			;	client ph.rcs
+phd	ph jof			;$jobf	cp echo flag
+phd	ph joc			;$jobc	cp byte count
+phd	ph kmf			;$power	-2
+phd	ph 0			;$mesg
+phd	ph 1	byte		;$smon
+phd	ph tab	byte		;$tab	tt [no]tab
+phd	ph bas	byte		;$bas	'A
+phd	ph ffd	byte		;$formf	set tt [no]form
+phd	ph clb			;$line	client ph.lin
+phd	ph res			;$reset	client ph.dum
+phd	ph kma			;$km	kmon address
+phd	ph top			;phd copy of usertop		(was $us)
+phd	ph cut			;$cut	client ph.rts
+phd	ph lnk			;$link	client ph.rts
+phd	ph cli			;$force	cli buffer
+phd	ph pth			;$paths	path table
+phd	ph met			;$metas	meta table
+phd	ph set			;$terms	set term
+phd	ph san	byte		;$satn	satellite number
+phd	ph sas	byte		;$sats	total satellites
+phd	ph jon	byte		;$jobn	job number
+phd	ph jos	byte		;$jobs	total jobs
+phd	ph mel			;	meta table byte length	(was $vector)
+phd	ph aid	byte		;$aid	ugh
+phd	ph ici	byte		;$cid	-
+phd	ph rix			;$right	user rights -1
+phd	ph wro			;$wrong	-1
+phd	ph uix			;$uic	[g,m]
+phd	ph use	word*2		;$user	username
+phd	ph rty			;$retry	RUST/XM multi-terminal retry
+phd	ph led			;$lined	client ph.rcs
+phd	ph sre			;$sreset	-
+phd	ph prm			;$prompt	ed: csi prompt
+phd	ph sgl			;$signal	mrt signal routine
+phd	ph ind	word*4		;$ind	ind file name
+phd	ph exh			;$exeunt	dclexh
+phd	ph prt			;$print	tab support - client ph.rcs
+phd	ph ucl	word*4		;$ucl	UCL filename
+phd	ph dot	byte*10.	;$dot	DCL prompt
+				;
+phd	ph dum			;	dummy address
+phd	ph rcs			;ret1	sec
+phd	ph rts			;	return	
+				;
+	phptr. == 6*word*4+word	;	4 6-word paths plus a terminator word
+phd	ph ptr	phptr.		;	path buffer
+	phclr. == 16.		;	16 byte cli buffer
+phd	ph clr	byte*phclr.	;	cli buffer
+				; line & meta are last for stack underflow
+	phlin. == 82.		;	82 byte line buffer
+phd	ph lin	byte*phlin. 	;	kmon input line
+.sbttl	native header
+
+;	RUST/XM native header
+;
+;	+-----------------------------------------------------+
+;	! Most of this area is frozen. See SMS:LDP.MAC $PNDEF !
+;	+-----------------------------------------------------+
+;
+;	Static position.
+;	Kernel mode access only.
+;
+;	Round up to page address to protect against user-mode access.
+
+phd	ph gua	byte*<<$+77&177700>-$>
+	phcps.==$/64.		;client page size of phd
+
+;	Stack underflow overwrite the guard area & line buffer.
+
+phd	ph nat	null	 ;t	;native area
+phd	ph ksb	word*32. ;t	;kernel stack bottom
+phd	ph ksl	word*128.;t 	;kernel stack limit
+phd	ph kst	null	 ;t	;kernel stack top
+				;
+phd	ph uip	word*8.	;t?	;user instruction page registers
+phd	ph uid	word*8.	;t?	;user instruction descriptors
+			;i/d	;
+phd	ph cip	word*8.		;client instruction pages (backup)
+phd	ph cid	word*8.		;client instruction descriptors
+			;i/d?	;
+phd	ph val			;root virtual address limit
+phd	ph asp	byte*2		;root address space (free byte)
+phd	ph prn		;t?	;pid (word avoid sign extension)
+phd	ph hpn			;handler style process number
+phd	ph xpn			;rad50 process number ^R004
+
+;	status
+
+phd	ph sta		;t?	;same as pr.sta	
+phd	ph stc			;cli status
+phd	ph stx			;address space options
+phd	ph ssz			;spsize
+
+;	kernel structure pointers
+
+phd	ph pcr			;-> pcr
+phd	ph ter			;-> terminal record. 0=>none.
+phd	ph chs		;byte	;=  number of channels
+			;byte	;
+phd	ph chr			;-> kernel channels.
+phd	ph rti			;-> scheduler exit (in$rti or ab$rti)
+phd	ph tti			;-> ttyin path
+phd	ph tto			;-> ttyout path (simple, edit, quiet)
+phd	ph bug		;unused	;-> process debugger			?remove
+phd	ph crp		;t	;-> current rp
+phd	ph xmr		;t?	;-> xm context
+
+;	client addresses
+
+phd	ph phc			;-> phd client address
+phd	ph rmc			;-> rt-11 client address
+phd	ph ktc			;=  kernel to client address delta
+				;   add to kernel address, subtract from client
+;	counters	
+
+phd	ph ioc			;i/o operations counter
+
+;	asts & signals
+
+phd	ph ast		;t	;client ast level
+phd	ph asq		;t	;client ast queue
+phd	ph sig		;t	;cli signal
+phd	ph ask		;t	;saved ast kernel stack
+phd	ph asm		;t	;saved ast monitor stack
+				;
+phd	ph f10			;					?remove
+phd	ph f11			;					?remove
+phd	ph urv			;unconditional restart vector
+				;
+phd	ph jsw		;t	;kernel copy of jsw
+phd	ph err	byte	;t	;kernel saved error
+phd	ph rea	byte	;t	;kernel abort reason
+phd	ph exc			;kernel exception routine
+phd	ph mr0	word*4		;ph.mr0	- missing rights
+				;
+phd	ph scc			;\ scca word
+phd	ph trp			;! trpset
+phd	ph sfp			;! sfpa word
+phd	ph ser			;! serr/herr
+phd	ph imf	byte		;! reserved - image flags
+phd	ph cdf	byte		;/ cdfn - channels defined
+				;
+phd	ph fpu			;set if ph.sfp & fpu present
+phd	ph fpx	byte	;t	;fpu exception flag
+phd	ph bpx	byte	;t	;bpt exception flag
+phd	ph fec		;t	;fpu fec for exceptions
+phd	ph fea		;t	;fpu fea for exceptions
+				;
+phd	ph ic0			;image control 0
+phd	ph ic1			;image control 1
+				;
+phd	ph umm	word*16. 	;unit mount map (256 units)		?remove
+phd	ph acp	byte*ap.bbs ;t?	;acp call area
+phd	ph are	word*7	;t	;emt area
+				;
+phd	ph mbu			;message buffer address
+phd	ph mas			;message ast address
+phd	ph msw	word*5		;message channel
+
+;	Following section is copied from the process build skeleton.
+;	See SDA for the layout.
+
+phd	ph img	word*4		;ph.img - bp.img - initial or current image
+phd	ph inp	word*4		;ph.inp - bp.inp - input device
+phd	ph out	word*4		;ph.out - bp.out - output device
+phd	ph erd	word*4		;ph.erd - bp.err - error device 	?remove
+phd	ph nam	word*2		;ph.nam	- bp.nam - process name
+phd	ph pri	byte		;ph.pri - bp.pri - priority
+phd	ph tpr	byte		;ph.tpr - bp.tpr - top priority
+phd	ph mbx			;ph.mbx - bp.mbx - termination mailbox
+				;
+phd	ph pe0			;ph.pe0 - bp.pe0 - creation status 0
+phd	ph pe1			;ph.pe1 - bp.pe1 - creation status 1
+phd	ph own			;ph.own - bp.own - owner pcr
+
+;	This sub-section is copied to sub-processes and detached processes:
+;	it is also the section altered by login.
+
+phd	ph jib			;ph.jib - bp.jib - job pcr
+phd	ph usn	null		;ph.usn - bp.usn - user name
+phd	ph un0			;ph.un0
+phd	ph un1			;ph.un1
+phd	ph acn	word*2		;ph.acn - bp.acn - accounting name
+phd	ph cln	word*4		;ph cln	- bp.cli - current cli name
+phd	ph dsk	word		;ph dsk	- bp.dsk - default disk
+				;
+phd	ph arr	null		;ph.arr - access rights record
+phd	ph uic	null		;ph.uic - bp.uic - uic
+phd	ph mic	byte		;ph.mic - bp.mic - member code
+phd	ph gic	byte		;ph.gic - bp.gic - group code
+phd	ph pro			;ph.pro - bp.pro - default protection
+				;
+phd	ph sr0	word*4		;ph.sr0 - bp.sr0 - current system rights
+				;		 - (process!image)
+phd	ph ar0	word*4		;ph.ar0 - bp.ar0 - authorized
+phd	ph pr0	word*4		;ph.pr0 - bp.pr0 - process rights
+
+;	end of section copied from phd
+
+phd	ph quo	byte*pq.bbs	;ph.quo - bp.quo - quotas for process
+phd	ph lim	byte*pq.bbs	;ph.lim - bp.lim - limits for process
+
+;	end of section copied to phd
+
+phd	ph ir0	word*4		;ph.ir0 - image rights 
+
+;	Accounting
+
+phd	ph cpu	word*2		;cpu ticks
+phd	ph dio	word*2		;direct i/o
+phd	ph bio	word*2		;buffered i/o
+phd	ph avo	word		;account volumes mounted
+phd	ph aim	word		;account images run
+phd	ph ali	word*2		;account login ticks
+
+;	Terminal editor
+
+phd	ph edc			;edit count & control
+phd	ph edl	byte*82. 	;edit line buffer
+phd	ph asl	byte*82.	;ast line buffer
+
+;	Last line buffers
+
+phd	ph edb			;edit buffer - user address
+phd	ph eds			;number of lines in buffer
+
+;	Log file control & buffer pointer
+
+phd	ph los			;logger status (see $fodef)
+phd	ph lob			;logger buffer - user address
+phd	ph lof			;logger flags
+phd	ph loc		;???	;lastline counters
+
+;	Mixed
+
+phd	ph fem			;feature reference map
+phd	ph lot			;logger terminal
+phd	ph dbc			;debug control
+phd	ph msg			;exit message - unused			?remove
+phd	ph uvl			;user vector list
+phd	ph xl0			;exit list 0 - unlinked
+phd	ph xl1			;exit list 1 - linked
+phd	ph ifc			;input fail count
+phd	ph mvb			;monitor vector bypass
+phd	ph lui			;login uic
+phd	ph emb			;emt bypass
+phd	ph uif			;uic file default
+phd	ph bat			;batch control
+				;
+phd	ph fr0	word*1.		;see RED for temporary use
+phd	ph kwt			;kiloword limit top address for programs
+phd	ph ifs			;IND command file size
+phd	ph ioq	word*2		;process handler i/o queue (tt:, mb: etc)
+phd	ph fr1	word*14.	;free area
+				;
+;phd	ph cfb			;command file base
+;phd	ph cfp			;command file pointer
+				;
+phd	ph mer	word*32.	;sdat buffer - 16-byte header, 82-byte data
+;	QQQMYPROC<MYPROC ...
+;
+;-------------------------------;
+; End of $PNDEF area		;
+;-------------------------------;
+.sbttl	end of header
+
+phd	ph guk	byte*<<$+77&177700>-$>	;kernel guard
+phd	ph bbs	0			;length of phd
+	phkps.==$/64.			;kernel page size of phd
+					;(actual rather than estimated)
+.if gt ph.bbs-phdbs.
+.error	ph.bbs
+.error	phdbs.
+.error	ph.bbs-phdbs. ;phd too long
+.endc
+
+;	Setup the acp addresses
+
+.macro	acp c d e f g h i j k l m
+.if nb <c>
+	a$p'c==p$hacp+ap.'c
+.endc
+.iif nb <d>,acp d e f g h i j k l m
+.endm
+
+acp	chn cod blk buf wct mod fun com 
+acp	opr con uad fad rch rco
+acp	fil p0 seq p1 len p2 p3 p4 p5
+acp	nod prn uic pro uar far fpr fui
+acp	sta r0 sps
+acp	log per fna fnb fns
+.if ne xtm$c
+acp	f00,osp
+.iff
+acp	csa
+.endc
+acp	csw der unr tbr cal
+acp	vid ind uni act
+acp	ebs sus sbl seg hgh siz
+.if ne xtm$c
+acp	dat tim era
+.iff
+acp	dat tim osp
+.endc
+.end
+.sbttl	fill in PHD routines
+
+;	The following routines are setup in the kernel PHD	
+;	They are cloned for all other processes.
+;
+;	inten
+;	fork
+;	synch
+
+.=s$yphd+ph.	
+
+.end

@@ -1,0 +1,142 @@
+v54=1
+.title	mio
+.include "lib:rust.mac"
+.psect	mio
+$asdef		;address space
+$dedef		;device
+$ekdef		;external handlers
+$hadef		;handler
+$mmdef		;mmu
+$tpdef		;tp
+$undef		;unit
+
+;	RUST/XM I/O done
+;
+;	%build
+;	macro	rxs:mio/object:rxb:mio
+;	%end
+;
+;	%date
+;	<20-Nov-2010 20:53:38.46>
+;	%edit
+;	<49   >
+;
+;	Called via qcomp or external interface.
+;
+;	r4 ->	handler cqe
+
+io$don::.enabl	lsb			;r4 -> cqe
+	mov	(r4),r5			;r5 -> tp.qbl()
+	beq	30$			;no queue element - ignore it
+	cmp	r4,#m$mpa6		;this an external handler?
+	blo	io$dn1			;no
+	mov	ha.xkh-ha.cqe(r4),r5	;point to kernel handler
+	jmp	ek.don(r5)		;external completion
+
+io$dn1:	sub	#tp.qbl,r5		;point to tp
+	tstb	tp.rfu(r5)		;this an rt11s acp access?
+	ble	10$			;no
+	mov	r$mspu,tp.spu(r5) 	;yes - return special user code
+	clr	r$mspu			;clear it for the next
+
+	assume	hahol$ eq 100000
+	assume	hadon$ eq 40000
+10$:	asr	ha.hol-ha.cqe(r4) 	;is the handler held?
+	bmi	30$			;yes - catch it later
+
+;	Handlers on hold return here after abtio is done.
+;	Handlers are always in system or interrupt state here.
+;	Abort I/O always starts at mainline level.
+;	Thus a hold can never start during the following fork.
+;
+;	1.	r5 -> completed queue element
+;	2.	link handler queue forward
+;	3.	issue fork routine
+;	4.	return to handler before the fork routine
+;	4.1.	handler eventually returns from interrupt
+;	4.2.	fork routine is eventually scheduled
+;	5.	enter fork routine
+;	6.	post monitor ast for I/O completion
+;	7.	return to nowhere or start I/O routine
+;	
+;	r4 ->	ha.cqe
+;	r5 ->	tp
+
+io$dn2::assume	ha.beg eq ha.cqe+2	;abtio hold complete entry
+	mov	tp.qsu(r5),(r4)+	;link handler cqe forward
+	bne	20$			;more to do - r4 -> handler start
+	mov	#30$,r4			;no more - r4 -> a return
+20$:	jsr	r5,fk$tpr		;fork for completion
+
+;	I/O done fork routine
+;	Abort I/O queue element cleanup
+;	May not change r1
+;
+;	r4 ->	i/o start routine or 30$
+;	r5 ->	tp
+;
+;	Cleanup and post monitor ast
+
+io$dn4::psh	r4			;start next one maybe
+io$rem::mov	tp.der(r5),r2		;r2 -> device record
+	mov	tp.unr(r5),r3		;r3 -> unit record
+	dec	de.ioc(r2)		;decrement device access count
+	dec	un.ioc(r3)		;decrement unit access count
+					;
+	movb	un.pri(r3),r3		;get the unit priority
+	asl	r3			;longword queues
+	asl	r3			;
+	add	#s$cqbe,r3		;r3 -> scheduler queue
+					;
+	mov	tp.pcr(r5),r4		;r4 -> pcr
+io$dn5::add	#tp.kad,r5		;r5 -> adb [sic] label for demo module
+	jmp	as$pma			;post monitor ast
+30$:	return				;
+	.dsabl	lsb			;
+.end
+.sbttl	i/o synch
+
+;	The I/O synch element is as follows:
+;
+;	iq.ssu		;successor
+;	iq.sjn		;process number
+;	iq.sp1		;synch routine par1
+;	iq.spc		;synch routine pc
+;	iq.sr0		;r0 parameter to pass to routine
+;	iq.sfl		;-1 flags synch element
+;	iq.sac		;active flag. Zero => not active.
+;
+;	Synch returns immediately if:
+;
+;	Synch element already in use.
+;	Process no longer exists.
+;	
+;	Synch requests are queued in s$ysqu.
+;	We then fork back to ourselves (if required).
+;
+;	Synch is only valid for the first 31 processes.
+;
+;	r4 ->	synch block
+;
+.if ne synch
+
+io$syn::tst	iq.sac(r4)		;is it active?
+	bne				;yes - skip it
+	movb	iq.sjn(r4),r5		;get the job number
+	cmp	r5,p$rprs		;too high?
+	bhis				;yes
+	asl	r5			;no - get pcr
+	mov	(r5),r5			;get and check it
+	beq				;no such job
+	bit	#primg$!prabt$,pr.sta(r5) ;any good for us?
+	ble				;no
+					;
+;	queue the ast			;
+					;
+	mov	pr.snq(r5),(r4)		;yes - queue us in
+	mov	@#m$kip1,iq.sp1(r5)	;save par1
+	add	#word,(sp)		;get the pc
+	pop	iq.spc(r4)		;save the pc
+	inc	iq.sac(r4)		;remember its active
+.endc
+

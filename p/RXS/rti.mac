@@ -1,0 +1,461 @@
+xtm$c=1		; extended date/time
+Y2K=1
+newtwt=1
+.title	rti	time requests
+.include "lib:rust.mac"
+.psect	rti d
+$addef		;ast delivery
+$emdef		;emts
+$pedef		;process enables
+$prdef		;pcr
+$rpdef		;rp
+$prdef		;process
+$psdef		;psw
+$srdef		;system rights
+$stdef		;state
+$tidef		;timer
+
+;	RUST/XM RT-11 date requests
+;
+;	%build
+;	macro	rxs:rti/object:rxb:rti
+;	%end
+;
+;	%date
+;	<20-Nov-2010 20:53:39.09>
+;	%edit	
+;	<59   >
+;
+;	UTL overlay via UTL dispatcher
+;
+;	em$dat	.date
+;	em$gtm	.gtim
+;	em$sdt	.sdttm	(operator rights required)
+;	em$twt	.twait
+;	em$mkt	.mrkt
+;	em$cmt	.cmkt
+;
+;	Marktime requests are placed in timer queue. Standard RT-11
+;	queue elements must be used for compatibility with handlers.
+;
+;	CMKT scans the timer queue for appropriate elements.
+.sbttl	date, gtim
+
+;	.date
+;		+-------+-------+
+;	r0 =	!   12	!   0	!
+;		+-------+-------+
+;
+;	p$hdat	copy system date to RMON date variable
+;	r0	return system date
+
+.enabl	lsb
+em$dat::mov	t$idat,p$hdat	;get the system date
+	mov	t$idat,rp.r0(r5);return the date
+	return
+
+;	.gtim	area, addr
+;
+;		+-------+-------+
+;	r0 ->	!   21	!   0	!
+;		+-------+-------+
+;		!      addr	!	rp.rp0
+;		+-------+-------+
+;
+;		+-------+-------+
+;	addr	!      hot	!
+;		+-------+-------+
+;		!      lot	!
+;		+-------+-------+
+;
+;	emt	^o375, ^o21
+;
+;	errors	none
+;
+;		process time rollover
+;	addr	return high order time, low order time
+;
+;	r3 ->	addr (used as destination by mm$mtw)
+
+	.enabl	lsb
+em$gtm::call	ti$gtm		;get the time with rollover
+	call	mm$mtw		;put high order
+	mov	r1,r0		;get the low order
+20$:	jmp	mm$mtw		;put it and return
+	.dsabl	lsb
+.sbttl	sdttm, .gtimx, .stimx
+
+;	--------
+;	Cleanup
+;
+;	o Use t$idat. Forget r$mdat and p$hdat.
+;	o ti$sdt and ti$stm can be local
+;	o ti$sdt is redundant
+;	--------
+;
+;	.sdttm	area, addr  subcode=0
+;	.gtimx	area, addr  subcode=1
+;	.stimx	area, addr  subcode=2            subcode
+;					+-------+-------+
+;				r0 ->	!   40	! 0,1,2 !
+;					+-------+-------+
+;	r0	undefined		!      addr	!
+;	no error conditions		+---------------+
+;
+;					+---------------+
+;	addr ->			+0	!  date or n<=0	!
+;					+---------------+
+;				+2	!   hot or n<0 	!
+;					+---------------+
+;				+4	!     lot	!
+;					+---------------+
+;				+6	! extended date !
+;					+---------------+
+;
+;	rp.p0	addr
+;
+;	addr+0	time or <= 0 to leave date unchanged
+;		V5.6 or = -1 to leave date unchanged
+;	addr+2	hot  or <  0 to leave time unchanged
+;		V5.6 or = -1 to leave time unchanged
+;	addr+4	lot 
+;	addr+6	era RUST extended date field
+;
+;	Marktime and Twait are not adjusted
+;
+;	r3 ->	usermode .sdttm addr
+
+em$sdt::			;.sdttm
+	call	ti$gtm		;update system time
+	assume	rp.chn eq 0	;sdttm=0, gtimx=1, stimx=2
+	decb	(r5)		;sdttm=-1 gtimx=0 stimx=1
+	bne	10$		;not .gtimx
+
+;	.GTIMX
+
+	mov	t$idat,r0	;get the date
+	call	mm$mtw		;send that
+	call	em$gtm		;send time
+	mov	t$iera,r0	;get era
+	call	mm$mtw		;send that
+	br	50$		;
+
+;	.SDTTM/.STIMX
+
+10$:
+	$rights	sropr.		;check operator rights
+	bcs	60$		;got it
+	mov	#4,r2		;get four words
+20$:	call	mm$mfw		;get another
+	psh	r0		;push plex in reverse
+	sobw	r2,20$		;
+				;
+	stack	era,lot,hot,dat,ret
+	mov	sp.dat(sp),r0	;get date
+	beqw	r0,#-1,30$	;do not change date
+	mov	r0,t$idat	;system date
+;	mov	r0,p$hdat	;process date
+;	mov	r0,r$mdat	;kernel rmon date
+				;
+	bmib	(r5),30$	;.SDTTM, no era
+	assume	sp.era eq 0	;.STIMX
+	mov	(sp),t$iera	;set the era
+				;
+30$:	beqw	sp.hot(sp),#-1,40$ ; don't alter time
+	call	ti$tik		;r0 = system hot
+				;r1 = system lot
+	sub	sp.lot(sp),r1	;lot delta
+	sbc	r0		;move the carry
+	sub	sp.hot(sp),r0	;and the high order
+	spl	7		;block interrupts
+	mov	r0,t$ihod	;setup the high-order delta
+	mov	r1,t$ilod	;setup the low order delta
+	spl	0		;
+40$:	add	#sp.ret,sp	;clean up stack
+50$:	return
+
+60$:	bis	#sropr$,p$hmr0+sr.opr ;missing OPER rights
+	.soft	0
+.sbttl	get time with rollover
+
+;	Get time with rollover
+;
+;	r0 <<	low order time
+;	r1 <<	high order time
+
+ti$gtm::.enabl	lsb
+.if ne xtm$c
+	psh	r3
+.endc
+10$:	call	ti$tim		;get time
+	cmp	r0,t$ih24	;is it a new day?
+.if ne xtm$c
+	blo	50$		;nope
+.iff
+	blo	60$		;nope
+.endc
+	bhi	20$		;yes - twice
+	cmp	r1,t$il24	;really?
+.if ne xtm$c
+	blo	50$		;no
+.iff
+	blo	ti$ret		;no
+.endc
+20$:	fall	ti$rol		;handle rollover
+
+;	eemmmmdddddyyyyy
+;
+	timo$v = 10.		;bit positions
+;	tida$v = 5.
+;	timo$v = 0
+	timo$m = 141777		;bit masks
+	tida$m = 176037
+	tiye$m = 037740
+	tiyc$m = 40		;year carry			;Y2K
+	tier$m = 040000		;era				;Y2K
+	timou. = 2000		;units
+	tidau. = 40
+;	tiyeu. = 1
+	timom. = 12.*timou.	;maximum values
+;	tidam. = X*tidau. 
+;	tiyem. = 1999.
+
+ti$rol:	add	t$ih24,t$ihod	;update the delta
+	add	t$il24,t$ilod	;
+	adc	t$ihod
+	mov	t$idat,r3	;r3 = month
+	mov	r3,r2		;r2 = day
+	mov	r3,r0		;r0 = year
+	bic	#timo$m,r3	;clean them up
+	bic	#tida$m,r2	;
+	bic	#tiye$m,r0	;
+	mov	r3,r1		;get another copy of the month
+	ash	#-<timo$v-1>,r1	;shift it right (/2 for word)
+	sub	#2,r1		;let jan = 0
+				;
+	mov	70$(r1),r1	;r1 = days in month
+	bpl	30$		;not february
+	neg	r1		;make it our february
+	bit	#3,t$idat	;is this a leap year?
+	bne	30$		;nope
+	add	#tidau.,r1	;yes - increment days in month
+30$:	add	#tidau.,r2	;increment the day
+	cmp	r2,r1		;is this a new month?
+	blos	40$		;nope - assemble them
+	mov	#tidau.,r2	;yes - back to day one
+	add	#timou.,r3	;increment month
+	cmp	r3,#timom.	;above maximum month?
+	blos	40$		;nope - assemble them
+	mov	#timou.,r3	;yes - back to month one
+	inc	r0		;increment year
+.if ne Y2K
+	bit	#tiyc$m,r0	;did year carry?
+	beq	40$		;nope
+	bic	#tiyc$m,r0	;yep - expunge it
+	add	#tier$m,r0	;and increment era
+.if ne xtm$c
+	bcc	40$		;era did not rollover
+	inc	r$mera		;up the era
+.endc
+.endc
+40$:	bis	r3,r0		; r0 = year and month
+	bis	r2,r0		; r0 = new date
+.if eq xtm$c
+	call	ti$sdt		;set date and return
+	br	ti$gtm		;and do it again
+.iff
+	mov	r0,t$idat	;set date
+	br	10$		;and do it again
+50$:	pop	r3		;
+60$:	return
+.endc
+	.dsabl	lsb
+
+meta	<days c d e f g h><.word c*tidau.><.iif nb <d>,days d e f g h>
+70$:	days	31.,-28.,31.,30.,31.,30.
+	days	31.,31.,30.,31.,30.,31.
+.sbttl	twait
+
+;	.twait	area, time
+;
+;	rp.p0	time
+;
+;	time+0	hot
+;	time+2	lot
+;
+;	Reissue the twait as a marktime request.
+;	The completion routine simply clears the wake bit.
+;	Twait uses ID=-1. Cancelling all marktimes cancels it.
+;
+;???	Should be ignored in an AST
+
+em$twt::bis	#petwa$,p$hpe1		;flag .twait in pending
+.if ne newtwt
+	mov	#ti$twc,rp.p1(r5)	;rp.p1	completion routine
+	mov	#-1,rp.p2(r5)		;rp.p2	twait id
+	mov	@#ps,r4			;r4	psw
+	call	em$mkx			;issue marktime request
+	ovcal$	em$spd	req		;issue suspend request
+.iff
+	clr	-(sp)			;lot - build the emt
+	call	mm$mfw			;get the high order
+	psh	r0			;hot - save the high order
+	call	mm$mfw			;
+	mov	r0,2(sp)		;lot - save the low order
+	mov	sp,r0			;
+	psh	#-1			;tid - signal a twait
+	psh	#ti$twc			;crt - twait completion
+	psh	r0			;tim - point to the area
+	mov	#emmkt.*256.,-(sp) 	;cod - the marktime code
+	mov	sp,r0			;point to the emt block
+	emt	375			;issue the request
+	.spnd				;and now suspend us
+.endc
+	mov	#-1,r4			;twait timer id for cancel
+	bit	#petwa$,p$hpe1		;was the competion routine called?
+	bne	ti$cmk			;no - cancel it now
+	return				;and quit
+.sbttl	mrkt
+
+;	RT-11 marktime request	
+;
+;	Called by TWAIT to issue marktime request without EMT
+;
+;	AST delivery block has space for a timer request
+;	Fill in parameters; queue to timer routine
+;	Timer delivers AST to PCR client queue
+;
+;	rp.p0	time	address of time block
+;	rp.p1	ctrn	address of completion routine
+;	rp.p2	id	sequence number
+;
+;	Does not use RT-11 timer element
+;	Changes in time do not affect us (since we use ticks)
+;
+;	ad.suc		single link
+;	ad.cpc		client pc
+;	ad.cps		client ps
+;	ad.cr0		client result r0 - sequence number
+;	ad.cr1		client result r1 - pcr
+;	ad.hot		high order expiry time
+;	ad.lot		low order expiry time
+
+em$mkt::
+.if ne newtwt
+	mov	rp.ps(r5),r4		;.mrkt - setup completion routine
+.endc
+
+;	r3 ->	user time
+;	r4 =	ps
+;	r5 ->	rp
+
+em$mkx::call	mm$mfw			;get the high order time
+	mov	r0,r2			;r2 = hot
+	call	mm$mfw			;
+	mov	r0,r3			;r3 = lot
+	call	ti$tik			;get current ticks
+	add	r3,r1			;lot + lot
+	adc	r0			;hot + lot
+	add	r2,r0			;hot + hot
+	call	ad$acq			;get an adb
+	clr	(r3)			;link
+	mov	rp.p1(r5),ad.cpc(r3) 	;completion routine
+.if ne newtwt
+	mov	r4,ad.cps(r3)		;psw
+.iff
+	mov	rp.ps(r5),ad.cps(r3) 	;psw
+.endc
+	mov	rp.p2(r5),ad.cr0(r3) 	;sequence number
+	mov	p$hpcr,ad.cr1(r3)    	;pcr
+	mov	r0,ad.hot(r3)		;build the element
+	mov	r1,ad.lot(r3)		;
+	$float				;put it in the queue
+	mov	#t$ique,r2		;point to them
+10$:	mov	r2,r1			;r1 -> previous item
+	mov	(r2),r2			;r2 -> current
+	beq	20$			;last - put us in
+	cmp	ad.hot(r2),ad.hot(r3) 	;this one earlier?
+	blo	10$			;no - the next
+	bhi	20$			;yes - put us in
+	cmp	ad.lot(r2),ad.lot(r3) 	;no - check the low order
+	blos	10$			;its earlier or same
+20$:	mov	r2,(r3)			;link us forward
+	mov	r3,(r1)			;and backward
+	$land				;
+	return				;done
+.sbttl	cmkt
+
+;	Cancel marktime requests
+; 
+;	rp.p0	id   - sequence number to cancel; zero indicates all
+;	rp.p1	time - return unexpired time here if specified
+; 
+;	id	0	 cancel all
+;		1:177000 user requests
+;	rtrti.	177776   realtime id
+;	rttwi.	177777   twait id
+; 
+;	0	id specified and not found
+
+	.enabl	lsb		;
+em$cmt::mov	r3,r4		;save id in r4
+	beq	ti$cmk		;cancel them all
+	call	ti$cmk		;cancel one
+	bcc	10$		;we found one
+	.soft	0		;not found
+10$:	mov	rp.p1(r5),r3	;want it returned?
+	beq	90$		;no
+	call	mm$mtw		;yes
+	mov	r1,r0		;get the lot
+	callr	mm$mtw		;return it
+;sic]	return			;exit emt
+
+;	Cancel all
+;
+;	May be called from RIM without an RP
+
+ti$cal::jsr	r5,ut$sav	;save the lot
+	clr	r4		;cancel anything
+	fall	ti$cmk		;cancel them
+
+;	Cancel one
+; 
+;	r4	timer id
+;	r4=0	cancel all
+;	r0/r1	returns unexpired time
+
+ti$cmk:				;cancel single element
+20$:	$float			;stop the world
+	mov	#t$ique,r3	;look at them
+30$:	mov	r3,r2		;get the next
+	mov	(r3),r3		;
+	beq	50$		;not found
+	cmp	ad.cr1(r3),p$hpcr ;is this us?
+	bne	30$		;no
+	tst	r4		;cancel them all?
+	beq	40$		;yes
+	cmp	r4,ad.cr0(r3)	;this the specific id?
+	bne	30$		;no - keep going
+40$:	mov	(r3),(r2)	;yes - unlink us
+50$:	$land			;come out of it
+				;return unexpired time
+	tst	r3		;did we get one?
+	beq	80$		;no
+	call	ti$tik		;yes - get the ticks
+	neg	r0		;negate the high order
+	neg	r1		;negate the low order
+	sbc	r0		;
+	add	ad.hot(r3),r0	;add in what we used
+	add	ad.lot(r3),r1	;
+	adc	r0		;r0/r1 = unexpired time
+	cmp	ad.cr1(r3),#tirti. ;this a realtime element?
+	beq	70$		;yes - do not dispose it
+	call	ad$dsp		;dispose of queue element
+70$:	tst	r4		;cancel all?
+	beq	20$		;yes - look again
+	tst	(pc)+		;we got one
+80$:	sec			;we did not
+90$:	return			;
+	.dsabl	lsb		;
+.end 
+

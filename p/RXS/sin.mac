@@ -1,0 +1,134 @@
+;	is this used anywhere?
+.title	sin - system installation
+.include "lib:rust.mac"
+.psect	sde d
+$dedef		;devices
+$emdef		;emts
+$erdef		;error codes
+$evdef		;eve
+$fndef		;filename
+
+;	RUST/XM system installation
+;
+;	%build
+;	macro	rxs:sde/object:rxb:sde
+;	%end
+;
+;	This overlay is created at a par1 boundary.
+;	It is copied to VM:SYSINS.SYS during system build.
+;	SY$xxx in SDA maps this overlay into user par1 and calls it.
+;
+;	bu$sin:	system installation routine
+;
+;	b$usha:	system device handler
+;
+;	b$ushx	...
+;
+;	Call the system device installation routine
+;	Report system device installation routine errors
+;	Reconfigure the system device record
+;	Call the system device fetch utility
+;	Delete VM:HANDLR.SYS - this is ourself
+
+sy$ins:	.lookup	#s$yare, #s$yidv	;lookup the installation file
+	bcs				;no such file
+	mov	@#d$emap+desyi.,r2 	;point to the system device record
+	mov	de.dev(r2),a$pfna+fn.fil;setup name for errors
+	clr	a$pfna+fn.nam		;clear second part of name
+					;
+	$cmkrnl	#p$hare, #sy$ink pic=yes;call the driver FETCH routine
+	bcc	10$			;fine
+	call	sy$inx			;report error
+10$:	.purge	#0			;purge the channel
+	.delete	#s$yidv			;delete it
+	return
+
+sy$inx:	mov	r0,r1			;send the error code
+	$cmkrnl	#p$hare, #10$, pic=yes	;report the error
+	sec				;
+	return				;
+10$:	mov	rp.r1(r5),r0		;r0 = error code
+	jmp	@#er$dis		;display it & return
+
+s$yidv:	.byte	0			;channel zero
+	.byte	emloo.			;lookup code
+	.word	10$			;filename
+	.word	0			;sequence number
+10$:	.rad50	/vm handlrsys/		;device handler copy
+
+s$yinh=sy$ins+buibs.			;system device handler
+
+.end
+.sbttl	kernel installation
+
+;	Kernel installation
+;
+;	#0	vm:handlr.sys
+;
+;	Call the handler data-device installation routine
+;	Adjust for possible changes to handler database
+;	Call the handler FETCH utility
+;
+;	Assumes that device installation can run out of kernel par1.
+;
+;	r5 ->	rp
+;	r4 	error code
+;	r3 ->	handler
+;	r2 ->	device record
+
+sy$ink:	mov	@#p$hpcr,r0		;get the channel record
+	inc	ch.sbl(r0)		;skip first block on channel
+	inc	@#p$hcsw+ch.sbl		;and in user record
+					;
+	mov	@#d$emap+desyi.,r2	;r2 -> device record
+	mov	de.			;setup the name for errors
+	mova	s$yinh,r3		;r3 -> handler area
+					;
+	pshs	<r5,r3,r2>		;save these
+	$dclth	40$			;catch traps
+	mov	ha.csr(r3),r0		;get the csr
+	beq	10$			;none defined
+	tst	(r0)			;is it present?
+					;traps to 40$ if invalid
+10$:	mov	ha.ind(r3),r0		;get the data installation routine
+	beq	20$			;is none
+	call	(r0)			;call the installation routine
+20$:	$canth				;c=? - cancel the trap handler
+	bcs	40$			;installation fail
+	pops	<r2,r3,r5>		;restore this lot
+
+;	Adjust device record
+; 
+;	Installation routines may modify these parameters.
+
+	mov	ha.hsz(r3),de.hsz(r2)	;handler size
+	mov	ha.dsz(r3),de.dsz(r2)	;device size in blocks
+	mov	ha.sta(r3),de.sta(r2)	;device status
+	mov	ha.syg(r3),de.syg(r2)	;sysgen options
+	mov	ha.csr(r3),de.csr(r2)	;the csr word
+					;
+;	Call the handler FETCH routine
+;
+;	c=1	r0=0 => no fetch routine
+;	c=1	r0<>0 => reason
+
+	clr	r0			;fetch - actually load
+	clr	r1			;channel
+	call	@#io$utk		;call the routine
+	bcs	30$			;there was an error
+	clr	r0			;there was no error
+30$:	br	60$			;
+					;
+40$:	mov	#erndv.,r0		;invalid device - installation fail
+	br	60$			;join common
+50$:	mov	#erfet.,r0		;fetch error
+60$:	psh	r0			;save the error code
+	.purge	#0			;purge the channel
+	mova	100$,r1			;point to the name
+	.delete	#0, #p$hare, r1, #0	;delete vm:handlr.sys (us)
+	pop	r0			;get back the result
+	beq	70$			;fine
+	call	@#er$dis		;display the error
+	.soft	0			;report the error
+.end
+

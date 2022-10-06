@@ -1,0 +1,355 @@
+v3=1
+.title	ktv
+.include "lib:rust.mac" 
+.psect	ktv d
+$budef		;build
+$erdef		;error
+$exdef		;external
+$fedef		;feature
+$mmdef		;mmu
+$rpdef		;rp
+$prdef		;pcr
+$stdef		;states
+
+;	%build
+;	macro	rxs:ktv/object:rxb:ktv
+;	%end
+;
+;	Change mode to kernel.
+; 
+;	$cmkrnl	area, rtn, p0, p1, p2, p3, p4, pic=yes
+; 
+;	rp.p0	
+;	rp.p1
+;	rp.p2
+;	rp.p3
+;	rp.p4	
+;	rp.p5	rtn[!1]	
+; 
+;	rtn&1=>	pic
+;
+;	Kernel		Call rtn.
+;	Kernel/pic	Map callers rp.op1 and call rtn.
+;	User		Map usermode par1 and call rtn.
+;	User/pic	Map user rtn par and call rtn.
+; 
+;	Main routine in MEP
+;
+;	r1	par1 page
+;	r2 ->	routine address
+
+sy$ckm::mov	r1,@#m$kip1	;map the page
+	jmp	(r2)		;call the routine
+.sbttl	call overlay
+
+;	Call overlay routine
+;
+;	Overlay routines execute with two extra words on stack.
+;	Routines that pass parameters on stack must take care of this.
+;	The return path restores m$kip1 and returns to original caller.
+;
+;	ok.dat	6(sp)	Caller data
+;	ok.ret	4(sp)	Caller return address
+;	ok.op1	2(sp)	Saved kernel par1
+;	ok.ovr	0(sp)	Overlay return address
+;
+;	Original optimisation that did not redundantly switch overlays
+;	removed so that overlay routines have guaranteed stack frame.
+;
+;	em$rou:	call	ov$seg		;call segment dispatcher
+;		.word	ex$rou		;actual address
+;
+;	ov$seg:	psh	#par1		;required par1
+;		br	ov$jmp		;call overlay
+
+ch$wai::ovjmp$	ch$wax	req		;rch - ch$wai
+.if ne v3
+na$tle::ovjmp$	na$tlx	utl		;sys - translate logical/equivalence
+.iff
+na$tle::ovjmp$	na$tlx	sys		;sys - translate logical/equivalence
+.endc
+em$err::ovjmp$	em$erx	acp		;mer - em$err
+er$rep::movb	rp.err(r5),r0		;mer - get the error code
+er$dis::ovjmp$	er$dix	acp		;mer - er$dis
+na$cad::ovjmp$	na$xad	acp		;rsi - na$cad - ???	mna
+na$cao::ovjmp$	na$xao	acp		;rsi - na$cao - ???	mna
+rs$res::ovjmp$	rs$rex	acp		;rt11s - rs$res		rim
+io$sfp::ovjmp$	io$sfx	utl		;rsf - io$sfx		rio
+					;
+;	Per-overlay front-ends
+
+oc$req::psh	(sp)			;call the routine
+	add	(pc),word(sp)		;skip the address
+oj$req::psh	(pc)+			;REQ overlay
+o$vreq::.word	mmkp1.			;
+	br	ov$jmp			;call overlay
+					;
+oc$sys::psh	(sp)			;call the routine
+	add	(pc),word(sp)		;skip the address
+oj$sys::psh	(pc)+			;SYS overlay
+o$vsys::.word	mmkp2.			;
+	br	ov$jmp			;
+					;
+oc$acp::psh	(sp)			;call the routine
+	add	(pc),word(sp)		;skip the address
+oj$acp::psh	(pc)+			;ACP overlay
+o$vacp::.word	buacp.			;sic] modified by build
+	br	ov$jmp			;
+					;
+oc$utl::psh	(sp)			;call the routine
+	add	(pc),word(sp)		;sic] for old times sake
+oj$utl::psh	(pc)+			;UTL overlay
+o$vutl::.word	buutp.			;sic] modified by build
+	fall	ov$jmp			;
+					;
+	stack	np1 adr ret		;
+ov$jmp::psh	@sp.adr(sp)		;get the address
+	stack	adr np1 op1 ret		;
+	mov	@#m$kip1,sp.op1(sp)	;save par1
+	mov	sp.np1(sp),@#m$kip1	;setup new par1
+	pop	(sp)			;push out np1
+	stack	adr op1 ret		;
+	call	@(sp)+			;call the routine
+	stack	ovr op1 ret dat		;routine environment
+	stack	op1 ret			;
+sy$rp1::pop	@#m$kip1		;return restoring par1
+	return				;
+sy$r16::pop	@#m$kip1		;restore par6
+	pop	@#m$kip6		;
+	return				;
+.sbttl	UTL handler forwarding
+
+;	Forward TT:, NL: and VM: to UTL overlay
+
+tt$han::			;TT: handler
+	.word	0		;ha.vec
+	.word	0		;ha.isr - must be zero
+	.word	0		;ha.pri
+	.word	0		;ha.lqe - never used
+	.word	0		;ha.cqe - never used
+	nop			;v54 flag
+	ovjmp$	tt$sta	utl	;call the overlay
+
+vm$han::			;VM: handler
+	.word	0		;ha.vec
+	.word	0		;ha.isr
+	.word	0		;ha.pri
+	.word	0		;ha.lqe
+	.word	0		;ha.cqe
+	nop			;v54 flag
+	ovjmp$	vm$sta	utl	;call the overlay
+
+nl$han::			;NL: handler
+	.word	0		;ha.vec
+	.word	0		;ha.isr
+	.word	0		;ha.pri
+	.word	0		;ha.lqe
+	.word	0		;ha.cqe
+	nop			;v54 flag
+	ovjmp$	nl$sta	utl	;call the overlay
+.sbttl	feature interface
+
+;	RUST/XM feature support
+;
+;	rp.chn	channel number
+;	rp.cod	emfea. subcode
+;	rp.p0	feature subcode
+;	rp.p0+1	feature id
+;	rp.p1	user
+;	...
+;	rp.p5	user
+;
+;	f$efes:	.word	maximum feature number
+;	f$emap:	.word	feature-record pointer	
+;
+;	fe.mut	word*4	feature mutex
+;	fe.ctl		feature control
+;	fe.pag		feature start page number
+;
+;	r0	request r0
+;	r1	always zero for emt call - subcode for others
+;	r2	internal
+;	r3	rp.p1
+;	r4	zero
+;	r5	rp pointer
+;
+;	System features have a slightly different interface.
+;	These are assigned fixed feature slots.
+;	An invalid EMT is returned if they are not installed.
+;
+;	Trace feature also called from MER.
+;
+;	Should be:
+;
+;	psh	#fexxx.
+;	call	fe$dis
+
+	.enabl	lsb		;
+tr$pro::mov	#fetra.,r2	;dispatch on this code
+	br	fe$dis		;
+fe$emt::movb	rp.p0+1(r5),r2	;get the id
+fe$dis::cmp	r2,f$efes	;too high?
+	blo	20$		;no
+10$:	.hard	eremt.		;invalid emt
+20$:	asl	r2		;word offset
+fe$mep::mov	f$emap(r2),r2	;get the record
+	beq	10$		;feature not installed
+	mov	r2,@#m$kip1	;map the feature
+	jmp	m$mpa1		;call them
+	.dsabl	lsb		;
+
+;	Feature exit
+;
+;	Called by image exit and process deletion
+
+stack	map cnt op1 ret
+fe$can::			;feature exit
+	save			;save them all
+	psh	m$kip1		;save par1
+	psh	f$efes		;save the count
+	psh	#f$emap		;and the map
+10$:	mov	@(sp),r1	;get the next
+	beq	20$		;no
+;	psh	#20$		;return address
+;	psh	#m$mpa1+fe.exi	;adr
+;	psh	r1		;np1
+;	jmp	fe$jmp		;call them
+	mov	r1,m$kip1	;yes
+	call	@m$mpa1+fe.exi	;call the exit routine
+20$:	add	#2,(sp)		;advance past it
+	dec	sp.cnt(sp)	;any more?
+	bne	10$		;yes
+	cmp	(sp)+,(sp)+	;
+	jmp	sy$rp1		;restore par1 and return
+.sbttl	process bypass list
+
+;	Bypass routines are called with scheduler locked.
+;
+;	sp.nxt	next node in path
+;	sp.ret	original caller
+
+.enabl	lsb			;
+by$cpc::psh	(sp)		;
+	stack	ret nxt		;
+	mov	@(sp),sp.nxt(sp);
+	add	#word,(sp)	;
+	stack	ret nxt		;
+
+by$csp::
+10$:	call	by$dsc		;disable the scheduler
+	mov	@sp.nxt(sp),sp.nxt(sp) ;get the next
+	beq	20$		;are no more
+	psh	sp.nxt(sp)	;get the address
+	add	#word,(sp)	;skip the chain pointer
+	call	@(sp)+		;call the routine
+	br	10$		;do them all
+20$:	pop	(sp)		;psh out nxt address
+	br	by$esc		;enable and quit
+
+by$dsc::bis	#stbyp$,s$csta	;stop the scheduler
+	return
+fe$dsc::bis	#stfea$,s$csta	;stop the scheduler
+30$:	return
+
+fe$esc::bic	#stfea$,s$csta	;enable the scheduler
+by$esc::bic	#stbyp$,s$csta	;enable the scheduler
+	bne	30$		;
+	callr	sc$cmp		;$cmpro and return
+.dsabl	lsb
+.sbttl	feature calls
+
+;	Call feature with interlocked interface.
+;
+;	fin	feature index - feature slot number * 2
+;	rin	routine index - offset into block zero of feature.
+;
+;	c=1	routine error or feature not installed
+;	v=1	feature not installed
+;
+;	jump/call with fid/rid in r0
+;
+;	$call0	fid
+;	$jump0	fid
+;
+;	mov	#fin!rin,r0
+;	call	fe$cr0
+
+fe$cr0::psh	@#m$kip1		;save these
+	psh	#m$mpa1			;build address
+	movb	r0,(sp)			;add in block zero offset
+	clrb	r0			;
+	swab	r0			;
+	psh	r0			;save it
+	add	#f$emap,(sp)		;
+	br	fe$jmp			;
+
+;	$callf	fid
+;
+;	Call with immediate fid/rid
+;
+;	call	fe$cpc
+;	.word	fid
+
+	stack	ret			;
+fe$cpc::psh	m$kip1			;save par1
+	psh	#m$mpa1			;start routine address
+	stack	rou kp1 ret		;
+	psh	@sp.ret(sp)		;get the feature id
+	stack	fea rou kp1 ret		;
+	add	#word,sp.ret(sp)	;point past it
+	movb	(sp),sp.rou(sp)		;finish up the address
+	clrb	(sp)			;build the feature id
+	swab	(sp)			;
+	add	#f$emap,(sp)		;
+	fall	fe$jmp			;
+
+;	fe$jmp
+;
+;	sp.fea	address of feature slot
+;	sp.rou	address of routine
+;	sp.kp1	saved par1
+;	sp.ret	return address
+
+	stack	fea rou kp1 ret		;
+fe$jmp::bis	#stfea$,s$csta		;stop the scheduler
+	mov	@(sp)+,m$kip1		;get the feature
+	beq	20$			;not there
+	inc	m$mpa1+fe.ref		;count the reference
+	call	fe$esc			;enable scheduler again
+	call	@(sp)+			;call the routine
+	dec	m$mpa1+fe.ref		;uncount the reference
+10$:	jmp	sy$rp1			;restore par1 and return
+
+20$:	tst	(sp)+			;no routine
+	call	fe$esc			;enable scheduler
+	.word	sec!sev			;report error
+	br	10$			;restore par1 and return
+.sbttl	external handlers
+
+;	External handler interface
+;
+;	cbit	not modified 
+
+ek$dis::psh	@#m$kip6		;save par6
+	psh	@#m$kip1		;save par1
+	mov	(r4),@#m$kip6		;map the handler
+	mov	@#f$emap+<feext.*2>,@#m$kip1 ;map the routine
+	call	@#m$mpa1+fe.bbs+ex.pds	;dispatch it
+	pop	@#m$kip1		;restore it
+	pop	@#m$kip6		;restore this
+	pop	r4			;
+	pop	r5			;
+	return				;and quit
+
+;	Interrupt dispatcher redirects return path here.
+;
+;	cbit	not modified
+
+ek$rti::pop	@#m$kip1		;restore it
+	pop	@#m$kip6		;restore this
+	pop	r4			;
+	pop	r5			;
+	rti				;exit interrupt
+
+.end
+

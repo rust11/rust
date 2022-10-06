@@ -1,0 +1,237 @@
+net=1
+new=1
+unit=1
+.title	rsp
+.include "lib:rust.mac"
+.psect	rsp d
+$apdef		;acp
+$ardef		;access right
+$chdef		;channel
+$dedef		;device record
+$erdef		;error codes
+$fndef		;filename
+$prdef		;pcr
+$sedef		;set
+$spdef		;spooler
+$stdef		;scheduler
+	
+;	RUST/XM ACP spooler diversion
+;
+;	%build
+;	macro rxs:rsp/object:rxb:
+;	%end
+.sbttl	open spool file
+
+;	Open spool file - assign spooler sequence number
+;
+;	Check unit number or penultimate name.
+;	r0/r1 available
+;
+;	r2 - device index
+;	r3 - unit number
+
+map	cu.kop,,2
+map	cu.kcl,,4
+
+sp$opn::call	by$dsc			;bypass - disable scheduler
+	psh	#sp$esc			;enable scheduler
+	mov	@#s$pspp,r1		;get pipeline spooler record
+	beq	5$			;have none
+	cmp	(r1),@#p$hpcr		;are we the spooler process?
+	beq	80$			;yes - do not divert
+	callr	@cu.kop(r1)		;call the routine
+					;return via sp$esc
+;	File oriented spooler
+
+5$:	call	@(sp)+			;enable scheduler again
+	mov	s$prec,r1		;get the spooler record
+	beq	80$			;no spooling
+	cmp	sp.pcr(r1),p$hpcr 	;is this the spooler?
+	beq	80$			;yes - do not divert
+					;
+	add	#sp.dit,r1		;point to the diversions
+	mov	#spmdn.,r0		;get the number of diversions
+	psh	r2			;save this register
+10$:
+.if ne unit
+	bit	#spdlg$,(r1)		;this a logical queue?
+	beq	20$			;no
+	cmp	a$pfna,sp.dev(r1)	;same logical name?
+	beq	30$			;yes
+	br	25$			;no
+20$:	mov	(sp),r2			;get the device index
+	mov	d$emap(r2),r2		;get the device map
+	mov	de.dev(r2),r2		;get the name
+	neg	r2			;subtract wrong way around
+	add	sp.dev(r1),r2		;same name?
+	beq	30$			;yes - exact match
+	sub	#<^r  0>,r2		;check unit
+	cmp	r2,r3			;same unit?
+	beq	30$			;yes
+.iff
+	mov	(sp),r2			;get the device index
+	mov	d$emap(r2),r2		;get the device map
+	mov	de.dev(r2),r2		;get the device name
+	bit	#spdlg$,(r1)		;this a logical queue?
+	beq	20$			;no
+	mov	a$pfna,r2		;yes - use penultimate logical name
+20$:	cmp	r2,sp.dev(r1)		;is this our guy?
+	beq	30$			;yes
+.endc
+25$:	add	#sp.ebs,r1		;skip the diversion
+	sob	r0,10$			;
+	pop	r2			;restore r2
+	br	80$			;and quit
+
+;	Check for /ALL /LOOKUP
+
+30$:	pop	r2			;get this back
+	cmpb	a$popr,#acloo.		;this a lookup?
+	bne	50$			;no
+	bit	#spdlu$,(r1)		;/LOOKUP specified?
+	beq	40$			;no
+	movb	#acent.,a$popr		;change the operation code
+	br	50$			;and handle it
+
+;	Channel to spooled device opened directly
+;	Do not allow any I/O on that channel
+
+40$:	bis	#csnwr$!csnre$,(r4) 	;do not allow i/o on that channel
+	br	80$			;and quit
+
+;	Check for ENTER
+
+50$:	cmpb	a$popr,#acent.		;this an enter?
+	bne	80$			;no - no diversion
+	tst	a$pp2			;got an explicit size?
+	ble	60$			;no
+	inc	a$pp2			;PIP wants an extra block
+
+;	Change the filename
+
+60$:	mov	sp.int(r1),a$pfna 	;replace the device
+	mov	sp.con(r1),a$pfna+fn.fil;the consignment name
+	call	sp$ges			;get a sequence number
+	mov	r0,a$pfna+fn.nam	;the sequence number
+	mov	#^rque,a$pfna+fn.typ 	;and the type
+	mov	#acseq$!aclen$!acopn$,a$pcon 	;change control to enter
+	mov	#arcre$,a$puad		;change user access defaults
+					;
+	clr	(r4)			;remove device index of spooled device
+	bit	#spdnp$,(r1)		;is this /NOPURGE?
+	beq	70$			;no
+	bis	#csnpu$,(r4)		;yes - set the nopurge bit
+					;
+70$:	mov	#a$pfna,r0		;point to filename
+	mov	#p$humm,r1		;setup spool file record
+	mov	r4,(r1)+		;save channel
+	mov	(r0)+,(r1)+		;move it in
+	mov	(r0)+,(r1)+		;
+	mov	(r0)+,(r1)+		;
+	mov	(r0)+,(r1)+		;
+	tst	(pc)+			;we diverted the file
+80$:	sec				;we did not divert
+	return				;
+
+sp$esc:	rol	-(sp)			;save c-bit
+	call	@#by$esc		;enable scheduler
+	ror	(sp)+			;reset c-bit
+	return				;
+	.dsabl	lsb			;
+.sbttl	close spool file
+
+;	Close spooler file
+;
+;	Files closed with .QUE filetype trigger the spooler.
+;	Set consignment NEW flag
+;	Wakeup and revive SPOOL process.
+
+sp$cls::				; CLOSE
+	mov	#p$humm,r0		;get saved spool file info
+	cmp	(r0),r4			;the same channel?
+	bne	4$			;no
+	clr	(r0)+			;yes - once only
+	mov	#a$pfna,r1		;copy back filename
+	mov	(r0)+,(r1)+		;
+	mov	(r0)+,(r1)+		;
+	mov	(r0)+,(r1)+		;
+	mov	(r0)+,(r1)+		;
+4$:	cmpb	a$popr,#acclo.		;this a close?
+	bne	60$			;no - ignore it
+	call	by$dsc			;disable scheduler
+	psh	#by$esc			;return via scheduler enable
+;	bis	#stbyp$,@#s$csta 	;free scheduler
+	mov	@#s$pspp,r1		;get pipeline spooler record
+	beq	5$			;it's none
+	callr	@cu.kcl(r1)		;call the routine
+					;return via by$esc
+					;
+5$:	call	@(sp)+			;enable the scheduler again
+	cmp	a$pfna+fn.typ,#^rque 	;this a spool file?
+	bne	60$			;no
+	pshs	<r4,r3>			;save these
+					;
+	mov	s$prec,r1		;get the record
+	beq	50$			;no spoolers active
+	add	#sp.cot,r1		;point to consignment table
+	mov	#spmcn.,r0		;count them
+10$:	cmp	a$pfna+fn.fil,sp.con(r1);is this the consignment?
+	beq	20$			;yes
+	add	#sp.ebs,r1		;no
+	sob	r0,10$			;look again
+	br	50$			;not found - ignore it
+					;start consignment
+20$:	bis	#spnew$,(r1)		;remember it has work to do
+					;
+	mov	s$prec,r4		;look for a printer
+	add	#sp.prt,r4		;point to the printers
+	mov	#spmpn.,r3		;count them
+30$:	cmp	sp.pri(r1),sp.pri(r4) 	;same consignment?
+	bne	40$			;no
+					;start printer
+	bis	#sprun$,(r4)		;yes - set it active
+40$:	add	#sp.ebs,r4		;do the next
+	sob	r3,30$			;do them all (may be multiple printers)
+					;
+	$float				;must be in system state
+	mov	s$prec,r4		;get the spooler
+	beq	45$			;oops - we lost it
+	mov	(r4),r4			;get the spooler pcr
+	beq	45$			;no process
+	bis	#prwak$,pr.sta(r4) 	;send a wakeup to it
+	$revive	#s$cp00			;and start it up
+45$:	$land				;come back
+					;
+50$:	bit	#setid$,p$hset		;should we identify it?
+	beq	55$			;no
+	mov	#erspf.,r0		;yes - supply the code
+	call	er$dis			;display the message
+55$:	pops	<r3,r4>			;get these back
+60$:	return				;
+.sbttl	get next sequence number
+
+;	s$pseq
+;
+;	sp.csn		;current sequence number
+;	sp.ch0		;character one
+;	sp.ch1		;character two
+
+sp$ges::psh	r1			;save this
+	mov	s$prec,r1		;point to the record
+	mov	sp.csn(r1),r0		;get the current sequence number
+	inc	r0			;get the next
+	incb	sp.ch0(r1)		;next letter
+	cmpb	sp.ch0(r1),#26.		;end of letters?
+	blo	10$			;no
+	clrb	sp.ch0(r1)		;yes
+	add	#<^r A >-<^r  Z>,r0		;get the next
+	incb	sp.ch1(r1)		;end of the next?
+	cmpb	sp.ch1(r1),#26.		;end of second character?
+	blo	10$			;no
+	clrb	sp.ch1(r1)		;yes
+	add	#<^rA  >-<^r Z >,r0
+10$:	mov	r0,sp.csn(r1)		;
+	pop	r1			;
+	return
+.end
+

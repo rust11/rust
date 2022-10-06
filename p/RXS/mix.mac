@@ -1,0 +1,421 @@
+rst$c=1	;was v3new=0
+.title	mix - i/o utilities
+.include "lib:rust.mac"
+.psect	mix
+$drdef		;driver calls
+$emdef		;emts
+$hadef		;handlers
+$iqdef		;i/o queue
+$mmdef		;mmu
+$psdef		;ps
+$p1def		;p1ext
+$rrdef		;rt-11 regions
+$svdef		;shift values
+$iodef		;i/o
+
+;	%build
+;	macro	rxs:mix/object:rxb:mix
+;	%end
+;
+;	%date
+;	<20-Nov-2010 20:53:39.09>
+;	%edit
+;	<29   >
+;
+;	Dummy time-out routine for handlers.
+;
+;	io$tid	$timio
+;
+;	r5 ->	tblk	offset to timer block
+;		code	0 => cancel
+;		hot
+;		lot
+
+io$tid::			;timout i/o dummy
+io$tio::			;timeout
+	tst	(r5)+		;skip the tblk
+	tst	(r5)+		;is this cancel i/o?
+	bne	10$		;yes - we are done
+	cmp	(r5)+,(r5)+	;nope - skip the time value
+10$:	fall	io$syn
+
+;	Dummy synch
+;
+;	Report it busy
+
+io$syn::rts	r5		;synch
+
+;	Dummy error log routine for handlers.
+;
+;	io$erd	$erlog
+
+io$erd::			;error log dummy
+io$erl::clc			;error log
+	return			;
+.sbttl	convert to mapped
+
+;	Convert virtual to mapped address
+;
+;	user	user-mode virtual address
+;	kernel	kernel-mode virtual address
+;	mapped	page/offset address
+;	handler	handler queue element mapped address to physical
+;	physic	22-bit address
+;
+;	io$ckm	$relok	convert kernel to mapped
+;	io$cum	$reloc	convert user to mapped
+;	io$cvm	$relog	convert virtual to mapped (mapset on stack)
+;
+;	r0	virtual address
+;
+;	call	io$c%m
+;
+;	r1	page
+;	r2	offset
+;
+; r0	rrrp pppp ppoo oooo
+;
+; r1	.... .... .ppp pppp
+; r2	..1. .... ..oo oooo + par
+
+io$ckm::.enabl	lsb		;convert kernel to mapped
+	psh	#m$kip0		;relocate via kernel pars
+	br	io$cvm		;
+io$cum::			;convert user to mapped
+	assume	<io$ckm-io$cum> eq harko. ;kernel mapping routine moved
+	psh	#m$uip0		;relocate via user pars
+io$cvm::			;convert virtual to mapped
+				;real-time comes in here
+	mov	r0,r1		;rrrp pppp ppoo oooo
+	clc			;
+	ror	r1		;.rrr pppp pppo oooo
+	ash	#-4,r1		;.... .rrr pppp pppo
+				;
+	mov	r1,r2		;.... .rrr pppp pppo
+	clrb	r2		;.... .rrr .... ....
+	swab	r2		;.... .... .... .rrr
+	asl	r2		;.... .... .... rrr.
+				;
+	rorb	r1		;.... .rrr .ppp pppp
+	movb	r1,r1		;.... .... .ppp pppp
+				;
+	add	(sp)+,r2	;par address
+	add	(r2),r1		;page number
+				;
+	mov	r0,r2		;rrrp pppp ppoo oooo
+	bic	#^c77,r2	;.... .... ..oo oooo
+	bis	#20000,r2	;..1. .... ..oo oooo
+	return			;
+	.dsabl	lsb		;
+.sbttl	convert to physical	
+
+;	Convert to physical address
+;
+;	io$cup	$usrph	convert user to physical
+;	io$cmp	$cnphy	convert mapped to physical
+;
+;	$usrph	r0	user virtual address
+;	$cnphy	r1,r2	page, par1-offset
+;
+;	r1	high-order address
+;	r2	low-order address
+;	c=1	if address above 28k
+;
+;		pppp pp
+;	r1	pppp ppxx yyyy yyzz
+;	r2	0000 0000 00oo oooo
+;
+;	r1	.... ..pp pppp ....
+;	r2	xxyy yyyy zzoo oooo
+
+io$cup::			;convert user to physical
+	call	io$cum		;convert user to mapped
+io$cmp::			;convert mapped to physical
+	bic	#177700,r2	;clear this up
+	psh	r2		;.... .... ..oo oooo
+				;
+	mov	r1,r2		;pppp ppxx yyyy yyzz
+	swab	r2		;yyyy yyzz pppp ppxx
+	clrb	r2		;yyyy yyzz .... ....
+	ror	r2		;.yyy yyyz z... ....
+	asr	r2		;..yy yyyy zz.. ....
+				;
+	clrb	r1		;pppp ppxx .... ....
+	ror	r1		;.ppp pppx x... ....
+	asr	r1		;..pp pppp xx.. ....
+	bisb	r1,1(sp)	;xx.. .... ..oo oooo
+	bis	(sp)+,r2	;xxyy yyyy zzoo oooo
+				;
+	clrb	r1		;..pp pppp .... ....
+	ash	#-4,r1		;.... ..pp pppp ....
+	bne	10$		;extended memory
+	cmp	#160000,r2	;above 28kw?
+	bhi	20$		;nope
+10$:	sec			;c=1 => above 28kw
+20$:	return			;
+.sbttl	handler utility routines
+
+;	Convert handler queue element address to physical
+;
+;	io$chp	$mpphy	($mpptr)
+;
+;	convert q.par/q.buff to physical address
+;
+;	r5 ->	q.buff
+;
+;	r5 ->	q.wcnt
+;	0(sp)	low order address = r2
+;	2(sp)	high order address = r1
+
+io$chp::psh	(sp)			;make space for high order
+	psh	(sp)			;and the low order
+	pshs	<r2,r1>			;save these
+	stack	r1 r2 ret lop hop	;
+	mov	iq.par-iq.buff(r5),r1 	;r1 = page
+	mov	(r5)+,r2		;r2 = par1 offset
+	call	io$cmp			;convert mapped to physical
+	mov	r1,sp.hop(sp)		;move them in
+	mov	r2,sp.lop(sp)		;
+	pops	<r1,r2>			;
+	return				;
+
+;	io$gtb	$getbyt	$gtbyt
+;	io$ptb	$putbyt	$ptbyt
+;	io$ptw	$putwrd	$ptwrd
+;
+;	r4 ->	q.blkn
+;	(sp)	data byte/word
+;
+;	q.buff/q.par updated
+
+io$gtb::.enabl	lsb			;get byte
+	psh	(sp)			;make space for reply
+	psh	(sp)			;dummy for exit
+	psh	@#m$kip1		;save the par
+	stack	op1 ret dum dat		;
+	mov	iq.par(r4),m$kip1	;map the buffer
+	movb	@iq.buf(r4),sp.dat(sp) 	;move next byte to stack
+	br	10$			;
+io$ptw::psh	@#m$kip1		;put word
+	stack	op1 ret dat		;
+	mov	iq.par(r4),m$kip1	;set it up
+	mov	sp.dat(sp),@iq.buf(r4)	;store byte in user buffer
+	inc	iq.buf(r4)		;an additional increment
+	br	10$			;join the common stuff
+io$ptb::psh	@#m$kip1		;put byte
+	stack	op1 ret dat		;
+	mov	iq.par(r4),@#m$kip1	;set it up
+	movb	sp.dat(sp),@iq.buf(r4)	;store byte in user buffer
+10$:	pop	@#m$kip1		;get this back
+	pop	(sp)			;squeeze out the data
+	inc	iq.buf(r4)		;step up a byte
+	bit	#40000,iq.buf(r4)	;over the pale?
+	beq	30$			;nope
+	add	#200,iq.par(r4)		;yes - adjust page
+	sub	#20000,iq.buf(r4)	;and the adjust buffer
+30$:	return				;
+	.dsabl	lsb			;
+.sbttl	p1 externalise
+
+;	See XMSUBS.MAC
+;
+;	Par1 externalise and dispatch
+;
+;	P1ext dispatch table
+;
+;V4	jmp	errrtn			;$jbrel
+;V4	jmp	mpmem			;$mpmem
+	assume	.-io$p1x eq p1.xdl 	;
+;V4	jmp	dr$p1k			;
+	call	dr$p1k			;$xdept - deallocate extended memory
+	assume	.-io$p1x eq p1.cvp 	;
+	jmp	io$cup			;$cvppt - convert virtual to physical
+	assume	.-io$p1x eq p1.fgr	;
+	jsr	r1,dr$frk		;$fgrpt - find global region
+	assume	.-io$p1x eq p1.xal	;
+	call	dr$p1k			;$xalpt - allocate extended memory
+	assume	.-io$p1x eq p1.blm.	;
+	br	io$blm			;$bmlpt - block move
+io$p1x::br	io$p1k			;$p1ext - p1 externalize
+i$op1b::				;	- dispatch base
+io$utk::call	dr$p1k			;	- driver utility call
+					;
+io$p1k::pshs	<@#m$kip1,r1,r2>	;par1 externalize - $p1ext
+	mov	sp,r1			;save our stack
+	sub	(r0)+,sp		;make some space
+	mov	sp,r2			;destination
+10$:	mov	(r0)+,(r2)+		;move them in
+	cmp	r2,r1			;more?
+	blo	10$			;yes
+	mov	-(r2),@#m$kip1		;map the user
+	mov	#return,(r2)		;fill in a return
+	mov	(r1)+,r2		;restore r2
+	psh	r1			;(sp) -> exit sp
+	mov	(r1),r1			;restore r1
+	call	word(sp)		;call them
+
+;	In routine:
+;
+;		r0
+;		m$kip1
+;		r1
+;		r2
+;	...
+;	4(sp)	routine
+;	2(sp)	address of pushed r1, m$kip1, r0
+;	0(sp)	return below
+
+	mov	(sp),sp			;restore stack
+	tst	(sp)+			;discard calling r1
+	pop	@#m$kip1		;get par1 back again
+	rts	r0			;and go home
+.sbttl	block move
+
+;	Block move
+;
+;	io$blm	$blkmv
+;
+;	r0	temp
+;	r1	source page
+;	r2	source par1 offset
+;	r3	destination page
+;	r4	destination par1 offset
+;	r5	word count
+;
+;	r3	destination page after move
+;	r4	destination par1 offset after move
+;	c=1	Bus error
+;
+;	Uses par1 & par6 for move-block operations.
+;	Moves buffer in 1024. byte sections with 32 word move loop.
+;	(More than 1024. assumes too much about initial offset into page.)
+;	Average of one instruction per word (RT-11 needs four or five)
+;
+;	VM: requires that exit r3/r4 are setup for write zero-fill.
+;	Traps abort the transfer and return with the c-bit set.
+
+io$mov::				;move memory
+io$blm::				;block move
+	pshs	<@#m$kip6,@#m$kip1>	;save some
+	add	#mmp61.,r4		;correct to par6
+	$dclth	70$			;declare trap handler
+	psh	r5			; (sp) = total wordcount
+.if eq rst$c
+	beq	60$			;zero words is easy
+.endc
+10$:	mov	r1,@#m$kip1		; r1 = source par1 page
+	mov	r3,@#m$kip6		; r3 = destination par6 page
+	mov	#512.,r5		;get next partial
+.if ne rst$c
+	cmp	(sp),r5			;remainder larger than partial?
+.iff
+	cmp	(sp),#512.		;remainder larger than partial?
+.endc
+	bhi	20$			;yes 
+	mov	(sp),r5			;no - do last partial
+20$:	sub	r5,(sp)			;adjust total remainder
+30$:	bit	#31.,r5			;modulus 32?
+	beq	40$			;yep - do it
+	mov	(r2)+,(r4)+		;move them out
+	sob	r5,30$			;do the rest
+40$:	ash	#-sv032.,r5		;reduce to window count
+	beq	60$			;all done
+50$:	.rept	32.			;
+	mov	(r2)+,(r4)+		;move it
+	.endr				;
+	sob	r5,50$			;count windows
+	tst	(sp)			;all done?
+	beq	60$			;yes - leave registers setup
+	add	#1024./mmbip.,r1	;no - advance 1kb
+	sub	#1024.,r2		;
+	add	#1024./mmbip.,r3	;
+	sub	#1024.,r4		;
+	br	10$			;do the next partial
+60$:	pop	r5			;r5 = 0
+	$canth				;cancel the trap handler
+	tst	(pc)+			;fine
+70$:	sec				;fail - bus error
+	sub	#mmp61.,r4		;back to par1
+	jmp	sy$r16			;restore par1/par6 and return
+.sbttl	find global region
+
+;	Dispatch kernel call to driver interface
+;
+;	Dispatch FINDGR
+;
+;	jsr	r1,dr$frk
+;
+;	Region name may be located in par1.
+;	Make a copy outside par1 for DR$FRX
+;	These routines are considered non-reentrant
+
+	.enabl	lsb		;
+dr$frk::mov	word(r5),(sp)	;second is on the stack
+	psh	#10$		;pop gn1 when we are done
+	psh	r1		;r1 -> past io$p1x-p1.fgr dispatch
+	mov	(r5),r1		;first is in r1
+	stack	off ret gn1 etc	;
+	fall	dr$p1k		;
+	stack	off ret etc	;
+dr$p1k::sub	#i$op1b,(sp)	;construct driver code
+	asr	(sp)		;convert long to word offset
+dr$dik::ovcal$	dr$dix utl	;call the routine
+	stack	off ret etc	;
+10$:	inc	(sp)+		;c=? - drop the offset
+	return			;c=? - return to handler or system
+	.dsabl	lsb		;
+.sbttl	driver read routine
+
+;	Driver utility read routine
+;
+;	This routine is kept resident in case the handler
+;	decides to map a buffer into kernel par1.
+;
+;	r0	block number
+;	r1	word count (may be burnt)
+;	r2	buffer address
+;
+;	c=0	fine
+;	c=1	fail
+
+	assume	io.blk eq io.chn+2
+	assume	io.buf eq io.chn+4
+	assume	io.wct eq io.chn+6
+dr$rea::psh	r0			;push block number
+	stack	blk			;
+	mov	#d$rrea+io.wct,r0	;point to wordcount
+	mov	r1,(r0)			;io.wct
+	mov	r2,-(r0)		;io.buf
+	mov	(sp),-(r0)		;io.blk
+	tst	-(r0)			;io.chn
+	emt	375			;issue the EMT
+	pop	r0			;restore block number
+	return				;and return
+
+d$rrea:					;read emt area
+d$rchn::.byte	0			;io.chn - channel from $drutl
+	.byte	iorea.			;io.cod - read request
+	.word	0			;io.blk - from dr$rea call
+	.word	0			;io.buf - from dr$rea call
+	.word	0			;io.wct - from dr$rea call
+	.word	0			;io.com - wait i/o
+
+;	Driver utility data
+;
+;	This goes into kda
+
+d$rpnm::.rad50	/dd /		;init	;$pname - permanent name
+d$rent::.word	0		;init	;$hentr - handler lqe entry point
+	.word	-1			;	- $hentry terminator
+d$rsta::.word	0		;init	;$stat	- device status word
+d$rsbl::.word	1			;$dvrec - start block + 1
+d$rhsz::.word	0		;init	;$hsize	- handler size in bytes
+d$rdsz::.word	0		;init	;$dsize - device size
+					;
+r$rkfl::.word	0,r$rkfl		;kernel free list
+r$rxfl::.word	-1			;terminate it
+r$rgrl::;.blkw	rr.gbs*rrgrc.		;global region records
+	.blkw	rr.gbs*4.		;global region records
+	.word	-1			;terminate it
+.end
+

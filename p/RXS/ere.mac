@@ -1,0 +1,616 @@
+.title	ere - environment report
+.include "lib:rust.mac"
+.include "rxs:envcnd.mac"
+.psect	ere d
+$cndef		;config
+$esdef		;error severity
+$dedef		;device
+$endef		;environment
+$jbdef		;rt-11 job
+$sbdef		;system build
+$sgdef		;sysgen
+$txdef		;text
+
+;	ERE - Environment check report
+;
+;	%build
+;	macro	rxs:ere/object:rxb:
+;	%end
+;
+;	ENV.MAC		Environment utility
+;	ERE.MAC		Environment report
+;	EDA.MAC		Environment data
+;	MLE.MAC		Environment macro library
+;	SHAPE.MAC	Stand-alone interface
+;	SHAPE.SAV	Stand-alone utility
+;
+;	This utility reports the environment of a PDP-11.
+;
+;	system		Operating system
+;	configuration	config, confg2, sysgen
+;	processor	Central processor
+;	memory		Memory available
+;	mmu		Memory management
+;	devices		Devices available
+;	vectors		Vector check known devices
+;
+;	This utility can be run stand-alone or linked to another program.
+;	RUST/XM includes this module in the build routine.
+;
+;	The stand-alone program simply reports the entire environment.
+.sbttl	report environment
+
+;	Select macro
+
+.macro	select	bit,false,true,tag,value
+.iif nb <value>,mov value,r1
+	jsr	r5,en$sel	;report it
+	.word	tag
+	.word	bit
+	.ascii	&false&<200>
+	.even
+	.ascii	&true&<200>
+	.even
+.endm
+
+.macro	type	c d e	
+	jsr	r2,tx$typ
+	.ascii	&c&<200>
+	.even
+.iif nb <e>, mov e,r1
+.iif nb <d>, call d
+.endm
+
+.macro	newline
+	call	tx$new
+.endm
+.sbttl	report system
+
+;	Report environment
+;
+;	r4 =	bit pattern
+
+en$rep::			;check environment
+.if ne shp$c
+
+;	Operating system
+;
+;	en.ops	operating system
+
+	newline
+	type	<System		>
+	mov	e$nops,r4	;
+	select	enssj$	<><RT-11/SJ >
+	select	ensfb$	<><RT-11/FB >
+	select	ensxm$	<><RT-11/XM >
+	select	ensha$	<><SHARE-eleven >
+	select	ensvr$	<><VRT >
+	select	ensrm$	<><RTEM >
+	select	ensts$	<><TSX >
+	select	enshp$	<><RUST/XM >
+	type	<V>	tx$num,e$nopv
+	type	<.>	tx$num,e$nopu
+	newline
+.endc
+
+;	en.cpp - CPU
+
+	type   <Processor	>
+	mov	e$ncpp,r4
+	select	enp03$	<><LSI-11 PDP-11/03>
+	select	enp04$	<><PDP-11/04>
+	select	enp10$	<><PDP-11/05 or PDP-11/10>
+	select	enp20$	<><PDP-11/20>
+	select	enp23$	<><PDP-11/23 or PDP-11/24>
+	select	enp34$	<><PDP-11/34>
+	select	enp40$	<><PDP-11/35 or PDP-11/40>
+	select	enp44$	<><PDP-11/44>
+	select	enp45$	<><PDP-11/45>
+	select	enp60$	<><PDP-11/60>
+	select	enp70$	<><PDP-11/70>
+	select	enp73$	<><PDP-11/73>
+	select	enpvx$	<><VAX-11/>
+	select	enpun$	<><Unknown>
+	bit	#enpvx$,r4	;this a VAX?
+	beq	50$		;nope
+	type	<>	tx$num,e$ncpc ;put out the model
+50$:;	newline
+	cmpb	e$ncpt,#-1	;got a type?
+	beq	55$		;nope
+	type	< (type=>	tx$num,e$ncpt
+	tst	e$ncpr		;got a revision?
+	beq	54$		;nope
+	type	<, revision=>	tx$num,e$ncpr
+54$:	type	<)>		;
+55$:	newline
+				;
+60$:	type   < CPU mode	>;
+	mov	e$nmod,r4	;type the mode
+	select	endvm$	<><mapped >
+	select	endkm$	<><kernel >
+	select	endsm$	<><supervisor >
+	select	endum$	<><user >
+	select	endcm$	<><compatibility >
+	newline
+
+	type	< Fingerprints	>
+	mov	e$ncpf,r4	;get the prints
+70$:	select	enfmp$	<><mrp >	;mov r pop
+	select	enfmx$	<><mpx >	;mov pc index
+	select	enfjp$	<><jrp >	;jmp r pop
+	select	enfjr$	<><jrg >	;jmp r
+	select	enfod$	<><odd >	;odd traps
+	select	enfop$	<><odp >	;odd pop
+	select	enfsv$	<><scv >	;swab clears vbit
+	select	enfrt$	<><rtt >	;rtt
+	select	enfsp$	<><spl >	;spl
+	select	enfmf$	<><mps >	;mfps
+
+	newline
+	cmp	r4,e$ncpe		;is this what we expected?
+	beq	80$			;yes
+	mov	e$ncpe,r4		;nope - do it again
+	type   < Expected	>		
+	br	70$			;and do it once more
+
+;	en.cpx	cpu extensions
+
+80$:	type   < CPU options	>
+	mov	e$ncpx,r4
+	select	enxei$	<><eis >
+	select	enxmm$	<><mmu >
+	select	enxfp$	<><fpu >
+	select	enxfs$	<><fis >
+	select	enxci$	<><cis >
+	select	enxwc$	<><wcs >
+	select	enxea$	<><eae >
+	newline
+
+	tst	e$nemu					;V4
+	beq	90$		
+	type	<Emulator	>
+	mov	e$nemu,r4
+	select	enunk$	<><Unknown>
+	select	env11$	<><V11>
+	select	envrt$	<><VRT>
+	select	ene11$	<><E11>
+	select	ensim$	<><SIMH>
+	newline
+
+90$:	type   <Clock		>
+	mov	e$nclk,r4		;do the clock
+	select	enclk$	<Missing. ><Present. >	;
+	select	encsr$	<><CSR. >
+	select	enclp$	<><Programmable. >
+	select	enc50$	<60-hertz. ><50-hertz. >
+	select	encac$	<Inactive. ><Active. >
+	newline
+
+	type   <MMU		>
+	mov	e$nmem,r4		;check mmu
+	select	enmmu$	<Missing. ><Present. >
+	select	enm18$	<><18-bit. >
+	select	enm22$	<><22-bit. >
+	select	enmid$	<><I/D. >
+	select	enmum$	<><Unibus-map. >
+	select	enmsp$	<><Dual-stacks. >
+	select	enm30$$	<><30kw. >
+	newline
+
+	type   <Memory size	>
+	mov	e$nmek,r1		;get kwords
+	asl	r1			;make it bytes
+	call	tx$dec			;report it
+	type	< kilobytes>
+	newline
+
+;	system handler
+
+200$:
+.if ne shp$c
+	type   <System device	> tx$fil,#e$nsdr+de.fnm
+	mov	e$nsyh,r4	;get the system handler
+	select	enhnf$	<>< Not found. >
+	select	enhio$	<>< I/O error. >
+	select	enhcs$	<>< Invalid CSR address. >
+	select	enhic$	<>< Installation check failed. >
+	select	enhrn$	<>< Not file structured. >
+220$:;	newline
+
+	type   < CSR=> tx$oct e$nsdr+de.csr
+	bit	#enhcs$,e$nsyh		;was it valid?
+	beq	230$			;yes
+	type	< (invalid)>
+230$:;	newline
+	type   < Vector=> tx$oct e$nsdr+de.vec
+	tst	e$nsdr+de.ve2		;got a secondary vector?
+	beq	235$			;nope
+	type	<,> tx$oct e$nsdr+de.ve2
+235$:	newline
+
+240$:	mov	e$nsdr+de.syg,r4	;get the sysgen word
+	type   < Sysgen		>
+	select	sgmmg$	<Unmapped. ><Mapped. >
+	select	sgerl$	<><Error log. >
+	select	sgtim$	<><Timeout. >
+	select	sgrtm$	<><RTEM. >	
+;	newline
+
+250$:	mov	e$nsdr+de.con,r4	;type
+;	beq	260$			;none
+;	type   < Address space	>
+	select	de16b$	<><16-bit. >
+	select	de18b$	<><18-bit. >
+	select	de22b$	<><22-bit. >
+;	newline
+
+260$:	mov	e$nsdr+de.sta,r4 	;select the file structure
+;	type	< Structure	>
+	select	derta$!despc$ <RT11N. (invalid) >
+	select	derta$	<><RT11A. >
+	select	despc$	<><RT11S. >
+	newline
+.endc
+	fall	en$rsb			;build file last
+.sbttl	report build file
+
+;	Report build file parameters
+meta	<sbpar$ c d><jsr r3,500$><.word c,d>
+
+en$rsb::
+.if ne shp$c
+	type	<Build file      > tx$fil #e$nbfn
+	bit	#enbnf$,e$nbst		;found it?
+	beq	5$			;yes
+	type	< (not found)>		;
+4$:	jmp	100$			;
+5$:	bit	#enbio$,e$nbst		;ignore on errors
+	bne	4$			;
+	type	< V>		tx$oct e$nsbr+sb.ver
+	newline
+	bit	#enbgd$,e$nbst		;got a guard error?
+	beq	10$			;no error
+	type	< Guard          > tx$r50 e$nsbr
+	newline			
+10$:
+.if ne 0
+	type	< Sys_device     > tx$dev e$nsbr+sb.sys
+	newline
+	type	< Sys_handler    > tx$fil #e$nsbr+sb.sdh
+	newline
+.endc
+	type	< Start_file     > tx$fil #e$nsbr+sb.scf
+	newline
+	type	< AD_count       >
+	sbpar$	e$nsbr+sb.ads b$oads
+	type	< TB_count       >
+	sbpar$	e$nsbr+sb.tbs b$otbs
+	type	< TP_count       >
+	sbpar$	e$nsbr+sb.tps b$otps
+	type	< WS_default     >
+	sbpar$	e$nsbr+sb.wsd e$nwsd
+	type	< Sys_protected  >	;system protection
+	mov	e$nsbr+sb.syp,r0	;is it protected?
+	call	400$			;display yes or no
+					;
+	type	< VM_segments    >	;
+	sbpar$	e$nsbr+sb.vds e$nvds	;display segments
+					;
+	type    < Kpar6_reserved >	;
+	mov	e$nsbr+sb.kp6,r0	;kernel par6 reserved?
+	call	400$			;yes or no
+	type	< Unibus_22      >	;Unibus with 22-bit?
+	mov	e$nsbr+sb.u22,r0	;get the answer
+	call	400$			;yes or no
+	type	< Memory_limit   >	;Memory limit
+	sbpar$	e$nlim e$nmkw		;display it
+	type	< Kernel_debug   >	;kernel debugger
+	mov	e$nsbr+sb.dbg,r0	;get the answer
+	call	400$			;yes or no
+					;
+100$:	newline				;finish up
+.endc
+	return				;
+
+;	Yes/No entry
+;
+;	r0	flag
+
+400$:	tst	r0			;yes or no
+	bne	20$			;yes
+	type	<No>			;no
+	br	30$			;
+20$:	type	<Yes>			;
+30$:	newline				;
+	return				;
+
+;	@(r3)	sb value
+;	@2(r3)	corrected value - displayed if different
+
+500$:	mov	@(r3)+,r1		;get first value
+	psh	r1			;
+	call	tx$dec			;display it
+	mov	@(r3)+,r1		;get the actual
+	cmp	(sp)+,r1		;corrected?
+	beq	510$			;no
+	type	<, corrected=>		;yes
+	call	tx$dec			;display corrected
+510$:	newline				;
+	rts	r3			;quit
+.sbttl	report RUST/XM
+
+;	Report RUST/XM
+;
+;	r4 =	bit pattern
+
+en$shp::			;check environment
+				;
+;	Force errors		;
+				;
+.if ne 0			;
+	bic	ensv4$,e$nops	;force v3
+	mov	#enp03$,e$ncpp	;force 11/03
+	bic	#endvm$,e$nmod	;cancel virtual
+	bic	#enxei$!enxmm$,e$ncpx ;cancel eis and mmu
+	bic	#enclk$!encac$,e$nclk ;cancel clock
+	bis	#enm30$,e$nmem	;set 30kw
+	mov	#63.,e$nmek	;make too little memory
+	mov	#-1,e$nbst	;force all build errors
+.endc				;
+				;
+.if ne shp$c
+	mov	e$nops,r4	;
+	bit	#ensv4$,r4	;is this too early?
+	beq	10$		;yes
+	bit	#ensxm$!ensha$!ensvr$!ensrm$!ensts$,r4	;invalid system?
+	beq	20$		;nope - we are fine
+
+10$:	call	en$shf		;fatal
+	type	<Can't boot from >
+	select	enssj$	<><RT-11/SJ >
+	select	ensfb$	<><RT-11/FB >
+	select	ensxm$	<><RT-11/XM >
+	select	ensha$	<><RUST/XMven >
+	select	ensvr$	<><VRT >
+	select	ensrm$	<><RTEM >
+	select	ensts$	<><TSX >
+	type	<V>	tx$num,e$nopv
+	type	<.>	tx$num,e$nopu
+	newline
+
+;	en.cpp - CPU
+
+icp$ = enp03$!enp04$!enp10$!enp20$!enpvx$
+
+20$:	mov	e$ncpp,r4
+	bit	#icp$,r4	;is the cpu valid?
+	beq	60$		;yes
+	call	en$shf		;fatal
+	type	<Can't boot from >
+	select	enp03$	<><LSI-11 PDP-11/03>
+	select	enp04$	<><PDP-11/04>
+	select	enp10$	<><PDP-11/05 or PDP-11/10>
+	select	enp20$	<><PDP-11/20>
+	select	enpvx$	<><VAX-11/>
+	select	enpun$	<><Unknown>
+
+	bit	#enpvx$,r4	;this a VAX?
+	beq	50$		;nope
+	type	<>	tx$num,e$ncpc ;put out the model
+	type	< emulator>
+50$:	newline
+
+60$:	mov	e$nmod,r4	;type the mode
+	bit	#endvm$,r4	;are we in a good mode?
+	beq	80$		;yes
+	call	en$shf		;fatal
+	type	<Can't boot in >
+	select	endvm$	<><mapped >
+	select	endkm$	<><kernel >
+	select	endsm$	<><supervisor >
+	select	endum$	<><user >
+	select	endcm$	<><compatibility >
+	type	<mode>
+	newline
+
+;	en.cpx	cpu extensions
+
+80$:	mov	e$ncpx,r4
+	bit	#enxei$,r4	;got eis?
+	bne	100$		;yes
+	call	en$shf		;RUST/XM fatal
+	type	<Can't boot without: >
+	select	enxei$	<eis >
+	select	enxmm$	<mmu >
+	newline
+	
+100$:	mov	e$nclk,r4		;do the clock
+	bit	#enclk$,r4		;got a clock
+	beq	110$			;no
+	bit	#encac$,r4		;is it active?
+	bne	120$			;yes
+110$:	call	en$shw			;a warning
+	type	<Clock is >	;
+	select	enclk$	<missing >	;
+;	select	encsr$	<><CSR >
+;	select	enclp$	<><Programmable. >
+;	select	enc50$	<60-hertz. ><50-hertz. >
+	select	encac$	<not active >
+	newline
+
+120$:
+	mov	e$nmem,r4		;check mmu
+	bit	#enmmu$,r4		;do we have mmu?
+	bne	150$			;yes
+	call	en$shf			;this is fatal
+	type	<Can't boot without memory management>
+	newlin
+150$:	bit	#enm30$,r4		;switched for 30kw
+	beq	160$			;nope
+	call	en$shf			;
+	type	<Can't boot when memory switched for 30kw>
+	newline
+
+	cmp	e$nmek,#64.		;at least 64kw?
+	bhis	160$			;yes
+	call	en$shf			;
+	type	<Can't boot in > tx$dec,e$nmek
+	type	< kilowords of memory>
+	newline
+
+	.macro	hanshf c d
+	jsr	r5,en$shc
+	.word	c
+	.ascii	_d_<200>
+	.even
+	.endm
+
+160$:	mov	e$nsyh,r4	;get the system handler
+	hanshf	enhnf$	<SY: handler not found >
+	hanshf	enhio$	<SY: handler I/O error >
+	hanshf	enhcs$	<SY: invalid CSR address >
+	hanshf	enhic$	<SY: installation check failed >
+	hanshf	enhii$	<SY: invalid handler image >
+	hanshf	enhiv$	<SY: invalid vector address >
+	hanshf	enhit$	<SY: invalid vector table address >
+	hanshf	enhis$	<SY: invalid interrupt service routine address >
+;	newline
+
+170$:	bit	#sgrtm$,e$nsdr+de.syg	;this an RTEM device?
+	beq	180$			;no
+	call	en$shf			;fatal
+	type	<SY: handler built for RTEM> tx$fil #e$nsdr+de.fnm
+	newline
+
+180$:	bit	#derta$,e$nsdr+de.sta	;this an rt-11/a device?
+	bne	200$			;yes
+	bit	#despc$,e$nsdr+de.sta	;this a special device?
+	bne	190$			;yes - just warn them
+	call	en$shf			;fatal
+	type	<SY: handler not file-structured > tx$fil #e$nsdr+de.fnm
+	newline
+	br	200$
+
+190$:
+br 200$
+	call	en$shw			;a warning
+	type	<SY: handler not RT-11 file-structured >
+	type	<> tx$fil #e$nsdr+de.fnm
+	newline
+
+200$:	bit	#sgmmg$,e$nsdr+de.syg	;handler use memory management?
+	bne	210$			;yes
+	call	en$shw			;no
+	type	<SY: handler is unmapped > tx$fil #e$nsdr+de.fnm
+	newline				;
+
+210$:	fall	300$			;do the build file
+
+;	enbnf$,,1	;-I-build file not found
+;	enbio$,,2	;-W-build file i/o error
+;	enbgd$,,4	;-W-invalid build file
+;	enbv1$,,10	;-W-version 1 only monitor
+;	enbpl$,,20	;-W-parameter limits exceeded
+
+300$:	mov	e$nbst,r4		;
+	bit	#enbnf$,r4		;build file found?
+	beq	310$			;yes
+	jmp	350$			;no
+310$:	bit	#enbio$,r4		;got a build error?
+	beq	320$			;no
+	call	en$shw			;warn them
+	type	<Build file I/O error > tx$fil #e$nbfn
+	newline				;
+	br	325$			;
+320$:	bit	#enbgd$,r4		;got a guard error
+	beq	330$			;no
+	call	en$shw			;yes
+	type	<Invalid build file format > tx$fil #e$nbfn
+	newline				;
+325$:	call	en$shi			;
+	type	<Build file ignored > tx$fil #e$nbfn
+	newline				;
+330$:	bit	enbv1$,r4		;version error?
+	beq	340$			;no
+	call	en$shw			;yes - warning
+	type	<Version missmatch, some parameters ignored > tx$fil #e$nbfn
+	newline				;
+340$:	bit	#enbpl$,r4		;parameter limit errors?
+	beq	350$			;
+	call	en$shw			;
+	type	<Parameters out of range, corrected > tx$fil #e$nbfn
+	newline				;
+350$:	mov	e$nlim,r0		;specified a limit?
+	beq	360$			;no
+	cmp	e$nmkw,r0		;got enough memory
+	bhis	360$			;yes
+	call	en$shw			;warning
+	type	<Less memory than Memory_limit, corrected >
+	newline				;
+360$:	fall	400$			;
+.endc
+
+400$:	bit	#eserr$,e$ners		;got a fatal error?
+	bne	450$			;yes
+	tst	(pc)+			;nope
+450$:	sec
+	return
+
+en$shc:					;share fatal check
+	bit	(r5)+,r4		;is this one fatal?
+	beq	10$			;no
+	call	en$shf			;yes
+	.print	r5			;display the message
+	type	<> tx$fil #e$nsdr+de.fnm
+	newline
+10$:	tstb	(r5)+			;skip it
+	bpl	10$
+	inc	r5
+	bic	#1,r5
+	rts	r5
+
+en$shw:	bis	#eswar$,e$ners		;remember the warning
+	type	<?RUST-W->		;
+	return				;
+en$shf:	bis	#eserr$,e$ners		;remember the error
+	type	<?RUST-E->		;
+	return				;
+en$shi:	type	<?RUST-I->		;information
+	return
+.sbttl	select
+
+;	Select true or false
+;
+;	jsr	r5,en$sel
+;	.word	tag
+;	.word	bit
+;	.asciz	/false/
+;	.even
+;	.asciz	/true/
+;	.even
+
+en$sel:				;report a condition
+	mov	(r5)+,r2	;r2 -> tag routine
+	mov	(r5)+,r3	;r3 = bit
+	mov	r5,r0		;point r0 to the message
+	call	en$skp		;skip the first message
+	mov	r5,r1		;point to the second message
+	call	en$skp		;skip the second message
+	mov	r5,(sp)		;setup the return address
+	psh	#1		;assume it is false
+	bit	r3,r4		;is it true or false?
+	beq	10$		;it is false - r0 points to the message
+	clr	(sp)		;make it true
+	mov	r1,r0		;true - point r0 to message
+10$:	.print	r0		;display it
+	asr	(sp)+		;set the cbit
+	return
+
+en$skp:				;skip r5 string
+10$:	tstb	(r5)+		;
+	bpl	10$		;look for the 200
+	inc	r5		;
+	bic	#1,r5		;round it up
+	return
+.end
+

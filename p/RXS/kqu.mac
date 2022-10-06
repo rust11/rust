@@ -1,0 +1,180 @@
+.title	kqu
+.include "lib:rust.mac"
+.psect	kqu
+$prdef		;pcr
+$mudef		;mutex
+$qudef		;queue
+$psdef		;ps
+$tbdef		;tb
+$tpdef		;tp
+
+;	RUST/XM kernel queue routines
+;
+;	%build
+;	macro	rxs:kqu/object:rxb:kqu
+;	%end
+;
+;	qu$obt	r3 ->	resource	obtain resource
+;	qu$div	r3 ->	resource	divest resource
+;	...
+.sbttl	obtain & divest resource
+
+;	Obtain & divest exclusive resource
+;
+;	Synchronises in scheduler state
+;
+;	r3 ->	resource queue
+;
+;V4?	An AST is currently given access to a resource owned by the root.
+;	And can dispose of the resource (with an oblivious root). 
+
+qu$obt::.enabl	lsb		;obtain resource
+	$cmsch			;go into scheduler state
+	cmp	qu.pcr(r3),p$hpcr ;do they already own it?
+	beq	40$		;yes - let them keep it
+	tst	qu.pcr(r3)	;is the resource already owned?
+	bne	10$		;yes - wait for it
+	mov	p$hpcr,qu.pcr(r3) ;nope - remember who has it
+	br	40$		;change mode to process & return
+
+;	Resource not available - wait for it
+
+10$:	$enque	#qu$obt,prwre.	;queue for it
+
+;	Divest resource
+;
+;	r3 ->	resource queue
+
+qu$div::			;divest resource
+	$cmsch			;go into scheduler state
+	cmp	qu.pcr(r3),p$hpcr ;do we still own it?
+	bne	40$		;nope - ignore all this
+	clr	qu.pcr(r3)	;divest it
+	fall	qu$rel		;release the queue
+
+;	Release queue
+;
+;	Scheduler state
+;	r3 ->	queue
+
+qu$rel::			;release queue
+	cmp	(r3),r3		;anyone waiting?
+	beq	40$		;nope
+	$float			;
+	pshs	<r4,r3>		;save these
+20$:	mov	@(sp),r4	;r4 -> queue
+	cmp	(sp),r4		;anyone still waiting?
+	beq	30$		;no
+	remque	r4		;get the next - 30$ if no more
+				;r4 -> pcr
+	mov	pr.que(r4),r3	;r3 -> scheduling queue
+	call	sc$pos		;and schedule it
+	br	20$		;get the next
+30$:	pops	<r3,r4>		;restore them
+	$land			;come back
+40$:	fall	qu$cmp		;change mode to process & return
+qu$cmp:	jmp	sc$cmp		;reenable scheduler
+	.dsabl	lsb		;
+.sbttl	mutex
+
+;	$mutex read mut
+;	$mutex write mut
+;	$mutex unlock mut
+;
+;	mut.da	Mutex address
+;
+;	r3 ->	Mutex
+;
+;	Muliple-reader/single-writer mutexs are used by system & group
+;	name tables and VM: read/write.
+;
+;	Deadlock occurs if an AST compete for mutex owned by the root
+;	of the same process.
+;
+;	Mutex waits should not occur in monitor asts.
+;	VM: writes work since they are queued in process state
+;	and complete without intermediate buffering.
+;
+;	Mutex writes are expected to be relatively rare. We may have to
+;	considering raising priority during mutex ownership.
+
+.enabl	lsb
+mu$rea::$cmsch			;stop the scheduler
+	assume	muwri$ eq 100000;
+	tst	mu.sta(r3)	;does it have writers?
+	beq	10$		;no - we can take it
+	$enque	#mu$rea,prwmu.	;yes - queue for it
+
+mu$wri::$cmsch			;stop the scheduler
+	mov	#muwri$,mu.sta(r3) ;set up for a write
+	tst	mu.own(r3)	;are we the first?
+	bmi	10$		;yes
+	$enque	#mu$wri,prwmu.	;no - queue for it
+	
+mu$unl::$cmsch			;unlock mutex
+	dec	mu.own(r3)	;count us out of it
+	bpl	20$		;we are not the last
+	clr	mu.sta(r3)	;no more writers
+	br	qu$rel		;and release the queue
+
+;	Mutex exits
+
+10$:	inc	mu.own(r3)	;we have it
+20$:	br	qu$cmp		;change mode to process & return
+.dsabl	lsb
+.sbttl	acquire & dispose
+
+;	Acquire & dispose record
+;
+;	Shared access.
+;
+;	acquire	#q$utpp,r5
+;
+;	r3 ->	resource queue	
+;	call	qu$acq
+;	r3 ->	record
+
+ad$acq::mov	#a$dque,r3	;get ast delivery packet
+	br	qu$acq		;
+tb$acq::mov	#t$bque,r3	;get transaction buffer
+	call	qu$acq		;acquire a tb
+	clr	tb.sta(r3)	;wipe out cache status
+	return
+tp$acq::mov	#t$pque,r3	;get transaction packet
+	fall	qu$acq		;
+
+qu$acq::$cmsch			;stop the scheduler
+	tst	qu.rec(r3)	;one available?
+	beq	20$		;nope
+	psh	qu.rec(r3)	;yes
+	mov	@qu.rec(r3),qu.rec(r3)	;link it out
+	pop	r3		;return it
+	jmp	sc$enb		;enable scheduler & quit
+20$:	$enque	#qu$acq,prwre.	;wait for it
+
+;	Dispose record	
+;
+;	r3 ->	record
+
+ad$dsp::jsr	r3,qu$dsp	;dispose adb
+	.word	a$dque		;
+tb$dsp::jsr	r3,qu$dsp	;dispose tb
+	.word	t$bque		;
+tp$dsp::mov	r5,r3		;dispose tp
+tp$dr3::jsr	r3,qu$dsp	;
+	.word	t$pque		;
+
+;	header
+;	qu.hed	Address of queue header
+;
+;	(sp)	element
+;	r3 ->	queue address
+
+qu$dsp::$cmsch			;free simple element
+	mov	(r3),r3		;get the queue
+	mov	qu.rec(r3),@(sp);put us up front
+	pop	qu.rec(r3)	;
+	br	qu$rel		;release the queue
+
+.end
+

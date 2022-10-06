@@ -1,0 +1,168 @@
+.title	dvm - vm device
+.include "lib:rust.mac"
+.psect	dvm d
+.qeldf		;rt-11 queue element
+$budef		;build
+$chdef		;channel
+$dedef		;device
+$hadef		;handlers
+$iodef		;io
+$mmdef		;memory management
+$psdef		;ps
+$rtdef		;rt-11 file structure
+$tpdef		;tp
+$uidef		;uic
+$undef		;unit
+
+;	RUST/XM VM: virtual memory driver
+;
+;	%build
+;	macro	rxs:dvm/object:rxb:dvm
+;	%end
+;
+;	%date
+;	<20-Nov-2010 20:53:39.09>
+;	%edit
+;	<37   >
+;
+;	Pickup queue element and leave system state
+;
+;	Per-process handler. Requests to VM: are synchronous and do
+;	not use the queue element. Each process can have multiple
+;	read requests active on VM:. The device becomes synchronous
+;	when a write is made to VM:.
+;
+;	Since VM: is used to allocate physical memory for processes
+;	only the ACP is permitted to write the VM: directory area.
+;	This stops INIT, SQUEEZE, CREATE and COPY/DEVICE (to VM:).
+;	DELETE and RENAME still work with the appropriate rights.
+;
+;	Passed the address of the queue element in r4.
+;	Handles multiple simultaneous requests.
+;	We complete with a return.
+;
+;	This is a 22-bit DMA device with a mapped buffer address.
+;	We are called in process state.
+;	Map the VM: buffer to par1 & user buffer to par6.
+;
+;	VV: may requeue requests to VM:. In this case the request
+;	is passed via the queue element and the entire transaction
+;	takes place in system state.
+.sbttl	vm driver
+
+;	VM driver
+;
+;	r3 ->	unit record - unused
+;	r4 ->	queue element
+;	r5 ->	tp - unused
+;
+;	Driver header in kernel dispatcher
+;	Executes in UTL overlay
+
+vm$sta::psh	vm$han+ha.cqe	;this a standard request
+	bne	5$		;yes
+	mov	r4,(sp)		;no - a per-process call
+5$:	mov	(sp),r4		;r4 -> real element
+
+;	Compute end of device
+
+	mov	q$wcnt(r4),r0	;get the word count
+	beq	vm$exi		;forget seeks
+	bpl	10$		;a read
+	neg	r0		;make it positive
+10$:	add	#377,r0		;round it up
+	clrb	r0		;get the block count
+	swab	r0		;get it low
+	assume	q$blkn eq 0	;
+	add	(r4),r0		;add it in
+	bcs	vm$err		;too high
+	cmp	r0,v$mdsz	;is this too big?
+	bhi	vm$err		;yes - hard error
+
+;	Check for directory
+;
+;	0:5	invalid - kernel
+;	6:7	valid directory blocks
+;  ;	8:111	invalid - kernel
+;	8:95	invalid - kernel
+; ???		system.sys
+;
+;	r1 =	start block
+;	r0 =	end block
+
+	mov	(r4),r1		;get the block
+	cmp	r1,#6		;is this the directory?
+	blo	vm$hol		;nope - lower - ignore it
+	cmp	r1,v$mdeb	;inside the directory?
+	bhis	20$		;nope
+	cmp	r0,v$mdeb	;will this overflow?
+	bhi	vm$hol		;yes - trying to access hole
+	sub	#6,r1		;relocate it
+	swab	r1		;make a buffer address
+	asl	r1		;bytes
+	mov	r1,r2		;r2 - source offset
+	bis	#m$mpa1,r2	;convert to par1 offset
+	mov	v$mdsp,r1	;r1 - source page
+	br	30$		;join the common stuff
+20$:	cmp	r1,#bukbl.	;this inside the kernel?
+	blo	vm$hol		;yes - ignore it
+
+;	Setup for block move
+;
+;	r1/r2	source page/offset
+;	r3/r4	destination page/offset
+;	r5 =	word count
+
+	mul	#mmpib.,r1	;r1 = source vm page number
+	mov	#m$mpa1,r2	;r2 = source vm par1 offset
+
+30$:	mov	q$par(r4),r3	;r4 = destination page number
+	mov	q$wcnt(r4),r5	;r5 = word count
+	mov	q$buff(r4),r4	;r3 = destination par1 offset
+	tst	r5		;this a read?
+	bpl	40$		;yes - its setup
+	neg	r5		;no - get positive word count
+	mov	r3,r0		;swap parameters
+	mov	r1,r3		;r3=r1
+	mov	r0,r1		;r1=r3
+	mov	r2,r0		;
+	mov	r4,r2		;r4=r2
+	mov	r0,r4		;r2=r4
+40$:	call	io$mov		;move them
+	mov	r4,r2		;r2 -> end of write buffer
+	mov	(sp),r4		;r4 -> i/o queue element
+	bcs	vm$err		;oops - i/o error
+
+;	Write zero-fill
+;
+;	Does not check for bus traps since io$mov succeeded.
+;
+;	r2 =	destination par1 offset
+;	r3 =	destination page
+;	r5 =	zero
+
+	tst	q$wcnt(r4)	;this a read?
+	bpl	60$		;yes - no partial block to fill
+	bisb	q$wcnt(r4),r5	;r5 = 0 ! -wcnt<0:7>
+	beq	60$		;not a partial block
+	psh	m$kip6		;save par6
+	mov	r3,m$kip6	;setup for fill
+	add	#mmp61.,r2	;restore par6 offset
+50$:	clr	(r2)+		;clear remainder
+	sob	r5,50$		;
+	pop	m$kip6		;restore it
+60$:	br	vm$exi		;done
+
+vm$err:	bis	#csher$,@q$csw(r4) ;set the error
+vm$hol:				;ignore hole i/o error
+vm$exi:	pop	r4		;restore r4
+	tst	vm$han+ha.cqe	;was this a real request?
+	beq	10$		;no
+	mov	#vm$han+ha.cqe,r4 ;point to it
+	jmp	io$don		;complete it
+10$:	return			;and finish up (we were not scheduled)
+
+v$mdsp::.word	0		;directory start page - setup by BVM
+v$mdeb::.word	0		;directory end block - setup by BVM
+.end
+

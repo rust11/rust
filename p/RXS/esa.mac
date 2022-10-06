@@ -1,0 +1,65 @@
+.title	esa
+.include "lib:rust.mac"
+.include "rxs:envcnd.mac"
+$jbdef		;rt-11 job
+.if eq shp$c
+$imgdef	CPU 2 1
+$imginf	fun=sav cre=hammo aut=ijh use=<RUST Analyse CPU utility CPU.SAV>
+.iff
+$imgdef	ENV 2 1
+$imginf	fun=sav cre=hammo aut=ijh use=<RUST Check RUST/XM environment CPU.SAV>
+.endc
+$imgham	yrs=<1985> oth=<>
+;	%date
+$imgdat	<07-Oct-2022 00:25:19>   
+;	%edit
+;	<13   >
+
+;	ESA - Stand-alone utility
+;
+;	%build
+;	macro	rxs:esa/object:rxb:
+;	%end
+;
+;	ESA.MAC		Stand-alone utility
+;	ENV.MAC		Environment utility
+;	ERE.MAC		Environment report
+;	EDA.MAC		Environment data
+;	MLE.MAC		Environment macro library
+;	SHAPE.MAC	Stand-alone interface
+;	SHAPE.SAV	Stand-alone utility
+;
+;	This utility reports the environment of a PDP-11.
+;
+;	system		Operating system
+;	configuration	config, confg2, sysgen
+;	processor	Central processor
+;	memory		Memory available
+;	mmu		Memory management
+;	devices		Devices available
+;	vectors		Vector check known devices
+;
+;	This utility can be run stand-alone or linked to another program.
+;	RUST/XM includes this module in the build routine.
+;
+;	The stand-alone program simply reports the entire environment.
+
+start:	mov	r4,e$nrr4	;save entry r4
+	mov	r5,e$nrr5	;and r5
+	mov	j$btop,e$nbub	;buffer space
+	add	#2,e$nbub	;get the first usable
+	mov	e$nbub,e$nbue	;end of buffer space
+	.settop	#-1		;get it all
+	mov	j$btop,e$nbut	;end of the buffer space
+;	call	en$bui		;build file
+	call	en$sta		;state
+;	call	en$syh		;system handler
+;	call	en$shp		;display RUST/XM status
+	call	en$rep		;report
+	.exit
+
+;	Dummy labels for RUST/XM compatibility
+
+p$rcmd::			;dummy
+.end	start
+

@@ -1,0 +1,507 @@
+pad$c=1		; keypad rather than ked
+dyn$c=0		; dynamic memory
+v3=1
+.title	sph - build phd
+.include "lib:rust.mac"
+.psect	sph d
+$badef		;batch
+$cfdef		;command files
+$cldef		;cli
+$cndef		;config
+$mmdef		;memory management
+$dedef		;device
+$esdef		;error severity
+$prdef		;process
+$tcdef		;terminal configuration
+$sedef		;set
+$stdef		;states
+$txdef		;text
+
+;	RUST/XM Brute-force PHD fill-in.
+;
+;	%build
+;	macro	rxs:sph/object:rxb:sph
+;	%end
+;
+;	PHD rebuild - called to repair corrupted PHD
+;
+;	Optimisations will remain absent. The PHD is not small and
+;	an optimisation here has a good chance of becoming a bug.
+;	This module is restricted to building the phd.
+;
+;	Also called during build to setup the system process phd.
+;
+;	This must run in par1 with the system process phd in par2.
+;
+;	r3 ->	phd client address
+;	r4 ->	pcr
+;	r5 ->	phd kernel address
+
+meta	<move c d><jsr r1,pr$pmv><.word c,d> ;move value
+
+pr$phd::				;fill in the phd
+
+;	Device tables
+
+pr$fdh:					;fill in device header
+					;ph.equ
+	movb	r$msyu+1,r0		;get the system unit
+	mov	#^rdk0,ph.dke(r5)	;ph.dke - dk equivalence
+	add	r0,ph.dke(r5)		;add in the unit number
+;[sic]	mov	#^rsy0,ph.sye(r5)	;ph.sye - sy equivalence
+;[sic]	add	r0,ph.sye(r5)		;add in the unit number
+					;ph.sye is system assignment
+					;ph.log
+	mov	#^rdk,ph.dkl(r5)	;ph.dkl - dk logical
+;[sic]	mov	#^rsy,ph.syl(r5)	;ph.syl - sy logical
+
+;	May be left to process reset
+
+	mov	#-1,p$hdst-2		;finish up entry table
+	clr	r0			;r0 = index
+	mov	#31.,r1			;r1 counts them
+20$:	mov	d$emap(r0),r2		;r2 -> device record
+	beq	30$			;null
+	mov	de.dev(r2),p$hpnm(r0)	;pname
+	mov	r3,p$hent(r0)		;entry point
+	add	#ph.mon,p$hent(r0)	;
+	mov	de.sta(r2),p$hdst(r0)	;status
+	mov	de.hsz(r2),p$hhsz(r0)	;hsize
+	mov	de.dsz(r2),p$hdsz(r0)	;dsize
+	mov	de.typ(r2),p$htyp(r0)	;type
+30$:	add	#2,r0			;next slot
+	sob	r1,20$			;
+	fall	pr$frh			;fill rmon header
+.sbttl	fill rmon header
+
+;	Fill rmon header
+;
+;	r3 ->	phd client address
+;	r4 ->	pcr
+;	r5 ->	phd kernel address
+
+pr$frh:
+	mov	#137,ph.mon(r5)		;ph.mon - jmp @#ph.inr
+	mov	r3,ph.mon+2(r5)		;
+	add	#ph.inr,ph.mon+2(r5)
+					;ph.csw
+					;ph.blk
+					;ph.chk
+					;ph.dat - setup by date call
+					;ph.dfl
+	mov	r3,ph.usr(r5)		;ph.usr - process-top
+	sub	#2,ph.usr(r5)		;
+					;ph.qco - qcomp
+					;ph.spu - return status from i/o
+	movb	r$msyu+1,ph.syu+1(r5)	;ph.syu - system device unit
+	movb	r$msyv,ph.syv(r5)	;ph.syv - system version
+	movb	r$msup,ph.sup(r5)	;ph.sup - system update
+	mov	r$mcfg,ph.cfg(r5)	;ph.cfg - config
+	bis	#cnclo$,ph.cfg(r5)	;ph.cfg - always has a clock
+					;ph.scr
+					;ph.tks
+					;ph.tkb
+					;ph.tps
+					;ph.tpb
+	mov	#-1,ph.max(r5)		;ph.max - maximum file size
+					;ph.e16
+					;ph.tim
+	mov	r3,ph.syn(r5)		;ph.syn - synch locates $net
+	add	#ph.snr,ph.syn(r5)	;
+					;ph.lmp - lowmap - unused
+					;ph.tsx - tsx header
+					;ph.ucf - ucl filename
+	mov	r3,ph.usl(r5)		;ph.usl - usr load address
+	sub	#2,ph.usl(r5)		;
+					;ph.gtv
+					;ph.erc
+;	mov	#phmtp.,ph.mtp(r5)	;ph.mtp - mtps
+;	mov	#phmfp.,ph.mfp(r5)	;ph.mfp - mfps
+	mov	#phmtp.-1,ph.mtp(r5)	;ph.mtp - mtps
+	mov	#phmfp.-1,ph.mfp(r5)	;ph.mfp - mfps
+	mov	#desyi.,ph.syi(r5)	;ph.syi - sy: index
+	mov	#cfqui$,ph.cfs(r5)	;ph.cfs - statwd
+	mov	r$mcf2,ph.cf2(r5)	;ph.cf2 - confg2
+;[sic]	mov	r$msyg,ph.syg(r5)	;ph.syg - sysgen
+	mov	#2,ph.usa(r5)		;ph.usa - usr area
+	movb	#esdef$,ph.erl(r5)	;ph.erl - error level
+	movb	#16.,ph.cfn(r5)		;ph.cfn - command file nesting
+					;ph.emr - emtrtn
+.if ne v3
+	mov	r3,ph.frk(r5)		;ph.frk - fork routine pointer
+	add	#ph.fkr,ph.frk(r5)	;
+.endc
+
+	mov	#phpnp.,ph.pnp(r5)	;ph.pnp - pnptr
+	mov	#^rsha,ph.mnm(r5)	;ph.mnm - moname
+	mov	#^rre,ph.mnm+2(r5)	;
+					;ph.suf - suffix
+					;ph.dcn
+					;ph.inx - cli use
+					;ph.ins - cli use
+	mov	r$mmes,ph.mes(r5)	;ph.mes - memory size in pages
+					;ph.clg
+;???
+	mov	r3,ph.tcf(r5)		;ph.tcf - client address of ph.tcr
+	add	#ph.tcr,ph.tcf(r5)	;
+	mov	r3,ph.idv(r5)		;ph.idv - client address of ph.idr
+	add	#ph.idr,ph.idv(r5)	;
+	mov	#phcpr.,ph.mpt(r5)	;ph.mpt - memptr
+					;ph.p1x
+	mov	r3,ph.gcs(r5)		;ph.gcs - getcsr/getvec
+	add	#ph.rcs,ph.gcs(r5)	;ph.gcs -> client p$hrcs (sec/return)
+	mov	ph.gcs(r5),ph.gvc(r5)	;ph.gvc -> client p$hrcs (sec/return)
+					;ph.dwt - dwtype - unused
+	mov	#7*256.+23,ph.prd(r5)	;ph.prd - progdf
+	mov	#1,ph.prd+2(r5)		;
+
+;	rmon extensions
+
+					;ph.fkr - not implemented
+					;ph.qcr - not implemented
+
+.if ne 0
+	mov	#p$hr0s,r0		;prototype
+	mov	r5,r1			;output area
+	add	#ph.r0s,r1		;point to area
+	mov	#ph.r0e-ph.r0s/word,r2	;counter
+10$:	mov	(r0)+,(r1)+		;copy in prototype
+	sob	r2,10$			;
+.endc
+
+.if ne v3
+	mov	r3,ph.ntr(r5)		;ph.ntr - locate $net
+	add	#ph.net,ph.ntr(r5)	;
+.iff
+
+;	move to/from processor status
+					;ph.mtr - mtps routine
+					;ph.mfr - mfps routine
+	mov	r5,r1			;
+	add	#ph.mtr,r1		;
+	mov	#12616,(r1)+		;mov (sp)+,(sp)
+	mov	#207,(r1)+		;return
+	mov	#11646,(r1)+		;psh (sp)
+	mov	#5066,(r1)+		;clr 2(sp)
+	mov	#2,(r1)+		;
+	mov	#207,(r1)+		;return
+					;ph.inr is same as return above
+;[sic]	mov	#return,ph.inr(r5)	;ph.inr - $inten routine
+
+	mov	r3,ph.ntr(r5)		;ph.ntr - locate $net
+	add	#ph.net,ph.ntr(r5)	;
+	mov	#205,ph.snr(r5)		;ph.snr - dummy for $net
+
+	lotcr$ = tc0tb$!tc0xn$!tc0lm$!tc0sc$
+	mov	#lotcr$,ph.tcr(r5)	;ph.tcr - tcfig
+
+	mov	#207,ph.emx(r5)		;ph.emx - dummy emt routine
+.endc
+
+	mov	r$mmes,ph.rmz(r5)	;ph.rmz - memory size in pages
+;	mov	r3,ph.cpr+2(r5)		;ph.cpr - corptr
+;	add	#ph.cpr,ph.cpr+2(r5)
+
+.if eq v3
+	loclf$ = cldcl$!clccl$!clucl$	;cli flags
+	mov	#loclf$,ph.clf(r5)	;ph.clf - cliflg
+					;ph.clt - clityp
+	mov	#"SY,ph.idr(r5)		;ph.idr - inddev
+	mov	#"0:,ph.idr+2(r5)	;
+	fall	pr$fxh			;fill expert header
+.endc
+.sbttl	fill expert header
+
+;	Fill expert header
+;
+;	r3 ->	phd client address
+;	r4 ->	pcr
+;	r5 ->	phd kernel address
+
+pr$fxh:					;ph.net
+					;ph.nst
+					;ph.sid
+					;ph.csr
+.if ne pad$c
+	mov	#6,ph.edi(5)		;ph.edi - edit = keypad
+.iff
+	movb	#3,ph.edi(r5)		;ph.edi - edit = ked
+.endc
+					;ph.crd - wildcard
+	mov	r3,ph.job(r5)		;ph.job - cf hook or nop
+	add	#ph.rcs,ph.job(r5)	;
+	mov	ph.job(r5),ph.jor(r5)	;ph.jor - return
+					;ph.jof - job flags
+					;ph.joc - job count
+	mov	#-2,ph.kmf(r5)		;ph.kmf - kmon flag
+					;ph.0 - mesg
+					;ph.1 - $smon
+					;ph.tab - byte
+	movb	#'A,ph.bas(r5)		;ph.bas - basic
+					;ph.ffd - formfeed
+	mov	r3,ph.clb(r5)		;ph.clb - command line buffer
+	add	#ph.lin,ph.clb(r5)	;
+
+	mov	r3,ph.res(r5)		;ph.res - $reset???
+	add	#ph.dum,ph.res(r5)	;
+					;ph.kma - kmon address
+					;ph.usj - unused
+	mov	r3,ph.cut(r5)		;ph.cut
+	add	#ph.rts,ph.cut(r5)	;
+	mov	ph.cut(r5),ph.lnk(r5)	;ph.lnk
+
+	mov	r3,ph.cli(r5)		;ph.cli - cli record address
+	add	#ph.clr,ph.cli(r5)	;
+	mov	r3,ph.pth(r5)		;ph.pth - path table address
+	add	#ph.ptr,ph.pth(r5)	;
+
+					;ph.met - ?
+	phset = senov$!seted$!setnt$!setft$
+	mov	#phset,ph.set(r5) ;ph.set - terminal control
+					;ph.san - satellite number - byte
+					;ph.sas - satellites - byte
+	movb	pr.prn(r4),ph.jon(r5)	;ph.jon - job number - byte
+	movb	p$rprs,ph.jos(r5)	;ph.jos - jobs - byte
+					;ph.mel
+					;ph.aid
+					;ph.ici
+	mov	#-1,ph.rix(r5)		;ph.rix - rights
+	mov	#-1,ph.wro(r5)		;ph.wro
+	mov	pr.uic(r4),ph.uix(r5)	;ph.uix - user id
+	mov	b$pusn,ph.use(r5)	;ph.use - user /usenam/
+	mov	b$pusn+2,ph.use+2(r5)	;
+					;ph.rty
+					;ph.led - lined - ph.rcs
+					;ph.sre - sreset
+					;ph.prm
+;	mov	#ph.rcs,ph.sgl(r5)	;ph.sgl
+;	add	r3,ph.sgl(r5)		;
+					;ph.ind - ind filename /sy ind	sav/
+					;ph.exh
+					;ph.prt - ph.rcs
+					;ph.ucl - unused at present
+	mov	#cr+<lf*256.>,ph.dot(r5);ph.dot - setup the prompt
+	mov	#'.+<200*256.>,ph.dot+2(r5)	;
+
+;	Expert extensions
+
+					;ph.dum - dummy word
+	mov	#sec,ph.rcs(r5)		;ph.rcs - sec
+	mov	#207,ph.rts(r5)		;ph.rts - return
+					;ph.lin
+;	movi	ph.mer,r5,r0		;ph.mer - meta record
+;	movb	#-1,phmer.-2(r0)	;	- terminate it
+					;ph.clr	- cli record
+	movi	ph.ptr,r5,r0		;ph.ptr	- path record
+	mov	#-1,phptr.-2(r0)	;	- terminate it
+	mov	#^rdk,(r0)		;ph.ptr - setup default path
+	mov	(r0)+,(r0)+		;
+	mov	#^rsy,(r0)+		;	- assign/path dk dk,sy
+
+.if ne dyn$c
+	sub	#dmTEM.,ph.usr(r5)	;
+	mov	ph.usr(r5),ph.usl(r5)	;
+	mov	ph.usr(r5),ph.met(r5)
+	add	#2,ph.met(r5)
+	mov	#4,ph.mel(r5)		; ph.mel
+	mov	#d$mtem,r0		; dynamic memory template
+	mov	r5,r1			;
+	sub	#dmTEM.,r1
+	mov	#dmTEM./2,r2
+10$:	mov	(r0)+,(r1)+
+	sobw	r2,10$
+	jmp	pr$fnh
+
+d$mtem:					; dynamic memory templates
+10$:	.word	20$-10$
+	.rad50	/UCF/
+	.byte	0,0,0,-1
+20$:	.word	0
+	dmTEM. = .-d$mtem
+.iff
+	fall	pr$fnh			;fill native header
+.endc
+.sbttl	Fill native header
+
+;	Fill native header
+;
+;	r3 ->	phd client address
+;	r4 ->	pcr
+;	r5 ->	phd kernel address
+
+pr$fnh:
+					;ph.ksb
+					;ph.ksl
+					;ph.kst
+					;ph.uip
+					;ph.uid
+					;ph.cip
+					;ph.cid
+	mov	r3,ph.val(r5)		;ph.val - virtual address limit
+					;ph.asp - byte
+	mov	pr.prn(r4),r0		;r0 = process number
+	mov	r0,ph.prn(r5)		;ph.prn - process number
+	ash	#3,r0			;*8
+	mov	r0,ph.hpn(r5)		;ph.hpn - handler process number
+	mov	p$rxpn,ph.xpn(r5)	;ph.xpn - rad50 process id
+					;
+	mov	p$rsta,ph.sta(r5)	;ph.sta - process status
+	tstb	p$rcmd			;	- got a command?
+	beq	1030$			;	- no
+	bis	#prcom$,ph.sta(r5)	;	- yes - flag it
+1030$:					;ph.stc - cli status
+					;ph.stx - address space options
+					;ph.ssz - spsize
+					;
+	mov	r4,ph.pcr(r5)		;ph.pcr
+					;ph.ter
+
+	movb	pr.chs(r4),ph.chs(r5)	;ph.chs - number of channels
+	mov	pr.chr(r4),ph.chr(r5)	;ph.chr - channels
+	mov	#in$rti,ph.rti(r5)	;ph.rti - scheduler rti path
+
+	mov	#te$tiq,ph.tti(r5)	;ph.tti - ttyin path
+	cmp	b$pinp,#^rco0		;	- console requested?
+	bne	1050$			;	- no
+	mov	#te$cgt,ph.tti(r5)	;	- yes
+
+1050$:	mov	#te$toq,ph.tto(r5)	;ph.tto - ttyout path
+	cmp	b$pout,#^rco0		;	- console requested?
+	bne	1060$			;	- no
+	mov	#te$cpt,ph.tto(r5)	;	- yes
+
+1060$:					;ph.bug - debug path
+					;ph.crp - current rp
+					;ph.xmr - xm context
+
+	mov	r3,ph.phc(r5)		;ph.phc - client phd address
+	mov	r3,ph.rmc(r5)		;ph.rmc - client rmon address
+	add	#ph.mon,ph.rmc(r5)	;
+	mov	r3,ph.ktc(r5)		;ph.ctk	- client to kernel translation
+	sub	r5,ph.ktc(r5)		;add p$hktc to kernel address
+					;sub p$hktc from client address
+
+					;ph.ioc - i/o count
+
+	mov	#stdor$,ph.ast(r5)	;ph.ast - client ast status
+					;ph.asq - client ast queue
+					;ph.sig - client signal
+					;ph.ask - ast saved kernel stack
+					;ph.asm - ast saved monitor stack
+
+					;ph.f10 - trap vector address
+					;ph.f11 - trap vector ps
+					;ph.urv - unconditional restart vector
+
+					;ph.jsw - phd jsw
+					;ph.err - phd errbyt
+					;ph.rea - abort reason
+					;ph.exc - kernel exception frame
+					;ph.mr0 - missing rights
+
+					;ph.scc - [ctrl/c] status
+					;ph.trp - trpset handler
+					;ph.sfp - fpu handler
+					;ph.ser - serr/herr
+					;ph.imf - image flags - byte
+					;ph.cdf - channels defined - byte
+
+					;ph.fpu	- if sfp and fpu present
+					;ph.fpx - fpu exception flag
+					;ph.bpx - bpt exception flag
+					;ph.fec - fpu exception fec
+					;ph.fea - fpu exception fea
+
+					;ph.ic0 - image control word
+					;ph.ic1 - image control word
+
+	bisb	#1,ph.umm(r5)		;ph.umm+0 - terminal
+	movb	r$msyu,r1		;get system unit
+	bisb	b$ymap(r1),ph.umm+<desyi./2>(r5) ;mount sy
+	bisb	#1,ph.umm+<devmi./2>(r5)	 ;mount vm
+
+					;ph.acp - acp area
+					;ph.are - emt area
+
+					;ph.mbu - message buffer
+					;ph.mas - message ast
+					;ph.msw - message csw
+
+; Following copied from the build packet.
+
+					;ph.img - image name
+					;ph.inp - input name
+					;ph.out - output name
+					;ph.erd - error name
+					;ph.nam - process name
+					;ph.pri - priority
+					;ph.mbx - exit mailbox
+					;ph.pe0 - enables 0
+					;ph.pe1 - enables 1
+					;ph.own - owner pcr
+
+; Following copied to & from build packet
+
+					;ph.jib - job pcr
+					;ph.usn - username
+					;ph.acn - accounting name
+					;ph.cln - cli name
+					;ph.dsk - default disk
+
+					;ph.arr - current rights
+					;ph.uic - our uic
+					;ph.pro - protection
+					;ph.sr0 - system rights - from sbp
+					;ph.ar0	- authorized rights
+					;ph.pr0 - process rights
+; End of section copied from PHD
+
+					;ph.quo - quotas
+					;ph.lim - limits
+; End of section copied to PHD
+
+					;ph.ir0 - image rights
+					;ph.cpu
+					;ph.dio
+					;ph.bio
+					;ph.avo
+					;ph.aim
+	call	ti$tik			;ph.ali - login time
+	mov	r0,ph.ali(r5)
+	mov	r1,ph.ali+2(r5)
+					;ph.edc
+					;ph.edl
+					;ph.asl
+	mov	#p$rcmd,r0		;r0 -> initial command
+	movi	ph.asl,r5,r1		;r1 -> p$hasl
+1500$:	movb	(r0)+,(r1)+		;
+	bne	1500$			;
+					;ph.edb - last line buffer user address
+					;ph.eds - number of lines in buffer
+					;ph.los - logfile status
+					;ph.lob - logfile buffer - user address
+					;ph.lof - logfile - file block
+					;ph.loc - logfile byte count in block
+					;ph.fem - feature reference map
+					;ph.lot - logger terminal
+					;ph.dbc - debug control
+					;ph.msg - exit message
+					;ph.usx - context switch list
+					;ph.xl0 - exit list
+					;ph.xl1 - exit list
+					;ph.ifc - terminal input fail count
+					;ph.mvb - monitor vector bypass
+					;ph.lui - login uic
+
+	mov	#ve$emb,ph.emb(r5)	;ph.emb - emt vector bypass
+					;ph.uif - uic default
+	losym$=baacc$!baver$!baide$!banot$
+	mov	#losym$,ph.bat(r5)	;ph.bat - batch defaults
+	mov	r5,r0			;ph.ioq - kernel I/O queue
+	add	#ph.ioq,r0		;	- make queue header
+	mov	r0,ph.ioq(r5)		;
+	mov	r0,ph.ioq+word(r5)	;
+					;ph.fr0 - unused
+					;ph.mer - sdata message buffer
+	return
+.end

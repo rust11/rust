@@ -1,0 +1,218 @@
+.title	bke - kernel
+.include "lib:rust.mac"
+.psect	bke d
+$cndef		;config
+$emdef		;emt
+$endef		;environment
+$dedef		;device
+$jbdef		;rt-11 job
+$kcdef		;kernel control
+$nadef		;name
+$tidef		;time
+$prdef		;process
+$psdef		;ps
+$sbdef		;system build
+$undef		;unit
+$vedef		;vector
+
+;	RUST/XM - build kernel structures
+;
+;	%build
+;	macro	rxs:bke/object:rxb:bke
+;	%end
+.sbttl	kernel database
+
+;	Build the kernel database
+
+bu$ker::				;build rt-11
+
+;	Queues & pools	
+;	Process map
+
+;	mov	s$ypcr,p$rmap+prsyi.	;system process pcr
+
+;	Device map
+
+;[sic]	mov	t$tder,d$emap+detti.	;vm:
+;[sic]	mov	s$yder,d$emap+desyi.	;sy:
+;[sic]	mov	v$mder,d$emap+devmi.	;vm:
+;[sic]	mov	n$lder,d$emap+denli.	;nl:
+
+;	Terminal map
+;	ACP map
+;	Scheduler
+
+	mov	s$ypcr,s$cprc		;current process
+
+;	High-speed ring
+;	Fork
+;	Time
+
+10$:	bit	#enc50$,e$nclk		;this a 50-hertz system?
+	bne	20$			;yes - use default
+	mov	#ti60h.,t$ih24		;no - setup 60 hertz
+	mov	#ti60l.,t$il24		;
+	mov	#60.,t$ifre		;
+
+20$:	mov	e$nhot,t$ibhi		;boot time
+	mov	e$nlot,t$iblo		;
+	mov	e$ndat,t$ibda		;boot date
+	sub	e$nlot,t$ilod		;form initial delta time
+	sbc	t$ihod			;
+	sub	e$nhot,t$ihod		;
+	mov	e$ndat,t$idat		;current date
+
+;	Counters
+
+	movb	b$oads,s$yadc		;ast packets
+	movb	b$otbs,s$ytbc		;transaction buffers
+	movb	b$otps,s$ytpc		;transaction packets
+
+;	VM:				;already done
+;	System process			;already done
+
+	mov	e$nmio,s$yiop		;remember the i/o_page page number
+
+;	System logical names
+
+;	Boot device:	BOO:, SYS:
+;	SYS: name:	SY:, DK:, QUE:, LIB:, UAF:, HLP:
+
+	meta	<bonam$ log eqv>,<mov #<^r'log>,(r0)+><mov eqv,(r0)+>
+
+	mov	n$asys,r0		;get the system names
+	cmp	(r0),r0			;is it created?
+	beq	25$			;no
+	add	#na.tab,r0		;point to the names
+	mov	s$yder,r2		;get the system device
+	mov	de.dev(r2),r1		;r1 = device name
+	add	e$nsyu,r1		;add in the unit number
+	add	#<^r  0>,r1		;add in rad50 zero
+	bonam$	boo	r1		;BOO: = DL1:	0
+	bonam$	sys	r1		;SYS: = DL1:	1
+	bonam$	nod	r1		;NOD: = DL1:	2
+	mov	#^rsys,r1		;r1 = ^rsys
+	bonam$	dk	r1		;DK:  = SYS:	3
+	bonam$	sy	r1		;SY:  = SYS:	4
+	bonam$	que	r1		;QUE: = SYS:	5
+	bonam$	lib	r1		;LIB: = SYS:	6
+	bonam$	uaf	r1		;UAF: = SYS:	7
+
+;	n$asys:	.word	1000
+;	1000:	.word	2000
+;	2000:	.word	n$asys
+
+	mov	@n$asys,r0		;get the second record
+	cmp	r0,#n$asys		;is it created?
+	beq	25$			;no
+	add	#na.tab,r0		;point to the names
+	bonam$	hlp	r1		;HLP: = SYS:	0
+	bonam$	wf	r1		;WF:  = SYS	1 MACRO work file
+	bonam$	mai	r1		;MAI: = SYS:	2 Mail files
+	bonam$	hom	<#^rdk>		;HOM: = DK:	3 Process fix
+
+;	System groups			;none
+;	System device			;already done
+
+25$:	mov	s$yunr,r3		;get sy: - not used - in rmon
+	movb	un.uni(r3),s$yuni 	;remember it
+
+;	System process
+
+	mov	e$nwsd,r0		;get the working set default
+	beq	30$			;is none
+	mov	r0,s$ywsd		;put it in
+	fall	30$			;
+.sbttl	rmon & vectors
+
+;	Rmon device tables
+
+30$:	mov	t$tder,r2		 ;tt:
+	mov	de.dev(r2),r$mpnm+detti. ;tt: device name
+	mov	de.ent(r2),r$ment+detti. ;tt: entry point
+	mov	s$yder,r2		 ;sy:
+	mov	de.dev(r2),r$mpnm+desyi. ;sy: device name
+	mov	de.ent(r2),r$ment+desyi. ;sy: entry point
+	mov	v$mder,r2		 ;vm:
+	mov	de.dev(r2),r$mpnm+devmi. ;vm: device name
+	mov	de.ent(r2),r$ment+devmi. ;vm: entry point
+	mov	n$lder,r2		 ;nl:
+	mov	de.dev(r2),r$mpnm+denli. ;nl: device name
+	mov	de.ent(r2),r$ment+denli. ;nl: entry point
+
+;	Rmon table
+
+	movb	e$nopv,r$msyv		;system version
+	movb	e$nopu,r$msup		;system update
+	movb	e$nsyu,s$yuni		;save the system unit
+;[sic]	movb	s$yuni,r$msyu+1		;system device unit (same location)
+	mov	e$nmep,r$mrsz		;ram size in pages
+	mov	e$nmep,r$mmes		;memory size in pages
+
+	mov	e$ncfg,r$mcfg		;config
+	locfg$ = cnvts$!cnbat$!cnfgj$!cnque$ ;vt, batch, fg job, queue
+	bic	#locfg$,r$mcfg		;clean it up
+	locfg$ = cnsle$!cnusr$!cnfbm$!cnxmm$ ;sl:, usr noswap, fb, xm
+	bis	#locfg$,r$mcfg		;set these
+
+	mov	e$ncf2,r$mcf2		;confg2
+	locf2$ = cnlds$!cnv60$		;ld, vt60
+	bic	#locf2$,r$mcf2		;clean it up
+	bis	#cnkms$,r$mcf2		;set exit noswap
+
+;	System protection
+
+	tst	e$nsbr+sb.syp		;is the system protected?
+	beq	35$			;no
+	bis	#kcpro$,s$ykc0		;yes - setup the control
+
+;	Fill in vector pattern
+
+35$:	clr	r0			;
+40$:	mov	r0,(r0)			;.word .
+	add	#2,(r0)+		;.word .+2
+	mov	#iot,(r0)+		;.word iot
+	cmp	r0,#v$emax		;end of them?
+	blo	40$			;nope
+
+;	Build kernel system vectors
+
+	mov	#60$,r0			;get the vector list
+50$:	mov	(r0)+,r1		;get the address
+	mov	(r0)+,(r1)+		;pc
+	mov	(r0)+,(r1)+		;ps
+	tst	(r0)			;any more?
+	bne	50$			;yes
+	br	70$			;
+60$:;	vector	pc	ps
+	.word	0,	040000,	emt+emasx.
+	.word	v$ebus,	ve$bus,	pr7
+	.word	v$ecpu,	ve$cpu,	pr7+cbit
+	.word	v$ebpt,	ve$bpt,	pr7
+	.word	v$eiot,	ve$iot,	pr7
+	.word	v$epow,	ve$pow,	pr7
+	.word	v$eemt,	ve$emt,	pr0
+	.word	v$etrp,	ve$trp,	pr0
+	.word	v$eclk,	ve$clk,	pr7+cbit
+	.word	v$eclp,	ve$clk, pr7+cbit
+	.word	v$emem,	ve$mem,	pr7
+	.word	v$efpu,	ve$fpu,	pr7
+	.word	v$emmu,	ve$mmu,	pr7
+	.word	0
+
+;	Fixup vectors
+
+70$:	bit	#enxfp$,e$ncpx		;got fpp?
+	bne	75$			;yes
+	mov	#011637,ve$fpu		;no use	'mov (sp),@#p$hfea' instead
+	mov	#p$hfea,ve$fpu+2	;
+	br	80$			;
+75$:	mov	#121627,vc$fpc		;yes - use cmpb (r6),(pc)+ instead
+
+;	Kernel syscom
+
+80$:	clr	j$bjsw			;jsw
+	mov	#r$mmon,j$bsys		;point sysptr
+	return
+.end
+

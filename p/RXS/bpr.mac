@@ -1,0 +1,32 @@
+.title	bpr - boot build kernel process
+.include "lib:rust.mac"
+.psect	bpr d
+$mmdef		;memory management
+$prdef		;process
+
+;	RUST/XM Build the kernel process
+;
+;	%build
+;	macro	rxs:bpr/object:rxb:bpr
+;	%end
+;
+;	%date
+;	<20-Nov-2010 20:53:39.09>
+;	%edit
+;	<30   >
+;
+;	This is fairly easy.
+;	Most work is done in phaze three by kbo calls to spr & sph.
+;	We must emulate the work done by sy$cpr here.
+
+bu$pro::				;build process
+	mov	s$ypcr,r4		;get the pcr
+	mov	#1*256.+4,pr.uic(r4)	;pr.uic
+	mov	s$ychr,pr.chr(r4)	;pr.chr
+	mov	#17.,pr.chs(r4)		;pr.chs - number of channels
+	mov	#prsyn.,pr.prn(r4)	;pr.prn - process number
+	clr	pr.pag(r4)		;pr.pag - start page
+	mov	#28.*mmpik.,pr.len(r4)	;pr.len - 28kw
+	return
+.end
+

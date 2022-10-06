@@ -1,0 +1,678 @@
+v3=1
+.title	mep - emt processor
+.include "lib:rust.mac"
+.psect	mep d
+$emdef		;emt (ttyin code)
+$erdef		;error
+$fedef		;features
+$jbdef		;job
+$kcdef		;kernel control
+$mmdef		;mmu
+$rpdef		;rp
+$sedef		;set
+$srdef		;system rights
+
+;	RUST/XM EMT dispatcher
+;
+;	%build
+;	macro	rxs:mep/object:rxb:mep
+;	%end
+;
+;	ours		old		375		374	rt-11 usr
+;
+;	rp.chn(r5)	subcode+chan	 0(r0)		r0
+; addr	rp.p0(r5)	  r0		 2(r0)		-	r0
+;	rp.p1(r5)	0(sp)		 4(r0)		-	argm1
+;	rp.p2(r5)	2(sp)		 6(r0)		-	argm2
+;	rp.p3(r5)	4(sp)		10(r0)		-	argm3
+;	rp.p4(r5)	6(sp)		12(r0)		-
+;	rp.p5(r5)	
+;	rp.cod		global request code
+;	rp.err		global error code
+;	rp.exc		exception
+;	rp.orp		old rp
+;	rp.op1		old par1
+;	rp.r0
+;	...
+;	rp.r5
+;	rp.pc
+;	rp.ps
+;
+;	EMT dispatching starts at VE$EMT in KVE. It builds the initial part
+;	of the RP and calls us here. The return path goes back via KVE.
+;
+;	User c-bit has been cleared and .TTYOUT/.TTOUTR have been dispatched.
+; ???	Optimise .print like .ttyin.
+;
+;
+; r0 = request r0
+; r1 = guaranteed zero
+; r2 = dispatch address ! channel flag
+; r3 = rp.p0(r5)(-> user data)
+; r4 -> csw, n=1 => channel open
+; r5 -> request packet
+; c=0
+.sbttl	dispatch emt
+
+;	Dispatch EMT
+;
+;	r1 ->	previous mode parameters
+;	r2 ->	rp parameters
+;	r3 =	emt code
+;	r4 ->	channel
+;	r5 ->	rp
+
+stack	p1 r0 r1 r2 r3 r4 r5 pc ps
+
+;	+------------------------------------------+
+;	|  Identical RP structure built in UXVEC.  |		;V4
+;	+------------------------------------------+
+
+em$pro::			;process emts
+	psh	p$hcrp		;save current rp
+	clr	-(sp)		;global error/request code
+	clr	-(sp)		;rp.exc - temporary
+	clr	-(sp)		;rp.p5
+	clr	-(sp)		;rp.p4
+	clr	-(sp)		;rp.p3
+	clr	-(sp)		;rp.p2
+	clr	-(sp)		;rp.p1
+	psh	r0		;rp.p0
+	clr	-(sp)		;rp.chn/rp.cod
+	mov	sp,r5		;this stays here
+	mov	r5,p$hcrp	;frame built now
+	mov	r5,r2		;to collect parameters
+
+;	RP is built. Address errors report back as bus trap via RP.
+;	TRACE is not called for BUS traps during EMT preprocessing.
+
+	mov	r3,r1		;get the code
+	sub	#emt+373,r1	;remove the base
+	bmi	em$v01		;its old style
+	asl	r1		;make it words
+	jmp	@10$(r1)	;call it
+10$:	.word	em$n73, em$n74, em$n75, em$n76, em$n77
+
+;	V1 emts
+
+em$v01:				;v1 emts
+20$:	mov	r3,(r2)+	;rp.chn = channel or subcode
+	mov	r0,(r2)+	;rp.p0 = r0
+	bic	#17,r3		; r3 = code
+	bicb	r3,(r5)		;clean up the channel
+
+	cmpb	r3,#340		;emt 16 list?
+	bne	em$o60		;nope - old 375
+	fall	em$o40		;yes - old 340
+.sbttl	340, 360
+
+;	Old 340 calls.
+;
+;	If the first parameter of csigen/csispc is odd, collect rp.p3.
+;	Dstat and fetch may have an odd p0 (which signals physical name).
+
+em$o40:				;16 old 340 calls
+	tst	rp.ps(r5)	;is this from user mode?
+	bpl	10$		;nope - kernel
+	movfd	@#j$bjsw,p$hjsw	;yes - get user jsw
+	assume	emtti. eq 340	;ttyin subcode is zero
+10$:	movb	(r5),r3		;channel is actually subcode
+	bne	20$		;not ttyin
+	jmp	ttyin		;optimise ttyin dispatch
+				;
+20$:	clrb	(r5)		;dont confuse subcode with a channel
+	tstb	e$mo40(r3)	;got any parameters?
+	beq	40$		;none at all
+	tst	rp.ps(r5)	;this from the kernel?
+	bpl	22$		;yes - do not need kernel stack
+	movfi	sp,r1		;get user stack
+22$:	call	em$gwd		;get a word
+	tstb	e$mo40(r3)	;is this csi or gtlin?
+	bpl	30$		;nope
+	call	em$gwd		;yes - get p2 and p3
+	call	em$gwd		;
+	bit	#1,rp.p3(r5)	;got a linbuf parameter?
+	beq	23$		;nope (and not gtlin)
+	call	em$gwd		;yes - get buffer
+	cmp	rp.p3(r5),#3	;is this gtlin?
+	blos	25$		;yes
+23$:	tst	rp.ps(r5)	;csigen/csispc from kernel mode?
+	bpl	em$adr		;yes - invalid
+	br	30$		;
+				;We have not checked csigen/csispc
+25$:	mov	#emglc.,r3	;yes - dispatch to gtlin
+30$:	tst	rp.ps(r5)	;kernel mode?
+	bpl	40$		;yes - do not reset stack
+	movti	r1,sp		;reset user stack
+40$:	add	#emo4b.,r3	;add in the base
+	br	em$di2		;dispatch it
+
+em$gwd:				;get parameter
+	tst	rp.ps(r5)	;this coming from kernel?
+	bpl	10$		;yes
+	call	mm$mfd		;nope - get from user mode
+	return			;
+10$:				;get kernel & align stack
+	mov	r5,r1		;point to data
+	add	#rp.ps+word,r1	;skip rp + return address
+	call	mm$mfd		;
+	pshs	<r0,r1,r2>	;get some registers
+	mov	sp,r0		;get current stack
+	mov	r5,r2		;get start of request package
+	add	#rp.ps,r2	;point to top request package
+	mov	r2,r1		;get a copy
+	sub	r0,r1		;get byte count
+	asr	r1		;convert to word count
+	inc	r1		;get the last, too
+20$:	mov	(r2)+,(r2)	;
+	cmp	-(r2),-(r2)	;point back
+	sob	r1,20$		;
+	tst	(sp)+		;adjust
+	pops	<r2,r1,r0>	;get back registers
+	cmp	(r2)+,(r5)+	;update r2 & r5
+	mov	r5,p$hcrp	;
+	return
+
+;	Old 360 - soft errors
+
+em$o60:	cmpb	r3,#360		;360 group?
+	bne	em$o75		;nope
+	tst	rp.ps(r5)	;from user mode?
+	bpl	10$		;no
+	mov	#emkmb.,r3	;yes - kmon emt
+	br	em$di2		;dispatch it
+
+10$:	movb	(r5),r0		;yes - channel is error code
+	mov	r0,rp.p0(r5)	;p0 is zero-extended code
+	clrb	(r5)		;no channel
+	mov	#emo6b.,r3	;supply the base
+	br	em$di2		;dispatch it
+
+;	Old 375 calls.
+
+em$o75:				;16 old 375 calls
+	tst	rp.ps(r5)	;not permitted from kernel
+	bpl	em$adr		;oops - invalid address
+	ash	#-4,r3		;shift out the channel
+	bic	#^c17,r3	;clean it up
+	movb	r3,rp.cod(r5)	;the subcode
+	tstb	e$mo75(r3)	;got any parameters?
+	beq	20$		;nope
+	movfi	sp,r1		;yes - get a pointer
+	call	mm$mfd		;get the first
+	tstb	e$mo75(r3)	;got two parameters?
+	bpl	10$		;nope
+	call	mm$mfd		;get two more
+	call	mm$mfd		;
+10$:	movti	r1,sp		;reset the user stack
+20$:	add	#emn5b.,r3	;offset it (same base as new 375)
+em$di2:	br	em$dis		;dispatch it
+.sbttl	373, 374, 375, 376, 377
+
+em$adr::.hard	eradr.		;invalid address
+em$emt:	.hard	eremt.		;invalid emt
+em$chn:	.hard	erchn.		;invalid channel
+
+;	Emt 373 - RUST/XM
+; ???	V4 must support RT-11 EMT 373.
+;
+;	o  XM 373 will move to 372
+;	o  SET PROGRAM/SHARE will mark old programs.
+;	o  SET PROGRAM/KERNEL will be required for EMT 373
+
+em$n73::			;RUST/XM calls
+	mov	r0,r1		;r1 -> caller area
+	mov	#7,r0		;channel & six parameters
+	call	mm$mfc		;get the lot
+	movb	rp.cod(r5),r3	;get the subcode
+	bic	#177600,r3	;clear bit 200 for RT-11 V6
+	cmpb	r3,#emshm.	;is this too high?
+	bhis	em$emt		;yes
+	add	#emshb.,r3	;add in the base
+	br	em$dis		;and dispatch it
+
+;	Emt 374	- r0 has code
+
+em$n74:				;new 374 calls
+	mov	r0,(r5)		;channel and subcode
+	movb	rp.cod(r5),r3	;get the code back
+	cmpb	r3,#emn4m.	;subcode in range?
+	bhis	em$emt		;nope
+	add	#emn4b.,r3	;yes - and in the base
+	br	em$dis		;dispatch it
+
+;	Emt 375	- r0 -> code
+
+em$n75:
+	mov	r0,r1		;r1 -> parameters
+	call	mm$mfd		;get channel & subcode
+	movb	rp.cod(r5),r3	;get the subcode
+	cmpb	r3,#emn5m.	;is this in range?
+	blo	10$		;no
+	mov	#emtsg.,r3	;force others to tsx
+10$:	movb	e$mn75(r3),r0	;get the parameter count
+	beq	20$		;no additional parameters
+	call	mm$mfc		;move r0 times (r1)+,(r2)+
+20$:	add	#emn5b.,r3	;add in the base
+	br	em$dis		;and dispatch it
+
+;	Emt 376 - .hard errors	
+
+em$n76:				;new 376
+	clr	(r2)+		;no channel
+	tst	rp.ps(r5)	;this from the user?
+	bpl	10$		;nope
+	clr	p$hser		;yes - turn off .serr
+	cmp	p$hrsx,#^rrsx	;is this an RSX program?
+	beq	em$n77		;yes - this goes to RSX
+10$:	mov	rp.pc(r5),r1	;get the caller address
+	call	mm$grb		;get error code in r0
+	mov	r0,(r2)+	;[sic] get error code
+	mov	#emn6b.,r3	;emt 376
+	br	em$dis		;
+
+;	Emt 377 - RSX emts	
+
+em$n77:				;rsx emts
+	mov	#emn7b.,r3	;
+	br	em$dis		;dispatch it
+.sbttl	generic dispatch
+
+;	Generic dispatch
+;
+;	r3	generic code
+;
+;	The EMT routine could be in another overlay. Switchs in
+;	KTV take care of these cases. Note that the EMT routine
+;	does not return here but rather to EM$EXI in KVE. Thus
+;	there is no requirement to save a return path to us.
+;	Some requests rely on our stack structure (see RSI).
+;	Any forwarding routine must test (r4) before the call.
+;	R4 contains zero if the request does not use a channel.
+
+em$dis:				;dispatch system call
+	movb	r3,rp.req(r5)	;remember the request code for errors
+	bit	#settr$,p$hset	;are they tracing?
+	beq	10$		;no
+	bit	#setnt$,p$hset	;are they tracing native?		;V4
+	beq	10$		;nope					;V4
+	tst	f$emap+<fetra.*word> ;is trace installed?
+	beq	10$		;no
+	call	tr$pro		;call the trace processor
+				;r2 is destroyed by call
+
+10$:	asl	r3		;r3 = generic code * 2
+	mov	e$mdis(r3),r2	;r2 -> service routine start
+	psh	#em$exi		;setup the return
+				; r0 = request r0
+	clr	r1		; r1 = guaranteed zero
+				; r2 = dispatch address ! channel flag
+	mov	rp.p0(r5),r3	; r3 = rp.p0(r5)
+	clr	r4		;assume no channel
+	asr	r2		;got a channel?
+	bcc	20$		;no
+	call	ch$mch		;map the channel
+20$:	asl	r2		;restore r2
+	tst	(r4)		; r4 -> csw, n=1 => channel open
+				; r5 -> request packet
+				; c=0
+	jmp	(r2)		;and call them
+
+;	EMT exit
+;
+;	The EMT exit code is located in KVE since this module may be mapped.
+;	The code is as follows:;
+;
+;em$exi::
+;	mov	p$hcrp,r5	;get the rp
+;	mov	r5,sp		;reset the stack
+;	add	#rp.orp,sp	;point back
+;	pops	<p$hcrp,m$kip1,r0,r1,r2>
+;em$rti::
+;	pops	<r3,r4,r5>	;ttyout exit path
+;	jmp	@p$hrti		;return to caller
+.sbttl	emt tables
+
+;	Groups are defined by a delta base and high limit.
+;	N O T E - Recompile TRACE & REQUEST if you change the order.
+;
+;	Standard RT-11 expresses the 340 list as a set of offsets. SHARE &
+;	STAR extend this to the whole table. RUST/XM uses absolute addresses.
+;	Parameter counts are maintained. We must handle the case where the
+;	request area is at the top of the PVAS. MMU errors must be avoided.
+;
+;	group	XX
+;	emXXb.	group base
+;	name	entry number
+;	emXXm.	maximum subcode
+
+meta	<group c><em'c'b.=$>
+meta	<entry c d chn=0><.word c!chn><$=$+1>
+meta	<end c><em'c'm.=$-em'c'b.>
+$=0
+chan=1
+
+	group	o4	;16	;old 340 group
+e$mdis::			;emt dispatch table
+				;r0 parameters are not counted
+	entry	ttyin	0	;0  ter
+	entry	ttyout	0 	;1  ter
+	entry	dstatu	1	;2  dev	2 (dblk may be odd)
+	entry	fetch	1	;3  dev	2 (dblk may be odd)
+	entry	csigen	2	;4  com	2 or 3 (p1 may be odd)
+	entry	csispc	2	;5  com	2 or 3 (gtlin)
+	entry	lock	0	;6  fil	ignored
+	entry	unlock	0	;7  fil	ignored
+
+	entry	exit	0	;10 img	
+	entry	em$pri	0	;11 ter	print
+	entry	sreset	0	;12 img
+	entry	qset	1	;13 i/o
+	entry	settop	0	;14 mem
+	entry	rctrlo	0	;15 ter
+	entry	astx	0	;16 img
+	entry	hreset	0	;17 img
+	entry	gtlin	0	;20 ter	special gtlin code
+	end	o4
+	set	emglc.	20	;define gtlin request code
+
+	group	o6		;360 group
+	entry	soft	0	;0  rep	.soft
+	end	o6
+
+	group	n4	;12	;new 374
+	entry	cwait	,,chan	;0  i/o
+	entry	spnd		;1  prc
+	entry	rsum		;2  prc
+	entry	purge	,,chan	;3  fil
+	entry	serr		;4  rep
+	entry	herr		;5  rep
+	entry	em$clo	,,chan	;6  fil
+	entry	tlock		;7  fil
+	entry	chain		;10 img
+	entry	mwait		;11 i/o
+	entry	em$dat		;12 tim	date
+	entry	abtio	,,chan	;13 i/o
+	end	n4
+.sbttl	375, 376, 377 tables
+
+;	Parameter counts actually in e$mn75 list
+
+	group	n5	;37	;new 375
+	entry	em$del	3,chan	;0  fil	delete		000:017	0
+	entry	lookup	3,chan	;1  fil			020:037	0
+	entry	enter	4,chan	;2  fil			040:057	1
+	entry	trpset	2	;3  vec			060:077 0
+	entry	em$ren	2,chan	;4  fil	rename		100:117 0
+	entry	savest	2,chan	;5  fil			120:137 0
+	entry	reopen	2,chan	;6  fil			140:157 0
+	entry	em$clo	6,chan	;7  fil			160:167 0
+
+	entry	read	5,chan	;10 i/o			200:217 3
+	entry	write	5,chan	;11 i/o			220:237 3
+	entry	cwait	0,chan	;12 i/o (last of v1)	240:257 0
+	entry	chcopy	3,chan	;13 fil			260:277
+	entry	em$dev	2	;14 mem (simple,list)	300:317
+	entry	cdfn	3	;15 i/o			320:337
+	entry	e16lst	0	;16 			340:357
+	entry	soft	0	;17 rep			360:372
+
+	entry	em$gjb	3	;20 img gjob
+	entry	em$gtm	2	;21 tim	gtim
+	entry	em$mkt	4	;22 tim	mrkt
+	entry	em$cmt	3	;23 tim	cmkt
+	entry	em$twt	2	;24 tim	twait
+	entry	sdat	5	;25 i/o mbx
+	entry	rcvd	5	;26 i/o mbx
+	entry	cstat	2,chan	;27 i/o
+
+	entry	sfpa	2	;30 vec
+	entry	em$prt	2	;31 vec (protect, unprotect)
+	entry	spfun	6,chan	;32 i/o
+	entry	cntxsw	2	;33 mem
+	entry	getput	3	;34 mem (gval,peek,pval,poke)
+	entry	scca	2	;35 ter
+	emxmr.==$		;needed by plas
+	entry	plas	2	;36 mem (crrg,elrg,craw,elaw,map,unmap,gmcx)
+	entry	mtty	3	;37 ter(set,get,in,out,rcto,atch,dtch,prnt,stat)
+
+	entry	em$sdt	2	;40 tim	sdttm
+	entry	spcps	2	;41 img
+	entry	sfdat	3,chan	;42 fil
+	entry	fprot	3,chan	;43 fil
+	entry	gstfil	4,chan	;44 fil
+	entry	closz	2,chan	;45 
+	emtsg.=46		;46 - always the last 375
+	entry	tsx	5	;fudge to tsx
+	end	n5		;
+
+	group	n6		;376
+	entry	em$har	0	;*  rep	hard
+	end	n6
+
+	group	n7		;RSX emt 377
+	entry	<rsx  >	0	;emt 377
+	end	n7
+.sbttl	373, kmon, parameters
+
+;	373 - RUST/XM native codes
+;
+;	This should be the last set of codes.
+;	The error process checks these codes to return correct
+;	fatal error status in r0 for system service hard errors.
+
+	emspg.==$		;needed for fatal errors in mer
+	group	sh	;10	;RUST/XM emt 373
+	entry	io$sys	6,chan	;0  i/o	$io
+	entry	ap$sys	6,chan	;1  fil	$acp
+	entry	sy$sys	6	;2  sys	$sys
+	entry	em$cmk	6,chan	;3  prc	$cmkrnl
+	entry	imgact	6,chan;?;4  img	$imgact
+	entry	em$att	6	;5  ter	$attach
+	entry	crelog	6	;6  nam	$crelog
+	entry	dellog	6	;7  nam	$dellog
+	entry	trnlog	6	;10 nam	$trnlog
+	entry	tildb	6	;11 tdb $td...
+;	entry	gtlin	6	;11 rte $gtlin
+	end	sh
+
+	group	km		;temporary kmon group
+	entry	kmon	0,chan	;	kmon
+	end	km
+
+;	Parameter flags.
+;
+;	Old 340. 1 => one parameter. 200 => 3 or 4 csi parameters.
+
+e$mo40:	.byte	0,0,1,1,200,200,0,0	;dstatu,fetch,csispc,csigen
+	.byte	0,0,0,1,0,  0,  0,0	;qset
+
+;	Old 375. 1 => 1 parameter. 200 => 3 parameters.
+;	Unused parameters zero filled for new375 compatibility.
+
+e$mo75:	.byte	0,  0,  1,0,0,0,0,0	;enter
+	.byte	200,200,0,0,0,0,0,0	;read, write
+
+;	New 375. Number of additional parameters.
+
+meta	<pn75 c d e f g h i j><.byte c-1><.iif nb <d>,pn75 d e f g h i j>
+
+e$mn75:
+	pn75	3,3,4,2,2,2,2,1
+	pn75	5,5,1,3,2,3,1,1	;1's are wait, e16lst & soft
+	pn75	3,2,4,3,2,5,5,2
+	pn75	2,2,6,2,3,2,2,3
+	pn75	2,2,3,3,4,2
+	pn75	5		;tsx is last - always five
+	.even
+.sbttl	feature & nop requests
+
+.enabl	lsb
+tildb:	mov	#fetdb.*2,r2	;dispatch to TILdb
+	br	20$		;
+rsx::	mov	#fersx.*2,r2	;
+	br	20$		;
+tsx::	mov	#fetsx.*2,r2	;dispatch to tsx
+	br	20$		;
+sdat::
+rcvd::	mov	#fesda.*2,r2	;sdat/rcvd/mwait
+	br	10$		;
+plas::	mov	#fepla.*2,r2	;dispatch to plas
+	br	10$		;
+mtty::	mov	#femtt.*2,r2	;mtt requests
+	fall	10$		;
+10$:	tst	f$emap(r2)	;is it loaded?
+	beq	em$ign		;no - ignore it
+20$:	jmp	fe$mep		;and dispatch it
+.dsabl	lsb
+
+kmon:	ovjmp$	em$kmo utl	;forward kmon emts
+
+ttyout:		;never called - bypass in kve
+e16lst:		;never called
+e17lst:		;never called
+lock:		;ignored - usr is always resident
+unlock:		;ignored - usr is always resident
+tlock:		;ignored - usr is always resident
+chcopy:		;maybe
+spcps:		;maybe
+cntxsw:		;maybe
+em$ign:	return	;maybe
+.sbttl	ACP requests
+
+;	Forward EMT dispatch to ACP overlay.
+;
+;	RAC	lookup, etc.
+;	RT11A	RT-11 file-structure
+;	RT11N	Non-file structured
+;	RT11S	Stranger file-structures
+;	RSI	CSI - csispc, csigen
+;	MER	.soft, .hard, .error, er$dis, er$rep
+;
+;	Setup the dispatch index in r1.
+;	ACP resets r1 and tests (r4) again.
+;
+;	r1 = 0	
+
+closz:	dec	r1		;ap$clz
+gstfil:	dec	r1		;ap$gsf
+csispc:	dec	r1		;si$spc
+csigen:	dec	r1		;si$gen
+dstatu:	dec	r1		;ap$dst
+fetch:	dec	r1		;ap$fet
+sfdat:	dec	r1		;ap$sfa	shared
+fprot:	dec	r1		;ap$fpr	shared
+savest:	dec	r1		;ap$sav
+reopen:	dec	r1		;ap$reo
+ap$sys:	dec	r1		;ap$syx
+lookup:	dec	r1		;ap$loo	shared
+enter:	dec	r1		;ap$ent	shared
+em$ren:	dec	r1		;ap$ren	shared
+em$del:	dec	r1		;ap$del	shared
+purge:	dec	r1		;ap$pur	shared
+em$clo:	dec	r1		;ap$clo	shared
+soft:	dec	r1		;er$sof
+em$har:				;hard errors
+	ovjmp$	ap$dis acp	;call the overlay
+.sbttl	SYS requests
+
+;	Forward EMT to system process.
+;
+;	Called from MEP EMT dispatcher.
+;	Just swap to par2. No need to retest (r4).
+
+em$att:	dec	r1		;sy$atx
+.if eq v3
+crelog:	dec	r1		;na$crl
+dellog:	dec	r1		;na$del
+trnlog:	dec	r1		;na$trl
+.endc
+sy$sys:				;sy$syx
+	ovjmp$	sy$dis sys	;call the system process
+.sbttl	UTL requests
+
+;	Forward EMT to UTL overlay
+
+.if ne v3
+crelog:	dec	r1		;na$crl
+dellog:	dec	r1		;na$del
+trnlog:	dec	r1		;na$trl
+.endc
+em$prt:	dec	r1		;.protect/.unprotect
+em$dev:	dec	r1		;.device
+em$gjb:	dec	r1		;.gtjb
+em$cmt:	dec	r1		;.cmkt
+em$mkt:	dec	r1		;.mrkt
+em$twt:	dec	r1		;.twait
+em$sdt:	dec	r1		;.sdttm
+em$gtm:	dec	r1		;.gtim
+em$dat:				;.date
+	ovjmp$	ut$dis	utl	;call utility overlay
+.sbttl	change mode kernel
+
+;	Change mode to kernel.
+; 
+;	$cmkrnl	area, rtn, p0, p1, p2, p3, p4, pic=yes
+; 
+;	rp.p0	
+;	rp.p1
+;	rp.p2
+;	rp.p3
+;	rp.p4	
+;	rp.p5	rtn[!1]	
+; 
+;	rtn&1=>	pic
+;
+;	Kernel		Call rtn.
+;	Kernel/pic	Map callers rp.op1 and call rtn.
+;	User		Map usermode par1 and call rtn.
+;	User/pic	Map user rtn par and call rtn.
+; 
+; ???	CMKRNL rights are required.
+;
+;	General EMT dispatcher
+;
+;	r4 ->	p$hnat	native PHD pointer
+
+em$cmk::			;$cmkrnl
+	mov	rp.p5(r5),r2	;get the address
+	ror	r2		;c = pic bit
+	ror	-(sp)		;remember it
+	asl	r2		;make r2 clean address
+	tst	rp.ps(r5)	;kernel or user?
+	bmi	10$		;user
+
+;	Kernel
+
+	mov	@#m$kip1,r1	;assume same par1
+	tst	(sp)+		;pic?
+	bpl	30$		;no
+	mov	rp.op1(r5),r1	;yes - remap them
+	br	30$		;
+
+;	User
+
+10$:	assume	kcpro$ eq 200	;protected system
+	tstb	s$ykc0		;protection turned on?
+	bpl	20$		;no
+	$rights	srcmk.		;yes - check change mode to kernel
+	bcc	20$		;fine
+	.hard	erusr.		;invalid access mode
+20$:	mov	p$huip+2,r1	;map them into the kernel
+	tst	(sp)+		;pic?
+	bpl	30$		;no
+	mov	r2,r0		;setup for io$cum
+	call	io$cum		;get a mapped address
+				;r1 contains page number
+;	r0	?
+;	r1	par1 value
+;	r2 ->	routine address
+;	r3	rp.p0(r5)
+;	r4 ->	p$hnat header
+;	r5 ->	RP
+
+30$:	mov	#p$hnat,r4	;supply PHD pointer
+	jmp	sy$ckm		;call the ktv dispatcher
+
+.end
+

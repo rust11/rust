@@ -1,0 +1,277 @@
+cal$c=1
+.title	utx - utilities
+.include "lib:rust.mac"
+.psect	utx d
+$chdef
+$dedef		;device
+$nadef		;name
+$rmdef		;rmon
+$srdef		;system rights
+$txdef		;text
+
+;	RUST/XM Logical name routines
+;
+;	%build
+;	macro	rxs:utx/object:rxb:utx
+;	%end
+;
+;	calls	na$cli		logical to index
+;		na$clp		logical to permanent
+;
+;		na$cle		logical to equivalence
+;		na$cpi		permanent to index
+;		na$cir		index to record
+;
+;	names	logical		r0 = logical
+;		equivalence	r0 = equivalence
+;		permanent	r0 = permanent, r1 = penultimate
+;		device		r0 = permanent
+;		index		r2 = device index, r3 = unit number
+;		record		r2 -> device record, r3 -> unit record
+;
+;	tables	process		process header	
+;		group		name record
+;		system		s$ynam
+;		spooler		s$ynam	
+;		permanent	r$mpnm
+;
+;	users	acp	device names
+;		dstat	device status
+;		user	system calls
+;
+;	request	$tralog	area, mask, lognam, equnam
+;		$crelog	area, mask, lognam, equnam
+;		$dellog	area, mask, lognam
+;		$sholog	area, mask, tabadr, tablen
+;
+;	masks	naglo$	all tables
+;		naprc$	process table
+;		nagrp$	group table
+;		nasys$	system table
+;		naspo$	spooler tables
+;		naper$	permanent table
+.sbttl	logical to index, permanent, equivalence
+
+;	Convert logical to index
+;
+;	r0	logical name
+;	call	na$cli
+; 	r0	permanent name
+;	r1	penultimate name
+;	r2	device index
+;	r3	unit number
+;
+;	c=1	invalid name or unit not mounted
+
+ux$cli::call	ux$clp		;get penultimate pair
+	bcc	ux$cpi		;fine - convert permanent to index
+	return			;invalid name
+
+; 	Convert logical to permanent/penultimate
+;
+;	r0	logical name
+;	call	na$clp
+;	r0	permanent name
+;	r1	penultimate name
+;	c=1	Invalid name or translate loop
+;		r0/r1 not defined
+;
+;	If the logical name is not found check for a catchall
+;	logical name *. If *=NO forget it.
+
+stack	int cnt pen
+
+ux$clp::			;logical to permanent/penultimate
+	psh	r0		;sp.pen - initial penultimate
+	psh	#nalct.		;sp.cnt - loop counter
+	psh	r0		;sp.int - initial intermediate
+	beq	30$		;invalid - null name
+10$:	mov	(sp),sp.pen(sp)	;update penultimate
+20$:	mov	r0,(sp)		;save current value
+	dec	sp.cnt(sp)	;are we exhausted?
+	bmi	30$		;yes - translate loop
+	call	ux$cle		;convert logical to equivalence
+	bcc	10$		;success - change penultimate
+.if ne cal$c
+	call	ux$cal		;check for catch-all device
+.endc
+	tst	(pc)+		;not found - fine
+30$:	sec			;invalid name - assign loop
+	bit	(sp)+,(sp)+	;skip int & cnt
+	pop	r1		;get the penultimate
+	return
+
+;	Convert logical to equivalence
+;
+;	r0	logical name
+;	call	na$cle
+;	r0	equivalence name
+;	c=1	not translated
+;
+;	Force lost SY: translation to SYS:
+
+ux$cle::pshs	<r3,r2,r1>	;save this lot
+10$:	clr	r1		;search all tables
+	call	na$tle		;translate logical to equivalence
+30$:	pops	<r1,r2,r3>	;r0 = equivalence name
+	return
+
+.if ne cal$c
+;	Check for catch-all device
+;
+;	r0	logical name
+;	call	ux$cal
+;	r0	catch-all device name
+;	c=1	invalid name, no catch-all device
+;	
+;	Only three-letter names ending with a letter succeed
+;	Names of the form "DD" or "DDn" are rejected
+
+ux$cal:	pshs	<r1,r0>
+	mov	r0,r1
+	tst	@#r$mcal	; get catch-all device
+	beq	20$		; nope - forget this
+	mov	#100$,r0	; get the divisors
+10$:	sub	(r0),r1		; this it?
+	bcc	10$		; nope
+	add	(r0),r1		; bump back
+	tst	-(r0)		; got another divisor
+	bne	10$		; yep
+	tst	r1		; what's the result
+	beq	20$		; only two characters
+	sub	(pc)+,r1	; check for digit
+	.rad50	/  0/		;
+	cmp	r1,#7		; a digit?
+	blos	20$		; yep
+	mov	@#r$mcal,(sp)	; get catch-all device
+	tst	(pc)+		;
+20$:	sec			;
+25$:	pops	<r0,r1>
+	return			;
+
+	.word	0,50
+100$:	.word	50*50
+	.dsabl	lsb
+.endc
+.sbttl	convert permanent to index
+
+;	Convert permanent name to index
+;
+;	r0	permanent name
+;
+;	call	na$cpi
+;
+;	r2	volume index
+;	r3	unit number
+
+ux$cpi::			;convert permanent to volume
+	mov	#r$mpnm-4,r2	;r2 -> permanent names
+10$:	cmp	r2,#r$ment	;end of list?
+	bhis	40$		;yes, no chance
+	mov	r0,r3		;get the device name
+	sub	(r2)+,r3	;check for a match
+	blo	10$		;no chance
+	beq	20$		;exact
+	sub	#<^r  0>,r3	;try for a unit number
+	blo	10$		;no chance
+	cmp	r3,#7		;unit out of range?
+	bhi	10$		;yep, not this guy
+20$:	tst	-(r2)		;bump the index back
+	sub	#r$mpnm,r2	;and adjust it
+	bpl	30$		;its a permanent name
+	mov	r$msyi,r2	;its the system device
+30$:	tst	(pc)+		;fine
+40$:	sec			;not found
+	return
+.sbttl	convert index to record
+
+;	Convert index to record
+;
+;	r2	device index
+;	r3	unit number
+;
+;	call	na$cir
+;
+;	r2	device record - 0 => not installed
+;	r3	unit record - 0 => not loaded
+;
+;	c=1	device or unit not mounted
+
+ux$cir::			;convert index to record
+	mov	d$emap(r2),r2	;get the device record
+	beq	20$		;no device
+	asl	r3		;get the unit
+	add	r2,r3		;add in the device record base
+	mov	de.unm(r3),r3	;get the unit record
+	bne	10$		;fine
+	bit	#desin$,de.con(r2) ;this a single unit device?
+	beq	20$		;nope
+	mov	de.unm(r2),r3	;yes - get unit zero
+	beq	20$		;not available either
+10$:	tst	(pc)+		;c=0 - fine
+20$:	sec			;c=1 - not fine
+	return
+.sbttl	set rights
+
+;	Set system rights
+;
+;	r0:r2	burnt
+
+ux$ssr::movbuf	p$hpr0,p$hsr0,sr.bbs	;setup process rights
+	return
+
+;	Set image rights
+;
+;	r0:r2	burnt
+
+ux$sir::call	ux$ssr			;get the process rights
+	mov	#p$hir0,r0		;point to image rights
+	mov	#p$hsr0,r1		;point to current rights
+	call	(pc)			;four times
+	bis	(r0)+,(r1)+		;add in image rights
+	bis	(r0)+,(r1)+		;
+	return				;
+.end
+.sbttl	find channel
+
+;	Find channel
+;
+;	Called by kernel routines that need a temporary channel
+;	Searchs channel map for unused channel
+;	This is a monitor routine in case the logic changes
+;
+;	r0	channel
+;	p$hkch	channel
+;
+;	Four channels are reserved for use by the monitor
+;
+;	chn=-1	allocate kernel channel
+;	chn=-2	use log output channel
+;	chn=-3	use log input channel
+;	chn=15.	use image channel
+;
+;	Consider a process that has only 8 channels.
+;
+;	Two channels are reserved for the monitor.
+;
+;	chn=8	log channel
+;	chn=7	image channel
+
+ux$fch::psh	r1			;save this
+	clr	r0			;start with zero
+	mov	#p$hcsw,r1		;point to first
+10$:	tst	(r1)			;is this channel free?
+	bpl	30$			;this one is free
+	add	#ch.bbs,r1		;skip to the next
+	inc	r0			;increment channel number
+	cmp	r0,#16.			;way too high?
+	bhi	20$			;yes
+	cmp	r0,p$hchs		;above process maximum?
+	blo	10$			;no
+20$:	sec				;not found
+30$:	movb	r0,p$hkch		;return channel number
+	pop	r1			;
+	return				;
+
+.end
+

@@ -1,0 +1,971 @@
+xtm$c=1
+sub$c=0
+newabt=1
+volacc=0
+alloc=1
+;ap$acu and ap$dcu
+.title	rax - acp extension
+.include "lib:rust.mac"
+.psect	rax d
+$apdef		;acp
+$ardef		;access rights
+$chdef		;channel
+$dedef		;device
+$emdef		;emt
+$erdef		;error
+$fndef		;filename
+$mmdef		;mmu
+$pqdef		;quota
+$prdef		;pcr
+$qudef		;queue
+$rpdef		;rp
+$rtdef		;rt11a
+$srdef		;system rights
+$stdef		;state
+$tbdef		;tb
+$undef		;unit
+
+;	RUST/XM ACP preprocessor
+;
+;	%build
+;	macro	rxs:rax/object:rxb:rax
+;	%end
+;
+;	Date rollover?
+;	Kernel mode protection?
+;
+;	dstatus
+;	lookup	enter	delete	rename	sfdat	fprot
+;	close	purge	savest	reopen
+;	gdevic	sdevic	gunit	sunit	gfile	sfile
+;
+;			create	trunc
+;		lookup	enter	delete	rename	sfdat	fprot	sfile
+;	p0	dblk	dblk	dblk	dblk	dblk	dblk	dblk
+;	p1	seqnum	seqnum	seqnum		date	prot	fblk
+;	p2		length	
+;	p3:p6	unused
+;
+;	dblk	If odd, signals collect call. Not supported.
+;	lookup	Process directory paths.
+;	enter	Swap length and seqnum positions.
+;	sfdat	Convert to .SFILE with sfdat$
+;	fprot	Convert to .SFILE with sfdel$
+;
+;	fblk	flags
+;		date
+;		time
+;		uic
+;		prot
+.sbttl	acp dispatch
+
+;	Dispatch filename and channel ACP requests
+;
+;	jsr	r3,ap$fil
+;	.word	operation	ap opr
+;	.word	control flags	ap con
+;	.word	unit access	ap uad
+;	.word	file access	ap fad
+;
+;	r4 ->	channel
+;
+;	r0	lookup & enter return file size
+;		non-file returns requested size
+;		sfdat & fprot return previous value
+;
+;	0	Channel in use
+;	1	File not found
+;		Device full
+;		Directory full
+;	2	Non-sharable device busy
+;		Invalid device for operation (rename, fprot, sfdat)
+;	3	Protected file exists		
+;		Invalid fprot operation
+;	4	Sequence number not found
+;	5	Invalid sequence number
+;		Null filename
+;
+;	erusr.	Invalid USR call from ast
+;	erdio.	Directory I/O error
+;	erder.	Directory unsafe
+;	eracp.	ACP coding error
+
+.enabl	lsb
+ap$fil::mov	#a$pchn,r0	;filename entry
+	tst	(r4)		;channel must be closed
+	bpl	10$		;fine
+	.soft	acciu.		;0 = channel in use
+
+ap$chn::			;channel oriented dispatch
+10$:	bit	#stact$,p$hast	;this coming from an ast?
+	beq	20$		;nope
+	.hard	erusr.		;yes - invalid usr call
+
+;	Copy operation codes and RP into AP
+
+20$:	clr	a$pcom		;I/O area has no completion routine
+	clr	a$pmod		;[sic] I/O area has no mode or function
+	clr	a$pder		;ACP has no device record
+	clr	a$punr		;ACP has no unit record
+	clr	a$ptbr		;ACP has no TB
+	clr	a$pseg		;ACP has no segment
+	mov	#ap$cal,a$pcal	;setup the acp call back
+
+	assume	rp.chn eq 0		
+	series	ap,word	 opr con uad fad rch
+	series	ap,word,,p0 p1 p2 p3 p4 p5
+	movb	(r5),a$pchn	;copy the channel number
+	mov	#a$popr,r2	;r2 -> ap.opr
+	mov	(r3)+,(r2)+	;ap.opr
+	mov	(r3)+,(r2)+	;ap.con
+	mov	(r3)+,(r2)+	;ap.uad
+	mov	(r3)+,(r2)+	;ap.fad
+	mov	r3,(sp)		;convert rts r3 to return
+	mov	r5,r3		;r3 -> rp.chn
+30$:	mov	(r3)+,(r2)+	;rp.chn, rp.p0:rp.p5->a$pp0:a$pp5
+	cmp	r2,#a$pp5	;is this all of them?
+	blos	30$		;nope
+
+	series	ap,word,,nod prn uic pro
+	clr	(r2)+		;ap.nod	- no network yet
+	mov	p$hprn,(r2)+	;ap.prn	- process number
+	mov	p$huic,(r2)+	;ap.uic - uic
+	mov	p$hpro,(r2)+	;ap.pro - default protection
+
+	series	ap,word,,uar far fpr fui sta r0 sps
+	clr	(r2)+		;ap.uar
+	clr	(r2)+		;ap.far
+	clr	(r2)+		;ap.fpr
+	clr	(r2)+		;ap.fui
+
+	clr	(r2)+		;ap.sta - no errors
+	mov	rp.r0(r5),(r2)+	;ap.r0	- default r0 return
+	clr	(r2)+		;ap.sps	- special directory status
+	clr	(r2)+		;	- second of same
+				;
+	bit	#acchn$,a$pcon	;this a channel operation?
+	beq	ap$pth		;no - path operation
+	fall	ap$cin		;channel operation
+.sbttl	channel interface
+
+;	Channel interface
+
+ap$cin:	call	ch$wai		;wait for the channel to run down
+;	cmpb	a$copr,#acreo.	;is this reopen?
+;	beq	110$		;yes - don't clear errors
+;	bic	#cseof$!csher$,(r4) ;remove any error flags
+110$:	mov	(r4),r2		;get the device index
+	bic	#csin$m,r2	;clean it up
+	movb	ch.uni(r4),r3	;get the unit number
+	mov	r$mpnm(r2),r0	;get the permanent name
+	beq	120$		;oops - this is awful
+	mov	r0,a$pper	;save the permanent name
+	add	#<^r  0>,r0	;add in a unit number
+	add	r3,r0		;device + unit
+120$:	mov	r0,a$pfna	;save it there
+	clr	a$pfna+fn.fil	;no name yet (for status)
+	clr	a$pfna+fn.typ	;no type (for spooler)
+	mov	r0,a$plog	;and there
+	beq	ap$ndv		;no device
+	jmp	ap$com		;join common pathhhhhhh
+	.dsabl	lsb
+
+ap$ndv:	.hard	erndv.		;no device error
+.sbttl	path interface
+
+;	Clear the channel
+
+ap$pth:
+.if ne sub$c
+	bpsw	#csWLK$,(r4),20$;don't clear walk channels
+.endc
+	mov	r4,r0		;r0 -> csw
+	mov	#ch.bbs/2,r1	;wordsize of csw
+10$:	clr	(r0)+		;clean it up
+	sob	r1,10$		;
+
+;	Get the filenames
+
+	assume	ap.log eq ap.sps+4
+	series	ap,word	log per fna
+20$:	clr	(r2)+		;ap.log
+	clr	(r2)+		;ap.per
+	mov	a$pp0,r1	;get the filename pointer
+	bic	#1,r1		;clean it up
+	mov	#4,r0		;filename length
+	cmpb	a$popr,#acren.	;this a rename?
+	bne	40$		;nope
+	asl	r0		;yes - twice as many words
+40$:	call	mm$mfc		;move (r1)+,(r2)+ r0=count
+
+;	Get next device in lookup path
+
+	call	ap$lop		;point to path with r0
+	bcs	45$		;not lookup or no path or no filename
+	tst	(r0)		;got another name?
+	bne	44$		;yes
+	.soft	1		;no - file not found on path
+44$:	mov	(r0)+,a$pfna	;yes - setup next device in path
+	mov	r0,rp.p2(r5)	;and point to next path name
+
+;	Map EVE package into par6
+;	Save par6 in a$pp4 and address in a$pp5
+
+45$:	mov	r1,r0		;r0 -> user address
+	call	ev$mbu		;map the buffer
+	mov	@#m$kip6,a$pp4	;a$pp4 = par6 page
+	mov	r0,a$pp5	;a$pp5 = buffer address
+
+;	Translate the name
+;	Spool files loop back to here
+
+50$:	mov	a$pfna,r0	;get the device name
+	mov	r0,a$plog	;remember the logical name
+	mov	r0,r1		;assume physical name
+	bit	#1,a$pp0	;was a physical name specified
+	bne	55$		;yes
+	call	na$clp		;translate it to permanent/penultimate
+	bcs	ap$ndv		;invalid device
+55$:	mov	r0,a$pper	;save the physical name
+	mov	r1,a$pfna	;save penultimate logical name
+	call	na$cpi		;translate to indexs
+	bcs	ap$ndv		;invalid device
+	bis	r2,(r4)		;put in device index - retain possible csnpu$
+				;from sp$opn
+	movb	r3,ch.uni(r4)	;save the unit number
+
+;	Check for a spool file open
+
+	call	sp$opn		;check for a spool file open
+	bcc	50$		;it was - retranslate
+	br	ap$com		;join the common section
+.if ne sub$c
+.sbttl	sub-directory interface
+
+;	Translate logical name returns 
+;
+;	.word	
+
+map	pt.lst	,,0		; next path
+map	pt.cnt			; recursion count
+map	pt.stk			; saved stack
+
+
+ap$sub:	bit	#csSUB$!csWLK$!,(r4)	;
+	bne				; don't repeat this stuff
+	sub	#pt.bbs,sp		;
+	mov	sp,r3			;
+	mov	#10.,pt.cnt(r3)		; recursion count
+
+	clr	-(sp)			;stack list stopper
+	mov	d$mdir,r0	;
+	movi	qfn,r5,r3	;
+
+;	get list of lists
+
+10$:	mov	#x,r3
+20$:	mov	@(r3),r0		;get next list
+	beq				;not found
+	add	#word,(r3)		; skip it
+
+30$:	mov	r0,r1			;
+	add	(r0),r0			; r0 -> next
+	beqw	(r1)+,40$		; end of list
+	bnew	(r3),(r1)+,30$		; try again
+	mov	(r1)+,(r3)		;
+	psh	r1			; save it
+	call	rq$ass			;
+	dec	pt.cnt(r3)		; count down
+	beq				; must be looping
+	br	10$			; try again
+					;
+40$:	beqb	dstat,			; just need device
+	beqb	fetch,			;
+45$:	beqw	(sp),80$		; wasn't found
+	mov	qx0(r5),d$nspc		; use penultimate first time around
+50$:	beqw	(sp),80$		; not a directory name, or no more
+	pop	r2			; get next name
+	mov	-6(r2),r3		;
+	tst	-(r3)			;
+60$:	sub	#4,r3			; any more
+	beq	50$			; all done
+	mov	(r2)+,d$nspc+2		;
+	mov	(r2)+,d$nspc+4		;
+	mov	#d$niob,r0		;
+	movb	qch(r5),(r0)		; the channel
+	bis	#csWLK$,(r4)		;
+	emt	375			; look it up
+	bis	#csWLK$!csSUB$,(r4)
+	bcc	60$			; fine
+70$:	tst	(sp)+			; skip past guard
+	bne	70$			;
+	pop	r0			;
+	clr	(r4)			; zap channel
+	mov	#177401,qer(r5)		; file not found
+	br	rtx			;
+80$:	tst	(sp)+			; skip past guard
+	bne	80$			;
+	pop	r0			; restore that
+	bic	#csWLK$,(r4)		; no longer recursive
+	call	mn$snd			; do actual operation
+
+.endc
+.sbttl	common dispatch path
+
+;	Get device and unit records
+;
+; ???	Lock device database while acquiring records
+;
+;	r2 	device index
+;	r3	channel number
+;	r4 ->	channel
+
+ap$com:	movb	r2,a$pind	;device index
+	movb	r3,a$puni	;unit number
+	call	na$cir		;get the der and unr
+	bcs	ap$ndv		;invalid device
+	mov	r2,a$pder	;save the device record address
+	mov	r3,a$punr	;save the unit record address
+	mov	r4,a$pcsw	;and save the csw address
+
+;	Setup volume access rights	
+;
+;	Report device busy if allocated
+
+	call	ap$gar		;get access rights
+	tst	(r4)		;is the channel already open?
+	bmi	20$		;yes - dont change access rights
+.if ne alloc
+	movb	un.own(r3),r0	;is the device allocated?
+	beq	10$		;no
+	cmpb	p$hprn,r0	;is it ours?
+	beq	10$		;yes
+	.soft	2		;no - device is busy
+.endc
+10$:	mov	a$puar,r0	;no - setup unit access
+	call	ap$srw		;set read/write in channel
+	bis	#csact$,(r4)	;set the channel active
+
+;	Enter ACP state, count access
+
+20$:	$dclth	ap$exc		;catch all following aborts
+	mov	a$pder,r2	;get this back
+;sub$c - don't open twice
+	bit	#acopn$,a$pcon	;is this an open operation?
+	beq	30$		;nope
+	inc	de.acc(r2)	;yes - account for it
+	inc	un.acc(r3)	;twice
+	dec	p$hlim+pq.fil	;three times
+
+	call	ap$acc		;get EVE access options
+
+;	Call the ACP
+;
+;	r0 ->	acp entry point
+;	r1	undefined
+;	r2 ->	device record
+;	r3 ->	unit record
+;	r4 ->	csw
+;	r5 ->	rp
+
+30$:	mov	#ap$cal,a$pcal	;setup the acp call back
+	mov	a$punr,r0	;get the ucr
+	mov	un.acp(r0),r0	;r0 -> acp entry point
+	bit	#csspl$,(r4)	;this a spooler file?
+	bne	ap$exi		;yes - no acp required
+	$bypass	b$yacp		;acp call bypass
+	call	(r0)		;call the acp
+	br	ap$exi		;and exit
+.sbttl	acp exit path
+
+;	ACP exception
+;
+; 	ACP exception implies code or media error.
+
+ap$exc:				;exception during acp call
+	$dclth	ap$exc		;must be able to cancel below
+	mov	#acerr$!erdio.,r0 ;report address error
+	fall	ap$er0		;
+
+;	ACP error
+;
+;	Called by errors that occur after access counts are incremented.
+;	Reverse purge flags to return access counts to previous state.
+
+ap$er0:	mov	r0,a$psta	;setup the status
+ap$exi:
+ap$err:	tst	a$psta		;got an error?
+	bpl	10$		;no
+	mov	a$pcsw,r4	;get the channel back
+	bic	#accls$,a$pcon	;clear close
+	bit	#acopn$,a$pcon	;did we open?
+	beq	10$		;nope - dont close
+	bis	#accls$,a$pcon	;yes - force a close
+
+10$:	mov	a$pcsw,r4	;get the csw
+	mov	p$hcrp,r5	;get the rp
+	call	ap$dac		;call EVE deaccess
+
+	bit	#accls$,a$pcon	;is this a close?
+	beq	20$		;nope
+	bic	#csact$,(r4)	;yes - remove active bit
+;;;	clr	(r4)		;yes - clear the channel
+	mov	a$pder,r2	;get the device record
+	beq	30$		;we had none
+	dec	de.acc(r2)	;count it
+	inc	p$hlim+pq.fil	;adjust quota
+	mov	a$punr,r3	;get the unit record
+	beq	30$		;we did not have a unit
+	dec	un.acc(r3)	;uncount it
+	call	sp$cls		;check for spool file close
+	br	30$		;
+
+20$:
+.if ne volacc
+;	tst	a$pfna+fn.fil	;file-structured open?
+;	beq	20$		;no - use volume access rights
+.endc
+	mov	a$pfar,r0	;get the file protection
+	call	ap$srw		;setup read/write access
+
+30$:	call	ch$mku		;move kernel channel to user
+	call	ap$ftb		;free up any tb
+	call	ap$fun		;free the unit
+	call	ap$ccs		;clear critical section
+	$canth			;cancel the kernel trap handler
+	mov	p$hcrp,r5	;get the rp
+	mov	a$pr0,rp.r0(r5)	;return our r5
+	mov	a$psta,r0	;get the status
+	bpl	40$		;no error
+	movb	r0,rp.err(r5)	;report the error
+	bmi	35$		;fatal errors stop lookup path
+	call	ap$lop		;got a lookup path?
+	bcs	35$		;no
+	mov	r5,sp		;yes - reset the stack
+	jmp	ap$lku		;repeat lookup path
+34$:	.soft	1		;file not found on path
+35$:	jmp	em$err		;we have an error
+40$:	jmp	em$exi		;we have none - quit
+
+ap$lop:	cmpb	a$popr,#acloo.	;this a lookup?
+	bne	10$		;no
+	tst	a$pfna+fn.fil	;got a name?
+	beq	10$		;no
+	mov	rp.p2(r5),r0	;yes - got a path?
+	bne	20$		;yes
+10$:	sec			;c=1 - no path
+20$:	return			;c=0 - r0 -> path
+.sbttl	call-back dispatcher
+
+;	Call-back dispatcher
+;
+;	r0 =	operation code
+
+ap$cal::psh	r3		;all want this saved
+	cmp	r0,#accmx.	;this above the maximum?
+	bhis	ap$ace		;yes
+	asl	r0		;yes - make it words
+	call	@a$pbac(r0)	;and call it
+	pop	r3		;restore it
+	return
+
+ap$ace:				;acp coding error
+	mov	#eracp.!acerr$,r0 ;signal a real fuckup
+	br	ap$er0		;and report it
+
+;	Call-back dispatch table.
+;
+	table	word, step=1
+a$pbac::;	address	assume	;call-back codes
+	item	ap$atb	acatb.	;acquire tb
+	item	ap$dtb	acdtb.	;dispose tb
+	item	ap$rtb	acrtb.	;read tb
+	item	ap$wtb	acwtb.	;write tb
+	item	ap$lun	aclun.	;lock unit
+	item	ap$fun	acfun.	;free unit
+	item	ap$scs	acscs.	;set critical section
+	item	ap$ccs	acccs.	;clear critical section
+	item	ap$gtm	acgtm.	;get time
+	item	ap$gfp	acgfp.	;get file protection
+	item	ap$pep	acpep.	;process eve package
+	assume	$ eq accmx.	;make sure we are done
+.sbttl	call back routines
+
+;	Call EVA processor
+;
+;	r1 -> table
+
+ap$pev:				;jsr r1,ap$pev
+	tst	(sp)+		;forget r1 return
+ap$pep:				;process eve call
+	mov	a$pp4,@#m$kip6	;point to the page
+	psh	a$pp5		;point to the package
+	psh	r1		;r1 -> table
+	call	ev$pro		;[sic] process the package
+	return			;[sic] return required by EVE
+
+;	Lock & free unit
+
+.enabl	lsb
+ap$lun:				;lock unit
+	mov	a$punr,r3	;get the unit record
+	callr	qu$obt		;get it and return
+
+ap$fun:				;free unit
+	mov	a$punr,r3	;get the unit record
+	beq	10$		;we had none
+	call	qu$div		;divest it
+10$:	return
+.dsabl	lsb
+
+;	Get time & date (with rollover)
+
+ap$gtm:				;return time & date
+	mov	#10$,r0		;setup the area
+	emt	375		;
+	mov	t$idat,a$pdat	;and the date too
+.if ne xtm$c
+	mov	t$iera,a$pera
+.endc
+	return
+
+10$:	.byte	0,emgtm.	;gettime
+	.word	a$ptim		;the time area
+
+;	Set & clear critical section
+;
+;	Disable I/O abort on directory operations
+
+ap$scs:	bis	#prcri$,p$hsta	;set the critical section flag
+	return
+
+;	Reenable abort on directory channel
+
+ap$ccs:	bic	#prcri$,p$hsta	;clear the critical section flag
+	return
+.sbttl	acquire TB
+
+;	Acquire TB
+;
+;	Search the TB queue for a matching entry.
+;	Revert to simple acquire if the queue is empty.
+;	Wipe out any entries which are subsets of ourselves.
+;	Purge cache if physical write has occurred to volume.
+; ???	We should check for overlapping buffers.
+;	Read in data if the cache fails.
+;
+;	tb.vid	device & unit id
+;	tb.blk	start block number
+;	tb.wct	word count of entry
+
+	assume	tbwri$ eq 100000
+	assume	tbrea$ eq 1
+ap$atb:				;acquire cached tb
+	call	ap$dtb		;dispose current tb
+	$cmsch			;block the scheduler
+	mov	#t$bque+qu.rec,r3 ;get the queue
+	tst	(r3)		;is it empty?
+	beq	40$		;yes - just go wait
+10$:	mov	r3,r0		;for the unlink
+	mov	(r3),r3		;get the next (must be there)
+	call	ap$ctb		;compare tb
+	bcc	30$		;its the same
+20$:	tst	(r3)		;anymore there?
+	bne	10$		;yes - look again
+	mov	#t$bque+qu.rec,r0 ;nope - use the first instead
+	mov	(r0),r3		;get the first
+	clr	tb.sta(r3)	;and zap it
+30$:	mov	(r3),(r0)	;and take us out
+	$cmpro			;come back down
+	br	50$		;and exit
+40$:	$cmpro			;queue empty - go wait
+	call	tb$acq		;get a tb
+50$:	mov	r3,a$ptbr	;return it
+	movi	tb.buf,r3,a$pbuf ;store the buffer address
+	mov	a$pwct,tb.wct(r3) ;tb.wct - word count
+	call	ap$rtb		;update the tb
+70$:	return
+.sbttl	dispose TB
+
+;	Dispose TB
+;
+;	Purge any replicas in the cache.
+
+ap$dtb:				;dispose of the tb
+	call	ap$ptb		;purge tb's
+ap$ftb:				;free tb - called by acp exit
+	mov	a$ptbr,r0	;did we have a tbr?
+	beq	60$		;nope
+	clr	a$ptbr		;flag no tb
+	$cmsch			;block the scheduler
+
+	mov	a$punr,r3	;get the unit record
+	bit	#uncac$,un.con(r3) ;should we cache this?
+	beq	40$		;no
+
+	tst	tb.sta(r0)	;is it cached?
+	beq	50$		;nope - just dispose
+
+	mov	#t$bque+qu.rec,r3 ;get the queue
+	tst	(r3)		;is it empty?
+	beq	50$		;yes - just put us in
+10$:	mov	(r3),r3		;get the next (must be there)
+	tst	tb.sta(r3)	;is this cached?
+	beq	30$		;nope
+	cmp	tb.vid(r3),tb.vid(r0) ;are we the same?
+	bne	30$		;nope
+	cmp	tb.blk(r3),tb.blk(r0) ;really?
+	bne	30$		;nope
+	tst	tb.sta(r0)	;were we a write?
+	bmi	20$		;yes - we always win
+	tst	tb.sta(r3)	;was the other a write?
+	bmi	40$		;yes - don't insert us
+20$:	clr	tb.sta(r3)	;yes - clear this one out
+30$:	tst	(r3)		;anymore to come?
+	bne	10$		;yes
+	mov	r0,(r3)		;nope - insert us
+	clr	(r0)		;be paranoid
+	$cmpro			;come back
+	br	60$		;
+
+;	Purge this one - overwritten by later entry
+
+40$:	clr	tb.sta(r0)	;forget us
+
+;	Queue empty - just dispose
+
+50$:	$cmpro			;come back
+	mov	r0,r3		;point to the tb for dispose
+	call	tb$dsp		;dispose of it
+60$:	return
+.sbttl	read, write & compare TB
+
+;	Read/write transaction buffer
+;
+;	Parameters are setup in AP.
+;
+;	erdio.	If an I/O error occurs
+
+ap$rtb:				;read buffer
+	mov	a$ptbr,r3	;point to the tb
+	beq	10$		;they have none
+	call	ap$ctb		;compare tb
+	bcc	20$		;the same - don't reread
+10$:	jsr	r1,ap$utb	;setup the codes
+	.word	emrea.		;read code
+	.word	tbrea$		;tb read status
+20$:	return
+
+;	Write transaction buffer
+
+ap$wtb:				;write buffer
+	jsr	r1,ap$utb	;
+	.word	emwri.		;write code
+	.word	tbwri$		;tb write status
+
+;	Update (read/write) transaction buffer
+
+ap$utb:				;update tb
+	mov	a$ptbr,r3	;get the tb
+	bne	20$		;we have a transaction buffer
+	jmp	ap$ace		;acp error - no buffer allocated
+20$:	mov	(r1)+,r0	;get the code
+	movb	r0,a$pchn+1	;setup the code
+	mov	a$pvid,tb.vid(r3) ;tb.vid - volume id
+	mov	a$pblk,tb.blk(r3) ;tb.blk - start block
+	bic	#cseof$!csher$,@a$pcsw ;cleanup previous errors
+				;
+	mov	#a$pchn,r0	;setup for the emt
+	emt	375		;and perform the operation
+	bcc	30$		;fine
+	mov	#erdio.!acerr$,r0 ;oops - directory i/o error
+	jmp	ap$er0		;and report it
+30$:	mov	(r1)+,tb.sta(r3);remember it is valid
+	pop	r1		;restore this
+	return
+
+;	Compare transaction buffers
+
+ap$ctb:				;compare tb with requested
+	tst	tb.sta(r3)	;is this one valid?
+	beq	20$		;nope
+	cmp	tb.vid(r3),a$pvid ;the same device?
+	bne	20$		;nope
+	cmp	tb.blk(r3),a$pblk ;the correct block number?
+	bne	20$		;nope
+	cmp	tb.wct(r3),a$pwct ;is it big enough?
+	bhis	10$		;yes
+	clr	tb.sta(r3)	;nope - remove this entry
+	br	20$		;
+10$:	tst	(pc)+		;tb is the same
+20$:	sec			;tb is different
+	return
+.sbttl	purge caches
+
+;	Purge caches
+;
+;	Called to check for UNPUR$ in unit record.
+;	Purge transaction buffer cache and call dismount bypass.
+;	Ignore it if current device is not RT11A
+;
+;	Check for a purge pending
+; ???	Remove this routine to utilities
+
+ap$ptb:				;purge tbs
+	$cmsch			;block it
+	mov	a$punr,r0	;get the unit
+	cmp	un.acp(r0),#rt$11a ;is this rt11a?
+	bne	30$		;no - ignore all this
+	bit	#unpur$,un.con(r0) ;want to purge?
+	beq	30$		;no
+	mov	t$bfir,r3	;yes - purge all appropriate
+10$:	cmp	tb.vid(r3),a$pvid ;is this us?
+	bne	20$		;no
+	clr	tb.sta(r3)	;yes - remove us
+20$:	mov	tb.nxt(r3),r3	;get the next
+	bne	10$		;do another
+	bic	#unpur$,un.con(r0) ;clean up
+
+;	Call dismount bypass with VID in r0
+
+	mov	a$pvid,r0	;supply the vid
+	$bypass	b$ydsm		;call dismount bypass
+
+30$:	$cmpro			;
+	return
+.sbttl	access operations
+
+;	Access operations
+;
+;	group	acc
+;	calls	fop	word	set file processing options
+;		cif	000001	create if file does not exist already
+;
+;	a$pp3	store fop here
+;
+;	Deaccess operations
+;
+;	group	dac
+;	calls	sts	word	get extended status results
+;			0	no status returned
+;			1	success
+;			even	some error message
+;			odd	some success message
+;		stv	word	get status value
+
+ap$acc:				;access function
+	jsr	r1,ap$pev	;process eve package
+	$evdgr	acc	300$	;open file group
+	$evdgr			;
+300$:	$evdca	fop	word	a$pp3	400$
+	$evdca			;done
+400$:	movb	r0,(r1)		;store the FOP options
+	return			;
+
+ap$dac:				;deacess function
+	jsr	r1,ap$pev	;process eve package
+	$evdgr	dac	100$	;deaccess group
+	$evdgr			;
+100$:	$evdca	sts	word	a$pp3+1	200$
+	$evdca			;
+200$:	movb	(r1),(r4)	;return the status
+	return			;
+.if ne 0
+.sbttl	allocate & deallocate
+
+;	Access unit
+;
+;	Handle allocated and serialized devices.
+;
+;	Serialized devices may only have one file open at a time.
+;	For example, a non-spooled printer.
+;	Image exit must clear any devices owned by serialization.
+;	Set by leaving the semaphore non-zero.
+;	Savestatus is not permitted on these channels so that
+;	close is ensured.
+;
+;	Allocated devices are exclusive to a process.
+;	Process deletion or logout must clear any allocated device.
+;	Allocation sets the allocated bit in the unit record.
+;	Device may not be mounted at the time.
+;	DCL command only at present.
+;
+;	Dismounting devices return device busy.
+;	Return 'device busy' if unit is not available.
+;
+;	RUST/XM does not queue processes to unavailable units.
+;	Grab non-sharable device if we have any volume access right.
+;
+; ???	EVE lookup to allocate or deallocate device.
+
+ap$acu::bit	#undmp$,un.con(r3) 	;is it dismounting?
+	bne	30$			;yes - device busy unless we own it
+	bit	#unser$,un.con(r3) 	;is the unit serialized?
+	beq	50$			;no - nothing special
+10$:	inc	un.sem(r3)		;someone else using it?
+	bne	20$			;yes
+	tstb	un.prn(r3)		;someone else got it?
+	bne	20$			;yes
+	movb	p$hprn,un.prn(r3) 	;no - get it for us
+20$:	dec	un.sem(r3)		;reset the semaphore
+30$:	cmpb	un.prn(r3),p$hprn 	;do we own it?
+	beq	50$			;yes
+40$:	.soft	2			;no - device is busy
+50$:	return				;and quit
+
+;	Deaccess unit
+
+ap$dcu::bit	#unalc$,un.con(r3) 	;is it allocated?
+	bne	10$			;yes - nothing to do here
+	cmpb	un.prn(r3),p$hprn 	;do we own it somehow?
+	bne	10$			;no
+	clrb	un.prn(r3)		;yes
+10$:	return
+.endc
+.sbttl	ACP access rights
+
+;	Get ACP access rights
+;
+;	call	ap$gar
+;
+;	a$puar	unit access rights (negative)
+;	a$pfar	file access rights (negative)
+
+ap$gar:	mov	un.uic(r3),r1	;r1 = unit uic 
+	mov	un.pro(r3),r2	;r2 = unit protection
+	mov	r1,a$pfui	;setup default file uic
+	mov	r2,a$pfpr	;setup default file protection
+	call	ap$car		;collect access rights
+	mov	r0,a$puar	;setup unit access (composite negative)
+	bit	#unfpr$,un.con(r3) ;should we compute file protection?
+	beq	10$		;nope - unit is default
+	mov	un.fpr(r3),a$pfpr ;yes
+10$:	fall	ap$gfp		;get default file protection
+
+;	Get file protection
+;
+;	ACP callback to compute file protection
+
+ap$gfp:				;get file protection
+	pshs	<r2,r1>		;save this lot
+	mov	a$pfui,r1	;get the uic
+	mov	a$pfpr,r2	;get the protection mask
+	mov	a$punr,r3	;r3 -> unit record
+	call	ap$car		;check access rights
+	mov	r0,a$pfar	;setup file protection
+	pops	<r1,r2>		;restore them
+	return
+
+;	Build composite:
+;	Add VOLPRO
+;	Remove write if /nowrite
+;	Remove all if allocated somewhere else
+;	Add read if /execute and channel=17.
+;
+;	r1 =	target uic
+;	r2 =	target protection (negative)
+
+ap$car:				;check access rights
+	call	ar$gpm		;get process mask
+	bit	#srvol$,p$hsr0+sr.vol ;do we have volume rights?
+	beq	10$		;nope
+	clr	r0		;yes take all (negative)
+10$:	bit	#unnwr$,un.con(r3) ;is it soft write protected?
+	beq	20$		;nope
+	bis	#arwri$,r0	;disable write access (negative)
+20$:	cmpb	a$pchn,#15.	;this the image channel?
+	bne	30$		;no
+	bit	#arexe$,r0	;do they have execute?
+	bne	30$		;no
+	bic	#arrea$,r0	;yes - force read enable
+30$:	return
+
+;	Set read/write in channel
+;
+;	r0 =	access rights negative
+
+	assume	csrw$p eq 1400	;3 in high-byte
+ap$srw:				;set read/write protection
+	swab	r0		;put access bits in high-byte
+	bic	#csrw$m,r0	;clean out all but read/write
+	bic	#csrw$p,(r4)	;clean read/write out of ch.pro
+	bis	r0,(r4)		;put in ours
+	return			;
+.sbttl	get access mask
+
+;	Get access composite
+;
+;	ar$gpm	get current process access rights
+;	ar$ggm	get generic access rights (r0 -> arr)
+;
+;	r0 ->	accessor arr
+;		p$harr for ar$gpm
+;	r1	target uic
+;	r2	target protection negative
+;
+;	r0 =	access rights negative
+
+ar$gpm::mov	#p$harr,r0	;get process access mask
+ar$ggm::			;get generic access mask
+	call	ar$gga		;get generic access
+	com	r0		;get positive
+	psh	r0		;save this a second
+	ash	#-4,r0		;move this across
+	bis	r0,(sp)		;set these in
+	movb	1(sp),r0	;get the high byte
+	bisb	(sp)+,r0	;get the low byte
+	com	r0		;get negative
+	return
+
+;	Get access rights
+;
+;	ar$gpa	get process access rights (p$harr = arr)
+;	ar$gga	get generic access rights (r0 -> arr)
+;
+;	r0 ->	access rights record
+;		ar.uic
+;		ar.pro
+;		ar.ar0
+;		ar.ar1
+;		ar.ar2
+;		ar.ar3
+;
+;	r1	target uic
+;	r2	target protection (negative)
+;
+;	r0	access rights (negative)
+
+	assume	ar.uic eq 0	;
+	assume	ar.gic eq 1	;
+ar$gpa::mov	#p$harr,r0	;r0 -> process access rights record
+ar$gga::psh	r3		;get generic access rights
+	mov	#aral$p,r3	;assume all rights (positive)
+	bit	#srbyp$,ar.sr0+sr.byp(r0) ;do they have bypass?
+	bne	30$		;yes - all rights
+				;
+	cmp	r1,(r0)		;is this the owner?
+	beq	10$		;yes
+	bic	#arow$p,r3	;its not owner
+				;
+	psh	r1		;no - get group
+	swab	(sp)		;get it low
+	cmpb	(sp)+,ar.gic(r0);this the group?
+	beq	10$		;its the group
+	bic	#argr$p,r3	;its not group
+				;
+10$:	bit	#srsys$,ar.sr0+sr.sys(r0) ;do they have sysprv?
+	bne	20$		;yes
+	cmpb	ar.gic(r0),s$ygrp  ;are they in a system group?
+	blos	20$		;yes
+	bic	#arsy$p,r3	;nope - remove system access
+				;
+20$:	mov	r3,r0		;get potential protection (positive)
+				;r0 = all potential rights (positive)
+	bic	r2,r0		;remove missing rights
+				;r0 = granted rights (positive)
+30$:	com	r0		;convert it to a negative
+	pop	r3		;
+	return
+
+.end
+

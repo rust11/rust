@@ -1,0 +1,303 @@
+map$c=0	; usermode mapping
+indfix=1
+.title	rcf - command files
+.include "lib:rust.mac"
+.psect	rcf d
+$cfdef		;command file
+$gldef		;gtlin
+$jbdef		;job
+$jsdef		;jsw
+$rpdef		;rp
+$stdef		;state
+$txdef		;text
+
+;	RUST/XM command file support
+;
+;	%build
+;	macro	rxs:rcf/object:rxb:rcf
+;	%end
+;
+;	Get next character from command file.
+;	Unhook command file if last character.
+;	Do not return characters to AST calls.
+;
+;	The command file hook and data are the lowest components of
+;	the process header. They are restricted to the par2 window size.
+;
+; ???	Use PAR6 to access process command file data
+; ???	Move parameters to native header
+;
+;	p$hjob	address of end of buffer
+;	p$hjor	unused
+;	p$hjof	echo flag
+;	p$hjoc	next character pointer
+;
+;	job:	br	10$
+;		.word	byte-size of hook
+;
+;	Reset the command file - remove if end-of-input
+
+cf$res::tst	p$hjoc			;is a command file still going?
+	bne	cf$yep			;yes - don't abort us
+	fall	cf$abt			;no - fall thru and clean it up
+
+;	Abort command file unconditionally
+
+cf$abt::cmp	p$hjob,p$hjor		;is one active anyway?
+	beq	cf$yep			;nope
+	clr	p$hjoc			;stop the command file
+	fall	cf$get
+
+;	Get character
+
+cf$get::bit	#stact$,p$hast		;are we in an ast?
+	bne	cf$not			;yes - no character here
+	call	im$cor			;check for corrupted image
+	pshs	<r4,r3>			;(aborts if corrupt)
+	mov	#p$hjoc,r4	;joc	;r4 -> p$hjoc
+	call	cf$nxt			;input a character
+	pops	<r3,r4>			;restore them
+	return
+					;
+;	Adjust command file pointers
+
+cf$adj:	mov	(r4),r3		;joc	;adjust syslow
+	beq	cf$don			;zapped
+	bic	#1,r3			;even addresses only
+	sub	#word*2,r3		;make space for images (^C fortran)
+	mov	r3,p$husr		;shove it into $top==$usr
+	cmp	(r4),p$hjob	;joc	;was it the last?
+	bne	cf$yep			; nope, return happy, c=0
+	clr	(r4)		;joc	; yes, clear the buffer adress
+	fall	cf$don			;and zap it
+
+;	Command file done
+;
+;	Second word of hook is hook length in bytes
+
+cf$don:	bic	#cfdcl$!cfcon$!cfdat$!cfact$,p$hcfs ;turn off dcls
+	mov	p$hjob,r3		;r3 -> client hook
+	mov	r3,p$husr		;store the base
+.if ne map$c
+	add	#word,r3
+	call	mm$mfw
+	add	r0,p$husr
+.iff
+	sub	p$hktc,r3		;make it a kernel address
+	add	word(r3),p$husr		;move in the length
+.endc
+	bic	#177400,-(r4)	;jof	;its all over, clear the echo flag
+	mov	-(r4),-(r4)	;0,job	;unhook from sam
+cf$yep:	tst	(pc)+			;c=0 => character supplied
+cf$not:	sec				;c=1 => no character supplied
+	return				;return to ttyin
+
+;	Get next character
+
+	assume	cfpcr. eq -1		;psuedo carriage return
+	assume	cfplf. eq 0		;pseudo line feed
+cf$nxt:	mov	(r4),r3		;joc	;get the next one
+	beq	cf$don			;we have been zapped
+.if ne map$c
+	call	cf$gmp			;get mapped character
+	beq	10$			;pseudo line feed
+	cmpb	r0,#cfpcr.		;psuedo carriage return?
+	bne	20$			;no
+	inc	r0			;line feed next time
+	dec	r3			;
+	call	cf$pmc			;put it back
+.iff
+	sub	p$hktc,r3		;adjust client to kernel address
+	movb	(r3)+,r0		;get the character
+	beq	10$			;pseudo line feed
+	cmpb	r0,#cfpcr.		;psuedo carriage return?
+	bne	20$			;no
+	incb	-(r3)			;line feed next time
+.endc
+	movb	#cr,r0			;make it a cr
+	br	50$			;
+10$:	movb	#lf,r0			;supply the lf
+;sic]	br	40$			;use compare below
+	fall	20$			;
+
+;	[ctrl/c] handling
+;
+;	[ctrl/c][cfeos.]abc - ripple abc around the front
+;
+;	r3 ->	past character in buffer
+
+20$:	cmpb	r0,#ctrlc		;is this [ctrl/c]?
+	bne	40$			;nope
+	bit	#jsgtl$,p$hjsw		;are we inhibited?
+	beq	40$			;nope, it gets thru
+					;
+.if ne map$c
+	call	cf$gmp			;get mapped character
+	cmpb	r0,#cfeos.		;in a dcl command file?
+	bne	cf$not			;nope, forget it
+.iff
+	cmpb	(r3)+,#cfeos.		;in a dcl command file?
+	bne	cf$not			;nope, forget it
+.endc
+
+.if ne map$c
+	cmp	r3,p$hjob		;was it the last?
+	beq	cf$not			;yep, forget it
+.iff
+	psh	p$hjob			;get the client address
+	sub	p$hktc,(sp)		;get the kernel address
+	cmp	r3,(sp)+		;was it the last?
+	beq	cf$not			;yep, forget it
+.endc
+					;
+.if ne map$c
+	call	cf$gmc			;get char past ^C
+	sub	#2,r3			;
+	call	cf$pmc			;ripple it
+	movb	#ctrlc,r0		;so
+	call	cf$pmc			;ripple it
+	movb	#cfeos.,r0		;
+	call	cf$pmc			;ripple it
+	dec	r3			;point at character
+.iff
+	movb	(r3),-2(r3)		;ripple it around
+	movb	#cfeos.,(r3)		;
+	movb	#ctrlc,-(r3)		;so
+.endc
+	bic	#cfdcl$!cfcon$,p$hcfs 	;cancel internal file - ???
+	br	cf$nxt			;and get the next one
+
+;	Process normalised character
+
+40$:	inc	(r4)		;joc	;step up pointer
+50$:	psh	p$hcfs			;get the dcls status
+	stack	cfs			;
+	assume	cfdis$ eq 200		;display/everything
+	tstb	(sp)			;is it ifall$ mode?
+	bpl	60$			;nope
+	clr	(sp)			;yes - force print
+					;
+60$:
+.if ne map$c
+	psh	r0			;save character
+	call	cf$gmc			;
+	cmpb	r0,#cfeos.		;is this the end of dcls?
+.iff
+	cmpb	(r3),#cfeos.		;is this the end of dcls?
+.endc
+	bne	70$			;nope
+	inc	(r4)		;joc	;yes - skip it
+;???	inc	r3			;bump pointer past it
+	bic	#cfdcl$!cfcon$,p$hcfs 	;turn us off
+					;
+70$:
+.if ne map$c
+	pop	r0			;get character back
+.endc
+	call	cf$adj			;adjust us
+	bit	#cfral$,(sp)		;this read-all mode?
+	bne	75$			;yes - dont filter or echo
+	call	ed$ccz		;c=?	;check terminating [ctrl/c] or [ctrl/z]
+	bcc	90$			;got [ctrl/c] or [ctrl/z]
+75$:	bit	#cfqui$!cfdcl$!cfcon$!cfral$,(sp)+ ;is this quiet?
+	bne	80$			;yes - dont echo
+	bit	#jstts$,p$hjsw		;in special mode?
+	bne	80$			;yep, no echo
+	call	te$put			;ttyout the character
+80$:	br	cf$yep			;success
+					;
+90$:	bit	#cfqui$!cfdcl$!cfcon$!cfral$,(sp)+ ;is this quiet?
+	bne	100$			;dont echo
+	call	ed$opt			;output ^Z or ^C
+100$:	cmpb	r0,#ctrlc		;was it [ctrl/c]?
+	bne	80$			;no
+	.exit				;yes - go away
+
+.if ne map$c
+;	r3 ->	user mode character
+;
+;	r3 ->	past character
+;	r0 =	character
+
+cf$gmc:	tst	(pc)+
+cf$gmp:	sec
+	psh	r1
+	mov	r3,r1
+	adc	r3
+	call	mm$grb
+	pop	r1
+	tstb	r0
+	return
+
+cf$pmc:	tst	(pc)+
+cf$pmp:	sec	
+	psh	r1
+	mov	r3,r1
+	adc	r3
+	call	mm$prb
+	pop	r1
+	return
+.endc
+.sbttl	prompt check
+
+;	Called by rte.mac gtlin
+;	Checks to see if we should prompt or echo
+; 
+;	r0..r3	available
+;
+;	c=0	Echo or prompt
+;	c=1	Dont
+
+	.enabl	lsb		;
+cf$prm::bit	#glter$,rp.p3(r5) ;input forced from terminal?
+	bne	20$		;yes - prompt
+cf$ech::assume	cfdis$ eq 200	;
+	tstb	p$hcfs		;display/everything?
+	bmi	20$		;yes - force the prompt
+.if ne map$c
+	tst	p$hjoc		;got a command file?
+.iff
+	mov	p$hjoc,r0	;get the command file
+.endc
+	beq	20$		;we have none - prompt
+	bit	#stact$,p$hast	;are we in an ast?
+	bne	20$		;yes - always prompt
+	bit	#jsgtl$,p$hjsw	;is gtlin in action?
+	beq	10$		;nope
+				;
+.if ne map$c
+	mov	p$hjoc,r3	;command file
+	call	cf$gmp		;get next character
+	cmpb	r0,#ctrlc	;ctrl/c ?
+	bne	10$		;nop
+	call	cf$gmp		;
+	cmpb	r0,#cfeos.	;in DCL section (-4)? 
+	bne	20$		;nope - force prompt
+	cmp	r3,p$hjob	;any more in command file?
+	beq	20$		;nope - prompt
+.iff
+	sub	p$hktc,r0	;look at the characters
+	cmpb	(r0)+,#ctrlc	;control/C (3)?
+	bne	10$		;nope
+	cmpb	(r0)+,#cfeos.	;in DCL section (-4)? 
+	bne	20$		;nope - force prompt
+	add	p$hktc,r0	;get the client address again
+	cmp	r0,p$hjob	;any more in command file?
+	beq	20$		;nope - prompt
+.endc
+	bic	#cfdcl$!cfcon$,p$hcfs	;turn these off
+10$:	bit	#cfdcl$!cfcon$!cfqui$!cfral$,p$hcfs ;should we prompt?
+	bne	30$		;no
+
+.if ne indfix
+cf$siz::mov	p$hjoc,r0	;got anything at all?
+	beq	20$		;no - command file size = 0
+	neg	r0		;yes - setup for p$hjob-p$hjoc
+	add	p$hjob,r0	;r0 = command file size
+.endc
+20$:	tst	(pc)+		;c=0 -> echo
+30$:	sec			;c=1 -> don't echo
+	return			;
+	.dsabl	lsb		;
+.end 
+
