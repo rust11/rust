@@ -7,8 +7,8 @@
 ;	side 1/side 2 media density
 ;	RLV12 22-BIT BAE support
 
+mnt$c=1	; mount
 siz$c=1	; volume size
-rst$c=1	; reset unit
 dsb$c=1	; ISR disables interrupts
 boo$c=1	; new boot code
 uni$c=1	; 4-unit default
@@ -29,6 +29,7 @@ uni$c=1	; 4-unit default
 ;	xxboot
 ;	link	drb:dlp/execute:drb:dlp.sys/map:drb:dlp/nobitmap/bound:1000
 ;	xxboot
+;	!
 ;	driver:
 ;	@drs:check capture DLV
 ;	driver
@@ -39,6 +40,7 @@ uni$c=1	; 4-unit default
 ;	set drb:dlv units=4
 ;	exit
 ;	@drs:check compare DLV
+;	!
 ;	@drs:check capture DLP
 ;	driver
 ;	set drb:dlp name=DLX
@@ -56,9 +58,9 @@ $imgdef	DLP 1 0
 $imginf fun=drv cre=hammo aut=ijh use=<RUST RL01/RL02 disk driver DL:>
 $imgham	yrs=<2004> oth=<>
 ;	%date	
-$imgdat <07-Aug-2022 15:47:38>   
+$imgdat <04-Oct-2022 22:26:04>   
 ;	%edit
-$imgedt <54   >
+$imgedt <56   >
 .endm
 
 $brdef		;RT-11 bootstrap
@@ -100,15 +102,16 @@ $drcnd
 	bis	#deabo$,de.typ(r2)	; force /abort
 	mov	inscsr,r4		; r4 -> csr
 	mov	#v$ebus,r3		; r3 -> bus vector
+	psh	@#psw			; save psw
 	psh	(r3)			; catch a falling star
-	.mtps	#340			; block interrupts
+	movb	#340,@#psw		; block interrupts
 	mova	10$,(r3)		; trap routine
 	tst	dl.ext(r4)		; traps to 10$ if not rlv12
 	bis	#de22b$,de.con(r2)	; force /22bit
 	br	20$			;
 10$:	bit	(sp)+,(sp)+		; pop interrupt
 20$:	pop	(r3)			; restore vector
-	.mtps	#0			; unblock interrupts
+	pop	@#psw			; restore psw
 	.endc				; mmg$t
 30$:	clc				; installation succeeded
 	return
@@ -476,10 +479,8 @@ xx$fin:	.drfin	xx			;finish up
 xx$loc:	begin				; get unit disk location
 					; DEC drive setup code would go here
 	bplw	@ip.loc(r3),10$		; already set 
-.if ne rst$c				; reset drive
 	mov	#dlrep$,dl.adr(r5)	; report size/status
 	xxfun$	#dlsta.			; reset drive
-.endc
 .if ne siz$c
 	mov	#dlrep$,dl.adr(r5)	; report size/status
 	xxfun$	#dlsta.			; get the status
@@ -512,12 +513,14 @@ xx$trn:	begin				; transfer - read or write
 	end				;
 
 xx$siz:	call	xx$agn			; get unit size
+.if ne mnt$c
+	mov	#dl1sz.,r0		; assume an RL01
+	asl	r0
+.iff
 .if ne siz$c
 	mov	#-1,@ip.loc(r)
 .endc
-.if ne rst$c
 	call	xx$loc			; reset drive
-.endc
 .if ne siz$c
 	mov	ip.siz(r3),r0
 .iff
@@ -530,6 +533,8 @@ xx$siz:	call	xx$agn			; get unit size
 	assume dl2sz. eq dl1sz.*2	;
 	asl	r0			; RL02
 .endc
+.endc ; mnt$c
+
 10$:	call	xx$pw0			; return the value
 xx$don:	jmp	xx$fin			;
 
@@ -712,19 +717,18 @@ dr$loa:	mov	(r5),r5			; the driver
 	sub	#dr.lqe,r5		; r5 -> driver base
 	mov	x$xcsr(r5),r4		; r4 -> csr
 	mov	#v$ebus,r3		; r3 -> bus vector
+     xm	psh	@#psw			;
 	psh	(r3)			; catch a falling star
 	.mtps	#340			; block interrupts
 	mova	10$,(r3)		; set bus vector
 	tst	dl.ext(r4)		; check for RLV12
 					; traps to 10$ if not present
-	pop	(r3)			; restore vector
-	.mtps	#0			; unblock interrupts
 	clr	x$x18b(r5)		; clear unibus 18 bit mask
 	br	20$			;
 10$:	cmp	(sp)+,(sp)+		; not RXV12 - pop interrupt
-	pop	(r3)			; restore vector
-	.mtps	#0			; unblock interrupts
-20$:	clc				;
+20$:	pop	(r3)			; restore vector
+     xm	pop	@#psw			; restore psw
+	clc				;
 	return				;
 
 .end
