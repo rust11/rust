@@ -1,0 +1,546 @@
+.title	feature
+.include "lib:rust.mac"
+$evdef		;eve
+$chdef		;channel
+$esdef		;error severity
+$fedef		;feature
+$fndef		;filename
+$jbdef		;job
+$mmdef		;mmu
+$opdef		;output
+$podef		;pool
+$rpdef		;rp
+$svdef		;shift
+$txdef		;text
+
+;	RUST/XM feature utility
+;
+;	%build
+;	macro	rfs:featur/object:rfb:
+;	%end
+;
+;	%date
+;	<06-Oct-2022 04:39:51>   
+;	%edit
+;	<18   >
+;
+;	This module is linked with each feature.
+;	DCL chains to this module for INSTALL, REMOVE, SET & SHOW.
+;
+;	DEBUG	Debugger
+;	DEBUGS	Symbolic debugger
+;	IMAGES	Image cache feature
+;	MAILER	Mailbox feature
+;	PLAS	XM requests
+;	REAL	RealTime feature
+;	RSX	RSX feature
+;	SPOOL	SPOOL feature
+;	TRACE	TRACE feature
+;	TSX	TSX feature
+;
+;	Link the modules as follows:
+;
+;	r link
+;	module=lib:featur,module,lib:rustx
+;	Section:address? par1:20000
+;	Section:address?
+;
+;	/I	Install
+;	/R	Remove
+;	/W:n	f$ewks	workspace size in blocks
+.sbttl	start and abort
+
+start:	call	once		;get setup
+featur:	clr	f.eabt		;clear bypass
+	clr	f$ewks		;clear workspace
+	.purge	#0		;cleanup
+10$:	.csigen	#dummy, #types, #0, #line ;get a command
+	tstb	line		;got a command?
+	bne	20$		;yes
+	.print	#i$midt		;no - identify ourselves
+	br	10$		;
+
+20$:	call	twice		;check the system
+	clr	r4		;command address
+	pop	r5		;get the next switch
+30$:	dec	r5		;any more?
+	bmi	60$		;no
+	clr	r3		;assume no value
+	pop	r2		;get the switch
+	bpl	35$		;no value
+	pop	r3		;value
+35$:	mov	#100$,r0	;find the command
+40$:	mov	(r0)+,r1	;get the routine
+	beq	fe$civ		;not found
+	cmpb	r2,(r0)		;this the one?
+	beq	50$		;yes
+	tst	(r0)+		;no
+	br	40$		;
+50$:	call	(r1)		;call the routine
+	br	30$		;do the next
+60$:	tst	r4		;got a command?
+	beq	fe$civ		;no
+	jmp	(r4)		;yes - execute it
+
+100$:	.word	fe$swi,'I	;install
+	.word	fe$swr,'R	;remove
+	.word	fe$sww,'W	;workspace
+	.word	0
+
+fe$civ:	message	<Invalid command>
+fe$cco:	message	<Conflicting options>
+
+fe$swi:	mov	#insfea,r0	;install command
+	br	fe$opc		;command option
+fe$swr:	mov	#remfea,r0	;remove command
+	fall	fe$opc		;
+fe$opc:	tst	r4		;already got one?
+	bne	fe$cco		;conflicting options
+	mov	r0,r4		;
+	return
+fe$sww:	mov	r3,f$ewks	;setup workspace option
+	return
+
+;	Fatal messages end here
+;	Check for an abort bypass
+
+im$err::mov	f.eabt,r0	;image abort
+	beq	10$		;forget it
+	clr	f.eabt		;
+	mov	f.easp,sp	;reset the stack
+	jmp	(r0)		;handle the abort
+10$:	mov	j$busp,sp	;reset the stack
+	jmp	featur		;
+.sbttl	install, remove
+
+insfea:	call	valfea		;validate us first
+	call	chkfil		;check file already installed
+	call	insfil		;create the file
+	mov	sp,f.easp	;setup abort stack
+	mov	#40$,f.eabt	;aborts
+	call	insrec		;create the record
+	mov	#30$,f.eabt	;abort
+	call	fe$ins		;call user routine
+	bcs	30$		;error loading feature
+	jmp	start
+
+30$:	clr	f.eabt		;dont abort again
+	message	<rError loading feature>
+	call	remrec		;remove the record
+40$:	call	remfil		;delete the file
+50$:	jmp	start		;and start over
+
+remfea:	call	valfea		;validate us first
+	call	getfea		;get the feature stuff
+	call	fe$rem		;call user routine
+	bcc	10$		;fine
+	message	<Feature is active>
+10$:	call	remrec		;remove the record
+	call	remfil		;remove the file
+	jmp	start
+
+getfea:	call	loofil		;see if its loaded
+	bcc	10$		;fine
+	message	<Feature file not installed>
+10$:	call	getrec		;get the record
+	bcc	20$		;fine
+	message	<Feature record not installed>
+20$:	return
+.sbttl	validate feature
+
+;	Make sure this is really a feature
+
+valfea:				;validate feature
+	mov	#f$ebot,r5	;r5 -> feature base
+	cmp	fe.gua(r5),#^rfea ;is this really a feature?
+	beq	10$		;
+	message	<Feature guard word incorrect>
+
+10$:	mov	fe.nam(r5),f.enam ;we can believe the name now
+	mov	fe.nam+2(r5),f.enam+2
+
+	cmp	#f$ebot,#20000	;does this start at 2000?
+	beq	20$		;yes
+	message	<Feature not linked to par1>
+
+20$:	$cmkrnl	#area, #100$ pic=yes ;get the system stb date
+	cmp	fe.dat(r5),r0	;this date valid?
+	beq	30$		;yes
+	message	<Feature needs to be relinked with LIB:RUSTX.OBJ>
+
+30$:	cmp	fe.len(r5),#20000 ;is this too long?
+	blos	40$		;no
+	message	<Feature is too long>	
+40$:	return
+
+100$:	mov	@#t$istb,rp.r0(r5) ;get the stb date
+	return
+.sbttl	various
+
+;	Check feature file already installed
+
+chkfil:	call	loofil		;see if its in the directory
+	bcs	20$		;no
+	message	<Feature file already exists>
+20$:	return
+
+;	Lookup feature file
+
+loofil:	.purge	#0
+	.lookup	#area, #0, #f.efnm, #0 ;look it up
+	return			;
+
+remfil:
+delfil:
+	.purge	#0
+	.fprot	#area, #0, #f.efnm, #0 ;remove protection
+	.delete	#area, #0, #f.efnm, #0 ;delete it
+	return
+
+;	Convert the feature file data
+;
+;	f.ebls	Blocks required (from fe.len)
+
+confea:	mov	fe.len(r5),r0	;get byte size
+	clc
+	ror	r0		;words
+	add	#377,r0		;
+	clrb	r0		;
+	swab	r0		;blocks
+	mov	r0,f.ebls	;store it
+	return
+.sbttl	install file
+
+;	install feature file
+
+insfil:
+	call	confea		;get the length
+
+;	Create the feature file
+
+	mov	#f.efnm,r0	;point to the name
+	mov	#100$,r1	;our copy
+	mov	(r0)+,(r1)+	;move the name
+	mov	(r0)+,(r1)+	;
+	mov	(r0)+,(r1)+	;
+	mov	(r0)+,(r1)+	;
+
+	.enter	#area, #0, #100$, f.ebls, #0
+	bcc	10$		;
+5$:	message	<Error creating feature file>
+
+;	Get the starting block in VM:
+
+10$:	.cstat	#area, #0, #f.ecsw ;get the feature channel
+	bcs	5$		;
+	mov	f.ecsw+ch.sbl,r1 ;get the block number
+	assume	mmpib. eq 8.	;
+	ash	#sv008.,r1	;page number
+	mov	r1,fe.pag(r5)	;store the page number
+
+;	Write the feature out to VM:
+
+	mov	fe.len(r5),r1	;
+	clc
+	ror	r1		;wordcount
+	.writw	#area, #0, #f$ebot, r1, #0
+	bcc	20$		;fine
+	message	<Error writing feature file>
+20$:	.close	#0		;close it
+	bcc	30$		;
+	message	<Error closing feature file>
+30$:	return
+
+;	VM: feature filename
+;
+;	Use EVE to protect the file somewhat better
+
+100$:	.rad50	/devfilnamtyp/	;feature name
+	$evbeg			;set file
+	$evgro	sfi		;set file
+	$evcal	pro word dat=yes;protection
+	.word	167000		;pro = (s:rwed,o:rwed,g:r,w:r)
+	$evcal	del word dat=yes;deletion
+	.word	1		;protection against deletion
+	$evend			;
+.sbttl	install record
+meta	<kererr c><mov c,r0><jmp kererr>
+
+;	Install feature record
+;	File exists
+;
+;	Find free slot in feature map and install it
+
+insrec:	$cmkrnl	#area, #100$ pic=yes
+	bcc	10$		;
+	jmp	(r0)		;dispatch the error
+10$:	return			;fine
+
+;	Kernel installation (pic)
+;	Search for existing record
+;
+;	Returns pointing to appropriate slot in map
+
+100$:	call	locsys		;lock system process
+	call	fndrec		;search for a record
+	bcs	110$		;fine - not found
+	kererr	#recins		;feature already installed
+
+110$:	mov	f$efid,r0	;got a slot?
+	beq	140$		;no
+	cmp	r0,@#f$efes	;too high?
+	blo	130$		;no
+120$:	kererr	#invslo		;
+130$:	asl	r0		;
+	tst	f$emap(r0)	;is it busy?
+	beq	160$		;no
+	kererr	#slobus		;slot in use
+
+;	Find a free slot
+
+140$:	mov	@#f$efes,r1	;count them
+	sub	#feuse.,r1	;only look at user slots
+	mov	#feuse.*word,r0	;
+150$:	tst	f$emap(r0)	;is this free?
+	beq	160$		;yes
+	add	#word,r0	;
+	sob	r1,150$		;
+	kererr	#tabful		;feature table full
+
+;	Copy the slot information into the feature
+;
+;	r0 = slot word-offset
+
+160$:	$cmsch			;stop the scheduler
+	psh	@#m$kip6	;save par6
+	mov	f$epag,@#m$kip6	;map the feature
+	mov	f$epag,f$emap(r0) ;insert us
+	mov	w$omap(r0),@#m$mpa6+fe.bit ;setup the bit
+	asr	r0		;
+	mov	r0,@#m$mpa6+fe.fid
+	mov	r0,rp.r0(r5)	;and return it
+	pop	@#m$kip6	;restore par6
+	$cmpro			;
+
+	call	fresys
+	return			;fine
+
+recins:	message	<Feature already installed>
+invslo:	message	<Invalid feature slot number>
+slobus:	message	<Feature slot in use>
+tabful:	message	<Feature table full>
+.sbttl	remove record
+
+remrec:	$cmkrnl	#area, #100$, pic=yes
+	bcc	10$
+	jmp	(r0)
+10$:	return
+
+100$:	call	locsys		;
+	call	fndrec		;
+	bcc	110$		;fine
+	kererr	#notfnd		;
+
+110$:	$cmsch			;stop the scheduler
+	tst	@#m$mpa6+fe.ref	;got references?
+	beq	120$		;no
+	$cmpro			;
+	kererr	#fearef		;
+120$:	clr	(r0)		;forget it
+	$cmpro			;
+	call	fresys
+	return
+
+notfnd:	message	<Feature record not found>
+fearef:	message	<Feature currently referenced>
+
+kererr:	mov	r0,rp.r0(r5)	;return the error address
+	call	fresys		;
+	jmp	@#em$err	;
+locsys:	$obtain	#s$yque		;lock system process
+	return
+fresys:	$divest	#s$yque		;free system process
+	return
+.sbttl	find record
+
+;	c=0	r0 -> feature record
+;	c=1	feature not found
+
+getrec:				;find the record
+	$cmkrnl	#area, #100$, pic=yes ;
+10$:	return
+100$:	call	fndrec		;look for it
+	bcc	110$		;fine
+	.soft	0		;not found
+110$:	mov	r3,rp.r0(r5)	;return the slot number
+	return
+
+fndrec:				;find the record
+100$:	mov	#f$efes,r3	;point to them
+	mov	(r3),r2		;count them
+110$:	dec	r2		;any more?
+	bmi	120$		;no
+	tst	(r3)+		;next
+	mov	(r3),r1		;r1 -> entry page
+	beq	110$		;not in use
+	mov	r1,@#m$kip6	;map to it
+	cmp	@#m$mpa6+fe.nam,f$enam ;this us?
+	bne	110$		;no
+	cmp	@#m$mpa6+fe.nam+2,f$enam+2 ;really?
+	bne	110$		;no
+	mov	r3,r0		;r0 -> slot entry
+	sub	#f$emap,r3	;remove base
+	asr	r3		;make a number
+	tst	(pc)+		;
+120$:	sec			;
+	return			;fine
+.sbttl	create pool file
+
+;	create feature pool file
+; 
+;	r0	pool file size
+; 
+;	c=0	
+;	r0 =	pool page number
+;
+;	c=1	error creating pool file
+
+fe$cpf::psh	r0			;sp.len - block length
+	clr	-(sp)			;sp.pag - result page number
+	stack	pag len			;
+	mov	f.efnm+fn.fil,100$+fn.fil ;copy the name
+	mov	f.efnm+fn.nam,100$+fn.nam ;
+
+	.enter	#area, #0, #100$, sp.len(sp), #0
+	bcc	10$			;fine
+5$:	message	<rError creating pool file> fil par=#100$
+	br	40$			;and quit
+
+;	Get the starting block in VM:
+
+10$:	.cstat	#area, #0, #f.ecsw 	;get the feature channel
+	bcs	5$			;
+	mov	f.ecsw+ch.sbl,r0 	;get the block number
+	assume	mmpib. eq 8.		;
+	ash	#sv008.,r0		;page number
+	mov	r0,(sp)			;store the page number
+
+;	Make the pool file permanent
+
+	mov	sp.len(sp),r1		;get the size again
+	dec	r1			;one block less
+	.writw	#area, #0, #50$, #1, r1	;write last block
+	bcc	20$			;fine
+	message	<rError writing pool file>
+	br	40$			;and continue
+20$:	.close	#0			;close it
+	bcc	30$			;
+	message	<rError closing pool file>
+	br	40$			;
+30$:	$cmkrnl	#f$eare, #fe$ipf p1=sp.pag(sp) p2=sp.len(sp) pic=yes
+	tst	(pc)+			;fine
+40$:	sec				;
+	pop	r0			;r0 = page number
+	inc	(sp)+			;forget length
+	return
+
+50$:	.word	0			;output buffer
+
+;	Pool filename and eve control
+
+100$:	.rad50	/vm filnampoo/		;pool file name
+	$evbeg				;set file
+	$evgro	sfi			;set file
+	$evcal	pro word dat=yes	;protection
+	.word	167000			;pro = (s:rwed,o:rwed,g:r,w:r)
+	$evcal	del word dat=yes	;deletion
+	.word	1			;protection against deletion
+	$evend				;
+.sbttl	init & delete pool
+
+;	Init pool
+;	Kernel routine
+; 
+;	p1	page number
+;	p2	block length
+
+fe$ipf::psh	@#m$kip6		;save par6
+	mov	rp.p1(r5),@#m$kip6	;
+	mov	#m$mpa6,r0		;r0 -> pool
+	mov	rp.p2(r5),r1		;get the block size
+	swab	r1			;r1 = word count
+60$:	clr	(r0)+			;clear it all
+	sob	r1,60$			;count it
+
+;	fill in the initial elements
+; 
+;	header
+;	empty
+;	end
+
+	mov	#m$mpa6,r0		;r0 -> first
+	mov	#m$mpa6+po.bbs,r1	;r1 -> empty
+	mov	rp.p2(r5),r2		;block size
+	swab	r2			;word size
+	asl	r2			;byte size
+	add	r0,r2			;past last byte
+	sub	#po.bbs,r2		;r2 -> last
+
+	mov	r1,(r0)			;po.suc
+	mov	r2,(r1)			;
+	mov	r0,(r2)			;
+	mov	r2,po.pre(r0)		;po.pre
+	mov	r0,po.pre(r1)		;
+	mov	r1,po.pre(r2)		;
+	mov	#pohdr.,po.typ(r0)	;make headers non-empty
+	mov	#pohdr.,po.typ(r2)	;
+	sub	r1,r2			;compute size of empty
+	mov	r2,po.len(r1)		;fill it in
+	pop	@#m$kip6		;
+	return
+
+;	delete pool file
+
+fe$dpf::.purge	#0			;delete pool file
+	mov	f.efnm+fn.fil,100$+fn.fil ;copy the name
+	mov	f.efnm+fn.nam,100$+fn.nam ;
+	.fprot	#area, #0, #100$, #0	;remove protection
+	.delete	#area, #0, #100$, #0	;delete it
+	return
+100$:	.rad50	/vm feanampoo/		;
+.sbttl	once
+
+once:	tst	shpdat		;got a date yet?
+	bne	10$		;yes
+	mov	r4,shpdat
+	mov	r5,shpid
+10$:	return
+
+twice:	cmp	shpid,#^rshp	;this RUST/XM?
+	beq	10$		;yes
+	message	<RUST/XM required>
+10$:	cmp	shpdat,#stbdat	;right date?
+	beq	20$		;yes
+	message	<Wrong release of RUST/XM>
+20$:	return
+.sbttl	data
+
+line:	.blkb	84.		;input line
+shpid:	.word	0		;r5 RUST/XM id
+shpdat:	.word	0		;RUST/XM system date
+f.efnm:	.rad50	/vm /		;feature filename
+f.enam:	.rad50	/      /
+	.rad50	/fex/
+f.ebls:	.word	0		;feature length in blocks
+f.ecsw:	.blkw	6		;feature channel information
+f.eabt:	.word	0		;address of abort bypass
+f.easp:	.word	0		;abort sp
+
+f$ewks::.word	0		;workspace
+f$eare::			;feature area
+area:	.blkw	10.		;
+types:	.rad50	/            /	;csigen filetypes
+dummy:
+
+.end	start
+

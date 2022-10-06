@@ -1,0 +1,2238 @@
+.if ne 0
+Fid		File id - setup on enter
+		cleared after delete
+
+Buffer insert
+		
+cu.len		incremented
+cu.wri		incremented
+c$ublk		incremented
+
+buffer remove
+opn$ set	Setup fib
+		blk=fib
+.endc
+networ=0
+.title	spoolx
+.include "lib:share.mac"
+.include "rfs:spodef.mac"
+$apdef		;acp
+$chdef		;channel & csw
+$dcdef		;device codes
+$dedef		;device record
+$emdef		;emt codes
+$erdef		;errors
+$fedef		;feature
+$fndef		;filename
+$iodef		;i/o
+$jbdef		;job
+$mmdef		;mmu
+$mudef		;mutex
+$podef		;pool
+$prdef		;pcr
+$qudef		;queues
+$rpdef		;request package
+$sedef		;set
+$srdef		;system rights
+$stdef		;scheduler
+$svdef		;shift values
+$tpdef		;transaction packet
+$txdef		;text
+$undef		;unit
+
+
+;	SHAREplus pipeline spooler
+
+$imgdef	SPOOLX 2 0
+$imginf	fun=shp cre=hammo aut=ewm use=<SHAREplus pipeline spooler>
+$imgham	yrs=<1986,1987> oth=<>
+;	%date
+$imgdat	<01-Mar-2008 15:59:04.22>
+;	%edit
+$imgedt	<234  >
+;
+;	%build	
+;	goto 'p1'
+;	macro	rfs:spoolx	/object:rfb:
+;	link:
+;	link/load rfb:spoolx,lib:share	/exe:rfb:spoolx/map=rfb:spoolx/global
+;	server:20000
+;	
+;	!blank line required by LINK
+;	%end
+;
+;	Eight diversions, consignments and printers supported.
+;
+;	c$urec	single kernel reference point for spoolers.
+;	rsp	ACP spooler support
+;
+;	standard:
+;
+;	diversion	sta req dev int:con seq
+;	consignment	sta req pri int:con seq
+;	printer		sta req pri int:con seq
+;	despool		
+;
+;	pipeline:
+;
+;	diversion	sta req dev unu unu unu
+;	consignment	sta req pri dsu dpr unu
+;	printer		sta req pri dir ibl unu
+;
+;	sta	status
+;	req	requests
+;	dev	device name
+;	pri	printer name
+;	int	intermediate device name
+;	con	consignment name
+;	seq	sequence number
+;	unu	unused
+;	dsu	directory entry queue header
+;	dpr
+;	dir	pointer to current directory entry
+;	ibl	next block from spoolf.sys
+;
+;	que	default intermediate device, /SYSTEM default assignment
+;	qu:	dummy device - installed by boot
+;
+;	spool lp
+;	divert lp lpq
+;	consign lpq lp
+;	install/printer lp
+;
+;	divert/pipe lp
+;
+;	Sequence	dev:queSEQ.QUE. SEQ = AAA:ZZZ = 17576 files.
+;
+;	Find file	ACP wildcard support
+;
+;	Spool should purge unused files and printers so that devices
+;	and volumes can be removed and dismounted.
+.sbttl	mainline
+
+;	Spooler mainline loop
+;
+;	Kernel pool is mapped.
+;	Poll all printers for work to do.
+;	Suspend when nothing to do.
+;	We run at priority=0, top_priority=4
+
+.psect	spool				;
+start:	mov	sp,c$uusp		;remember our stack
+					;r4/r5 from SHAREplus
+	call	cu$onc			;go locate us
+					;
+;	Poll database for work to do
+;	Runs a number of subprocesses
+;???	Do only one task each run to keep the CPU free
+;
+;	r3 ->	consignment
+;	r4 ->	printer
+;	r5 ->	despool record
+
+cu$pol:					;poll
+	call	cu$upc			;update consignments
+	mov	#c$uprt,r4
+	mov	#c$udsr,r5		;despool records
+					;
+10$:
+.if ne networ
+	bit	#cusfe$,c$uctl		;spool file error?
+	beq	13$			;nope
+	call	cu$reo			;yes - try to reopen
+.endc
+13$:	bit	#cusri$,c$uctl		;buffer served?
+	bne	15$			;yes
+	call	cu$sri			;start ring buffer server
+15$:	call	cu$cpr			;check the printer
+	bcs	50$			;nothing doing
+					;
+20$:	mov	cu.usp(r5),r0		;get the stack
+	mov	r5,r1			;get the top
+	add	#cu.spt-6,r1		;point to the top
+30$:	psh	(r0)+			;get back their stack
+	cmp	r0,r1			;done enough?
+	blo	30$			;no
+	mov	(r0)+,r1		;
+	mov	(r0)+,r2		;restore the registers
+	mov	(r0)+,r3		;
+	jmp	@(sp)+			;
+					;
+cu$pau=.				;pause - they are done
+	mov	r5,r0			;get their stack
+	add	#cu.spt,r0		;point to their stack
+	mov	r3,-(r0)		;save r3
+	mov	r2,-(r0)		;
+	mov	r1,-(r0)		;
+40$:	pop	-(r0)			;unfill the stack
+	cmp	sp,c$uusp		;all done?
+	blo	40$			;no
+	mov	r0,cu.usp(r5)		;yes - save it
+					;
+50$:	add	#cu.ebs,r4		;get the next
+	add	#cu.drs,r5		;get the next despool record
+	cmp	r5,#c$udsx		;end of them?
+	blo	10$			;no
+	bit	#cusri$,c$uctl		;buffer served?
+	bne	60$			;yes
+	call	cu$sri			;serve ring
+60$:	call	cu$cex			;check exit
+	.spnd				;
+	call	cu$cex			;check exit
+	br	cu$pol			;and look again
+.sbttl	check consignment status
+
+;	Update consignment status
+
+	assume	cu.sta eq 0		;
+cu$upc:	mov	#c$ucot,r4		;get consignment table
+	mov	#cumcn.,r3		;count them
+					;
+10$:	tst	cu.dev(r4)		;is this one active?
+	beq	50$			;no
+	bit	#custo$,cu.req(r4) ;should we stop it?
+	beq	20$			;no
+	bis	#custo$,(r4)		;yes
+					;
+20$:	bit	#custa$,cu.req(r4)	;should we start it?
+	beq	50$			;no
+	bic	#custa$!custo$,cu.req(r4)	  ;yes - start it
+	bic	#cusus$!custo$!cuier$!cuoer$,(r4) ;clear out errors
+	bis	#cunew$,(r4)		;signal new work
+					;
+	mov	#c$uprt,r2		;get printer record
+	mov	#cumpn.,r1		;count them
+30$:	cmp	cu.pri(r4),cu.pri(r2)	;same consignment?
+	bne	40$			;no
+	bis	#curun$,(r2)		;yes - set it active
+	bis	#custa$,cu.req(r2) ;and start it
+40$:	add	#cu.ebs,r2		;do the next
+	sob	r1,30$			;do them all (may be multiple printers)
+					;
+50$:	add	#cu.ebs,r4		;next consignment
+	sob	r3,10$			;do them all
+	return				;
+.sbttl	check the printer status
+
+;	Check printer status
+;
+;	Transfer some request states
+;	See if printer can run
+
+cu$cpr:					;check printer
+	tst	cu.pri(r4)		;got a printer?
+	beq	100$			;no
+
+;	Check i/o busy and pending abort
+
+10$:	bit	#cubus$,(r4)		;is it busy with I/O?
+	beq	20$			;no
+	bit	#cuabo$,cu.req(r4) ;should we abort it?
+	beq	100$			;no
+	bit	#cuabo$,(r4)		;already attempted an abort?
+	bne	100$			;yes - don't do it twice
+	bis	#cuabo$,(r4)		;remember we are aborting
+	bit	#cupip$,(r4)		;this pipelined?
+	bne	15$			;yes - ignore input channel
+	.abtio	cu.ich(r4)		;abort both
+15$:	.abtio	cu.och(r4)		;
+	br	100$			;its busy
+
+;	Check stopped and pending start
+
+20$:	bic	#cuabo$,(r4)		;abort is done
+	bit	#custo$!cusus$,(r4)	;is it stopped somehow?
+	beq	30$			;no
+	bit	#custa$,cu.req(r4)	;pending start?
+	beq	30$			;no
+	bic	#custo$!cusus$!cuier$!cuoer$,(r4) ;yes - clear these
+	bic	#custa$,cu.req(r4)	;
+	br	90$			;and run it
+
+;	check anything for it to do
+
+30$:	bit	#custo$,(r4)		;is it stopped?
+	bne	100$			;yes
+	bit	#curun$!cunew$,(r4)	;should we run it
+	beq	100$			;no - forget it
+					;
+90$:	bic	#curun$,(r4)		;run it
+	tst	(pc)+			;run this
+100$:	sec				;do not run it
+	return				;
+.sbttl	dequeue spool file
+
+;	Dequeue spool file
+;
+;	r3 ->	consignment (obtained)
+;	r4 ->	printer
+;	r5 ->	despool
+; ???	Requeue
+
+	assume	cu.sta eq 0
+cu$stq:	bis	#custo$,(r4)		;set stopped
+	br	cu$pac			;
+cu$suq:	bis	#cusus$,(r4)		;set suspended
+cu$pac:	bic	#cuact$,(r4)		;clear active
+	bic	#cunex$,cu.req(r4)	;clear next
+	call	cu$pau			;and pause
+	bic	#custo$!cusus$,(r4)	;clear stopped & suspended
+	bis	#cuact$,(r4)		;set active
+
+cu$deq: call	cu$syn			;should we stop
+	bcs	cu$stq			;yes
+					;
+	bit	#cuoer$!custo$,(r4)	;got any i/o errors?
+	bne	cu$stq			;yes - stop
+	call	cu$gnc			;get a consignment
+	bcs	cu$suq			;none there - suspend ourselves
+					;
+cu$agn:	call	cu$pur			;close the channels
+	call	cu$syn			;got a stop command?
+	bcs	cu$stq			;yes - go stop us
+	call	cu$chc			;is consignment still valid?
+	bcs	cu$deq			;no - look for some other
+					;
+	call	cu$opi			;open input
+	bcs	cu$ier			;input error
+	tst	cu.dle(r5)		;did it find a file?
+	beq	cu$deq			;no - consignment is done
+					;
+10$:	call	cu$opo			;open output
+	bcs	cu$oer			;failed - printer error
+					;
+25$:	clr	cu.dbl(r5)		;init block number
+	br	40$			;
+30$:	cmp	cu.dbl(r5),cu.dle(r5)	;was this all?
+	bhis	60$			;yes
+	bis	#cubus$,(r4)		;pause
+	call	cu$rea			;read the next block
+	bcs	cu$ier			;oops
+	call	cu$pau			;go pause
+	bit	#cuier$,(r4)		;got an error?
+	bne	cu$ier			;yes
+	bis	#cubus$,(r4)		;pause
+	call	cu$wri			;go write
+	bcs	cu$oer			;oops
+	call	cu$pau			;go pause
+	bit	#cuoer$,(r4)		;got an output error?
+	bne	cu$oer			;yes
+	inc	cu.dbl(r5)		;do the next block
+					;
+40$:;	call	cu$req			;check for requeue
+	call	cu$syn			;synchronise
+	bcs	50$			;not a stop
+	bit	#cuabo$!cunex$,r0	;start/next or start/abort
+	bne	60$			;yes
+45$:	bit	#cutop$,r0		;start/top?
+	bne	25$			;yes
+	br	30$			;no - continue
+
+;	stop
+
+50$:	bit	#cuabo$,r0		;stop/abort?
+	bne	60$			;yes
+	bit	#cunex$,r0		;stop on next?
+	bne	45$			;yes
+					;
+	bis	#cusus$,(r4)		;suspend
+55$:	call	cu$pau			;and pause
+	bit	#cusus$,(r4)		;still suspended?
+	bne	55$			;yes
+	br	40$			;and look again
+					;
+60$:	call	cu$del			;delete the file
+	bcs	cu$ier			;input error
+70$:	jmp	cu$agn			;and try again
+
+;	output error 
+
+cu$oer:	bic	#cuier$!cuoer$,(r5)	;turn off ours
+	bis	#custo$!cuoer$,(r4)	;?SPOOL-F-Output error lp:
+	call	cu$pur			;close the channels
+	jmp	cu$stq			;and stop
+
+;	input error 
+
+cu$ier:	bit	#cupip$,(r4)		;this pipelined?
+	beq	10$			;nope
+	bis	#cusfe$,c$uctl		;yes - flag reopen
+	psh	r1			;save this
+	mov	cu.dir(r4),r1		;get the entry
+	bis	#cuabt$,di.ctl(r1)	;abort this file
+	pop	r1			;restore
+	br	30$			;
+10$:	bic	#cuier$!cuoer$,(r5)	;turn off ours
+	call	cu$chc			;check the consignment
+	bcs	20$			;its stopped
+	bis	#custo$!cuier$,(r3)	;stop this guy
+20$:	call	cu$pur			;close the channels
+30$:	jmp	cu$deq			;and try another queue
+
+;	Synchronise with spooler commands
+; 
+;	stop		stop the spooler and wait
+;	stop/next	finish current file and stop
+;	stop/abort	abort current file and stop
+; 
+;	start		continue
+;	start/abort	abort current file, start next
+;	start/next	abort current file, start next
+;	stop/top	restart current file
+;	start/top	restart current file
+; 
+;	c=1	just stop the spooler
+
+cu$syn::				;synchronise with the job
+	call	cu$cex			;check for pending exit
+	mov	cu.req(r4),r0		;get the request
+	bic	#cuabo$!cutop$!cureq$,cu.req(r4)
+	bic	#^c<cuabo$!cutop$!cureq$!cunex$>,r0
+	bit	#custo$,cu.req(r4)	;time to stop?
+	bne	10$			;yes
+	tst	(pc)+			;no
+10$:	sec
+	return
+.sbttl	open and close
+
+;	Open files
+;
+;	Open the input and output files
+;	The ACP performs the wildcard search
+;
+;	nam	_*h	highest sequence number
+;	nam	_*l	lowest sequence number
+;
+;	seq	^rspo - signals wildcard spooler search to ACP
+;	ch.use	returns sequence number found
+;
+;	r3 ->	consignment
+;	r4 ->	printer
+;	r5 ->	despool
+;	spwih.,,29.*40.+<^r  h> ;_*h
+;
+;	c=1	directory error
+;	c=0	cu.dle(r5)<>0 => new file
+;	c=0	cu.dle(r5)==0 => no more files
+;
+;	Get the next input file
+;	Delete zero length files immediately
+
+	assume	cu.sta eq 0
+cu$opi:					;open input
+5$:	bic	#cunew$,(r3)		;no files to despool, assume not done
+	clr	cu.dle(r5)		;assume no file to spool
+	bit	#cupip$,(r4)		;this pipelined?
+	bne	30$			;yes
+	mov	r5,r1			;build the name
+	add	#cu.fnm,r1		;
+	mov	cu.int(r4),(r1)			;dev
+	mov	cu.con(r4),fn.fil(r1)		;con
+	mov	#29.*40.+<^r  l>,fn.nam(r1)	;/_*l/
+	mov	#^rque,fn.typ(r1)		;que
+	.purge	cu.ich(r5)		;purge first
+	.lookup	#c$uare,cu.ich(r5),r1,#^rspo ;try to find one
+	bcc	10$			;found one
+	cmpb	j$berr,#1		;file not found?
+	beq	15$			;yes - consignment is done
+	bis	#cuier$!custo$,(r3)	;input error on consignment
+	br	20$			;
+
+;	Use cstat to get the actual filename
+
+10$:	mov	r0,cu.dle(r5)		;save the length
+	.cstat	#c$uare, cu.ich(r5), #c$ucst ;get the status
+	mov	c$ucst+ch.use,cu.fnm+fn.nam(r5) ;
+	mov	c$ucst+ch.use,cu.seq(r4)  ;remember the sequence number
+
+;	Skip zero length files
+
+	tst	cu.dle(r5)		;does this file exist?
+	bne	15$			;yes
+	call	cu$del			;just delete zero length files
+	bcc	5$			;fine
+	br	20$			;delete failed
+15$:	tst	(pc)+			;c=0
+20$:	sec				;c=1
+	return				;
+
+;	pipeline open
+
+30$:	movi	cu.dsu,r3,r1		;point to the queue
+	mov	r1,r0			;get a copy
+40$:	cmp	(r1),r0			;end of queue?
+	beq	50$			;yes
+	mov	(r1),r1			;get first entry
+	bit	#cuhol$,di.ctl(r1)	;this one hold?
+	bne	40$			;yes - ignore
+	remque	r1			;remove from queue
+	bis	#cupri$,di.ctl(r1)	;entry is printing
+	mov	r1,cu.dir(r4)		;save entry
+	mov	di.fib(r1),cu.ibl(r4)	;setup first input block
+	add	#di.dev,r1		;point to the name
+	movi	cu.fnm,r5,r0		;point to despool filename
+	mov	(r1)+,(r0)+		;copy in the name
+	mov	(r1)+,(r0)+		;copy in the name
+	mov	(r1)+,(r0)+		;copy in the name
+	mov	(r1)+,(r0)+		;copy in the name
+	mov	#-1,cu.dle(r5)		;dummy length
+50$:	clc				;no error on lookup
+	return				;
+
+;	Open the printer for output
+;
+;	Called after input file is opened - filename setup
+
+cu$opo:	.purge	cu.och(r5)		;purge first
+	movi	cu.fnm,r5,r1		;build the name
+	mov	cu.pri(r4),(r1)		;open the output
+	.enter	#c$uare, cu.och(r5), r1, cu.dle(r5), #0
+	bcc	20$			;fine
+	bis	#cuoer$!custo$,(r3) ;consignment output error
+	bis	#cuoer$!custo$,(r4) ;printer output error
+	.purge	cu.ich(r5)		;turn off the input file
+	br	30$			;and quit
+20$:	tst	(pc)+			;fine
+30$:	sec				;forget this
+	return				;
+
+;	Delete the spool file
+;
+;	If the file does not delete then the spooler will hang.
+
+cu$del:	bit	#cupip$,(r4)		;this pipelined?
+	bne	20$			;yes
+	movi	cu.fnm,r5,r1		;build the name
+	mov	cu.int(r4),(r1)		;dev
+	.purge	cu.ich(r5)		;purge it
+	.delete	#c$uare, cu.ich(r5), r1, #0
+	bcc	10$			;fine
+	bis	#cuier$!custo$,(r3)	;input error on consignment
+10$:	return				;
+
+;	pipeline delete
+
+20$:	mov	cu.dir(r4),r1		;get the directory entry
+	beq	40$			;none there
+	clr	cu.dir(r1)		;** remove it
+	bit	#cuabt$!cudel$,di.ctl(r1) ;was this file aborted?
+	beq	30$			;nope
+	.purge	cu.och(r5)		;yes - purge channel
+30$:	clr	di.fid(r1)		;free this entry
+	psh	r2			;save this
+	insque	r1,r2,c$udqu+qu.pre	;insert it in directory queue
+	pop	r2			;restore register
+40$:	return				;
+
+cu$pur:					;close spool files
+	.purge	cu.ich(r5)		;purge input
+	.close	cu.och(r5)		;close output in case its a spooler
+	return				;
+.sbttl	read and write
+
+;	Read, write & I/O processor
+
+cu$rea:	bit	#cupip$,(r4)	;this pipelined?
+	bne	10$		;yes
+	call	cu$iop		;setup
+	.readc	r1, cu.ich(r5)	;read it
+	return			;c=1 => error
+10$:	jmp	cu$ipt		;call pipeline read
+
+cu$wri:	bit	#cupip$,(r4)	;this pipelined?
+	bne	10$		;nope
+	call	cu$iop		;setup
+	.writc	r1, cu.och(r5)	;write it
+	return			;c=1 => error
+10$:	jmp	cu$opt		;yes - call pipeline i/o
+
+cu$iop:	call	cu$cex		;check for pending exit
+	mov	#c$uare,r1	;get the area
+	mov	cu.dbl(r5),2(r1);blkn
+	mov	cu.bpt(r5),4(r1);buff
+	mov	#256.,6(r1)	;one block
+	mov	#cu$cmr,10(r1)	;completion
+	return
+
+;	Completion routine clears despooler pause
+;	Odd channels are output channels
+;	r0/r1 available
+;
+;	r0	csw
+;	r1	channel number
+
+cu$cmr:				;completion routine
+	psh	r1		;save this
+	asr	r1		;r1 = record number
+	mul	#cu.ebs,r1	;get the record number
+	add	#c$uprt,r1	;add in offset to printer record
+
+;	pipeline read entry point
+
+cu$cnt:	bit	#csher$,r0	;got an error?
+	beq	cu$crt		;no
+	mov	#cuier$,r0	;yes - assume input
+	asr	(sp)		;was it an output channel?
+	bcc	10$		;no
+	mov	#cuoer$,r0	;yes
+10$:	bis	r0,(r1)		;set the error
+
+;	entry point for ignored pipeline writes
+;	make sure we keep running
+
+cu$crt:	bic	#cubus$,(r1)	;clear i/o busy signal
+	bis	#curun$,(r1)	;and run it
+	.rsum			;resume us
+	tst	(sp)+		;
+	return			;
+.sbttl	consignment
+
+;	Find consignment for despooler.
+;
+;	r3 ->	consignment (returned if one found)
+;	r4 ->	printer
+;	r5 ->	despooler
+;
+;	Check current consignment linkage - it may have changed midstream.
+;	Check current printer linkage - it may have changed also.
+;	If consignment is blocked move onto next one.
+
+cu$fcp:					;find consignment/printer linkage
+	call	cu$chc			;check consignment linkage
+	bcs	cu$gnc			;we lost it - do another
+	bit	#custo$,(r3)		;is it blocked?
+	bne	cu$gnc			;yes
+	clc				;try this one again
+	return				;
+
+;	Get next consignment
+;
+;	r3 ->	consignment
+;	r4 ->	printer
+;	r5 ->	despooler
+
+cu$gnc::				;see if still active
+	clr	cu.cor(r5)		;we have no consignment
+	mov	#c$ucot,r3		;point to consignments
+	mov	#cumcn.,r2		;count them
+10$:	call	cu$cmc			;compare consignment
+	bcs	20$			;not for us
+	bit	#cunew$,(r3)		;is it dormant?
+	beq	20$			;yes
+	bit	#custo$,(r3)		;is it stopped?
+	beq	30$			;no
+20$:	add	#cu.ebs,r3		;get the next
+	sob	r2,10$			;look again
+	br	40$			;
+					;
+30$:	mov	r3,cu.cor(r5)		;remember the consignment
+	tst	(pc)+			;still relevant
+40$:	sec				;not for us
+	return
+
+;	Check consignment still active
+
+.enabl	lsb
+cu$chc:					;check consignment still active
+	mov	cu.cor(r5),r3		;get the consignment record
+	beq	50$			;we have none
+	bit	#cupip$,(r4)		;pipelined?
+	bne	20$			;yes
+	cmp	cu.con(r4),cu.con(r3)	;has the consignment name changed?
+	bne	50$			;yes - we have lost it
+cu$cmc:					;compare consignment
+	bit	#custo$,cu.req(r3)	;request to stop consignment?
+	beq	10$			;no
+	bis	#custo$,(r3)		;yes
+10$:	cmp	cu.pri(r4),cu.pri(r3)	;still the same queue?
+	bne	50$			;nope - ignore it
+	bit	#cupip$,(r4)		;pipelined?
+	beq	30$			;nope
+20$:	bit	#cupip$,(r3)		;consignment also?
+	bne	40$			;yes - fine
+	br	50$			;oops
+30$:	mov	cu.int(r3),cu.int(r4)	;yes - copy it across
+	mov	cu.con(r3),cu.con(r4)	;
+40$:	tst	(pc)+			;its still ours
+50$:	sec				;it is no longer us
+	return
+.dsabl	lsb
+.sbttl	exit & abort
+
+cu$cex:				;check exit
+	tst	c$uccf		;ctrl/c typed?
+	bmi	10$		;yes
+	return			;
+10$:	jmp	cu$urv		;delete kernel record
+.sbttl	pipeline i/o
+
+;	Pipeline I/O
+;
+;	Restore the blocks from the disk
+;
+;	r4	printer record
+;	r5	despool record
+
+	.enabl	lsb
+cu$ipt:					;restore block from disk
+	mov	cu.dir(r4),r1		;get directory entry
+	tst	di.fid(r1)		;this active?
+	beq	40$			;nope
+	cmp	di.len(r1),cu.dbl(r5)	;any more blocks?
+	bhi	10$			;yes
+	bit	#cufin$,di.ctl(r1)	;file completed?
+	beq	30$			;nope
+	mov	di.len(r1),cu.dle(r5)	;yes - setup final length
+	br	30$			;and stop this one
+10$:	bit	#curea$,c$uctl		;read request pending?
+	beq	20$			;nope
+	br	10$			;check again
+20$:	bis	#curea$,c$uctl		;setup for reading
+	mov	r4,c$upri		;save printer record for errors
+	mov	#c$uare,r1		;get the area
+	mov	cu.ibl(r4),2(r1)	;setup input block
+	mov	cu.bpt(r5),4(r1)	;setup buffer
+	mov	#256.,6(r1)		;the word count
+	mov	#cu$icm,10(r1)		;completion routine
+	.readc	r1,#20			;read it
+	return				;c=1 => error
+					;
+30$:	dec	cu.dbl(r5)		;do not count this
+35$:	bis	#cunwr$,(r4)		;stop writing - request run
+	br	60$			;
+					;
+40$:	bis	#cuier$,(r4)		;input error
+	br	60$			;
+
+;	output routine
+
+cu$opt:
+	bit	#cunwr$,(r4)		;nothing to write?
+	bne	50$			;yes
+	mov	#c$uare,r1		;get the area
+	mov	cu.dbl(r5),2(r1)	;setup output block
+	mov	cu.bpt(r5),r0		;get buffer pointer
+	mov	#254.,6(r1)		;get the word-count -(ignore ctl words)
+	sub	(r0)+,6(r1)		;reduce by unused words
+	mov	(r0)+,cu.ibl(r4) 	;setup next input block
+	mov	r0,4(r1)		;setup buffer
+	mov	#cu$cmr,10(r1)		;completion routine
+	mov	cu.dir(r4),r0		;get directory entry
+	bit	#cudel$!cuabt$,di.ctl(r0) ;this file stopped?
+	bne	60$			;yes - ignore
+	.writc	r1, cu.och(r5)	 	;start the write
+	return				;
+					;
+50$:	bic	#cunwr$,(r4)		;once-only for nowrite
+60$:	psh	r1			;sic] for completion return
+	mov	r4,r1			;completion routine printer address
+	clr	r0			;say no error
+	jmp	cu$crt			;use completion routine return
+	.dsabl	lsb			;
+					;
+
+;	input completion routine	
+
+cu$icm:	pshs	<r1,r4>		;save these
+	mov	c$upri,r1		;get the printer record
+	mov	cu.ibl(r1),r4		;get the block number
+	call	cu$dbl			;deallocate the block
+	pop	r4			;restore r4
+	bic	#curea$,c$uctl		;no read active
+	jmp	cu$cnt			;continue completion routine
+c$upri:	.word	0			;despool record of current read
+.sbttl	serve ring buffer
+
+;	Serve ring buffer
+
+cu$sri:					;serve ring
+	bis	#cusri$,c$uctl		;say we`re active
+	tst	c$ublk			;anything there?
+	beq	110$			;nope
+	pshs	<r0,r1,r2,r3,r4,r5>	;
+10$:	tst	c$ubct			;any more blocks?
+	bne	40$			;yes - serve the ring
+					;
+;	Start printing to free spool.sys
+					;
+	mov	#c$ucot,r5		;get consignment table
+	mov	#cumcn.,r4		;get a counter
+20$:	bit	#cupip$,(r5)		;pipelined?
+	beq	30$			;nope
+	add	#cu.dsu,r5		;point to the queue
+	tst	(r5)			;this one setup?
+	beq	25$			;nope
+	cmp	(r5),r5			;does it have files?
+	beq	25$			;nope
+	mov	(r5),r1			;get the fid
+	bit	#cupri$,di.ctl(r1)	;already printing?
+	bne	25$			;yes - ignore
+	bic	#cuhol$,di.ctl(r1)	;remove hold flag
+	call	cu$ena			;nope - enable this file
+25$:	sub	#cu.dsu,r5		;point to start of record
+30$:	add	#cu.ebs,r5		;point to the next
+	sob	r4,20$			;
+	br	90$			;
+
+;	kernel routine returns:
+;
+;	r1	directory entry
+;	r2	buffer pointer 
+;	r3	buffer map pointer
+
+40$:	$cmkrnl	#c$uare, #cu$mai, p0=#curem., pic=yes ;get entry from ring
+	bcs	90$			;nothing to do
+	dec	c$ublk			;one buffer done
+	call	cu$sav			;save the block
+90$:	pops	<r5,r4,r3,r2,r1,r0>	;restore
+100$:	return				;
+110$:	bic	#cusri$,c$uctl		;ring no longer served
+	return				;
+
+;	store buffer in spoolx.sys
+;
+;	r1 ->	directory entry
+;	r2 ->	buffer
+;	r3 ->	buffer map
+
+cu$sav:					;save block on disk
+	tst	di.fid(r1)		;this entry active?
+	beq	50$			;nope
+	bit	#cuopn$,di.ctl(r1)	;just opened?
+	beq	10$			;nope
+	bic	#cuopn$,di.ctl(r1)	;once-only
+;	dec	di.len(r1)		;convert to block number
+	call	cu$abl			;allocate a block
+	mov	r4,di.fib(r1)		;setup first input block
+	mov	r4,di.wtb(r1)		;setup output block
+	call	cu$enq			;put it in device queue
+	bit	#cuhol$,di.ctl(r1)	;this entry hold?
+	bne	10$			;nope
+	call	cu$ena			;nope - activate consignment
+10$:	bit	#cuwri$,c$uctl		;are we writing?
+	beq	15$			;nope
+	br	10$			;try again
+15$:	bis	#cuwri$,c$uctl		;setup for writing
+	mov	r3,c$udbu		;setup next buffer for deallocate
+	bit	#cudel$!cuabt$,di.ctl(r1) ;ignore this?
+	beq	20$			;nope
+	call	cu$cop			;free this buffer
+	br	30$			;no write nessesary
+20$:	mov	#256.,r5		;get the word count
+	sub	(r2),r5			;reduce
+	psh	di.wtb(r1)		;get the output block
+	call	cu$abl			;get next block
+	mov	r4,di.wtb(r1)		;save next block
+	mov	r4,cu.nxt(r2)		;save it on disk
+	pop	r4			;get back our block
+25$:	.writc	#c$uare, #20, r2, #256., #cu$cop, r4 ;
+.if ne networ
+	bcc	30$			;fine
+	bis	#cusfe$,c$uctl		;setup spool file error
+	bis	#cuabt$,di.ctl(r1)	;abort the file
+.endc
+30$:	inc	di.len(r1)		;count the length
+	dec	di.bim(r1)		;one less
+	bne	50$			;more to do
+	bit	#cucls$,di.ctl(r1)	;file closed?
+	beq	50$			;nope
+	bis	#cufin$,di.ctl(r1)	;file is done
+	bit	#cuhol$,di.ctl(r1)	;is this entry hold?
+	beq	40$			;nope
+	bic	#cuhol$,di.ctl(r1)	;allow print
+	call	cu$ena			;put it in device queue
+40$:	mov	di.wtb(r1),r4		;get back last block number
+	call	cu$dbl			;we do not need that
+50$:	return				;
+
+cu$cop:	psh	r3			;save this
+	mov	c$udbu,r3		;get buffer for deallocate
+	beq	10$			;no buffer
+	$cmkrnl	#c$uare, #cu$mai, p0=#cudbu., pic=yes ;deallocate buffer
+10$:	bic	#cuwri$,c$uctl		;remove write active
+	call	cu$sri			;start next service
+	pop	r3			;
+	return				;
+
+c$udbu:	.word	0			;
+.sbttl	queue directory entry
+
+;	Queue directory entry
+;
+;	r1	directory entry
+;	r2	buffer
+;	r3	buffer map
+
+cu$enq:					;queue directory entry to device
+	mov	#c$ucot,r5		;point to consignment table
+	mov	#cumcn.,r0		;get number of consignments
+10$:	cmp	di.dev(r1),cu.pri(r5)	;this the same?
+	beq	20$			;
+	add	#cu.ebs,r5		;point to the next
+	sob	r0,10$			;do them all
+	clr	di.fid(r1)		;oops - not found
+	clr	di.csw(r1)		;
+	psh	r2			;
+	insque	r1,r2,c$udqu+qu.pre	;insert in free queue
+	pop	r2			;
+	br	30$			;
+					;
+20$:	psh	r5			;save this
+	add	#cu.dpr,r5		;put us at the end
+	mov	(r5),r5			;
+	insque	r1,r5			;insert us in queue
+	pop	r5			;
+	bis	#cuque$,di.ctl(r1)	;we are in queue
+30$:	return				;
+					;
+;	Enable consignment
+;
+;	r1 ->	directory entry
+
+cu$ena:
+	psh	r5			;
+	mov	#c$ucot,r5		;get consigment  table
+	mov	#cumcn.,r0		;
+10$:	cmp	di.dev(r1),cu.pri(r5)	;this the same?
+	beq	20$			;yes
+	add	#cu.ebs,r5		;point to the next
+	sob	r0,10$			;more to do
+	br	60$			;oops - not found
+20$:	bis	#cunew$,(r5)		;say new files
+	mov	#c$uprt,r5		;point to printer record
+	mov	#cumpn.,r0		;get number of consignments
+40$:	cmp	di.dev(r1),cu.pri(r5)	;this the same?
+	beq	50$			;
+	add	#cu.ebs,r5		;point to the next
+	sob	r0,40$			;do them all
+	br	60$			;
+50$:	bis	#curun$,(r5)		;start it
+60$:	pop	r5			;
+	return				;
+.sbttl	block allocation & deallocation
+
+;	Allocate a block
+;
+;	exit:
+;
+;	r4 = block number
+
+cu$abl:					;allocate a block
+.print	#cuab$l
+	psh	r1			;save regs
+5$:	mov	#c$ubit,r0		;get the bitmap
+	mov	c$ubis,r1		;bitmap size
+	clr	r4			;init block number
+10$:	tst	(r0)+			;anything free?
+	bne	20$			;yes
+	add	#16.,r4			;update block number
+	sob	r1,10$			;do the next
+	br	5$			;oops
+20$:	mov	-(r0),r1		;get the word
+	psh	r4			;save block number
+	clr	r4			;
+30$:	asr	r1			;check for a free one
+	bcs	40$			;fine
+	inc	r4			;next block
+	br	30$			;try again
+40$:	add	r4,(sp)			;finish block number
+	asl	r4			;make it a word offset
+	bic	c$uset(r4),(r0)		;get this block
+	pop	r4			;get block number
+	pop	r1			;get this back
+	dec	c$ubct			;one block less
+call	num
+	return				;
+
+;	Deallocate a block
+;
+;	r4 = block number		
+
+cu$dbl:					;deallocate block
+	psh	r0			;
+.print	#cudb$l
+call	num
+	mov	r4,r0			;get a copy
+	bic	#^c17,r0		;get low order
+	asl	r0			;as a word offset
+	ash	#-sv016.,r4		;get block number
+	asl	r4			;as a word offset
+	bis	c$uset(r0),c$ubit(r4)	;set the bit
+	pop	r0			;
+	inc	c$ubct			;one block more
+	return
+cuab$l:	.ascii	/A=/<200>
+cudb$l:	.ascii	/D=/<200>
+	.even
+
+num:	pshs	<r5,r2,r1,r0>		;
+	mov	r4,r1			;supply number
+	call	prtxxx			;
+	pops	<r0,r1,r2,r5>		;
+	return
+.sbttl	unconditional restart routine
+
+;	Unconditional restart routine
+;
+;	following routine is called if process exits or aborts
+
+cu$urv:
+	mov	#30.,r5			;get a wait counter
+5$:	bit	#curem$,c$uctl		;already done?
+	bne	20$			;yes
+	bis	#curem$,c$uctl		;say spooler will be removed
+	mov	#c$udir,r1		;get directory entries
+	mov	#cucnt.,r3		;
+10$:	bis	#cudel$!cuabt$,di.ctl(r1) ;invalidate entries
+	mov	r1,r2			;get a copy
+	add	#di.wqs,r2		;point to wait queue
+	cmp	(r2),r2			;this guy waiting?
+	beq	15$			;nope
+	mov	di.pcr(r1),r4		;get pcr address
+	$cmkrnl	#c$uare, #cu$kwa, pic=yes ;wake him up
+15$:	add	#di.bbs,r1		;point to the next
+	sob	r3,10$			;
+20$:	.twait	#c$uare,#100$		;wait a while
+	bit	#cusac$,c$uctl		;mainline active?
+	bne	30$			;yes - can't remove
+	tst	c$uact			;active files?
+	beq	40$			;nope - we can remove
+30$:	sob	r5,20$			;don't wait forever
+40$:	$cmkrnl	#c$uare, #cu$dpo, pic=yes	;delete pool element
+	.exit				;
+
+100$:	.word	0,2*55.			;wait two international seconds
+.sbttl	data
+
+c$uccf:	.word	0			;ctrl/c flag
+c$uusp:	.word	0			;user stack top
+c$uare:	.blkw	10.			;general purpose area
+c$ucst:	.blkw	6			;cstat area
+
+;	bitmap control data
+
+c$uset:	.word	1,2,4,10,20,40,100,200,400 ;
+	.word	1000,2000,4000,10000,20000,40000,100000
+c$ubct::.word	0			;block count
+c$ubis::.word	0			;number of bitmap words
+c$ubit::.rept	cumfl./16.		;maximum filesize = 10000. blocks
+	.word	0			;
+	.endr				;
+
+c$uiob::.blkw	cumrn.*256.		;i/o buffers for despool
+.sbttl	delete kernel record
+
+;	delete kernel record
+
+cu$dpo:	$cmsch				;
+	mov	@#s$pspp,r4		;get kernel record address
+	beq	30$			;it's none
+	movi	cu.bio,r4,r1		;get a copy
+	mov	#b$ybio,r0		;get bypass list
+	call	100$			;remove us from chain
+	$obtain	#s$yque			;lock system process
+	$delpo	r4			;delete the element
+	$divest	#s$yque			;free system process
+30$:	clr	@#s$pspp		;no record
+	clr	@#p$hurv		;remove restart vector
+	$cmpro				;back to process mode
+	return				
+
+;	remove from bypass list
+
+100$:	cmp	(r0),r1			;this us?
+	beq	110$			;yes
+	mov	(r0),r0			;no - chain
+	bne	100$			;do the next
+	br	120$			;not found
+110$:	mov	(r1),(r0)		;remove us
+120$:	return				;
+
+c$umen::
+	assume	.-start+1000 lt 20000	;par0 exhausted
+.sbttl	kernel server
+
+;	Kernel server
+;
+;	The following code is mapped to kernel 
+;
+;	r4 = pcr address of spooler process
+
+.psect	server
+
+cu$sst::
+cu$mai:					;mainline kernel calls
+	mov	rp.p0(r5),r0		;get the function
+	jmp	@c$umai(r0)		;call kernel routine
+map	cuoff.,,<.-cu$mai>		;offset to kernel routine
+
+	lodis.=m$mpa6-m$mpa2		;
+	stack	ret op1 r0		;
+cu$ser:					;server routine
+	pshs	<m$kip6,r5,r4,r3,r2,r1> ;save registers
+	stack	r1 r2 r3 r4 r5 op6 ker op1 r0
+	mov	@#s$pspp,r4		;get kernel record
+	mov	(r4),r4			;get pcr address
+	cmp	r0,#cumax.		;too high?
+	bhis	10$			;yes - ignore
+	bis	#cusac$,c$uctl		;set server active
+	bic	#stbyp$,@#s$csta	;open scheduler
+	asl	r0			;get dispatch offset
+	call	@c$urou(r0)		;call the routine
+10$:	pops	<r1,r2,r3,r4,r5,m$kip6> ;restore registers
+	bis	#stbyp$,@#s$csta	;reset bypass lock
+	bic	#cusac$,c$uctl		;inactivate server
+	return
+
+;	routine dispatch table
+
+c$urou:	.word	cu$opn,cu$bio,cu$cls,cu$abt ;dispatch table
+
+;	dispatch table for mainline kernel calls
+
+c$umai:	.word	cu$rem,cu$dbu		;cmkrnl dispatch table
+.sbttl	cu$opn
+
+;	following routine is called from acp
+;	check for diverted device - change request
+;	
+;	r4		pcr address
+;
+;	sp.r2 ->	device record
+;	sp.r3 ->	unit record
+;	sp.r4 ->	csw
+;	sp.r5 ->	tp
+;
+
+	stack	ret r1 r2  r3  r4  r5 op6 ker op1 r0
+	stack	ret r1 der unr csw tp op6 ker op1 r0
+cu$opn:					;spooler open
+	bit	#curem$,c$uctl		;spooler removed?
+	bne	70$			;yes - no diversion
+	call	cu$fdv			;find the device
+	bcs	70$			;not spooled
+	cmpb	a$popr,#acloo.		;this a lookup?
+	bne	20$			;nope
+	bit	#cudlg$,(r1)		;/LOOKUP specified?
+	beq	10$			;nope
+	mov	#acent.,a$popr		;change the operation code
+	br	30$			;
+					;
+;	channel to spooled device opened by .lookup
+;	do not allow i/o on channel
+
+10$:	bis	#csnwr$!csnre$,@sp.csw(sp) ;stop all i/o
+	br	70$			;and go on
+
+20$:	cmpb	a$popr,#acent.		;this an enter?
+	bne	70$			;nope - check close
+30$:	bit	#cupip$,(r1)		;pipelined?
+	beq	40$			;nope
+	jmp	cu$ent			;yes - pipeline enter
+40$:	mov	sp.csw(sp),r4		;get the channel status word
+	tst	a$pp2			;got an explicit size?
+	ble	50$			;nope
+	inc	a$pp2			;yes - PIP wants extra block
+
+;	change the filename
+
+50$:	mov	cu.int(r1),a$pfna	;replace the device
+	mov	cu.con(r1),a$pfna+fn.fil ;the consignment name
+	call	cu$ges			;get the sequence number
+	mov	r0,a$pfna+fn.nam	;the sequence number
+	mov	#^rque,a$pfna+fn.typ	;and the filetype
+	mov	#acseq$!aclen$!acopn$,a$pcon ;change control to enter
+	mov	#arcre$,a$puad		;change user access right defaults
+	clr	(r4)			;remove device index
+	bit	#cudnp$,(r1)		;/NOPURGE specified?
+	beq	60$			;nope
+	bis	#csnpu$,(r4)		;yes - set nopurge bit
+60$:	tst	(pc)+			;c=0 - we diverted
+70$:	sec				;c=1 - no diversion
+	return				;
+.sbttl	close spool file
+
+;	Close spooler file		
+;	
+;	files closed with .QUE filetype trigger the spooler
+;	set consignment NEW flag
+;	wakeup and revive SPOOL process
+;	
+;	r2 ->	consignment (if found)
+
+cu$cls:					;
+	cmpb	a$popr,#acclo.		;this a close?
+	bne	70$			;nope - check purge
+	cmp	a$pfna+fn.typ,#^rque	;this a spool file?
+	bne	cu$jco			;nope - check pipelined
+					;
+10$:	mov	#c$ucot,r1		;point to consigment record
+	mov	#cumcn.,r0		;count them
+20$:	cmp	a$pfna+fn.fil,cu.con(r1) ;this the consignment
+	beq	30$			;yes
+	add	#cu.ebs,r1		;nope
+	sob	r0,20$			;try again
+	br	80$			;not found - ignore
+					;start the consignment
+30$:	bis	#cunew$,(r1)		;remember it has work to do
+	mov	#c$uprt,r2		;point to printer record
+	mov	#cumpn.,r0		;count them
+40$:	cmp	cu.pri(r1),cu.pri(r2)	;same consignment?
+	bne	50$			;nope
+					;start printer
+	bis	#curun$,(r2)		;yes - set it active
+50$:	add	#cu.ebs,r2		;do the next
+	sob	r0,40$			;do them all (maybe multiple printers)
+	call	cu$wak			;wake spooler process
+					;
+60$:	bit	#setid$,p$hset		;should we identify it?
+	beq	80$			;nope
+	mov	#erspf.,r0		;supply the code
+	call	er$dis			;display the message
+	br	80$			;and return
+70$:	cmp	a$popr,#acpur.		;this a purge?
+	beq	cu$jco			;yes - call close/purge routine
+80$:	return				;
+
+cu$jco:	jmp	cu$clo			;
+.sbttl	abort i/o
+
+;	Abort I/O
+
+	stack	ret r1 r2  r3  r4  r5 op6 ker op1 r0
+	stack	ret r1 r2  r3  csw r5 op6 ker op1 r0
+cu$abt:	mov	sp.csw(sp),r0		;get csw
+	call	cu$fnd			;fine the entry
+	bcs	30$			;oops
+	bit	#cucls$,di.ctl(r1)	;already closed?
+	bne	10$			;yes
+	dec	c$uact			;one less active
+10$:	bis	#cuabt$!cucls$,di.ctl(r1) ;
+	bit	#cuwai$,di.ctl(r1)	;waiting for service?
+	beq	20$			;nope
+	psh	r4			;yes - start it
+;	bic	#cuwai$,di.ctl(r1)	;no longer waiting
+	mov	di.pcr(r1),r4		;start it up
+;	add	#di.wqs,r1		;
+;	$cmsch				;block scheduler
+;	remque	r1			;take it off it's queue
+;	$cmpro				;
+;	sub	#di.wqs,r1		;
+	call	cu$wak			;wake it up
+	br	30$			;di.csw cleared by wait routine
+20$:	clr	di.csw(r1)		;
+30$:	return				;
+.sbttl	enter file 
+
+;	Enter file
+;
+;	sp.der	device record
+;	sp.unr	unit record
+;	sp.csw	csw
+;	sp.tp	tp package
+;
+;	r1	diversion record
+
+cu$ent:	inc	c$ucid			;get next id
+	mov	r1,r2			;save diversion record
+	$cmsch				;block scheduler
+	remque	r1,c$udqu,succ=30$	;remove an entry
+	$cmpro				;back to process mode
+	.print	#70$			;we failed
+	.soft	1			;directory full
+;
+; ???	wait for an entry
+;
+
+30$:	inc	c$uact			;one more active file
+	bis	#csspl$!csnpu$,@sp.csw(sp) ;set spooler & nopurge bit
+	psh	r1			;save start of entry
+	add	#di.fid,r1		;skip queue header
+	mov	c$ucid,(r1)+		;allocate entry
+	$cmpro				;free scheduler
+	mov	#a$pfna,r0		;
+	mov	#4,r3			;get a counter
+40$:	mov	(r0)+,(r1)+		;put in filename
+	sob	r3,40$			;do them all
+	pop	r1			;restore pointer
+	mov	sp.csw(sp),di.csw(r1)	;di.csw	- address of channel status word
+	mov	@#p$hpcr,di.pcr(r1)	;di.pcr	- process control record
+	mov	#cuopn$,di.ctl(r1)	;di.ctl - entry control
+	bit	#cuhol$,(r2)		;this diversion hold?
+	beq	50$			;nope
+	bis	#cuhol$,di.ctl(r1)	;yes - set this entry hold
+50$:	clr	di.wtb(r1)		;di.wtb	- current block
+	clr	di.len(r1)		;di.len	- length of file
+	clr	di.bim(r1)		;di.bim	- no block to write
+	clr	di.fib(r1)		;di.fib	- first input block
+	call	cu$abu			;allocate & map buffer
+;	bit	#???,???		;banner page required?
+;	beq	60$			;nope
+;	call	cu$ban			;build banner page
+60$:	sec				;no standard diversion
+	return				;
+
+70$:	.asciz	/?SPOOLX-E-Directory full/
+	.even
+.sbttl	close spool file
+
+;	Close spool file
+;
+;	r4	pcr address of mainline
+
+	.enabl	lsb
+cu$clo:	mov	sp.csw(sp),r0		;get csw address
+	bit	#csspl$,(r0)		;this a spool file?
+	beq	40$			;nope
+	call	cu$fnd			;find our enry
+	bcs	40$			;oops
+	clr	di.csw(r1)		;no longer valid
+	bis	#cucls$,di.ctl(r1)	;set entry status
+	cmp	a$popr,#acpur.		;this a purge?
+	bne	5$			;nope
+	bis	#cudel$,di.ctl(r1)	;yes - mark for delete
+5$:	call	cu$ins			;insert last buffer
+					;
+;	check for identify		;
+					;
+	dec	c$uact			;one less active file
+	bit	#cudel$,di.ctl(r1)	;this one deleted?
+	bne	40$			;yes - ignore
+	bit	#setid$,p$hset		;should we identify it?
+	beq	40$			;nope
+	.print	#110$			;
+	mov	di.fid(r1),r1		;get the id
+prtxxx:	clr	r2			;
+	mov	#100$,r5		;get the list
+10$:	clr	r0			;
+	div	(r5)+,r0		;get next digit
+	beq	20$			;nothing
+	inc	r2			;flag print
+20$:	tst	r2			;should we print?
+	beq	30$			;nope
+	add	#'0,r0			;change to ascii
+	.ttyout				;and display it
+30$:	tst	(r5)			;any more?
+	bne	10$			;yes
+	.print	#120$			;
+40$:	return
+
+100$:	.word	10000.,1000.,100.,10.,1,0
+110$:	.ascii	<15><12>/?SPOOLX-I-Spool file ID: /<200>
+120$:	.byte	15,12,200
+	.even
+	.dsabl	lsb
+.sbttl	before i/o bypass
+
+;	Before I/O bypass
+;
+;	Following routine is called before i/o
+;
+;	r4	pcr address of mainline
+;
+;	io$mov assumes following register
+;
+;	r1	source page
+;	r2	source offset
+;	r3	destination page
+;	r4	destination offset
+;	r5	word count
+;
+
+	stack	ret r1 r2  r3  r4  r5 op6 ker op1 r0
+	stack	ret r1 der unr csw tp op6 ker op1 r0
+cu$bio:					;before i/o routine
+	bit	#curem$,c$uctl		;spooler remove?
+	beq	5$			;nope
+	bis	#csher$,@sp.csw(sp)	;yes - set hard error
+	return				;
+5$:	bit	#csspl$,@sp.csw(sp)	;this a spooler file?
+	beq	70$			;
+	mov	p$hcrp,r5		;get current request package
+	bitb	#iowri$,rp.mod(r5)	;this a write?
+	beq	70$			;nope - ignore
+	mov	sp.csw(sp),r0		;get cw
+	call	cu$fnd			;find or file
+	bcs	70$			;not found
+					;
+10$:	mov	di.buf(r1),r0		;get buffer address
+	call	cu$mbu			;map the buffer
+	assume	cu.fre eq 0		;
+20$:	bit	#curem$,c$uctl		;spooler removing?
+	bne	80$			;yes
+	bit	#csher$,@sp.csw(sp)	;this channel aborted?
+	bne	80$			;yes
+	mov	(r2),r0			;get free words
+	mov	p$hcrp,r5		;get request package
+	cmp	rp.wct(r5),r0		;can we fill block?
+	bhi	30$			;yes
+	mov	rp.wct(r5),r0		;nope reduce
+30$:	pshs	<r1,r2,r3,r4,r5>	;save some registers
+	psh	#256.			;get block size
+	sub	(r2),(sp)		;
+	asl	(sp)			;get byte offset
+	sub	r0,(r2)			;adjust free words
+	sub	r0,rp.wct(r5)		;do it twice
+	mov	r0,r5			;supply word count
+	mov	di.buf(r1),r0		;supply address
+	add	(sp)+,r0		;advance buffer address
+	psh	@#m$kip6		;save par6
+	mov	pr.phd(r4),@#m$kip6	;map pcr to par 6
+	psh	#40$			;setup return address
+	psh	#p$hcip+lodis.		;point to mapping registers
+	jmp	io$cvm			;convert address
+40$:	pop	@#m$kip6		;restore par6
+	mov	r1,r3			;setup destination page
+	mov	r2,r4			;and offset
+	mov	(sp),r0			;get old r5
+	mov	#io$cum,r2		;assume user-mode address
+	tst	rp.ps(r0)		;really user-mode?
+	bmi	50$			;yes
+	mov	#io$ckm,r2		;nope - kernel mode
+50$:	psh	rp.buf(r0)		;get buffer address
+	psh	r5			;get word count
+	asl	(sp)			;convert to byte count
+	add	(sp)+,rp.buf(r0)	;advance user buffer
+	pop	r0			;get user buffer to r0
+	call	(r2)			;call the routine
+	call	io$mov			;move the data
+	pops	<r5,r4,r3,r2,r1>	;restore registers
+	tst	rp.wct(r5)		;any more?
+	beq	60$			;nope
+	tst	(r2)			;any more space in block?
+	bne	20$			;yes - go on
+	call	cu$ins			;insert buffer in ring
+	call	cu$abu			;allocate & map buffer
+	br	20$			;and go on
+60$:	mov	sp.tp(sp),r5		;get the transaction package
+	clr	tp.rwc(r5)		;clear out word-count
+70$:	return				;
+
+;	channel is aborted		;
+
+80$:	bis	#csher$,@sp.csw(sp)	;yes - setup hard error
+	mov	sp.tp(sp),r5		;get tp
+	clr	tp.rwc(r5)		;clear out the word count
+	call	cu$ins			;insert last buffer
+	bit	#cucls$,di.ctl(r1)	;already closed?
+	bne	90$			;yes
+	dec	c$uact			;one less active
+90$:	bis	#cudel$!cucls$!cuabt$,di.ctl(r1) ;mark deleted
+	return				;and go
+.sbttl	get next sequence number
+
+;	Get next sequence number
+;
+;	cu.csn				;current sequence number
+;	cu.ch0				;character one
+;	cu.ch1				;character two
+
+cu$ges:					;
+	psh	r1			;save this
+	mov	#c$urec,r1		;get the record
+	mov	cu.csn(r1),r0		;get the current sequence number
+	inc	r0			;get the next
+	incb	cu.ch0(r1)		;next letter
+	cmpb	cu.ch0(r1),#26.		;end of letters?
+	blo	10$			;nope
+	clrb	cu.ch0(r1)		;yes
+	add	#<^r A >-<^r  Z>,r0	;get the next
+	incb	cu.ch1(r1)		;end of second characters?
+	cmpb	cu.ch1(r1),#26.		;end?
+	blo	10$			;nope
+	clrb	cu.ch1(r1)		;yes
+	add	#<^rA  >-<^r Z >,r0	;
+10$:	mov	r0,cu.csn(r1)		;save current sequence number
+	pop	r1			;
+	return				;
+.sbttl	find device
+
+;	Find device
+;
+;	Check for a spooled device
+;
+;	r2 - device index
+;	r3 - unit number
+
+cu$fdv:					;
+	mov	#c$udit,r1		;get diversion table
+	mov	#cumdn.,r0		;get number of diversions
+	psh	r2			;save device index
+10$:	mov	(sp),r2			;reset device index
+	mov	d$emap(r2),r2		;get device map
+	mov	de.dev(r2),r2		;get device name
+	bit	#cudlg$,(r1)		;this a logical queue
+	beq	20$			;nope
+	mov	a$pfna,r2		;yes - use penultimate name
+20$:	cmp	r2,cu.dev(r1)		;is this our guy?
+	beq	30$			;yes
+	add	#cu.ebs,r1		;point to the next
+	sob	r0,10$			;and try again
+	br	40$			;we failed
+30$:	tst	(pc)+			;c=0 - diversion found
+40$:	sec				;c=1 - no spooled device
+	pop	r2			;restore this
+	return				;
+.sbttl	map buffer
+
+;	Map process buffer to par6
+;
+;	r0 = buffer address
+;	
+;	return	
+;
+;	r2 = mapped address
+
+cu$mbu:	psh	r1			;save these
+	mov	pr.phd(r4),@#m$kip6	;map pcr to par 6
+	psh	#10$			;setup return address
+	psh	#p$hcip+lodis.		;point to mapping registers
+	jmp	io$cvm			;convert address
+10$:	mov	r1,@#m$kip6		;map buffer to par6
+	bic	#m$mpa1,r2		;adjust address for par6
+	bis	#m$mpa6,r2		;
+	pop	r1			;restore registers
+	return
+.sbttl	find the file in directory
+
+;	Find file in directory
+;
+;	destroys r0 & r1
+;
+;	entry:	r0	address of kernel csw
+;
+;	exit:	r1 -> directory entry
+
+cu$fnd:					;
+	psh	r2			;save register
+	mov	#c$udir,r1		;point to the directory
+	mov	#cucnt.,r2		;get the count
+10$:	tst	di.fid(r1)		;this in use?
+	beq	20$			;nope
+	cmp	r0,di.csw(r1)		;this our file?
+	beq	30$			;yes
+20$:	add	#di.bbs,r1		;point to the next
+	sob	r2,10$			;more to do
+	br	40$			;not found
+30$:	tst	(pc)+			;c=0 fine
+40$:	sec				;c=1 
+	pop	r2			;c=? restore r2
+	return
+.sbttl	allocate buffer		
+
+;	Allocate a buffer
+;
+;	r1 ->	directory entry
+;	
+;	exit:
+;
+;	r2	buffer address
+;	
+;	destroys r0,r3
+
+cu$abu:					;allocate a buffer
+10$:	tst	@#p$hsta		;did we abort?
+	bpl	5$			;nope
+	jmp	cu$sab			;yes - set abort bits
+5$:	bit	#curem$,c$uctl		;spooler removed?
+	bne	50$			;yes - abort
+	bit	#cuabt$,di.ctl(r1)	;this one aborted?
+	bne	50$			;yes - go on
+	bit	#csher$,@di.csw(r1)	;this channel aborted?
+	bne	50$			;yes
+	$cmsch				;block scheduling
+	mov	#c$ubum,r3		;get buffer map
+	psh	c$ucnt			;get the counter
+	mov	#c$ubuf,r0		;r0 = buffer address
+20$:	tstb	(r3)+			;this one free?
+	bne	40$			;yes
+	add	#512.,r0		;advance buffer address
+	dec	(sp)			;any more?
+	bne	20$			;yes
+
+;	wait for a buffer
+
+	tst	(sp)+			;skip counter
+	psh	r4			;save this
+	mov	r1,r3			;get a copy
+	add	#di.wqs,r3		;point to wait queue
+	mov	c$ubqu+qu.pre,r4	;assume at the end
+	bit	#cupri$,di.ctl(r1)	;already printing?
+	beq	30$			;fine
+	mov	#c$ubqu,r4		;put us in front
+30$:	insque	r3,r4			;insert in queue
+	bis	#cuwai$,di.ctl(r1)	;
+	pop	r4			;restore r4
+	$cmpro				;reenable scheduling
+	call	cu$wak			;yes - wake mainline
+	$float				;go up
+	$stall	#10$, prwhi.		;
+					;
+40$:	tst	(sp)+			;skip counter
+	clrb	-(r3)			;reserve buffer
+	$cmpro				;stop scheduler again
+	mov	r0,di.buf(r1)		;setup buffer address
+	mov	r3,di.map(r1)		;and pointer to buffer map
+	call	cu$mbu			;map the buffer
+	assume	cu.fre eq 0		;
+	mov	#254.,(r2)		;
+	clr	cu.nxt(r2)		;clear next block
+50$:	tst	@#p$hsta		;did we abort?
+	bpl	60$			;nope
+	jmp	cu$sab			;yes - set abort bits
+60$:	return				;
+
+;	deallocate a buffer - wake up the waiters
+
+cu$dbu:					;deallocate buffer
+	$cmsch				;block scheduler
+	mov	rp.r3(r5),r3		;get buffer map pointer
+	movb	#-1,(r3)		;free this buffer
+	clr	r4			;assume no waiter
+	remque	r3,c$ubqu,empty=10$	;nothing to do
+	sub	#di.wqs,r3		;
+	mov	di.pcr(r3),r4		;get pcr address
+	bic	#cuwai$,di.ctl(r3)	;
+10$:	$cmpro				;reenable scheduler
+	tst	r4			;any process to wake?
+	beq	20$			;nope
+	call	cu$wak			;yes - wake them up
+20$:	return				;
+.sbttl	ring buffer operations
+
+;	Ring buffer operations
+;
+;	Insert entry in ring buffer
+;	
+;	r1 = directory entry
+;	r4 = mainline pcr
+;
+;	r3	destroyed by mutex calls
+
+cu$ins:					;
+	pshs	<r0,r2,r3>		;
+10$:	tst	@#p$hsta		;did we abort
+	bmi	cu$sab			;yes
+	$cmsch
+	bit	#curem$,c$uctl		;spooler removed?
+	bne	40$			;yes - ignore
+	bit	#cuabt$,di.ctl(r1)	;this one aborted?
+	bne	40$			;yes
+	bit	#csher$,@di.csw(r1)	;this channel aborted?
+	bne	40$			;yes - ignore
+	mov	#c$urin,r2		;get the ring
+	tst	cu.rct(r2)		;do we have an entry?
+	beq	60$			;nope - wait
+	mov	cu.rin(r2),r0		;point to entry
+	mov	r1,(r0)+		;pointer to directory entry
+	mov	di.buf(r1),(r0)+	;pointer to buffer
+	mov	di.map(r1),(r0)+	;pointer to buffer map
+	mov	r0,cu.rin(r2)		;reset insert pointer
+	cmp	cu.rin(r2),cu.rto(r2)	;time to wrap?
+	bne	20$			;nope
+	mov	cu.rba(r2),cu.rin(r2)	;wrap around
+20$:	dec	cu.rct(r2)		;one less
+	$cmpro				;
+	clr	di.buf(r1)		;clear out buffer
+	clr	di.map(r1)		;and buffer map
+	inc	di.bim(r1)		;number of blocks to write
+	inc	c$ublk			;signal mainline
+	bit	#cucls$,di.ctl(r1)	;this file closed?
+	bne	30$			;yes
+	bit	#cusri$,c$uctl		;mainline handling ring?
+	bne	50$			;yes
+30$:	call	cu$wak			;yes - wake mainline
+	br	50$			;
+40$:	$cmpro
+50$:	pops	<r3,r2,r0>		;restore registers
+	tst	@#p$hsta		;did we abort
+	bmi	cu$sab			;yes
+	return				;
+
+;	wait for the ring
+
+60$:	mov	r1,r3			;get a copy
+	add	#di.wqs,r3		;point to wait queue
+	mov	c$urin+qu.pre,r2	;assume end of queue
+	bit	#cupri$,di.ctl(r1)	;is it printing
+	beq	70$			;nope
+	mov	#c$urin,r2		;yes - insert at front
+70$:	insque	r3,r2			;put us in queue
+	$cmpro				;
+	bis	#cuwai$,di.ctl(r1)	;signal waiting
+	$float				;
+	$stall	#10$, prwhi.		;
+
+;	[ctrl/c] detected - setup for abort
+
+cu$sab:	tst	di.csw(r1)		;channel still there?
+	beq	10$			;nope
+	bis	#csher$,@di.csw(r1)	;
+10$:	return
+
+;	remove an entry from ring buffer
+;	
+;	mainline calls this routine in kernel mode
+
+cu$rem:					;
+	mov	#c$urin,r2		;get ring buffer
+	$cmsch				;block scheduler
+	cmp	cu.rct(r2),c$ucnt	;anything in ring?
+	beq	40$			;nope
+	mov	cu.rre(r2),r0		;get remove pointer
+	mov	(r0)+,rp.r1(r5)		;r1 = address of directory entry
+	mov	(r0)+,rp.r2(r5)		;r2 = buffer address
+	mov	(r0)+,rp.r3(r5)		;r3 = buffer map
+	mov	r0,cu.rre(r2)		;reset remove pointer
+	cmp	cu.rre(r2),cu.rto(r2)	;time to wrap?
+	bne	10$			;nope
+	mov	cu.rba(r2),cu.rre(r2)	;yes - wrap around
+10$:	inc	cu.rct(r2)		;one more entry
+	clr	r4			;assume no process to wake
+	remque	r2,empty=20$		;anyboby waiting?
+	sub	#di.wqs,r2		;
+	mov	di.pcr(r2),r4		;yes - get it's pcr
+	bic	#cuwai$,di.ctl(r2)	;no longer waiting
+20$:	$cmpro				;reenable scheduler
+	tst	r4			;anything to wake up?
+	beq	30$			;nope
+	call	cu$wak			;wake up the process
+30$:	return				;
+					;
+40$:	$cmpro				;reenable scheduler
+	.soft	0			;nothing to do
+.sbttl	wake process
+
+;	Wake a process
+;
+;	r4 = pcr
+
+cu$kwa:					;called via cmkrnl
+	mov	rp.r4(r5),r4		;get pcr address
+cu$wak:	$float				;must be in system state
+	tst	r4			;did we lose it?
+	beq	10$			;yes - ignore
+	bis	#prwak$,pr.sta(r4)	;set wake signal
+	bic	#prsus$,pr.sta(r4)	;remove suspended
+	$revive	#s$cpio			;wake the process on i/o priority
+10$:	$land
+	return				;
+.sbttl	build banner page info
+
+;	Build banner page information
+;
+;	r1 ->	directory entry
+;	r2 ->	buffer
+;
+;	r4 = byte count			
+
+meta	<move	str><jsr r1,cu$mov><.ascii _str_<200>><.even>
+meta	text	<str><.ascii _str_>
+meta	newlin	<.byte	15,12>
+
+;	.enable	lsb
+cu$ban:
+;	pshs	<r2,r3,r4>		;save regs
+;	clr	r4			;get a counter
+;	move	<SHAREplus V>		;
+	return				;
+;	movb	@#s$yver,r3		;get system version
+;	add	#60,r3			;convert to ascii
+;	movb	r3,1000$		;put it in place
+;	movb	@#s$yupd,r3		;get the update
+;	add	#60,r3			;convert to ascii
+;	movb	r3,1010$		;put it in place
+;	mov	@#p$hprn,r3		;supply pid
+;	mov	r3,r0			;get a copy
+;	ash	#-sv008.,r0		;get first digit
+;	add	#60,r0			;get it in ascii
+;
+;	mov	@#p$husn,cu.usn(r2)	;username in rad50
+;	mov	@#p$husn+word,cu.us1(r2) ;second part
+;	mov	#10$,r0			;get time and date
+;	emt	375			;do .gtim request
+;	mov	a$ptim,cu.hot(r2)	;supply high order time
+;	mov	a$ptim+word,cu.lot(r2)	;low order time
+;	mov	t$idat,cu.dat(r2)	;supply date
+;	assume	cu.fre eq 0		;
+;	sub	#7.,(r2)		;adjust free word count
+;	return
+;
+;10$:	.byte	0,emgtm.		;.gtim emt
+;	.word	a$ptim			;return area
+;
+;;	move a string to the output buffer
+;
+;cu$mov:					;move string to output buffer
+;10$:	movb	(r1)+,(r2)+		;put in a byte
+;	inc	r4			;count characters
+;	tstb	(r1)			;all done?
+;	bpl	10$			;nope
+;	inc	r1			;even it up
+;	bic	#1,r1			;
+;	return
+;
+;
+;cu$r50:	pshs	<r5,r0>		;save them all
+;	mov	#100$,r5	;get the divisors
+;20$:	mov	#-1,r0		;init the result
+;30$:	inc	r0		;next character
+;	sub	(r5),r1		;this it?
+;	bcc	30$		;nope
+;	add	(r5),r1		;bump back
+;
+;	tst	r0		;a null?
+;	beq	90$		;yep, forget it
+;	cmp	#33,r0		;nah?
+;	blo	70$
+;	beq	80$
+;	bitb	#epr5l$,(r4)	;do they want lower case?
+;	beq	50$		;no
+;	add	#'a-'A,r0	;yes - get lower case
+;50$:	add	#56,r0
+;70$:	add	#11,r0
+;80$:	add	#11,r0
+;	call	er$out		;display it
+;90$:	tst	-(r5)		;any more?
+;	bne	20$		;yep
+;95$:	pops	<r0,r5>		;restore it
+;	return
+;	.word	0,1,50
+;100$:	.word	50*50
+;
+;c$ubab:					;banner page buffer
+;text	<SHAREplus V>			;
+;1000$:	.byte	0			;version number
+;text	<.>
+;1010$:	.byte	0			;update number
+;	.even				;
+;c$ubax:					;buffer end
+;	.dsabl	lsb			;
+;.sbttl	control data
+
+map	cu.dat,,<.-cu$mai>		;offset from par1 to data
+
+;	diversions, consignments & printers
+
+c$urec::
+;	.blkb	cu.dbs			;device record
+	.blkb	cu.dit			;record preface
+	assume	cu.dit eq <.-c$urec>	;
+c$udit::.blkb	cu.ebs*cumdn.		;diversion records
+	assume	cu.cot eq <.-c$urec>	;
+c$ucot::.blkb	cu.ebs*cumcn.		;consignment records
+	assume	cu.prt eq <.-c$urec>	;
+c$uprt::.blkb	cu.ebs*cumpn.		;
+	assume	cu.dbs eq <.-c$urec>	;
+	fall	c$udir			;queuex assumes that
+	
+;	directory
+
+c$udir::.blkb	di.bbs*cucnt.		;spooler directory
+	.word	c$udsr			;point to despool record
+
+;	directory control
+
+c$udqu::.word	0			;directory entry queue
+	.word	0			;
+c$uwqu::.word	0			;entry wait queue
+	.word	0			;
+c$ucid::.word	0			;current file id
+c$uctl::.word	0			;process control
+c$uact::.word	0			;number of active files
+
+;	buffer write ring buffer
+
+c$urin::				;ring buffer data
+	.word	0			;ring buffer wait queue
+	.word	0			;
+	.word	cumbc.			;twenty entries
+	.word	c$ubas			;base of ring buffer
+	.word	c$utop			;top of ring buffer
+	.word	c$ubas			;insert pointer
+	.word	c$ubas			;remove entry
+;c$ubas::.rept	cucnt.			;ring buffer
+c$ubas::.rept	cumbc.			;ring buffer
+	.word	0			;address of fid
+	.word	0			;buffer address
+	.word	0			;buffer map
+	.endr				;
+c$utop::				;
+c$ublk::.word	0			;number of blocks in ring
+	
+;	buffer control
+
+c$ubqu::.word	0			;buffer wait chain
+	.word	0			;
+c$ucnt::.word	0			;number of buffers
+c$ubum::.rept	cumbc.			;maximum possible
+	.byte	0			;set buffers available
+	.endr
+	.even
+c$uerr::.word	0			;
+
+cu$sen::
+assume	.-cu$sst lt 20000		;routine exceeds one par
+
+;	despool records
+
+c$udsr::				;despool records
+	lorec.=0			;
+.rept	cumrn.
+	.blkb	cu.spt-10		;the initial stack
+	.word	cu$deq			;dequeue a file
+	.blkw	3			;r1,r2,r3
+
+	.word	.-10			;cu.spt
+	.byte	lorec.*2		;cu.ich - input channel
+	.byte	lorec.*2+1		;cu.och - output channel
+	.word	c$uiob+<512.*lorec.> 	;buffer
+	lorec.=lorec.+1
+.endr
+c$udsx:
+.sbttl	reopen
+
+;	Reopen file
+;
+;	Check if spool file is a network object. 
+;	If so, try to reopen the file.
+;	The other side could have been rebootet
+
+.if ne networ
+cu$reo:					;
+	pshs	<r0,r1>			;get two registers
+	.purge	#20			;free the channel
+	.lookup	#c$uare, #20, #c$ufil	;open up spool.sys
+	bcs	10$			;oops - real problem
+	.cstat	#c$uare, #20, #c$unst	;get new status
+	bcs	10$			;oops
+	mov	#c$unst,r0		;
+	mov	#c$usts,r1		;
+	cmp	(r0)+,(r1)+		;save csw?
+	bne	10$			;nope - new file
+	cmp	(r0)+,(r1)+		;same starting block?
+	bne	10$			;nope
+	cmp	(r0)+,(r1)+		;same length?
+	bne	10$			;nope
+	cmp	(r0)+,(r1)+		;skip highest block
+	cmp	(r0)+,(r1)+		;same device unit?
+	bne	10$			;nope
+	cmp	(r0)+,(r1)+		;same device name?
+	beq	30$			;yes
+10$:	mov	#cucnt.,r0		;get a counter
+	mov	#c$udir,r1		;
+20$:	bis	#cudel$!cuabt$,di.ctl(r1) ;invalidate entries
+	sob	r0,20$			;
+	call	cu$bit			;rebuild bitmap
+30$:	bic	#cusfe$,c$uctl		;remove error flag
+	pops	<r1,r0>			;
+	return				;
+
+c$ufil:	.rad50	/QUESPOOL SYS/
+c$unst:	.blkw	6			;new channel status
+.endc
+c$usts:	.blkw	6			;channel status
+.sbttl	build bitmap
+
+;	Build bitmap
+
+cu$bit:					;build bitmap
+	pshs	<r4,r5>			;
+	.cstat	#c$uare, #20, #c$usts	;get channel status
+	mov	ch.len+c$usts,r5	;get file length
+	cmp	r5,#cumfl.		;this too large?
+	blos	10$			;nope
+	mov	#cumfl.,r5		;yes - reduce to maximum
+10$:	mov	r5,c$ubct		;setup spool file block count
+	mov	r5,r4			;
+	add	#17,r4			;round up
+	clc				;make sure sign bit is clear
+	ror	r4			;divide by two
+	ash	#-sv008.,r4		;divide by 16.
+	mov	r4,c$ubis		;setup bitmap size
+	mov	#c$ubit,r0		;get the bitmap
+20$:	cmp	r5,#16.			;less than 16 blocks?
+	blo	30$			;yes - do the last
+	mov	#-1,(r0)+		;mark the blocks
+	sub	#16.,r5			;count them
+	br	20$			;do the next
+30$:	tst	r5			;partial block left?
+	beq	50$			;nope
+40$:	sec				;
+	rol	(r0)			;set the bit
+	sob	r5,40$			;do them all
+50$:	pops	<r5,r4>			;
+	return				;
+.sbttl	buffer
+.psect	buffer
+
+;	Buffer is mapped into par6
+;
+;	Once-only code located in buffer space
+
+c$ubuf::				;used as buffer space
+cu$onc:					;initialize buffers
+	mov	#200$,r0		;assume not SHAREplus
+	cmp	r5,#^rshp		;this SHAREplus?
+	bne	50$			;nope - exit
+	mov	#210$,r0		;assume wrong release
+	cmp	r4,#stbdat		;this the right stb?
+	bne	50$			;yes
+	.purge	#20
+	.lookup	#c$uare, #20, #c$ufil	;open up spool.sys
+	bcc	30$			;oops - file not found
+	mov	#^rSY,c$ufil		;try system disk
+	.lookup	#c$uare, #20, #c$ufil	;open up spool.sys
+	bcs	40$			;oops - file not found
+30$:	$cmkrnl	#c$uare, #100$, pic=yes ;create kernel record
+	bcs	50$			;fine
+.if ne networ
+	.cstat	#c$uare, #20, #c$usts	;get the channel info
+.endc
+	call	cu$buf			;build buffers
+	call	cu$bit			;build bitmap
+	call	cu$que			;build the queues
+	call	cu$slp			;spool lp
+	return				;
+
+40$:	mov	#220$,r0		;
+50$:	.print				;print error message
+	.purge	#20			;free the channel
+	.exit				;and quit
+
+;	create kernel record
+
+100$:	$cmsch				;stop scheduler
+	mov	@#s$pspp,r4		;does record already exist?
+	bne	110$			;yes - do not create
+	mov	#230$,r1		;assume no kernel space
+	$obtain	#s$yque			;lock system process
+	$crepo	#pospr.,#cukbs.		;create the kernel record
+	mov	r0,rp.r0(r5)		;return pointer
+	$divest	#s$yque			;free system process
+	mov	rp.r0(r5),r4		;get the pointer
+	beq	130$			;we failed
+	br	115$			;
+110$:	mov	#240$,r1		;assume spool is running
+	mov	(r4),r3			;got a spooler running?
+	beq	115$			;nope
+	cmp	r3,@#p$hpcr		;this us?
+	bne	130$			;nope - we fail
+115$:	mova	cu$ker,r0		;get the record
+	mov	#cu$urv,@#p$hurv	;set unconditional restart vector
+	mov	r4,@#s$pspp		;store address of record
+	mov	@#p$hcip+word,cu.mp1(r0);save user par1
+	mov	@#p$hpcr,(r0)		;supply pcr address
+;
+	add	r4,cu.kop(r0)		;relocte address - open routine
+	add	r4,cu.kcl(r0)		;close routine
+	add	r4,cu.kab(r0)		;about routine
+;
+
+	mov	r4,r3			;get a copy
+	mov	#cukbs./2,r2		;get a counter
+120$:	mov	(r0)+,(r3)+		;copy to kernel record
+	sob	r2,120$			;count it
+	mov	r4,r3			;get kernel record
+	add	r4,cu.mut(r4)		;build mutex
+	add	r4,cu.mut+word(r4)	;
+	mov	r4,r0			;get bypass pointer
+	add	#cu.bio,r0		;build before i/o bypass
+	mov	@#b$ybio,(r0)		;build the chain
+	mov	r0,@#b$ybio		;put us in front
+	$cmpro				;
+	return
+
+130$:	$cmpro				;back to process
+	mov	r1,rp.r0(r5)		;return error message message pointer
+	tst	@#p$hter		;got a terminal?
+	bne	140$			;yes
+	mov	#te$cpt,@#p$htto	;nope - use console
+140$:	.soft	0			;we failed
+
+;	%message
+200$:	.asciz	/?SPOOLX-E-SHAREplus required/
+210$:	.asciz	/?SPOOLX-E-Wrong release of SPOOLX/
+220$:	.asciz	/?SPOOLX-E-File not found QUE:SPOOL.SYS/
+230$:	.byte	15,12
+	.asciz	/?SPOOLX-E-No space for kernel record/
+240$:	.byte	15,12
+	.asciz	/?SPOOLX-E-Spooler already running/
+	.even
+;	%end
+.if eq networ
+c$ufil:	.rad50	/QUESPOOL SYS/
+.endc
+.sbttl	build queues
+
+;	Build queue structures
+
+cu$que:	mov	#c$urin,r0		;build ring buffer wait queue
+	mov	r0,(r0)			;build queue header
+	mov	r0,qu.pre(r0)		;
+	mov	#c$ubqu,r0		;buffer wait queue
+	mov	r0,(r0)			;build the queue
+	mov	r0,qu.pre(r0)		;
+	mov	#c$uwqu,r0		;directory entry wait queue
+	mov	r0,(r0)			;build it up
+	mov	r0,qu.pre(r0)		;
+	mov	#c$udqu,r0		;directory entry queue
+	mov	r0,(r0)			;build it up
+	mov	r0,qu.pre(r0)		;
+	mov	#c$udir,r1		;get entries
+	mov	#cucnt.,r2		;get number of entries
+10$:	mov	r1,(r1)			;build the entries
+	mov	r1,qu.pre(r1)		;
+	insque	r1,r0			;insert in queue
+	add	#di.wqs,r1		;point to wait queue
+	mov	r1,(r1)			;build it
+	mov	r1,qu.pre(r1)		;
+	add	#<di.bbs-di.wqs>,r1	;point to the next
+;	add	#di.bbs,r1		;point to the next
+	sob	r2,10$			;
+	return
+.sbttl	spool lp
+
+;	setup default diversion/consignment/printer process
+
+cu$slp:					;
+	mov	#cu.dbs/2,r0		;
+	mov	#c$urec,r1		;
+10$:	clr	(r1)+			;clear record
+	sob	r0,10$			;
+	mov	#c$urec,r1		;get it back again
+	mov	#^raaa-1,cu.csn(r1)	;setup current sequence number
+	movb	#-1,cu.ch0(r1)		;
+	clrb	cu.ch1(r1)		;
+	$cmkrnl	#c$uare, #100$, pic=yes	;
+	bcs	20$			;no lp:
+	mov	#c$urec,r1		;get the record back
+	mov	r1,r2			;get a copy
+	add	#cu.dit,r2		;point to diversions
+	mov	#cupip$,(r2)		;setup pipelined
+	mov	#^rlp,cu.dev(r2)	;
+	mov	r1,r2			;get another copy
+	add	#cu.cot,r2		;point to consignments
+	mov	#cupip$!cunew$,(r2)	;setup pipelined & new files
+	mov	#custa$,cu.req(r2)	;start
+	mov	#^rlp,cu.pri(r2)	;setup the printer
+	add	#cu.dsu,r2		;build the queue
+	mov	r2,(r2)			;successor
+	mov	r2,qu.pre(r2)		;predecessor
+	add	#cu.prt,r1		;point to printers
+	mov	#curun$!cupip$,(r1)	;say pipelined 
+	mov	#custa$,cu.req(r1)	;start it
+	mov	#^rlp,cu.pri(r1)	;
+20$:	return				;
+
+;	check if LP: is available
+
+100$:	mov	#^rlp0,r0		;get the device name
+	call	@#na$clp		;convert the logical
+	bcs	110$			;not found
+	call	@#na$cpi		;convert to indexes
+	bcs	110$			;not good
+	call	@#na$cir		;get the records
+	bcs	110$			;not loaded
+	bis	#unspl$,un.con(r3)	;set it spooled
+	return				;
+110$:	.soft	0			;printer not available
+.sbttl	build buffers
+
+;	get available size
+
+cu$buf:					;create buffers
+	.settop	#-2			;get the whole
+	sub	#c$ubuf,r0		;remove the base
+	clc				;
+	ror	r0			;get it in words
+	clrb	r0			;remove partial block
+	swab	r0			;r0 = number of blocks
+					;
+	cmp	r0,#cumbc.		;this okay?
+	blos	5$			;yes
+	mov	#cumbc.,r0		;reset
+5$:	mov	r0,c$ucnt		;setup number of buffers
+	mov	#c$ubum,r1		;get the buffer map
+10$:	movb	#-1,(r1)+		;count the buffers
+	sob	r0,10$			;do them all
+	return				;
+.sbttl	kernel record
+
+;	following code is copied to kernel record
+
+cu$ker:
+
+;	dispatch to routine acp calls
+;
+;	note:	acp assumes that pcr address is first in kernel record
+
+	.enabl	lsb
+	assume	cu.kop eq c$ukop-cu$ker	;offset to spooler open
+	assume	cu.kcl eq c$ukcl-cu$ker	;offset to close routine
+	assume	cu.kab eq c$ukab-cu$ker	;offset to abort routine
+c$upcr:	.word	0			;pcr address of spooler process
+c$ukop:	.word	cu.opn			;
+c$ukcl:	.word	cu.cls			;
+c$ukab:	.word	cu.abt			;
+c$ukda:	.word	cu.dat			;offset to data area
+					;
+map	cu.mut,,<.-cu$ker>		;offset to mutex data
+	.word	cu.mut			;build mutex
+	.word	cu.mut			;
+	.word	-1			;
+	.word	0			;
+
+;	spooler open
+
+map	cu.opn,,<.-cu$ker>		;
+5$:	psh	r0			;save this
+	mov	#cuopn.,r0		;flag diversion call
+	br	10$			;join common code
+
+;	dispatch to routine to handle pre-i/o
+;	
+;	avoid unnessesary calls to server
+;
+;	r4 = csw
+
+map	cu.bio,,<.-cu$ker>
+	.word	0			;before i/o bypass
+	bit	#csspl$,(r4)		;this a spool file?
+	beq	30$			;nope - ignore
+	psh	r0			;save r0
+	mov	#cubio.,r0		;flag before i/o routine
+	br	10$			;join common code
+
+;	spooler close
+
+map	cu.cls,,<.-cu$ker>
+	psh	r0			;
+	mov	#cucls.,r0		;flag acp call
+	br	10$			;join common code
+
+;	abort i/o routine
+
+map	cu.abt,,<.-cu$ker>
+	psh	r0			;
+	mov	#cuabt.,r0		;flag abort i/o call
+	fall	10$			;join common code
+	
+10$:
+	cmp	@#p$hpcr,c$upcr		;this ourselve?
+	beq	20$			;yes - not interested in this
+	psh	@#m$kip1		;save kernel par1
+	mov	(pc)+,@(pc)+		;setup user par1
+map	cu.mp1,,<.-cu$ker>
+	.word	0			;
+	.word	m$kip1			;
+	call	@#m$mpa1+cuoff.		;call the routine
+	pop	@#m$kip1		;restore par1
+20$:	pop	r0			;skip flag
+30$:	return				;return from bypass or call
+cukbs.=.-cu$ker				;
+	.dsabl	lsb			;
+c$uend::
+
+.end	start
+

@@ -1,0 +1,615 @@
+title	shut
+
+;	-----------------------------------------------------------------------
+;	shutdown procedure for SHAREplus
+;
+;	%build
+;	goto	'p1'
+;	macro:
+;	maree:
+;	maree	rfs:shut /object=rfb:shut
+;	delete	rfs:shut.mac
+;	link:
+;	link	rfb:shut,lib:maree,lib:share /map:rfb:shut/glob/exe=rfb:shut
+;	%end
+;
+only(shp)
+macro
+.include "lib:share.mac"
+$imgdef	SHUT 1 0
+$imginf	fun=shp cre=hammo aut=ewm use=<Shutdown procedure>
+$imgham	yrs=<1987>
+;	%date
+$imgdat	<06-Oct-2022 04:19:31>   
+;	%edit
+$imgedt	<63   >
+
+$cndef		;config
+$fedef		;features
+$kcdef		;kernel control
+$pldef		;plexes
+$prdef		;pcr
+$rmdef		;rmon
+$rpdef		;request package
+$srdef		;system rights
+maree
+only
+
+;	-----------------------------------------------------------------------
+;	%build
+;	if/logical=vms goto vms
+;
+;	shp:	maree	rfs:shut /object=rfb:
+;		delete	rfs:shut.mac
+;		link	rfb:assign,lib:maree /execute=rfb:shut
+;		delete	rfb:assign.obj
+;		goto	end
+;	vms:	display "?SHUT-I-Not supported under VAX/VMS"
+;	end:
+;	%end
+;	-----------------------------------------------------------------------
+
+use	verb main
+use
+use(mad:plx)					; plexes
+use(mad:cli)					; cli routines
+use(mad:cliutl)					;
+use(mad:clisys)					; get command line
+use(mad:cvt)					; conversion routines
+use(mad:str)					; strings
+
+;	-----------------------------------------------------------------------
+;	tasks
+;	-----------------------------------------------------------------------
+
+	verb cu$fea
+	verb cu$pro(nam1,nam2)
+	verb cu$rig(res)
+	verb cu$boo
+	verb cu$dis
+	verb cu$snd
+	verb cu$fin
+	verb cu$wai
+	verb cu$cha	
+	verb cu$act(cnt)	
+	verb cu$tim(hou,min,sec,mil)
+
+;	-----------------------------------------------------------------------
+;	plex
+;	-----------------------------------------------------------------------
+
+	plex(c$ulin=byte$t)			; generic input line
+	plex(c$uupt=byte$t)			; expected uptime
+	plex(c$urea=byte$t)			; reason for shutdown
+	plex(c$upro=byte$t)			; describes our process
+
+;	-----------------------------------------------------------------------
+;	variables
+;	-----------------------------------------------------------------------
+
+	word(c$utim)				; time until shutdown
+	word(c$ureb)				; reboot flag
+	word(c$udis)				; disable_login flag
+	word(c$utmp)				; temporary for calcs
+	word(c$uwai)				; time to wait
+	word(c$ukc0)				; copy of kernel control
+	word(c$ufre)				; frequency
+						;
+	word(c$ufea)				; sdata feature available
+;	-----------------------------------------------------------------------
+;	program entry point
+;	-----------------------------------------------------------------------
+	task	MAIN
+
+	map(c$ulin,100)				; generic input line
+	map(c$urea,100)				; shutdown reason
+	map(c$uupt,100)				; expected uptime
+	map(c$upro,100)				; describe process
+						;
+    iff(cu$rig)					; check the rights
+	jot("?SHUT-E-Missing rights")		;
+    ift						;
+	iff(cu$fea)				; check for sdata feature
+	  jot("?SHUT-W-SDATA feature not installed - can't inform other users")
+	ifx					;
+						;
+	cu$pro					; setup process variables
+	jot jot("System shutdown") jot		;
+	c$ulin(0)=0 c$utim=0			;
+	sd$gcl(0,c$ulin,"How many minutes until shutdown [0]? ")
+	ift(c$ulin(0))				; got input?
+	 c$utim=cv$num(cvdec.,c$ulin)		; get minutes
+	ifx					;
+	c$urea(0)=0				;
+	sd$gcl(0,c$urea,"Reason for shutdown [None]? ") ;
+	c$uupt(0)=0				; get uptime
+	sd$gcl(0,c$uupt,"Expected uptime [None]? ")
+	c$ulin(0)=0 c$ureb=0			;
+	sd$gcl(0,c$ulin,"Enable automatic reboot [No]? ")
+	ift((c$ulin(0)=^aY)!(c$ulin(0)=^ay))	; wanted?
+	  c$ureb=1				; reboot
+	ifx					;
+	cu$boo					; setup boot_in_progress
+	c$udis=0				;
+	do					; main loop
+	  ift((c$utim<=4)&_c$udis)		; only last four 
+	    cu$dis c$udis=1			; once-only - disable logins
+	  ifx					;
+	  jot					; start with a new line
+	  c$ulin(0) c$upro(0)			; rewind both
+	  st$cop(c$upro,c$ulin)			; copy it accross
+	  cu$tim c$ulin=0 c$ulin(0)		; get current time
+	  cu$snd				;
+	  c$ulin(0)				;
+	  st$cop("System shutdown ",c$ulin)	;
+	  iff(c$utim)				; shutdown now
+	    st$cop("now",c$ulin)		;
+	  ift					;
+	    st$cop("in ",c$ulin)		;
+	    cv$asc(cvdec.,c$utim,c$ulin)	;
+	    st$cop(" minute",c$ulin)		;
+	    ift(c$utim>1) c$ulin(pop)=^as ifx	;
+	  ifx					;
+	  c$ulin=0 c$ulin(0)			;
+	  cu$snd				; send the result
+	  ift(c$urea(0)) c$ulin(0)		; tell reason for shutdown
+	    st$cop("Shutdown reason: ",c$ulin)	;
+	    st$cop(c$urea,c$ulin)		;
+	    cu$snd				;
+	  ifx					;
+	  ift(c$uupt(0)) c$ulin(0)		; only when specified
+	    st$cop("Expected uptime: ",c$ulin)	;
+	    st$cop(c$uupt,c$ulin)		;
+	    cu$snd				;
+	  ifx					;
+	  ift(c$udis) c$ulin(0)			;
+	    st$cop("Interactive logins disabled, please log out",c$ulin) ;
+	    cu$snd				; send it
+	  ifx					;
+	  iff(c$utim) cu$fin ifx		; finish shutdown (no return)
+	  c$utmp=c$utim/2			; get next time to stop
+	  ift((c$utmp<4)&(c$utim>4)) c$utmp=4 ifx ;
+	  c$uwai=c$utim-c$utmp			; get time to wait
+	  c$utim=c$utmp				; setup new time
+	  cu$wai				; go and wait
+	end					; another loop
+    ifx						;
+	exit					;
+;	-----------------------------------------------------------------------
+;	CU$FEA	- Check for SDATA feature
+;	-----------------------------------------------------------------------
+;
+;	cu$fea
+;
+;	usage	Check if sdata feature is present
+;
+;	-----------------------------------------------------------------------
+	task	CU$FEA
+
+	c$ufea=1				; assume success
+macro						;
+	$cmkrnl	#c$uare, #ck$fea, pic=yes	;
+	bcc	10$				; fine
+	clr	c$ufea				;
+10$:						;
+maree						;
+	exit(c$ufea)				;
+						;
+;	Kernel routine				;
+						;
+macro						;
+c$uare:	.blkw	10.				;
+ck$fea:	tst	@#<f$emap+<fesda.*2>>		; feature available?
+	beq	10$				; nope
+	return					;
+10$:	.soft	0				; no feature
+maree
+;	-----------------------------------------------------------------------
+;	CU$PRO - Get process context
+;	-----------------------------------------------------------------------
+;
+;	cu$pro(nam1,nam2)
+;
+;	usage	get process name, time frequency, prepare string
+;
+;	-----------------------------------------------------------------------
+	task	CU$PRO(nam1,nam2)
+
+macro						; enter macro
+	$cmkrnl	#c$uare, #ck$pro, pic=yes	; call kernel routine
+	mov	r1,nam1(r5)			;
+	mov	r2,nam2(r5)			;
+	mov	r3,c$ufre			; save frequency
+maree						;
+	c$upro(0)				;
+	st$cop("From operator ",c$upro)		;
+	cv$asc(cvr50.!cvcap$,nam1,c$upro)	; first part of name
+	cv$asc(cvr50.!cvcap$,nam2,c$upro)	; second part
+	st$cop(" at ",c$upro)			;
+	exit					;
+						;
+;	Kernel routine				;
+						;
+macro						;
+ck$pro:	mov	@#p$hnam,rp.r1(r5)		; get process name
+	mov	@#p$hnam+word,rp.r2(r5)		;
+	mov	@#t$ifre,rp.r3(r5)		; get frequency
+	return					;
+maree
+;	-----------------------------------------------------------------------
+;	CU$RIG - Check for appropriate rights
+;	-----------------------------------------------------------------------
+;
+;	cu$rig(res)
+;
+;	result		true	enough rights
+;			false	not enough rights
+;
+;	usage	called to find out if process has enough rights to run the
+;		utility
+;
+;	-----------------------------------------------------------------------
+	task	CU$RIG(res)
+
+	res=1					; assume enough rights
+macro						; enter macro
+	$cmkrnl	#c$uare, #ck$rig, pic=yes	;
+	mov	r1,c$ukc0			; get a copy of kernel control
+	bcc	10$				; fine
+	clr	res(r5)				; 
+10$:						;
+maree						;
+	exit(res)				;
+						;
+;	Kernel routine				;
+						;
+macro						;
+	assume	sr.opr eq sr.wor		;;;wrong word offsets
+	assume	sr.opr eq sr.sys		;;;wrong word offsets
+ck$rig:						;
+	bit	#srcmk$,@#p$hsr0+sr.cmk		;do we have cmkrnl rights?
+	beq	10$				;nope
+	mov	#sropr$!srwor$!srsys$,r0	;get the required rights
+	bic	@#p$hsr0+sr.opr,r0		;do we have them all
+	bne	10$				;nope
+	mov	@#s$ykc0,rp.r1(r5)		; return current setting
+	return					;
+10$:	.soft	0				;missing rights
+maree
+;	-----------------------------------------------------------------------
+;	CU$BOO	- Set boot in progress flag
+;	-----------------------------------------------------------------------
+;
+;	cu$boo
+;
+;	usage	Set boot_in_progress flag
+;
+;	-----------------------------------------------------------------------
+	task	CU$BOO
+
+macro						; enter macro
+	$cmkrnl	#c$uare, #ck$boo, pic=yes	;
+maree						;
+	exit					;
+						;
+;	Kernel routine				;
+						;
+macro						;
+ck$boo:	bis	#kcboo$,@#s$ykc0		; set boot flag
+	mov	#cm$urv,@#p$hurv		; setup restart vcector
+	return					;
+ck$cur:	mov	rp.r1(r5),@#s$ykc0		; reset kernel control
+	clr	@#p$hurv			; clear restart vector
+	return					;
+cm$urv:	mov	#c$ucan,r0			;
+	mov	#c$muse,r1			; get sdat string
+10$:	movb	(r0)+,(r1)+			; get the string
+	bne	10$				; until done
+	.print	#c$ucan				; print cancel message
+	call	cm$sda				; send the string
+	mov	c$ukc0,r1			; get saved kernel control
+	$cmkrnl	#c$uare, #ck$cur, pic=yes	; clear restart vector
+	.exit					;
+c$ucan:	.ascii	_Shutdown cancelled_
+	.even
+maree
+;	-----------------------------------------------------------------------
+;	CU$DIS	- Disable logins
+;	-----------------------------------------------------------------------
+;
+;	cu$dis
+;
+;	usage	disable logins
+;
+;	-----------------------------------------------------------------------
+	task	CU$DIS
+
+macro						; enter macro
+	$cmkrnl	#c$uare, #ck$dis, pic=yes	;
+maree						;
+	exit					;
+						;
+;	Kernel routine				;
+						;
+macro
+ck$dis:	bic	#kcrem$!kccon$!kcint$,@#s$ykc0	; disable logins
+	return					;
+maree
+;	-----------------------------------------------------------------------
+;	CU$SND	- Send message to other users
+;	-----------------------------------------------------------------------
+;
+;	cu$snd
+;
+;	usage	Send message to all processes on system
+;
+;	-----------------------------------------------------------------------
+	task	CU$SND
+
+	c$ulin(0)				; rewind line
+	st$prt(c$ulin)				;
+	ift(c$ufea)				; only when feature installed
+macro						; enter macro
+	call	cm$snd				; call routine
+maree						; back to maree
+	ifx					;
+	exit					;
+						;
+;	Macro routines				;
+						;
+macro
+c$udel:	.word	0,55.				; wait international second
+c$msnd:	.ascii	_BP* _<7>			; 
+c$muse:	.blkb	60.				;
+	.even					;
+cm$snd:	mov	p.lbas+c$ulin,r0		; get the string
+	mov	#c$muse,r1			;
+	mov	#60.,r2				; get a counter
+10$:	movb	(r0)+,(r1)+			; copy the string
+	beq	20$				;
+	sob	r2,10$				; count it
+20$:	clrb	(r1)				; terminate string
+cm$sda:	.sdat	#c$uare, #c$msnd, #32.		; send it across
+	.twait	#c$uare, #c$udel		;
+	return					;
+maree
+;	-----------------------------------------------------------------------
+;	CU$FIN	- Finish shutdown
+;	-----------------------------------------------------------------------
+;
+;	cu$fin
+;
+;	-----------------------------------------------------------------------
+	task CU$FIN	
+
+	cu$act					; check for active processes
+	jot("Stop all processes")		;
+macro						;
+	mov	#1,r1				; start with process two
+10$:	$cmkrnl	#c$uare, #ck$fin, pic=yes	; get number of processes
+	bcs	20$				; all done
+	mov	r1, c$upid			;
+	$forcx	#c$uare, #c$upid		; force exit on image
+	$delprc	#c$uare, #c$upid		; delete this process
+	br	10$				; start over
+20$:						; all done
+maree						;
+	ift(c$ureb)				; reboot?
+;	  sd$gcl(0,c$ulin,"Type [return] to reboot the system ")
+	  cu$cha				; yes - chain to dcl command
+	iff					; nope
+	  sd$gcl(0,c$ulin,"Type [return] to halt the system ")
+	  do					;
+	    macro				; stop the machine
+	    $cmkrnl #c$uare, #ck$hlt, pic=yes	;
+	    maree				;
+	  end					;
+	ifx					;
+	exit					;
+						;
+;	Kernel routines				;
+						;
+macro						;
+c$upid:	.word	0				;
+ck$fin:	mov	rp.r1(r5),r1			; get pid
+10$:	inc	r1				; get the next
+	cmp	r1,@#p$rprs			; still valid
+	bhis	20$				; nope
+	mov	r1,r2				; get a copy	
+	asl	r2				;
+	mov	p$rmap(r2),r2			; get pcr
+	beq	10$				; none - try the next
+	cmp	pr.pid(r2),@#p$hprn		; this us?
+	beq	10$				; yes - do not stop
+	mov	r1,rp.r1(r5)			; send back the pid
+	return					; back to caller
+20$:	.soft	0				; all done
+						;
+ck$hlt:						;
+10$:	.word	0				; halt the machine
+	br	10$				; halt it again
+	return					;
+maree
+;	-----------------------------------------------------------------------
+;	CU$WAI	- Issue timed wait
+;	-----------------------------------------------------------------------
+;
+;	cu$wai
+;
+;	usage	called to wait for rundown
+;
+;	-----------------------------------------------------------------------
+	task	CU$WAI
+
+macro						;
+	mov	c$ufre,r2			; assume 50 hertz
+	mov	c$uwai,r0			; get the minutes
+	mul	#60.,r0				; convert to seconds
+	mov	r1,r0				;
+	mul	r2,r0				; get ticks
+	mov	r0,c$uwtm			;
+	mov	r1,c$uwtm+2			;
+	clr	c$ucmf				; clear wait flag
+	.mrkt	#c$uare, #c$uwtm, #c$ucmp, #1	; schedule timer
+20$:	.spnd					; wait for it
+	tst	c$ucmf				; completion routine called?
+	beq	20$				; nope
+maree						;
+	exit					;
+						;
+macro						;
+c$ucmp:	inc	(pc)+				; set the flag
+c$ucmf:	.word	0				;
+	.rsum					;
+	return					;
+						;
+c$uwtm:	.blkw	2				;
+maree						;
+;	-----------------------------------------------------------------------
+;	CU$CHA	- Chain with DCL command to boot system
+;	-----------------------------------------------------------------------
+;
+;	cu$cha
+;
+;	usage	called to reboot system
+;
+;	-----------------------------------------------------------------------
+	task CU$CHA
+
+macro						;
+	mov	#c$ucmd,r1			;
+	mov	#cmdlen,r2			;
+	.lookup	#c$uare, #0, #c$unam, #-1	; day.sav available?
+	bcc	10$				;
+	mov	#c$ubot,r1			;
+	clr	r2				; no length
+10$:	$exit	cmd=r1, len=r2			;
+						;
+c$unam:	.rad50	/sy day   sav/			;
+c$ucmd:	.asciz	_run sy:day_			;
+c$ubot:	.asciz	_boot/noquery sy:share_		;
+	cmdlen	= .-c$ucmd			;
+	.even					;
+maree						;
+	exit					;
+;	-----------------------------------------------------------------------
+;	CU$ACT	- Check for active processes
+;	-----------------------------------------------------------------------
+;
+;	cu$act(cnt)
+;
+;	usage	called to check if there are still active processes
+;		ignores LOG*, NET*, F11A, SPOOL processes
+;
+;	-----------------------------------------------------------------------
+	task	CU$ACT(cnt)
+
+	do					;
+	  cnt=0					; assume no processes
+macro						;
+	$cmkrnl	#c$uare, #ck$act, pic=yes	;
+	mov	r1,cnt(r5)			; setup the count
+maree						;
+	ift(cnt)				; 
+	  jot(cnt," active process",)		;
+	  iff(cnt=1) jot("es",) ifx		;
+	  c$ulin(0)=0				; terminalte line
+	  sd$gcl(0,c$ulin,"; Continue [No]? ")	;
+	  ift((c$ulin(0)=^aY)!(c$ulin(0)=^ay))	;
+	    cnt=0				; they want to continue
+	  ifx					;
+	ifx					;
+	ift(cnt)				; need to wait
+	  jot("Wait one minute")		;
+	  c$uwai=1 cu$wai			;
+	ifx					;
+	endf(cnt)				;
+	exit					;
+						;
+;	Kernel routines				;
+						;
+macro
+ck$act:	mov	#p$rprs,r1			;
+	mov	(r1)+,r0			; get number of processes
+	cmp	(r1)+,(r1)+			; skip null and kernel
+	sub	#2,r0				;
+	clr	r3				; init the counter
+10$:	mov	(r1)+,r2			; get next pcr
+	beq	40$				; not in use
+	cmp	pr.pid(r2),@#p$hprn		; this our process?
+	beq	40$				; yes - ignore
+	add	#pr.nam,r2			; point to the name
+	cmp	(r2),#^rLOG			; this a login process?
+	beq	40$				; yes - ignore
+	cmp	(r2),#^rNET			; or SHAREnet?
+	beq	40$				; yes - ignore
+	cmp	(r2),#^rSPO			; the spooler?
+	bne	20$				; nope
+	cmp	2(r2),#^rOL			; really?
+	beq	40$				; yes
+20$:	cmp	(r2),#^rF11			; f11a acp?
+	bne	30$				; nope, active process
+	cmp	2(r2),#^rA			; really?
+	beq	40$				; yes
+30$:	inc	r3				; count this process
+40$:	sob	r0,10$				;
+	mov	r3,rp.r1(r5)			; send back the result
+	return					;
+maree
+;	-----------------------------------------------------------------------
+;	CU$TIM - Display time
+;	-----------------------------------------------------------------------
+;
+;	cu$tim(hou,min,sec,mil)
+;
+;	usage	convert ticks to time string in c$ulin
+;
+;	-----------------------------------------------------------------------
+	task CU$TIM(hou,min,sec,mil)
+
+macro						; enter macro
+	call	cm$tim				; call macro routine
+maree						; backto maree
+	ift(hou<10) c$ulin(pop)=^a0 ifx		; adjust display
+	cv$asc(cvdec.,hou,c$ulin) c$ulin(pop)=^a: ; 
+	ift(min<10) c$ulin(pop)=^a0 ifx		; adjust
+	cv$asc(cvdec.,min,c$ulin) c$ulin(pop)=^a: ; 
+	ift(sec<10) c$ulin(pop)=^a0 ifx		; adjust
+	cv$asc(cvdec.,sec,c$ulin) c$ulin(pop)=^a. ; 
+	ift(mil<10) c$ulin(pop)=^a0 ifx		; adjust
+	cv$asc(cvdec.,mil,c$ulin)		; 
+						;
+	exit					;
+						;
+;	Macro routines				;
+						;
+macro						;
+	.enabl	lsb				;
+cm$tim:	.gtim	#c$uare, #c$uwtm		; get current time
+	mov	c$uwtm,r0			; get high order
+	mov	c$uwtm+word,r1			; and low order
+30$:	mov	c$ufre,r3			; r3 -> frequency*60.
+	mul	#60.,r3				;
+	div	r3,r0				; extract seconds
+	mov	r0,r2				; r2 = min/hours/days
+	clr	r0				; 
+	div	c$ufre,r0			; get ticks & seconds
+	mov	r1,mil(r5)			; ticks
+	mov	r0,sec(r5)			; seconds
+	clr	r0				;
+	mov	r2,r1				; minutes/hours
+	div	#60.,r0				; 
+	mov	r1,min(r5)			; minutes
+	mov	r0,hou(r5)			; hours
+	mov	mil(r5),r1			; get this back
+	mul	#100.,r1			; *100
+	clr	r0				; 
+	div	c$ufre,r0			; /frequency
+	asl	r1				; round it up
+	cmp	r1,c$ufre			; this half a point?
+	blo	40$				; no
+	inc	r0				; round this up
+40$:	mov	r0,mil(r5)			; 
+	return					;
+maree
+

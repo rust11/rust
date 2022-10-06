@@ -1,0 +1,876 @@
+.title	real feature
+.iif ndf net,net=0;		 SHAREnet conditional
+.iif ndf netmul,netmul=0;	multiple SHAREnet conditional
+.include "lib:share.mac"
+$addef		;ast delivery
+$fedef		;feature
+$rddef		;realtime data
+$mmdef		;memory management
+$podef		;pool
+$prdef		;pcr
+$psdef		;ps
+$rddef		;realtime data
+$rpdef		;rp
+$sidef		;signals
+$tedef		;terminal signals
+$tidef		;timer
+
+map	fever.,,1
+map	feupd.,,0
+
+.if eq net!netmul
+ $imgdef    REAL 1 0
+ $imginf    fun=fea cre=hammo aut=ijh use=<SHAREplus realtime feature>
+.iff
+ .if ne netmul
+  $imgdef   NET 1 0
+  $imginf   fun=fea cre=hammo aut=ijh use=<SHAREplus SHAREnet feature (multi)>
+ .iff
+  $imgdef   NET 1 0
+  $imginf   fun=fea cre=hammo aut=ijh use=<SHAREplus SHAREnet feature>
+ .endc
+.endc
+$imgham	yrs=<1985,1986> oth=<>
+;	%date
+$imgdat	<29-Feb-2008 18:45:18.10>
+;	%edit
+;	<17   >
+
+;	SHAREplus REALtime feature
+;
+;	%build
+;	goto 'p1'
+;	macro	rfs:real/object:rfb:
+;	link:
+;	r link
+;	rfb:real.fea,rfb:real=lib:featur,rfb:real,lib:share,lib:shplib/Q
+;	featur:20000
+;	
+;	^C
+;	goto end
+;	if "'p1'" goto end
+;	set error none
+;	remove/feature real
+;	copy rfb:real.fea sy:real.fea
+;	install/feature real
+;	set error error
+;	end:
+;	%end	
+;
+;	SHARE-eleven compatible realtime feature
+;
+;	The process realtime server is mapped into kernel par1.
+;	Therefore, the feature itself runs out of kernel par6.
+
+map	rtp6o.,,<m$mpa6-m$mpa1> ;offset from par1 to par6
+.sbttl	feature installation
+
+;	Install realtime feature
+;
+;	Install the kernel record and point to it.
+;
+;	r3 ->	feature record
+;
+;	The kernel record contains the transfer vectors required by
+;	the realtime feature and data required by those routines.
+
+fe$ins::$cmkrnl	#f$eare, #100$ pic=yes	;
+	return				;c=1 => failure
+
+100$:	clr	rp.r0(r5)		;setup
+	$cmsch				;stop the scheduler
+	mov	@#s$yrea,r4		;already got a record?
+	bne	130$			;yes
+	$obtain	#s$yque			;lock the system process
+	$crepo	#porea.,#rtkbs.		;setup the kernel record
+	mov	r0,rp.r0(r5)		;return the pointer
+	$divest	#s$yque			;free it
+	mov	rp.r0(r5),r4		;get the pointer
+	beq	130$			;we failed
+	mova	rt$kdb,r0		;get ours
+	mov	r4,r1			;point to the area
+	mov	#rtkbs./2,r2		;
+120$:	mov	(r0)+,(r1)+		;move it in
+	sob	r2,120$			;count it
+	mov	r4,@#s$yrea		;set it up
+130$:	$cmpro				;restore this
+	tst	rp.r0(r5)		;got it?
+	bne	140$			;yes
+	.soft	0			;no
+140$:	return
+.sbttl	remove feature
+
+;	Remove feature
+;
+;	Make sure there are no references
+
+fe$rem::$cmkrnl	#f$eare, #100$ pic=yes 	;remove realtime record
+	return
+
+100$:	$cmsch				;stop the scheduler
+;;	tst	f$eref			;got any references?
+	tst	@#m$mpa6+fe.ref		;got any references?
+	bne	120$			;yes
+	mov	@#s$yrea,r4		;already got a record?
+	beq	110$			;yes
+	clr	@#s$yrea		;turn us off
+	$obtain	#s$yque			;lock the system process
+	$delpo	r4			;delete the kernel record
+	$divest	#s$yque			;free it
+110$:	$cmpro				;fine
+	return
+120$:	$cmpro				;not fine
+	.soft	0			;report error
+.sbttl	kernel dispatcher
+
+;	Kernel dispatcher
+; 
+;	Intercept kernel calls and transfers.
+;	Copied to the kernel during installation.
+;
+;	rt$fpr	fork processor
+;	rt$tcr	timer-completion routines
+;	rt$inx	interrupt exit
+ 
+	map	rt.scr	word,0	;server call routine
+	map	rt.tcr		;timer completion routine
+	map	rt.fcr		;fork completion routine
+	map	rt.inx		;interrupt exit
+
+rt$kdb:				;kernel dispatch block
+	br	rt$scr		;server call - must be first
+	br	rt$tcr		;timer completion routine
+	br	rt$fcr		;fork completion routine
+	br	rt$inx		;interrupt exit
+
+	stack	kve op1 r4 r5 rea vec kpc kps
+rt$scr:	psh	@#m$kip6	;save this
+	mov	@#f$emap+<ferea.*2>,@#m$kip6
+	stack	kdb op6 kve op1 r4 r5 rea vec kpc kps
+	call	@#rt$ini+rtp6o.	;call the server
+	clc			;we did it
+	br	rt$p6x		;
+
+rt$fcr:	psh	@#m$kip6	;save these
+	mov	@#f$emap+<ferea.*2>,@#m$kip6
+	call	@#rt$fcx+rtp6o.	;complete the fork
+	br	rt$p6x		;and exit
+
+rt$tcr:	psh	@#m$kip6	;save these
+	mov	@#f$emap+<ferea.*2>,@#m$kip6
+	call	@#rt$tcx+rtp6o.	;complete the fork
+	fall	rt$p6x		;exit restore par6 and par1
+
+rt$p6x:	pop	@#m$kip6	;par6 return
+	return			;
+
+rt$inx:	pop	@#m$kip6	;interrupt exit
+	jmp	@#in$exs	;and exit the interrupt
+	map	rtkbs.,,<.-rt$kdb>
+.sbttl	server
+
+;	Define the server
+;
+;	All kernel code must follow the server
+;
+;	The realtime feature has a fixed slot in the feature table
+
+.if eq net!netmul
+ $febot		nam=real fid=ferea. ver=fever. upd=feupd. pur=<Realtime>
+.iff
+ .if eq netmul
+  $febot	nam=net fid=ferea. ver=fever. upd=feupd. pur=<SHAREnet>
+ .iff
+  $febot	nam=net fid=ferea. ver=fever. upd=feupd. pur=<SHAREnet multiple>
+ .endc
+ r$tngd:	.word	^rnet*2		;net guard
+.endc
+
+;	Feature exit routine
+;
+;	Called when an image exits or aborts
+;	Called during process deletion
+;	Dereference the process if it was attached
+
+fe$exi::mov	#rt$abt+rtp6o.,r0 ;assume abort
+	bit	#ferea$,@#p$hfem;is it installed?
+	bne	fe$beg		;yes - abort it
+	return			;no - ignore it
+
+;	Realtime feature entry point
+;
+;	r0=1	j$init
+;	r0<>1	j$call
+
+fe$beg::mov	@#m$kip1,@#m$kip6	;map us
+	jmp	@#rt$ini+rtp6o.		;map to us
+.sbttl	header and idb prototypes
+
+;	Server header prototype
+
+map	svdef$,,true		;force system definition
+s$begin
+
+;	An IDB is required for each realtime vector
+;
+;	32+4 word IDB
+
+meta	<ip$map c d e><c=.-i$prot><d e>
+i$prot:				;prototype idb
+ip$map	$	.word	4537	;00		jsr	r5,@#in$ent
+ip$map	$	.word	in$int	;02
+ip$map	ip.pri	.word	0	;04	ip.pri
+ip$map	ip.raw	.word	13746	;06	ip.raw	psh	@#m$kip6
+ip$map	$	.word	m$kip6	;10
+ip$map	$	.word	13746	;12		psh	@#m$kip1
+ip$map	$	.word	m$kip1	;14
+ip$map	$	.word	13737	;16		mov    @#f$emap+<ferea*2>,m$kip6
+ip$map	$	.word	f$emap+<ferea.*2> ;20
+ip$map	$	.word	m$kip6	;22
+ip$map	$	.word	012737	;24		mov	p$hcip+2,@#m$kip1
+ip$map	ip.par	.word	0	;26	ip.par
+ip$map	$	.word	m$kip1	;30
+ip$map	$	.word	4737	;32		call	@#isr
+ip$map	ip.isr	.word	0	;34	ip.isr
+ip$map	$	.word	12637	;36		pop	@#m$kip1
+ip$map	$	.word	m$kip1	;40
+ip$map	$	.word	12637	;42		pop	@#m$kip6
+ip$map	$	.word	m$kip6	;44
+ip$map	ip.ret	.word	207	;46	ip.ret	return or jmp @#in$rti
+ip$map	$	.word	in$rti	;50
+;
+; fork block
+;
+ip$map	ip.fbl	.word	0	;52	ip.fbl
+ip$map	ip.fad	.word	0	;52	ip.fad	kdb intercept
+ip$map	ip.fr5	.word	0	;54	ip.fr5
+ip$map	ip.fr4	.word	0	;56	ip.fr4
+;
+; timer element
+;
+ip$map	ip.tbl			;60	ip.tbl
+ip$map	ip.tsu	.word	0	;60	ip.tsu	ad.suc
+ip$map	ip.tpc	.word	0	;74	ip.tpc	ad.cpc
+ip$map	ip.tps	.word	0	;72	ip.tpr	ad.cps
+ip$map	ip.tsq	.word	0	;66	ip.tpr	ad.cr0 - sequence number
+ip$map	ip.tpr	.word	0	;70	ip.tsq	ad.cr1 - pcr address
+ip$map	ip.tho	.word	0	;60	ip.tho	ad.hot
+ip$map	ip.tlo	.word	0	;62	ip.tlo	ad.lot
+;
+; server vdb address
+;
+ip$map	ip.vdb	.word	0	;76	ip.vdb		vdb address
+;
+ip$map	ip.bbs			;100	
+i$proz:
+.sbttl	init, abort, quit
+
+;	j$init - init process realtime
+;	j$call - enters here
+; 
+;	setup for real-time
+
+rt$ini:	cmp	r0,#rt.nrt		;this an init?
+	bne	rt$cal			;no - a j$call
+.if ne net!netmul
+	mov	#rt.svm,r0		;assume server version missmatch
+	bit	#ferea$,@#p$hfem	;are we mounted?
+	bne	5$			;yes - forget it
+ .if eq netmul
+	tst	f$eref			;any one else mounted?
+	bne	20$			;report missmatch
+ .endc
+	psh	@#p$hnam		;save the name
+	asl	(sp)			;get away from rad50
+	cmp	(sp)+,r$tngd		;this net?
+	bne	20$			;nope
+ .if eq netmul
+	tst	@#p$hnam+2		;net alone?
+	bne	20$			;no
+ .endc
+.endc
+5$:	$femnt				;mount the feature
+	jsr	r5,rt$map		;
+	mov	#sv$lst+rtp6o.,r1	;get the list
+	mov	#sv$gua,r2		;get the list to fill in
+	mov	#rt.svm,r0		;assume server version missmatch
+	cmp	(r1),(r2)		;check the guard
+	bne	20$			;oops - this is crackers
+10$:	mov	(r1)+,(r2)+		;
+	cmp	r2,#sv$imp		;this the end?
+	bne	10$			;nope
+					;
+	mov	@#p$hpcr,(r2)+		;sv$imp - pcr
+	mov	@#p$hcip+mm.p1,(r2)	;sv$par - the par
+	mov	@#sv$don,@#p$hsgl	;setup the signal routine
+					;
+	mov	@#sv$lis,r0		;get the connect list
+	beq	20$			;is none
+	call	rt$con			;do a connect
+20$:	return				;
+
+;	abort
+;	j$quit
+; 
+;	called by the kernel clean-up for a job
+
+rt$abt: 
+	bit	#ferea$,@#p$hfem	;are we mounted?
+	beq	20$			;no - forget it
+	$fedsm				;dismount us
+	clr	@#p$hsgl		;no signal routine
+	jsr	r5,rt$map		;map the server
+	mov	@#sv$lis,r0		;get the vector list
+	beq	10$			;is none
+	call	rt$dis			;disconnect them
+10$:	psh	@#sv$qui		;call the quit routine
+	call	@(sp)+			;call it
+	call	rt$evt			;complete signal wait
+20$:	return
+
+rt$map:					;save all and map the server
+	pshs	<r4,r3,r2,r1>		;r5 already on the stack
+	psh	@#m$kip1		;save this
+	mov	@#p$hcip+mm.p1,@#m$kip1 ;map the server
+	call	(r5)			;call them back
+	pop	@#m$kip1		;
+	pops	<r1,r2,r3,r4,r5>	;
+	return				;
+.sbttl	j$call
+
+;	s$call
+;
+;	s$call	addr
+;
+;	r0	address of routine
+;	r1	from job
+;	r2	from job
+;	r3	from job
+;	r4	impure
+;	r5	crap
+;
+;	call	routine
+;
+;	all registers available to routine
+;	r0,r1,r2,r3 returned to job
+;	c-bit returned to job via kps
+
+stack	kdb op6 kve op1 ret rea vec r4 r5 kpc kps
+rt$cal:				;call a job in kernel mode
+	mov	@#p$hcip+mm.p1,@#m$kip1 ;map the buffer
+	call	(r0)		;call them
+	bic	#1,sp.kps(sp)	;clear the c-bit
+	adc	sp.kps(sp)	;return the c-bit
+	return			;return from emt
+
+rt$err:	sec			;dummy routines
+	return
+.sbttl	connect
+
+;	Connect a vector list
+;
+;	call	@sv$con
+;
+;	r0 ->	vector list
+;
+;	server mapped
+;	kernel mode
+
+rt$con:				;(r5)=plex
+	pshs	<r5,r4,r3,r2,r1>;save these
+	mov	r0,r3		;point to the list
+10$:	mov	(r3)+,r2	;get the next one
+	beq	50$		;fine
+	mov	vd.vec(r2),r0	;get the vector address
+	mov	r0,@#sv$inf	;store this
+	beq	15$		;this is a dummy block
+	add	#2,r0		;make sure its free
+	cmp	@vd.vec(r2),r0	;is it free?
+	bne	60$		;nope
+15$:	psh	r3		;save this
+	$obtain	#s$yque		;lock the system process
+	$crepo	#poidb.,#ip.bbs	;create the pool element
+	$divest	#s$yque		;free it
+	pop	r3		;
+	mov	r0,vd.idb(r2)	;remember the idb address
+	beq	70$		;oops - no room
+
+	mov	#i$prot+rtp6o.,r1 ;point to the prototype
+20$:	mov	(r1)+,(r0)+	;move it in
+	cmp	r1,#i$proz+rtp6o. ;end of it?
+	blo	20$		;nope
+	mov	vd.idb(r2),r0	;get it again
+	mov	r2,ip.vdb(r0)	;cross-reference back
+	mov	r0,(r2)		;vd.sra
+	add	#ip.isr,(r2)	;vd.sra -> isr address
+
+	mov	vd.pri(r2),ip.pri(r0)	;pri
+	mov	@#sv$par,ip.par(r0) 	;par
+	mov	vd.isr(r2),ip.isr(r0)	;isr
+
+	mov	vd.vec(r2),r1	;r1 -> vector
+	beq	30$		;dummy block
+
+	bit	#rt.raw,vd.typ(r2) ;is this raw?
+	beq	25$		;nope
+	mov	#137,ip.ret(r0)	;and fill in the jmp @#
+	add	#ip.raw,r0	;yes - point to raw entry
+
+25$:	mov	#340,2(r1)	;fix up the priority
+	mov	r0,(r1)		;fill in the vector
+30$:	br	10$		;do the next
+
+50$:	clr	r0		;alls well that
+	br	rt$dex		;
+60$:	mov	#rt.vna,r0	;vector not available
+	br	rt$dex		;and quit
+70$:	mov	#rt.idm,r0	;insufficient dynamic memory
+	br	rt$dex		;use the disconnect exit
+.sbttl	disconnect
+
+;	disconnect a vector list	
+;
+;	call	@sv$dis
+;
+;	r0 ->	vector list
+;
+;	server is mapped
+;	called in kernel mode
+;	priority should be zero
+
+rt$dis:				;disconnect an interrupt
+	pshs	<r5,r4,r3,r2,r1>;
+	mov	r0,r3		; r3 -> vector list
+10$:	mov	(r3)+,r2	; r2 -> vector descriptor
+	beq	rt$dex		;all done
+	tst	vd.idb(r2)	;is this mapped?
+	beq	10$		;nope - forget it
+	mov	vd.csr(r2),r1	;got a csr to clear?
+	beq	20$		;nope
+	clr	(r1)		;yes - clear it
+20$:	mov	vd.qui(r2),r1	;got a cancel routine?
+	beq	30$		;nope
+	call	(r1)		;yes - call it
+30$:	psh	r2		;point to it
+	call	rt$can		;cancel timeout
+
+	mov	vd.vec(r2),r0	; r0 -> vector
+	beq	40$		;its a dummy - forget it
+	tst	(r0)+		;plus two
+	psh	@#ps		;save this
+	spl	7		;block interrupts
+	mov	#iot,(r0)	;vec+2 = iot
+	mov	r0,-2(r0)	;vec+0 = vec+2
+	movb	(sp)+,@#ps	;restore previous level
+40$:	mov	vd.idb(r2),r1	; r1 -> interrupt descriptor block
+
+	psh	r3		;
+	$obtain	#s$yque		;lock the system process
+	$delpo	r1		;delete the pool element
+	$divest	#s$yque		;free it
+	pop	r3		;
+
+	clr	vd.idb(r2)	;mark this vector as disintegrated
+	br	10$		;look for another
+rt$dex:	pops	<r1,r2,r3,r4,r5>;
+	return
+.sbttl	raw to system
+
+;	s$chrs
+;
+;	change mode from raw to system
+; ???	Must have kernel assistance.
+;
+;	jsr	r5,@sv$crs
+;	.word	primsk
+;
+;	16(sp)	ps
+;	14(sp)	pc
+;	12(sp)	par6
+;	10(sp)	par1
+;	6(sp)	idb return
+;	4(sp)	r5		r5
+;	2(sp)	r4		r4
+;	0(sp)			return to us
+
+rt$crs:				;convert raw to system interrupt
+	inc	@#i$nins	;set the semaphore
+	bic	(r5)+,@#ps	;reset the ps
+	psh	r4		;save this too
+	call	(r5)		;call them back
+	stack	r4 r5 kp1 kp6	;
+	pops	<r4,r5>		;restore these two
+	pop	@#m$kip1	;and par1
+	psh	@#s$yrea	;get the dispatch block
+	add	#rt.inx,(sp)	;point to the exit routine
+	jmp	@(sp)+		;pop par6 and goto in$exs
+.sbttl	fork
+
+;	s$cmsf
+;	s$fork
+;
+;	change mode from interrupt to fork
+;
+;	called after ordinary interrupt
+;	called after s$cmrs by raw interrupts
+;	priority from inten
+;
+;	s$cmsf	vdb
+;	s$fork	vdb
+;
+;	psh	vdb
+;	call	@sv$csf
+;
+;	4(sp)	vdb
+;	2(sp)	fork completion
+;	0(sp)	r4
+;
+;	builds the following for common fork enqueue
+;
+;	4(sp)	done address
+;	2(sp)	r5
+;	0(sp)	r4
+;	r5	fork goto address
+;	r4	fork block
+;
+;	jmp	fk$ins
+
+	stack	r4 rou vdb ret
+rt$csf:	psh	r4		;save this a second
+	mov	sp.vdb(sp),r4	;get the vdb
+	mov	r5,vd.fr5(r4)	;save fork r5
+	pop	vd.fr4(r4)	;save fork r4
+	pop	vd.fsr(r4)	;save fork goto
+	stack	vdb ret		;4(sp)  done address
+	mov	@#sv$par,(sp)	;2(sp)	r5 = par1
+	psh	r4		;0(sp)	r4 = vdb
+	stack	fr4 fr5 ret
+	mov	vd.idb(r4),r4	;get the dispatcher
+	add	#ip.fbl,r4	;r4 -> fork block
+	mov	@#s$yrea,r5	;r5 -> fork routine
+	add	#rt.fcr,r5	;
+	jmp	@#fk$ins	;go insert it
+
+;	Fork routine dispatch
+;
+;	Map the server and call users fork routine
+;
+;	Fork routine
+;	r5 =	server par1 value
+;	r4 ->	vdb in server
+
+.if ne 0			;in kernel dispatcher
+rt$fcr:				;fork processor
+	psh	@#m$kip6	;
+	mov	f$emap+<ferea.*2>,@#m$kip6 ;map the server
+	call	@#rt$fcx+rtp6o.	;use the server fork routine
+	pop	@#m$kip6	;
+	return			;done
+.endc
+
+rt$fcx:				;fork processing continuation
+	psh	@#m$kip1	;save this
+	mov	r5,@#m$kip1	;map the server
+	mov	vd.fsr(r4),r3	;r3 -> completion routine
+	mov	vd.fr5(r4),r5	;get r5
+	mov	vd.fr4(r4),r4	;get r4
+	call	(r3)		;call them
+	pop	@#m$kip1	;restore this
+	return			;
+.sbttl	wait, signal, event
+
+;	j$wait	
+; 
+;	wait for a signal - return after any clearing condition
+; 
+;	just suspend
+
+rt$wai:				;wait for a signal
+	.spnd			;suspend
+	return			;and quit
+
+;	s$sign  
+; 
+;	server signal
+; 
+;	Called at fork level (in system state)
+;	Map target PHD in par1 to set signal flag
+
+rt$sig:				;signal a job
+	pshs	<r4,r3>		;
+	mov	@#sv$imp,r4	;get the pcr
+	psh	@#m$kip1	;save par6
+	mov	pr.phd(r4),@#m$kip1 ;map the phd
+	bis	#tecrt$,@#p$hsig+mmp12. ;set the realtime flag
+;?	bic	#stdor$,@#p$hast+mmp12. ;let ast's thru
+	pop	@#m$kip1	;get it back again
+	mov	#siter$,r0	;send a terminal signal
+;?	clr	r0		;wake up process
+	call	@#as$pms	;post the monitor signal
+10$:	pops	<r3,r4>		;
+	fall	rt$evt		;and wake them up
+
+;	Wake up process
+;
+;	Call in system state
+
+rt$wak:				;
+rt$evt:	pshs	<r4,r3>		;
+	mov	@#sv$imp,r4	;signal it if its waiting
+	bis	#prwak$,pr.sta(r4) ;wake process up
+	tstb	pr.wai(r4)	;are they waiting for us?
+	beq	10$		;no
+	$revive	#s$cp04		;revive the process
+10$:	pops	<r3,r4>		;
+	return			;
+.sbttl	marktime
+
+;	s$mark - mark time
+;
+;	s$mark	vdb			;timeout a vdb
+;
+;	psh	vdb
+;	call	@sv$mar
+;
+;	r0 ->	vdb
+;	r3 ->	ip.tbl
+
+rt$mar:	jsr	r5,rt$tfl		;timer float
+	call	rt$cmt			;cancel any current request
+	mov	vd.hot(r0),ad.hot(r3)	;move in the time
+	mov	vd.lot(r0),ad.lot(r3)	;the time
+	call	@#ti$tik		;get current ticks
+	add	r0,ad.hot(r3)		;add hot
+	add	r1,ad.lot(r3)		;add lot
+	adc	ad.hot(r3)		;
+
+	assume	ad.suc eq 0		;
+	clr	(r3)			;zap the link
+	mov	@#s$yrea,ad.cpc(r3)	;completion routine
+	add	#rt.tcr,ad.cpc(r3)	;compute completion address
+	clr	ad.cps(r3)		;kernel psw
+	mov	#tirti.,ad.cr0(r3)	;realtime marktime id
+;	mov	@#m$kip1,ad.cr1(r3)	;server page number
+
+;	r2 ->	t$ique
+;	r3 ->	ip.tbl
+
+	mov	#t$ique,r2	;point to them
+10$:	mov	r2,r1		;r1 -> previous item
+	mov	(r2),r2		;r2 -> current
+	beq	20$		;last - put us in
+	cmp	ad.hot(r2),ad.hot(r3) ;this one earlier?
+	blo	10$		;no - the next
+	bhi	20$		;yes - put us in
+	cmp	ad.lot(r2),ad.lot(r3) ;no - check the low order
+	blos	10$		;its earlier or same
+20$:	mov	r2,(r3)		;link us forward
+	mov	r3,(r1)		;and backward
+	return			;done
+
+;	timer completion routine
+;
+;	fork level
+;
+;	r0 ->	ip.tbl(ipr)
+
+rt$tcx:					;process timeout
+	psh	@#m$kip1		;save this
+	mov	ip.par-ip.tbl(r0),@#m$kip1 ;map the server
+	mov	ip.vdb-ip.tbl(r0),r4	;r4 = vdb
+	call	@vd.tsr(r4)		;call the routine
+	pop	@#m$kip1		;restore this
+	return
+.sbttl	cancel marktime, clock
+
+;	s$canc - cancel marktime
+;
+;	psh	vdb
+;	call	@sv$can
+;
+;	r0 ->	vdb
+;	r3 ->	ip.tbl
+
+rt$can:	jsr	r5,rt$tfl		;timer float
+rt$cmt:	mov	#t$ique,r2		;cancel internal
+10$:	mov	r2,r1			;keep a copy
+	mov	(r2),r2			;get the next
+	beq	20$			;are no more
+	cmp	r2,r3			;is this our element
+	bne	10$			;no
+	mov	(r2),(r1)		;yes - link it out
+	clr	(r2)			;be tidy
+20$:	return
+
+;	psh	vdb
+;	call	rt$xxx
+;	jsr	r5,rt$tfl
+;
+;	r0 ->	vdb
+;	r1 ->	ip.tbl
+
+rt$tfl:	stack	r0 r1 r2 r3 r5 r5 ret vdb ;timer float
+	pshs	<r4,r3,r2,r1,r0>	;
+	mov	sp.vdb(sp),r0		;r0 -> vdb
+	mov	vd.idb(r0),r3		;get the ip
+	add	#ip.tbl,r3		;point to the timer block
+	$float				;stop everything
+	call	(r5)			;call them back
+	$land				;come back
+	pops	<r0,r1,r2,r3,r4,r5>	;restore these
+	pop	(sp)			;squeeze out the parameter
+	return				;
+
+;	s$clock
+;
+;	psh	adr
+;	call	@sv$clk
+;
+;	0(adr)	hot
+;	2(adr)	lot
+;	4(adr)	frequency (50 or 60)
+
+rt$clk:	stack	r0 r1 r2 ret adr	;get clock parameters
+	pshs	<r2,r1,r0>		;save these
+	mov	sp.adr(sp),r2		;get a pointer
+	call	@#ti$tik		;get the ticks
+	mov	r0,(r2)+		;move them in
+	mov	r1,(r2)+		;
+	mov	@#t$ifre,(r2)+		;move in the frequency
+	pops	<r0,r1,r2>		;get these back
+	pop	(sp)			;squeeze out parameter
+	return
+.sbttl	convert virtual/mapped/physical
+
+;	s$cnvm - virtual to mapped
+
+stack	par rt1 op1 r0 r1 r2 ret to frm
+rt$cvm:	pshs	<r2,r1,r0>		;save these
+	psh	@#m$kip1		;par1
+	psh	#30$+rtp6o.		;return address
+	psh	@#m$kip0		;assume kernel
+	mov	sp.frm(sp),r2		;r2 -> from adb
+	mov	(r2),r0			;r0=0,-1,n
+	beq	20$			;it was kernel
+	bpl	10$			;its a job number
+	mov	#m$uip0,(sp)		;user mode
+	br	20$			;
+
+10$:	cmp	r0,@#p$rprs		;is this too high?
+	blo	15$			;fine
+12$:	mov	#-1,sp.to(sp)		;set the exit error
+	add	#sp.op1,sp		;pop these parameters
+	br	50$			;and exit
+
+15$:	asl	r0			;make a word offset
+	mov	p$rmap(r0),r0		;get the pcr
+	beq	12$			;no such process
+	mov	pr.phd(r4),@#m$kip1	;map target phd in par1
+	mov	#p$hcip-<m$mpa2-m$mpa1>,(sp) ;point to the mapping registers
+20$:	mov	2(r2),r0		;get the virtual address
+	jmp	@#io$cvm		;convert virtual to mapped
+
+30$:	stack	op1 r0 r1 r2 ret to frm
+	mov	sp.op1(sp),@#m$kip1	;remap server
+	mov	sp.to(sp),r0		;get the return area
+	clr	sp.to(sp)		;set the good status
+	mov	r1,(r0)+		;return this stuff
+	bic	#20000,r2		;remove the par1 spec
+	mov	r2,(r0)+		;
+50$:	pop	@#m$kip1		;
+	pops	<r0,r1,r2>		;restore these
+	stack	ret to frm
+	mov	(sp),sp.frm(sp)		;move these up
+	add	#sp.to,sp		;pop to the result
+	asr	(sp)+			;set c=0 or c=1
+	return				;and quit
+
+;	mapped to physical
+
+rt$cmp:	stack	r0 r1 r2 ret to frm
+	pshs	<r2,r1,r0>		;
+	mov	sp.frm(sp),r0		;get the stack
+	mov	(r0)+,r1		;r1 = ad.pag
+	mov	(r0),r2			;r2 = ad.off
+	call	@#io$cmp		;map physical
+	mov	sp.to(sp),r0		;get the TO pointer
+;	clc	
+	ash	#-4,r1			;move the high order down
+	mov	r1,(r0)+		;ad.hop
+	mov	r2,(r0)+		;ad.lop
+	pops	<r0,r1,r2,(sp),(sp)>	;
+	return
+.sbttl	get/put byte/word, block move
+
+; 	s$getbyt, s$putbyt, s$getwrd, s$putwrd
+;
+;	psh	dat
+;	psh	adb
+;	psh	fun
+;	call	@sv$gpt
+
+stack	op1 r0 r1 r2 ret fun adb dat
+	sp.res=sp.adb
+rt$gpt:					;get/put
+	pshs	<r2,r1,r0>		;
+	psh	@#m$kip1		;
+	mov	sp.adb(sp),r0		;get the adb
+	mov	ad.off(r0),r1		;
+	mov	(r0)+,@#m$kip1		;map us
+	bis	#20000,r1		;relocate to par1
+	add	sp.fun(sp),pc		;dispatch us
+	br	20$			;0=getbyt
+	br	30$			;2=getwrd
+	br	10$			;4=putbyt
+	mov	sp.dat(sp),(r1)		;6=put word
+	br	40$			;
+10$:	movb	sp.dat(sp),(r1)		;put byte
+	br	50$			;
+20$:	movb	(r1),sp.res(sp)		;get byte
+	br	50$			;
+30$:	mov	(r1),sp.res(sp)		;get word
+40$:	inc	r1			;word increment
+50$:	inc	r1			;byte increment
+	pop	@#m$kip1		;restore par1
+	mov	r1,(r0)			;update offset
+	bic	#60000,(r0)		;clean it up
+	bit	#40000,r1		;just rolled over?
+	beq	60$			;nope
+	inc	-(r0)			;yes - step up ad.pag
+60$:	pops	<r0,r1,r2>		;restore these
+	stack	ret fun res dat
+	bit	#4,sp.fun(sp)		;this a get? 
+	beq	70$			;yes
+	mov	(sp),sp.dat(sp)		;putwrd
+	add	#sp.dat,sp		;skip them
+	return
+70$:	mov	(sp)+,(sp)		;pop up
+	return
+
+;	$mvblk	addr
+;
+;	addr ->	wcnt, kernel adb, user adb
+
+	stack	sav r0 r1 r2 r3 r4 r5 ret adr
+rt$mbl:					;move block
+	jsr	r5,rt$sav		;save all
+	mov	sp.adr(sp),r0		;get the pointer
+	mov	(r0)+,r5		;r5 = wordcount
+	mov	(r0)+,r1		;kernel page
+	mov	(r0)+,r2		;kernel offset
+	bis	#20000,r2		;make it page one
+	mov	(r0)+,r3		;user page
+	mov	(r0)+,r4		;user offset
+	bis	#20000,r4		;
+	call	@#io$blm		;move them
+	jsr	r5,rt$res		;restore them
+	pop	(sp)			;push out the adb
+	return				;done
+
+rt$sav:	jmp	@#ut$sav		;save registers
+rt$res:	mov	(sp)+,(sp)+		;restore registers
+	pops	<r0,r1,r2,r3,r4>
+	rts	r5
+$fetop
+.end
+

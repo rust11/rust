@@ -1,0 +1,642 @@
+.title	batch
+.include "lib:share.mac"
+
+;	SHAREplus Batch process
+;
+;	RE: required
+	
+$imgdef	BATCH 1 0
+$imginf	fun=sav cre=hammo aut=ewm use=<Batch processor>
+$imgham	yrs=<1987> oth=<>
+;	%date
+$imgdat	<06-Oct-2022 04:40:16>   
+;	%edit
+$imgedt	<126  >
+	
+;	%build
+;	set error none
+;	goto 'p1'
+;	macro:
+;	macro	rfs:batch /object=rfb:
+;	link:
+;	link	rfb:batch,lib:reclib,lib:share /exe=rfb:batch/map=rfb:batch/glo
+;	%end
+
+$badef		;batch
+$chdef		;
+$ehdef		;expert header
+$evdef		;eva
+$fodef		;
+$iodef		;
+$jbdef		;syscom
+$kcdef		;kernel control
+$pedef		;process enable
+$pndef		;phd
+$prdef		;pcr
+$record		;record-eleven
+$rmdef		;rmon
+$rpdef		;
+$srdef		;system rights
+
+map	cudch.,,0		;data channel
+map	curch.,,1		;lock channel
+map	fobsz.,,512.		;
+
+meta	<movst$ str><jsr r0,cu$mov><.asciz _str_><.even>
+meta	<cvdec$ val><mov val,r1><call cu$dec>
+meta	<cvoct$ val><mov val,r1><call cu$oct>
+meta	<newli$><movb #12,(r5)+><movb #15,(r5)+><clrb (r5)>
+meta	<state$ val><mov val,c$usta>
+meta	<bcs$ lab ?z><bcc z><jmp lab><z:>
+meta	<beq$ lab ?z><bne z><jmp lab><z:>
+meta	<bmi$ lab ?z><bpl z><jmp lab><z:>
+.sbttl	mainline
+
+start:	cmp	r5,#^rshp		;this SHAREplus?
+	beq	cu$sta			;yes
+	.print	#c$uhea			;
+	.print	#c$ushp			;
+	.exit				;
+
+cu$sta:	$stbat				;setup batch priority
+	$cmkrnl	#area, #cu$gst, pic=yes	;get the status
+	bcc	10$			;fine
+	.print	#c$uhea			;
+	.print	#c$unor			;
+	.exit				;
+
+10$:	mov	r0,c$usta		;save status
+	mov	r1,c$upid		;setup our pid
+	add	r0,pc			;dispatch state
+	br	cu$ini			;init batch
+	br	cu$ent			;get an entry
+	br	cu$pre			;login done
+	jmp	cu$pos			;post process
+.sbttl	init batch
+
+cu$ini:	call	cu$sup			;setup batch control file
+	call	cu$fdb			;free the database
+	call	cu$nst			;setup next state
+	br	cu$sta			;and start over
+
+;	Get next entry from Batch file
+
+cu$ent:	call	cu$uic
+	call	cu$opn			;open the file
+	bcs$	cu$sus			;it's locked - suspend
+	mov	#c$ubuf,r5		;
+	mov	c$upid,ba.bpi(r5)	;setup our pid
+	bic	#basus$,ba.ctl(r5)	;
+	assume	basto$ eq 200		;
+	tstb	ba.ctl(r5)		;are we stopped?
+	bmi$	cu$sto			;batch has been stopped
+	tstb	ba.act(r5)		;
+	beq$	cu$sus			;suspend us
+	bis	#baact$,ba.ctl(r5)	;set us active
+	mov	ba.rem(r5),r4		;
+	add	#c$ubuf,r4		;relocate to our buffer
+	bit	#badel$,ba.rct(r4)	;this one deleted?
+	beq	10$			;yes - try for another
+	bic	#banot$,ba.rct(r4)	;do not notify
+	movb	#badon.,c$usta		;say we are done
+	br	cu$pox			;do the next
+10$:	bic	#bapen$,ba.rct(r4)	;no longer pending
+	bis	#bacur$,ba.rct(r4)	;this is the current
+	mov	#c$ulin,r5		;get the command line
+	movst$	<log >			;
+	mov	r4,r1			;get the record
+	add	#ba.nam,r1		;point to user name
+	call	cu$r50			;convert user name
+	call	cu$r50			;second part
+	newli$				;new line
+	call	cu$clo			;close & free database
+	jmp	cu$exi			;exit with command
+.sbttl	issue commands
+
+;	Login just done
+
+cu$pre:	call	cu$opn			;open the batch file
+	mov	#c$ubuf,r4		;get the buffer
+	mov	ba.rem(r4),r4		;get the entry
+	add	#c$ubuf,r4		;relocate
+	mov	#c$ulin,r5		;get output string
+	bit	#baver$,ba.ctl(r4)	;/verify required?
+	beq	2$			;nope
+	movst$	<set verify>		;
+	newli$				;
+2$:	mov	r4,r1			;get the entry
+	add	#ba.log,r1		;point to log_file name
+	tst	(r1)			;want a batch file?
+	beq	10$			;nope
+	movst$	<open log >		;
+	call	cu$cvf			;convert a filename
+	cmp	ba.alc(r4),#-1		;this -1?
+	beq	5$			;yes - ignore it
+	movst$	</allocate:>		;
+	cvdec$	ba.alc(r4)		;get allocate value
+5$:	newli$				;
+10$:	mov	r4,r1			;point to entry
+	add	#ba.fil,r1		;point to filename
+	movb	#'@,(r5)+		;start the command
+	call	cu$cvf			;convert filename
+	newli$				;new line
+	jmp	cu$exi			;
+
+;	Post process entry
+;
+;	Batch has just executed command file
+;	or batch job was deleted
+
+cu$abt:	state$	#badon.			;force done
+cu$pos:					;post-process batch entry
+	call	cu$opn			;open batch file
+cu$pox:	mov	#c$ubuf,r4		;get our buffer
+	mov	ba.rem(r4),r4		;
+	add	#c$ubuf,r4		;relocate
+	bit	#bacur$!badel$,ba.rct(r4) ;was it active or deleted?
+	beq	70$			;nope
+;	call	ba$chk			;check logfile errors
+	bit	#banot$,ba.rct(r4)	;notify process?
+	beq	20$			;nope
+	call	ba$not			;notify caller
+20$:	bit	#basyn$,ba.rct(r4)	;
+	beq	70$			;
+	clr	c$upid			;
+	bisb	ba.rct(r4),c$upid	;
+	$wake	#area, #c$upid, #0	; wake that process
+70$:	assume	ba.ent eq 0		;
+	clr	(r4)			;remove id
+	psh	ba.rct(r4)		;save control word
+	clr	ba.rct(r4)		;clear control word
+80$:	mov	#c$ubuf,r4		;point to the buffer
+	add	#ba.bbs,ba.rem(r4)	;point to the next
+	cmp	ba.rem(r4),ba.top(r4)	;time to wrap
+	blo	90$			;nope
+	mov	ba.bot(r4),ba.rem(r4)	;wrap around
+90$:	incb	ba.fre(r4)		;one more free
+	decb	ba.act(r4)		;one less active
+100$:	call	cu$clo			;close the file
+	call	cu$nst			;setup next state
+	mov	#c$ulin,r5		;get output line
+	bit	#baacc$,(sp)+		;(sp) = save ba.rct
+	beq	110$			;no accounting display
+	movst$	<show process/accounting>;
+	newli$				;
+110$:	movst$	<set nolog>		;disable logger
+	newli$				;
+	movst$	<account log/process>	;
+	newli$				;
+	movst$	<open log nl:batch.log>	;
+	newli$
+	jmp	cu$exi			;
+
+;	Notify caller process
+
+ba$not:					;notify caller
+	mov	#c$ulin,r5		;get output line
+	movst$	<BP>			;
+	cvoct$	ba.pid(r4)		;setup pid
+	movst$	< ?BATCH-I-Job >	;
+	cvdec$	ba.ent(r4)		;
+	movst$	< >			;
+	mov	r4,r1			;
+	add	#ba.fil+2,r1		;
+	call	cu$r50			;
+	call	cu$r50			;
+	bit	#badel$,ba.rct(r4)	;was it aborted?
+	beq	10$			; nope
+	movst$	< aborted on >		;
+	br	20$			;
+10$:	movst$	< completed on >	;
+20$:	call	cu$dat			;
+	movst$	< >			;
+	call	cu$tim			;
+	clrb	(r5)			;terminate string
+	.sdat	#area, #c$ulin, #32.	;
+	return				;
+
+;	Check logfile creation errors
+
+;ba$chk:					;
+;	$cmkrnl	#area, #100$, pic=yes	;
+;	bit	#foopn$,p.hlos		;got a logfile open?
+;	beq				;nope
+;	mov	#c$ulin,r5		;get the output string
+;	movst$	<BP>			;
+;	cvoct$	ba.pid(r4)		;setup pid
+;	movst$	< ?BATCH-E-Log file creation failed>
+;	.sdat	#area, #c$ulin, #32.	;
+;	return				;
+.sbttl	mixed routines
+
+;	Exit with command
+
+cu$exi:	call	cu$nst			;setup next state
+	sub	#c$ulin,r5		;get size of command
+	$exit	cmd=#c$ulin, len=r5	;exit with command
+
+;	Nothing to do - suspend Batch
+
+	.enabl	lsb			;
+cu$sus:	bis	#basus$,ba.ctl(r5)	;we suspend
+	bic	#baact$,ba.ctl(r5)	;no longer active
+	call	cu$clo			;close
+	.spnd				;
+	br	10$			;
+					;
+;	Batch queue has been stopped	;
+					;
+cu$sto:	bic	#baact$,ba.ctl(r5)	;no longer active
+	call	cu$clo			;close
+	$suspnd	#area, #0, #0		;suspend ourself
+10$:	state$	#baini.			;
+	call	cu$nst			;setup the state
+	jmp	cu$sta			;
+	.dsabl	lsb
+	
+cu$nst:	mov	c$usta,r1		;get current state
+	cmp	r1,#bamax.		;maximum reached?
+	blo	10$			;nope
+	clr	r1			;yes - start over
+10$:	add	#2,r1			;next state
+	$cmkrnl	#area, #cu$pst, pic=yes	;put the state
+	return
+.sbttl	utilities
+
+;	Open database 
+
+cu$opn:	call	cu$srg			;setup rights
+	call	cu$ldb			;lock the database
+10$:	.lookup	#area, #cudch., #c$ufil, #0 ;open the file
+	bcc	20$			;fine
+	call	cu$cre			;create the database
+	br	10$			;and try again
+20$:	.readw	#area, #0, #c$ubuf, #<bablk.*256.>, #0
+	return				;c=?
+
+;	Setup/create the database
+
+	.enabl	lsb			;
+cu$sup:	call	cu$srg			;
+	call	cu$ldb			;lock the database
+	.lookup	#area, #cudch., #c$ufil, #0 ;open the file
+	bcc	10$			;fine
+cu$cre:	.enter	#area, #cudch., #c$ufil, #bablk. ;
+	bcs	30$
+10$:	mov	#c$ubuf,r5		;get the buffer
+	clrb	(r5)+			;no active one
+	movb	#bacnt.,(r5)+		;free entries
+	clr	(r5)+			;ba.ctl
+	mov	#ba.cbs,(r5)+		;ba.bot
+	mov	#<ba.cbs+<ba.bbs*bacnt.>>,(r5)+ ;
+	mov	#ba.cbs,(r5)+		;ba.ins
+	mov	#ba.cbs,(r5)+		;
+	clr	(r5)+			;two spares
+	clr	(r5)+			;
+20$:	clr	(r5)+			;
+	cmp	r5,#c$uend		;end of buffer?
+	blo	20$			;nope
+	.writw	#area, #cudch., #c$ubuf, #<bablk.*256.>, #0 ;write it out
+	.close	#cudch.			;make it permanent
+	return				;
+30$:	.print	#c$uhea			;
+	.print	#c$ucre			;
+	.exit				;
+	.dsabl	lsb			;
+
+;	Close output files
+
+cu$clo:	call	cu$srg			;
+	.wait	#cudch.			;was it open?
+	bcs	10$			;nope
+	.writw	#area, #cudch., #c$ubuf, #<bablk.*256.>, #0 ;write record back
+10$:	.close	#cudch.			;
+	call	cu$fdb			;free the database
+	return				;
+
+;	Setup rights
+
+cu$srg:	$cmkrnl	#area, #10$, pic=yes	;
+	return				;
+10$:	assume	sr.pio eq sr.sys	;
+	assume	sr.vol eq sr.sys	;
+	bis	#srpio.!srvol.!srsys.,@#p$hsr0+sr.sys
+	return				;
+
+;	Setup UIC
+
+cu$uic:	$cmkrnl	#area, #10$, p1=c$upid, pic=yes
+	return
+10$:	louic.=<1*256.>!4		;
+	mov	#louic.,@#p$huic	;
+	mov	#louic.,@#p$huix	;
+	mov	rp.p1(r5),r0		;
+	asl	r0			;
+	mov	p$rmap(r0),r0		;
+	mov	#louic.,pr.uic(r0)	;
+	return				;
+.sbttl	record locking
+
+;	Lock database
+
+cu$ldb:					;lock database
+	.purge	#curch.			;free the channel
+	$init	#curch.			;open for record locking
+	bcs	20$			;no record locking
+	$file	#c$ufcb, #curch., #c$ufcn ;lock this file
+	bcs	10$			;oops
+	$lock	#c$ufcb, #0, #-1	;lock the file
+	bcs	20$			;oops - locked
+10$:	tst	(pc)+			;
+20$:	sec				;
+	return				;
+
+;	Free database
+
+cu$fdb:					;free the database
+	$free	#c$ufcb			;free the record
+	$quit				;stop the lot
+	return				;
+.sbttl	move string - octal/decimal conversion
+
+;	move a string
+;
+;	movst$	str
+;
+;	jsr	r0,cu$mov
+;	.asciz	/str/
+;	.even
+
+cu$mov:
+10$:	tstb	(r0)			;end?
+	beq	20$			;yes
+	movb	(r0)+,(r5)+		;
+	br	10$			;
+20$:	movb	(r0)+,(r5)		;terminate string
+	inc	r0			;
+	bic	#1,r0			;
+	rts	r0			;
+
+;	convert to octal
+;
+;	cvoct$	val
+;	
+;	mov	val,r1
+;	call	cu$oct
+;
+;	cvdec$	val
+;	
+;	mov	val,r1
+;	call	cu$dec
+
+	.enabl	lsb
+cu$oct:	mov	#c$uoct,r3		;
+	br	5$			;
+cu$dec:	mov	#c$udec,r3		;
+	fall	5$			;
+5$:	clr	r2			;digit seen flag
+10$:	clr	r0			;clear high order
+	div	(r3)+,r0		;get next digit
+	bpl	15$			;positive reply
+	neg	r0			;adjust special case 1ooooo/100000
+15$:	bne	20$			;digits from now on
+	tst	r2			;already done one?
+	bne	20$			;yes
+	tst	(r3)			;is this the last?	
+	bne	10$			;nope
+20$:	mov	#-1,r2			;get all remainding digits
+	add	#'0,r0			;
+	movb	r0,(r5)+		;
+	tst	(r3)			;any more?
+	bne	10$			;yes
+	clrb	(r5)			;terminate string
+	return
+
+c$uoct:	.word	100000,10000,1000,100,10,1,0
+c$udec:	.word	10000.,1000.,100.,10.,1,0
+	.dsabl	lsb
+.sbttl	convert date & time
+
+;	Convert date to string
+
+cu$dat:	.date				;
+	psh	r0			;
+	beq	30$
+	mov	r0,r1			;
+	asl	r1			;
+	asl	r1			;
+	asl	r1			;
+	swab	r1			;
+	bic	#^c37,r1		;
+	cvdec$	r1			;
+	movb	#'-,(r5)+		;
+	mov	(sp),r1			;
+	asr	r1			;
+	swab	r1			;
+	asr	r1			;
+	bic	#^c37,r1		;
+	dec	r1			;
+	cmp	r1,#11.			;
+	blos	10$			;
+	mov	#12.,r1			;
+10$:	asl	r1			;
+	asl	r1			;
+	add	#20$,r1			;
+	.rept	4.			;
+	movb	(r1)+,(r5)+		;
+	.endr				;
+	bic	#^c37,(sp)		;
+	add	#1972.,(sp)		;
+	cvdec$	(sp)+			;
+	return				;
+20$:	.ascii	/Jan-Feb-Mar-Apr-May-Jun-Jul-Aug-Sep-Oct-Nov-Dec-Bad-/
+	.even
+	
+30$:	pop	r0			; reset this
+	movst$	<No date>		; failed
+	return				;
+
+;	Convert time
+
+cu$tim:					; time string
+	.gtim	#area, #c$utim		; get the time
+	mov	c$utim,r0		; high order
+	mov	c$utim+2,r1		; low order
+	mov	c$ufre,r3		; get frequency
+	mul	#60.,r3			;get seconds factor
+	div	r3,r0			;extract seconds
+	mov	r0,r1			;
+	clr	r0			;init high order
+	div	#60.,r0			;
+	psh	r1			;save minutes
+	mov	r0,r1			;get hours
+	call	cu$de2			;two decimal digits
+	movb	#':,(r5)+		;
+	pop	r1			;
+	fall	cu$de2			;
+					;
+cu$de2:	cmp	r1,#10.			;
+	bhis	10$			;
+	movb	#'0,(r5)+		;store the digit
+10$:	cvdec$	r1			;convert ot decimal
+	return				;
+.sbttl	convert filename & rad50
+
+;	Convert a filename
+;	r1 ->	input block
+;	r5 ->	output stream
+
+cu$cvf:	call	cu$r50			;get device name
+	movb	#':,(r5)+		;
+	call	cu$r50			;
+	call	cu$r50			;
+	movb	#'.,(r5)+		;
+	call	cu$r50			;
+	return				;
+
+;	Convert rad50 to ascii
+;
+;	r1 -> rad50 value
+;	r5 -> ascii string
+
+cu$r50:	psh	r4
+	mov	(r1)+,r2
+	mov	#3,r4
+	mov	#9$,r3
+2$:	mov	#-1,r0
+	cmp	#174777,r2
+	blo	4$
+3$:	inc	r0
+	sub	(r3),r2
+	bcc	3$
+	add	(r3)+,r2
+	tst	r0		;blank?
+	beq	81$		;yes - ignore
+31$:	cmp	#33,r0
+	blo	6$
+	beq	7$
+4$:	add	#40,r0
+5$:	add	#16,r0
+6$:	add	#11,r0
+7$:	add	#11,r0
+8$:	movb	r0,(r5)+
+81$:	dec	r4
+	bne	2$
+	pop	r4
+	return
+9$:	.word	3100,50,1
+.sbttl	kernel routines
+
+;	Get BATCH state
+
+meta	<setup$	loc><mov loc,r0><call 100$>
+
+cu$gst:
+	clr	rp.r0(r5)		;assume not initialized
+	bis	#<pebat$!penac$>,@#p$hpe0 ;set the batch bit
+	$cmsch				;block scheduler
+	cmpb	@#p$hbat,#baent.	;start with new entry?
+	bhi	10$			;yes - do not change username
+	setup$	#p$huse			;setup username
+	setup$	#p$husn			;for expert, too
+	setup$	#p$hacn			;accounting name
+10$:	setup$	#p$hnam			;process name
+	mov	@#p$hpcr,r0		;get pcr
+	add	#pr.nam,r0		;point to process name
+	call	100$			;change it
+	$cmpro				;back to process mode
+	mova	c$ufre,r0		;
+	mov	@#t$ifre,(r0)		;get frequency
+	mov	@#p$hprn,rp.r1(r5)	;send back our pid
+	bit	#kcbat$,@#s$ykc0	;batch initialized?
+	beq	20$			;nope
+	movb	@#p$hbat,rp.r0(r5)	;setup batch state
+20$:	bis	#kcbat$,@#s$ykc0	;setup batch bit
+	clrb	@#p$hbat		;clear batch control
+	cmp	rp.r0(r5),#badon.	;are we done?
+	bne	30$			;nope
+	bic	#penac$,@#p$hpe0	;yes - let accounting come thru
+30$:	return				;
+					;
+100$:	mov	#^rBAT,(r0)+		;
+	mov	#^rCH,(r0)+		;
+	return				;
+
+;	Put status			
+
+cu$pst:
+	movb	rp.r1(r5),@#p$hbat	;setup new state
+	cmp	rp.r1(r5),#baent.	;just post-process done?
+	bne	10$			;nope
+	bic	#penac$,@#p$hpe0	;yes - enable accounting
+10$:	return				;
+.sbttl	close log
+
+.if eq 1
+cu$clf:	$cmkrnl	#area, #100$, pic=yes
+	return
+
+100$:	bit	#foopn$,@#p$hlos	;are we logging?
+	beq	30$			;no
+	bic	#fofil$!foopn$,@#p$hlos	;we were
+	bit	#foerr$!foful$,@#p$hlos	;had an error?
+	bne	30$			;yes - just close it
+
+	mov	@#p$hlob,r4		;get the logfile buffer
+	beq	30$			;we just lost it
+	sub	@#p$hktc,r4		;r4 -> buffer
+	movi	fo.buf,r4,r1		;r1 -> buffer
+	mov	fo.cnt(r4),r2		;get the count
+	beq	20$			;buffer is empty
+	mov	r2,r3			;
+	add	r1,r3			;r3 -> last in buffer
+10$:	cmp	r2,#512.		;all done?
+	bhis	20$			;yes
+	inc	r2			;no
+	clrb	(r3)+			;no - clear another
+	br	10$			;
+20$:
+	mov	sp,r1			;save the stack
+	clr	-(sp)			;io.com - wait i/o
+	psh	#iowri$!iouim.		;io.mod - read user mode
+	psh	#fobsz./word		;io.wct - word count
+	psh	@#p$hlob		;io.buf - user buffer address
+	add	#fo.buf,(sp)		;	- skip buffer header
+	psh	fo.blk(r4)		;push the block number
+	psh	#16.			;iochn=16., io.cod=0
+	mov	sp,r0			;point to the emt area
+	emt	373			;execute it
+	mov	r1,sp			;get the stack back
+30$:	.close	#16.			;close the file
+	.purge	#16.			;in case close failed
+	mov	@#p$hlob,r0		;get logger buffer
+	sub	@#p$hktc,r0		;relocate user address
+	mov	#4,r1			;get a counter
+40$:	clr	(r0)+			;clear out filename
+	sob	r1,40$			;
+	clr	@#p$hlof		;disable logging
+	bic	#foerr$!foful$!foclo$,@#p$hlos ;remove all errors
+	return
+.endc
+.sbttl	data
+
+area:	.blkw	10.			;
+c$usta:	.word	0			;current batch state
+c$upid:	.word	0			;batch pid
+c$utim:	.blkw	2			;time for notify message
+c$ufre:	.word	0			;frequency
+c$ubat:	.blkb	ba.bbs			;copy of batch record
+c$ufil:	.rad50	/SY BATCH BAQ/		;batch input file
+c$ufcn:	.rad50	/RE0BATCH SYS/		;
+c$ufcb:	.blkw	12.			;re: file control block
+c$ulin:	.blkb	120.			;
+c$uhea:	.ascii	/?BATCH-E-/<200>	;
+c$ushp:	.asciz	/SHAREplus required/	;
+c$ucre:	.asciz	/Can't create file/	;
+c$unon:	.asciz	/No process name available/
+c$unor:	.asciz	_BATCH not installed with /SYSTEM rights_
+	.even				;
+c$ubuf:	.blkw	bablk.*256.		;database buffer
+c$uend:
+	.end	start			;
+

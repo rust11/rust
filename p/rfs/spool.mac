@@ -1,0 +1,770 @@
+.title	spool
+.include "lib:share.mac"
+$chdef		;channel
+$fndef		;filename
+$jbdef		;job
+$mmdef		;mmu
+$podef		;pool
+$rpdef		;rp
+$spdef		;spool
+$srdef		;system rights
+$txdef		;text
+$undef		;unit
+
+$imgdef	SPOOL 2 7
+$imginf	fun=sav cre=hammo aut=ijh use=<SHAREplus transparent spooler>
+$imgham	yrs=<1984,1985,1986,1987> oth=<>
+;	%date
+$imgdat	<01-Mar-2008 15:58:59.19>
+;	%edit
+;	<20   >
+
+;	SHAREplus transparent spooler
+;
+;	%build
+;	goto 'p1'
+;	macro rfs:spool/object:rfb:
+;	link:
+;	r link
+;	rfb:spool,rfb:spool=rfb:spool,lib:share
+;	^C
+;	goto end
+;	if "'p1'" goto end
+;	copy rfb:spool.sav sy:spool.sav
+;	end:
+;	%end
+;
+;	Eight diversions, consignments and printers supported.
+;
+;	s$prec	single kernel reference point for spoolers.
+;	rsp	ACP spooler support
+;
+;	diversion	sta req dev int:con seq
+;	consignment	sta req pri int:con seq
+;	printer		sta req pri int:con seq
+;	despool		
+;
+;	sta	status
+;	req	requests
+;	dev	device name
+;	pri	printer name
+;	int	intermediate device name
+;	con	consignment name
+;	seq	sequence number
+;
+;	que	default intermediate device, /SYSTEM default assignment
+;	qu:	dummy device - installed by boot
+;
+;	spool lp
+;	divert lp lpq
+;	consign lpq lp
+;	install/printer lp
+;
+;	Sequence	dev:queSEQ.QUE. SEQ = AAA:ZZZ = 17576 files.
+;
+;	Find file	ACP wildcard support
+;
+;	Spool should purge unused files and printers so that devices
+;	and volumes can be removed and dismounted.
+.sbttl	despool records
+
+;	Eight despool records.
+;	We do not have eight buffers.
+;
+;	The channel numbers are assigned consecutively.
+;	We use them to find the record during completion routines.
+
+dsmrn.=8.		;
+.macro	dspdef
+map	sp.ent	word,sp.ebs ;standard entry to start
+;
+map	sp.cor		;consignment record
+map	sp.prr		;printer record
+;
+map	sp.fnm	fn.bbs	;current filename
+map	sp.len		;file length
+map	sp.blk		;block number
+;
+map	sp.spb	word*12.;task stack base
+map	sp.spt	null	;task stack top
+map	sp.usp		;current sp
+map	sp.ich	byte	;channel number
+map	sp.och	byte	;output channel
+map	sp.buf		;buffer address
+map	sp.dbs		;despool byte size
+.endm
+dspdef
+
+s$pdsr:				;despool records
+	lorec.=0		;
+.rept	dsmrn.
+	.blkb	sp.spt-10	;the initial stack
+	.word	sp$deq		;dequeue a file
+	.blkw	3		;r1,r2,r3
+	.word	.-10		;sp.spt
+	.byte	lorec.*2	;sp.ich - input channel
+	.byte	lorec.*2+1	;sp.och - output channel
+	.word	s$pbuf+<512.*lorec.> ;buffer
+	lorec.=lorec.+1
+.endr
+s$pdsx:
+
+s$pksr:	.word	0		;points to kernel record
+s$pccf:	.word	0		;ctrl/c flag
+s$pusp:	.word	0		;user stack top
+s$pare:	.blkw	7		;general purpose area
+s$pcst:	.blkw	6		;cstat area
+.sbttl	mainline
+
+;	Spooler mainline loop
+;
+;	Kernel pool is mapped.
+;	Poll all printers for work to do.
+;	Suspend when nothing to do.
+;	We run at priority=0, top_priority=4
+
+start:
+sp$sta::			;we start here
+	mov	sp,s$pusp	;remember our stack
+				;r4/r5 from SHAREplus
+	call	sp$onc		;go locate us
+
+;	Poll database for work to do
+;	Runs a number of subprocesses
+;???	Do only one task each run to keep the CPU free
+;
+;	r3 ->	consignment
+;	r4 ->	printer
+;	r5 ->	despool record
+
+sp$pol:				;poll
+	call	sp$upc		;update consignments
+	mov	s$pksr,r4	;point to kernel records
+	add	#sp.prt,r4	;point to printers
+	mov	#s$pdsr,r5	;despool records
+
+10$:	call	sp$cpr		;check the printer
+	bcs	50$		;nothing doing
+
+20$:	mov	sp.usp(r5),r0	;get the stack
+	mov	r5,r1		;get the top
+	add	#sp.spt-6,r1	;point to the top
+30$:	psh	(r0)+		;get back their stack
+	cmp	r0,r1		;done enough?
+	blo	30$		;no
+	mov	(r0)+,r1	;
+	mov	(r0)+,r2	;restore the registers
+	mov	(r0)+,r3	;
+	jmp	@(sp)+		;
+
+sp$pau=.			;pause - they are done
+	mov	r5,r0		;get their stack
+	add	#sp.spt,r0	;point to their stack
+	mov	r3,-(r0)	;save r3
+	mov	r2,-(r0)	;
+	mov	r1,-(r0)	;
+40$:	pop	-(r0)		;unfill the stack
+	cmp	sp,s$pusp	;all done?
+	blo	40$		;no
+	mov	r0,sp.usp(r5)	;yes - save it
+
+50$:	add	#sp.ebs,r4	;get the next
+	add	#sp.dbs,r5	;get the next despool record
+	cmp	r5,#s$pdsx	;end of them?
+	blo	10$		;no
+	call	sp$cex		;check exit
+	.spnd			;wait for more
+	call	sp$cex		;check exit
+	br	sp$pol		;and look again
+.sbttl	check consignment status
+
+;	Update consignment status
+
+sp$upc:	mov	s$pksr,r4	;point to kernel records
+	add	#sp.cot,r4	;point to consignments
+	mov	#spmcn.,r3	;count them
+
+10$:	tst	sp.dev(r4)	;is this one active?
+	beq	50$		;no
+	bit	#spsto$,sp.req(r4) ;should we stop it?
+	beq	20$		;no
+	bis	#spsto$,(r4)	;yes
+
+20$:	bit	#spsta$,sp.req(r4) ;should we start it?
+	beq	50$		;no
+	bic	#spsta$!spsto$,sp.req(r4) ;yes - start it
+	bic	#spsus$!spsto$!spier$!spoer$,(r4);clear out errors
+	bis	#spnew$,(r4)	;signal new work
+
+	mov	s$pksr,r2	;look for a printer
+	add	#sp.prt,r2	;point to the printers
+	mov	#spmpn.,r1	;count them
+30$:	cmp	sp.pri(r4),sp.pri(r2) ;same consignment?
+	bne	40$		;no
+	bis	#sprun$,(r2)	;yes - set it active
+	bis	#spsta$,sp.req(r2) ;and start it
+40$:	add	#sp.ebs,r2	;do the next
+	sob	r1,30$		;do them all (may be multiple printers)
+
+50$:	add	#sp.ebs,r4	;next consignment
+	sob	r3,10$		;do them all
+	return
+.sbttl	check the printer status
+
+;	Check printer status
+;
+;	Transfer some request states
+;	See if printer can run
+
+sp$cpr:				;check printer
+	tst	sp.pri(r4)	;got a printer?
+	beq	100$		;no
+
+;	Check i/o busy and pending abort
+
+10$:	bit	#spbus$,(r4)	;is it busy with I/O?
+	beq	20$		;no
+	bit	#spabo$,sp.req(r4) ;should we abort it?
+	beq	100$		;no
+	bit	#spabo$,(r4)	;already attempted an abort?
+	bne	100$		;yes - don't do it twice
+	bis	#spabo$,(r4)	;remember we are aborting
+	.abtio	sp.ich(r4)	;abort both
+	.abtio	sp.och(r4)	;
+	br	100$		;its busy
+
+;	Check stopped and pending start
+
+20$:	bic	#spabo$,(r4)	;abort is done
+	bit	#spsto$!spsus$,(r4) ;is it stopped somehow?
+	beq	30$		;no
+	bit	#spsta$,sp.req(r4) ;pending start?
+	beq	30$		;no
+	bic	#spsto$!spsus$!spier$!spoer$,(r4);yes - clear these
+	bic	#spsta$,sp.req(r4) ;
+	br	90$		;and run it
+
+;	check anything for it to do
+
+30$:	bit	#spsto$,(r4)	;is it stopped?
+	bne	100$		;yes
+	bit	#sprun$!spnew$,(r4) ;should we run it
+	beq	100$		;no - forget it
+
+90$:	bic	#sprun$,(r4)	;run it
+	tst	(pc)+		;run this
+100$:	sec			;do not run it
+	return
+.sbttl	dequeue spool file
+
+;	r3 ->	consignment (obtained)
+;	r4 ->	printer
+;	r5 ->	despool
+; ???	Requeue
+
+	assume	sp.sta eq 0
+sp$stq:	bis	#spsto$,(r4)		;set stopped
+	br	sp$pac
+sp$suq:	bis	#spsus$,(r4)		;set suspended
+sp$pac:	bic	#spact$,(r4)		;clear active
+	bic	#spnex$,sp.req(r4)	;clear next
+	call	sp$pau			;and pause
+	bic	#spsto$!spsus$,(r4)	;clear stopped & suspended
+	bis	#spact$,(r4)		;set active
+
+sp$deq:: 
+	call	sp$syn			;should we stop
+	bcs	sp$stq			;yes
+
+	bit	#spoer$!spsto$,(r4)	;got any i/o errors?
+	bne	sp$stq			;yes - stop
+	call	sp$gnc			;get a consignment
+	bcs	sp$suq			;none there - suspend ourselves
+
+sp$agn:	call	sp$pur			;close the channels
+	call	sp$syn			;got a stop command?
+	bcs	sp$stq			;yes - go stop us
+	call	sp$chc			;is consignment still valid?
+	bcs	sp$deq			;no - look for some other
+
+	call	sp$opi			;open input
+	bcs	sp$ier			;input error
+	tst	sp.len(r5)		;did it find a file?
+	beq	sp$deq			;no - consignment is done
+;	bne	10$			;
+;	jmp	sp$del			;ignore zero-length files
+
+10$:	call	sp$opo			;open output
+	bcs	sp$oer			;failed - printer error
+
+25$:	clr	sp.blk(r5)		;init block number
+	br	40$			;
+30$:	cmp	sp.blk(r5),sp.len(r5)	;was this all?
+	bhis	60$			;yes
+	bis	#spbus$,(r4)		;pause
+	call	sp$rea			;read the next block
+	bcs	sp$ier			;oops
+	call	sp$pau			;go pause
+	bit	#spier$,(r4)		;got an error?
+	bne	sp$ier			;yes
+	bis	#spbus$,(r4)		;pause
+	call	sp$wri			;go write
+	bcs	sp$oer			;oops
+	call	sp$pau			;go pause
+	bit	#spoer$,(r4)		;got an output error?
+	bne	sp$oer			;yes
+	inc	sp.blk(r5)		;do the next block
+
+40$:;	call	sp$req			;check for requeue
+	call	sp$syn			;synchronise
+	bcs	50$			;not a stop
+	bit	#spabo$!spnex$,r0	;start/next or start/abort
+	bne	60$			;yes
+45$:	bit	#sptop$,r0		;start/top?
+	bne	25$			;yes
+	br	30$			;no - continue
+
+;	stop
+
+50$:	bit	#spabo$,r0		;stop/abort?
+	bne	60$			;yes
+	bit	#spnex$,r0		;stop on next?
+	bne	45$			;yes
+
+	bis	#spsus$,(r4)		;suspend
+55$:	call	sp$pau			;and pause
+	bit	#spsus$,(r4)		;still suspended?
+	bne	55$			;yes
+	bic	#spsus$,(r4)		;
+	br	40$			;and look again
+
+60$:	call	sp$del			;delete the file
+	bcs	sp$ier			;input error
+70$:	jmp	sp$agn			;and try again
+
+;	output error 
+
+sp$oer:	bic	#spier$!spoer$,(r5)	;turn off ours
+	bis	#spsto$!spoer$,(r4)	;?SPOOL-F-Output error lp:
+	call	sp$pur			;close the channels
+	jmp	sp$stq			;and stop
+
+;	input error 
+
+sp$ier:	
+;	bit	#spdon$,(r3)		;consignment done?
+;	bne	sp$deq			;yes
+
+	bic	#spier$!spoer$,(r5)	;turn off ours
+	call	sp$chc			;check the consignment
+	bcs	10$			;its stopped
+	bis	#spsto$!spier$,(r3)	;stop this guy
+10$:	call	sp$pur			;close the channels
+	jmp	sp$deq			;and try another queue
+
+;	Synchronise with spooler commands
+; 
+;	stop		stop the spooler and wait
+;	stop/next	finish current file and stop
+;	stop/abort	abort current file and stop
+; 
+;	start		continue
+;	start/abort	abort current file, start next
+;	start/next	abort current file, start next
+;	stop/top	restart current file
+;	start/top	restart current file
+; 
+;	c=1	just stop the spooler
+
+sp$syn::				;synchronise with the job
+	call	sp$cex			;check for pending exit
+	mov	sp.req(r4),r0		;get the request
+	bic	#spabo$!sptop$!spreq$,sp.req(r4)
+	bic	#^c<spabo$!sptop$!spreq$!spnex$>,r0
+	bit	#spsto$,sp.req(r4)	;time to stop?
+	bne	10$			;yes
+	tst	(pc)+			;no
+10$:	sec
+	return
+.sbttl	open and close
+
+;	Open files
+;
+;	Open the input and output files
+;	The ACP performs the wildcard search
+;
+;	nam	_*h	highest sequence number
+;	nam	_*l	lowest sequence number
+;
+;	seq	^rspo - signals wildcard spooler search to ACP
+;	ch.use	returns sequence number found
+;
+;	r3 ->	consignment
+;	r4 ->	printer
+;	r5 ->	despool
+;	spwih.,,29.*40.+<^r  h> ;_*h
+;
+;	c=1	directory error
+;	c=0	sp.len(r5)<>0 => new file
+;	c=0	sp.len(r5)==0 => no more files
+;
+;	Get the next input file
+;	Delete zero length files immediately
+
+	assume	sp.sta eq 0
+sp$opi:					;open input
+5$:	bic	#spnew$!spdon$,(r3)	;no files to despool, assume not done
+	clr	sp.len(r5)		;assume no file to spool
+	mov	r5,r1			;build the name
+	add	#sp.fnm,r1		;
+	mov	sp.int(r4),(r1)			;dev
+	mov	sp.con(r4),fn.fil(r1)		;con
+	mov	#29.*40.+<^r  l>,fn.nam(r1)	;/_*l/
+	mov	#^rque,fn.typ(r1)		;que
+	.purge	sp.ich(r5)		;purge first
+	.lookup	#s$pare,sp.ich(r5),r1,#^rspo ;try to find one
+	bcc	10$			;found one
+	cmpb	j$berr,#1		;file not found?
+	beq	15$			;yes - consignment is done
+	bis	#spier$!spsto$,(r3)	;input error on consignment
+	br	20$			;
+
+;	Use cstat to get the actual filename
+
+10$:	mov	r0,sp.len(r5)		;save the length
+	.cstat	#s$pare, sp.ich(r5), #s$pcst ;get the status
+	mov	s$pcst+ch.use,sp.fnm+fn.nam(r5) ;
+	mov	s$pcst+ch.use,sp.seq(r4)  ;remember the sequence number
+
+;	Skip zero length files
+
+	tst	sp.len(r5)		;does this file exist?
+	bne	15$			;yes
+	call	sp$del			;just delete zero length files
+	bcc	5$			;fine
+	br	20$			;delete failed
+15$:	tst	(pc)+
+20$:	sec
+	return
+
+;	Open the printer for output
+;
+;	Called after input file is opened - filename setup
+
+sp$opo:	.purge	sp.och(r5)		;purge first
+	mov	r5,r1			;build the name
+	add	#sp.fnm,r1		;
+	mov	sp.pri(r4),(r1)		;open the output
+	.enter	#s$pare, sp.och(r5), r1, sp.len(r5), #0
+	bcc	20$			;fine
+	bis	#spoer$!spsto$,(r3) ;consignment output error
+	bis	#spoer$!spsto$,(r4) ;printer output error
+	.purge	sp.ich(r5)		;turn off the input file
+	br	30$			;and quit
+20$:	tst	(pc)+			;fine
+30$:	sec				;forget this
+	return
+
+;	Delete the spool file
+;
+;	If the file does not delete then the spooler will hang.
+
+sp$del:	mov	r5,r1			;build the name
+	add	#sp.fnm,r1		;
+	mov	sp.int(r4),(r1)		;dev
+	.purge	sp.ich(r5)		;purge it
+	.delete	#s$pare, sp.ich(r5), r1, #0
+	bcc	10$			;fine
+	bis	#spier$!spsto$,(r3)	;input error on consignment
+10$:	return				;
+
+sp$pur:					;close spool files
+	.purge	sp.ich(r5)		;purge input
+	.close	sp.och(r5)		;close output in case its a spooler
+	return				;
+.sbttl	read and write
+
+sp$rea:	call	sp$iop		;setup
+	.readc	r1, sp.ich(r5)	;read it
+	return			;c=1 => error
+
+sp$wri:	call	sp$iop		;setup
+	.writc	r1, sp.och(r5)	;write it
+	return			;c=1 => error
+
+sp$iop:	call	sp$cex		;check for pending exit
+	mov	#s$pare,r1	;get the area
+	mov	sp.blk(r5),2(r1);blkn
+	mov	sp.buf(r5),4(r1);buff
+	mov	#256.,6(r1)	;one block
+	mov	#sp$cmp,10(r1)	;completion
+	return
+
+;	Completion routine clears despooler pause
+;	Odd channels are output channels
+;	r0/r1 available
+;
+;	r0	csw
+;	r1	channel number
+
+sp$cmp:				;completion routine
+	psh	r1		;save this
+	asr	r1		;r1 = record number
+	mul	#sp.ebs,r1	;get the record number
+	add	s$pksr,r1	;add in the record
+	add	#sp.prt,r1	;r1 -> printer entry
+
+	bit	#csher$,r0	;got an error?
+	beq	20$		;no
+	mov	#spier$,r0	;yes - assume input
+	asr	(sp)		;was it an output channel?
+	bcc	10$		;no
+	mov	#spoer$,r0	;yes
+10$:	bis	r0,(r1)		;set the error
+20$:	bic	#spbus$,(r1)	;clear i/o busy signal
+	bis	#sprun$,(r1)	;and run it
+	.rsum			;resume us
+	tst	(sp)+		;
+	return
+.sbttl	consignment
+
+;	Find consignment for despooler.
+;
+;	r3 ->	consignment (returned if one found)
+;	r4 ->	printer
+;	r5 ->	despooler
+;
+;	Check current consignment linkage - it may have changed midstream.
+;	Check current printer linkage - it may have changed also.
+;	If consignment is blocked move onto next one.
+
+sp$fcp:				;find consignment/printer linkage
+	call	sp$chc		;check consignment linkage
+	bcs	sp$gnc		;we lost it - do another
+
+	bit	#spsto$,(r3)	;is it blocked?
+	bne	sp$gnc		;yes
+
+;	bit	#spsta$,sp.req(r3) ;something to be done?
+;	beq	sp$gnc		;nope
+;	bic	#spsta$,sp.req(r3) ;we got it
+	clc			;try this one again
+	return
+
+;	Get next consignment
+;
+;	r3 ->	consignment
+;	r4 ->	printer
+;	r5 ->	despooler
+
+sp$gnc::			;see if still active
+	clr	sp.cor(r5)	;we have no consignment
+	mov	s$pksr,r3	;point to consignments
+	add	#sp.cot,r3	;
+	mov	#spmcn.,r2	;count them
+10$:	call	sp$cmc		;compare consignment
+	bcs	20$		;not for us
+	bit	#spnew$,(r3)	;is it dormant?
+	beq	20$		;yes
+	bit	#spsto$,(r3)	;is it stopped?
+	beq	30$		;no
+20$:	add	#sp.ebs,r3	;get the next
+	sob	r2,10$		;look again
+	br	40$		;
+				;
+30$:	mov	r3,sp.cor(r5)	;remember the consignment
+				;
+	tst	(pc)+		;still relevant
+40$:	sec			;not for us
+	return
+
+;	Check consignment still active
+
+.enabl	lsb
+sp$chc:					;check consignment still active
+	mov	sp.cor(r5),r3		;get the consignment record
+	beq	20$			;we have none
+	cmp	sp.con(r4),sp.con(r3)	;has the consignment name changed?
+	bne	20$			;yes - we have lost it
+sp$cmc:					;compare consignment
+	bit	#spsto$,sp.req(r3)	;request to stop consignment?
+	beq	10$			;no
+	bis	#spsto$,(r3)		;yes
+10$:	cmp	sp.pri(r4),sp.pri(r3)	;still the same queue?
+	bne	20$			;nope - ignore it
+	mov	sp.int(r3),sp.int(r4)	;yes - copy it across
+	mov	sp.con(r3),sp.con(r4)	;
+	tst	(pc)+			;its still ours
+20$:	sec				;it is no longer us
+	return
+.dsabl	lsb
+.sbttl	exit & abort
+
+sp$cex:				;check exit
+	tst	s$pccf		;ctrl/c typed?
+	bmi	sp$abt		;yes
+	return			;
+
+sp$abt:				;abort the process
+	$cmkrnl	#s$pare, #100$ pic=yes
+	.exit			;and quit again
+100$:	mov	@#s$prec,r0	;get the record
+	beq	110$		;does not exist
+	cmp	(r0),@#p$hpcr	;is this really us?
+	bne	110$		;no
+	clr	(r0)		;yes - take us out
+110$:	clr	@#p$hurv	;remove unconditional restart
+	return
+.sbttl	once-only
+
+;	Map part of the pool into pars 3,4 & 5.
+;
+;	r4	stb date from monitor
+;	r5	^rshp from monitor
+
+s$pbuf::			;we are in the buffers
+sp$onc:	mov	#230$,r0	;assume not SHAREplus
+	cmp	r5,#^rshp	;is this SHAREplus?
+	bne	5$		;no
+	mov	#220$,r0	;assume wrong release
+	cmp	r4,#stbdat	;this the right STB?
+	bne	5$		;no
+;
+	.settop	#s$ptop		;get buffer space
+	cmp	r0,#s$ptop	;enough?
+	bhis	3$		;yes
+	mov	#240$,r0	;no
+	br	5$		;display message & exit
+3$:
+	
+	.scca	#s$pare, #s$pccf ;set the flag
+	.serr			;soft errors
+;	$stpri	#s$pare, #0, #0, #1+<2*256.> #0 ;priority=1, top_priority=2
+	$cmkrnl	#s$pare, #100$ pic=yes
+	bcc	10$		;fine
+5$:	.print			;print the error message
+	.exit			;and quit
+
+10$:	mov	r0,s$pksr	;store the record pointer
+	return			;
+
+;	Map address space to kernel pool
+;
+;	Maps par3, par4, par5 & par6.
+;	Assumes SPOOL process is smaller than 12k words.
+
+100$:
+	mov	#3*word,r0	      ;offset to par3
+110$:	mov	m$kip0(r0),p$huip(r0) ;current mapping
+	mov	m$kid0(r0),p$huid(r0) ;
+	mov	m$kip0(r0),m$uip0(r0) ;current registers
+	mov	m$kid0(r0),m$uid0(r0) ;
+	add	#word,r0	;next pair
+	cmp	r0,#word*8.	;all done?
+	blo	110$		;no
+
+;	Find or create a spooler record
+
+	mov	@#s$prec,r0	;point to the spooler record
+	mov	r0,rp.r0(r5)	;already got a spooler record?
+	beq	120$		;no - create one
+	mov	(r0),r1		;got a spooler running?
+	beq	160$		;no
+	cmp	r1,@#p$hpcr	;is this us?
+	beq	160$		;yes 
+	mov	#210$,r1	;yes - display a message
+	br	180$		;
+
+120$:	$obtain	#s$yque		;stop the system process
+	$cmsch			;and the scheduler
+	$crepo	#pospr.!poclr$,#sp.kbs
+	bcs	130$		;fine
+	mov	r0,rp.r0(r5)	;save our copy
+	mov	r0,@#s$prec	;and the kernel copy
+130$:	$cmpro			;
+	$divest	#s$yque		;
+
+	tst	rp.r0(r5)	;got a record?
+	bne	150$		;yes
+	mov	#200$,r1	;no
+	br	180$		;no room for record
+
+150$:	mov	rp.r0(r5),r0	;get the record
+	beq	160$		;was none
+	bis	#srpio$,@#p$hsr0+sr.pio ;setup physical i/o rights
+				;spool name starts -1 so first name
+				;is AAA which users like to see.
+	mov	#^raaa-1,sp.csn(r0) ;current sequence number
+	movb	#-1,sp.ch0(r0)	;
+	clrb	sp.ch1(r0)
+
+160$:	call	sp$slp		;spool LP:
+
+;	Common path for new and existing records
+; ???	Set base priority to zero
+; ???	Clear I/O errors?
+
+170$:	$cmsch			;stop the scheduler
+	mov	#sp$abt,@#p$hurv;setup unconditional restart vector
+	mov	@#p$hpcr,@rp.r0(r5) ;and point to us for revives
+	$cmpro			;
+	return
+
+180$:;	tst	@#p$htto	;got a terminal?
+	tst	@#p$hter	;got a terminal?
+	bne	190$		;yes
+	mov	#te$cpt,@#p$htto ;no - display a message
+190$:	mov	r1,rp.r0(r5)	;return the error message pointer
+	.soft	0		;and report an error
+
+200$:	.byte	cr,lf
+	.asciz	/?SPOOL-F-No space for kernel record/
+210$:	.byte	cr,lf
+	.asciz	/?SPOOL-F-Spool already running/
+	.even
+220$:	.asciz	/?SPOOL-F-Wrong release of SPOOL/
+	.even
+230$:	.asciz	/?SPOOL-F-SHAREplus required/
+	.even
+240$:	.asciz	/?SPOOL-F-Not enough memory/
+	.even
+
+sp$slp:				;setup default lp spooler
+	mov	#^rlp0,r0	;find the printer
+	call	@#na$clp	;convert the logical
+	bcs	10$		;not found
+	call	@#na$cpi	;get indexes
+	bcs	10$		;not good
+	call	@#na$cir	;get the records
+	bcs	10$		;not loaded
+	bis	#unspl$,un.con(r3) ;set it spooled
+
+	mov	rp.r0(r5),r0	;fill in default diversion
+	add	#sp.dit,r0	;
+	mov	#^rlp,sp.dev(r0) ;sp.dev = lp
+	mov	#^rque,sp.int(r0) ;sp.int
+	mov	#^rlst,sp.con(r0) ;
+
+	mov	rp.r0(r5),r0	;fill in the consignment
+	add	#sp.cot,r0	;
+	mov	#spnew$,(r0)	;say new files available
+	mov	#spsta$,sp.req(r0) ;start
+	mov	#^rlp,sp.pri(r0) ;sp.pri - printer
+	mov	#^rque,sp.int(r0) ;sp.int - intermediate device
+	mov	#^rlst,sp.con(r0) ;sp.con - consignment
+
+	mov	rp.r0(r5),r0	;fill in the printer
+	add	#sp.prt,r0	;
+	mov	#sprun$,(r0)	;
+	mov	#spsta$,sp.req(r0);start
+	mov	#^rlp,sp.pri(r0)  ;sp.pri - printer
+	mov	#^rque,sp.int(r0) ;sp.int - intermediate device
+	mov	#^rlst,sp.con(r0) ;sp.con - consignment
+10$:	return
+
+;	.blkb	<spmpn.*512>-<.-s$pbuf>
+global
+map	s$ptop,,<<spmpn.*512.>-<.-s$pbuf>>
+local
+.end	start
+

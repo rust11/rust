@@ -1,0 +1,621 @@
+sub$c=0
+fix=1
+.title	images
+.include "lib:share.mac"
+$dedef		;devices
+$fedef		;feature
+$fndef		;filename
+$icdef		;image cache
+$mmdef		;mmu
+$podef		;pool
+$qudef		;queue
+$rpdef		;rp
+$rtdef		;rt11a
+$srdef		;system rights
+$stdef		;states
+$undef		;unit record
+
+map	fever.,,2
+map	feupd.,,2
+
+$imgdef	IMAGES 2 3
+$imginf	fun=fea cre=hammo aut=ijh use=<Caches SHAREplus directories>
+$imgham	yrs=<1985,1986,1987> oth=<>
+;	%date
+$imgdat	<01-Mar-2008 15:48:50.04>
+;	%edit
+;	<30   >
+
+;	SHAREplus IMAGES feature.
+;
+;	%build
+;	goto 'p1'
+;	macro	rfs:images/object:rfb:
+;	link:
+;	r link
+;	rfb:images.fea=lib:featur,lib:shplib,rfb:images,lib:share/Q
+;	featur:20000
+;	
+;	^C
+;	!if "'p1'" goto end
+;	!set error none
+;	!remove/feature images
+;	!copy rfb:images.fea sy:images.fea
+;	!install/feature images
+;	!set error error
+;	end:
+;	%end
+;
+;	Optimise directory access on RT11A/RT11X devices.
+;	In particular reduces access time to SHARE.SYS.
+;
+;	INSTALL	/IMAGE filespec	
+;		/UIC
+;		/PROTECTION
+;		/RIGHTS
+;	REMOVE	/IMAGE	
+;	SHOW 	IMAGES
+;		/INSTALLED
+;		/ALL
+;		/FULL
+;		/BRIEF
+;
+;SHAREplus V1.4  Images on 12-Dec-85 12:30:34.85   Uptime  2 12:23:24.35
+;Image name	Length	  UIC	Read Exec Rights Type Status Opens Trans
+;SYS:FORTRA.SAV	   123P	001,003 SOGW SOGW All	 Sys  Open      23     1  	
+;		cmkrnl, 
+;
+;Image name	  Hits	Image name	 Hits	Image name	Access
+;DL0:FORTRA.SAV	     1	DL2:PIP.SAV	    3
+;
+; 64 entries, 12 system, 6 free
+; 23 calls, 12 hits, 80% hit rate
+;
+;	/UIC
+;	/PROTECTION
+;	/RIGHTS
+;
+;	Installed images uic, protection & rights determined by command.
+;	Floating images are determined by the directory entry entirely.
+;
+;	Called by RT11A to find installed images.
+;
+;	ic$opn	Open a file from the image cache.
+;	ic$upd	Insert a file in the image cache.
+;
+;	The IMAGES feature utility sets up the database.
+;
+;	16 word descriptor. Each block contains 16 entries.
+;	1k words holds 64 entries.
+;	3.5kw maximum holds 224 entries.
+;
+;	At present 63 entries are used for two reasons:
+;
+;	(1) Reduces the search time of the cache
+;	(2) WATCH IMAGES scrolls for more than 63 entries.
+.sbttl	feature installation
+
+;	Install the kernel record and point to it.
+;
+;	r3 ->	feature record
+;
+;	Install kernel assist.
+;	Link to bypass chains.
+
+fe$ins::
+.if ne 0
+	mov	f$ewks,r0		;get specific size
+	bne	10$			;fine
+	mov	#imdws.,r0		;use default workspace
+10$:	call	fe$cpf			;create pool file
+	bcs	20$			;no space
+	mov	r0,r1			;r1 = pool page number
+.endc
+	$cmkrnl	#f$eare, #100$ p1=r1 pic=yes	;
+	bcc	20$			;fine
+;	call	fe$dpf			;delete the pool file
+	sec				;
+20$:	return				;c=1 => failure
+
+100$:	clr	rp.r0(r5)		;setup
+	$cmsch				;stop the scheduler
+	psh	@#m$kip6		;map feature file
+	mov	@#f$emap+<feimg.*2>,@#m$kip6 ;map it
+	beq	130$			;should not occur
+
+	$obtain	#s$yque			;lock the system process
+	$crepo	#pofer.,#fekbs.		;setup the kernel record
+	mov	r0,rp.r0(r5)		;return the pointer
+	$divest	#s$yque			;free it
+	mov	rp.r0(r5),r4		;get the pointer
+	beq	130$			;we failed
+	mova	fe$ker,r0		;get ours
+	mov	r4,r1			;point to the area
+	mov	#fekbs./2,r2		;
+120$:	mov	(r0)+,(r1)+		;move it in
+	sob	r2,120$			;count it
+	mov	r4,@#f$eker+mmp61.	;f$eker -> kernel record
+
+;	mov	rp.p1(r5),@#f$epop+mmp61.;remember where the pool is
+;	movi	ts.kpm,r4,r0		;get the pool mutex address
+;	mov	r0,@#f$epmu+mmp61.	;pool mutex address
+;	mov	r0,(r0)			;setup the header
+;	mov	r0,mu.pre(r0)		;
+
+	movi	ic.kmt,r4,r0		;mount bypass
+	mov	@#b$ymnt,(r0)		;build the chain
+	mov	r0,@#b$ymnt		;put us up front
+
+	movi	ic.kdm,r4,r0		;dismount bypass
+	mov	@#b$ydsm,(r0)		;build the chain
+	mov	r0,@#b$ydsm		;put us up front
+
+130$:	pop	@#m$kip6		;reset it
+	$cmpro				;restore this
+	tst	rp.r0(r5)		;got it?
+	bne	140$			;yes
+	.soft	0			;no
+140$:	return
+.sbttl	remove feature
+
+;	Remove feature
+;
+;	Make sure there are no references
+;	Remove kernel dispatcher
+
+fe$rem::$cmkrnl	#f$eare, #100$ pic=yes 	;remove feature record
+;	bcs	10$			;it failed
+;	call	fe$dpf			;delete the pool file
+;	clc				;
+10$:	return
+
+100$:	$cmsch				;stop the scheduler
+	psh	@#m$kip6		;save this guy
+	mov	@#f$emap+<feimg.*2>,@#m$kip6 ;map the feature
+	beq	110$			;is none
+	tst	@#f$eref+mmp61.		;got references?
+	bne	120$			;yes - ignore this
+	mov	@#f$eker+mmp61.,r4	;r4 -> feature kernel record
+	beq	110$			;is none
+
+;	tst	ts.kpm+mu.own(r4)	;pool mutex busy?
+;	bpl	120$			;yes
+
+	clr	@#f$eker+mmp61.		;once only
+
+	mov	#b$ymnt,r0		;remove mount bypass
+	movi	ic.kmt,r4,r1		;
+	call	200$			;remove it
+
+	mov	#b$ydsm,r0		;remove dismount
+	movi	ic.kdm,r4,r1		;
+	call	200$			;remove it
+
+	$obtain	#s$yque			;lock the system process
+	$delpo	r4			;delete the kernel record
+	$divest	#s$yque			;free it
+110$:	pop	@#m$kip6		;restore it
+	$cmpro				;fine
+	return
+120$:	$cmpro				;not fine
+	pop	@#m$kip6		;
+	.soft	0			;report error
+
+;	remove bypass
+;
+;	r0 ->	bypass header
+;	r1 ->	kernel bypass routine
+
+200$:	cmp	(r0),r1			;is the next us?
+	beq	210$			;yes
+	mov	(r0),r0			;no - chain
+	bne	200$			;
+	br	220$			;not found
+210$:	mov	(r1),(r0)		;take us out
+220$:	return
+.sbttl	kernel record
+
+;	Kernel assist
+; 
+;	The following data must be permanently available in the kernel.
+;	Position independant - addresses are relocated during installation.
+ 
+fe$ker:				;feature kdb
+
+map	ic.kmt,,<.-fe$ker>	;mount bypass
+t$skmt:	.word	0		;by.nxt - bypass link to next routine
+	$callf	.icmnt		;pass control to mount
+10$:	return			;[sic] - must be $callf above
+
+map	ic.kdm,,<.-fe$ker>	;dismount bypass
+t$skdm:	.word	0		;by.nxt
+	$callf	.icdsm		;pass control to dismount
+	return			;sic]
+
+.if ne 0
+map	ts.kpm,,<.-fe$ker>	;database pool mutex
+f$ekpm:	.word	f$ekpm		;mu.suc - built
+	.word	f$ekpm		;mu.pre - built
+	.word	-1		;mu.own - number of owners
+	.word	0		;mu.ctl - write control
+.endc
+
+map	fekbs.,,<.-fe$ker>	;kernel size
+.sbttl	server preface
+
+;	Define the server
+;
+;	All kernel code must follow the server
+
+$febot	nam=images fid=feimg. ver=fever. upd=feupd. pur=<Image cache>
+i$cdat:	.word	i$cdax		;pointer to data area
+$fetrn	ic$mnt	.icmnt		;mount
+$fetrn	ic$dsm	.icdsm		;dismount
+$fetrn	ic$gir	.icgir		;get image rights
+f$eker::.word	0		;-> kernel record
+;f$epop::.word	0		;pool page number
+;f$epmu::.word	0		;-> f$ekpm - kernel pool-mutex
+
+;	Feature exit routine
+;
+;	Called when an image exits or aborts
+;	Called during process deletion
+;	Dereference the process if it was attached
+
+fe$exi::return			;feature exit
+.sbttl	dispatch
+
+;	Dispatch to open or update
+;	Called here from RT11A
+;
+;	r3	saved/restored by RT11A
+;
+;	r3 ->	directory entry - update it
+;	r3=0	search cache - lookup
+;
+;	c=0	entry found
+;	r2 ->	image cache directory entry
+
+fe$beg:
+ic$dis:	$femnt			;mount us
+	pshs	<r0,r1,r4,r5>	;save a lot
+	mov	r3,r2		;copy r3 back to r2
+	mov	a$punr,r3	;get the unit record
+	sec			;assume /nocache
+	bit	#uncac$,un.con(r3) ;cache enabled?
+	beq	10$		;no - report failure
+	call	ic$opn		;open or update
+10$:	pops	<r5,r4,r1,r0>	;restore them
+	$fedsm			;dismount us
+	psh	o$vacp		;restore acp par
+	jmp	sy$rp1		;return and restore par
+
+;	Collect statistics
+;
+;	Each counter is a long word.
+
+meta	<count c><jsr r5,ic$cnt><.word c>
+
+ic$cnt:	psh	r0		;save this
+	mov	(r5)+,r0	;get the pointer
+	add	#1,2(r0)	;low order
+	adc	(r0)		;high order
+	pop	r0		;
+	rts	r5		;
+.sbttl	open an entry
+
+;	Open a file
+;
+;	Construct something that looks like a directory entry
+;	in the AP using the filename in place. The status word
+;	contains the device name, but since we do not apply to
+;	delete operations this does not affect anything.
+;
+;	r2 	0 => open a file
+;	r2 ->	directory entry for update
+;
+;	r2	-1 => delete a file
+;	r2 ->	directory entry after successful open
+;	r3 ->	ic.suc(elm) 
+
+ic$opn:	tst	r2		;already open?
+	bne	ic$upd		;yes - this is an update or delete
+
+	count	i$cclc		;count the calls
+	call	ic$fnd		;find the file
+	bcs	20$		;not found
+	tst	ic.len(r3)	;is this setup?
+	beq	20$		;no - this fails
+
+	inc	ic.acc(r3)	;count the access
+	count	i$chtc		;remember we got one
+	mov	ic.sbl(r3),a$psbl ;return the start block
+	mov	#a$pfnb,r2	;treat this as a directory entry
+	mov	r2,r1		;get another copy
+	mov	rt.ctl(r3),(r1)	;get the protection bit
+	bic	#77777,(r1)	;isolate the protection bit
+	bis	#rtper$,(r1)+	;fill in permanent status
+	add	#ic.fil,r3	;point to our entry
+	mov	#rt.xbs-rt.fil/2,r0
+10$:	mov	(r3)+,(r1)+	;move them in
+	sob	r0,10$		;count this lot
+	bic	#100000,rt.ctl(r2) ;remove prot bit
+	tst	(pc)+		;hit - r2 -> directory entry
+20$:	sec			;miss
+	return			;
+.sbttl	update an entry
+
+;	Update an entry
+;
+;	Called when either:
+;
+;	A file has been opened
+;	A file has been created or replaced
+;	A file has been deleted
+;
+;	r2=-1	delete cache entry
+;	r2 ->	directory entry
+;	a$pfna	filename
+
+ic$upd:				;update an entry
+	call	ic$fnd		;look for it
+	bcs	10$		;not found - check for insert
+
+;	Delete
+;
+;	r2 ->	directory entry status word
+;		note - this may be a dummy one-word entry
+
+.if eq fix
+	cmp	r2,#-1		;is this a delete?
+.iff
+	cmp	r2,#b$ypio	;this a delete?
+.endc
+	beq	5$		;yes
+	bit	#rtemp$!rtten$,(r2) ;is this a delete?
+	beq	30$		;no - replace
+5$:	clr	ic.len(r3)	;its not valid
+	tst	ic.ir0(r3)	;this an installed image?
+	bne	70$		;yes - leave it in cache
+
+	clr	ic.vid(r3)	;its available
+	remque	r3		;remove it
+	insque	r3,r4,i$cdyq+qu.pre ;put it at the end
+	br	70$		;
+
+;	Insert
+
+10$:	bit	#rtper$,(r2)	;this an insert?
+	beq	70$		;no - ignore it
+	cmp	rt.typ(r2),#^rque ;this a queue file?
+	beq	70$		;yes - ignore these
+	tst	rt.len(r2)	;is it a zero length file?
+	beq	70$		;yes - these dont win
+	count	i$cinc		;count insert
+	mov	#i$cdyq,r3	;get dynamic queue
+20$:	mov	qu.pre(r3),r3	;get previous
+	tst	ic.ir0(r3)	;this installed?
+	beq	25$		;no - use it
+	cmp	r3,(r3)		;end of queue?
+	bne	20$		;nope
+	br	70$		;yes, no space - ignore insert
+
+25$:	clr	ic.ir1(r3)	;make sure no hanging image rights
+	clr	ic.acc(r3)	;clear access count
+	br	40$		;join common insert
+
+;	Update
+
+30$:	count	i$cupc		;count the update
+40$:	mov	a$psbl,ic.sbl(r3) ;no - its an update
+	remque	r3		;dequeue entry
+	insque	r3,r4,#i$cdyq	;insert it up front
+	mov	#rt.xbs-rt.fil/2,r0 ;get length of entry
+	bit	#srdia$,ic.ir0(r3) ;is this a system image
+	beq	45$		;no - change everything
+	sub	#2,r0		;yes - do not change uic & protection
+45$:	pshs	<r3,r2>		;
+	add	#rt.fil,r2	;
+	add	#ic.vid,r3	;
+	mov	a$pvid,(r3)+	;get the vid
+50$:	mov	(r2)+,(r3)+	;copy it in
+	sob	r0,50$		;count it
+	pops	<r2,r3>		;
+.if ne sub$c
+	mov	a$pbas,ic.bas(r3)
+.endc
+	cmp	rt.ext(r5),#6	;is this rt11x?
+	beq	60$		;yes
+	clr	ic.ctl(r3)	;no - clear them
+	bit	#srdia$,ic.ir0(r3) ;is this a system image
+	bne	60$		;yes - change nothing
+	clr	ic.uic(r3)	;nope - clear random UIC and protection
+	clr	ic.pro(r3)	;
+
+60$:	tst	(r2)		;this a protected file?
+	beq	70$		;no
+	bis	#100000,rt.ctl(r3) ;yes - remember that fact
+70$:	clc			;
+	return
+.sbttl	find an entry
+
+;	Find an entry
+;
+;	Search the installed list for permanent files.
+;	Search the floating list for cached entries.
+;
+;	r2 	0 => lookup, <> 0 => update 
+;		do not use r2 here
+;
+;	r3 ->	record of found image
+
+ic$fnd:				;find an entry
+	$cmsch			;block the scheduler
+;	mov	#i$cinq,r3	;search installed images
+;	call	ic$sea		;look for it
+;	bcc	30$		;found
+	mov	#i$cdyq,r3	;search dynamic images
+	call	ic$sea		;search for it
+
+30$:	call	@(sp)+		;c=0 => found
+	rol	-(sp)		;save success/failure
+	$cmpro			;back to process state
+	ror	(sp)+		;reset success/failure
+	return			;done
+
+;	Search for an entry
+;
+;	r3 ->	queue header to search
+
+ic$sea:	mov	r3,r4		;search a list
+10$:	mov	(r3),r3		;get the next
+	cmp	r3,r4		;all done?
+	beq	20$		;yes
+	tst	ic.vid(r3)	;all done?
+	beq	20$		;yes
+;	beq	10$		;yes
+
+	cmp	ic.vid(r3),a$pvid ;is this our device?
+	bne	10$		;no - ignore it
+.if ne sub$c
+	cmp	ic.bas(r3),a$pbas;is this our base block?
+	bne	10$		;no
+.endc
+	cmp	a$pfna+fn.fil,ic.fil(r3) ;the same file?
+	bne	10$		;no
+	cmp	a$pfna+fn.nam,ic.nam(r3)
+	bne	10$		;
+	cmp	a$pfna+fn.typ,ic.typ(r3)
+	bne	10$		;
+	tst	(pc)+		;found - r3 -> entry
+20$:	sec			;not found
+	return
+.sbttl	set image rights
+
+;	Get image rights
+;
+;	Called by image activator to setup image rights.
+
+ic$gir:				;get image rights
+	jsr	r5,ut$sav	;save them all
+	clr	p$hir0		;assume no rights
+	clr	p$hir0+word	;
+	call	ic$fnd		;find the image
+	bcs	10$		;not found
+	mov	ic.ir0(r3),p$hir0 ;setup the rights
+	mov	ic.ir1(r3),p$hir0+word
+10$:	return			;
+.sbttl	mount & dismount
+
+;	Mount & dismount
+;
+;	b$ymnt	kernel mount bypass
+;	b$ydsm	kernel dismount bypass
+;
+;	Invalidate any entries with same vid
+;	Closed routine with no side-affects
+;	Blocks scheduler
+;	Ignore terminal vid since its vid is zero which matchs empties.
+;
+;	Invalidated entries are moved to qu.pre(header). If all entries
+;	are invalidated the routine could loop forever. Thus entries
+;	that are already invalid are ignored.
+;
+;	r0	vid - volume id
+;	r0=0	ignored - this is the terminal
+;	r0=-1	invalidate all - called by bootstrap mount/dismount
+
+ic$mnt:
+ic$dsm:	pshs	<r3,r2,r1>	;save some
+	assume	detti. eq 0	;
+	tstb	r0		;is this the terminal?
+	beq	10$		;yes - forget it
+	mov	#i$cdyq,r3	;point to it
+	call	100$		;
+10$:	pops	<r1,r2,r3>	;restore them
+	return
+
+100$:	bis	#sttmp$,s$csta	;temporary lock on scheduler
+	mov	r3,r2		;search dynamic images
+110$:	mov	(r2),r2		;get the next
+120$:	cmp	r2,r3		;is this the end?
+	beq	150$		;yes
+	tst	ic.len(r2)	;is this entry valid anyway?
+	beq	110$		;no - dont loop for ever
+	cmp	r0,#-1		;invalidate all?
+	beq	130$		;yes
+	cmp	ic.vid(r2),r0	;this the same volume?
+	bne	110$		;no
+130$:	clr	ic.len(r2)	;invalidate the entry
+	tst	ic.ir0(r2)	;this installed?
+	bne	110$		;yes - leave it in cache
+	clr	ic.vid(r2)	;delete it not if installed
+	psh	(r2)		;get the next one
+	remque	r2		;remove it
+	insque	r2,r1,qu.pre(r3);put it at the end
+	pop	r2		;look at the next
+	br	120$		;
+150$:	bic	#sttmp$,s$csta	;remove temporary lock
+	bne	160$		;still locked
+	$cmpro			;
+160$:	return
+.sbttl	data area
+
+;	$icdef and dcl:shoimg must be changed if this changes
+
+i$cdax:	.word	ic.dbs		;data size for DCL SHOW IMAGES
+i$cdab:				;data area
+i$cinq:;.word	i$cinf,i$cinl	;installed & shared queue
+	.word	0,0		;reserved
+i$cdyq:	.word	i$cdyf,i$cdyl	;dynamic queue
+
+;	DCL maps here to get the following information
+
+i$cins:	.word	6		;number of installed entries
+i$cdys:	.word	64.		;number of dynamic entries
+
+i$cclc:	.word	0,0		;call count
+i$chtc:	.word	0,0		;hit count
+i$cinc:	.word	0,0		;insert count
+i$cdlc:	.word	0,0		;delete count
+i$cupc:	.word	0,0		;update count
+
+.macro	file suc pre
+
+.if nb <suc>
+	.word	suc
+.iff
+	.+ic.bbs
+.endc
+
+.if nb <pre>
+	.word	pre
+.iff
+	.word	.-2-ic.bbs
+.endc
+
+	.word	0		;ic.vid
+	.rad50	/dev/		;ic.dev - device
+	.rad50	/filnam/	;ic.fil - name & type
+	.word	0		;ic.len - length
+	.word	0		;ic.dat - date
+	.word	0		;ic.tim - time
+	.word	0		;ic.ctl - ctl
+	.word	0		;ic.uic - uic
+	.word	0		;ic.pro - protection
+	.word	0		;ic.ir0 - image rights
+	.word	0		;ic.ir1
+	.word	0		;ic.sbl - start block
+	.word	0		;ic.acc - access count
+.endm
+
+i$cdyf:	file	pre=i$cdyq	;first entry
+.rept	icens.-2
+	file	
+.endr
+i$cdyl:	file	suc=i$cdyq	;last entry
+assume	.-i$cdab eq ic.dbs	;check data byte size
+
+$fetop
+.end
+

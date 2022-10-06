@@ -1,0 +1,618 @@
+msgwai=1;	.mwait
+.title	sdata
+.include "lib:share.mac"
+$addef		;asts
+$chdef		;channel
+$eddef		;terminal editor
+$emdef		;emts
+$erdef		;error
+$fedef		;feature
+$fodef		;logger
+$mmdef		;mmu
+$podef		;pool
+$prdef		;pcr
+$psdef		;psw
+$rpdef		;rp
+$txdef		;text
+
+map	fever.,,2
+map	feupd.,,3
+
+$imgdef	SDATA 2 3
+$imginf	fun=fea cre=hammo aut=ijh use=<SDAT/RCVD program requests>
+$imgham	yrs=<1985,1986,1987> oth=<>
+;	%date
+$imgdat	<01-Mar-2008 15:49:13.46>
+;	%edit
+;	<41   >
+
+;	SHAREplus SENDER feature
+;
+;	%build
+;	goto 'p1'
+;	macro/obj:rfb: rfs:sdata
+;	link:
+;	r link
+;	rfb:sdata.fea,rfb:sdata=lib:featur,lib:shplib,rfb:sdata,lib:share/Q
+;	featur:20000
+;	
+;	^C
+;	goto end
+;	if "'p1'" goto end
+;	set error error
+;	remove/feature sdata
+;	copy rfb:sdata.fea sy:sdata.fea
+;	install/feature sdata
+;	set error error
+;	end:
+;	%end
+;
+;	SHAREplus support for EXPERT messages.
+;
+;	.SDAT	Moves the message directly to the target process message buffer.
+;		Sends a kernel ast to the target to break thru CLI.
+;	.RCVDC	Stores address of user buffer and completion routine.
+;	.MWAIT	Waits for a message to be received.
+;
+;	p$hmbu	message buffer pointer
+;	p$hmas	message ast pointer
+;	p$hmsw	message csw area
+;	p$hmer	message record
+;
+;	Emulates EXPERT message service with no frills.
+;
+;	B	Broadcast - terminal only
+;	C	Command
+;	M	Message
+;	Q	Quiet message - discard if no receiver
+;
+;	J	Job
+;	P	Process
+;	N	Node
+;	S	Satellite
+
+meta	<find c><jsr r3,me$fnd><.ascii "c"><.even>
+.sbttl	sdata installation
+
+;	Install the kernel record and point to it.
+;
+;	r3 ->	feature record
+;
+;	Kernel idb contains ast assists.
+
+fe$ins::$cmkrnl	#f$eare, #100$ pic=yes	;
+	bcs	10$			;it failed
+	mov	r0,m$eidb		;remember the idb
+10$:	return				;c=1 => failure
+
+100$:	clr	rp.r0(r5)		;setup
+	$cmsch				;stop the scheduler
+	$obtain	#s$yque			;lock the system process
+	$crepo	#pofer.,#mekbs.		;setup the kernel record
+	mov	r0,rp.r0(r5)		;return the pointer
+	$divest	#s$yque			;free it
+	mov	rp.r0(r5),r4		;get the pointer
+	beq	130$			;we failed
+	mova	me$idb,r0		;get ours
+	mov	r4,r1			;point to the area
+	mov	#mekbs./2,r2		;
+120$:	mov	(r0)+,(r1)+		;move it in
+	sob	r2,120$			;count it
+	psh	@#m$kip6		;remember where it is
+	mov	@#f$emap+<fesda.*2>,@#m$kip6 ;map it
+	beq	125$			;should not occur
+	mov	rp.r0(r5),@#m$eidb+mmp61. ;save the record address
+125$:	pop	@#m$kip6		;reset it
+130$:	$cmpro				;restore this
+	tst	rp.r0(r5)		;got it?
+	bne	140$			;yes
+	.soft	0			;no
+140$:	return
+.sbttl	remove feature
+
+;	Remove feature
+;
+;	Make sure there are no references
+;	Remove kernel dispatcher
+
+fe$rem::$cmkrnl	#f$eare, #100$ pic=yes 	;remove feature record
+	return
+
+100$:	$cmsch				;stop the scheduler
+	psh	@#m$kip6		;save this guy
+	mov	@#f$emap+<fesda.*2>,@#m$kip6 ;map the feature
+	beq	110$			;is none
+	tst	@#f$eref+mmp61.		;got references?
+	bne	120$			;yes - ignore this
+	mov	@#m$eidb+mmp61.,r4	;get the pool record address
+	beq	110$			;is none
+	clr	@#m$eidb+mmp61.		;once only
+	$obtain	#s$yque			;lock the system process
+	$delpo	r4			;delete the kernel record
+	$divest	#s$yque			;free it
+110$:	pop	@#m$kip6		;restore it
+	$cmpro				;fine
+	return
+120$:	$cmpro				;not fine
+	.soft	0			;report error
+.sbttl	kernel assist
+
+;	Kernel assist
+;
+;	The kernel assist is used to intercept client asts.
+;	These are transferred to the feature.
+;
+;	Position independant
+ 
+me$idb:				;message idb
+	psh	@#m$kip1	;save this
+	mov	@#f$emap+<fesda.*2>,@#m$kip1 ;get the feature address
+	beq	10$		;it has been unloaded
+	call	@#me$ast	;call the ast routine
+10$:	jmp	@#sy$rp1	;restore par1 and return
+
+megpa.=.-me$idb			;offset to this routine
+me$gpa:
+	ovjmp$	s$xgpa sys	;get process access rights
+	map	mekbs.,,<.-me$idb>
+.sbttl	server
+
+;	Define the server
+;
+;	All kernel code must follow the server
+;
+;	The trace feature has a fixed slot in the feature table
+
+$febot	nam=sdata fid=fesda. ver=fever. upd=feupd. pur=<Send/receive data>
+m$eidb:	.word	0		;address of kernel idb
+
+;	Feature exit routine
+;
+;	Called when an image exits or aborts
+;	Called during process deletion
+;	Dereference the process if it was attached
+
+fe$exi::$cmsch			;stop scheduling
+	clr	p$hmbu		;no buffer
+	clr	p$hmas		;no ast
+.if ne msgwai
+	clr	p$hmsw+ch.ioc	;clear i/o count
+.endc
+	$fedsm			;dismount feature
+	$cmpro			;enable scheduler
+	return			;feature exit
+.sbttl	entry point
+
+;	Called with RP
+;
+;	r2 =	generic emt code
+;	r5 ->	rp
+;
+;	If goto is odd it is the address of a subtable
+
+$febeg	$femnt			;feature begins here
+	cmpb	rp.cod(r5),#emsda. ;this a sdat?
+	beq	me$sda		;yes - send some data
+	fall	me$rcv		;no - receive data
+	
+;	rcvd - receive data
+;
+;	.rcvdc	area, buff, wcnt, crtn
+;
+;	rp.p0	unused
+;	rp.p1	buff - usermode buffer address
+;	rp.p2	wcnt - wordcount - must be 32.
+;	rp.p3	crtn - usermode completion routine
+;
+;	p$hmbu	usermode message buffer address
+;	p$hmas	usermode message ast
+
+me$rcv:	mov	rp.p1(r5),p$hmbu;message buffer address
+.if eq msgwai
+	mov	rp.p3(r5),p$hmas;message completion routine address
+.iff
+	beq	10$		;no buffer
+	incb	p$hmsw+ch.ioc	;setup i/o count
+	incb	p$hmsw+ch.uni	;count rcvd calls
+	mov	rp.p3(r5),r0	;get completion routine
+	mov	r0,p$hmas	;setup completion routine
+	asr	r0		;wait, return or completion?
+	bcs	10$		;it's return
+	bne	20$		;it's completion
+	.mwait			;it's wait
+.endc
+10$:	clr	p$hmas		;
+20$:	return
+.sbttl	send data
+
+;	Send data
+;
+;	.sdat	area buff wcnt ctrn
+;
+;	rp.p0	unused
+;	rp.p1	buffer address
+;	rp.p2	word count - must be 32.
+;	rp.p3	completion routine
+;
+;	Send the data - error if last data has not been accepted.
+;	Schedule any completion routine.
+;
+;	r2 ->	internal message
+;	r3 ->	ast record
+;	r4 ->	target pcr
+;	r5 ->	rp - adr later
+;
+;	0	invalid process number
+
+me$sda:	sub	#64.,sp			;make space for the message
+	mov	#32.,r0			;r0 = message word length
+	mov	rp.p1(r5),r1		;r1 -> usermode message
+	mov	sp,r2			;r2 -> kernel buffer
+	call	mm$mfc			;get the message
+	clrb	63.(sp)			;make sure its terminated
+					;
+	mov	sp,r2			;decode the target address
+	call	me$gpr			;get the process number
+	bcs	30$			;no such job
+					;r0 = process id
+	mov	sp,r2			;point to message
+	find	<Cc>			;this a tell?
+	bcs	10$			;no 
+	call	me$acc			;check process access
+	bcs	30$			;
+					;
+10$:	mov	sp,r2			;point to the message
+	call	me$snd			;send the message
+	bcs	20$			;no such job
+	jmp	em$exi			;fine
+					;
+20$:	call	ad$dsp			;get rid of the ast block
+	$cmpro				;back to process mode
+30$:	.soft	0			;no such job
+.sbttl	send message
+
+;	Send message to targe
+;
+;	r0	target process number
+;	r2 ->	copy of message
+;
+;	r3 ->	ast block
+;	r4 ->	target pcr
+
+me$snd:	psh	m$kip6			;save par6
+	call	ad$acq			;r3 -> ast block
+	$cmsch				;stop the world
+	cmp	r0,p$rprs		;too high?
+	bhis	90$			;yes
+	asl	r0			;no
+	mov	p$rmap(r0),r4		;get the process
+	beq	90$			;not around
+	bit	#prdel$,pr.sta(r4)	;is it deleting?
+	bne	90$			;yes - ignore it
+	mov	pr.phd(r4),m$kip6 	;map its header
+					;
+	bit	#fesda$,p$hfem+mmp62. 	;is this mounted to sdata?
+	bne	20$			;yes
+	bis	#fesda$,p$hfem+mmp62. 	;mount sdata on this feature
+	inc	f$eref			;and count it
+					;
+20$:	mov	#p$hmer+mmp62.,r1 	;point to its buffer
+	mov	#32.,r0			;count it
+30$:	mov	(r2)+,(r1)+		;move it in
+	sob	r0,30$			;stop the world
+
+;	Send client ast to target
+;
+;	r3 ->	adb
+;	r4 ->	pcr
+
+	clr	(r3)			;no link
+	clr	ad.cr0(r3)		;no r0
+	clr	ad.cr1(r3)		;no r1
+	mov	m$eidb,ad.cpc(r3)  	;ast pc
+	mov	#mmpum$,ad.cps(r3) 	;ast ps
+	movi	pr.acq,r4,r1		;point to its queue
+40$:	tst	(r1)			;this the end?
+	beq	50$			;yes
+	mov	(r1),r1			;no - get the next
+	br	40$			;
+50$:	mov	r3,(r1)			;insert us
+	clr	r0			;send a signal
+	call	as$pms			;post monitor signal
+	$cmpro				;
+	tst	(pc)+			;c=0 fine
+90$:	sec				;c=1 failure
+	pop	m$kip6			;restore par6
+	return				;
+.sbttl	check process access
+
+;	Check process access
+;
+;	r0 =	pid
+;
+;	c=0	access permitted
+;	c=1	access not permitted
+
+me$acc:	pshs	<r1,r0>			;save r0,r1
+	stack	pid r1			;
+	mov	sp,r1			;to cleanup
+	psh	m$eidb			;rp.p5 - routine address
+	add	#megpa.,(sp)		;	 point to me$gpa
+	clr	-(sp)			;rp.p4 
+	clr	-(sp)			;rp.p3
+	clr	-(sp)			;rp.p2
+	clr	-(sp)			;rp.p1 - no process name
+	clr	-(sp)			;rp.p0 - address of pid
+	stack	p0 p1 p2 p3 p4 p5 pid r1
+	mov	sp,(sp)			;point relative
+	add	#sp.pid,(sp)		;
+	psh	#emcmk.*256.		;
+	mov	sp,r0			;
+	emt	373			;
+	mov	r1,sp			;c=? reset stack
+	pops	<r0,r1>			;c=?
+	return				;c=1 => failure
+.sbttl	receive message ast
+
+;	Receive message client ast
+;
+;	Transfer client user ast if one is specified.
+;	Ignore quiet messages.
+;	Display message or command.
+;	Setup to execute TELL command.
+;	Clear flag saying that the message has been accepted.
+
+me$ast:				;message ast
+	mov	#p$hmer,r2	;point to the internal buffer
+	tstb	(r2)		;got anything at all?
+	beq	20$		;no - ignore all this
+	find	<Bb>		;is this a broadcast message?
+	bcc	10$		;yes - display it only
+	mov	p$hmbu,r1	;do they have a receive buffer?
+	bne	40$		;yes - go send the message
+	find	<Qq>		;is this quiet?
+	bcc	20$		;ignore quiet messages
+	find	<Mm>		;message?
+	bcc	10$		;yes - throw away 'M'
+	find	<Cc>		;is this a command?
+	bcs	10$		;no - Mm or something else
+
+;	Send command to this process
+
+	call	10$		;display the message first
+	bit	#primg$,p$hsta	;got an image active?
+	bne	25$		;yes - dont start it
+	cmp	p$hjob,p$hjor	;got a command file active?
+	bne	25$		;yes
+	mov	p$hpcr,r4	;get the pcr
+	bis	#prabt$!prwak$,pr.sta(r4) ;wake it up
+	bis	#prabt$!prwak$,p$hsta	;twice
+	bis	#edrpt$!edint$,p$hedc	;force a repaint
+	tst	p$hter		;got a terminal?
+	beq	5$		;no - avoid the logger
+	mov	#fofio$,p$hlof	;force a logger pass
+	bis	#foast$,p$hlos	;tell them we have things
+5$:	.exit			;exit to tell command
+
+;	Display the message
+
+10$:	tst	p$hter		;got a terminal?
+	beq	20$		;no
+	.print	#30$		;get a new line
+	cmpb	(r2),#'P	;this a process name?
+	bne	15$		;no
+	inc	r2		;yes
+
+15$:	clr	r3		;flag word
+	mov	r2,r4		;get a copy
+16$:	cmpb	(r4),#'<	;source delimiter found?
+	bne	17$		;nope
+	inc	r3		;found
+17$:	cmpb	(r4)+,#40	;this the space?
+	bne	16$		;must be found
+	tst	r3		;delimiter found?
+	bne	18$		;yes
+	mov	r4,r2		;nope - do not display identifier
+
+18$:	.print	r2		;break thru and print
+	bis	#edrpt$!edint$,p$hedc ;force a repaint
+20$:	$fedsm			;dismount us
+25$:	return			;
+30$:	.asciz	//		;newline
+	.even
+
+;	Send message to user and post AST	
+;
+;	r1 ->	user mode buffer
+;	r2 ->	phd message
+
+40$:	mov	#mmpum$,ps	;force previous user mode
+	mov	#32.,r0		;r0 = message size
+	movtd	r0,(r1)+	;r1 -> usermode buffer
+	call	mm$mtc		;move them in
+				;
+.if ne msgwai
+	tstb	p$hmsw+ch.uni	;got an outstanding rcvd request?
+	beq	50$		;nope
+	decb	p$hmsw+ch.ioc	;
+	decb	p$hmsw+ch.uni	;
+50$:	tst	p$hmas		;got a completion routine?
+	beq	25$		;nope
+.endc
+	clr	r0		;ast r0
+	clr	r1		;ast r1
+	psh	#mmdum$		;ast ps
+	psh	p$hmas		;ast pc
+	$fedsm			;dismount us
+	jmp	as$tca		;transfer client ast
+.sbttl	get destination specification
+
+;	Get destination specification
+;
+;	r2 ->	message
+;
+;	r0 =	process number
+;
+;	tax<ax_text 
+;
+;	t	Message type
+;	B	Broadcast - terminal display only
+;	Q	Quiet - ignore if no intercept
+;	M	Message - display if no intercept
+;	C	Command - execute if no intercept
+;
+;	<	Message header displayed if present
+;
+;	ax	Address type and address text
+;	S0	This satellite - ignore
+;	Sn	Satellite - decimal - error
+;	Jn	Job number - decimal number
+;	J*	All jobs
+;	Pn	Process name or octal process id
+;	P*	All processes
+;???	Nn	Node name or octal id
+
+me$gpr:	psh	r2			;get process name
+	inc	r2			;skip the message type
+	find	<Ss>			;check for satellite
+	bcs	20$			;not a satellite spec
+	call	me$gdn			;get decimal satellite number
+	tst	r0			;is this o.k.
+	bne	50$			;no
+20$:	find	<Jj>			;check for job spec
+	bcs	30$			;invalid
+	cmpb	(r2),#'*		;all jobs?
+	beq	me$all			;yes
+	call	me$gdn			;get decimal number
+	br	40$			;join common
+30$:	find	<Pp>			;check for a process
+	bcs	50$			;invalid
+	cmpb	(r2),#'*		;all processes?
+	beq	me$all			;yes
+	call	me$gpd			;get process id
+40$:	bcs	50$			;invalid spec
+	cmp	r0,#prsyn.		;must be above system process
+	blos	50$			;it is not
+	tst	(pc)+			;got one
+50$:	sec				;invalid specification
+	pop	r2			;restore this
+	return				;fine
+
+;	Find character
+;
+;	jsr	r3,me$fnd
+;	.byte	'C,'c
+;
+;	c=0	found
+;	c=1	not found
+
+me$fnd:	cmpb	(r2),(r3)+		;is it the first?
+	beq	10$			;yes
+	cmpb	(r2),(r3)		;is it the second?
+	bne	20$			;no
+10$:	inc	r2			;skip the character
+	tst	(pc)+			;found
+20$:	sec				;no
+	inc	r3			;skip the second character
+	rts	r3			;c=0 => found
+.sbttl	send message to all processes
+
+;	Send message to all processes
+
+me$all:	mov	(sp),r2			;restore r2
+	clr	-(sp)			;assume no check
+	find	<Cc>			;check for command
+	bcs	10$			;no check
+	inc	(sp)			;signal check
+10$:	psh	#prsyn.			;get process number
+	stack	prn flg r2
+20$:	inc	(sp)			;do the next
+	mov	(sp),r0			;get it in r0
+	cmp	r0,#crprs.		;still valid?
+	bhi	50$			;nope - all done
+	cmp	r0,@#p$hprn		;this ours?
+	beq	20$			;yes- ignore
+	tst	sp.flg(sp)		;tell command?
+	beq	30$			;nope
+	call	me$acc			;yes - check access
+	bcs	20$			;not allowed
+30$:	mov	sp.r2(sp),r2		;point to message
+	call	me$snd			;send to this job
+	bcc	40$			;fine
+	call	ad$dsp			;get rid of the ast block
+	$cmpro				;back to process mode
+40$:	br	20$			;do the next
+					;
+50$:	jmp	em$exi			;quit
+.sbttl	get address specification
+
+;	Get address specification
+;
+;	Jnnn	Decimal number
+;	Snnn	Decimal number
+;	Pccc	Process name
+;	Pnnn	Octal number
+;
+;	r2 ->	input stream
+;
+;	r0 =	number
+
+me$gpd:	cmpb	(r2),#'A		;number or name?
+	bhis	me$gpn			;name
+me$gon:	jsr	r3,me$gnm		;get octal
+	.word	8.			;
+me$gdn:	jsr	r3,me$gnm		;get decimal
+	.word	10.			;
+me$gnm:	psh	r1			;save r1
+	stack	r1 r3			;
+	clr	r1			;accumulate number
+10$:	movb	(r2),r0			;get the next
+	sub	#'0,r0			;isolate a digit
+	cmp	r0,(r3)			;is it a digit?
+	bhis	20$			;no - we are done
+	inc	r2			;accept the digit
+	mul	(r3),r1			;make space for digit
+	add	r0,r1			;add in new digit
+	br	10$			;look for more
+20$:	mov	r1,r0			;return number in r0
+	pops	<r1,r3>			;restore these
+	return
+.sbttl	get process name
+
+;	Get process name
+;
+;	r2 ->	ascii name
+;
+;	call	sy$gpn
+;
+;	r0 =	process number
+;	r0=0	none found
+
+me$gpn:	pshs	<r4,r3,r1>	;get process name
+	mov	r2,r0		;point to the name
+	call	na$car		;convert to rad50
+	mov	r1,r2		;r2 = first word of name
+	beq	30$		;oops - invalid name
+	call	na$car		;get the next
+	mov	r1,r3		;r3 = second word
+	$cmsch			;
+	mov	#p$rprs,r0	;point to the processes
+	mov	(r0)+,r1	;r1 = number of processes
+10$:	mov	(r0)+,r4	;r4 -> current process
+	beq	20$		;slot not in use
+	cmp	pr.nam(r4),r2	;is this the process?
+	bne	20$		;no
+	cmp	pr.nam+2(r4),r3	;really?
+	bne	20$		;not this one
+	clr	r0		;
+	bisb	pr.prn(r4),r0	;get the process number
+	br	40$		;
+20$:	sob	r1,10$		;do them all
+30$:	clr	r0		;no such process
+40$:	$cmpro			;enable scheduler
+	pops	<r1,r3,r4>	;restore them
+	return
+
+$fetop
+.end
+

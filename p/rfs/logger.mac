@@ -1,0 +1,589 @@
+astign=1
+kerwri=1
+fobsz.=512.
+write=0
+.title	logger feature
+.include "lib:share.mac"
+
+$cfdef		;command files
+$chdef		;channel
+$eddef		;terminal editor
+$emdef		;emts
+$fedef		;feature
+$fndef		;filename
+$fodef		;formatted output
+$icdef		;image control
+$iodef		;io
+$jsdef		;jsw
+$mmdef		;mmu
+$pedef		;process enable
+$prdef		;process record
+$sedef		;set options
+$stdef		;states
+$tedef		;terminal
+$txdef		;text
+
+map	fever.,,2
+map	feupd.,,3
+
+$imgdef	LOGGER 2 3
+$imginf	fun=fea cre=hammo aut=ijh use=<Log SHAREplus terminal output>
+$imgham	yrs=<1984,1985,1986,1987> oth=<>
+;	%date
+$imgdat	<01-Mar-2008 15:48:39.39>
+;	%edit
+;	<61   >
+
+;	SHAREplus LOGGER feature
+;
+;	%build
+;	goto 'p1'
+;	macro rfs:logger/object:rfb:
+;	link:
+;	r link
+;	rfb:logger.fea,rfb:logger=lib:featur,rfb:logger,lib:share,lib:shplib/Q
+;	featur:20000
+;	
+;	^C
+;	goto end
+;	if "'p1'" goto end
+;	set error none
+;	remove/feature logger
+;	copy rfb:logger.fea sy:logger.fea
+;	install/feature logger
+;	set error error
+;	end:
+;	%end
+;
+;	Feature interface:
+;
+;	te$toq	- checks to see if we are present
+;	te$tiq  - checks to see if we are present
+;	attach	- leaves attach up to us
+;	detach	- no change
+;
+;		tst	p$hlob		;got a buffer?
+;		beq	no		;no
+;		tst	f$emap+feslo.	;got logging?
+;		beq	no		;no
+;
+; ???	LOGGER file operation calls KTE back to output the character
+;	with the logger switched off to avoid being presented with
+;	the same character twice (this can happen because of XON/XOFF).
+;	What should happen is that the terminal output routine should
+;	differentiate between the first and subsequent presentations
+;	of a character.
+.sbttl	install & remove
+
+;	Install
+;
+;	This code is located below the server
+;	Called in user mode
+;
+;	r3 ->	kernel feature record
+;
+;	nothing special
+
+fe$ins::			;feature installation
+	return			;nothing special
+
+;	Remove feature
+;
+;	Make sure there are no references
+
+fe$rem::			;feature remove
+	$cmkrnl	#f$eare, #100$, pic=yes ;check for reference
+	return
+
+100$:	tst	@#m$mpa6+fe.ref	;got any references?
+	bne	110$		;no
+	return
+110$:	.soft	0		;yes - dont permit removal
+
+;	Define the server
+;
+;	All kernel code must follow the server
+;
+;	The log feature has fixed slot in the feature table.
+
+$febot	nam=logger fid=felog. ver=fever. upd=feupd. pur=<Terminal logging>
+
+;	Feature exit routine
+;
+;	Called when an image exits or aborts
+;	Called during process deletion
+;	Dereference the process if it was attached
+
+fe$exi::return			;feature exit
+.sbttl	description
+
+;	Log file output
+; 
+;	The LOGGER implements WRITE facility for terminal output.
+; 
+;	The log file facility is used to write process output to a file.
+;	It can be used to buffer output while a process is detached.
+; 
+;	OPEN/WRITE LOG logfil/ALLOCATE:size
+;	OPEN/WRITE OUT logfil/ALLOCATE:size
+;	CLOSE LOG
+;	SHOW PROCESS/FILES
+;	SET [NO]LOG
+; 
+;	LOG	Output should be logged & written to the terminal.
+;	OUT	Output should be written to the log file only.
+; 
+;	OPEN is ignored with a warning if there is already a log file open.
+;	CLOSE LOG or OUT will close the output file.
+;	LOGOUT or process deletion force the log file to be closed.
+; 
+;	BATCH files are signalled by specifying a an output file name.
+;	The LOGIN command detects this and opens the file automatically.
+; 
+;	ASTs are disabled during log operations. This permits all terminal
+;	output to be written to the logfile. A signal must be sent to
+;	the process if an AST occurred during an AST.
+; 
+;	p$hlos - log file status	
+;	p$hlob - buffer address
+;	p$hlof - logger flags
+; 
+;	The buffer starts with a control record. This contains most of
+;	the data describing the logfile.
+; 
+;	Highest channel is used for all operations. This is never closed
+;	by sreset. But, it must be closed by process deletion. It is called
+;	by the feature mechanisms. We stop writing if we get an I/O error.
+;	Logout & process delete ensure the file is closed.
+; 
+;	We do not have an RP. Could be called during ACP operations.
+; 
+;	r0 =	character
+;	state	scheduler
+; 
+;	c=0	success
+;	r0 =	input character
+;		0 if output character
+;	state	process
+; 
+;	c=1	failed
+;	r0 =	input character, 0 if output character
+;	state	scheduler
+
+.if ne 0 
+lo$pux::bit	#loact$!loerr$!loclo$,p$hlos ;check the status
+	bpl	20$		;oops - not active
+	bne	20$		;oops - has an error or close pending
+	bit	#stact$,p$hast	;are we in an ast?
+	bne	20$		;yes - ignore this
+	call	lo$out		;no - write the character
+20$:	bit	#loter$,p$hlos	;this going to the terminal too?
+	bne	30$		;yes
+	return			;no
+30$:	jmp	te$out		;yes - send it
+.endc 
+.sbttl	dispatch
+
+;	Log output character
+;
+;	Called by ttyout without an RP. Mapped into par1.
+;
+;	Record	F T - Record an interactive session.
+;	Batch	F   - Record a batch session.
+;	Attach	  T - Write through to terminal.
+;	Detach	    - Store terminal output during detached operation.
+;
+;	Store the character if file is open.
+;	Store if terminal is open and we are detached.
+;	Print buffer if no file and have just attached.
+;	We do not support simultaneous buffer and file operations.
+;	If the buffer fills up we suspend until a wakeup.
+;
+;	p$hlos	status
+;	p$hlob	buffer address
+;	p$hlof	format flags
+;
+;	r0 =	character
+;	r1 ->	logfile buffer
+;	r2 =	byte count
+;	r3 ->	terminal record
+;	r4 ->	logger buffer
+;	r5 ->	p$hlos
+;	(sp)	character to output
+;
+; entry:
+;
+;	r3=1	output
+;	r3=2	input
+
+$febeg				;feature begins here
+	$femnt			;attach to feature
+	$cmpro			;return to process state
+	pshs	<r3,r5,r4,r3,r2,r1,r0> ;save these
+	stack	r0 r1 r2 r3 r4 r5 opr
+	mov	#p$hlos,r5	;r5 -> status
+	mov	@#p$hlob,r4	;get the logfile buffer
+	beq	50$		;we just lost it
+	sub	@#p$hktc,r4	;r4 -> buffer
+				;
+	movb	sp.opr(sp),r1	;get the operation code
+	cmpb	r1,#folim.	;this too high?
+	bhis	50$		;yes - ignore it
+	asl	r1		;make an offset
+	call	@f$odsp(r1)	;call the routine
+				;
+50$:	$fedsm			;detach us
+	pops	<r0,r1,r2,r3,r4,r5> ;
+	tst	(sp)+		;did we get rid of it?
+	beq	60$		;yes
+	$cmsch			;no - try again
+	sec			;
+60$:	psh	#mmkp1.		;setup return path
+	jmp	sy$rp1		;return restoring par1
+				;
+f$odsp:	.word	fo$nop		;nop
+	.word	fo$opt		;output
+	.word	fo$ipt		;input
+	.word	fo$att		;attach
+	.word	fo$det		;detach
+.sbttl	attach & detach
+
+;	Attach
+;
+;	See if we have anything to flush
+
+fo$att:	bit	#fopnd$,(r5)	;got any pending output?
+	beq	10$		;no
+	mov	p$hter,r3	;got a terminal?
+	beq	10$		;no - no way to flush
+	call	fo$dis		;display this lot
+10$:
+fo$nop:	return
+
+;	Detach
+;
+;	If there is more work to do set a flag.
+;	This tells the pause routine whether it should
+;	signal the other process when we are done.
+
+fo$det:	tst	p$hjoc		;got command file input?
+	beq	10$		;no
+	bis	#fonew$,(r5)	;yes - remember it for later
+10$:	return			;
+.sbttl	input
+
+;	Terminal input
+;
+;	Wait if there is output and no terminal.
+
+	stack	ret r0 r1 r2 r3 r4 r5 opr
+fo$ipt:	bit	#stact$,p$hast	;in an AST?
+	bne	20$		;yes - ignore it
+	mov	p$hter,r3	;got a terminal?
+	bne	20$		;yes 
+	bit	#fofil$,(r5)	;got a file?
+	bne	20$		;yes
+	bit	#pebat$,p$hpe0	;this a batch process?
+	bne	20$		;yes - ignore
+	bit	#fopnd$,(r5)	;got pending output?
+	beq	20$		;no
+	incb	p$hifc		;update fail count
+	bit	#jstts$!jsttr$,p$hjsw ;inhibiting terminal wait?
+	beq	10$		;nope
+	bit	#teiof$,p$hifc	;have we failed?
+	beq	20$		;nope - go on
+	clrb	p$hifc		;clear fail count
+	bit	#ictcl$,p$hic0	;are they insisting on loop
+	bne	20$		;yes - dont wait
+10$:	call	fo$pau		;wait for a terminal
+	bcs	20$		;process aborting
+	call	fo$dis		;display what we have
+	bic	#edint$!edrpt$,p$hedc ;dont repaint
+20$:	return			;
+.sbttl	output
+
+;	Terminal output
+;
+;	Ast active	let output thru
+;	Write active	let output thru
+;
+;	Log file open	clear display stuff
+;			store character
+;			return as if nothing happened
+;
+;	Terminal	display pending output
+;
+;	No terminal	store character
+;			wait if buffer full
+;
+;	r5 ->	logger status
+;	r4 ->	logger buffer
+;	r3 ->	terminal, if any
+
+	stack	ret r0 r1 r2 r3 r4 r5 opr
+fo$opt:	bit	#stact$,p$hast	;in an AST?
+	bne	70$		;yes - let it thru
+	bit	#fowri$,(r5)	;is a write in progress?
+	bne	70$		;yes - forget this
+10$:	bis	#fowri$,(r5)	;
+	bit	#fofil$,(r5)	;are we logging?
+	beq	20$		;no
+	bic	#fopnd$,(r5)	;nothing pending
+	call	fo$wri		;try to write it
+	br	45$		;store this one
+
+20$:	mov	p$hter,r3	;got a terminal
+	beq	30$		;no - try to store some
+	mov	r3,p$hlot	;remember the terminal
+	bit	#fopnd$,(r5)	;got pending output?
+	beq	60$		;no - ignore this
+	call	fo$dis		;display what we have
+	br	60$		;and quit
+
+;	Store terminal output
+
+30$:	bit	#pebat$,p$hpe0	;this a batch process?
+	bne	50$		;yes - throw away output
+	cmp	fo.cnt(r4),#fobsz.-1. ;r2 = byte count
+	blos	40$		;no - still space
+	call	fo$pau		;yes - wait a while
+	bcs	60$		;process aborting
+	br	10$		;and try again
+				;
+40$:	bis	#fopnd$,(r5)	;remember we have some
+45$:	movi	fo.buf,r4,r1	;r1 -> buffer
+	add	fo.cnt(r4),r1	;r2 = byte count
+	movb	sp.r0(sp),r0	;get the character
+	beq	50$		;ignore nulls
+	movb	r0,(r1)+	;store some
+	movb	#200,(r1)	;terminate the buffer
+	inc	fo.cnt(r4)	;count it
+	bit	#fofil$,(r5)	;this file output?
+	beq	50$		;no
+	call	fo$wri		;attempt to write it
+	mov	p$hter,r3	;got a terminal?
+	beq	50$		;no - we did it
+	mov	sp.r0(sp),r0	;yes - get the character
+	call	fo$out		;write and handle double presentation
+50$:	clr	sp.opr(sp)	;remember we did it
+60$:	bic	#fowri$,(r5)	;clear the write flag
+70$:	return			;
+.sbttl	display any pending output
+
+;	Display pending output
+;
+;	This could be interrupted by an AST flush
+
+fo$dis:	mov	p$hter,r3	;really got a terminal?
+	beq	60$		;no - forget this
+	bit	#fofil$,(r5)	;got a file?
+	bne	60$		;yes - skip this
+	bit	#fopnd$,(r5)	;got pending output?
+	beq	60$		;no
+	bic	#fopnd$!fonew$,(r5) ;clean up the flag
+	movi	fo.buf,r4,r1	;r1 -> buffer
+	mov	fo.cnt(r4),r2	;r2 = byte count
+	clr	fo.cnt(r4)	;once-only
+				;
+	bit	#pebat$,p$hpe0	;this a batch process?
+	bne	60$		;yes - do not display
+				;
+	cmp	r2,#fobsz.	;is this more than 512.
+	blos	40$		;no
+	mov	#fobsz.,r2	;yes - reduce it
+40$:	movb	(r1)+,r0	;get the next
+	beq	50$		;ignore nulls
+	call	fo$out		;dump a character
+50$:	dec	r2		;count it
+	bne	40$		;
+60$:	return			;
+				;
+fo$out:	clrb	p$hlof		;cleanup the flag
+	call	te$opt		;dump it
+	movb	#1,p$hlof	;turn us back on
+	return			;
+.sbttl	pause
+
+;	No terminal attached
+;	Output buffer full
+;	Input buffer exhausted
+;
+;	In both cases we wait for a terminal or abort
+
+fo$pau:	psh	#2.		;two reminders
+10$:	$cmsch			;stop the scheduler
+	tst	p$hsta		;are we aborting?
+	bmi	70$		;yes
+	mov	p$hter,r3	;got a terminal now?
+	bne	70$		;yes
+	bit	#foast$!fofil$,(r5) ;got a breakthru AST or file?
+	bne	70$		;yes
+	bit	#pebat$,p$hpe0	;this a batch process?
+	bne	70$		;yes - don't wait
+30$:	mov	p$hlot,r3	;get the terminal
+	beq	60$		;no
+	tst	te.oct(r3)	;completely empty?
+	bmi	45$		;yes
+	cmp	te.oct(r3),#30.	;got enough room for us?
+	ble	50$		;yes
+	$cmpro			;no
+40$:	mov	#f$otwt,r0	;wait half a second
+	bis	#fopau$,(r5)	;signal logger pausing
+	emt	375		;
+	br	10$		;and try again
+45$:	clr	(sp)		;empty terminal rings once only
+50$:	bit	#fonew$,(r5)	;anything new to report?
+	beq	60$		;no
+	mov	#bell,r0	;yes
+	bis	#fotto$,(r5)	;tell them not to wait
+	call	te$opd		;ring their bell
+	bic	#fotto$,(r5)	;let them wait again
+60$:	$cmpro			;make sure its process state
+	dec	(sp)		;done enough?
+	bpl	40$		;no - do some more
+	clr	(sp)		;keep this stopped
+	.spnd			;yes - wait for a signal
+	br	10$		;and start over
+				;
+70$:	bic	#foast$!fopau$,(r5) ;cleanup breakthru AST and pause flag
+	$cmpro			;pause is done - return whereever
+	tst	(sp)+		;clean up
+	tst	p$hsta		;are we aborting?
+	bmi	80$		;yes
+	tst	(pc)+		;nope
+80$:	sec			;yes
+	return			;
+				;
+f$otwt:	.word	emtwt.*256.	;timed wait
+	.word	10$		;the wait
+10$:	.word	0,40.		;wait half a second
+.sbttl	write buffer
+
+;	Write the buffer out
+;	Any data that arrives during a write is ignored
+;	This means that TRACE operations do not record the write request
+;
+;	Determine the next block by examining ch.use in the output
+;	channel.
+;
+;	r5 ->	status
+;	r4 ->	fo.buf
+;		fo.cnt
+
+fo$wri:
+.if ne astign
+	psh	r1			;
+.endc
+
+	bit	#fofil$,(r5)		;got a file?
+	beq	40$			;no
+	cmp	fo.cnt(r4),#fobsz. 	;time to write?
+	blo	40$			;no
+.if ne astign
+	mov	p$hpcr,r1		;gt process control record
+	bit	#stdis$,pr.ast(r1)	;chance to write?
+	beq	5$			;yes
+	dec	fo.cnt(r4)		;ignore last character
+	movi	fo.buf,r4,r1		;point to the buffer
+	add	fo.cnt(r4),r1		;add in the offset
+	movb	#200,(r1)		;terminate it
+	br	40$			;
+.endc
+5$:	bit	#foerr$!foful$,(r5)	;had a write error or eof?
+	bne	30$			;yes - ignore this
+.if ne astign
+	psh	r0			;
+.iff
+	pshs	<r1,r0>			;save these
+.endc
+	psh	p$herr			;save current error status
+	psh	p$hic0			;save image control
+	stack	ic0 err r0 r1 ...	;
+					;
+	mov	#icntr$,r0		;assume no trace
+	tst	p$hter			;got a terminal?
+	beq	10$			;no - forget it
+	bit	#settr$,p$hset		;are they tracing?
+	beq	10$			;no
+	assume	cfdis$ eq 200		;display/everything option
+	tstb	p$hcfs			;but is this display/everything
+	bpl	10$			;no - don't trace this one
+	.ttyout	#cr			;put in a new line
+	.ttyout	#lf			;
+	clr	r0			;dont turn off trace
+10$:	bis	r0,p$hic0		;perhaps turn off trace
+					;
+	mov	sp,r1			;save the stack
+	clr	-(sp)			;io.com - wait i/o
+.if ne kerwri
+	psh	#iowri$			;io.mod - write from kernel
+	psh	#fobsz./word		;io.wct - word count
+	psh	r4			;io.buf - base of buffer
+.iff
+	psh	#iowri$!iouim.		;io.mod - write user mode
+	psh	#fobsz./word		;io.wct - word count
+	psh	p$hlob			;io.buf - user buffer address
+.endc
+	add	#fo.buf,(sp)		;	- skip buffer header
+	psh	fo.blk(r4)		;get block number
+	inc	fo.blk(r4)		;next block
+	clr	-(sp)			;construct channel number
+	bisb	p$hchs,(sp)		;get channel count
+	dec	(sp)			;count - 1 = highest channel
+	mov	sp,r0			;point to the emt area
+	emt	373			;execute it
+	mov	r1,sp			;get the stack back
+	bcc	20$			;fine
+	mov	#foerr$,r0		;assume error full
+	tstb	p$herr			;end-of file?
+	bne	15$			;nope - output error
+	mov	#foful$,r0		;nope
+	dec	fo.blk(r4)		;do not count this block
+
+15$:	bis	r0,(r5)			;set error status
+20$:	pop	p$hic0			;restore trace bit
+	pop	p$herr			;save the error status
+.if ne astign
+	pop	r0			;
+.iff
+	pops	<r0,r1>			;restore these
+.endc
+30$:	clr	fo.cnt(r4)		;start buffer again
+40$:
+.if ne astign				;
+	pop	r1			;
+.endc
+	return
+.if ne 0
+.sbttl	close the log file
+
+;	Close the log file.
+;
+;	Called during process deletion to finish a log file.
+;	Called from a utility by setting loclo$ in the status
+;	word and outputting any character.
+;
+;	CLOSE LOG!OUT	
+;	LOGOUT	
+;	Process deletion
+
+lo$clx::			;close the log file
+	bit	#foact$!foerr$,p$hlos ;are we active or in error?
+	bpl	30$		;ignore it
+	bne	20$		;error - just close it
+10$:	tst	p$hloc		;just written the last?
+	beq	20$		;yes
+	clr	r0		;no
+	call	fo$out		;write one character
+	br	10$		;
+20$:
+?????	.close	#16.		;close the channel
+	bic	#foact$!foerr$!fofil$,p$hlos	;turn it off
+;	mov	#te$put,p$htto	;and redirect us
+;	mov	p$httf,p$htto	;reset us to the format routine
+30$:	return			;
+.endc
+
+$fetop
+.end
+

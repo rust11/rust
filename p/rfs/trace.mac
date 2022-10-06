@@ -1,0 +1,915 @@
+.title	trace
+.include "lib:share.mac"
+$cfdef		;command file
+$erdef		;error
+$fedef		;feature
+$fndef		;filename
+$icdef		;image control
+$mmdef		;mmu
+$rpdef		;rp
+$sedef		;set
+$txdef		;text
+
+;-----------------------------------------------------------------------;
+;	w a r n i n g							;
+;									;
+;	DCL:REQUES.MAC must be updated with any changes made to this	;
+;	module. Otherwise SHOW PROCESS/STATE will break.		;
+;									;
+;-----------------------------------------------------------------------;
+
+map	fever.,,2
+map	feupd.,,1
+
+$imgdef	TRACE 2 1
+$imginf	fun=fea cre=hammo aut=ijh use=<Traces SHAREplus system calls>
+$imgham	yrs=<1984,1985,1986> oth=<>
+;	%date	
+$imgdat	<10-Mar-2008 01:12:46.26>
+;	%edit
+;	<35   >
+
+;	SHAREplus TRACE feature
+;
+;	%build
+;	goto 'p1'
+;	macro rfs:trace/object:rfb:
+;	link:
+;	r link
+;	rfb:trace.fea,rfb:trace=lib:featur,lib:shplib,rfb:trace,lib:share/Q
+;	featur:20000
+;	
+;	^C
+;	goto end
+;	if "'p1'" goto end
+;	set error none
+;	remove/feature trace
+;	copy rfb:trace.fea sy:trace.fea
+;	install/feature trace
+;	set error error
+;	end:
+;	%end
+
+meta <ttyout c><.iif nb <c>,movb c,r0><call te$put>
+meta <type c><jsr r1,$type><.ascii &c&<200>><.even>
+meta <usual c,d><.nchr $,c><.word d+<$-1/3>>
+meta <ascii c,d><jsr r3,$ascii><usual c,d><.rad50 /c/>
+meta <ascit c,d><jsr r3,$ascit><usual c,d><.rad50 /c/>
+meta <octal c,d><jsr r3,$octal><usual c,d><.rad50 /c/>
+meta <octab c,d><jsr r3,$octat><usual c,d><.rad50 /c/>
+meta <devnam c,d><jsr r3,$devnam><usual c,d><.rad50 /c/>
+meta <filnam c,d><jsr r3,$filnam><usual c,d><.rad50 /c/>
+.sbttl	feature interface
+
+;	Feature interface
+;
+;	This code is located below the server
+;	Called in user mode
+;
+;	r3 ->	kernel feature record
+;
+;	nothing special
+
+fe$ins::			;feature installation
+	return			;nothing special
+
+;	Remove feature
+;
+;	Make sure there are no references
+
+fe$rem::			;feature remove
+	$cmkrnl	#f$eare, #100$, pic=yes	;
+	return			;c=?
+
+100$:	tst	@#m$mpa6+fe.ref	;any references?
+	bne	110$		;yes - do not remove
+	return			;
+110$:	.soft	0		;retrun with c-bit
+
+;	Define the server
+;
+;	All kernel code must follow the server
+;
+;	The trace feature has a fixed slot in the feature table
+
+$febot	nam=trace fid=fetra. ver=fever. upd=feupd. pur=<System call trace>
+
+;	Feature exit routine
+;
+;	Called when an image exits or aborts
+;	Called during process deletion
+;	Dereference the process if it was attached
+
+fe$exi::return			;feature exit
+.sbttl	entry point
+
+;	Called with RP
+;
+;	r2 =	generic emt code
+;	r5 ->	rp
+;
+;	If goto is odd it is the address of a subtable
+
+$febeg				;feature begins here
+	$femnt			;attach to feature
+	pshs	<r5,r4,r3,r2,r1,r0>
+	bit	#icntr$,p$hic0	;trace disabled for this image?
+	beq	10$		;no
+	assume	cfdis$ eq 200	;display/everything option
+	tstb	p$hcfs		;but is this display/everything
+	bpl	70$		;no - don't trace this image
+10$:	movb	rp.req(r5),r3	;get the request code
+	mul	#6,r3		;get the table offset
+	add	#t$rdis,r3	;point to the list
+	tst	(r3)		;should we ignore this?
+	beq	70$		;yeh
+	bit	#1,(r3)		;only on display/everything?
+	beq	15$		;no
+	tst	rp.ps(r5)	;this kernel?
+	bpl	70$		;yes - do not display it (we will loop)
+	tstb	p$hcfs		;yes
+	bpl	70$		;
+15$:	call	tr$ame		;check for ame call
+	bcc	70$		;ignore it - ame will do it
+20$:	mov	rp.pc(r5),r1	;get the pc
+	call	octal		;print it
+	tst	rp.ps(r5)	;this from the kernel?
+	bmi	30$		;no
+	type	<k>		;yes - signal it
+30$:	type	<	.>	;start off the emt
+	mov	(r3)+,r2	;get the routine address
+	bic	#1,r2		;clean it up
+
+	tst	(r2)		;is this a subtable?
+	bne	40$		;no
+	tst	(r2)+		;yes
+	movb	rp.chn(r5),r3	;get the channel
+	bic	#^c177,r3	;clean it up
+	cmp	r3,(r2)+	;too high?
+	bhi	35$		;yes - use first entry for subcode errors
+	mul	#6,r3		;get the offset
+	add	r2,r3		;
+	mov	(r3)+,r2	;this is the real address
+	br	40$		;fine
+35$:	mov	#badcod,r3	;bad emt
+	mov	(r3)+,r2	;set it up
+	bic	#1,r2		;clean it up
+				;
+40$:	call	unpack		;display it
+	call	unpack		;
+	call	(r2)		;call ye routine
+	bit	#seste$,p$hset	;set step?
+	beq	60$		;no
+	type	<? >		;yes
+50$:	call	te$get		;get a character
+	cmpb	r0,#ctrlc	;this an abort?
+	bne	55$		;no
+	bic	#seste$,p$hset	;turn it off
+	br	60$		;and continue normally
+55$:	cmpb	r0,#cr		;return?
+	beq	60$		;yes
+	cmpb	r0,#lf		;done?
+	bne	50$		;no
+60$:	call	newline		;
+70$:	$fedsm			;detach us
+	pops	<r0,r1,r2,r3,r4,r5>
+	psh	#mmkp1.		;setup return path
+	jmp	sy$rp1		;return restoring par1
+
+tr$ame:	cmp	r3,#t$rrsx	;is this RSX?
+	bne	10$		;no
+	cmp	p$hrsx,#^rrsx	;is rsx active?
+	beq	80$		;yes
+10$:	cmp	r3,#t$rtsx	;is this TSX?
+	bne	20$		;no
+	cmp	p$htsx,#^rtsx	;is tsx active?
+	beq	80$		;yes
+20$:	bit	#setnt$,p$hset	;native enabled?
+	bne	90$		;yes					;V4
+
+80$:	tst	(pc)+		;AME will do it
+90$:	sec			;no AME for this one
+	return
+.sbttl	dispatch tables
+
+;	.rad50	/emtnam/
+;	.word	task
+;
+;	If EMTNAM=0, task is address of subtable
+;
+;_________________________________________________________________
+; NOTE - entry names must be at least four characters for rad50
+;_________________________________________________________________
+
+meta	<entry c d pre,all=0><.word pre'c!all><.rad50 /c/>
+meta	<ignore c d><.word 0><.rad50 /c/>
+meta	<forward c d><.word c><.word 0,0>
+
+t$rdis:				;emt dispatch table
+				;r0 parameters are not counted
+	ignore	ttyin	0 	;			rtt
+	entry	ttyout	0 all=1	;			rtt
+	entry	dstat	1	;2 (dblk may be odd)
+	entry	fetch	1	;2 (dblk may be odd)
+	entry	csigen	2	;2 or 3 (p1 may be odd)
+	entry	csispc	2	;2 or 3 (gtlin)
+	entry	lock	0	;ignored
+	entry	unlock	0	;ignored
+
+	entry	exit	0	;
+	entry	print	0 all=1	;bypass			rtt
+	entry	sreset	0	;
+	entry	qset	1	;
+	entry	settop	0	;
+	entry	rctrlo	0	;
+	entry	astx	0	;
+	entry	hreset	0	;
+	entry	gtlin		;
+
+	entry	soft	0	;soft error
+
+	entry	wait	pre=c	;0
+	entry	spnd		;1
+	entry	rsum		;2
+$purge:	entry	purge		;3
+	entry	serr		;4
+	entry	herr		;5
+	entry	close		;6
+	entry	tlock		;7
+	entry	chain		;10
+	entry	mwait		;11
+	entry	date		;12
+	entry	abtio		;13
+
+	entry	delete	3	;0
+	entry	lookup	3	;1
+	entry	enter	4	;2
+	entry	trpset	2	;3
+	entry	rename	2	;4
+	entry	savest	2	;5
+	entry	reopen	2	;6
+	entry	close	1	;7
+
+	entry	read	5	;10
+	entry	writ	5	;11
+	entry	wait	0 pre=c	;12
+	entry	chcopy	3	;13
+	entry	device	2	;14 (simple,list)
+	entry	cdfn	3	;15
+	entry	e16lst	0	;16
+	entry	soft	0	;17
+
+	entry	gtjb	3	;20
+	entry	gtim	2	;21
+	entry	mrkt	4	;22
+	entry	cmkt	3	;23
+	entry	twait	2	;24
+	entry	sdat	5	;25
+	entry	rcvd	5	;26
+	entry	cstat	2	;27
+
+	entry	sfpa	2	;30
+	entry	protec	2	;31 (protect, unprotect)
+	entry	spfun	6	;32
+	entry	cntxsw	2	;33
+getpu$:	entry	getput	3	;34 (gval,peek,pval,poke)
+	entry	scca	2	;35
+plas$:	entry	plas	2	;36 (crrg,elrg,craw,elaw,map,unmap,gmcx,elxm)
+mtty$:	entry	mtty	3	;37 (set,get,in,out,rcto,atch,dtch,prnt,stat)
+
+	entry	sdttm	2	;40
+	entry	spcps	2	;41
+	entry	sfdat	3	;42
+	entry	fprot	3	;43
+	entry	sfinf	3	;44
+	entry	closz	2	;45
+t$rtsx:	entry	<tsx  >	5	;??	always last 375
+
+	entry	hard	0	;emt 376
+t$rrsx:	entry	<rsx  >	0	;emt 377
+
+
+;	emt 373	- share/plus
+
+	entry	<io  >	6	;0	$io
+	entry	<acp >	6	;1	$acp
+	entry	<sys >	6	;2	$sys
+	entry	cmkrnl	6	;3	$cmkrnl
+	entry	imgact	6	;4	$imgact
+	entry	attach	6	;5	$attach
+	entry	crelog	6	;6	$crelog
+	entry	dellog	6	;7	$dellog
+	entry	trnlog	6	;10	$trnlog
+	entry	tildb	6	;11	$td...
+
+kmon$:	ignore	kmon	0	;	kmon
+
+getput:	.word	0		;	0 => subtable
+	.word	3		;	highest subcode
+	entry	gval		;0
+	entry	peek		;1
+	entry	pval		;2
+	entry	poke		;3
+
+plas:	.word	0
+	.word	9.		;	10 entries
+	entry	crrg		;0
+	entry	elrg		;1
+	entry	craw		;2
+	entry	elaw		;3
+	entry	<map >		;4
+	entry	unmap		;5
+	entry	gmcx		;6
+	entry	elxm		;7
+	entry	crovl		;8
+	entry	xmsto		;9
+
+mtty:	.word	0
+	.word	8.		;	highest subcode
+	entry	mtset		;0
+	entry	mtget		;1
+	entry	mtin		;2
+	entry	mtout		;3
+	entry	mtrcto		;4
+	entry	mtatch		;5
+	entry	mtdtch		;6
+	entry	mtprnt		;7
+	entry	mtstat		;8
+
+tildb:	.word	0		;	table
+	.word	7		;	highest subcode
+	entry	badcod		;0
+	entry	tdins		;1	
+	entry	tdrem		;2
+	entry	tdreq		;3
+	entry	tdatt		;4
+	entry	tddet		;5
+	entry	tdcal		;6
+
+badcod:	entry	bademt		;	invalid emt subcode
+.sbttl	parameter support
+
+$octat:	call	tab		;<tab>	
+$octal:	call	$usual		;par=
+	br	retspc		;return with a space
+$ascit:	call	tab		;a tab first
+$ascii:	call	$usual		;
+	tst	r1		;got an address?
+	beq	retspc		;no
+	type	<=>		;
+	call	ascii
+	br	retspc		;and quit
+
+$devnam:call	devcom		;par=octal=dev:
+	br	retspc
+devcom:	call	$usual		;par		
+	type	<=>		;=
+	bic	#1,r1		;get the filename
+	beq	10$		;oops - no device name
+	call	unpr1		;
+	type	<:>		;:
+	tst	(pc)+		;we got a device name
+10$:	sec			;no device name
+	return
+
+$filnam:call	devcom
+	bcs	retspc		;no filespec there
+	psh	r1		;save it
+	call	getwor		;get the first
+	pop	r1		;restore it
+	bcc	10$		;fine
+	call	adrerr		;address error
+	br	retspc		;and skip it
+10$:	tst	r0		;does it have a name?
+	beq	retspc		;no
+	call	unpr1		;fil
+	call	unpr1		;nam
+	type	<.>		;dot
+	call	unpr1		;typ
+	psh	r1		;save this
+	call	getwor		;get another
+	pop	r1		;restore it
+	cmp	r0,#^rsom	;got an EVE message?
+	bne	retspc		;no
+	type	< (eve)>	;yes
+retspc:	type	< >		;space
+	rts	r3
+
+$usual:	psh	(r3)+		;save the offset
+	call	unpack		;first 3 characters
+	asr	(sp)		;low bit set?
+	bcc	10$		;no
+	call	unpack		;yes - more than 3 characters
+10$:	type	<=>		;=
+	pop	r1		;get the address of the value
+	asl	r1		;adjust for asr above & even up
+	add	r5,r1		;add in the rp base
+	mov	(r1),r1		;r1 = value
+	br	octal		;display it and return
+
+$type:				;display string off r1
+10$:	movb	(r1)+,r0	;get the next
+	bmi	20$		;done
+	ttyout			;display it
+	br	10$		;
+20$:	inc	r1		;skip one
+	bic	#1,r1		;even up
+	rts	r1
+
+unpr1:	call	getwor		;get a word from (r1)+
+	bcs	adrerr		;oops - address error
+	psh	r1		;save r1
+	mov	r0,r1		;get the word
+	br	unpcom
+unpack:	psh	r1		;save r1
+	mov	(r3)+,r1	;
+unpcom:	mov	#err5l.,r0	;rad50
+	call	er$dis		;display it
+	pop	r1		;get this back
+	return
+
+dmpwor:	call	getwor		;get a word
+	bcs	adrerr		;oops
+octal:	mov	#eroct.,r0	;display an octal number
+	jmp	er$dis		;display it
+newline:mov	#ernew.,r0	;display a newline
+	jmp	er$dis		;
+tab:	type	<	>
+	return
+
+; Returns next word from (r1)+ in r0
+; r1 unchanged if error
+
+getwor:	psh	r1		;save it for errors
+	bit	#1,r1		;odd?
+	bne	10$		;yes, error
+	call	mm$grb		;get the value
+	bcs	10$		;oops
+	add	#2,(sp)		;pop past it
+10$:	pop	r1		;
+	return
+
+adrerr:	type	<(bus)=>	;
+	call	octal		;
+	return
+.sbttl	hard, soft, invalid
+
+;					373
+;	ours		old		375		374
+;	rp.chn(r5)	subcode+chan	(r0)		r0
+; addr	rp.p0(r5)	r0		2(r0)		-
+;	rp.p1(r5)	(sp)		4(r0)		-
+;	rp.p2(r5)	2(sp)		6(r0)		-
+;	rp.p3(r5)	4(sp)		10(r0)		-
+;	rp.p4(r5)	6(sp)		12(r0)		-
+;	rp.p5(r5)			14(r0)
+
+hard:	mov	rp.p0(r5),r1	;get it
+	tstb	r1		;low byte set?
+	bne	harsof		;yes
+	swab	r1		;no - get the high byte
+	br	harsof		;
+
+soft:	movb	rp.p0(r5),r1	;
+	cmpb	r1,#12		;is this 372?
+	bne	harsof		;no
+	mov	rp.r0(r5),r1	;yes - error is in r0
+harsof:	call	shoerr		;
+10$:	mov	rp.orp(r5),r1	;get the previous rp
+	beq	20$		;oops
+	mov	rp.pc(r1),r1	;get the pc
+	type	< pc=>		;show pc
+	call	octal		;
+	mov	rp.orp(r5),r1	;get old r0
+	mov	rp.r0(r1),r1	;
+	type	< r0=>		;return r0
+	call	octal		;
+20$:	return
+
+shoerr:	psh	r1		;save it
+	type	<	code=>
+	bic	#^c377,r1	;clean it up
+	call	octal		;
+	pop	r1		;
+	bpl	10$		;nope
+	neg	r1		;yes
+	type	<=->		;=-n
+	call	octal		;
+10$:	return
+
+bademt:	type	<	emt=>	;invalid emt
+	mov	rp.pc(r5),r1	;get the pc
+	sub	#2,r1		;back up
+	call	dmpwor		;display it
+	octal	<r0>,rp.r0	;r0
+	type	< (r0)=>	;(r0)
+	mov	rp.r0(r5),r1	;
+	jmp	dmpwor		;dump it
+.sbttl	directory
+
+fprot:	call	dircom		;chan, dblk
+	octal	<prot>,rp.p1	;prot
+	return
+
+;	opr: 0=get, 1=bic, 2=bis, 3=mov
+
+sfinf:	call	dircom
+	octal	<value>,rp.p1
+	psh	rp.p2(r5)
+	bic	#^c377,rp.p2(r5)
+	octal	<opr>,rp.p2
+	type	<=>
+	movb	(sp),r0
+	cmp	r0,#4
+	blo	10$
+	mov	#4,r0
+10$:	asl	r0
+	mova	20$,r3
+	add	r0,r3
+	call	unpack
+	type	< >
+	psh	(sp)
+	clrb	(sp)
+	swab	(sp)
+	pop	rp.p2(r5)
+	octal	<off>,rp.p2
+	pop	rp.p2(r5)
+	return
+
+20$:	.rad50	/getbicbismovbad/
+
+sfdat:	call	dircom		;chan, dblk
+	octal	<date>,rp.p1	;date
+	return
+
+lookup:
+delete:	call	dircom		;chan, file
+	octal	<seq>,rp.p1	;sequence number
+	br	collect
+acp:
+enter:	call	dircom		;chan, dblk
+	octal	<len>,rp.p1	;len
+	octal	<seq>,rp.p2	;sequence
+	br	collect
+rename:	call	p.chan		;chan
+	filnam	<from>,rp.p0	;from
+	add	#fn.bbs,rp.p0(r5);
+	filnam	<to>,rp.p0	;to
+	sub	#fn.bbs,rp.p0(r5);back up
+collect:bit	#1,rp.p0(r5)	;usr collect?
+	beq	10$		;nope
+	octal	<extra>,rp.p3
+10$:	return
+
+dircom:	call	p.chan		;chan
+	filnam	<dblk>,rp.p0	;dblk
+	return
+
+dstat:	call	p.dnam		;dev
+	octal	<retspc>,rp.p1	;retspc
+	return
+
+fetch:	octab	<addr>,rp.p1	;addr
+	br	p.dnm2
+releas:
+p.dnam:	call	tab		;
+p.dnm2:	devnam	<dnam>,rp.p0	;dnam
+	return
+.sbttl	csi, ascii
+
+csispc:	octab	<outspc>,rp.p3	;outspc
+	br	csicom
+
+gtlin:	octab	<linbuf>,rp.p4	;linbuf
+	cmp	rp.p3(r5),#3	;forced from terminal?
+	bne	10$		;no
+	type	<type=term >	;yes
+10$:	octal	<prompt>,rp.p2	;prompt
+	mov	rp.p2(r5),r1	;get the prompt (if any)
+	br	csigln		;do the common stuff
+
+csigen:	octab	<devspc>,rp.p3	;devspc
+csicom:	octal	<defext>,rp.p2	;1=gtlin for csispc=345
+	octal	<cstrng>,rp.p1	;cstrng
+	bit	#1,rp.p3(r5)	;linbuf?
+	beq	1$		;nope
+	octal	<linbuf>,rp.p4	;linbuf
+1$:	mov	rp.p1(r5),r1	;get the string
+csigln:	beq	10$		;oops, no string
+	psh	r1		;save r1
+	mov	#16.,r2		;space remaining on line
+2$:	call	mm$grb		;get the next
+	bcs	8$		;address error
+	tstb	r0		;find the end of it
+	ble	3$		;end of it - room on this line
+	dec	r2		;any more room?
+	bpl	2$		;yes
+	call	newline		;print a line
+	call	tab		;
+3$:	pop	r1		;get back the pointer
+	psh	#70.		;count a line
+	br	5$		;
+
+ascii=.
+	psh	#16.		;maximum asciz string
+5$:	call	mm$grb		;get the next
+	bcs	8$		;address error
+	tstb	r0		;
+	ble	9$		;thats all
+	cmpb	r0,#cr		;this a return?
+	bne	6$		;nope
+	type	<[cr]>
+	br	5$		;
+6$:	cmpb	r0,#lf
+	bne	7$
+	type	<[lf]>
+	br	5$		;
+7$:	cmpb	r0,#space	;this a control character?
+	bhis	71$		;yes
+	type	<^>		;no
+	add	#'@,r0		;make a control character
+71$:	ttyout			;type it
+	dec	(sp)		;too many?
+	bne	5$		;no - keep going
+	tst	(sp)+		;yes
+	type	<~>		;
+	br	10$		;
+8$:	call	adrerr		;oops
+9$:	tst	(sp)+		;
+10$:	return
+.sbttl	i/o
+
+sdat:
+rcvd:	movb	#'w,r0		;assume wait
+	cmp	rp.p3(r5),#1	;what is it?
+	beq	10$		;.read
+	blo	5$		;.readw
+	movb	#'c,r0		;.readc
+5$:	ttyout			;put it out
+10$:	call	p.chan		;chan
+	octal	<buf>,rp.p1	;buf
+	octal	<wcnt>,rp.p2	;wcnt
+	octal	<crtn>,rp.p3	;crtn
+	return
+
+writ:	cmp	rp.p3(r5),#1	;this a writ(e)?
+	bne	read		;nope
+	type	<e>		;yes
+read:	call	rcvd		;chan, buf, wcnt, crtn
+	octal	<blk>,rp.p0	;blk
+	return
+
+io:
+spfun:	call	p.chan		;chan
+	type	<func=(>	;
+	movb	rp.p3(r5),r1	;
+	call	p.byte		;display it
+	type	<,>		;
+	movb	rp.p3+1(r5),r1	;
+	call	p.byte		;display function alone
+	type	<) >		;
+	octal	<buf>,rp.p1	;buf
+	octal	<wcnt>,rp.p2	;wcnt
+	octal	<blk>,rp.p0	;blk
+	octal	<crtn>,rp.p4	;ctrn
+	return
+
+closz:	call	close
+	octal	<size>,rp.p0
+	return
+abtio:
+close:
+purge:
+cwait:
+p.chan:	type	<	>	;
+p.chn:	type	<chan=>		;chan
+p.sys:	movb	rp.chn(r5),r1	;get the channel
+p.byts:	call	p.byte		;
+	type	< >		;space & return
+	return
+p.byte:	bic	#^c377,r1	;display a byte
+	call	octal		;display it
+	return
+.sbttl	RUST/XM
+
+sys:	type	<	tsk=>	;tsk
+	call	p.sys		;use channel code
+	br	p.par		;and the parameters
+
+tsx:	type	<	code=>	;subcode
+	movb	rp.cod(r5),r1	;get the code
+	call	p.byts		;byte and space
+	call	p.chn		;display the channel
+	br	p.par		;and the remainder
+cmkrnl:	call	tab		;
+	octal	<rtn>,rp.p5	;rtn
+p.par:	octal	<p0>,rp.p0	;p0
+	octal	<p1>,rp.p1	;p1
+	octal	<p2>,rp.p2	;p2
+	octal	<p3>,rp.p3	;p3
+	octal	<p4>,rp.p4	;p4
+	octal	<p5>,rp.p5	;p5
+	return
+
+attach:	call	tab		;attach
+	octal	<prc>,rp.p0	;prc
+;	octal	<ter>,rp.p2
+	return
+
+imgact:	call	dircom		;chan, dblk
+	octal	<ctl>,rp.p1	;ctl
+	octal	<sta>,rp.p2	;sta
+	octal	<par>,rp.p3	;par
+	return
+
+crelog:
+dellog:	octab	<tbl>,rp.p0	;table number
+	ascii	<log>,rp.p1	;logical
+	cmpb	rp.cod(r5),#6	;this create?
+	bne	10$		;no
+;;	octal	<equ>,rp.p2	;yes
+	ascii	<equ>,rp.p2	;yes
+10$:	octal	<acm>,rp.p3	;access mode
+	return
+
+trnlog:	ascit	<log>,rp.p0	;log
+	octal	<rsl>,rp.p1	;rsl
+	octal	<buf>,rp.p2	;buf
+	octal	<tba>,rp.p3	;tba
+	octal	<aca>,rp.p4	;aca
+	octal	<msk>,rp.p5	;msk
+	return
+
+;	TILdb
+
+tdins:	call	tab		;
+	octal	<srv>,rp.p0	;server
+	octal	<wrk>,rp.p1	;work
+	return
+tdatt:	call	tab		;
+	octal	<srv>,rp.p0	;server
+	octal	<sda>,rp.p1	;sid address
+	return
+tdrem:
+tdreq:
+tddet:
+tdbsid:	call	tab		;
+	octal	<sid>,rp.p0	;sid address
+	return
+tdcal:	call	tdbsid		;sid
+	octal	<cmd>,rp.p1	;command
+	octal	<nod>,rp.p2	;node
+	octal	<val>,rp.p3	;value
+	octal	<res>,rp.p4	;result
+	return
+.sbttl	mixed
+
+cdfn:	call	p.addr		;addr
+	octal	<num>,rp.p1	;num
+	return
+
+chain:	call	tab		;chain
+	mov	#500,rp.p0(r5)	;fudge the address			???
+	filnam	<file>,rp.p0	;file
+	br	exit		;and report the exit
+
+cmkt:	octab	<id>,rp.p0	;id
+	octal	<time>,rp.p1	;time
+	return
+
+chcopy:	call	p.chan		;chan
+	octal	<ochan>,rp.p0	;ochan
+	br	jbcom
+
+gtjb:	call	p.addr		;addr
+jbcom:	tstb	rp.cod(r5)	;V4 style?
+	beq	10$		;nope
+	octal	<jobblk>,rp.p1	;-1=ME, -3=none, else address
+10$:	return
+
+device:	call	p.addr		;addr
+	tstb	rp.cod(r5)	;this linked?
+	beq	10$		;no
+	type	<link>		;yes
+10$:	return
+
+exit:	octab	<R0>,rp.r0	;exit - check jsw bits			;???
+	return			;
+
+gval:
+p.ofst:	octab	<offset>,rp.p0	;offset
+;	call	rmon
+	return
+
+pval:	call	p.ofst		;offset
+	br	value		;value
+
+poke:	call	p.addr		;addr
+value:	octal	<value>,rp.p1	;value
+	return
+
+; ??? MTT requests modify parameters
+
+.enabl	lsb
+mtatch:
+mtget:
+mtprnt:
+mtset:	call	p.addr		;addr
+	br	mtcom
+mtrcto:
+mtdtch:	call	tab
+mtcom:	psh	rp.p1(r5)
+	bic	#^c377,rp.p1(r5)
+	octal	<unit>,rp.p1	;unit
+	br	10$		;
+mtin:
+mtout:	call	mtset		;
+	psh	rp.p1(r5)	;
+	swab	rp.p1(r5)
+	bic	#^c377,rp.p1(r5);
+	octal	<count>,rp.p1
+10$:	pop	rp.p1(r5)
+	return
+.dsabl	lsb
+
+mrkt:	call	twait		;time
+	octal	<crtn>,rp.p1	;ctrn
+	octal	<id>,rp.p2	;id
+	return
+
+twait:	octab	<time>,rp.p0	;time
+	return
+
+protec:	call	p.addr		;addr
+	tstb	rp.cod(r5)
+	beq	10$
+	type	<unprotect>	;unprotect
+10$:	return
+
+qset:	octab	<addr>,rp.p1	;addr
+	octal	<len>,rp.p0	;len
+	return
+
+savestatus:
+reopen:	call	p.chan		;chan
+	octal	<cblk>,rp.p0	;cblk
+	return
+
+scca:	call	p.addr		;
+	tstb	(r5)		;this global?
+	beq	10$		;no
+	type	<global>	;yes
+10$:	return
+
+cstat:	call	p.chan		;put channel number
+	octal	<addr>,rp.p0	;and address
+	return
+.sbttl	simple things
+
+print:
+xmsto:
+crovl:
+mtt:
+cntxsw:
+;cstat:
+gtim:
+sdttm:
+settop:
+sfpa:
+spcps:
+trpset:
+craw:
+crrg:
+elaw:
+elrg:
+map:
+gmcx:
+elxm:
+unmap:
+peek:
+mtstat:
+p.addr:	octab	<addr>,rp.p0	;addr
+
+ttyin:
+ttyout:
+e16lis:
+emt377:
+lock:
+unlock:
+sreset:
+rctrlo:
+astx:
+hreset:
+spnd:
+rsum:
+herr:
+serr:
+tlock:
+mwait:
+date:
+kmon:
+e16lst:
+rsx:	return
+$fetop
+.end
+

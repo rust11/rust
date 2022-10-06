@@ -1,0 +1,37 @@
+.title	batchf
+.include "lib:share.mac"
+
+;	BATCH feature
+;
+;	%build
+;	macro	rfs:batchf/object:rfb:batchf
+;	link	rfb:batchf/exe:rfb:batch.fea
+;	%end
+$imggen	BATCH 1 0 fea aut=ijh yea=1987 use=<Install BATCH process>
+;	%date
+$imgdat	<15-Jun-1987 22:56:01.28>
+;	%edit
+$imgedt	<11   >
+
+start:	.csigen	#room, #types, #0
+	cmp	(sp)+,#1		;exactly one switch
+	bne	10$			;yes
+	cmpb	(sp),#'I		;this an install?
+	beq	20$			;yes
+	cmpb	(sp),#'R		;this a remove?
+	beq	30$			;yes
+10$:	.print	#invcom			;no
+	$exit	sev=#error$		;an error
+
+20$:	$exit	sev=#succ$, cmd=#insfea	;install it
+30$:	$exit	sev=#succ$, cmd=#remfea	;remove it
+
+invcom:	.asciz	"?BATCH-E-Invalid installation command"
+insfea:	.asciz	"create/process batch/prio=1/top=3/image=sy:batch/nolog"
+remfea:	.asciz	"delete/process batch"
+	.even
+types:	.rad50	/            /		;csi file types
+room:					;csi handler space
+
+.end	start
+

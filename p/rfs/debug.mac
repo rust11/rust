@@ -1,0 +1,1179 @@
+;???;	RFS:DEBUG - Build script incomplete
+V4=1
+.title	debug
+.include "lib:share.mac"
+$dbdef		;debug
+$eddef		;edit
+$emdef		;emts
+$fedef		;feature
+$jbdef		;job
+$kcdef		;kernel control
+$mmdef		;memory management
+$opdef		;output
+$podef		;pool
+$prdef		;pcr
+$psdef		;ps
+$rpdef		;rp
+$sedef		;set
+$srdef		;system rights
+$stdef		;state
+$tedef		;terminal
+$txdef		;text
+$vedef		;vector
+
+.psect	featur
+.psect	featux
+$fetop
+.csect
+
+map	fever.,,2
+map	feupd.,,2
+
+.iif ndf dbrev.,dbrev.=0
+.if eq dbrev.
+$imgdef	DEBUG 2 2
+$imginf	fun=fea cre=hammo aut=ijh use=<SHAREplus debugger>
+$imgham	yrs=<1985,1986> oth=<>
+;	%date
+$imgdat	<01-Mar-2008 15:48:24.20>
+.iff
+$imgdef	DEBUGS 2 2
+$imginf	fun=fea cre=hammo aut=ijh use=<SHAREplus symbolic debugger>
+$imgham	yrs=<1985,1986> oth=<>
+;	%date
+$imgdat	<01-Mar-2008 15:48:24.20>
+.endc
+;	%edit
+;	<27   >
+
+;	%build
+;	goto 'p1'
+;	macro	rfs:debug/object:rfb:
+;	link:
+;	r link
+;	rfb:debug.fea,rfb:debug=rfb:debug,lib:rustx,lib:shplib/Q
+;	featur:20000
+;	
+;	^C
+;	build rfs:debugs
+;	goto end
+;	if "'p1'" goto end
+;	set error none
+;	!remove/feature debug
+;	!copy rfb:debug.fea sy:debug.fea
+;	!install/feature debug
+;	!set error error
+;	end:
+;	%end
+
+meta	<type c><jsr r1,db$typ><.ascii /c/<200>><.even>
+meta	<print c><jsr r1,db$typ><.ascii /c/<0>><.even>
+.sbttl	debug installation
+
+;	Install the debugger
+;
+;	Install the kernel record and point to it.
+;
+;	r3 ->	feature record
+;
+;	s$ybug
+;
+;	The kernel record contains the transfer vectors required by
+;	the debugger and data required by those routines.
+
+fe$ins::$cmkrnl	#f$eare, #100$ pic=yes	;
+	return				;c=1 => failure
+
+100$:	clr	rp.r0(r5)		;setup
+	$cmsch				;stop the scheduler
+	mov	@#s$ybug,r4		;already got a record?
+	bne	130$			;yes
+	$obtain	#s$yque			;lock the system process
+	$crepo	#podbg.,#dbkbs.		;setup the kernel record
+	mov	r0,rp.r0(r5)		;return the pointer
+	$divest	#s$yque			;free it
+	mov	rp.r0(r5),r4		;get the pointer
+	beq	130$			;we failed
+	mova	db$idb,r0		;get ours
+	mov	r4,r1			;point to the area
+	mov	#dbkbs./2,r2		;
+120$:	mov	(r0)+,(r1)+		;move it in
+	sob	r2,120$			;count it
+	mov	r4,@#s$ybug		;set it up
+130$:	$cmpro				;restore this
+	tst	rp.r0(r5)		;got it?
+	bne	140$			;yes
+	.soft	0			;no
+140$:	return
+.sbttl	remove feature
+
+;	Remove feature
+;
+;	Make sure there are no references
+
+fe$rem::$cmkrnl	#f$eare, #100$ pic=yes 	;remove debugger record
+	return
+
+100$:	$cmsch				;stop the scheduler
+;	tst	f$eref			;got any references?
+;	bne	120$			;yes
+	mov	@#s$ybug,r4		;already got a record?
+	beq	110$			;yes
+	clr	@#s$ybug		;turn us off
+	$obtain	#s$yque			;lock the system process
+	$delpo	r4			;delete the kernel record
+	$divest	#s$yque			;free it
+110$:	$cmpro				;fine
+	return
+120$:	$cmpro				;not fine
+	.soft	0			;report error
+.sbttl	kernel dispatcher
+
+;	Kernel dispatcher
+; 
+;	Intercept kernel traps and kernel transfers.
+;	Copied to the kernel during installation.
+; 
+;	stack	kve rea vec r4 r5 pc ps
+;	stack	idb op1 kve rea vec r4 r5 pc ps
+ 
+	map	db.kdb	word,0	;debugger
+	map	db.kpa		;probe address
+	map	db.kda		;deposit address
+
+	stack	kve rea vec r4 r5 pc ps
+db$idb:				;kernel debug idb
+.if ne V4
+;	Temporary code to bypass debugger if trap and Unix loaded
+
+	br	db$kdx		;kernel debug entry point
+	br	db$kpa		;probe address
+	br	db$kda		;deposit address
+
+db$kdx:	cmp	sp.rea(sp),#vetrp. ;was this a trap?
+	bne	db$kdb		;nope
+	mov	@#p$hmvb,r4	;got a bypass?
+	beq	db$kdb		;nope
+	jmp	(r4)		;yep
+.iff
+	br	db$kdb		;kernel debug entry point
+	br	db$kpa		;probe address
+	br	db$kda		;deposit address
+.endc
+
+;	Debugger dispatch
+
+db$ktt:	mov	(pc)+,r4	;r4 <> 0 => terminal signal
+db$kdb:	clr	r4		;r4 == 0 => trap
+	psh	@#m$kip1	;save this
+	stack	op1 kve rea vec r4 r5 pc ps
+	bit	#vefat$,sp.rea(sp) ;this fatal?
+	bne	10$		;yes - use system debug
+	bit	#setdb$,@#p$hset;no - is debug enabled?
+	beq	db$kfa		;no - use usual dispatch
+10$:	mov	@#f$emap+<fedeb.*2>,@#m$kip1;map us
+	beq	db$kfa		;oops - we are not loaded
+	call	@#m$mpa1	;call the feature
+	bcs	db$kfa		;transfer vector
+	pop	@#m$kip1	;ignore trap
+	stack	kve rea vec r4 r5 pc ps
+	add	#sp.r4,sp	;kve, rea, vec
+	pops	<r4,r5>		;restore these
+	rtt			;and go away
+
+;	Probe address
+
+db$kpa:				;probe address
+	psh	@#m$kip1	;save this
+	mov	db.op1(r5),@#m$kip1 ;setup the original
+	mfpi	(r0)		;get the datum
+	bvs	db$kfa		;oops - does not exist
+	pop	r1		;return it in r1
+	br	db$ksu		;success
+
+;	Deposit address
+
+db$kda:				;deposit address
+	psh	@#m$kip1	;save this
+	mov	db.op1(r5),@#m$kip1 ;setup the original
+	psh	r1		;get the value
+	mtpi	(r0)		;get the datum
+	bvs	db$kfa		;oops - does not exist
+db$ksu:	tst	(pc)+		;fine
+db$kfa:	sec			;kernel fail
+db$kex:	pop	@#m$kip1	;restore it
+	return
+	map	dbkbs.,,<.-db$idb>
+.sbttl	server
+
+;	Define the server
+;
+;	All kernel code must follow the server
+;
+;	The debug feature has a fixed slot in the feature table
+
+.if eq dbrev.
+$febot	nam=debug fid=fedeb. ver=fever. upd=feupd. pur=<System debugger>
+.iff
+$febot	nam=debugs fid=fedeb. ver=fever. upd=feupd. pur=<Symbolic debugger>
+.endc
+
+;	Feature exit routine
+;
+;	Called when an image exits or aborts
+;	Called during process deletion
+;	Dereference the process if it was attached
+
+fe$exi::return			;feature exit
+.sbttl	exits
+
+;	Proceed, Transfer, Goto, Step, Exit
+;
+;	r4=0	Ignore trap
+;	=1	Continue with trap
+
+	.enabl	lsb		;
+db$ste:	call	db$con		;check it
+	bis	#tbit,db.ps(r5)	;set the trace trap
+	bis	#dbctp$,p$hdbc	;setup trace pending
+	tstb	(r4)		;anymore coming?
+	bne	30$		;yes
+	br	db$pro		;no - proceed
+db$gto:	call	db$con		;check it
+	mov	db.adr(r5),db.pc(r5) ;jump
+	br	db$pro		;
+db$trn:	call	db$con		;check it
+	mov	#1,r4		;transfer trap
+	br	10$		;
+db$exi:	call	db$con		;check it
+	mov	#mmpum$,@#ps	;
+	movtd	#<bic!0!0>,@#0	;location zero
+	movtd	#emt!emasx.,@#2	;location two
+	movtd	#0,jsw		;stop chains
+	clr	db.pc(r5)	;exit
+	fall	db$pro		;
+				;
+db$pro:	clr	r4		;proceed
+10$:	mov	r5,sp		;point to the stack
+	add	#db.r0,sp	;point to them
+	pops	<r0,r1,r2,r3>	;restore these
+	pop	db.kr4(r5)	;
+	pop	db.kr5(r5)	;
+	tst	(sp)+		;stack may not change
+	pop	db.kpc(r5)	;pc
+	movb	(sp)+,db.kps(r5);status only
+	bis	#edint$!edrpt$,@#p$hedc ;setup the interrupt
+	mov	@#p$hpcr,r5	;get the process
+	bic	#tecth$,pr.sig(r5) ;stop reentrant [ctrl/h]
+	bic	#stdis$,pr.ast(r5) ;enable asts again
+	bne	20$		;nothing pending
+	bic	#stdor$,@#s$csta;setup the scheduler
+	$float			;force reschedule
+	$land			;
+20$:	$fedsm			;dismount us
+	asr	r4		;c=1 => transfer
+30$:	return			;
+	.dsabl	lsb		;
+
+;	Check continue access rights
+
+db$con:	tstb	(r5)		;inspect only?
+	bmi	10$		;yes - access error
+	return			;no
+10$:	jmp	db$acc		;access error	
+.sbttl	entry point
+
+;	Build the frame, setup, display header
+
+stack	idb op1 kve rea vec r4 r5 pc ps
+$febeg				;feature begins here
+db$dis:	mov	@#p$hpcr,r4	;get the process
+	bis	#stdis$,pr.ast(r4) ;disable all asts
+	$femnt			;mount us
+	mov	sp,r5		;get the stack
+	add	#sp.ps,r5	;point to this
+	cmpb	sp.rea(sp),#vebpt. ;this a breakpoint?
+	beq	4$		;yes
+
+	cmpb	sp.rea(sp),#veunv. ;this an unvectored interrrupt?
+	bne	2$		;nope
+	bit	#kckmm$,@#s$ykc0 ;maintenance mode?
+	beq	db$ign		;nope - ignore strays
+
+2$:	bit	#vefat$,sp.rea(sp) ;is this fatal?
+	bne	5$		;yes - do not lower priority
+	bit	#kckmm$,@#s$ykc0 ;kernel mode debugging?
+	bne	5$		;yes - do not lower priority
+4$:	bic	#vefat$,sp.rea(sp) ;bpt is not fatal
+	psh	(r5)		;get callers priority
+	bic	#tbit,(sp)	;clean it up
+	movb	(sp)+,@#ps	;reset the ps
+5$:	psh	(r5)		;db.ps
+	psh	-(r5)		;db.pc
+	clr	-(sp)		;db.sp - done later
+	psh	-(r5)		;db.r5
+	psh	-(r5)		;db.r4
+	pshs	<r3,r2,r1,r0>	;db.r3 - db.r0
+	psh	#p$hasl		;db.lin - ast line input
+.if ne dbrev.
+	clr	-(sp)		;db.dst
+	clr	-(sp)		;db.ins
+	clr	-(sp)		;db.vpc
+	clr	-(sp)		;db.loc
+.endc
+	clr	-(sp)		;db.pre
+	clr	-(sp)		;db.adr
+	clr	-(sp)		;db.val
+	psh	#dbrev$		;db.sta
+	mov	sp,r5		;r5 -> frame
+
+	bit	#tbit,db.ps(r5)	;was this a trace trap?
+	beq	6$		;no
+	bit	#dbctp$,p$hdbc	;waiting for it?
+	beq	6$		;no
+	bis	#dbtbt$,(r5)	;remember it
+6$:	bic	#dbctp$,p$hdbc	;once only
+	bic	#tbit,db.ps(r5)	;
+
+;	Determine address mode
+
+	mov	db.pc(r5),db.adr(r5) ;get the initial address
+	bit	#srcmk$,@#p$hpr0+sr.cmk ;got kernel rights (avoid image rights)?
+	bne	10$		;yes
+	bis	#dbuse$,(r5)	;no - force usermode only access
+10$:	tst	db.ps(r5)	;was it user mode?
+	bmi	30$		;yes
+	tst	(r5)		;kernel mode permitted?
+	bpl	40$		;yes
+	bis	#dbins$,(r5)	;inspect registers only
+	mov	@#p$hcrp,r0	;do we have a request?
+15$:	beq	20$		;we have none
+	tst	rp.ps(r0)	;this from usermode?
+	bmi	16$		;yes
+	mov	rp.orp(r0),r0	;no - get the next down
+	br	15$		;check this one
+16$:	mov	rp.pc(r0),r0	;get the request pc
+20$:	mov	r0,db.adr(r5)	;setup the address
+30$:	call	db$use		;get the user stack
+	br	db$dbg		;start up
+40$:	call	db$ker		;kernel - get ksp
+;	fall	db$dbg		;
+	br	db$dbg		;
+
+;	Ignore the trap
+
+db$ign:	$fedsm			;dismount us
+	bic	#stdis$,pr.ast(r4) ;enable asts
+	sec			;
+	return			;
+.sbttl	entry display
+
+;	Display the initial line
+
+db$dbg:				;the debugger
+	bit	#dbtbt$,(r5)	;this a trace trap?
+	bne	50$		;yes
+	call	db$new		;get a free line
+	movb	#'k,r0		;assume kernel
+	tst	db.ps(r5)	;is it kernel?
+	bpl	10$		;yes
+	mov	#'u,r0		;no
+10$:	call	db$out		;display it
+	movb	#'k,r0		;previous mode
+	bit	#mmpum$,db.ps(r5) ;previous user mode?
+	beq	20$		;kernel
+	movb	#'u,r0		;user
+20$:	call	db$out		;
+	type	< >		;
+	mova	d$brea,r0	;get the list
+30$:	mov	(r0)+,r1	;get the next
+	beq	40$		;oops - unknown
+	mov	(r0)+,r2	;get the next word
+	cmpb	r2,db.rea(r5)	;this the reason?
+	bne	30$		;no
+	call	db$r50		;display it
+40$:	type	<	>	;a tab
+	mov	db.pc(r5),r1	;get the address
+	call	db$oct		;print it
+50$:	mov	db.adr(r5),r0	;get the address
+	call	db$prb		;and probe it
+	bit	#dbtbt$,(r5)	;this a trace trap?
+	bne	db$fir		;yes - skip newline
+	br	db$err		;and do the first
+
+	.macro	dbrea$ c d e f g h i j
+	.irp	$,<c d e f g h i j>
+	.rad50	"$"		;rad50 name
+	.word	ve'$'.!100000	;condition
+	.endr			;
+	.endm			;
+				;
+d$brea:	
+dbrea$	bus	cpu	bpt	iot	pow	emt	trp	adr
+dbrea$	mem	fpu	mmu	usp	ksp	unv	bug
+	.word	0		;
+;	Kernel breakpoints need kernel user
+;	b	set breakpoint
+;	o	set one-shot
+;	r	remove
+;	z	zap all breakpoints
+;	c	call - breakpoint on return
+.sbttl	command loop
+
+;	Get the next command and dispatch it
+;	Use ordinary terminal input for process mode.
+;
+;	r3 ->	kernel debugger record
+;	r4 ->	input command string
+;	r5 -> 	parameters
+
+db$err:	call	db$new		;get a newline
+db$fir:	mov	db.lin(r5),r4	;point to the line
+	clrb	(r4)		;terminate the command
+	fall	db$cmd		;
+db$cmd:	mov	r5,sp		;reset the stack
+	mova	db$cmd,-(sp)	;command loop
+5$:
+.if ne dbrev.
+	mov	db.adr(r5),db.vpc(r5) ;reset vpc
+.iftf
+	tstb	(r4)		;got anything left?
+	bne	10$		;yep - dont print
+	call	db$cur		;go display current
+.ift
+	call	db$mod		;this a register?
+	bcs	6$		;yes
+	call	rv$pdp		;no - reverse compile it
+.endc
+6$:	type	<	| >	;and our terminator
+	call	db$lin		;go get a line from somewhere
+				;we accept null commands here
+10$:	movb	(r4),r3		;get the next character
+	beq	db$nxt		;[null] is next command
+	call	db$epr		;check examine process register (sp,pc,ps,rs)
+	inc	r4		;skip it
+	mova	100$,r2		;get the list
+20$:	mov	(r2)+,r1	;get the next
+	beq	db$exm		;no more - default is examine
+	cmp	(r2)+,r3	;is this it?
+	bne	20$		;nope - check the next
+	add	r1,pc		;dispatch it
+	fall	100$		;must be adjacent
+100$:	meta	<com c,d><.word d-100$><.asciz "c">
+	com	<P>	db$pro	;/ P	proceed
+	com	<G>	db$gto	;  G	goto
+	com	<I>	db$ins	;  I	instruction
+	com	<=>	db$dep	;  =	deposit
+	com	<@>	db$ind	;  @	indirect
+	com	<+>	db$pls	;  +	increment
+	com	<->	db$min	;  -	decrement
+	com	<_>	db$rel	;  _	relative
+	com	<%>	db$bra	;  %	branch
+	com	</>	db$rep	;  /	repeat
+	com	<[>	db$bck	;  [	backup
+	com	<K>	db$kem	;  K	kernel mode
+	com	<U>	db$usm	;  U	user mode
+	com	<X>	db$exi	;  X	exit
+	com	<T>	db$trn	;  T	transfer
+	com	<S>	db$ste	;  S	step
+	com	<N>	db$num	;  N	numeric
+	com	<M>	db$mac	;  M	macro
+	com	<D>	db$dst	;  D	destination
+	com	<^>	db$rad	;  R	radix
+	meta	<con c,d><.word d-100$><.word c>
+	con	ctrlc	db$exi	;ctrlc exit
+	.word	0		;
+.sbttl	examine, registers
+
+;	Examine is a catch-all command
+;
+;	r0	address
+
+db$exm:	cmpb	-(r4),#'R	;this a register specification?
+	bne	db$exv		;no - examine value
+	call	db$ndg		;try for a digit
+	bcs	db$reg		;register command
+	br	db$exr		;examine register
+
+;	Examine processor register
+
+db$epr:	movb	1(r4),r0	;get the second
+	swab	r0		;
+	clrb	r0		;
+	bisb	(r4),r0		;
+	mov	#6.,r1		;assume sp
+	cmp	r0,#"SP		;this the stack?
+	beq	10$		;yes
+	inc	r1		;assume pc
+	cmp	r0,#"PC		;got it
+	beq	10$		;yes
+	inc	r1		;no - try PS
+	cmp	r0,#"PS		;PS?
+	beq	10$		;yes
+	cmp	r0,#"RS		;or RS?
+	bne	db$rep		;forget it
+10$:	cmpb	(sp)+,(r4)+	;skip return and first character
+	fall	db$exr		;and skip second too
+db$exr:	inc	r4		;skip the digit
+	mov	r1,r0		;get the digit
+	asl	r0		;make it a word
+	add	r5,r0		;add in the base
+	add	#db.r0,r0	;point to the registers
+	mov	db.adr(r5),db.pre(r5) ;let it backup
+	br	db$prb		;and go check it out
+				;
+db$exv:	call	db$val		;get the octal number
+	br	db$prb		;check new address
+
+;	Register command
+
+db$reg:	psh	db.adr(r5)	;save this guy
+	mov	r5,r0		;
+	add	#db.r0,r0	;point to it
+	call	db$prb		;check it
+	psh	#9.		;count them
+10$:	call	db$loc		;dump one
+	dec	(sp)		;count them
+	bne	10$		;more
+	tst	(sp)+		;
+	pop	db.adr(r5)	;restore the old address
+db$rep:	return			;nop
+.sbttl	address modes
+
+; +	Increment command
+
+db$nxt::
+.if ne dbrev.
+	bit	#dbrev$,(r5)	;in reverse mode
+	beq	10$		;no
+	mov	db.vpc(r5),r0	;point to it
+	add	#2,r0		;point past it
+	br	db$prb
+.endc
+10$:	mov	#2,r0		;do the next
+	br	db$off		;go add it on
+
+; @	Indirect command
+
+db$ind:	mov	db.adr(r5),db.pre(r5)	;save the address
+	mov	db.val(r5),r0	;get the current guy
+	br	db$prb		;and try it on
+
+; %	Branch command
+
+db$bra:	mov	db.adr,db.pre(r5) ;save the address
+	movb	db.val(r5),r0	;get the branch offset
+	asl	r0		;add it in
+	br	db$idx		;and the relative common
+
+; _	Relative command
+
+db$rel:	mov	db.adr(r5),db.pre(r5)	;save the address
+	mov	db.val(r5),r0	;and compute the offset
+db$idx:	add	#2,r0		;add pc in
+	br	db$off		;and add it on
+
+; -	Autodecrement command
+
+db$pre:	mov	#-2,r0		;get the offset
+	br	db$off		;add it in and check it out
+
+; -n	Negative offset
+
+db$min:	tstb	(r4)		;anything there?
+	beq	db$pre		;nope
+	call	db$val		;get the offset
+	neg	r0		;make it negative
+	br	db$off		;add it on and probe
+
+; +n	Positive offset
+
+db$pls:	mov	#2,r0		;assume default
+	tstb	(r4)		;anything there?
+	beq	db$off		;nope
+	call	db$val		;get an addend
+db$off:	add	db.adr(r5),r0	;add it on
+	br	db$prb		;and check it out
+
+; [	Backup command
+
+db$bck:	mov	db.pre(r5),r0	;get the last guy
+	br	db$prb
+
+db$dst:	.if ne dbrev.		;
+	mov	db.dst(r5),r0	;get the destination
+	.endc			;
+	br	db$prb		;probe it
+.sbttl	probe
+
+;	Probe an address
+;
+;	All addresses are probed using MFPI instructions.
+;	Registers are accessed from debug record.
+;	Must execute outside par1 so kernel par1 can be probed.
+;	PS reflects the current mode.
+;
+;	r0 ->	location
+;
+;	r0 ->	location
+;	r1 =	value
+;	db.adr	location
+;	db.val	value
+
+db$prb::call	db$mod		;get the type of address
+	bcc	10$		;ordinary address
+	clc			;turn of the error
+	mov	(r0),r1		;internal symbol
+	br	20$		;
+
+10$:	psh	@#s$ybug	;get the kernel record
+	add	#db.kpa,(sp)	;probe address
+	call	@(sp)+		;do it
+	bcs	db$bad		;oops - bad address
+20$:	mov	r0,db.adr(r5)	;save the new address
+.if ne dbrev.
+	mov	r0,db.vpc(r5)	;twice
+.endc
+	mov	r1,db.val(r5)	;the value
+	return
+.sbttl	deposit
+
+;	Deposit
+;
+;	Kernel		direct
+;	kernel sp	may not be reset
+;	user sp		wierd
+;	register	frame
+;	user location	mtpd
+
+	.enabl	lsb		;
+db$dep:	tstb	(r4)		;nothing coming?
+	beq	20$		;ignore it
+10$:	call	db$val		;get a number
+	mov	r0,r1		;save the value
+	mov	db.adr(r5),r0	;point to the address
+	call	db$mod		;get the type of address
+	bcc	30$		;ordinary address
+	tstb	(r5)		;inspect only?
+	bmi	db$acc		;yes
+	psh	r0		;check for sp
+	sub	r5,(sp)		;
+	cmp	(sp)+,#db.sp	;this the user stack?
+	bne	20$		;no
+	bit	#mmpum$,@#ps	;kernel or user?
+	beq	60$		;kernel - this fails
+	psh	r1		;user - set it directly
+	mtpi	sp		;
+20$:	mov	r1,(r0)		;store the value
+	br	40$		;
+
+30$:	psh	@#s$ybug	;get the kernel record
+	add	#db.kda,(sp)	;deposit address
+	call	@(sp)+		;do it
+	bcs	db$bad		;oops - bad address
+40$:	mov	r1,db.val(r5)	;the value
+50$:	cmpb	(r4),#'/	;no move?
+	bne	db$nxt		;nope
+	inc	r4		;yep - skip it
+	return
+
+60$:	call	db$hea		;
+	type	<Invalid deposit: Ksp>
+	br	70$		;
+				;
+db$acc:	call	db$hea		;the header
+	type	<Invalid access mode>
+70$:	jmp	db$err		;
+	.dsabl	lsb		;
+
+db$bad:
+.if ne dbrev.
+	bit	#dbrev$,(r5)	;reverse compile?
+	beq	10$		;nope
+	psh	r0		;get current address
+	sub	db.adr(r5),(sp)	;remove previous instruction
+	cmp	(sp)+,#4	;this a two or three word instruction?
+	bhi	10$		;nope
+	bic	#dbrev$,(r5)	;yes - disable decoding
+10$:
+.endc
+	mov	r0,r1		;get the address
+	call	db$iad		;invalid address
+	call	db$oct		;print the number
+	jmp	db$err		;oops
+
+db$iad:	call	db$hea		;type the header
+	type	<Invalid address: >
+	return
+.sbttl	instruction, trace, kernel, user, radix
+
+;	User and Kernel
+
+	.enabl	lsb		;
+db$usm:	call	db$use		;setup user mode
+10$:	mov	db.adr(r5),r0	;setup to probe it
+	br	db$prb		;probe in new address space
+				;
+db$use:	bis	#mmpum$,@#ps	;change to previous user mode
+	mfpd	sp		;get the user stack
+	pop	db.sp(r5)	;set it up
+	return			;
+				;
+db$kem:	call	db$ker		;setup kernel mode
+	br	10$		;probe it
+				;
+db$ker:	tst	(r5)		;kernel mode permitted?
+	bmi	db$acc		;no - ignore this
+	bic	#mmpum$,@#ps	;change to kernel mode
+	mov	r5,db.sp(r5)	;point to kernel stack
+	add	#db.bbs,db.sp(r5)
+	return			;
+	.dsabl	lsb		;
+
+;	Instruction
+
+db$ins:	mov	db.pc(r5),r0	;get the address
+	sub	#10,r0		;back up
+	call	db$prb		;test it and setup addres
+	call	(pc)		;-10, -6
+	call	(pc)		;-4, -2
+	callr	db$loc		;display a location
+
+db$mac:	bis	#dbrev$,(r5)	;macro - instruction mode
+	return
+db$num:	bic	#dbrev$,(r5)	;numeric mode
+	return
+
+;	Trace and Notrace commands
+
+db$tra:	bis	#tbit,db.ps(r5) ;turn trace on
+	return
+db$ntr:	bic	#tbit,db.ps(r5) ;turn trace off
+	return
+
+;	Radix command
+
+db$rad:	tstb	(r4)		;this a clear?
+	beq	20$		;yes
+	mova	50$,r1		;look for it
+10$:	mov	(r1)+,r2	;get the next character
+	beq	40$		;oops - invalid 
+	mov	(r1)+,r3	;get the mask
+	cmpb	r2,(r4)		;this it?
+	bne	10$		;no
+	inc	r4		;skip the character
+	bis	r3,(r5)		;yes - set it
+	tst	r3		;was this the clear command?
+	bne	30$		;no
+20$:	bic	#dbr50$!dbasc$!dbdec$!dbbyt$,(r5) ;yes
+30$:	return
+40$:	jmp	db$syn		;invalid syntax
+
+50$:	.word	'R,dbr50$,'A,dbasc$,'D,dbdec$,'B,dbbyt$
+	.word	'O,0,0		;
+.sbttl	determine address mode
+
+;	Determine if address or frame variable
+;
+;	c=0	address
+;	c=1	variable
+
+db$mod:	psh	r0		;get the address
+	sub	r5,(sp)		;is it in range?
+	cmp	(sp),#db.r0	;below db.r0(r5)?
+	blo	10$		;yes - not a register
+	cmp	(sp),#db.ps	;a register?
+	blos	20$		;yes
+10$:	tst	(pc)+		;c=0 => address
+20$:	sec			;c=1 => variable
+	inc	(sp)+		;clean up
+	return			;
+.sbttl	display location, current
+
+db$loc:	call	db$cur		;display location and value
+	call	db$nxt		;skip to the next guy
+	callr	db$new		;newline
+
+;	Display current location
+
+db$cur:	mov	db.adr(r5),r0	;get the address
+	call	db$mod		;address or variable?
+	bcc	10$		;an address
+	sub	#db.r0,r0	;point into them
+	sub	r5,r0		;
+	mova	100$,r1		;get the list
+	add	r0,r1		;point to the variable
+	mov	(r1),r1		;get it
+	call	db$r50		;display it
+	br	20$		;and the value
+				;
+10$:	mov	r0,r1		;the address
+	call	db$oct		;type the address
+	bit	#mmpum$,@#ps	;this kernel or user mode?
+	bne	20$		;user mode
+	type	<k>		;yes
+				;
+20$:	type	<	>	;
+	mov	db.val(r5),r1	;get the value
+	bit	#dbdec$,(r5)	;want it decimal?
+	bne	30$		;yes
+	call	db$oct		;no display octal
+	br	40$		;
+30$:	call	db$dec		;display an integer
+40$:	bit	#dbr50$!dbasc$,(r5) ;want rad50 or ascii?
+	beq	50$		;no
+	type	<	>	;
+	mov	db.val(r5),r1	;yes
+	call	db$r50		;yes
+	type	<  >		;separate them
+	mov	db.val(r5),r1	;get it again
+	call	db$asc		;and display two bytes
+50$:	mov	db.adr(r5),r0	;get the address ???
+	return			;
+
+100$:	.rad50	/r0 r1 r2 r3 r4 r5 sp pc ps /
+.sbttl	display octal & rad50
+
+;	Display octal value
+;
+;	r1 =	value
+
+db$oct::pshs	<r3,r2,r1,r0>	;save these
+	mov	#111111,r3	;there once was a glichette named brigette
+1$:	clr	r0		;who fancied the occassional fidget
+2$:	asl	r1		;well, its fetch a bit here
+	rol	r0		;and fudge a bit there
+3$:	asl	r3		;when it itches, ya just find ya digit
+	bcc	2$		;keep fiddling
+	beq	4$		;must print the final digit
+4$:	add	#60,r0		;start or continue printing
+	call	db$out		;print the digit
+	tst	r3		;done all digits ?
+	bne	1$		;nope, go scritch it
+	pops	<r0,r1,r2,r3>	;
+	return			;
+
+;	Rad50
+;
+;	r1 =	value
+
+db$r50::pshs	<r2,r1,r0>	;save them all
+	mova	100$,r2		;get the divisors
+20$:	mov	#-1,r0		;init the result
+	cmp	#174777,r1	;is it an *
+	blo	50$		;yep
+30$:	inc	r0		;next character
+	sub	(r2),r1		;this it?
+	bcc	30$		;nope
+	add	(r2),r1		;bump back
+	tst	r0		;a null?
+	beq	60$		;yep, forget it
+	cmp	#33,r0		;nah?
+	blo	70$		;
+	beq	80$		;
+	add	#40,r0		;alphabetic
+50$:	add	#40,r0		;
+60$:	add	#16,r0		;space
+70$:	add	#11,r0		;
+80$:	add	#11,r0		;
+	call	db$out		;display it
+90$:	tst	-(r2)		;any more?
+	bne	20$		;yep
+95$:	pops	<r0,r1,r2>	;restore it
+	return			;
+	.word	0,1,50		;
+100$:	.word	50*50		;
+.sbttl	display decimal and ascii
+
+;	Display signed decimal
+;
+;	r1 =	value
+
+db$dec:	pshs	<r3,r2>		;save them
+	mova	100$,r2		;exponents
+	clr	r3		;no leading zeroes
+	tst	r1		;a negative number?
+	bpl	10$		;nope
+	neg	r1		;yep, make it positive
+	type	<->		;and dump a minus sign
+10$:	clr	r0		;clear high order
+	div	(r2)+,r0	;get the next digit
+	bpl	15$		;positive reply
+	neg	r0		;adjust special case 1ooooo/100000
+15$:	bne	20$		;yes - digits from now on
+	cmp	r3,(r2)		;should we fill?
+	blo	40$		;no
+20$:	mov	#-1,r3		;get all remaining digits
+30$:	add	#'0,r0		;make a digit
+	call	db$out		;and display it
+40$:	tst	(r2)		;any more to do ?
+	bne	10$		;yes
+	type	<.>		;remember its decimal
+	pops	<r2,r3>		;
+	return
+
+100$:	10000.,1000.,100.,10.,1,0
+
+;	Two ascii characters
+
+db$asc:	call	10$		;do the first
+	swab	r1		;and the second
+10$:	movb	r1,r0		;get it
+	cmpb	r0,#space	;this a control character?
+	blo	20$		;yes
+	cmpb	r0,#177		;really not?
+	blo	30$		;yes
+20$:	movb	#'.,r0		;replace it
+30$:	call	db$out		;display it
+	return			;
+.sbttl	type, newline, output
+
+;	Type string
+;
+;	jsr	r1,db$typ
+;	.asciz	"string"
+;	.even
+
+db$typ::psh	r0		;save r0
+10$:	movb	(r1)+,r0	;get the next
+	beq	20$		;no more
+	bitb	#177,r0		;end of the string?
+	beq	30$		;yes
+	call	db$out		;display a character
+	br	10$		;get another
+20$:	call	db$new		;newline
+30$:	pop	r0		;get it back
+	inc	r1		;get the end
+	bic	#1,r1		;even up
+	rts	r1		;
+
+;	Display newline
+
+db$new::movb	#cr,r0		;carriage return
+	call	db$out		;dump that
+	movb	#lf,r0		;line feed
+db$out::			;
+.if ne dbrev.			;count columns
+	cmpb	r0,#ht		;this a tab?
+	bne	10$		;no
+	add	#8.,db.loc(r5)	;yes
+	bic	#7,db.loc(r5)	;
+	br	20$		;
+10$:	inc	db.loc(r5)	;count it
+.endc				;
+20$:	tstb	@#ps		;blocked the processor?
+	bmi	30$		;yes - use console
+	tst	i$nins		;in system state?
+	bpl	30$		;yes - use console
+	bit	#kckmm$,@#s$ykc0 ;debug in kernel mode?
+	bne	30$		;yes - use console
+	tst	@#p$hter	;terminal available?
+	beq	30$		;nope
+	.ttyout			;no - send it to process terminal
+	return			;
+30$:	movb	@#ps,-(sp)	;save it
+	bisb	#pr4,@#ps	;block interrupts
+	call	@#db$opt	;
+	movb	(sp)+,@#ps	;reset ps
+	return			;
+.sbttl	get an input value
+
+;	Input octal or decimal
+;
+;	r0 =	result value
+;
+;	^r	rad50 chars
+;	^a	ascii chars
+;	^d
+;	^o
+
+db$ndg:	inc	r4		;point to next character
+	movb	(r4),r1		;get the next
+	sub	#'0,r1		;deascify it
+	cmp	#7,r1		;too high or low?
+	return			;c=1 => not a digit
+
+d$brad:	.word	'O,	db$goc,	'D,	db$gdc
+	.word	'R,	db$gra,	'A,	db$gas
+	.word	0
+
+db$val:
+	pshs	<r3,r2>		;save these registers
+	cmpb	(r4),#'^	;radix comming?
+	bne	30$		;no
+	inc	r4		;skip radix indicator
+	mov	#d$brad,r2	;get the list
+	movb	(r4)+,r0	;get radix
+10$:	cmpb	(r2),r0		;this the character?
+	beq	20$		;yes
+	cmp	(r2)+,(r2)+	;point to next entry
+	tst	(r2)		;anything left?
+	bne	10$		;yes
+	call	db$hea		;invalid radix
+	type	<Invalid radix: '>
+	br	db$cha		;tell them why
+20$:	tst	(r2)+		;skip character
+	call	@(r2)+		;call the routine
+	br	70$		;and exit
+30$:	mov	r4,r2		;get a copy
+	cmpb	(r2),#'-	;is it negative?
+	bne	40$		;nope
+	inc	r2		;yes - skip it
+40$:	movb	(r2)+,r0	;get next character
+	cmpb	r0,#'.		;this the dot?
+	beq	60$		;yes - use decimal
+	sub	#'0,r0		;deascii it
+	cmp	#9.,r0		;this a digit?
+	bcc	40$		;yes
+50$:	call	db$goc		;get octal value
+	br	70$		;exit
+60$:	call	db$gdc		;get the decimal number
+70$:	pops	<r2,r3>
+	return			;
+
+	.enabl	lsb
+db$goc:	mov	#8.,r2		;get the radix
+	br	10$		;
+db$gdc:	mov	#10.,r2		;
+10$:	clr	-(sp)		;assume positive
+	cmpb	(r4),#'-	;this a negative number
+	bne	20$		;no
+	movb	(r4)+,(sp)	;remember it
+20$:	call	db$tdi		;test the digit
+	bcs	db$syn		;invalid syntax
+	clr	r1		;init the result
+30$:	mul	r2,r1		;mutliply the value
+	add	r3,r1		;add in new value
+	call	db$gdi		;get another digit
+	bcc	30$		;fine
+	cmpb	(r4),#'.	;this the decimal dot?
+	bne	35$		;nope
+	inc	r4		;skip the dot
+35$:	tst	(sp)+		;should we negate?
+	beq	40$		;no
+	neg	r1		;
+40$:	mov	r1,r0		;
+	return			;
+	.dsabl	lsb
+
+db$gdi:	inc	r4		;point to next digit
+db$tdi:	clr	r3		;
+	bisb	(r4),r3		;get next
+	sub	#'0,r3		;deascii it
+	cmpb	r3,r2		;this okay?
+	bhis	10$		;yes
+	tst	(pc)+		;fine
+10$:	sec			;no digit
+	return
+
+db$syn:				;syntax error
+	call	db$hea		;the header
+	type	<Invalid input: '>
+	movb	(r4),r0		;get the character
+db$cha:	cmpb	r0,#space	;this printable?
+	bhis	10$		;yes
+	type	<^>		;no
+	add	#'@,r0		;make it printable
+10$:	call	db$out		;display it
+	type	<'>		;
+	jmp	db$err		;oops
+
+db$hea:	type	<?DEBUG-W->	;
+	return
+
+
+db$gas:	call	10$		;do two characters
+10$:	clrb	r0		;assume no character
+	tstb	(r4)		;anything there?
+	beq	20$		;no
+	bisb	(r4)+,r0	;
+20$:	swab	r0		;
+	return			;
+
+db$gra:	mov	#3,r3		;get a counter
+	clr	r1
+10$:	clr	r2		;in case we have no character
+	tstb	(r4)		;anything there?
+	beq	100$		;no
+	movb	(r4)+,r2	;get next character
+	cmpb	r2,#'A		;this an ascii character?
+	blo	20$		;no
+	cmpb	r2,#'Z		;really?
+	blos	80$		;yes
+20$:	cmpb	r2,#'0		;this a digit?
+	blo	30$		;no
+	cmpb	r2,#'9		;really?
+	blos	90$		;yes
+30$:	clr	r2		;invalid character
+	br	100$		;
+80$:	sub	#42,r2		;
+90$:	sub	#36,r2		;
+100$:	mul	#40.,r1		;multiply by 40.
+	add	r2,r1		;add in new value
+	dec	r3		;any more?
+	bne	10$		;yes
+	mov	r1,r0		;
+	return			;
+.sbttl	get an input line
+
+;	Get input line
+;
+;	Kernel	Uses console and kernel buffers.
+;	Process	Uses ast input line.
+;		[ctrl/c] must be inhibited.
+;		May not be reentrant.
+
+db$lin:	mov	db.lin(r5),r4	;point to the line
+	mov	r4,r2		;count input characters
+	add	#80.,r2		;count the input
+	mov	r4,r3		;
+10$:	call	db$inp		;get a character
+	cmpb	r0,#rubout	;got a rubout?
+	bne	20$		;nope
+	cmp	r3,r4		;any more to rub?
+	beq	10$		;no
+	dec	r3		;backup
+	jsr	r1,db$typ	;
+	.byte	bs,space,bs,200	;rub it out
+	br	10$		;
+20$:	cmp	r3,r2		;too far?
+	bhis	10$		;yes - ignore it
+	movb	r0,(r3)+	;store it
+	beq	30$		;done
+	call	db$out		;display it
+	br	10$		;
+30$:	jmp	db$new		;a new line
+
+;	Get a single character
+
+db$inp:				;get a character
+10$:	tstb	@#ps		;got the terminal blocked?
+	bmi	20$		;yes
+	tst	i$nins		;in system state?
+	bpl	20$		;yes
+	bit	#kckmm$,@#s$ykc0 ;kernel mode debugging?
+	bne	20$		;yes - use console
+	tst	@#p$hter	;terminal available?
+	beq	20$		;nope - use console
+	call	@#te$get	;get one from the terminal
+	bcs	10$		;oops - nothing there
+	br	30$		;
+20$:	movb	@#ps,-(sp)	;save ps
+	bisb	#pr4,@#ps	;block interrupts
+	call	@#db$igt	;get another
+	movb	(sp)+,@#ps	;reset ps
+	bcs	10$		;
+30$:	cmpb	r0,#lf		;line-feed
+	beq	35$		;yes
+	cmpb	r0,#cr		;return?
+	bne	40$		;no
+35$:	clr	r0		;yes
+40$:	cmpb	r0,#'a		;lower case?
+	blo	50$		;nope
+	cmpb	r0,#'z		;
+	bhi	50$		;
+	sub	#'a-'A,r0	;upper it
+50$:	return			;
+
+.end
+

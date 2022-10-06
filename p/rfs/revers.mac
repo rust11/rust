@@ -1,0 +1,591 @@
+.title	revers
+.include "lib:share.mac"
+.iif ndf rst$c,rst$c=0
+.if eq rst$c
+.psect	featur
+dbcol.=32.
+.iff
+.psect bgdvr
+dbcol.=24.
+.endc
+dbrev.=1	;reverse compile
+$dbdef		;debug
+$fedef		;feature
+$opdef		;output
+$rpdef		;rp
+$txdef		;text
+
+;	SHAREplus DEBUGS feature reverse compile
+;
+;	%build
+;	macro	rfs:revers/object:rfb:revers
+;	%end
+;
+;	Reverse compile the instruction pointed to loc.
+;
+;	dbdis$	Display string
+;
+;	loc	oct	opc	src,dst			|
+;
+;	r0 ->	location
+;	r1 =	value
+;
+;	r4 ->	input string
+;	r5 ->	debug frame
+
+meta	<type c><jsr r1,db$typ><.ascii /c/<200>><.even>
+meta	<print c><jsr r1,db$typ><.ascii /c/<0>><.even>
+
+;	db.loc		;terminal location
+;	db.vpc		;next pc-2
+;	db.ins		;instruction
+;	db.dst		;destination
+;
+;map	dbrev$,,4	;reverse compile
+;map	dbdis$,,400	;display mode
+.sbttl	instruction data
+
+.MACRO	$OCDEF INT
+;
+.if b <INT>
+.macro	$ocode	nam cod msk typ
+	.rad50	"NAM"
+.nchr	$,<NAM>
+.iif le $-3,.word 0
+	.word	cod
+	.word	oc'typ'.*2
+.endm
+;
+map	oc.nam	word*2,0	;name
+map	oc.ins	word		;instruction
+map	oc.typ			;type
+map	oc.bbs			;
+;
+.endc
+;
+;	types
+;
+map	occtl.,,0		;ctl	000000	000000	control
+map	ocreg.,,1		;reg	000007	00000r	register
+map	ocpri.,,2		;pri	000007	00000n	priority
+map	occon.,,3		;con	000017	0000cc	condition codes
+map	ocuop.,,4		;uop	000077	0000mr	unary operand
+map	ocmrk.,,5		;mrk	000077	0000oo	6-bit offset
+map	ocbra.,,6		;bra	000377	000ooo	8-bit offset
+map	ocemt.,,7		;emt	000377	000nnn	trap code
+map	ocrmd.,,8.		;rmd	000777	000rmm	register, mode
+map	ocsob.,,9.		;sob	000777	000roo	register, offset
+map	ocbop.,,10.		;bop	007777	00mmmm	mode, mode
+map	ocwrd.,,11.		;wrd	000000	nnnnnn	.word
+map	oceis.,,12.		;eis	000777	000rmm
+map	ocsop.,,13.		;sop	007700	00mm00	psh
+map	ocfps.,,14.		;fps	000377	000ass
+map	ocfpd.,,15.		;fpd	000377	000add
+;
+;	masks
+;
+map	occtl$,,0		;ctl
+map	ocreg$,,7		;reg
+map	ocpri$,,7		;pri
+map	occon$,,17		;con
+map	ocuop$,,77		;uop
+map	ocmrk$,,77		;mrk
+map	ocbra$,,377		;bra
+map	ocemt$,,377		;emt
+map	ocrmd$,,777		;rmd
+map	ocsob$,,777		;sob
+map	ocbop$,,7777		;bop
+map	ocwrd$,,177777		;wrd
+map	oceis$,,777		;eis
+map	ocsop$,,007700		;sop
+map	ocfps$,,377		;fps
+map	ocfpd$,,377		;fpd
+;
+;	special opcodes first
+;
+$ocode	call	004700	000077	uop
+$ocode	return	000207	000000	ctl
+$ocode	psh	010046	007700	sop
+$ocode	pop	012600	000077	uop
+;
+$ocode	.ttyin	104340	000000	ctl
+$ocode	.ttyou	104341	000000	ctl
+$ocode	.dstat	104342	000000	ctl
+$ocode	.fetch	104343	000000	ctl
+$ocode	.csige	104344	000000	ctl
+$ocode	.csisp	104345	000000	ctl
+$ocode	.lock	104346	000000	ctl
+$ocode	.unloc	104347	000000	ctl
+$ocode	.exit	104350	000000	ctl
+$ocode	.print	104351	000000	ctl
+$ocode	.srese	104352	000000	ctl
+$ocode	.qset	104353	000000	ctl
+$ocode	.setto	104354	000000	ctl
+$ocode	.rctrl	104355	000000	ctl
+$ocode	.astx	104356	000000	ctl
+$ocode	.hrese	104357	000000	ctl
+;
+$ocode	halt	000000	000000	ctl
+$ocode	wait	000001	000000	ctl
+$ocode	rti	000002	000000	ctl
+$ocode	bpt	000003	000000	ctl
+$ocode	iot	000004	000000	ctl
+$ocode	reset	000005	000000	ctl
+$ocode	rtt	000006	000000	ctl
+$ocode	mfpt	000007	000000	ctl
+;		000007
+;		000077
+$ocode	jmp	000100	000077	uop
+$ocode	rts	000200	000007	reg
+;		000210
+;		000227
+$ocode	spl	000230	000077	pri
+$ocode	nop	000240	000000	ctl
+$ocode	cl	000240	000017	con
+$ocode	se	000260	000017	con
+$ocode	swab	000300	000077	uop
+$ocode	br	000400	000377	bra
+$ocode	bne	001000	000377	bra
+$ocode	beq	001400	000377	bra
+$ocode	bge	002000	000377	bra
+$ocode	blt	002400	000377	bra
+$ocode	bgt	003000	000377	bra
+$ocode	ble	003400	000377	bra
+$ocode	jsr	004000	000777	rmd
+$ocode	clr	005000	000077	uop
+$ocode	com	005100	000077	uop
+$ocode	inc	005200	000077	uop
+$ocode	dec	005300	000077	uop
+$ocode	neg	005400	000077	uop
+$ocode	adc	005500	000077	uop
+$ocode	sbc	005600	000077	uop
+$ocode	tst	005700	000077	uop
+$ocode	ror	006000	000077	uop
+$ocode	rol	006100	000077	uop
+$ocode	asr	006200	000077	uop
+$ocode	asl	006300	000077	uop
+$ocode	mark	006400	000077	mrk	
+$ocode	mfpi	006500	000077	uop	
+$ocode	mtpi	006600	000077	uop
+$ocode	sxt	006700	000077	uop
+$ocode	csm	007000	000077	uop
+;		007100
+;		007177
+$ocode	tstset	007200	000077	uop
+$ocode	wrtlck	007300	000077	uop
+;		007400
+;		007777
+$ocode	mov	010000	007777	bop
+$ocode	cmp	020000	007777	bop
+$ocode	bit	030000	007777	bop
+$ocode	bic	040000	007777	bop
+$ocode	bis	050000	007777	bop
+$ocode	add	060000	007777	bop
+;
+$ocode	mul	070000	000777	eis	
+$ocode	div	071000	000777	eis
+$ocode	ash	072000	000777	eis
+$ocode	ashc	073000	000777	eis
+$ocode	xor	074000	000777	eis
+;
+$ocode	fadd	075000	000007	reg
+$ocode	fsub	075010	000007	reg
+$ocode	fmul	075020	000007	reg
+$ocode	fdiv	075030	000007	reg
+;		074040
+;		075777
+$ocode	med6x	076600	000000	ctl
+$ocode	med74c	076601	000000	ctl
+$ocode	xfc	076700	000077	uop
+$ocode	sob	077000	000777	sob
+$ocode	bpl	100000	000377	bra
+$ocode	bmi	100400	000377	bra
+$ocode	bhi	101000	000377	bra
+$ocode	blos	101400	000377	bra
+$ocode	bvc	102000	000377	bra
+$ocode	bvs	102400	000377	bra
+$ocode	bcc	103000	000377	bra	;bhis
+$ocode	bcs	103400	000377	bra	;blo
+;
+$ocode	emt	104000	000377	emt
+$ocode	trap	104400	000377	emt
+;
+$ocode	clrb	105000	000077	uop
+$ocode	comb	105100	000077	uop
+$ocode	incb	105200	000077	uop
+$ocode	decb	105300	000077	uop
+$ocode	negb	105400	000077	uop
+$ocode	adcb	105500	000077	uop
+$ocode	sbcb	105600	000077	uop
+$ocode	tstb	105700	000077	uop
+$ocode	rorb	106000	000077	uop
+$ocode	rolb	106100	000077	uop
+$ocode	asrb	106200	000077	uop
+$ocode	aslb	106300	000077	uop
+$ocode	mtps	106400	000077	uop
+$ocode	mfpd	106500	000077	uop
+$ocode	mtpd	106600	000077	uop
+$ocode	mfps	106700	000077	uop
+;		107000
+;		107777
+$ocode	movb	110000	007777	bop
+$ocode	cmpb	120000	007777	bop
+$ocode	bitb	130000	007777	bop
+$ocode	bicb	140000	007777	bop
+$ocode	bisb	150000	007777	bop
+$ocode	sub	160000	007777	bop
+;
+;	fpp
+;
+$ocode	absf	170600	000077	uop	
+$ocode	addf	172000	000377	fps	;addf	fsrc,ac
+$ocode	cfcc	170000	000000	ctl	;cfcc
+$ocode	clrf	170400	000077	uop	;clrf	fdst
+$ocode	cmpf	173400	000377	fps	;cmpf	fsrc,ac
+$ocode	divf	174400	000377	fps	;divf	fsrc,ac
+$ocode	ldcdf	177400	000377	fps	;ldcdf	fsrc,ac
+$ocode	ldcif	177000	000377	fps	;ldcif	src,ac
+$ocode	ldexp	176400	000377	fps	;ldexp	src,ac
+$ocode	ldf	172400	000377	fps	;ldf	src,ac
+$ocode	ldfps	170100	000077	uop	;ldfps	src
+$ocode	modf	171400	000377	fps	;modf	fsrc,ac
+$ocode	mulf	171000	000377	fps	;mulf	fsrc,ac
+$ocode	negf	170700	000077	uop	;negf	fdst
+$ocode	setf	170001	000000	ctl	;setf
+$ocode	setd	170011	000000	ctl	;setd
+$ocode	seti	170002	000000	ctl	;seti
+$ocode	setl	170012	000000	ctl	;setl
+$ocode	stcdf	176000	000377	fpd	;stcdf	ac,fdst
+$ocode	stf	174000	000377	fpd	;stf	ac,fdst
+$ocode	stcfi	175400	000377	fpd	;stcfi	ac,dst
+$ocode	stexp	175000	000377	fpd	;stexp	ac,dst
+$ocode	stfps	170200	000077	uop	;stfps	dst
+$ocode	stst	170300	000077	uop	;stst	dst
+$ocode	subf	173000	000377	fps	;subf	fsrc,ac
+$ocode	tstf	170500	000077	uop	;tstf	fdst
+;
+$ocode	.word	0	777777	wrd	;must be last
+;
+.ENDM
+
+r$vins:	$ocdef			;define the opcodes
+	.word	-1		;all over
+
+r$vtyp:	.word	occtl$		;ctl
+	.word	ocreg$		;reg
+	.word	ocpri$		;pri
+	.word	occon$		;con
+	.word	ocuop$		;uop
+	.word	ocmrk$		;mrk
+	.word	ocbra$		;bra
+	.word	ocemt$		;emt
+	.word	ocrmd$		;rmd
+	.word	ocsob$		;sob
+	.word	ocbop$		;bop
+	.word	ocwrd$		;wrd
+	.word	oceis$		;eis
+	.word	ocsop$		;sop
+	.word	ocfps$		;fps
+	.word	ocfpd$		;fpd
+
+r$vcon:	.rad50	"  c"		;c
+	.word	1		;
+	.rad50	"  v"		;v
+	.word	2		;
+	.rad50	"  z"		;z
+	.word	4		;
+	.rad50	"  n"		;n
+	.word	10		;
+	.word	0		;
+.sbttl	reverse compile
+
+;	Reverse compile
+;
+;	db.adr	start address of current
+;	db.val	instruction code
+;
+;	db.loc	start of current
+;	db.ins	instruction
+;	db.dst	destination address computed
+
+rv$pdp::			;reverse compile current
+	bit	#dbrev$,(r5)	;we switched on?
+	beq	40$		;no
+	clr	db.loc(r5)	;count bytes
+	mov	db.val(r5),db.ins(r5)
+	mov	db.adr(r5),db.dst(r5)
+	psh	db.val(r5)	;save the value
+	psh	db.adr(r5)	;save it
+				;
+	call	rv$tab		;first a tab
+	mova	r$vins,r3	;get the table
+10$:	mova	r$vtyp,r1	;get the type
+	add	oc.typ(r3),r1	;
+	mov	db.ins(r5),r2	;get the instruction
+	bic	(r1),r2		;clean it up
+	cmp	r2,oc.ins(r3)	;this the instruction?
+	beq	20$		;yes
+	add	#oc.bbs,r3	;no
+	br	10$		;
+20$:	call	rv$spc		;check for special
+	bcc	30$		;it was special
+	mov	(r3),r1		;get the first word of it
+	call	rv$r50		;display it
+	mov	oc.nam+2(r3),r1	;get the second word
+	call	rv$r50		;
+	call	rv$tab		;a tab	
+	call	rv$typ		;do the rest of it
+30$:	call	rv$prm		;setup the prompt depth
+	pop	db.adr(r5)	;restore the address
+	pop	db.val(r5)	;restore the value
+40$:	return			;all done
+.sbttl	display octal
+
+;	Display octal value
+;
+;	r1 =	value
+
+rv$oct::mov	r1,db.dst(r5)	;store it
+rv$ocr::pshs	<r3,r2,r1,r0>	;save these
+	mov	#111111,r3	;there once was a glichette named brigette
+	clr	r2		;no value seen so far
+1$:	clr	r0		;who fancied the occassional fidget
+2$:	asl	r1		;well, its fetch a bit here
+	rol	r0		;and fudge a bit there
+3$:	asl	r3		;when it itches, ya just find ya digit
+	bcc	2$		;keep fiddling
+	beq	4$		;must print the final digit
+	tst	r0		;got something?
+	bne	4$		;yes
+	tst	r2		;already done one?
+	beq	1$		;no
+4$:	inc	r2		;print the rest
+	add	#60,r0		;start or continue printing
+	call	db$out		;print the digit
+	tst	r3		;done all digits ?
+	bne	1$		;nope, go scritch it
+	pops	<r0,r1,r2,r3>	;
+	return
+
+rv$prm:				;position us
+10$:	cmp	db.loc(r5),#dbcol. ;all done?
+	bhis	20$		;yes
+	call	rv$tab		;no
+	br	10$		;
+20$:	return
+.sbttl	instruction types
+
+rv$typ:	mov	db.ins(r5),r1	;r1 = opcode
+	add	oc.typ(r3),pc	;do the rest
+	br	rv$ctl		;ctl
+	br	rv$reg		;reg
+	br	rv$pri		;pri
+	br	rv$con		;con
+	br	rv$uop		;uop
+	br	rv$mrk		;mrk
+	br	rv$bra		;bra
+	br	rv$emt		;emt
+	br	rv$rmd		;rmd
+	br	rv$sob		;sob
+	br	rv$bop		;bop
+	br	rv$wrd		;wrd
+	br	rv$eis		;eis
+	br	rv$sop		;sop
+	br	rv$fps		;fps
+	br	rv$fpd		;fpd
+
+;	Instruction type dispatch
+
+rv$con:	return
+rv$bop:	call	rv$smd			;source mode
+	call	rv$com			;a comma
+rv$uop:	call	rv$dmd			;
+rv$ctl:	return				;
+rv$sop:	call	rv$smd			;source operand
+	return
+rv$wrd:	br	rv$oct			;
+rv$emt:	bic	#^c377,r1		;clean it up
+	br	rv$oct			;
+rv$pri:	bic	#^c7,r1			;
+	br	rv$oct			;
+rv$mrk:	bic	#^c77,r1		;
+	br	rv$oct			;
+rv$sob:	call	rv$srg			;source register
+	call	rv$com			;a comma
+	movb	db.ins(r5),r1		;sob address
+	bicb	#^c77,r1		;clean it up
+	negb	r1			;make it a negative offset
+	fall	rv$bra			;
+rv$bra:	movb	r1,r1			;sign extend the byte
+rv$off:	asl	r1			;get an offset
+	jmp	rv$rel			;get the relative address
+
+rv$rmd:	call	rv$srg			;source register
+	call	rv$com			;
+	br	rv$dmd			;destination mode
+rv$eis:	call	rv$dmd			;eis address
+	call	rv$com			;
+	br	rv$srg			;
+
+rv$reg:	br	rv$drg			;single register
+
+rv$nxt:	call	db$nxt			;get the next location
+	mov	db.val(r5),r1		;return it
+	return
+
+rv$fps:	call	rv$dmd			;source register
+	call	rv$com			;and a comma
+	br	rv$acc			;the accumulator
+
+rv$fpd:	call	rv$acc			;the accumulator
+	call	rv$com			;
+	br	rv$dmd			;
+
+;	display routines
+
+rv$com:	type	<,>			;comma
+	return
+rv$tab:	type	<	>		;tab
+	return
+rv$r50:	jmp	db$r50			;rad50
+.sbttl	register modes
+
+;	Display register modes
+;
+;	r2 =	register mode
+;	r3 ->	next location
+;
+;	acc	fpu accumulator
+;	smd	src mode
+;	dmd	dst mode
+;	srg	src register
+;	drg	dst register
+;	rel	relative address
+
+	.enabl	lsb			;
+rv$acc:	psh	#^c3			;accumulator
+	br	10$			;
+rv$srg:	psh	#^c7			;register
+	br	10$			;
+rv$smd:	clr	-(sp)			;mode
+10$:	mov	db.ins(r5),r2		;r2 = instruction
+	ash	#-6,r2			;put it in place
+	br	30$			;
+rv$drg:	psh	#^c7			;register
+	br	20$			;
+rv$dmd:	clr	-(sp)			;mode
+20$:	mov	db.ins(r5),r2		;get the instruction
+30$:	bic	(sp)+,r2		;cleanup
+	mov	r2,r0			;get the mode
+	ash	#-2,r0			;isolate the mode
+	bic	#^c16,r0		;
+	mov	r2,r1			;r1 = register number
+	bic	#^c7,r1			;r1 = register
+	cmp	r1,#7			;this the pc?
+	beq	40$			;yes
+	add	r0,pc			;dispatch it
+	br	1000$			;
+	br	1100$			;
+	br	1200$			;
+	br	1300$			;
+	br	1400$			;
+	br	1500$			;
+	br	1600$			;
+	br	1700$			;
+40$:	add	r0,pc			;dispatch pc
+	br	1000$			;pc
+	br	1100$			;(pc)
+	br	2200$			;(pc)+	#n
+	br	2300$			;@(pc)+	@#n
+	br	1400$			;-(pc)
+	br	1500$			;@-(pc)
+	br	2600$			;rel
+	br	2700$			;@rel
+
+1700$:	type	<@>			;@xxx(rn)
+1600$:	call	rv$nxt			;xxx(rn)
+	call	rv$oct
+	br	1100$
+1500$:	type	<@>			;@-(rn)
+1400$:	type	<->			;-(rn)
+	br	1100$			;
+1300$:	type	<@>			;@(rn)+
+1200$:	call	1100$			;(rn)+
+	type	<+>			;
+	return
+1100$:	type	<(>			;(rn)
+	call	1000$			;
+	type	<)>			;
+	return
+1000$:	mov	r2,r1			;get the register again
+	bic	#^c7,r1			;isolate the register
+	cmp	r1,#6			;this the stack
+	blo	1020$			;no
+	bhi	1010$			;pc
+	type	<sp>			;
+	br	1030$			;
+1010$:	type	<pc>			;pc
+	br	1030$			;
+1020$:	type	<r>			;
+	call	rv$ocr			;display it
+1030$:	return				;
+
+2300$:	type	<@>			;@#n
+2200$:	type	<#>			;#n
+	call	rv$nxt			;get next pc value
+	jmp	rv$oct			;display it
+
+2700$:	type	<@>			;@rel
+2600$:	call	rv$nxt			;get value
+rv$rel:	add	db.adr(r5),r1		;offset to it
+	add	#word,r1		;
+	jmp	rv$oct			;display it
+	.dsabl	lsb			;
+.sbttl	special cases
+
+;	Handle special cases
+;
+;	clc clv clz cln
+;	sec sev sez sen
+
+rv$spc:	cmp	oc.typ(r3),#occon.*2	;this condition codes?
+	bne	40$			;no
+	clr	-(sp)			;
+	mova	r$vcon,r2		;point to the codes
+10$:	mov	(r2)+,r1		;get the code
+	add	(r3),r1			;add in SE or CL
+	bit	(r2)+,db.ins(r5)	;this one set?
+	beq	30$			;no
+	tst	(sp)			;this the first?
+	beq	20$			;yes
+	type	<!>			;no
+20$:	inc	(sp)			;remember it
+	call	rv$r50			;type the title
+30$:	tst	(r2)			;any more?
+	bne	10$			;yes
+	tst	(sp)+			;skip it
+	br	200$			;no
+
+;	tst	(pc)+
+;	sec
+
+40$:	cmp	db.ins(r5),#5727	;this tst (pc)+
+	bne	50$			;no
+	call	rv$nxt			;yes
+	psh	db.val(r5)		;save it
+	sub	#word,db.adr(r5)	;backup
+	mov	db.adr(r5),r0		;point to it
+	call	db$prb			;reprobe it
+	cmp	(sp)+,#sec		;this a set carry operation?
+	bne	50$			;no
+	type	<tst	(pc)+>		;
+	br	200$			;it was special
+
+50$:	br	210$
+
+200$:	tst	(pc)+			;we did it
+210$:	sec				;we did not
+	return
+
+.end
+

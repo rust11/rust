@@ -1,0 +1,1112 @@
+tmmlo$=100	;waiting for SMS rebuild
+dlv11e=1
+.title	mailer
+.include "lib:share.mac"
+$dhdef		;dhv hardware
+$dzdef		;dz hardware
+$fedef		;feature
+$icdef		;image control
+$mmdef		;mmu
+$rpdef		;rp
+$prdef		;pcr
+$sgdef		;sysgen
+$srdef		;system rights
+$stdef		;states
+$svdef		;shift values
+$tcdef		;terminal config
+$tedef		;terminal
+$thdef		;terminal controller
+$tmdef		;terminal mailbox
+$ttdef		;terminal types
+$txdef		;text
+
+map	fever.,,2
+map	feupd.,,3
+
+$imgdef	MAILER 2 4
+$imginf	fun=fea cre=hammo aut=ijh use=<Handles MTT & mailboxes>
+$imgham	yrs=<1984,1985,1986,1987>
+;	%date
+$imgdat	<01-Mar-2008 15:48:44.47>
+;	%edit
+;	<40   >
+
+;	SHAREplus mailer feature.
+;
+;	%build
+;	goto 'p1'
+;	macro rfs:mailer/object:rfb:
+;	link:
+;	r link
+;	rfb:mailer.fea,rfb:mailer=lib:featur,lib:shplib,rfb:mailer,lib:share/Q
+;	featur:20000
+;	
+;	^C
+;	goto end
+;	if "'p1'" goto end
+;	set error none
+;	remove/feature mailer
+;	copy rfb:mailer.fea sy:mailer.fea
+;	install/feature mailer
+;	set error error
+;	end:
+;	%end
+.sbttl	overview
+
+;	SHAREplus MAILER feature
+;
+;	Support a subset of RT-11 multiterminal functionality for: 
+;
+;	Communications		KERMIT
+;	Devices			Various printers and plotters
+;	Remote terminals	REMOTE
+;	Virtual terminals	Mailboxes - Server functionality
+;
+;	The MAILER does not support RT-11 MTT terminal editing.
+;
+;	.mtatch	5	astw	unit
+;	.mtdtch	6	-	unit
+;		206				logout
+;	.mtget	1	stat*4	unit
+;	.mtin	2	addr	unit	chrcnt
+;		202				nowait
+;	.mtout	3	addr	unit	chrcnt
+;	.mtprnt	7	addr	unit
+;	.mtset	0	addr	unit
+;	.mtstat	10	addr
+;	.mtrcto	4	-	unit
+;
+;	Define common request parameters
+
+map	rp.adr,,rp.p0	;buffer address
+map	rp.uni,,rp.p1+0	;unit number
+map	rp.cnt,,rp.p1+1	;bytecount
+			;
+map	rp.eve,,rp.p2	;^reve
+map	rp.evp,,rp.p3	;eve package pointer
+map	rp.ter,,rp.p4	;ter pointer from tm$fte
+map	rp.tmm,,rp.p5	;points to appropriate mode byte
+
+;	Multi-terminal error codes
+;
+;	0	0	1	2	3	4	5
+;	nip	nop	una	ivt	irq	uno	iad
+;
+; atc				ivt	irq	uno	iad		
+; dtc			una	ivt	irq
+; get			una	ivt	irq	uno
+; tin	nip		una	ivt	irq		iad
+; tot		nop	una	ivt	irq		iad
+; prt			una	ivt	irq		iad
+; rco			una	ivt	irq
+; set			una	ivt	irq		iad
+; sta					irq		iad
+
+map	tmnip.,,0	;no input available
+map	tmnop.,,0	;no output space
+map	tmuna.,,1	;unit not attached
+map	tmivt.,,2	;invalid non-existant terminal
+map	tmirq.,,3	;invalid request subcode
+map	tmuno.,,4	;unit owned by process in r0
+map	tmiad.,,5	;invalid address
+.sbttl	feature interface
+
+;	Feature interface
+;
+;	This code is located below the server
+;	Called in user mode
+;
+;	r3 ->	kernel feature record
+;
+;	nothing special
+
+fe$ins::			;feature installation
+	$cmkrnl	#f$eare #100$ pic=yes ;set the sysgen flag
+	return			;nothing special
+100$:	bis	#sgmtt$,@#r$msyg;set the flag
+	return
+
+;	Remove feature
+;
+;	Make sure there are no references
+
+fe$rem::			;feature remove
+	$cmkrnl	#f$eare, #100$, pic=yes
+	return			;c=?
+
+100$:	tst	@#m$mpa6+fe.ref	;got any references?
+	bne	110$		;yes - do not permit removal
+	bic	#sgmtt$,@#r$msyg;clear the sysgen flag
+	return
+110$:	.soft	0		;
+.sbttl	feature header
+
+;	Define the server
+;
+;	All kernel code must follow the server
+;
+;	The plas feature has a fixed slot in the feature table
+
+$febot	nam=Mailer fid=femtt. ver=fever. upd=feupd. pur=<MTT, Mailboxes>
+
+;	Feature entry point
+;
+;	Attach process and pass control to dispatcher
+
+$febeg				;feature begins here
+	br	tm$dis		;go dispatch the request
+
+;	Feature exit routine
+;
+;	Called when an image exits or aborts
+;	Called during process deletion
+;	Dereference the process if it was attached
+
+fe$exi::			;feature exit
+	bit	f$ebit,p$hfem	;is it using mtt
+	beq	40$		;no - avoid all this
+	mov	#t$etes,r2	;get the features
+	mov	(r2)+,r1	;r1 = count
+10$:	dec	r1		;any more?
+	bmi	30$		;no
+	mov	(r2)+,r3	;get the next
+	beq	10$		;not installed
+	cmp	r3,p$hter	;this our terminal?
+	beq	20$		;yes - dont remove it
+	cmp	te.pcr(r3),p$hpcr ;do we have it mounted?
+	bne	25$		;no
+	clr	te.pcr(r3)	;yes - detach it
+20$:	bic	#ttpmt$,te.par(r3) ;remove the attach flag
+25$:	cmp	te.mbx(r3),p$hpcr ;sic] are we connected to it?
+	bne	10$		;sic] no
+	call	tm$dco		;yes - disconnect it
+	br	10$		;
+30$:	$fedsm			;detach from feature
+40$:	return
+.sbttl	dispatch & errors
+meta	<mtterr c><jsr r0,tm$err><.word c>
+meta	<mtterp c><jsr r0,tm$erp><.word c>
+
+;	Dispatch on subcode
+
+tm$dis:	movb	(r5),r1		;get the code
+	bic	#^c177,r1	;isolate low order 7 bits
+	cmpb	r1,#tmcls.	;is this too high?
+	blo	10$		;no
+	mtterr	tmirq.		;invalid code
+10$:	asl	r1		;
+	jmp	@t$mdis(r1)	;dispatch it
+
+t$mdis:	.word	tm$set		;0	set
+	.word	tm$get		;1	get
+	.word	tm$tin		;2	mtin
+	.word	tm$out		;3	mtout
+	.word	tm$rco		;4	mtrcto
+	.word	tm$atc		;5	mtatch
+	.word	tm$dtc		;6	mtdtch
+	.word	tm$prn		;7	mtprnt
+	.word	tm$sta		;10	mtstat
+	tmcls.=11		;calls
+;	.word	xl$dis		;11	xl dispatch
+;	.word	xl$pol		;12	xl poll
+
+tm$erp:	$cmpro			;restore process mode first
+tm$err:	movb	(r0),rp.err(r5)	;setup the error
+	jmp	em$err		;and quit
+.sbttl	attach & detach
+
+;	.mtatch	5	astw	unit
+;
+;	r2 ->	primary mtt control block
+;	r3 ->	terminal record
+;	r4 ->	pcr
+;	r5 ->	rp
+;
+; ???	Ast word
+
+tm$atc:	$femnt				;mount us anyway
+	call	tm$fte			;find the terminal
+	bcs	tm$con			;its a connect
+10$:	$cmsch				;stop things
+	mov	te.pcr(r3),r4		;is it owned?
+	beq	20$			;no
+	cmp	r4,p$hpcr		;do we own it already?
+	beq	30$			;yes - dont change controls
+	$cmpro				;come down
+	jmp	tm$own			;report we don't own it
+20$:	mov	p$hpcr,te.pcr(r3) 	;we have it
+	clr	te.sig(r3)		;no signals
+;	bic	#^ctecdp$,te.con(r3)	;clear default options
+30$:	bis	#ttpmt$,te.par(r3) 	;remember we are attached
+	$cmpro				;
+	return				;fine
+
+;	Detach terminal
+
+tm$dtc:	call	tm$fte			;find it
+	bcs	tm$dco			;its a disconnect
+	$cmsch				;
+	cmp	r3,p$hter		;this our console?
+	beq	30$			;yes - don't detach it
+	cmp	te.pcr(r3),p$hpcr 	;do we own it?
+	beq	20$			;yes
+	mtterp	tmuna.			;unit not attached
+20$:	clr	te.pcr(r3)		;we no longer own it
+30$:	bic	#ttpmt$,te.par(r3) 	;remove mtt attach flag
+	$cmpro				;come back down
+	return				;
+.sbttl	connect & disconnect
+
+;	Connect to ring as server
+;
+;	r3 ->	terminal record
+;	r5 ->	mtt subcode ! network flag
+
+tm$con:	$cmsch				;connect terminal
+	cmp	r3,p$hter		;trying to serve ourself?
+	beq	40$			;yes - not permitted
+	mov	te.pcr(r3),r0		;check terminal user access
+	beq	10$			;has no user
+	call	tm$car			;check access rights
+	bcs	50$			;no access permitted
+					;
+10$:	mov	te.mbx(r3),r0		;is it available?
+	beq	20$			;yes
+	cmp	r0,p$hpcr		;is this us anyway?
+	beq	30$			;yes 
+;???	fall	20$			;used to usurp
+	br	50$			;already owned
+					;
+20$:	clrb	te.mt1(r3)		;assume no controls
+	tstb	(r5)			;this network connect?
+	bpl	25$			;no
+	movb	#tmmlo$,te.mt1(r3)	;yes - force logout on detach
+25$:	$float				;
+	bic	#stdis$,s$csta		;reenable the scheduler
+	assume	teocs$ eq 377		;
+	mov	p$hpcr,te.mbx(r3) 	;grab it
+	movb	p$hprn,te.omo(r3) 	;ctrl/s - stop it
+	mov	#te$mai,te.sel(r3) 	;select us
+	clr	te.oen(r3)		;disable output
+	call	te$ref			;reflect it
+	$land				;
+30$:	bis	#ttpct$,te.par(r3) 	;remember it is connected
+	return				;
+					;
+40$:	$cmpro				;
+	jmp	tm$own			;check the owner
+					;
+50$:	clr	rp.r0(r5)		;clear high byte
+	movb	pr.prn(r0),rp.r0(r5)	;get the process number
+	$cmpro				;owned by someone else
+	mtterr	tmuno.			;
+
+;	Disconnect from rings
+;	Also called during image exit to disconnect terminals
+;
+;	r3 ->	terminal record
+
+	.enabl	lsb			;
+tm$dco:	pshs	<r5,r4,r3,r2,r1,r0>	;save the lot here
+	bit	#ttpct$,te.par(r3) 	;connected?
+	beq	20$			;no
+	cmp	te.mbx(r3),p$hpcr 	;is this ours?
+	bne	30$			;no
+	call	tm$lgo			;check for logout
+
+	$float				;disconnect during exit
+	clr	te.mbx(r3)		;remove us
+	movb	te.cot(r3),r0		;get the controller type
+	asl	r0			;get words - remove quiet flag
+	mov	100$(r0),te.sel(r3) 	;reset default select
+	bic	#teocs$,te.omo(r3) 	;ctrl/q - turn off ctrl-s
+	bne	10$			;ctrl/o still active
+	call	te$reo			;start it up
+10$:	$land				;
+	bic	#ttpct$,te.par(r3)	;not connected any more
+20$:	pops	<r0,r1,r2,r3,r4,r5>	;
+	return				;
+30$:	mtterr	tmuna.			;unit not attached
+					;
+	assume	tedlt. eq 0		;
+	assume	tedzt. eq 1		;
+	assume	tedht. eq 2		;
+	assume	tembt. eq 3		;unused
+	assume	tequt$ eq 100003	;unused i hope
+					;
+100$:	.word	te$sel			;dl
+	.word	te$sel			;dz
+	.word	dh$sel			;dh
+	.word	te$sel			;mb & qut
+	.dsabl	lsb			;
+
+;	Logout process
+;
+;	Special function terminal disconnect logs process out
+
+tm$lgo:	bitb	#tmmlo$,te.mt1(r3)	;logout on disconnect?
+	beq	20$			;no
+	mov	te.pcr(r3),r4		;get the owner process
+	beq	20$			;is none
+	$cmsch				;stop the scheduler
+	psh	@#m$kip6		;save the window
+	mov	pr.phd(r4),m$kip6 	;map the target phd
+	mov	#t$mlgo,r0		;string
+	mov	#m$mpa6-m$mpa2+p$hclr,r1;destination is cli buffer
+10$:	movb	(r0)+,(r1)+		;copy it in
+	bne	10$			;more
+	pop	@#m$kip6		;restore that
+	call	ab$pos			;and abort the process
+	$cmpro				;back to process
+20$:	return
+
+t$mlgo:	.asciz	/_logout/		;force logout
+.sbttl	mtstat, mtget, owner
+
+;	Mtstat
+;
+; ???	Return pointers to SHAREplus terminal map
+
+tm$sta:				;
+	mov	rp.adr(r5),r3	;point to it
+	clr	r0		;
+	call	tm$mtw		;0	offset to first tcb
+	call	(r2)		;2	offset to console tcb
+	mov	t$etes,r0	;4	number of terminals
+	call	(r2)		;
+	mov	#2,r0		;6	size of tcb in bytes
+tm$mtw:	mov	#mm$mtw,r2	;r2 -> mm$mtw
+	call	(r2)		;
+	return			;
+
+;	Mtget - report status and check owner
+;
+;	r4 ->	terminal record (not r3)
+
+tm$get:	call	tm$rep		;report it first
+tm$own:	call	tm$fte		;find it
+	bcs	10$		;connected
+	cmp	r3,p$hter	;is it our console?
+	beq	30$		;yes
+
+;	Not our own terminal
+
+10$:	call	tm$owt		;test owner
+	bcc	30$		;we own it
+25$:	mov	r0,rp.r0(r5)	;no - return process number of owner
+20$:	mtterr	tmuno.		;unit owned by someone else
+30$:;	call	tm$att		;are we attached?
+;	bcc	40$		;yes
+;	mtterr	tmuna.		;nope - unit not attached
+
+40$:	cmp	r3,p$hter	;is this our terminal?
+	bne	50$		;no
+	tstb	rp.uni(r5)	;trying to serve own terminal?
+	bmi	20$		;yes - forget it
+50$:	return			;
+.sbttl	get and set tables
+
+;	Mtget and Mtset requests
+;
+;	r0 =	mtt word
+;	r1 =	ter bit
+;	r2 ->	ter byte
+;	r3 =	user address
+;	r4 ->	driver table
+;	r5 ->	rp
+;	rp.ter = ter address
+
+tm$set:	call	tm$sut		;find it
+	mov	rp.adr(r5),r3	;get the block address
+	call	mm$mfw		;get word
+	call	tm$ssp		;call the set speed routine
+	mov	#t$mcvt+2,r4	;setup for conversion - skip permanent set word
+	br	15$		;and enter loop
+10$:	cmp	(r4)+,#-1	;got any more?
+	beq	40$		;that was the last
+	call	mm$mfw		;get the next
+15$:	bic	(r4)+,r0	;clear those they cannot set
+20$:	psh	(r4)+		;save the next one
+	beq	30$		;last in word
+	call	tm$gnv		;get the next
+	bit	(sp),r0		;do they want it set?
+	bne	25$		;yes
+	bic	r1,(r2)		;no - clear it
+	br	30$		;
+25$:	bis	r1,(r2)		;set it
+30$:	tst	(sp)+		;done this one
+	bne	20$		;more to do
+	br	10$		;
+40$:	fall	tm$rep		;ignore last word
+
+tm$rep:	call	tm$fte		;get setup
+	call	tm$ifc		;clear the fail counters
+	mov	#t$mcvt,r4	;setup for conversion
+	mov	rp.adr(r5),r3	;point to parameters
+	call	tm$gsp		;get speed
+	bis	(r4)+,r0	;get the basics
+	br	15$		;enter loop
+10$:	mov	(r4)+,r0	;get the basics
+	cmp	r0,#-1		;this the end?
+	beq	40$		;that was the last
+15$:	tst	(r4)+		;skip the set mask
+20$:	psh	(r4)+		;save the next one
+	beq	30$		;
+	call	tm$gnv		;get the next
+	bit	r1,(r2)		;is it set?
+	beq	30$		;no - this is the default
+	bis	(sp),r0		;it is set
+30$:	tst	(sp)+		;done this one
+	bne	20$		;more to do
+	call	mm$mtw		;store it
+	br	10$		;
+40$:	clr	r0		;do the last by hand
+	mov	rp.ter(r5),r2	;get terminal record
+	cmp	r2,p$hter	;
+	bne	50$		;no
+	bis	#100000,r0	;yes - set console
+50$:	movb	te.cot(r2),r2	;get controller type
+	cmp	r2,#tedlt.	;this dl?
+	beq	60$		;yes
+	cmp	r2,#tedht.	;this a multiplexes
+	bhi	10$		;nope - unknown
+	bis	#10000,r0	;say it's DZ
+60$:	call	mm$mtw		;move it back
+	br	tm$eve		;and report the EVE stuff
+
+tm$gnv:	mov	(r4)+,r1	;bits to test, set or clear
+	mov	(r4)+,r2	;word offset
+	cmp	r2,#te.mt0	;this mtt status?
+	bne	10$		;no
+	tstb	rp.uni(r5)	;yes - we attached?
+	bpl	10$		;yes
+	swab	r1		;yes - do the high order
+10$:	add	rp.ter(r5),r2	;
+	return			;
+.sbttl	set speed
+
+;	Set speed rate
+;
+;	r0 = first word of user block
+
+tm$ssp:				;set speed
+	mov	rp.ter(r5),r2	;get terminal record
+
+.if eq dlv11e
+	cmpb	te.cot(r2),#tedlt. ;this a dl terminal?
+	beq	50$		;yes - no change
+.endc
+				;
+	psh	r0		;save this
+	bic	#^c7400,(sp)	;clear all but the speed ;?? use symbol in tcdef
+	psh	te.par(r2)	;get current parameters
+	bic	#^c7400,(sp)	;extract speed
+	cmp	(sp)+,(sp)	;this the same?
+	beq	40$		;yes - nothing to do
+	clrb	te.spe(r2)	;clear current speed
+	bis	(sp),te.par(r2)	;setup new speed
+
+.if ne dlv11e
+	cmpb	te.cot(r2),#tedlt. ;this a dl terminal?
+	bne	10$		;yes - no change
+	pop	r4		;get back the speed bits
+	ash	#sv016.,r4	;put it in high order four bits
+	bic	#^c170000,r4	;paranoia
+	bis	#40000,r4	;dlv-11e bit to change speed
+	bis	r4,@te.tps(r2)	;select new speed
+	br	50$		;all done
+.endc
+
+10$:	call	tm$gpr		;get r1 pointer
+
+;	DH
+
+	cmpb	te.cot(r2),#tedht. ;this a dh?
+	bne	30$		;nope - assume dz
+	bic	#177400,(r1)	;clear out the speed
+	cmp	(sp),#5400	;this above?
+	blo	20$		;no - no adjust
+	beq	40$		;invalid on DHV - ignore
+	sub	#400,(sp)	;adjust for missing 3600 baud on DHV
+20$:	mov	(sp),r4		;get a copy
+	ash	#sv016.,r4	;get it in high nibble
+	bis	r4,(sp)		;set it up
+	bis	(sp),(r1)	;save new parameters
+	movb	te.uni(r2),r4	;get unit number
+	bic	#^c7,r4		;clean it up
+	mov	te.csr(r2),r2	;get the hardware
+	spl	7		;go up
+	movb	r4,(r2)		;select the unit
+	mov	(r1),dh.par(r2)	;setup new parameters
+	spl	0		;come down
+	br	40$		;done
+
+;	DZ
+
+30$:	cmpb	te.cot(r2),#tedzt. ;this a dz?
+	bne	40$		;insane
+	bic	#dzinv.,(r1)	;clear out the current speed
+	bis	(sp),(r1)	;put in new speed
+	mov	(r1),@te.tkb(r2) ;setup the hardware
+
+40$:	tst	(sp)+		;skip r0
+50$:	return			;
+
+;	Get terminal speed
+;
+;	rp.ter(r5)	terminal record
+;
+;	return	r0	terminal speed in high byte
+
+tm$gsp:				;get speed
+10$:	mov	rp.ter(r5),r2	;get terminal record
+	mov	te.par(r2),r0	;get parameters
+	clrb	r0		;low byte -> parity, length, stop bits
+20$:	return			;
+
+;	Get t%.par pointer
+;
+;	r2		terminal record
+;	
+;	return	r1	pointer to parameters
+
+tm$gpr:				;point to parameter in controller record
+	movb	te.uni(r2),r1	;unit number of controller
+	bic	#^c7,r1		;clear it up
+	asl	r1		;word offset
+	add	#th.par,r1	;point to parameters
+	add	te.cor(r2),r1	;add in the base
+	return			;
+.sbttl	eve interface
+
+;	Mtget EVE interface
+;
+;	Calls routine with following:
+; 
+;	r0	first data word
+;	r1	callers parameter
+;	r2 	callers r2
+;	r3	callers r3
+;	r4 ->	item data area
+;	r5 ->	eve frame
+;
+;	2(r5)	item length
+
+tm$eve:	psh	@#m$kip6	;save this
+	mov	rp.adr(r5),r0	;get the buffer address
+	add	#10,r0		;point to the eve section
+	call	ev$mbu		;map the buffer
+	psh	r0		;point to the table
+	psh	#100$		;point to the table
+	mov	#1,r2		;a counter
+	mov	rp.ter(r5),r3	;we need it in r3
+	call	ev$pro		;process it
+	pop	@#m$kip6	;restore it
+	return
+
+100$:	$evdgr	gte	200$	;get terminal information
+	$evdgr			;
+
+	;	call	size	par	rou
+200$:	$evdca	mbx	word	te.mbx	500$	;get mailbox owner
+	$evdca	own	word	te.pcr	500$	;get terminal owner
+	$evdca	pco	word	te.pco	402$	;permanent controls
+	$evdca	typ	word	te.typ	402$	;terminal device code
+	$evdca	uni	word	te.uni	302$	;unit and controller type
+	$evdca	csr	word	te.csr	402$	;csr address
+	$evdca	vec	word	te.vec	402$	;vector address
+
+300$:	$evdca	cha	word*4	te.tc0	408$	;characteristics
+	$evdca	con	word	te.con	402$	;controls
+	$evdca
+
+
+302$:	call	402$		;get it first
+	bic	#360,-2(r4)	;isolate unit
+	return
+
+;	Move back one or four words
+
+408$:	mov	#4,r2		;move four
+	br	410$		;
+402$:	mov	#1,r2		;count them
+410$:	add	r1,r3		;point to them
+420$:	mov	(r3)+,(r4)+	;send them back
+	sob	r2,420$		;
+	return
+
+;	Get owner or mailbox process number
+
+500$:	add	r1,r3		;point to the slot
+	mov	(r3),r0		;point to the pcr
+	beq	510$		;it has none
+	mov	pr.pid(r0),r0	;get the process number
+510$:	mov	r0,(r4)+	;and return it
+	return
+.sbttl	conversion table
+
+;	tc.cf0	
+
+t$mcvt:	.word	tc0ff$!tc0lm$!tc0sm$!tc0sc$	;always set
+	.word	tc0tb$!tc0xn$!tc0rt$	;cannot modify
+
+	.word	tc0tb$,ttmht$,tt.mht
+	.word	tc0fb$,tectb$!tectf$,te.con
+	.word	tc0rm$,tmmrm$,te.mt0
+;	.word	tc0xn$,tects$,te.con
+;		7400	;baud rate
+	.word	tc0sm$,tmmsm$,te.mt0
+;	.word	tc0rt$,
+;	.word	tc0lm$,			;lower case
+;	.word	tc0sc$,			;scope mode
+	.word	0
+
+;	tc.cf1
+
+	.word	tc1cl$!tc1wa$		;always set - eight-bit
+	.word	tc1cl$!tc1wa$		;cant change
+	.word	tc1ra$,tmmra$,te.mt0	;read-all
+;?? +
+	.word	tc1ra$,ttpas$,te.tc0	;/passall
+;?? -
+	.word	0
+
+;	tc.cf2
+
+	.word	0			;always set - nothing
+	.word	-1			;cant set - everything
+	.word	0			;no entries
+
+;	tc.cf3
+;
+;	Ignored by set, done by hand for get
+;
+;	.word	0			;always set
+;	.word	-1			;cant change anything
+;	.word	0			;no entries
+
+	.word	-1			;end of table
+
+.if eq dlv11e
+dspeed:	.word	50.,		75.,		110.,		134.
+	.word	150.,		300.,		600.,		1200.
+	.word	1800.,		2000.,		2400.,		3600.
+	.word	4800.,		7200.,		9600.,		19200.
+	.word	38400.
+	.word	-1
+.endc
+.sbttl	mttin & mttout
+
+;	.mtin	2	addr	unit	chrcnt
+;	.mtout	3	addr	unit	chrcnt
+;
+;	get next character
+;	put next character
+;
+;	Special function .mtin clears fail counters - used for TPnet
+;
+;	r1 ->	callers buffer
+
+.enabl	lsb
+tm$tin:				;terminal input
+	call	tm$sut		;setup terminal
+	tstb	(r5)		;is this the nowait function?
+	bpl	5$		;no
+	call	tm$ifc		;yes - clear fail counters
+				;does not return for errors
+				;r1 -> input buffer
+5$:	clr	-(sp)		;get the counter
+	bisb	rp.cnt(r5),(sp)	;(sp) = character count
+	bne	10$		;got a count
+	inc	(sp)		;zero defaults to one
+10$:	dec	(sp)		;need any more?
+	bmi	40$		;no
+	call	tm$igt		;get another
+	bcs	tm$nip		;no more there
+	call	mm$pnb		;store it
+	bcc	10$		;fine
+
+20$:	mtterr	tmiad.		;invalid address
+
+tm$out:				;terminal output
+	call	tm$sut		;setup
+				;r1 -> output buffer
+	clr	-(sp)		;get a counter
+	bisb	rp.cnt(r5),(sp)	;(sp) = byte count
+	bne	30$		;got a count
+	inc	(sp)		;zero defaults to one
+30$:	dec	(sp)		;any more?
+	bmi	40$		;no
+	call	mm$gnb		;get the next
+	bcs	20$		;invalid address
+	call	tm$opt		;put it out
+	bcc	30$		;fine
+	dec	r1		;backup
+tm$nip:	mov	r1,rp.r0(r5)	;return it
+	assume	tmnop. eq tmnip.
+	mtterr	tmnop.		;input or output fail
+40$:	tst	(sp)+		;drop the counter
+	mov	r1,rp.r0(r5)	;setup result r0
+tm$iod:	return			;done
+.dsabl	lsb
+.sbttl	mtprnt & mtrcto
+
+;	.mtprnt	area addr
+;	.mtrcto	area
+;
+;	Print a string
+
+tm$prn:				;print string
+	call	tm$sut		;setup
+	psh	te.mt0(r3)	;save the parameters
+	bicb	#tmmrm$,@rp.tmm(r5) ;disable return mode
+	bic	te.mt0(r3),(sp)	;and isolate that bit
+	call	tm$ifc		;clear fail counters
+	mov	rp.adr(r5),r1	;points to output
+10$:	call	mm$gnb		;get the next
+	bcc	20$		;fine
+	pop	te.par(r3)	;get it back
+	mtterr	tmiad.		;invalid address
+20$:	tstb	r0		;this newline?
+	bne	30$		;no
+	movb	#cr,r0		;yes
+	call	tm$opt		;display it
+	movb	#lf,r0		;
+	call	tm$opt		;display it
+	br	40$		;display it and return
+30$:	cmpb	r0,#200		;all done?
+	beq	40$		;yes
+	call	tm$opt		;
+	br	10$		;
+40$:	bis	(sp)+,te.mt0(r3);reset mode
+	br	tm$iod		;start the connection
+
+;	Reset [ctrl/o]
+
+tm$rco:	call	tm$sut		;setup
+	call	tm$ifc		;clear the fail counters
+	bic	#teoco$,te.omo(r3) ;turn off [ctrl/o]
+	bne	10$		;[ctrl/s] still on
+	call	te$reo		;reenable output
+10$:	br	tm$iod		;map and revive connection
+.sbttl	get input ring
+
+;	Terminal input get
+;
+;	c=0	r0=character
+;	c=1	no character
+;
+;	Add [lf] to [cr] unless passall.
+
+tm$igt:
+10$:	call	tm$ogt			;check for connection
+	bis	#stdis$,s$csta		;$cmsch - stop scheduling
+					;
+	tst	te.ict(r3)		;got anything?
+	beq	50$			;none - this is the usual case
+	movb	@te.igt(r3),r0		;get the character
+	assume	tt.pas eq 0		;
+	bit	#ttpas$,(r3)		;is this pass all?
+	bne	20$			;yes - don't format it
+	bitb	#tmmra$,@rp.tmm(r5)	;in read-all mode?
+	bne	20$			;yes
+	cmpb	r0,#cr			;this a return?
+	bne	20$			;no
+	movb	#lf,@te.igt(r3)		;yes - lf next time
+	br	45$			;
+20$:	cmp	te.igt(r3),te.ito(r3)	;time to wrap?
+	blo	30$			;nope
+	mov	te.ibo(r3),te.igt(r3)	;yes - wrap
+	br	40$			;
+30$:	inc	te.igt(r3)		;step it up
+40$:	dec	te.ict(r3)		;one less character available
+45$:;	call	tm$ifs			;set success
+	cmp	te.ict(r3),#teirt.	;below hostsync restart threshold?
+	bne	46$			;no
+	call	te$xon			;yes - send [ctrl/q]
+46$:	mov	te.mbx(r3),r4		;got a partner?
+	beq	tm$ios			;no
+	call	te$mai			;yes - revive connection
+	br	tm$ios			;i/o done - check for asts
+
+;	No character available, go back empty or stall
+;
+;	c=0	loop back, process state
+;	c=1	return fail, process state
+
+	assume	prabt$ eq 100000	;
+50$:	$float				;go float
+	bic	#stdis$,s$csta		;let em schedule
+	tst	te.ict(r3)		;are they still empty?
+	bne	80$			;nope - try again
+	clr	r0			;assume we will fail
+	incb	te.ifc(r3)		;yes, count the failure
+	call	tm$iow			;check for a wait
+70$:	$stall	#10$,prwti.		;go stall and try it all again
+80$:	$land				;come back home
+	br	10$			;repeat it
+
+tm$iop:	.enabl	lsb			;
+tm$iow:	tst	p$hsta			;process aborting?
+	bpl	10$			;no
+	$land				;yes - force exit
+	mtterr	tmuna.			;unit not attached (because of abort)
+10$:	bitb	#tmmrm$,@rp.tmm(r5)	;return mode?
+	beq	20$			;nope - unconditional wait
+	bit	#ictcl$,p$hic0		;are they insisting on looping?
+	bne	30$			;yes
+	bit	#teiof$,te.ifc(r3)	;have we failed?
+	beq	30$			;no
+	call	tm$ifc			;clear the fail counters
+20$:	br	tm$ion			;
+
+;20$:	tst	p$hsta			;is the process aborting?
+;	bpl	tm$ion			;no - we must wait
+;	$land				;force abort out of here
+;					;else we may hang in the kernel
+;	mtterr	tmuna.			;unit not attached (because of abort)
+
+30$:	tst	(sp)+			;do not return
+tm$iof:	$land				;come down
+	sec				;
+tm$ion:	return				;
+	.dsabl	lsb			;
+.sbttl	put output ring
+
+;	Terminal output put
+;
+;	r0 =	character
+;
+;	c=0	inserted
+;	c=1	no room
+
+.enabl	lsb
+tm$opt::
+10$:	call	tm$ipt			;check for connection
+	bis	#stdis$,s$csta		;stop scheduling
+	tstb	te.oco(r3)		;is output turned off?
+	bne	30$			;yep - forget it
+	cmp	te.oct(r3),#teors.-2	;any room?
+	bpl	60$			;nope, go stall
+	movb	r0,@te.opt(r3)		;
+	cmp	te.opt(r3),te.oto(r3)	;time to wrap?
+	blo	20$			;nope
+	mov	te.obo(r3),te.opt(r3)	;yes - wrap
+	br	25$			;
+20$:	inc	te.opt(r3)		;step past this
+25$:	inc	te.oct(r3)		;and count it
+	bne	30$			;already activated
+	call	@te.sel(r3)		;set partner running
+30$:	fall	tm$ios			;
+
+tm$ios:	call	tm$ifs			;success
+	bic	#stdis$,s$csta		;permit reschedule
+	bne	40$			;nothing pending
+	call	sc$enb			;go schedule
+40$:	clc				;signal we won
+50$:	return				;process state
+
+;	Wait for output
+;
+;	Do not wait if p$hter=0.
+;	Do not wait if p$hlos&fotto$
+
+60$:	$float				;go up
+	bic	#stdis$,s$csta		;enable scheduler
+	cmp	te.oct(r3),#teors.-2	;any room now?
+	bmi	80$			;yes
+	incb	te.ofc(r3)		;count the failure
+	call	tm$iow			;and check for a wait
+70$:	$stall	#10$,prwto.		;stall
+80$:	$land				;
+	br	10$			;try again
+.dsabl	lsb
+.sbttl	get output ring
+
+;	Get a character from the target output ring
+
+tm$ogt:	tstb	rp.uni(r5)		;this a connect?
+	bpl	tm$ioa			;no - attach
+	tst	(sp)+			;yes - do not return
+10$:	$float				;synchronise with terminal
+	tst	te.oct(r3)		;got any for us?
+	bmi	60$			;no
+	movb	@te.ogt(r3),r0		;yes
+	cmp	te.ogt(r3),te.oto(r3)	;
+	blo	20$			;yes
+	mov	te.obo(r3),te.ogt(r3) ;no - wrap
+	br	30$			;
+20$:	inc	te.ogt(r3)		;te.ogt	- nope - step up
+30$:	dec	te.oct(r3)		;count it
+	bmi	tm$rev			;revive them
+	cmp	te.oct(r3),#teoth.-1	;this the restart value?
+	beq	tm$rev			;yes - revive them and quit
+	br	tm$iok			;
+
+60$:	incb	te.ofc(r3)		;this counts as an output fail
+	call	tm$iop			;check for a wait
+	$stall	#10$,prwti.		;wait for it
+
+;	Success - see if front-end needs help
+
+tm$rev:	mov	te.pcr(r3),r4		;got one?
+	beq	tm$iok			;no
+	tstb	pr.wai(r4)		;is it waiting?
+	beq	tm$iok			;no
+	cmpb	pr.wai(r4),#prwto.	;waiting for input or output?
+	bhi	tm$iok			;nope
+	psh	r3			;
+	$revive	#s$cp04			;yes - revive them
+	pop	r3			;
+tm$iok:	call	tm$ifs			;success
+	$land				;it was success
+	clc				;
+tm$ioa:	return				;and exit
+.sbttl	put input ring
+
+;	Connect terminal input put
+
+tm$ipt::				;put a character in the ring buffer
+	tstb	rp.uni(r5)		;this a connect?
+	bpl	tm$ioa			;no - attach
+	tst	(sp)+			;do not return
+10$:	$float				;go into system state
+	cmpb	r0,#lf			;this a newline?
+	bne	15$			;no
+	cmpb	te.ila(r3),#cr		;preceded by lf?
+	bne	15$			;no
+	clrb	te.ila(r3)		;yes - once only
+	br	tm$rev			;and quit
+15$:	pshs	<r5,r4,r3,r2,r1>	;
+	movb	te.tid(r3),r1		;supply the terminal id
+	call	te$ifk			;insert the character
+	pops	<r1,r2,r3,r4,r5>	;
+	bcc	tm$iok			;fine
+	cmp	te.ict(r3),#teirs.-1	;is it really full?
+	blo	tm$iok			;no
+	clr	r0			;assume we will fail
+	call	tm$iop			;see if we should wait
+	$stall	#10$,prwto.		;waiting for input
+.sbttl	utilities
+
+;	Setup terminal
+;
+;	find terminal
+;	make sure its attached or connected
+;
+;	r3 ->	terminal record
+
+tm$sut:	call	tm$fte		;get set up
+	mov	rp.adr(r5),r1	;r1 -> buffer
+	call	tm$owt		;do we own it?
+	bcc	tm$cot		;yes - check connect again
+	mtterr	tmuna.		;terminal not attached
+
+;	Test owner
+;
+;	Return owner process id in r0
+;
+;	r3 ->	terminal record
+;
+;	c=1	not owned by caller
+;	r0=0	no owner at all
+
+tm$owt:				;owner test
+	mov	te.pcr(r3),r0	;assume attach
+	tstb	rp.uni(r5)	;attach or connect?
+	bpl	10$		;attach
+	mov	te.mbx(r3),r0	;correct for server
+10$:	tst	r0		;got one?
+	beq	30$		;no - cant be ours
+	mov	pr.prn(r0),r0	;get the process number
+	bic	#^c377,r0	;process number only
+	cmpb	r0,p$hprn	;is this us?
+	bne	30$		;no
+	tst	(pc)+		;
+30$:	sec			;
+	return
+
+;	clear fail counter
+
+tm$ifs:	mov	r3,p$hrty	;success
+tm$ifc:	clr	te.ifc(r3)	;failure
+	clr	p$hifc		;clear fail counter
+	return			;
+
+;	Check access rights
+;
+;	r0 ->	pcr
+;
+;	c=1	no access permitted
+
+tm$car:	cmp	r0,p$hpcr	;is this ourself?
+	beq	20$		;yes (uic may have changed)
+	cmp	pr.own(r0),p$hpcr ;do we own it?
+	beq	20$		;yes
+	cmp	pr.uic(r0),p$huic ;same uic?
+	beq	20$		;yes - we can do what we like
+	cmpb	pr.gic(r0),p$hgic ;in the same group?
+	bne	10$		;no - check for world
+	$right	srgrp.		;require group
+	br	20$		;check whether we have it
+10$:	$right	srwor.		;require world
+20$:	return			;c=1 => no access permitted
+.sbttl	map terminal
+
+;	Map terminal
+;
+;	rp.uni	
+;
+;	unit=0	=> process terminal
+;
+;	r3 ->	terminal record
+;
+;	c=1	connect
+;
+;	The first eight slots are considered virtual. A translation table
+;	in the PHD assigns these to a logical slot number and assigns
+;	three slot types codes: binary/ascii, user, server, pipe.
+;
+;	client	get input, put output
+;	server	get output, put input
+;	pipe	put output, get output
+;
+;	tm.ter	address of actual ter
+;	tm.acp	open information
+;
+;		server	- treat this as a server
+;		binary	- do not format data
+
+tm$fte:	movb	rp.uni(r5),r3	;get the slot number
+	bne	20$		;fine
+	mov	p$hter,r3	;use the default
+	bne	30$		;we have one
+10$:	mtterr	tmivt.		;invalid terminal
+20$:
+25$:	bic	#^c177,r3	;cleanup the unit number
+	cmp	r3,t$etes	;too high?
+	bhis	10$		;yes
+	asl	r3		;no
+	mov	t$emap(r3),r3	;get the record
+	beq	10$		;none mapped
+30$:	mov	r3,rp.ter(r5)	;save the address
+	mov	r3,rp.tmm(r5)	;point to the mode byte
+	add	#te.mt0,rp.tmm(r5) ;
+	tstb	rp.uni(r5)	;this a server?
+	bpl	35$		;no
+	inc	rp.tmm(r5)	;point to server status
+35$:	tst	p$hrty		;got retries?
+	beq	tm$cot		;no
+	cmp	r3,p$hrty	;is this a different one?
+	beq	tm$cot		;no
+	clr	te.ifc(r3)	;yes - clear its fail counts
+	clr	p$hifc		;clear process terminal fail count
+	clr	p$hrty		;and this as well
+tm$cot:	tstb	rp.uni(r5)	;is this a connect
+	bpl	40$		;no
+	sec			;yes - report it
+40$:	return			;fine
+
+$fetop
+.end
+

@@ -1,0 +1,1434 @@
+rsx$c=0
+new$c=1
+.title	plas
+.include "lib:share.mac"
+$asdef		;address space
+$chdef		;channels
+$dedef		;device record
+$erdef		;error
+$fedef		;features
+$fndef		;filename
+$icdef		;image control
+$jbdef		;job
+$mmdef		;mmu
+$ovdef		;overlays
+$podef		;pool
+$rpdef		;rp
+$psdef		;psw
+$sgdef		;sysgen
+$svdef		;shift values
+$undef		;unit record
+$xmdef		;xm
+
+$imgdef	PLAS 2 7
+$imginf	fun=fea cre=hammo aut=ijh use=<SHAREplus PLAS services>
+$imgham	yrs=<1984,1985,1986,1987,1988> oth=<>
+;	%date
+$imgdat	<01-Mar-2008 15:48:19.06>
+;	%edit
+;	<77   >
+
+map	fever.,,2	;feature version for SHOW FEATURE
+map	feupd.,,6	;feature update
+
+;	SHAREplus RT-11/XM PLAS feature
+;
+;	%build	
+;	goto 'p1'
+;	macro rfs:plas/object:rfb:
+;	link:
+;	r link
+;	rfb:plas.fea,rfb:plas=lib:featur,shplib,rfb:plas,lib:share/Q
+;	featur:20000
+;	
+;	^C
+;	goto end
+;	if "'p1'" goto end
+;	set error none
+;	remove/feature plas
+;	copy rfb:plas.fea sy:plas.fea
+;	install/feature plas
+;	set error error
+;	end:
+;	%end
+;
+;	Supports standard RT-11/XM plas request set
+;	Adds named regions
+;	Adds clean-up request
+;	Co-routine to check I/O limits
+;
+;	Control with kernel record (off p$hxmr)
+;	Regions created as files on VM:
+;
+;	r2 ->	xr
+;	r3 ->	xw
+;	r4 ->	xm rd or wd
+;	r5 ->	rp
+;
+;	rp.p0		;user region/window definition block address
+;	rp.p1		;reserved
+
+map	rp.cha,,rp.p2	;channel number
+map	rp.rgn,,rp.p3	;region number for searchs (byte
+map	rp.wnd,,rp.p3+1	;window number for searchs (byte)
+map	rp.rst,,rp.p4	;region status prototype
+map	rp.wst,,rp.p5	;window status prototype
+
+;	Each process may have up to eight sections mapped.
+;	We require the system process only for selected operations.
+;
+;	.crrg	36,0	addr	rdb
+;	$crerg	36,200	addr	rdb	create named regions
+;	.elrg	36,1	addr	rdb
+;	$delrg	36,201	addr	rdb	delete named regions
+;	.craw	36,2	addr	wdb
+;	.elaw	36,3	addr	wdb
+;	.map	36,4	addr	wdb
+;	.unmap	36,5	addr	wdb
+;	.gmcx	36,6	addr	wdb
+;	$elxm	36,7	addr	wdb	private - reset xm
+;	$crovr	36,10	addr		create virtual overlays
+;	xmstc.	36,11	addr	...	xm settop
+;
+;	.wdbbk
+;	.wdbdf
+;
+;	A number of redundant structures are required for RT-11.
+;
+;	xw.fpd	par number - not low byte of first descriptor register
+;	xm.wri	region number - rt uses rcb address - we use index
+.sbttl	feature interface
+
+;	Feature interface
+; 
+;	This code is located below the server
+;	Called in user mode
+; 
+;	r3 ->	kernel feature record
+; 
+;	nothing special
+
+fe$ins::			;feature installation
+	$cmkrnl	#f$eare #100$ pic=yes
+	return			;nothing special
+100$:	bis	#sgmmg$,@#r$msyg;setup sysgen
+	return
+
+;	Remove feature
+; 
+;	Make sure there are no references
+
+fe$rem::			;feature remove
+	$cmkrnl	#f$eare, #100$ pic=yes	;
+	return			;c=?
+
+100$:	tst	@#m$mpa6+fe.ref	;got any references?
+	bne	110$		;yes - dont permit removal
+	bic	#sgmmg$,@#r$msyg;reset sysgen
+	return			;
+110$:	.soft	0		;
+.sbttl	feature header
+
+;	Define the server
+;
+;	All kernel code must follow the server
+;
+;	The plas feature has a fixed slot in the feature table
+
+$febot	nam=plas fid=fepla. ver=fever. upd=feupd. pur=<RT-11/XM requests>
+
+;	Feature entry point
+;
+;	Attach process and pass control to dispatcher
+
+$febeg				;feature begins here
+	$femnt			;attach to feature
+	br	xm$prx		;go dispatch the request
+
+;	Feature exit routine
+;
+;	Called when an image exits or aborts
+;	Called during process deletion
+;	Dereference the process if it was attached
+
+fe$exi::			;feature exit
+	bit	f$ebit,p$hfem	;is it using XM?
+	beq	10$		;no - avoid all this
+	$elxm	#p$hare		;elide xm
+;sic]	$fedsm			;detach from feature ($elxm does this)
+10$:	return
+.sbttl	dispatch plas request
+
+;	Dispatch plas request
+; 
+;	rp.chn	Subcode for request
+; 
+;	We use a call list for each request.
+;	This is mainly to simplify coding.
+; 
+;	r3 =	rp.p0 (temporary for RSX)
+
+xm$prx:				;xm requests
+	cmpb	rp.req(r5),#emxmr. ;is this one of ours?
+	beq	10$		;yes
+	jmp	xm$iow		;no - its an I/O window
+
+10$:	movb	(r5),r0		;get the request
+	bic	#^c177,r0	;clean it up
+	cmpb	r0,#xmmax.	;is this too high?
+	blo	20$		;no
+	.hard	eremt.		;yes
+
+20$:	asl	r0		;extend it
+	psh	x$mdis(r0)	;save the address
+	mov	p$hxmr,r4	;get the xm context
+	bne	30$		;fine
+	cmp	(sp),#x$mexm	;is this a reset?
+	beq	xm$exi		;yes - just forget it
+	call	xm$cxm		;create xm context
+30$:	mov	@(sp),r0	;get the next
+	add	#2,(sp)		;pop past it
+	call	(r0)		;call the routine
+	br	30$		;
+xm$exi:	jmp	em$exi		;exit from request
+
+;	List of dispatch lists
+
+x$mdis:	.word	x$mcrg		;.crrg	36,0	addr	rdb
+	.word	x$merg		;.elrg	36,1	addr	rdb
+	.word	x$mcwn		;.craw	36,2	addr	wdb
+	.word	x$mewn		;.elaw	36,3	addr	wdb
+	.word	x$mcmp		;.map	36,4	addr	wdb
+	.word	x$memp		;.unmap	36,5	addr	wdb
+	.word	x$mgmc		;.gmcx	36,6	addr	wdb
+	.word	x$mexm		;.elxm	36,7	addr	
+	.word	x$mcov		;$crovl 36,8	addr
+	.word	x$msto		;	36,9	
+	assume	xmstc.	eq	36*256.+9.
+		xmmax.=10.	;maximum subcode
+
+;	Dispatch lists
+
+x$mcrg:	.word	xm$gch, xm$ruk, xm$crg, xm$rku		;.crrg
+x$merg:	.word	xm$gch, xm$ruk, xm$gri, xm$erg, xm$rku	;.elrg
+x$mcwn:	.word	xm$wuk,	xm$cwn, xm$wku			;.craw
+x$mewn:	.word	xm$gwi, xm$ewn, xm$wku	 		;.elaw
+x$mcmp:	.word	xm$gwi, xm$cmp, xm$wku			;.map
+x$memp:	.word	xm$gwi, xm$emp, xm$wku			;.unmap
+x$mgmc:	.word	xm$gwi, xm$gmc, xm$wku			;.gmcx
+x$mexm:	.word	xm$gch, xm$exm, em$exi			;.elxm
+x$mcov:	.word	xm$cov,	em$exi				;$crovl
+x$msto:	.word	xm$sto					;$sttop
+.sbttl	move definition block
+
+;	These routines move the user definition
+;
+;	rp.p0	region definition block
+;		window definition block
+;
+;	r4 ->	xm record
+
+.enabl	lsb
+xm$ruk:	mov	#xm.gbs/2,r0	;always get global size
+	br	10$		;
+xm$rku:	mov	r2,rp.r0(r5)	;[main]	return kernel rcb address
+	bis	rp.rst(r5),xm.rst(r4) ;return status
+	mov	#xm.rbs/2,r0	;never move back filename to rt-11
+	tst	(pc)+		;region - kernel to user
+10$:	sec			;region - user to kernel
+	bitb	#200,(r5)	;is this an extended call?
+	bpl	20$		;no
+	mov	#xm.sbs/2,r0	;yes
+	br	20$		;join common
+
+xm$wku:	mov	r3,rp.r0(r5)	;[main]	return kernel wcb address
+	bis	rp.wst(r5),xm.wst(r4) ;return status
+	tst	(pc)+		;window - user to kernel
+xm$wuk:	sec			;window - kernel to user
+	mov	#xm.wbs/2,r0	;get a window
+
+20$:	mov	rp.p0(r5),r1	;get the user address
+	mov	r4,r2		;destination is xm record
+	bcc	30$		;its move to user
+	jmp	mm$mfc		;get the stuff
+30$:	call	mm$mtc		;kernel to user
+	jmp	em$exi		;the call is done
+	.dsabl	lsb		;
+.sbttl	region pointers
+
+;	Get region by id - used by .elrg
+
+xm$gri:				;get region by id
+	movb	xm.rid(r4),r1	;get the region number
+	call	xm$grn		;go get it
+	bcc	10$		;fine
+	.soft	xmiri.		;invalid region id
+10$:	return
+
+;	Get next region - used to search thru regions
+
+xm$gnr:				;get next region
+	incb	rp.rgn(r5)	;get the next one
+	movb	rp.rgn(r5),r1	;get it
+	fall	xm$grn		;get region by number
+
+;	Get region by number - r1 = region id
+;
+;	The linker uses XM.RID=-1 to signal the virtual overlay region.
+;	We convert that to XM.RID=1 which is always our overlay region.
+
+xm$grn:				;get region by number
+	tst	r1		;this a negative region number?
+	bpl	10$		;no
+	neg	r1		;yes - virtual overlay region
+10$:	cmpb	r1,#xmmrn.	;this too high?
+	bhis	20$		;yes
+	mul	#xr.bbs,r1	;no - extend to it
+	add	r4,r1		;add in the base
+	add	#xm.xrg,r1	;add in the offset
+	mov	r1,r2		;return it in r2
+	tst	(pc)+		;
+20$:	sec			;out of range
+	return			;
+
+;	Get a free channel
+;
+;	Accepts only one of the first 16
+;
+;	r4 ->	xm record
+;
+;	xm.chn	Channel number for PLAS I/O operations
+;	erchn.	Invalid channel - none available
+
+xm$gch:	call	ut$nas			;not from ast
+	clr	r0			;start with zero
+	mov	#p$hcsw,r1		;point to first
+10$:	tst	(r1)			;is this channel free?
+	bpl	30$			;this one is free
+	add	#ch.bbs,r1		;skip to the next
+	inc	r0			;increment channel number
+	cmp	r0,#16.			;way too high?
+	bhi	20$			;yes
+	cmpb	r0,p$hchs		;above process maximum?
+	blo	10$			;no
+20$:	.hard	erchn.			;invalid channel error
+30$:	movb	r0,xm.chn(r4)		;save it for I/O operations
+	mov	r1,xm.csa(r4)		;store the channel address
+	return
+.sbttl	window pointers
+
+;	Setup internal region & window pointers
+;
+;	r1	burnt
+;	r2 ->	region record or zero
+;	r3 ->	window record or zero
+
+xm$gwi:				;get window by id
+	call	xm$wuk		;get the user window
+	movb	xm.wid(r4),r1	;get the window number
+	call	xm$gwn		;get window by number
+	bcs	10$		;oops - invalid id
+	tst	xw.siz(r3)	;is it mapped?
+	bne	20$		;yes
+10$:	.soft	xmiwi.		;invalid window id
+20$:	return			;
+				;
+xm$gnw:				;get next window
+	incb	rp.wnd(r5)	;produce next window number
+	movb	rp.wnd(r5),r1	;pick it up
+	fall	xm$gwn		;get window by number
+				;
+xm$gwn:				;get region by number
+	cmpb	r1,#xmmwn.	;this too high?
+	bhis	10$		;yes
+	mul	#xw.bbs,r1	;no - extend to it
+	add	r4,r1		;add in the base
+	add	#xm.xwn,r1	;add in the offset
+	mov	r1,r3		;return it in r3
+	tst	(pc)+		;
+10$:	sec			;out of range
+	return			;
+;	???	automatic global deletion
+;	???	privat regions
+;
+;	GNF reported for $CRERG too
+;	Remove xmspm$ from SHAREplus documentation - redundant
+;	RT-11	.CRRG null region name is not handled	
+;	$crerg can combine both forms of request
+.sbttl	create region
+
+;	Create region
+;
+;	$crerg	area rdb
+;	.crrg	area rdb
+;
+;	rp.p0	region definition block
+;
+;	tmr=6	Too many regions.
+;	inm=7	Insufficient memory.
+;		Largest size returned in r0.
+;	imm=10	Impossible memory size. 0 or exceeds total memory.
+;	gnf=12	Global region not found.
+;	tmg=13	Too many global regions
+;	gru=14	Global region in use
+;	grp=15	Global region privately owned
+;
+;	Each process has four regions. One is the static region.
+;	Each created region points to a region file on VM:.
+;	Lock the system process for synchronisation.
+; ???	Files must be protected against deletion.
+;
+;	Named regions. First open existing file. Return size if found.
+;	Else create new named region. Clear first page for process
+;	synchonisation. They appear as either null states - or as
+;	occupied semaphores: only one process receives the XMSCR$
+;	state back.
+
+meta	<xmcer$ c><jsr r0,xm$cer><.word c>
+
+	assume	mmpib. eq 8.		;so we can use sv008.
+xm$crg:					;create region
+	bit	#icunm$,p$hic0		;program set /unmapped?
+	bne	20$			;yes - return memory exhausted
+	mov	xm.rsz(r4),r1		;get the intended size
+	bne	10$			;size available
+	bit	#xmrgb$,xm.rst(r4)	;this rt-11 global region?
+	beq	20$			;no - impossible size
+10$:	cmp	r1,r$mmes		;this larger than the whole machine?
+	blo	30$			;no
+20$:	.soft	xmimm.			;yes - impossible size
+
+;	Find a free region
+;	region 0 reserved for virtual settop
+
+30$:	clrb	rp.rgn(r5)		;setup to search regions
+40$:	call	xm$gnr			;get the next region
+	bcc	50$			;fine
+	.soft	xmtmr.			;too many regions
+50$:	tst	xr.add(r2)		;is this one free?
+	bne	40$			;no - look again
+					;
+	call	xm$sys			;lock the system process
+;	.purge	#xmchn.			;purge it
+	.purge	xm.chn(r4)		;purge it
+
+;	Build the filename
+
+	movi	xr.fnm,r2,r0		;get the filename
+	mov	r0,r3			;r3 -> filename
+	mov	#^rvm,(r0)+		;fn.dev
+	mov	#^rrg0,(r0)		;fn.fil - rg0
+	movb	rp.rgn(r5),r1		;	- get the region number
+	add	r1,(r0)+		;	- rgn - add in the region number
+	mov	p$hxpn,(r0)+		;fn.nam - process number
+	mov	#^rreg,(r0)		;fn.typ .sec
+
+;	Check for named region	
+;
+;	ACP request must use VM: physical name
+;
+;	dev VM:	always inserted
+;	fil RG1	Must be supplied by caller
+;	nam grp	Group number if blank from user
+;	typ REG	Region if blank from user
+
+	tstb	(r5)			;$crerg?
+	bmi	90$			;yes
+	bit	#xmrgb$,xm.rst(r4)	;rt-11 global region?
+	beq	160$			;no
+;					;
+;	rt-11 global region		;
+;	convert xmscg$ & xmsxi$		;
+;					;
+	mov	xm.rst(r4),r1		;get the region control
+	bic	#140000,r1		;clean it up
+	ash	#-7,r1			;shift it into place
+	bit	#xmscg$,r1		;explict create?
+	bne	60$			;yes
+	bis	#xmsnc$,r1		;no - set nocreate
+60$:	bit	#xmsxi$,r1		;delete on exit (or eliminate)
+	beq	70$			;no - create permanent
+	assume	xmsgb$ eq xmspm$	;xmsgb$ already set (xmrgb$)
+	bic	#xmspm$,r1		;yes - not creating permanent
+70$:
+	mov	xm.rnm+word(r4),-(r0)	;fill in name backwards
+	mov	xm.rnm(r4),-(r0)	;
+	cmp	(r0),#^rIND		;this IND?
+	bne	80$			;nope
+	tst	word(r0)		;really IND?
+	bne	80$			;nope
+	mov	p$hxpn,word(r0)		;put in process number for ind
+					;
+80$:	cmp	(r0),#^rIOP		;this RT-11 I/O page?
+	bne	85$			;nope
+	cmp	word(r0),#^rAGE		;really?
+	bne	85$			;nope
+	mov	#^rSYS,4(r0)		;yes - change type to SYS
+					;
+85$:	mov	r1,xm.rct(r4)		;set up common control
+	br	100$			;
+					;
+;	SHAREplus shared region		;
+					;
+90$:	bic	#xmscr$!xmsex$,xm.rct(r4) ;clear created status
+	mov	xm.rfn+fn.typ(r4),(r0)	;move in the name
+	mov	xm.rfn+fn.nam(r4),-(r0)	;backwards
+	mov	xm.rfn+fn.fil(r4),-(r0)	;
+					;
+;	Common shared code		;
+					;
+100$:	bne	110$			;we have a name
+	xmcer$	eradr.			;treat as invalid address
+110$:;	.lookup	#p$hare, #xmchn., r3, #0;look it up
+	.lookup	#p$hare, xm.chn(r4), r3, #0;look it up
+	bcs	140$			;not found - use create
+	assume	mmpib. eq 8.		;
+	ash	#sv008.,r0		;get number of pages (mmpib.=8)
+
+	bit	#xmrgb$,xm.rst(r4)	;this rt-11 global region?
+	beq	120$			;nope
+	cmp	r0,xm.rsz(r4)		;does this match
+	bhis	130$			;use specified size
+	jmp	230$			;nope - return size in r0
+
+120$:	mov	r0,xm.rsz(r4)		;and return it
+130$:	bis	#xmsex$!xmspm$,xm.rct(r4) ;existing & permanent
+					;xmscr$ ???
+	bic	#xmscr$!xmsin$!xmsne$,xm.rct(r4) ;do not permit it to clear
+	br	180$			;join the common stuff
+
+;	Named region does not exist
+
+140$:	tst	xm.rsz(r4)		;? was this attach to existing region?
+	bne	150$			;? nope
+	call	xm$prc			;free system
+	jmp	20$			;and return error 10
+150$:	bit	#xmsnc$,xm.rct(r4)	;open only?
+	beq	170$			;no
+	clr	rp.r0(r5)		;r0 = 0
+	xmcer$	xmgnf.			;free system and report
+
+;	Create the region file
+
+160$:	clr	xm.rct(r4)		;not a named region
+170$:	clr	r0			;get the size
+	mov	xm.rsz(r4),r1		;
+	add	#mmpib.-1,r1		;round up to a blocksize
+					;(cant map full 32kw yet)
+	assume	mmpib. eq 8.		;
+	ashc	#-sv008.,r0		;divide by pages in block
+;	.enter	#p$hare, #xmchn., r3, r1, #0
+	.enter	#p$hare, xm.chn(r4), r3, r1, #0
+	bcs	220$			;it failed
+	bis	#xmsne$,xm.rct(r4)	;new region created
+					;
+;	Success - return status
+
+180$:	mov	xm.csa(r4),r0		;get the csw area address
+;	mov	p$hchr,r0		;get the channel record
+;	add	#xmchn.*ch.bbs,r0 	;point to the channel
+	mov	r1,ch.use(r0)		;setup for the close
+					;
+	mov	ch.sbl(r0),r1		;get the start block
+	assume	mmpib. eq 8.		;
+	ash	#sv008.,r1		;get the starting page
+	mov	r1,xr.add(r2)		;xr.add - start page of region
+	mov	xm.rsz(r4),xr.siz(r2)	;xr.siz - page size of region
+					;	- signals region in use
+;	movb	rp.rgn(r5),xm.rid(r4)	;xm.rid - return region id
+	mov	rp.rgn(r5),xm.rid(r4)	;xm.rid - return region id
+	bit	#xmrgb$,xm.rst(r4)	;xm.rst - was this a global region?
+	beq	190$			;	- no 
+	movb	xm.rct(r4),r1		;rm.rct - get RT-11 status
+	ash	#7,r1			;	- put it into place
+	bic	#40000,r1		;	- clean up
+	bis	r1,xm.rst(r4)		;xm.rst	- put it back in place
+190$:	bis	#xmrcr$,xm.rst(r4)	;xm.rst - add success
+	bis	#xmscr$,xm.rct(r4)	;xm.rct - section created
+	mov	xm.rct(r4),xr.ctl(r2)	;xr.ctl - retain status
+
+;	Clear first page of new named region
+
+	bit	#xmsin$,xm.rct(r4)	;should we init it?
+	beq	210$			;no
+	psh	m$kip6			;save it
+	mov	xr.add(r2),m$kip6	;yes
+	mov	#m$mpa6,r0		;clear the first page
+200$:	clr	(r0)+			;clear them out
+	cmp	r0,#m$mpa6+64.		;all done?
+	blo	200$			;no
+	pop	m$kip6			;
+
+;	Make region a permanent file
+
+210$:;	.close	#xmchn.			;make it permanent
+	.close	xm.chn(r4)		;make it permanent
+	call	xm$prc			;unlock the system process
+	return				;return and move back the result
+
+;	Create failed - return largest size
+
+220$:	call	xm$prc			;back to process mode
+	.enter	#p$hare,,,#-1		;get the largest size
+	bcs	240$			;this is really wrong
+	ash	#sv008.,r0		;get the number of pages
+230$:	mov	r0,rp.r0(r5)		;store the size
+;	.purge	#xmchn.			;purge it
+	.purge	xm.chn(r4)		;purge it
+	.soft	xminm.			;insufficient memory
+240$:	.soft	xmimm.			;impossible memory
+
+;	Handle codes outside .soft range
+;
+;	jsr	r0,xm$cer		
+;	.word	error code
+
+xm$cer:	tst	(sp)+			;forget saved r0
+	movb	(r0),rp.err(r5)		;setup the error
+	call	xm$prc			;back to process mode
+	jmp	em$err			;report the error
+.sbttl	eliminate region
+
+;	Eliminate region
+;
+;	.elrg	area rdb
+;
+;	iri=2	Invalid region identifier.
+;
+;	Static region may not be eliminated.
+;
+;	Unmap all associated windows.
+;	Eliminate region.
+;	Delete private region file.
+;
+;	Called by XM$EXM to delete regions.
+;
+;	r2 ->	region record
+;	r3
+;	r4 ->	region definition
+;	r5 ->	rp
+
+	assume	xr.add eq 0	;
+xm$erg:				;eliminate region
+.if ne rsx$c
+	cmp	(r2),m$kip2	;trying to delete switched phd?
+	beq	30$		;that's very bad - but just ignore it
+.endc
+	tst	(r2)		;are we in business?
+	beq	30$		;no - ignore this
+	call	xm$rrg		;remove the region
+				;
+	bit	#xmspm$,xr.ctl(r2) ;is this a permanent region?
+	beq	10$		;no - delete all private regions
+	bit	#xmreg$,xm.rst(r4) ;explicit eliminate?
+	bne	10$		;yes
+	tstb	(r5)		;is this $delrg?
+	bpl	20$		;no - ignore it
+	bit	#xmsde$,xm.rct(r4) ;do they want to delete it?
+	beq	20$		;no
+10$:	movi	xr.fnm,r2,r1	;point to the region name
+	.delete	#p$hare, xm.chn(r4), r1 ;delete the region
+				;ignore protection errors
+20$:	clr	(r2)		;xr.add - free the record
+	clr	xm.rsz(r4)	;xm.rsz - free the definition
+	bic	#xmrcr$,xm.rst(r4) ;xm.rst - clear created status
+30$:	return			;
+
+;	Remove region
+;
+;	r0 =	rg.sts bits
+
+xm$rrg:				;remove region
+	bic	#xmrun$,xm.rst(r4) ;xm.rst - assume none unmapped
+	movb	#-1,rp.wnd(r5)	;setup to search the windows
+10$:	call	xm$gnw		;get next window
+	bcs	30$		;no more there
+	cmp	r2,(r3)		;is this a window on us?
+	bne	20$		;no
+	call	xm$rmp		;yes - remove the mapping
+20$:	br	10$		;
+30$:	return
+.sbttl	create window
+
+;	Create window
+;
+;	.craw	addr wdb
+;
+;	rp.p0	window definition block
+;
+;	wal=0	Window alignment error.
+;		Overlaps static window.
+;		Window is too large.
+;		APR is greater than 7.
+;	tmw=1	Too many windows.
+;
+;	Convert user window into internal window.
+;
+;	r2 ->	region record
+;	r3 ->	window record (we find one)
+;	r4 ->	user window definition
+
+xm$cwn:				;create window
+
+;	Check the apr
+
+	movb	xm.wap(r4),r1	;get the first apr
+;sic]	beq	10$		;SHAREplus permits apr0 remapping
+	cmpb	r1,#7		;is this too high?
+	blos	20$		;no
+10$:	.soft	xmwal.		;yes - window alignment error
+
+;	Setup virtual address
+
+20$:	ash	#13.,r1		;make an address
+	mov	r1,xm.wba(r4)	;xm.wba - return base address
+
+	bic	#xmwel$!xmwun$!xmwcr$,xm.wst(r4) ;clear status
+
+;	Calculate low and high addresses
+
+	psh	r1		;sp.lvr (below) low virtual address
+	mov	xm.wsi(r4),r1	;r1 = page size
+;???	beq	10$		;are null window sizes permitted?
+
+	assume	mmbip. eq 64.
+	ash	#sv064.,r1	;r1 = window byte size
+	sub	#2,r1		;r1 = last usable word
+	add	(sp),r1		;r1 = high address
+	bcs	10$		;overflows 32kw space
+	psh	r1		;sp.hvr (below) high virtual address
+
+;	Eliminate overlapping windows
+
+stack	hvr lvr
+
+	movb	#-1,rp.wnd(r5)	;search for a window
+30$:	call	xm$gnw		;get next window
+	bcs	50$		;all done
+	tst	xw.siz(r3)	;is this in use?
+	beq	40$		;no - ignore it
+	cmp	sp.lvr(sp),xw.hvr(r3);proposed base above existing top?
+	bhi	40$		;yes - they cant overlap
+	cmp	sp.hvr(sp),xw.lvr(r3) ;proposed top below existing base?
+	blo	40$		;yes - they cant overlap
+	call	xm$rwn		;overlap - remove window
+40$:	br	30$		;
+
+;	Find a free window control record
+
+50$:	clrb	rp.wnd(r5)	;search for a window (ignore window zero)
+60$:	call	xm$gnw		;get next window
+	bcc	70$		;great
+	.soft	xmtmw.		;too many windows
+70$:	tst	xw.siz(r3)	;is the window free?
+	bne	60$		;no
+
+;	Setup window control record
+
+	pop	xw.hvr(r3)	;xw.hvr - high virtual address (not required) 
+	pop	xw.lvr(r3)	;xw.lvr - low virtual address
+	movb	xm.wap(r4),xw.fpd(r3) ;xw.fpd - first pdr
+	mov	xm.wsi(r4),xw.siz(r3) ;xw.siz - page size
+
+;	Setup window definition
+
+	movb	rp.wnd(r5),xm.wid(r4) ;xm.wid - window id
+				;xm.wap - from caller
+				;xm.wba - base address already setup
+	bis	#xmwcr$,xm.wst(r4) ;xm.wst - window created
+	bit	#xmwmp$,xm.wst(r4) ;should we map it as well?
+	beq	80$		;no
+	call	xm$cmp		;yes
+80$:	return			
+.sbttl	eliminate window
+
+;	Eliminate window
+;
+;	.elaw	area wdb
+;
+; ???	Result for an uncreated window is not specified
+;
+;	iwi=3	invalid window identifier
+;
+;	r2 ->	region record
+;	r3 ->	window record
+;	r4 ->	window definition
+
+xm$ewn:
+	tstb	xm.wid(r4)	;is this the static window?
+	bne	10$		;no
+	.soft	xmiwi.		;yes - can't remove this one
+
+10$:	bic	#xmwcr$!xmwun$,xm.wst(r4) ;set window not created
+	fall	xm$rwn		;and remove it
+
+;	Remove window
+;
+;	Called internally to eliminate a window
+
+xm$rwn:	tst	xw.siz(r3)	;is the window created?
+	beq	10$		;no
+	call	xm$rmp		;remove mapping
+	clr	xw.siz(r3)	;yes
+	bis	#xmwel$,rp.wst(r5) ;window was eliminated
+10$:	return
+.sbttl	map window
+
+;	Map window
+;
+;	.map	area wdb
+;
+;	iri=2	Invalid region identifier.
+;	iwi=3	Invalid window identifier.
+;	wrm=4	Window/region missmatch.
+;		Offset beyond start of region.
+;		Mapped window is larger than region.
+;		End of mapped window beyond end of region.
+;
+;	r2 ->	region record
+;	r3 ->	window record (entry)
+;	r4 ->	window definition (entry)
+;
+;	We map the window into the pars here.
+
+xm$cmp:				;create map window
+	assume	xm.wid eq 0	;
+	tstb	(r4)		;this window zero?
+	bne	10$		;no
+	.soft	xmiwi.		;invalid window id
+
+;	Get the region
+
+10$:	mov	xm.wri(r4),r1	;get the region number
+	beq	15$		;oops
+	call	xm$grn		;get the region setup
+	bcc	20$		;fine
+15$:	.soft	xmiri.		;invalid region
+
+;	Check offset in range
+
+20$:	mov	xr.siz(r2),r1	;r1 = region page size
+	sub	xm.wof(r4),r1	;offset too big?
+	bhi	40$		;no - r1 = remaining size
+30$:	.soft	xmwrm.		;too large
+
+;	Setup implicit mapping
+
+40$:	mov	xm.wle(r4),r0	;r0 = map page length
+	bne	50$		;explicit request
+	mov	r1,r0		;use remaining size
+	cmp	r0,xw.siz(r3)	;is this bigger than the window?
+	blos	50$		;no
+	mov	xw.siz(r3),r0	;yes
+50$:	mov	r0,xm.wle(r4)	;xm.wle - return length for success
+	fall	70$		;redundant tests
+
+;	Check explicit mapping
+
+70$:	cmp	r0,r1		;size larger than remainder?
+	bhi	30$		;yes - bombs
+	cmp	r0,xw.siz(r3)	;bigger than window?
+	bhi	30$		;yes - bombs
+	
+;	Unmap existing mapping
+
+80$:	incb	xr.nwd(r2)	;we got it - count it
+	bic	#xmwun$,xm.wst(r4) ;clear unmapped status
+	call	xm$rmp		;remove mapping perhaps
+
+;	Map the window into the pars
+;	note - page count decremented to fit with mmu logic and this algorithm
+
+	mov	xm.wle(r4),r0	;r0 = length
+	dec	r0		;[sic] mmu requires one less
+	assume	xr.add eq 0	;xr.add(r2)
+	mov	(r2),r1		;get first page
+	add	xm.wof(r4),r1	;plus offset
+
+;	r0 = pages to map	r1 = first page to map
+
+	psh	r5		;save r5
+	movb	xw.fpd(r3),r5	;r5 = page number
+	asl	r5		;r5 = word offset into tables
+	psh	#mmpis.-1*256.+mmdrw. ;(sp) = default descriptor
+	clrb	xw.npd(r3)	;initialize number of pdrs
+	$cmsch			;stop the scheduler for this
+100$:	incb	xw.npd(r3)	;count the number of pars
+	mov	r1,p$huip(r5)	;move in the par
+	mov	r1,m$uip0(r5)	;user par
+	cmp	r0,#mmpis.	;more than one par?
+	blo	110$		;[sic] no this is the last
+	mov	(sp),p$huid(r5)	;change the descriptor
+	mov	(sp),m$uid0(r5)	;
+	add	#2,r5		;skip this par
+	sub	#mmpis.,r0	;4kw less to map
+	add	#mmpis.,r1	;
+	br	100$		;
+
+;	Map last par - if only one par then its done here
+
+110$:	swab	r0		;get the length in the upper byte
+	bis	#mmdrw.,r0	;add in the access mode
+	mov	r0,p$huid(r5)	;move them in
+	mov	r0,m$uid0(r5)	;	
+	mov	r0,xw.lpd(r3)	;last page descriptor (rt-11)
+	$cmpro			;
+	tst	(sp)+		;pop default descriptor
+	pop	r5		;restore rp pointer
+
+;	Setup window control
+
+	assume	xw.rbp eq 0	;
+	mov	r2,(r3)		;xw.rbp = r2 -> xr
+				;xw.lvr - craw
+	mov	xm.wle(r4),r1	;get the mapped length
+	assume	mmbip. eq 64.	;
+	ash	#sv064.,r1	;
+	add	xw.lvr(r3),r1	;add in the base
+	sub	#2,r1		;last usable address is required
+	mov	r1,xw.hvr(r3)	;xw.hvr - high virtual address
+	mov	xm.wof(r4),xw.off(r3) ;xw.off - offset
+				;xw.fpd - craw
+				;xw.npd - above
+				;xw.lpd - above
+	return
+.sbttl	unmap window
+
+;	Unmap window
+;
+;	.unmap	area wdb
+;
+;	rp.p0	Window definition block
+;
+;	iri=2	Invalid region identifier.
+;	wnm=5	Window was not mapped.
+;
+;	Restores default mapping for privileged jobs.
+
+xm$emp:				;eliminate mapping
+	tst	(r3)		;is it mapped?
+	bne	xm$rmp		;yes - remove mapping
+	.soft	xmwnm.		;window was not mapped
+
+;	Remove mapping
+;
+;	Reset the PHD and MMU pars back to the process default
+
+xm$rmp:	psh	r2		;remove mapping
+	mov	(r3),r2		;is it mapped already?
+	beq	20$		;no
+
+;	Restore original mapping
+
+	$cmsch			;stop the scheduler for this
+	movb	xw.fpd(r3),r0	;get the first par
+	asl	r0		;make it a word offset
+	movb	xw.npd(r3),r1	;get the number of pars
+10$:	mov	p$hcip(r0),p$huip(r0) ;phd par
+	mov	p$hcip(r0),m$uip0(r0) ;mmu par
+	mov	p$hcid(r0),p$huid(r0) ;phd 
+	mov	p$hcid(r0),m$uid0(r0) ;mmu
+	add	#2,r0		;next par
+	sob	r1,10$		;
+	$cmpro			;enable scheduler
+
+;	Reset the database
+
+	clr	(r3)		;remove it
+	decb	xr.nwd(r2)	;yes - unmap it
+	bis	#xmrun$,rp.rst(r5) ;xm.rst - window was unmapped
+	bis	#xmwun$,rp.wst(r5) ;xm.wst - window was unmapped
+20$:	pop	r2		;restore these
+	return
+.sbttl	get mapping context
+
+;	Get mapping context
+;
+;	.gmcx	area wdb
+;
+;	iwi=3	Invalid window identifier.
+;
+;	This request can be used to reset a WDB from system data.
+;
+;	xm.wap	Window base apr
+;	xm.wba	Window base virtual address
+;	xm.wsi	Window page size.
+;	xm.wri	Window region identifier
+;
+;	If window is mapped to a region:
+;
+;	xm.wof	Page offset into region
+;	xm.wle	Page length of mapped window
+;	xm.wst	wnmap$ is set.
+
+xm$gmc:				;get window context
+
+;	Window status
+
+	mov	xw.hvr(r3),r2	;r2 = high virtual address (below)
+	mov	xw.lvr(r3),r1	;r1 = low virtual address
+	sub	r1,r2		;r2 = byte_length-2
+;;	promise	r2_length	;promise r2 = length for xm.wle below
+	mov	r1,xm.wba(r4)	;xw.wba - base virtual address
+	ash	#-13.,r1	;isolate the page number
+	bic	#^c7,r1		;
+	movb	r1,xm.wap(r4)	;xm.wap - apr
+				;xm.wba - above
+	mov	xw.siz(r3),xm.wsi(r4) ;xm.wsi - size
+
+;	Mapping status
+
+	clrb	xm.wri(r4)	;assume not mapped
+	clr	xm.wof(r4)	;
+	clr	xm.wle(r4)	;
+	clr	xm.wst(r4)	;
+
+	assume	xw.rbp eq 0	;
+	mov	(r3),r1		;get the region control record address
+	beq	10$		;not mapped
+	sub	r4,r1		;remove record base
+	sub	#xm.xrg,r1	;remove record offset
+	clr	r0		;setup to divide
+	div	#xr.bbs,r0	;get the element number
+	movb	r0,xm.wri(r4)	;xm.wri - region id
+
+	mov	xw.off(r3),xm.wof(r4) ;xm.wof - offset
+;;	honour	r2_length	;r2 = mapped byte_length-2
+	ash	#-sv064.,r2	;r2 = pages-1
+	inc	r2		;
+	mov	r2,xm.wle(r4)	;xm.wle - mapped window length
+
+	bis	#xmwmp$,xm.wst(r4) ;xm.wst - mapped	
+10$:	return
+.sbttl	create & delete xm context
+
+;	Create xm context
+;
+;	Called by the first XM request.
+;	Create blank XM record.
+;
+;	imm=10	impossible memory condition
+
+xm$cxm:				;create xm context
+	call	xm$sys		;change mode system
+	$crepo	#poxmr.!poclr$!poprc$,#xm.bbs ;create the element
+	bcc	10$		;fine
+	clr	r0		;oops
+10$:	mov	r0,p$hxmr	;save it
+	call	xm$prc		;change mode to process
+	mov	p$hxmr,r4	;return the pointer
+	bne	20$		;fine
+	.soft	xmimm.		;impossible memory condition
+20$:	return
+
+;	Eliminate XM context
+;
+;	Called during exit.
+;	Delete any private regions.
+;	Delete XM record.
+
+xm$exm:				;abort xm
+.if ne 0			;this code is in RIM exit path
+	$cmsch			;dont reschedule in the middle
+	clr	r0		;reset user mapping
+5$:	mov	p$hcip(r0),p$huip(r0) ;phd par
+	mov	p$hcip(r0),m$uip0(r0) ;mmu par
+	mov	p$hcid(r0),p$huid(r0) ;phd 
+	mov	p$hcid(r0),m$uid0(r0) ;mmu
+	tst	(r0)+		;next one
+	cmp	r0,#16.		;done eight of them?
+	blo	5$		;no
+	$cmpro			;turn the scheduler back on
+.endc
+.if ne rsx$c
+	call	xm$xph		;exit phd remapping
+.endc
+	movb	#-1,rp.rgn(r5)	;start with the first region
+	call	xm$sys		;get system context
+10$:	call	xm$gnr		;get the next region
+	bcs	30$		;we are done with the regions
+;	assume	xmscr$ eq 100000;
+;	tst	xm.rct(r4)	;did this guy create it?
+;	bpl	20$		;no
+	tst	(r2)		;this one in use?		;??
+	beq	10$		;nope				;??
+	bit	#xmsne$,xr.ctl(r2) ;did this guy create it	;??
+	beq	20$		;no				;??
+	bit	#xmsxi$,xr.ctl(r2) ;eliminate on exit?
+	beq	20$		;no
+	bic	#xmspm$,xr.ctl(r2) ;yes - clear permanent flag
+20$:	clr	xm.rst(r4)	;remove any hanging bits
+	call	xm$erg		;eliminate it
+	br	10$		;and get the next
+30$:
+	$delpo	r4		;delete the pool element
+	clr	p$hxmr		;remove the record pointer
+	call	xm$prc		;back to process state
+	$fedsm			;dismount feature
+	return
+
+xm$sys:	$obtain	#s$yque
+	return
+xm$prc:	$divest	#s$yque
+	return
+.sbttl	create virtual image & overlays
+
+;	Create virtual image and overlays
+;
+;	Called by image activator. Root is loaded.
+;	Setup XM control record and store virtual high limit (xm.vhi)
+;	Create virtual overlays (if any required)
+;
+;	Region 0 is not used for RT-11 compatibility.
+;	Region 0 holds virtual high limit and last virtual settop.
+;
+;	Region 1 is used for virtual overlays since region 1 is the first
+;	available region and virtual overlays are always first to request.
+;
+;	The virtual overlay handler does not know which region will be used
+;	so it fudges by passing a region id of -1 which RT-11 converts to
+;	the overlay region number. We just negate negative values.
+;
+;	rp.p1	virtual high limit (from RIM)
+;
+;	r2 ->	xm region control - kernel
+;	r3 ->	overlay region - user address
+;	r4 ->	xm record - kernel (on entry)
+;	r5 ->	request packet - kernel
+
+xm$cov:					;init virtual overlays
+	bis	#mmpum$,@#ps		;force previous mode to user
+	mov	rp.p0(r5),xm.vhi(r4) 	;store the virtual top
+	cmp	p$hrsx,#^rrsx		;this an RSX image?
+	beq	40$			;yes - just wanted to setup for settop
+	movfd	@#j$bvot,r3		;[sic] test for virtual overlays
+	beq	40$			;are none - exit
+
+;	Create the region
+
+	movfd	@#j$blot,r3		;
+	sub	#ov.lot,r3		;r3 -> user overlay descriptor
+	mov	r3,rp.p0(r5)		;
+	add	#ov.rdb,rp.p0(r5) 	;rp.p0 -> user region
+	call	xm$ruk			;get the region
+
+;	Try for a shared image first
+
+	movi	xm.rct,r4,r0		;build a named region
+	mov	#xmsnc$!xmsgb$!xmsex$,(r0)+ 	;don't create one
+	mov	#^rvm,(r0)+		;xm.rfn
+	mov	p$himg+fn.fil,(r0)+ 	;xm.rfn+fn.fil
+	mov	p$himg+fn.nam,(r0)+ 	;xm.rfn+fn.fnam
+	mov	#^rshx,(r0)+	    	;xm.rfn+fn.typ
+	clr	(r0)+			;xm.rui - uic
+	clr	(r0)+			;xm.rpr - protection
+	$crerg	#p$hare,r4		;try for the region
+	bcc	40$			;fine - we got a shared runtime
+
+;	No runtime - use a private region
+
+	.crrg	#p$hare,r4		;create the region
+	bcs	100$			;oops - probably no space
+	mov	r0,r2			;r0 returns pointing to rcb ???
+
+;	Clear the first word of each overlay window
+
+20$:	movfd	ov.wdb(r3),r0		;get the first wdb
+	mfpd	ov.wde(r3)		;(sp) = end of wdb's
+					;
+30$:	psh	m$kip6			;save it
+	mfpd	xm.wof(r0)		;get the window offset
+	bvs	90$			;screwed up
+	assume	xr.add eq 0		;
+	add	(r2),(sp)		;add the region base in
+	pop	m$kip6			;map par6 to it
+	clr	m$mpa6			;clear the first word of it
+	bvs	90$			;really screwed
+	pop	m$kip6			;restore par6
+	add	#xm.wbs,r0		;next window
+	cmp	r0,(sp)			;all done?
+	blo	30$			;no
+40$:	jmp	em$exi			;yes
+					;
+90$:	pop	m$kip6			;restore it first
+100$:	.hard	erovr.			;overlay error
+.sbttl	virtual settop
+
+;	Virtual settop
+;
+;	Settop calls us to handle all settops for plas images.
+;	Image indicates this with ^rVIR flag and virt$ in jsw.
+;	We use fepla$ in p$hfem to detect virtual settops.
+;
+;	If the process is not using virtual settop we perform
+;	a standard settop and return.
+;
+;	Virtual settop is indicated by xm.vhi<>=0. This is setup
+;	by the initial call from RIM to xm$cov.
+;
+;	xm.vhi	High-limit established by /V
+;	xm.vto	Current virtual settop address - zero => none
+;	rto	Requested top address
+;
+;	If rto<=vhi	unmap region, return vhi	delete
+;
+;	If vto=0	create region and map to rto	create
+;
+;	If rto<vto	remap settop window to rto	contract
+;	If rto>vto	remap settop window to vto	extend
+;
+;	r1	vhi - virtual high limit thruout
+;	r3	rto - requested top address
+;	r4	xm record
+;	r5	rp
+
+xm$sto::			;virtual settop
+	psh	r4		;for all emts
+	clr	-(sp)		;for all emts
+	mov	xm.vhi(r4),r1	;get image virtual limit
+	bne	20$		;we have virtual settop
+	cmp	r3,p$husr	;perform standard settop
+	blos	10$		;its o.k.
+	mov	p$husr,r3	;reduce it
+10$:	br	200$		;and quit
+				;
+20$:	cmp	r3,r1		;this lower than virtual limit?
+	bhi	50$		;no - create or remap
+	mov	xm.vri(r4),(r4)	;get the region id
+	beq	30$		;no id - nothing to eliminate
+	.elrg	sp		;eliminate the region
+	clr	xm.vri(r4)	;and remember we have nothing
+30$:	br	190$		;quit returning vhi
+
+;	Map the region
+
+50$:	sub	r1,r3		;r3 = bytes required
+	assume	mmbip. eq 64.	;bytes in page
+	add	#63.,r3		;round up to a page
+	clr	r2		;long shift for unsigned number
+	ashc	#-sv064.,r2	;r3 = pages required
+				;
+	mov	xm.vri(r4),(r4)	;got a region already?
+	bne	100$		;yes - just remap it
+				;
+60$:	mov	r3,xm.rsz(r4)	;setup the request size
+	.crrg	sp		;create the region
+	bcc	70$		;fine
+	mov	r0,r3		;assume we can try again
+	cmpb	p$herr,#xminm.	;can we retry this?
+	beq	60$		;yes - try for less
+	br	190$		;no - fail with vhi
+				;
+70$:	mov	(r4),xm.vri(r4)	;remember the region id
+	mov	r3,xm.vsi(r4)	;and the region size
+
+;	Create and map the window
+;
+;	r1	virtual high limit
+;	r3	pages required
+;	(r4)	region id
+
+100$:	cmp	r3,xm.vsi(r4)	;is this request too high?
+	blos	110$		;no
+	mov	xm.vsi(r4),r3	;yes - use maximum instead
+				;
+110$:	mov	r4,r0		;r0 -> wdb for fill in
+	cmp	(r0)+,(r0)+	;xm.wid - skip it
+				;xm.wap - apr - do it later
+				;xm.wba - base address returned
+	mov	r3,(r0)+	;xm.wsi - window page size
+	mov	(r4),(r0)+	;xm.wri - window region id
+	clr	(r0)+		;xm.wof - window offset
+	mov	r3,(r0)+	;xm.wle - window mapping length
+	mov	#xmwmp$,(r0)	;xm.wst - create and map flag
+				;
+	mov	r1,r0		;convert vhi to apr
+	add	#2,r0		;get the base address
+	ash	#-5,r0		;move it down low in the high byte
+	bic	#^c<7*256.>,r0	;clean all but apr
+	mov	r0,(r4)		;xm.wid/xm.wap
+	.craw	sp		;create and map the window
+	bcs	190$		;failed  - return vhi
+	ash	#sv064.,r3	;success - compute top address
+	add	r3,r1		;r1 -> new top address
+190$:	mov	r1,r3		;failed - return virtual high limit
+200$:	mov	r3,rp.r0(r5)	;return it in r0
+	movtd	r3,@#j$btop	;and return it here as well
+.if ne rsx$c
+	call	xm$mph		;remap phd for some 
+.endc
+	jmp	em$exi		;and quit
+.sbttl	map i/o requests
+
+;	Map I/O requests
+;
+;	Called here via the plas interface to map i/o requests.
+;	RIO saves r2 and par1 before calling. We return via sy$rp1
+;	which restores par1. RIO restores r2 (which was destroyed by
+;	the feature interface).
+;
+;	Find a window for it
+;	Make sure request is within a window
+;	Remap request to 22-bit if necessary
+;
+;  ??	r1	high virtual address of request
+;	r2	destroyed
+;	r3 ->	unit record
+;	r4 ->	csw
+;	r5 ->	rp
+;
+;	rp.cod	address space - byte
+;	rp.p1	buffer address
+;	rp.p2	word count
+
+xm$iow:	pshs	<r4,r1>		;save these
+.if ne rsx$c
+	mov	p$hpcr,r4	;get the pcr
+	tst	pr.phx(r4)	;full 32kw mapping?
+	bne	80$		;yes - anything fits
+.endc
+	mov	p$hxmr,r2	;point to their record
+	beq	90$		;oops - we lost it (or not created)
+	add	#xm.xwn,r2	;point to the windows
+	mov	#xmmwn.,r0	;r0 = window count
+	assume	xw.rbp eq 0	;
+10$:	tst	(r2)		;this in use?
+	beq	20$		;no
+	cmp	rp.p1(r5),xw.lvr(r2) ;transfer low above window low?
+	blo	20$		     ;nope - discard it
+	cmp	rp.p1(r5),xw.hvr(r2) ;transfer low below window high?
+	blos	50$		;yes - this is our window
+20$:	add	#xw.bbs,r2	;point to the next
+	sob	r0,10$		;do them all
+	br	90$		;assume it is the root
+				;
+50$:
+.if ne new$c
+				;see if it's inside the window
+	mov	rp.p2(r5),r1	;get the wordcount
+	beq	70$		;a seek - no transfer
+	dec	r1		;want last word in buffer
+	asl	r1		;make bytes
+	add	rp.p1(r5),r1	;r1 -> end of buffer
+	bcs	55$		;overflowed - too large for us
+	cmp	r1,xw.hvr(r2)	;does it fit in window?
+	blos	70$		;yes - no problems
+.endc
+55$:	mov	rp.p1(r5),r1	;get transfer buffer address
+	sub	xw.lvr(r2),r1	;get offset into window
+;	add	#mmbip.-1,r1	;adjust to next page
+	assume	mmbip. eq 64.	;
+	clr	r0		;without sign extend
+	ashc	#-sv064.,r0	;get offset in pages
+				;r1 = offset in window
+	mov	rp.p2(r5),r0	;get word count
+	add	#mmwip.-1,r0	;adjust to full page
+	assume	mmwip. eq 32.	;
+	ash	#-sv032.,r0	;get it in pages
+	bic	#mmpn$n,r0	;isolate page number
+				;r0 = buffer size in pages
+
+;	Virtual i/o devices need fully mapped buffer
+;
+;	Check if buffer fits into window
+
+	psh	r0		;buffer size
+	add	r1,(sp)		;add in offset
+	cmp	(sp)+,xw.siz(r2) ;does it fit in window?
+	blos	70$		;yes
+
+;	r0	transfer word count in pages
+;	r1	offset from start of window to transfer buffer
+
+	mov	un.der(r3),r4	;get device record
+	bit	#devab$,de.con(r4) ;this using virtual i/o?
+	bne	60$		;yes - needs contiguous buffer
+
+;	See if I/O fits within region (rather than window)
+
+	assume	xw.rbp eq 0	;
+	mov	(r2),r4		;get region id
+	beq	60$		;oops - should not happen
+	mov	xr.siz(r4),r4	;get region size
+	add	xw.off(r2),r0	;add in window offset
+	bcs	60$		;oops
+	add	r1,r0		;add in offset from start of window
+	bcs	60$		;oops - overflow
+	cmp	r0,r4		;does buffer fit in region?
+	blos	70$		;yes
+60$:	.hard	eradr.		;invalid transfer window addresses
+
+70$:	movb	xw.fpd(r2),r2	;get the first par offset
+	asl	r2		;make a word offset
+	cmp	p$huip(r2),#mmp22. ;is this in 22-bit space?
+	beq	80$		;no
+	movb	#as22b$,rp.cod(r5) ;yes - reset the address space flags
+				;
+80$:	tst	(pc)+		;adjusted and o.k.	
+90$:	sec			;we did not check it
+	pops	<r1,r4>		;restore regs
+	pop	(sp)		;push out the par1
+	psh	#mmkp1.		;return this
+	jmp	sy$rp1		;return restoring par1
+
+$fetop				;end of feature
+.end
+L I M B O
+
+.sbttl	remap process header
+
+;	Also need to update xm$iow
+;
+;	This code implements a full 32kw contiguous process address space.
+;	The process header, usually mapped to user par7, is copied
+;	and remapped leaving user par7 free.
+;
+;	The assumption is that virtual settop has just mapped the top
+;	4kw of a 32kw process and that it's mapped to m$uip7.
+
+xm$mph::cmp	p$hrsx,#^rrsx		;this an RSX image?
+	bne	10$			;nope
+	cmp	p$hval,#m$mpa7		;must be 32kw image
+	blo	10$			;invalid address
+	jsr	r5,ut$sav		;save the lot
+	call	xm$sys			;block aborts
+	mov	m$kip2,r1		;source par
+	clr	r2			;source offset
+	mov	m$uip7,r3		;destination par
+	clr	r4			;offset
+	mov	#4*1024.,r5		;count
+	call	io$mov			;copy the data
+	mov	p$hpcr,r4		;get the pcr
+	spl	7			;changing sensitive things
+	mov	pr.phd(r4),pr.phx(r4)	;record and flag the switch
+	mov	m$uip7,pr.phd(r4)	;remap phd in the pcr
+	mov	m$uip7,m$kip2		;and remap it physically
+	mov	p$hcip+mm.p7,m$uip7	;restore original mapping
+	mov	m$uip7,p$huip+mm.p7	;
+	spl	0			;
+	call	cm$pro			;
+10$:	return
+
+;	Map process header back to original - part of $elxm
+
+xm$xph::mov	p$hpcr,r4		;get the pcr
+	mov	pr.phx(r4),r0		;have we remapped the phd?
+	beq				;nope
+	jsr	r5,ut$sav		;yep
+	call	xm$sys			;block aborts
+	mov	m$kip2,r1		;source par
+	clr	r2			;source offset
+	mov	r0,r3			;destination par
+	clr	r4			;offset
+	mov	#4*1024.,r5		;count
+	call	io$mov			;copy the data
+	mov	p$hpcr,r4		;get the pcr
+	mov	pr.phx(r4),r0		;
+	spl	7			;changing sensitive things
+	mov	r0,pr.phd(r4)		;reset the pcr
+	mov	r0,m$kip2		;and remap it physically
+	clr	pr.phx(r4)		;not switched anymore
+	spl	0			;
+	call	cm$pro			;back to process
+	return
+

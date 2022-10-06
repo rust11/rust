@@ -1,0 +1,1396 @@
+.title	queuex
+.include "lib:share.mac"
+.include "rfs:spodef.mac"
+$erdef		;error codes
+$esdef		;error severity
+$fndef		;filename
+$dedef		;devices
+$jbdef		;job
+$mmdef		;mmu
+$rpdef		;rp
+$podef		;pool
+$prdef		;process
+$srdef		;system rights
+$txdef		;text
+$undef		;unit
+
+$imgdef	QUEUEX 2 4
+$imginf	fun=sav cre=hammo aut=dev use=<Controls SHAREplus pipeline spooler>
+$imgham	yrs=<1986> oth=<>
+;	%date
+$imgdat	<01-Mar-2008 15:50:40.47>
+;	%edit
+;	<47   >
+
+;	%build
+;	goto 'p1'
+;	macro lib:prefac+rfs:queuex/object:rfb:
+;	link:
+;	r link
+;	rfb:queuex=rfb:queuex,lib:output,lib:share
+;	^C
+;	goto end
+;	if "'p1'" goto end
+;	!set error none
+;	!copy rfb:queuex.sav sy:queuex.sav
+;	!set error error
+;	end:
+;	%end
+;
+;	Process rights required:	
+;
+;	none	/LIST only permitted.
+;	oper	Any command permitted.
+;
+;	Image rights required:	
+;
+;	cmkrnl	To execute kernel functions.
+;	sysnam	To create system-wide logical queue names.
+;
+;	SHAREplus QUEUE spooler utility
+;
+;	/a	abort		/j			/s	stop
+;	/b			/k			/t	top
+;	/c	consignment	/l	list		/u
+;	/d:dit	diversion	/m	modify		/v
+;	/e			/n	next		/w
+;	/f			/o			/x
+;	/g	go/start	/p	printer		/y:itm	yes
+;	/h			/q	requeue		/z:itm	no
+;	/i:rep	install		/r	remove
+;
+;	divert/options device queue
+;	consign/options queue printer
+;	install/printer printer
+;
+;	remove/diversion
+;	remove/consignment
+;	remove/printer
+;
+;	show queues	wildcard search for queued files
+;	show spooler	summarize all
+;
+;	show diversions	
+;	show consignments
+;	show printers
+;
+;	$input	device/printer
+;	$output	int:que
+;
+;SHAREplus V1.1  Spoolers on 
+;Device	Diversion	Queue	Consignment	Output	Printer	
+;ME:			QUE:ME0	None
+;LP:	Loo		QUE:LST	Start		LP:	Active		
+;			QUE:BIG	Stop Error	LS:	None
+
+;meta	<$fatal c ret g=generr><call fathea><$type <c>><.iif b <ret>,jmp g>
+meta	<$fatal c g=generr><call fathea><$type <c>><jmp g>
+.sbttl	get the command
+
+start:
+	asl	#100000		;this the first entry?
+	bcc	10$		;no
+	mov	r5,shpid	;
+10$:	mov	j$busp,sp	;
+	mov	#from,r0
+15$:	clr	(r0)+		;
+	cmp	r0,#to
+	blo	15$		;
+	.purge	#0		;
+	psh	#-1		;
+	.csispc	#files, #types, #0, #line ;get the command
+	tstb	line		;got a command?
+	bne	20$		;yes
+	.print	#i$midt		;display the id
+	br	10$		;
+
+20$:	call	cu$ker		;check system stuff
+40$:	tst	(sp)+		;
+	mov	sp,r5		;r5 -> options
+	call	getopt		;get the options
+	call	posopt		;post process options
+	call	getobj		;get the object names
+	call	getsys		;check for SHAREplus & STB
+	call	getcom		;get the command
+	call	poslog		;post-process logical names
+	br	10$		;and do another
+
+;	unconditional restart routine
+
+cu$urv:	$cmkrnl	#area, #cu$rp6, pic=yes ;reset par6 mapping
+	.exit			;and quit
+.sbttl	get kernel information
+
+;	Setup kernel information
+;
+;	Make sure kernel is available
+;
+;	out	oper	0	not operator
+;			1	is operator
+
+cu$ker:	.serr				;catch all errors
+	cmp	shpid,#^rshpid		;is this SHAREplus?
+	beq	10$			;yes
+	$fatal	<SHAREplus system required>
+10$:	$cmkrnl	#area, #100$, pic=yes	;get the information
+	bcc	30$			;fine
+	cmpb	j$berr,#eracm.		;invalid access mode
+	bne	20$			;not not installed
+	$fatal	<QUEUE not installed with CMKRNL rights>
+20$:	$fatal	<System error accessing kernel data>
+30$:	return				;
+
+100$:	$right	sropr.			;got operator rights?
+	bcs	110$			;no
+	inc	oper			;yes - remember it
+	bis	#srsna$,@#p$hir0+sr.sna	;give us SYSNAM rights
+	bis	#srsna$,@#p$hsr0+sr.sna	;twice
+110$:	return				;
+.sbttl	process options
+
+.macro	opt	nam	rou	ctl=0
+	.byte	''nam
+	.byte	ctl
+	.word	rou
+.endm
+
+;	/a	abort		/j			/s	stop
+;	/b			/k			/t	top
+;	/c	consignment	/l	list		/u
+;	/d:dit	diversion	/m	modify		/v
+;	/e			/n	next		/w
+;	/f			/o			/x
+;	/g	go/start	/p	printer		/y:itm	yes
+;	/h			/q	requeue		/z:itm	no
+;	/i:rep	install		/r	remove
+
+;	nam	rou	ctl
+optlst:
+opt	A	o.abor	0	;/abort
+opt	C	o.cons	0	;/consign
+opt	D	o.dive	swval$	;/divert
+opt	G	o.star	0	;/start
+opt	I	o.inst	0	;/install
+opt	L	o.show	0	;/list
+opt	M	o.modi	0	;/modify
+opt	N	o.next	0	;/next
+opt	P	o.prin	0	;/printer
+opt	Q	o.requ	0	;/requeu
+opt	R	o.remo	0	;/remove
+opt	S	o.stop	0	;/stop
+opt	T	o.topo	0	;/top_of_form
+opt	Y	o.seti	swval$	;/y:itm
+opt	Z	o.clea	swval$	;/z:itm
+.word	0
+
+;	Process options
+;
+;	r0	
+;	r1
+;	r2 ->	switch frame
+;	r3 =	option word
+;	r4 =	value (default = 0)
+;	r5 ->	switch input
+
+map	sw.nam	byte,0	;switch name
+map	sw.ctl	byte	;control byte
+map	sw.rou		;routine
+map	sw.bbs		;
+
+map	swreq$,,100	;required value
+map	swval$,,200	;optional value
+
+getopt:
+5$:	clr	r4		;default is no value
+	mov	(r5)+,r3	;get the next
+	bpl	10$		;not the last and no value
+	cmp	r3,#-1		;this the last?
+	beq	80$		;yes
+	mov	(r5)+,r4	;get the value
+10$:	cmpb	r3,#'a		;this upper case?
+	blo	20$		;no
+	cmpb	r3,#'z		;really?
+	bhi	20$		;no
+	bicb	#'a-'A,r3	;yes
+20$:	mov	#optlst,r2	;get the option list
+30$:	tst	(r2)		;is this the last?
+	bne	40$		;no
+	$fatal	<Invalid option>,opterr
+
+40$:	cmpb	r3,(r2)		;is this the switch?
+	beq	50$		;yes
+	add	#sw.bbs,r2	;no - get the next
+	br	30$		;
+
+50$:	tst	r3		;got a value?
+	bmi	60$		;yes
+	bitb	swreq$,sw.ctl(r2) ;require a value?
+	beq	70$		;no
+	$fatal	<Option requires value>,opterr
+
+60$:	bitb	#swval$!swreq$,sw.ctl(r2) ;does it accept a value?
+	bne	70$		;yes
+	$fatal	<Option does not accept value>,opterr
+
+70$:	call	@sw.rou(r2)	;call the routine
+	br	5$		;and look for the next
+80$:	return
+.sbttl	errors
+
+tabful:	add	obj,pc
+	br	fuldiv
+	br	fulcon
+	br	fulpri
+fuldiv:	$fatal	<Diversion table full>
+fulcon:	$fatal	<Consignment table full>
+fulpri:	$fatal	<Printer table full>
+
+notfnd:	add	obj,pc
+	br	notdiv
+	br	notcon
+	br	notpri
+notdiv:	$fatal	<Diversion not found>
+notcon:	$fatal	<Consignment not found>
+notpri:	$fatal	<Printer not found>
+objact:	add	obj,pc
+	br	divact
+	br	conact
+	br	priact
+divact:	$fatal	<Diversion is active>
+conact:	$fatal	<Consignment is active>
+priact:	$fatal	<Printer is active>
+
+
+fathea:	$type	<?QUEUEX-E->
+	$sxtsta	cat=error
+	return
+
+;	r3 = option character
+
+opterr:	$type	< >		;
+	$file	#ifile		;
+	$type	< />		;
+	.ttyout	r3		;
+	$print
+	bisb	eserr$,j$blev	;
+	jmp	start
+
+deverr:	$type	< >
+	$rad50	dev		;
+	$type	<:>
+	br	generr
+prierr:	$type	< >
+	$rad50	pri
+	$type	<:>
+	br	generr
+conerr:
+interr:	$type	< >
+	$rad50	int		;
+	$type	<:>		;
+	$rad50	que		;
+	br	generr		;
+queerr:	$type	< >
+	$rad50	que		;
+	br	generr		;
+
+;	general - set error
+
+generr:	bisb	eserr$,j$blev	;
+inferr:;tst	ifile+2		;got a file?
+;	beq	20$		;no
+;	$type	< >		;
+;	$file	#ifile		;
+20$:	$print			;
+	jmp	start		;
+.sbttl	items
+
+.macro	item	nam	val=0	rou=0
+	.rad50	/nam/
+	.word	val,rou
+.endm
+
+items:
+item	LOG	cudlg$		;/logical
+item	LOO	cudlu$		;/lookup
+item	PUR	cudnp$		;/nopurge
+item	PIP	cupip$		;/pipelined
+item	HOL	cuhol$		;/hold
+item	PHY	0		;/physical - ignored
+	.word	0
+
+;	call	getitem
+;	r0 =	item value
+;	r1 ->	item routine
+;	r4	item code from getopt
+
+getitem:			;find the item in r4
+	clr	r0		;
+	clr	r1		;
+	tst	r4		;got a value?
+	beq	30$		;no - ignore this
+	mov	#items,r0	;search for it
+10$:	cmp	r4,(r0)+	;is this ours?
+	beq	20$		;yes
+	cmp	(r0)+,(r0)+	;no - skip it
+	tst	(r0)		;any more?
+	bne	10$		;yes
+;	$fatal	<Item not found >,return
+	$fatal	<Item not found >,15$
+15$:	$rad50	r4		;display it
+	jmp	generr		;and forget it
+20$:	mov	2(r0),r1	;r1 = address
+	mov	(r0),r0		;r0 = value
+30$:	return
+.sbttl	option preprocessing
+
+posopt:	tst	coms		;got a command?
+	bne	10$		;yes
+	tst	sets		;got some kind of set option?
+	bne	o.set		;yes - force SET command
+	br	o.show		;no - default to SHOW
+10$:	return
+
+;	commands
+
+o.inst:	mov	#loinc.,r0
+	br	o.com
+o.remo:	mov	#lorec.,r0
+	br	o.com
+o.show:	mov	#losho.,r0
+	br	o.com
+o.modi:
+o.set:	mov	#loset.,r0
+	br	o.com
+
+o.com:	mov	r0,com
+	mov	bitmap(r0),r0
+	bis	r0,coms
+	com	r0
+	bit	r0,coms
+	beq	10$
+	$fatal	<Conflicting command options>
+10$:	cmp	com,#losho.	;is this a SHOW command?
+	beq	20$		;yes - always permitted
+	tst	oper		;got operator rights?
+	bne	20$		;yes
+	$fatal	<Missing system rights: OPER> ;no
+20$:	return
+	
+;	objects
+
+o.dive:	mov	#lodic.,r0
+	br	o.obj
+o.cons:	mov	#lococ.,r0
+	br	o.obj
+o.prin:	mov	#loprc.,r0
+	br	o.obj
+o.obj:	mov	r0,obj
+	mov	bitmap(r0),r0
+	bis	r0,objs
+	com	r0
+	bit	r0,objs
+	beq	10$
+	$fatal	<Conflicting objects>
+10$:	return
+
+;	flags
+
+o.abor:	bis	#cuabo$,sets
+	return
+o.star:	bis	#custa$,sets
+	return
+o.stop:	bis	#custo$,sets
+	return
+o.next:	bis	#cunex$,sets
+	return
+o.topo:	bis	#cutop$,sets
+	return
+o.requ:	bis	#cureq$,sets
+	return
+
+;	items
+
+o.seti:	call	getitem
+	bis	r0,sets
+	return
+o.clea:	call	getitem
+	bis	r0,clears
+	return
+.sbttl	object preprocessing
+
+;	install	divert	dev:	int:que
+;	remove divert		dev:
+
+getobj:	mov	com,r5		;get the command
+	mov	10$(r5),r5	;r5 points to object list
+	mov	obj,r0		;
+	call	@50$(r0)	;cleanup set/clear stuff
+	asl	r0		;two commands per object
+	add	r0,r5		;
+	mov	#ifile,r4	;assume input
+	call	@(r5)+		;do the first
+	mov	#ifile,r4	;assume input
+	call	@(r5)+		;do the second
+	return
+
+10$:	.word	20$		;install
+	.word	30$		;remove
+	.word	40$		;show
+	.word	30$		;set
+				;
+20$:	.word	outque,inpdev	;install diversions
+	.word	outpri,inpque	;install consignments
+	.word	inppri,nothing	;install printer
+				;
+30$:	.word	inpdev,nothing	;set/remove diversions
+	.word	inpque,nothing	;set/remove consignments
+	.word	inppri,nothing	;set/remove printer
+				;
+40$:	.word	nothing,nothing	;show diversions
+	.word	nothing,nothing	;show consignments
+	.word	nothing,nothing	;show printers
+
+50$:	.word	60$,70$,80$	;sets/clears preprocessing
+
+60$:	bic	#^c<cudlg$!cudlu$!cudnp$!cupip$!cuhol$>,sets
+	bic	#^c<cudlg$!cudlu$!cudnp$!cupip$!cuhol$>,clears
+	return
+70$:
+80$:	bic	#cudlg$!cudlu$!cudnp$!cupip$!cuhol$,sets
+	bic	#cudlg$!cudlu$!cudnp$!cupip$!cuhol$,clears
+	return
+
+nothing:return
+
+inpdev:	mov	(r4),dev	;get the device
+	beq	5$		;none there
+	cmp	(r4)+,#^rdk	;this the default?
+	bne	10$		;no
+	mov	(r4)+,dev	;yes - use the filename
+	bne	10$		;fine
+5$:	$fatal	<Device name not specified>
+10$:	tst	(r4)		;this must be blank
+	beq	20$		;it is
+	$fatal	<Invalid device name>
+20$:	mov	dev,r0		;
+	bit	#cudlg$,sets	;is this a logical queue?
+	bne	40$		;yes - do not check it
+	call	getsta		;get the status of the device
+	bcc	30$		;fine
+	$fatal	<Device not available>,deverr
+30$:	tst	r0		;this is file structured?
+	bpl	40$		;yes
+	cmp	com,#lorec.	;is this a remove?
+	beq	40$		;yes - ignore this
+	$fatal	<Device is file-structured>,deverr
+40$:	mov	dev,r1		;get the device name
+	mov	#devasc,r2	;get the ascii equivalent
+	call	cv$ruf		;convert it to ascii
+	return
+
+outque:	mov	#ofile,r4	;output spec
+	bit	#cupip$,sets	;pipelined?
+	beq	inpque		;nope
+	tst	(r4)		;queue name specified?
+	beq	10$		;nope - fine
+	$fatal	<No queue name allowed with /PIPELINE>	
+10$:	return
+
+inpque:	mov	(r4),int	;get the intermediate device
+	beq	6$		;not specified
+	cmp	(r4)+,#^rdk	;this the default?
+	bne	5$		;no
+	mov	#^rque,int	;yes - change to que
+5$:	mov	(r4)+,que	;get the queue
+	bne	10$		;fine
+6$:	$fatal	<Queue name not specified>
+10$:	tst	(r4)		;must be blank
+	beq	20$		;fine
+	$fatal	<Invalid queue name>
+20$:	mov	int,r0		;
+	call	getsta		;
+	bcc	30$		;fine
+	$fatal	<Intermediate device not available>,conerr
+30$:	bit	#derta$!despc$,r0 ;must be filestructured
+	bne	40$		;
+	$fatal	<Intermediate device not file-structured>,conerr
+40$:	mov	int,r1		;get the intermediate device name
+	mov	#intasc,r2	;get the ascii equivalent
+	call	cv$ruf		;convert it to ascii
+	return
+
+outpri:	mov	#ofile,r4	;
+inppri:	mov	(r4),pri	;get the device
+	beq	5$		;none specified
+	cmp	(r4)+,#^rdk	;this the default?
+	bne	10$		;no
+	mov	(r4)+,pri	;yes - use the filename
+	bne	10$		;fine
+5$:	$fatal	<Printer name not specified>
+10$:	tst	(r4)		;this must be blank
+	beq	20$		;it is
+	$fatal	<Invalid printer name>,prierr
+20$:	mov	pri,r0		;get the printer
+	call	getsta		;get the status
+	bcc	30$		;fine
+	$fatal	<Printer device not installed>,prierr
+30$:	return
+
+getsta:	mov	r0,devnam	;save it
+	.dstat	#devsta,#devnam	;
+	bcs	10$		;not found
+	tst	devsta+4	;loaded?
+	beq	10$		;no
+	mov	devsta,r0	;return the status
+	tst	(pc)+		;
+10$:	sec			;
+	return			;
+.sbttl	system preprocessing
+
+;	Get the system stuff
+;
+;	If there is no record and this is an install we create a record
+
+getsys:	clr	result
+	$cmkrnl	#area, #100$, pic=yes 
+	mov	result,r0	;get the result
+	beq	10$		;fine
+	jmp	(r0)		;display the message
+10$:	return
+
+;	kernel routine		
+
+100$:	mov	@#s$pspp,r3	;point to the spooler record
+	mov	r3,s.prec	;save the pointer
+	bne	110$		;yes - copy it
+	mov	#nospoo,result	;there is no spooler
+	br	130$		;no - ignore it
+
+110$:	call	mapdat		;map data to par6
+	bcs	140$		;oops
+	mova	sporec,r1	;get our copy
+	mov	#cu.dbs/2,r3	;count them
+120$:	mov	(r2)+,(r1)+	;copy them back
+	sob	r3,120$		;
+130$:	call	cu$rp6		;restore par6
+	return			;
+				;
+140$:	mov	#noproc,result	;
+	return			;
+nospoo:	$fatal	<Spooler not installed>
+noproc:	$fatal	<No spooler process>
+.sbttl	execute kernel command
+
+;	Construct the new record
+;
+;	install	full new record
+;	remove	
+
+getcom:	clr	result		;no errors
+	add	com,pc		;dispatch the command
+	br	20$		;install
+	br	20$		;remove
+	br	30$		;show
+	br	20$		;set
+30$:	jmp	show		;show something
+20$:	$cmkrnl	#area, #100$ pic=yes
+	mov	result,r0	;get the result
+	beq	40$		;fine
+	call	(r0)		;call the message
+40$:	return			;
+				;
+100$:	$obtain	#s$yque		;synchronise with other copies of queue
+	mov	@#s$pspp,r3	;get the record
+	bne	105$		;fine
+	mov	#nospoo,result	;not fine
+	clr	r4		;nothing to run
+	br	910$		;and quit
+				;
+105$:	call	mapdat		;map data to par6
+	mov	r2,r5		;r2 = record address
+	mov	r5,r4		;get another copy
+	clr	r3		;assume not found
+	mova	newrec,r2	;our new record
+	add	obj,pc		;dispatch on type
+	br	110$		;diversion
+	br	120$		;consignment
+	br	130$		;printer
+110$:	call	fnddiv		;find diversion
+	br	200$		;
+120$:	call	fndcon		;find consignment
+	br	200$		;
+130$:	call	fndpri		;find printer
+	fall	200$		;
+
+;	c=1	not found
+;	r2 ->	element to insert
+;	r3 ->	new element or empty element; zero => no more
+;	r4 ->	element - same as r3
+;	r5 ->	spooler record
+
+200$:	ror	-(sp)		;save the status
+	$cmsch			;stop the scheduler
+	add	com,pc		;dispatch on command type
+	br	300$		;install
+	br	400$		;remove
+	br	.		;show
+	br	500$		;set
+
+;	Install
+
+300$:	tst	(sp)+		;was it found	
+	bpl	310$		;yes - this is a replace
+	mov	r3,r4		;found an empty?
+;	bne	320$		;yes
+	bne	315$		;yes
+	mov	#tabful,result	;no - table full
+	br	890$		;
+
+;	Replace
+
+310$:	call	tstact		;see if it is active
+	bcs	890$		;it is
+	call	reppip		;check pipeline replace
+	bcs	890$		;oops
+	br	320$		;join insert
+
+;	Insert
+
+315$:	call	inspip		;check insert pipeline
+	bcs	890$		;failed
+320$:	mov	#cu.ebs/2,r1	;move it in
+	mov	r4,r3		;point to new record
+330$:	mov	(r2)+,(r3)+	;
+	sob	r1,330$		;
+	br	510$		;and do the sets
+
+;	Remove
+
+400$:	tst	(sp)+		;found it?
+	bpl	420$		;yes
+	mov	#notfnd,result	;
+	br	890$		;
+420$:	call	tstact		;see if it is active
+	bcs	890$		;it is
+	call	rempip		;remove pipelined
+	mov	(r4),remsta	;setup removed status
+	mov	#cu.ebs/2,r1	;count them
+	mov	r4,r3		;point to it
+430$:	clr	(r3)+		;clean it up
+	sob	r1,430$		;
+	br	700$		;
+
+;	Set
+
+500$:	tst	(sp)+		;found it?
+	bpl	510$		;we found one
+	mov	#notfnd,result	;
+	br	890$		;
+
+510$:	cmp	obj,#lodic.	;this a diversion?
+	bne	520$		;no
+	bic	clears,(r4)	;yes - change the bits
+	bis	sets,(r4)	;
+	clr	cu.req(r4)	;and clear these out
+	br	700$		;
+520$:	mov	sets,cu.req(r4)	;move in the request
+	fall	700$		;
+
+700$:	call	splsta		;success - reset spool status
+	br	900$		;
+
+;	r4=0	Nothing modified
+;	r4<>0	-> record modified
+
+890$:	clr	r4		;we found nothing
+900$:	$cmpro			;release us
+	call	cu$rp6		;restore par6
+910$:	$divest	#s$yque		;and this
+	cmp	obj,#lodic.	;was this a divert?
+	beq	930$		;yes - nothing need be done
+	tst	r4		;did we get a record?
+	beq	930$		;no
+	bis	#curun$,(r4)	;yes - trigger it
+	$float			;
+	mov	@#s$pspp,r4	;get the spooler again
+	beq	920$		;is none
+	mov	(r4),r4		;get the pcr
+	beq	920$		;none there
+	bis	#prwak$,pr.sta(r4) ;wake it up
+	$revive	#s$cp00		;start it up
+920$:	$land			;
+930$:	jmp	@#em$exi	;and quit
+
+;	Test for object active
+;
+;	Diversions can always be replaced.
+;	Consignments and printers must be stopped before being replaced.
+
+tstact:	cmp	obj,#lodic.	;this a diversion?
+	beq	10$		;yes - these can always be replaced
+	bit	#custo$,(r4)	;is it stopped?
+	bne	10$		;yes
+	mov	#objact,result	;no - object is active
+	br	20$		;
+10$:	tst	(pc)+		;
+20$:	sec			;
+	return			;
+.sbttl	pipelined insert/remove/replace
+
+;	insert diversion
+;
+;	r2	new diversion record
+
+inspip:					;insert pipelined
+	bit	#cupip$,sets		;this pipelined?
+	beq	30$			;nope
+	call	getcon			;consignment for this device avaliable?
+	bcc	10$			;nope - fine
+	mov	#conavl,result		;yes - not allowed
+	br	40$			;fails
+10$:	call	getpri			;check for printer process
+	bcc	20$			;fine
+	mov	#priavl,result		;has printer process
+	br	40$			;fails
+20$:	call	crepip			;create pipeline records
+	bcs	40$			;it failed
+30$:	tst	(pc)+			;c=0 - fine
+40$:	sec				;c=1 - some error
+	return
+
+;	replace diversion
+;
+;	r4	current record
+
+reppip:					;replace diversion
+	bit	#cupip$,sets		;new diversion pipelined?
+	bne	10$			;yes
+	bit	#cupip$,(r4)		;was it before?
+	beq	20$			;nope - no change
+	br	rempip			;yes - remove it
+10$:	bit	#cupip$,(r4)		;was it before, too?
+	beq	inspip			;nope - handle as insert pipeline
+20$:	clc				;c=0 - no error
+	return				;
+
+;	remove diversion
+;
+;	r4	old record
+
+rempip:					;
+	bit	#cupip$,(r4)		;was it pipelined?
+	beq	30$			;nope - quit
+	cmp	#lodic.,obj		;this a diversion
+	beq	10$			;yes - fine
+	mov	#nopip,result		;not allowed
+	br	40$			;cannot be removed
+10$:	call	getcon			;get the consignment
+	bcc	20$			;not found
+	call	erarec			;erase the record
+20$:	call	getpri			;get the printer
+	bcc	30$			;oops - not found
+	call	erarec			;erase record
+30$:	tst	(pc)+			;fine
+40$:	sec				;c=1 - failure
+	return				;
+
+;	create pipeline records
+;
+
+crepip:					;create pipeline records
+	call	empcon			;get empty consignment
+	bcc	10$			;fine
+	mov	#lococ.,obj		;change for error message
+	br	100$			;and quit
+10$:	psh	r1			;save this
+	call	emppri			;get empty printer record
+	bcc	20$			;fine
+	pop	r1			;clean up stack
+	mov	#loprc.,obj		;change it for error message
+	br	100$			;we failed
+
+;	build printer record
+
+20$:	mov	#cupip$!cunew$,(r1)+	;status		pipeline, new_files
+	mov	#custa$,(r1)+		;request	start
+	mov	dev,(r1)+		;printer	same as diversion
+	clr	(r1)+			;dir		no directory entry
+	clr	(r1)+			;ibl		no input block
+	clr	(r1)+			;seq		ununsed
+
+;	build consignment record
+
+	mov	(sp),r1			;get consignment record back
+;	bic	#m$mpa6,(sp)		;remap address to par1
+;	bis	#m$mpa1,(sp)		;
+;	add	datoff,(sp)		;form the address
+;	add	#2,(sp)			;???
+	mova	ouradr,r0		;get start adress of our copy
+	sub	(r0),(sp)		;remove start address
+	mova	spoadr,r0		;get start in spooler process
+	add	(r0),(sp)		;add in spooler start
+	add	#cu.dsu,(sp)		;point to queue
+;
+	mov	#cupip$!curun$,(r1)+	;status		pipeline, run printer
+	mov	#custa$,(r1)+		;request	start
+	mov	dev,(r1)+		;printer	same as diversion
+	mov	(sp),(r1)+		;dsu		queue header
+	pop	(r1)+			;dpr		predecessor
+	clr	(r1)			;seq		unused
+	clc				;no error
+	return				;
+
+100$:	mov	#tabful,r0		;error code
+	sec				;c=1 - failure
+	return				;
+
+;	check for consignment available
+;
+
+	.enabl	lsb
+getcon:	mov	#cu.cot,r1		;offset to consignment table
+	mov	#cumcn.,r0		;number of records
+	br	10$			;join common
+
+;	check if printer available
+;
+
+getpri:	mov	#cu.prt,r1		;offset to printer table
+	mov	#cumpn.,r0		;number of records
+10$:	add	r5,r1			;add in start of record
+20$:	cmp	cu.dev(r1),dev		;this the same?
+	beq	30$			;yes
+	add	#cu.ebs,r1		;point to the next
+	sob	r0,20$			;do them all
+	tst	(pc)+			;c=0 - not found
+30$:	sec				;c=1 - record found
+	return				;
+	.dsabl	lsb			;
+
+;	get an empty consignment record
+;
+
+	.enabl	lsb			;
+empcon:	mov	#cu.cot,r1		;offset to consignment
+	mov	#cumcn.,r0		;number of records
+	br	10$			;join common code
+
+;	get empty printer record
+;
+
+emppri:	mov	#cu.prt,r1		;offset to printers
+	mov	#cumpn.,r0		;number of records
+10$:	add	r5,r1			;add in the offset
+20$:	tst	cu.dev(r1)		;this in use?
+	beq	30$			;nope
+	add	#cu.ebs,r1		;try te next
+	sob	r0,20$			;more
+	br	40$			;we fail
+30$:	tst	(pc)+			;c=0 - record found
+40$:	sec				;c=1 - no free record
+	return				;
+	.dsabl	lsb			;
+
+;	erase a record
+;
+;	r1 	record
+
+erarec:	mov	#<cu.ebs/2>,r0		;get a counter
+10$:	clr	(r1)+			;clear the record
+	sob	r0,10$			;until done
+	return				;
+
+;	error routines
+
+pipact:	$fatal	<Pipelined device is active>
+conavl:	$fatal	<Device has consignment>
+priavl:	$fatal	<Device has printer process>
+nopip:	cmp	obj,#lococ.		;
+	bne	10$			;not consignment
+	$fatal	<Consignment cannot be set /PIPELINE>
+10$:	$fatal	<Printer cannot be set /PIPELINE>
+.sbttl	find an object instance
+
+;	r2 ->	new object
+;	r3 ->	first free element; zero if none
+;	r4 ->	what we find; zero if none
+;	r5 ->	spooler record
+;	c=1	not found
+
+fnddiv:	add	#cu.dit,r4	;point to the diversions	
+	call	fndsta		;start the loop
+;10$:	cmp	cu.dev(r4),div	;is this ours?
+10$:	cmp	cu.dev(r4),dev	;is this ours?
+	beq	20$		;yes - we have it
+	call	fndnxt		;get the next
+	bcc	10$		;more
+	bic	r4,r4		;c=1> r4=0 => not found
+20$:	return			;
+
+fndcon:	add	#cu.cot,r4	;point to the consignments
+	call	fndsta		;start the loop
+10$:	cmp	cu.con(r4),con	;is this ours?
+	beq	20$		;yes - we have it
+	call	fndnxt		;get the next
+	bcc	10$		;more
+	bic	r4,r4		;c=1> r4=0 => not found
+20$:	return			;
+
+fndpri:	add	#cu.prt,r4	;point to printers
+	call	fndsta		;start the loop
+10$:	cmp	cu.pri(r4),pri	;is this ours?
+	beq	20$		;yes - we have it
+	call	fndnxt		;get the next
+	bcc	10$		;more
+	bic	r4,r4		;c=1> r4=0 => not found
+20$:	return			;
+
+fndsta:	mov	#8.,r1		;count them
+	clr	r3		;assume none found
+	br	fndcom		;
+fndnxt:	add	#cu.ebs,r4	;point to the next
+fndcom:	dec	r1		;any more?
+	bmi	20$		;no - we failed
+	tst	r3		;already got an empty?
+	bne	10$		;yes - use it
+	tst	cu.dev(r4)	;is this empty?
+	bne	10$		;no
+	mov	r4,r3		;yes - remember the empty
+10$:	tst	(pc)+		;fine
+20$:	sec			;not found
+	return			;and quit
+
+;	Reset device spooled status
+;
+;	Set/clear unit SPL characteristic
+
+splsta:	cmp	obj,#lodic.	;this a diversion?
+	bne	20$		;no
+	mov	dev,r0		;get the device name
+	call	@#na$clp	;convert to permanent
+	bcs	20$		;oops
+	call	@#na$cpi	;get indexs
+	bcs	20$		;oops
+	call	@#na$cir	;get the records
+	bcs	20$		;oops
+	cmp	com,#lorec.	;this a remove?
+	bne	10$		;no - it must be installed
+	bic	#unspl$,un.con(r3) ;remove spooled status
+	br	20$		;
+10$:	bis	#unspl$,un.con(r3) ;say its spooled
+20$:	return			;
+.sbttl	post process logical names
+
+;	Logical name processing
+;
+;	install/diversion/logical	create logical name
+;	remove/diversion/logical	delete logical name
+
+poslog:	add	obj,pc		;by object
+	br	10$		;diversion
+	br	500$		;consignment
+	br	500$		;printer
+10$:	add	com,pc		;
+	br	100$		;install
+	br	200$		;remove
+	br	500$		;show
+	br	500$		;set
+100$:	bit	#cudlg$,sets	;was this /logical?
+	beq	500$		;no - forget it
+	$crelog	#area, #0, #devasc, #nulasc, #0
+	bcc	500$		;fine
+	tstb	j$berr		;superseded existing name?
+	beq	500$		;yes - their problem
+	$fatal	<System logical name creation failed>
+200$:	bit	#cudlg$,remsta	;was this /logical?
+	beq	500$		;no
+	$dellog	#area, #0, #devasc, #0 ;yes - delete it
+	bcc	500$		;
+	$fatal	<System logical name deletion failed>
+500$:	return			;
+.sbttl	show
+
+;	SHOW DIVERSIONS
+;	SHOW CONSIGNMENTS
+;	SHOW PRINTERS
+;	SHOW QUEUES
+;	SHOW SPOOLERS (default)
+
+show:	mov	#sporec,r5	;point to the record
+	call	shodiv		;diversions
+	call	shocon		;consignments
+	call	shopri		;printers
+	return			;
+
+shodiv:	mov	r5,r4		;
+	add	#cu.dit,r4	;
+	mov	#8.,r3		;
+10$:	tst	cu.dev(r4)	;this in use?
+	beq	20$		;no
+	$type	<Divert	>	;
+	$rad50	cu.dev(r4)	;dev
+	$type	<: >		;
+	bit	#cupip$,(r4)	;this pipelined?
+	beq	15$		;nope
+	$type	<Pipeline  >	;adjust display
+	br	18$		;join common
+15$:	$type	<to >		;
+	$rad50	cu.int(r4)	;int
+	$type	<:>		;int:
+	$rad50	cu.con(r4)	;int:con
+18$:	mov	#23.,r0		;column 23
+	call	shosta		;status/requests
+	$print			;
+20$:	add	#cu.ebs,r4	;
+	sob	r3,10$		;
+	return			;
+				;
+shocon:	mov	r5,r4		;consignments
+	add	#cu.cot,r4	;
+	mov	#8.,r3		;count them
+10$:	tst	cu.pri(r4)	;this in use?
+	beq	20$		;no
+	$type	<Consign	>
+	bit	#cupip$,(r4)	;pipelined?
+	beq	15$		;yes - ignore
+	$rad50	cu.dev(r4)	;dev
+	$type	<: Pipeline  >	;
+	br	18$		;
+
+15$:	$rad50	cu.int(r4)	;int
+	$type	<:>		;int:
+	$rad50	cu.con(r4)	;int:con
+	$type	< to >		;
+	$rad50	cu.dev(r4)	;dev
+	$type	<:>		;
+18$:	mov	#23.,r0		;column 23
+	call	shosta		;status/requests
+	$print			;
+20$:	add	#cu.ebs,r4	;
+	sob	r3,10$		;
+	return			;
+
+shopri:	mov	r5,r4		;consignments
+	add	#cu.prt,r4	;
+	mov	#8.,r3		;count them
+10$:	tst	cu.pri(r4)	;this in use?
+	beq	20$		;no
+	$type	<Printer	>
+	$rad50	cu.pri(r4)	;pri:
+	$type	<:>		;int:
+	bit	#cupip$,(r4)	;pipelined?
+	beq	12$		;nope
+	type	< Pipeline  >
+	br	15$		;
+
+12$:	tst	cu.int(r4)	;got a file?
+	beq	14$		;no
+	type	<           >	;
+	br	15$		;
+
+14$:	$type	< = >		;
+	$rad50	cu.int(r4)	;ye
+	$type	<:>		;
+	$rad50	cu.con(r4)	;
+	$rad50	cu.seq(r4)	;
+	$type	< >		;
+				;
+;	$type	< Block=>	;
+;	$decima	cu.blo(r4)	;current block
+;	$type < Length=>	;total file length
+;	$decima	cu.len(r4)	;
+;15$:	mov	#45.,r0		;column 45
+				;
+15$:	mov	#25.,r0		;column 25
+	call	shosta		;status/requests
+	$print			;newline
+20$:	add	#cu.ebs,r4	;next entry
+;	sob	r3,10$		;more
+	dec	r3		;count them
+	bne	10$		;
+	return			;
+
+shosta:	mov	r0,200$		;save current column
+	mov	cu.sta(r4),r2	;got any status?
+	beq	10$		;no
+	bic	#cupip$,r2	;remove pipeline status
+	beq	10$		;handled before
+	add	#8.,200$	;count it
+	$type	< Status=>	;yes
+	call	100$		;
+10$:	mov	cu.req(r4),r2	;got any requests?
+	beq	20$		;no
+	mov	#10.,r0		;get at least the first in
+	call	180$		;test for wrap
+	$type	< Requests=>	;
+	call	100$		;
+20$:	return			;
+
+100$:	psh	#-1		;first has no comma
+	mov	#150$,r1	;look at the states
+110$:	bit	(r1)+,r2	;is this one set?
+	beq	130$		;no
+	inc	(sp)		;is this the first?
+	beq	120$		;yes
+	$type	<,>		;no - it gets a comma
+	inc	200$		;account for it
+120$:	mov	(r1),r0		;get the length
+	call	180$		;check for wrap
+	mov	r1,r0		;get the address
+	add	#2,r0		;skip the count
+	.print			;print the string
+130$:	tst	(r1)+		;skip the count
+135$:	tstb	(r1)+		;even it up
+	bgt	135$		;
+	inc	r1		;
+	bic	#1,r1		;
+140$:	tst	(r1)		;any more?
+	bne	110$		;yes
+	tst	(sp)+		;no
+	return			;
+
+meta	<state c d e><.word c,d><.ascii &e&<200>><.even>
+
+150$:
+state	custa$	5	<Start>
+state	custo$	4	<Stop>
+state	cuabo$	5	<Abort>
+state	cunex$	4	<Next>
+state	cutop$	11.	<Top_of_form>
+state	cureq$	8.	<Requeue>
+state	cuier$	11.	<Input_error>
+state	cuoer$	12.	<Output_error>
+state	cusus$	7	<Suspend>
+state	cunew$	9.	<New_files>
+;state	curun$	3	<Run>
+state	cubus$	4	<Busy>
+state	cuact$	6	<Active>
+state	cudlg$	7	<Logical>
+state	cudlu$	6	<Lookup>
+state	cudnp$	5	<Purge>
+state	cuhol$	4	<Hold>
+;state	cupip$	8.	<Pipeline>
+	.word	0
+
+180$:	psh	r0		;save it
+	add	r0,200$		;count it
+	cmp	200$,#79.	;got the space?
+	blo	190$		;yes
+	$print			;no
+	$type	<	>	;
+	mov	#8.,200$	;start over
+	add	(sp),200$	;account again
+190$:	tst	(sp)+		;
+	return			;
+
+200$:	.word	0		;current column
+.sbttl	map & restore data
+
+;	map record to par6
+;
+;	input		r3	address of kernel record
+;
+;	output		r2	table address
+;	
+;	destroys	r0,r1
+
+	lodis.=m$mpa6-m$mpa2	;
+mapdat:	mov	(r3),r0		;get pcr address
+	beq	20$		;oops - no process
+	mova	kpar6,r1	;get address of variable
+	mov	@#m$kip6,(r1)	;save par6 value
+	mov	#cu$urv,@#p$hurv ;setup unconditional restart routine
+	mov	pr.phd(r0),@#m$kip6 ;map spooler phd to par6
+	mov	#m$mpa1,r0	;build the address
+	add	cu.kda(r3),r0	;get the ofsfet
+	mova	spoadr,r2	;
+	mov	r0,(r2)		;save address in spooler process
+	mova	10$,-(sp)	;setup return address
+	psh	#p$hcip+lodis.	;point to the mapping registers
+	jmp	@#io$cvm	;convert the address
+10$:	mov	r1,@#m$kip6	;map the data
+	bic	#m$mpa1,r2	;remove par2 offset
+	bis	#m$mpa6,r2	;remap it to par6
+	mova	ouradr,r0	;
+	mov	r2,(r0)		;save our address
+	tst	(pc)+		;fine
+20$:	sec			;
+	return			;done
+
+;	restore par6 - also called by urv routine
+
+cu$rp6:	mova	kpar6,r0	;get address of saved par6
+	mov	(r0),@#m$kip6	;reset par6 mapping
+	clr	@#p$hurv	;clear restart vector
+	return			;
+.sbttl	convert rad50 spec to ascii
+
+;	cv$rsu	convert rad50 spec to ascii (upper)
+;	cv$rsl	convert rad50  specto ascii (lower)
+;
+;	(r0)->	rad50 spec
+;	r1 ->	output
+;
+;	r1 ->	past output at zero byte
+;
+cv$ruf:
+cv$rsu::tst	(pc)+
+cv$rsl::sec
+	pshs	<r3,r2>
+	bic	r3,r3
+	adc	r3
+	asl	r3
+	add	#cv$rfu,r3
+	mov	r0,r2
+	mov	(r2)+,r0
+	call	(r3)
+	movb	#':,(r1)+
+	tst	(r2)		;just a device name
+	beq	10$		;
+	mov	(r2)+,r0
+	call	(r3)
+	mov	(r2)+,r0
+	call	(r3)
+	movb	#'.,(r1)+	;
+	mov	(r2)+,r0
+	call	(r3)
+10$:	pops	<r2,r3>
+	return
+.sbttl	convert rad50 to ascii
+
+;	conra	convert rad50 to ascii (upper)
+;	conral	convert rad50 to ascii (lower)
+;
+;	r0	rad50 value
+;	r1 ->	output
+;
+;	r0	number of characters output
+;	c=1	no characters output
+;	r1 ->	past output at zero byte
+;
+
+
+conra::
+cv$rfu::tst	(pc)+		;\rad50 to ascii upper case
+cv$rfl::			;/rad50 to ascii lower case
+conral::sec			;
+	pshs	<r3,r2>		;
+	ror	-(sp)		;(sp) <0 => lower
+	clrb	(sp)		;(sp) = characters output
+	mov	#100$,r2	;get the divisors
+20$:	mov	#-1,r3		;init the result
+30$:	inc	r3		;next character
+	sub	(r2),r0		;this it?
+	bcc	30$		;nope
+	add	(r2),r0		;bump back
+
+	tst	r3		;a null?
+	beq	80$		;yep, forget it
+	cmp	r3,#50		;this out of range?
+	blo	50$		;no
+	mov	#50,r3		;yes
+50$:	tst	(sp)		;want lower case?
+	bmi	60$		;yes
+	movb	200$(r3),(r1)+	;upper case
+	br	70$		;
+60$:	movb	300$(r3),(r1)+	;lower case
+70$:	incb	(sp)		;count it
+80$:	tst	-(r2)		;any more?
+	bne	20$		;yep
+	pops	<r0,r2,r3>	;restore it
+	clrb	(r1)		;terminate the string
+	tst	r0		;got any?
+	bne	97$		;yes
+	sec			;no
+97$:	return
+
+	.word	0,1,50
+100$:	.word	50*50
+
+200$:	.ascii	&_ABCDEFGHIJKLMNOPQRSTUVWXYZ$%*0123456789?&
+300$:	.ascii	&_abcdefghijklmnopqrstuvwxyz$%*0123456789?&
+.sbttl	data
+
+;	Objects
+
+map	lodic.,,0	;diversion type
+map	lococ.,,2	;consignment type
+map	loprc.,,4	;printer type
+
+;	Commands
+
+map	loinc.,,0	;install
+map	lorec.,,2	;remove
+map	losho.,,4	;show
+map	loset.,,6	;set
+
+;	Command impure
+
+kpar6:	.word	0	;save kernel par6
+spoadr:	.word	0	;data address in spooler process
+ouradr:	.word	0	;data address in queuex process
+
+from:
+objs:	.word	0	;objects (for conflicts)
+coms:	.word	0	;commands (for conflicts)
+obj:	.word	0	;object
+com:	.word	0	;command
+sets:	.word	0,0
+clears:	.word	0,0
+
+newrec:			;new record
+sta:	.word	0	;new status
+req:	.word	0	;new request
+dev:			;device
+pri:	.rad50	/   /	;printer
+int:	.rad50	/   /	;intermediate device
+con:
+que:	.rad50	/   /	;queue
+seq:	.word	0		;
+
+devnam:	.rad50	/   /	;dstatus
+devsta:	.blkw	4	;
+s.prec:	.word	0	;kernel record pointer
+sporec:	.blkb	cu.dbs	;our copy of the record
+
+remsta:	.word	0		;status of removed diversion
+devasc:	.asciz	/            /	;device name
+intasc:	.asciz	/            /	;intermediate device name
+queasc:	.asciz	/            /	;queue name
+	.even			;
+result:	.word	0		;result of emt call
+to:				;end of command impure
+
+nulasc:	.asciz	/nl0/		;null device
+	.even			;
+				;
+bitmap:	.word	1,2,4,10,20,40,100,200,400,1000,2000
+	.word	4000,10000,20000,40000,100000
+.sbttl	error package
+
+print:	.print	r2		;print it
+	br	even
+error:	bcs	errorp
+even:	tstb	(r2)+		;skip it
+	bgt	even
+	inc	r2
+	bic	#1,r2
+	rts	r2		;its o.k.
+fatal:	mov	#start,r2
+errorp:	type	<?QUEUE-E->	;display the header
+	.print	r2		;and the tail
+	jmp	start
+
+types:	.rad50	/            /	;csispc types
+shpdat:	.word	0		;SHAREplus stb
+oper:	.word	0		;set if OPER present
+quedat:	.word	stbdat		;ours from the linker
+shpid:	.word	0		;^rshp from kernel
+ofile:
+files:	.blkw	3*5
+ifile:	.blkw	5*4
+area:	.blkw	5
+line:	.blkb	84.
+room:
+buff:	.blkw	256.
+.end	start

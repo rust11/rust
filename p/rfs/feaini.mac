@@ -1,0 +1,43 @@
+;	Unused?
+
+.title	fpi - feature pool
+.include "shp:share.mac"
+.psect	feature
+$podef		;pool
+$qudef		;queues
+
+;	SHAREplus feature private pool init
+;
+;	The private pool is used for record locking, messages etc.
+;	The pool is mapped into par6 by the emt dispatcher.
+;
+;	This routine is used during feature installation to init a pool.
+;	It is included in the source with a macro.
+;	Init pool
+;
+;	r0 ->	pool
+;	r1 =	bytesize of pool
+;
+;	po.suc,,0	;successor
+;	po.pre		;predecessor
+;	po.len		;length
+;	po.typ	byte	;type
+;	po.prn	byte	;process
+
+fe$pin:	psh	<r1,r0>		;save these
+	stack	bas len		;
+	add	r0,r1		;point to the end of it all
+	sub	#po.pbs,r1	;point to last
+	mov	r0,(r1)		;link them together
+	mov	r0,po.pre(r1)	;
+	mov	r1,(r0)		;
+	mov	r1,po.pre(r1)	;
+	clr	po.siz(r1)	;finish up the last
+	mov	#377,po.typ(r1)	;
+	sub	r0,r1		;get length of the first
+	mov	r1,po.len(r0)	;
+	mov	#377,po.typ(r0)	;
+	pops	<r0,r1>		;
+	return
+
+.end

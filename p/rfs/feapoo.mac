@@ -1,0 +1,140 @@
+.title	fpo - feature pool
+.include "lib:share.mac"
+.psect	feature
+$mmdef		;mmu
+$mudef		;mutex
+$podef		;pool
+$stdef		;states
+$qudef		;queues
+
+;	SHAREplus feature pool support
+;
+;	%build
+;	macro	rfs:feapoo/object:rfb:
+;	%end
+;
+;	Feature pools supply features with data areas.
+;	A pool file is created when the feature is installed.
+;	The /WORKSPACE=n specifies the number of blocks for the pool.
+;	The feature is responsible for mapping the pool into par6.
+;
+;	fe$pal	allocate memory
+;	fe$pac	allocate and clear memory
+;	fe$pdl	deallocate memory
+;	fe$plr	lock for read
+;	fe$plw	lock write
+;	fe$pul	unlock
+;	fe$pmp	map pool
+;	fe$pum	unmap pool
+;
+;	The following data structures are required. The feature must
+;	setup its own data structures.
+;
+;	f$epmu		pool mutex -> f$ekpm (must be in kernel)
+;	f$epop		pool page number
+;
+;	During install/remove the following root routines are available:
+;
+;	fe$cpf	create and init pool file
+;	fe$dpf	delete pool file
+.sbttl	allocate/deallocate memory
+
+;	Allocate dynamic memory
+; 
+;	r0 =	byte size required
+; 
+;	call	fe$pal		;allocate memory
+; or	call	fe$pac		;allocate and clear memory
+; 
+;	c=0
+;	r0 ->	start of element
+; 
+;	c=1	no pool space available
+;	r0 	zero indicates failure too
+; 
+;	psh	typ
+;	psh	len
+;	mova	pool,r0
+;	call	po$crs
+
+.enabl	lsb
+fe$pac::psh	#poclr$!pound.	;allocate & clear memory
+	br	10$		;join common
+fe$pal::psh	#pound.		;allocate memory
+10$:	psh	r0		;save the size
+	stack	len typ		;
+	call	fe$plw		;lock for write
+	mov	#m$mpa6,r0	;point to the pool
+	call	@#po$crs	;and create it
+	br	fe$pul		;unlock pool
+.dsabl	lsb
+
+;	Deallocate pool entry
+; 
+;	pool	must be mapped
+;	r0 ->	pool body
+
+fe$pdl::psh	r0		;r0 for po$dls
+	call	fe$plw		;lock the pool
+	call	@#po$dls	;delete pool element
+	br	fe$pul		;unlock pool
+.sbttl	pool locks
+
+;	write-lock pool
+;	read-lock pool
+;	unlock pool
+; 
+;	call	fe$p%%
+; 
+;	c=c	retained
+
+fe$plw::jsr	r3,fe$pmu	;lock write
+	.word	mu$wri		;
+
+fe$plr::jsr	r3,fe$pmu	;lock read
+	.word	mu$rea		;
+
+fe$pul::jsr	r3,fe$pmu	;unlock
+	.word	mu$unl		;
+
+;	pool mutex operation
+; 
+;	jsr	r3,fe$pmu
+;	.word	mutex routine
+
+fe$pmu:	ror	-(sp)		;save cbit
+	psh	(r3)		;get the routine
+	stack	rou cbt r3	;
+	mov	f$epop,m$kip6	;map the pool
+	mov	f$epmu,r3	;point to the mutex
+	call	@(sp)+		;call the mutex routine
+	rol	(sp)+		;restore the cbit
+	pop	r3		;restore original r3
+	return			;
+
+;	Convert mutex lock to scheduler lock with interlock
+;
+;	fe$lk%	pool is locked for read or write
+;
+;	call	fe$pcs
+;
+;	fe$pul	pool has been unlocked
+;	$cmsch	scheduler is blocked
+
+fe$pcs::bis	#stmut$,s$csta	;block scheduler for mutex wait
+	call	fe$pul		;unlock the database
+	$cmsch			;block the scheduler
+	bic	#stmut$,s$csta	;and release mutex lock
+	return
+
+;	Co-routine to map the pool
+
+fe$pmp::psh	(sp)		;make space for par6
+	stack	ret kp6		;
+	mov	m$kip6,sp.kp6(sp) ;save par6
+	mov	f$epop,m$kip6	;map the pool
+	call	@(sp)+		;call'm back
+	pop	m$kip6		;restore it
+	return			;
+.end 
+
