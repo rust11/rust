@@ -1,0 +1,193 @@
+.title	etx - text routines
+.include "lib:rust.mac"
+.psect	etx d
+$txdef		;ascii
+
+;	ETX - Environment text output
+;
+;	%build
+;	macro	rxs:etx/object:rxb:
+;	%end
+
+meta	<type c><jsr r2,tx$typ><.ascii _c_<200>><.even>
+
+;	Filename
+;
+;	r1 ->	filename
+
+tx$fil::			;filename
+	psh	r2		;save this
+	mov	r1,r2		;point to it
+	mov	(r2)+,r1	;get the device
+	call	tx$dev		;display that
+	mov	(r2)+,r1	;fn.fil
+	beq	10$		;device only
+	call	tx$r50		;do it
+	mov	(r2)+,r1	;
+	call	tx$r50		;
+	mov	(r2)+,r1	;get the type
+	beq	10$		;is none
+	type	<.>		;display a dot
+	call	tx$r50		;and the type
+10$:	pop	r2
+	return
+
+;	Device name
+;
+;	r1 = device name
+
+tx$dev::tst	r1		;got a device?	
+	beq	10$		;no
+	call	tx$r50		;the device
+	type	<:>		;do the colon
+10$:	return
+
+;	Radix 50
+;
+;	r1 = rad50 
+
+tx$r52::call	(pc)		;do it twice
+tx$r50::psh	r5		;save them all
+	mov	#100$,r5	;get the divisors
+20$:	mov	#-1,r0		;init the result
+	cmp	#174777,r1	;is it an *
+	blo	50$		;yep
+30$:	inc	r0		;next character
+	sub	(r5),r1		;this it?
+	bcc	30$		;nope
+	add	(r5),r1		;bump back
+	tst	r0		;a null?
+	beq	90$		;yep, forget it
+	cmp	#33,r0		;nah?
+	blo	70$
+	beq	80$
+;	add	#'a-'A,r0	;get lower case
+50$:	add	#56,r0
+70$:	add	#11,r0
+80$:	add	#11,r0
+	call	tx$out		;display it
+90$:	tst	-(r5)		;any more?
+	bne	20$		;yep
+95$:	pop	r5		;restore it
+	return
+	.word	0,1,50
+100$:	.word	50*50
+.sbttl	octal and decimal
+
+;	Octal
+;
+;	r1 =	value
+
+tx$oct::jsr	r2,tx$val	;octal
+	.word	t$xoct		;base
+	.byte	0,0		;no fill or sign
+	return
+
+;	Number
+
+tx$num::jsr	r2,tx$val	;number
+	.word	t$xdec		;decimal
+	.byte	0,0		;no fill or sign
+	return
+
+;	Decimal with dot
+
+tx$dec::jsr	r2,tx$val	;decimal
+	.word	t$xdec		;decimal
+	.byte	0,0		;no fill or sign
+	type	<.>
+	return
+
+;	Generic value
+;
+;	jsr	r2,tx$val
+;	.word	base
+;	.byte	sign
+;	.byte	fill
+
+tx$val::pshs	<r5,r3,r1,r0>;save them	
+	mov	(r2)+,r5	;r5 = exponents
+	movb	(r2)+,r3	;r3 = filler
+	tstb	(r2)+		;got a sign?
+	beq	3$		;nope
+	tst	r1		;a negative number?
+	bpl	3$		;nope
+	neg	r1		;yep, make it positive
+	type	<->		;and dump a minus sign
+3$:	mov	#-1,r0		;look for a digit
+4$:	inc	r0		;step up dividend
+	sub	(r5),r1		;subtract
+	bcc	4$		;go again
+	add	(r5)+,r1	;bumb it back to positive
+	tst	r0		;now look at format
+	bne	5$		;something to do
+	mov	r3,r0		;leading blanks ?
+	bne	6$		;filler
+	br	7$		;nothing
+5$:	mov	#200,r3		;no more blanks
+6$:	call	8$		;dump one
+7$:	tst	(r5)		;any more to do ?
+	bne	3$		;yes
+	mov	r1,r0		;get the last digit
+	call	8$		;do the last
+	br	9$		;and quit
+8$:	bic	#200,r0		;clear out the flag
+	add	#'0,r0		;generate last digit
+	call	tx$out		;dump it
+	return
+9$:	pops	<r0,r1,r3,r5> ;get em back
+	rts	r2
+
+t$xdec:	10000.,1000.,100.,10.,0
+t$xoct:	100000,10000,1000,100,10,0
+.sbttl	type, dump, character
+
+;	New line
+
+tx$new::jsr	r2,tx$typ	;newline
+	.byte	cr,lf,200,0	;
+	return
+
+;	Type
+;
+;	jsr	r2,tx$typ
+;	.ascii	/string/<200>
+;	.even
+
+tx$typ::call	tx$dmp		;dump it first
+	rts	r2		;and quit
+
+;	Dump string
+;
+;	r2 ->	string
+
+tx$dmp::			;dump the string in r2
+	psh	r0		;save this
+10$:	movb	(r2)+,r0	;get the next
+	bmi	30$		;all done
+	beq	20$		;return
+	call	tx$out		;dump it
+	br	10$		;
+20$:	call	tx$new		;do a new line
+30$:	inc	r2		;even up
+	bic	#1,r2		;
+	pop	r0		;
+	return
+
+;	Output character
+;
+;	r0 =	character
+;
+;	e$nout	-> buffer if nonzero
+
+tx$out::			;single character out
+	tst	e$nout		;buffered output?
+	beq	10$		;no
+	movb	r0,@e$nout	;yes
+	inc	e$nout		;
+	clrb	@e$nout		;terminate it
+	br	20$		;
+10$:	.ttyout			;terminal output
+20$:	return
+.end
+

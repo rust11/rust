@@ -1,0 +1,285 @@
+v3=1
+v3fix=1
+.title	kdh
+.include "lib:rust.mac"
+.psect	kdh d
+$tedef		;terminal
+$dhdef		;dh hardware
+$prdef		;pcr
+$thdef		;dh software
+
+;	DHV terminal support
+;
+;	%build
+;	macro	rxs:kdh/object:rxb:kdh
+;	%end
+;
+;	DHV terminals are supported with a DHV controller record.
+;	This acts an interface to standard terminal records.
+;
+;	DMA output is used with full auto-flow and host_sync.
+;
+;	DHV's do not like BIC & BIS instructions. This means that we
+;	have to construct MOV operations which in turn forces all mainline
+;	code to go to br7 for CSR changes.
+;
+;	Interrupts transfer control directly to a fork routine. 
+;
+;	Terminal input to fork routine
+;
+;	spl	7
+;	jsr	r5,dh$ifk
+;	.word	semaphore	;avoid nested forks
+;	.word	0 - fork link
+;	.word	fork-routine address
+;	.word	r5 contents
+;	.word	r4 contents
+;
+;	d$hhan -> dh$fkp for DCL relocation
+
+d$hbot::
+.if eq v3fix
+	.word	.-dh$ofk	;\ output fork pointer for DCL
+	.word	.-dh$ifk	;! input fork pointer for DCL
+.iff
+	.word	dh$ofk		;\ output fork pointer for DCL
+	.word	dh$ifk		;! input fork pointer for DCL
+.endc
+.if ne v3			;!
+dh$fkp::jmp	in$sem		;/ semaphore interrupt & fork
+.iff
+dh$fkp::inc	(r5)+		;this the first?
+	bne	10$		;no - ignore it
+	psh	@#f$klqe	;put us in last
+	mov	r5,@(sp)+	;put us in last
+	mov	r5,@#f$klqe	;
+	tst	@#i$nins	;already in an interrupt?
+	bmi	20$		;no
+10$:	pop	r5		;yes - restore it
+	rti			;get out of here
+20$:	pop	r5		;
+	jmp	@#fk$del	;go deliver the fork
+.endc
+.sbttl	dh input service
+
+;	DHV input fork
+;
+;	The DHV input fifo removes the DL requirement to process input
+;	immediately. The fifo is larger than our input ring. Thus,
+;	we do a fast fork and then pass characters directly from the
+;	DHV to the input fork routine.
+;
+;	In worst case we could block the high-speed ring for too long.
+;
+;	The DHV reports a lot of crap that must be ignored. All channels
+;	must be enabled for input, otherwise the internal fifo will
+;	fillup unbearably.
+;
+;	The TH record contains an input terminal number map and an
+;	output terminal record map.
+;
+;	The DHV CSR may only be modified with MOV & MOVB instructions.
+;	Further, we may not alter the channel number in the low-byte.
+;
+;	The DHV responds only to BR4. Thus it must be placed after all
+;	devices that monitor BR5/BR6 & BR7.
+;
+;	r5 ->	th.suc
+;
+;	r0	character
+;	r1	terminal number
+
+.if ne v3
+dh$ifk::ovjmp$	xd$ifk	utl	;input fork
+.iff
+dh$ifk::mov	#-1,th.ifs(r5)	;reset the fork semaphore
+10$:	mov	th.csr(r5),r4	;get the hardware
+	mov	dh.rbu(r4),r0	;get the character
+	bpl	20$		;no more - we are done
+	cmp	r0,#170000	;is this a diagnostic code?
+	bhis	10$		;yes - ignore it
+	mov	r0,r1		;build the channel number
+	bic	#^c<17*256.>,r1	;isolate the channel number
+	swab	r1		;put it in the low byte
+	add	r5,r1		;point to the channel number
+	movb	th.tim(r1),r1	;get the terminal number
+	beq	10$		;oops - not mapped
+	call	@#te$ifk	;process it
+	br	10$		;get the next
+20$:	return
+.endc
+.sbttl	dh control routines
+
+;	Control routines - select, deselect, xon, xoff
+
+;	dh output select
+;
+;	Start output on an idle channel. 
+;	Send the first character using programmed output.
+;	This is slower than DMA which gives the process more time
+;	to store up a decent amount for subsequent DMA transfers.
+
+	assume	tesxn. eq -6		;
+	assume	tesxf. eq -4		;
+	assume	tesde. eq -2		;
+	assume	tesse. eq 0		;
+	br	dh$xon			;\ send xon
+	br	dh$xof			;! force xoff
+	br	dh$des			;! deselect - abort output
+.if ne v3				;!
+dh$sel::ovjmp$	xd$sel	utl		;/
+.iff
+dh$sel::jsr	r2,dh$com		;get setup
+	tst	te.obc(r3)		;is something in progress?
+	bne	10$			;yes - transfer or abort - ignore this
+	inc	te.obc(r3)		;count the character later
+	mov	#1,dh.tbc(r2)		;transmit byte count
+	mov	te.ogt(r3),dh.tb1(r2) 	;setup the address
+	movb	#dhtde$,dh.tb2(r2)	;enable DMA
+10$:	return
+.endc
+
+;	dh output deselect - abort I/O
+
+.if ne v3
+dh$des::ovjmp$	xd$des	utl		;
+.iff
+dh$des::jsr	r2,dh$com		;get setup
+	mov	#-1,te.oct(r3)		;reset the counter
+	mov	te.opt(r3),te.ogt(r3) 	;and the pointers
+	tst	te.obc(r3)		;anything happening?
+	beq	10$			;no
+	mov	#100000,te.obc(r3) 	;yes - zero count and set abort flag
+	bis	#dhlab$,dh.lin(r2) 	;abort the transfer
+10$:	return
+.endc
+
+;	dh set xon
+
+.if ne v3
+dh$xon::ovjmp$	xd$xon	utl
+.iff
+dh$xon::jsr	r2,dh$com		;setup
+	bicb	#dhlxo$,dh.lin(r2) 	;clear xoff
+	return
+.endc
+
+;	dh set xoff
+
+.if ne v3
+dh$xof::ovjmp$	xd$xof	utl
+.iff
+dh$xof::jsr	r2,dh$com		;setup
+	bisb	#dhlxo$,dh.lin(r2) 	;set xoff
+	return
+.endc
+
+;	Common setup
+;
+;	jsr	r2,dh$com
+
+.if eq v3
+dh$com:	psh	r2			;save return address
+	mov	te.csr(r3),r2		;r2 -> dh.csr
+	$float				;
+	movb	te.uni(r3),(r2)		;select the channel
+	call	@(sp)+			;call them back
+	$land				;clean up
+	pop	r2			;restore r2
+	return				;
+.endc
+.sbttl	output fork routine
+
+;	DHV output fork
+;
+;	DHV output interrupts use IN$FRK to translate to a fork routine.
+;
+;	dh$osr:	jsr	r5,@#dh$ifk
+;		.word	-1	;fork semaphore
+;		.word	0	;fork link
+;		.word	dh$ofk	;output fork routine
+;		.word	th.suc	;r5 - address of th record
+;		.word	dh.csr	;r4 - csr address
+;
+;	Adjust for previous transfer and setup next one.
+;	Terminal aborts may have to wait for upto 128 characters to drain.
+;	We do not see [ctrl/s] or [ctrl/q]. Remove/terminal must wait for us.
+;
+;	movb	dh.csr+1(r4),(r4) ;select the line
+
+.if ne v3
+dh$ofk::ovjmp$	xd$ofk	utl	
+.iff
+dh$ofk::mov	#-1,th.ofs(r5)	;reset the semaphore
+	mov	th.csr(r5),r4	;get the csr
+
+	movb	dh.csr+1(r4),r3	;r0 = channel number
+	bic	#^c117,r3	;clean it up but leave ie in there
+	movb	r3,(r4)		;select channel
+	bicb	#dhlab$,dh.lin(r4) ;turn off any abort
+	clrb	dh.tb2(r4)	;turn off DMA
+
+	bic	#100,r3		;take output interrupt enable
+	asl	r3		;convert to word offset
+	add	r5,r3		;point to it
+	mov	th.tem(r3),r3	;r3 -> terminal record
+	beq	80$		;oops - none, forget it
+
+;	r0	old te.obc
+;	r1	new te.obc
+;	r3 ->	terminal record
+;	r4 ->	dh.csr
+;	r5 ->	th.suc
+;
+;	te.obc	byte count of previous transfer
+;		high byte signals aborts
+;		cleared by terminal output reset
+
+20$:	mov	te.obc(r3),r0		;r0 = dma count
+	bpl	25$			;as we left it
+	clr	r0			;oops - we were aborted
+25$:	mov	te.oct(r3),r1		;r1 = new count
+	inc	r1			;   = zero base
+	mov	te.ogt(r3),r2		;r2 = get pointer
+	add	r0,r2			;advance get pointer	
+	cmp	r2,te.oto(r3)		;time to turn around?
+	blos	30$			;no
+	mov	te.obo(r3),r2		;yes (must be exact wrap)
+30$:	mov	r2,te.ogt(r3)		;reset the get pointer
+
+;	Setup for new transfer
+;
+;	Compute the next contiguous set of bytes in the ring-buffer.
+
+	sub	r0,te.oct(r3)		;update counter
+	sub	r0,r1			;r1 = remainder
+	beq	50$			;we are done
+	add	r2,r1			;point past it
+	cmp	r1,te.oto(r3)		;is this too far?
+	blos	40$			;no
+	mov	te.oto(r3),r1		;yes - get the maximum
+	inc	r1			;point past very last
+40$:	sub	r2,r1			;yes
+					;compute bytes until end of ring
+	mov	r1,dh.tbc(r4)		;transmit byte count
+	mov	r2,dh.tb1(r4)		;setup the address
+	movb	#dhtde$,dh.tb2(r4)	;enable DMA
+
+;	Reschedule process if its blocked
+;
+;	We reschedule the process if we have completed all output
+;	or if less than a quarter of the ring is available to fill.
+
+50$:	mov	r1,te.obc(r3)		;store what we just did
+	cmp	te.obc(r3),#teoth.-1	;below threshold?
+	bpl	80$			;no - get them next time
+60$:	mov	te.pcr(r3),r4		;get the sender
+	beq	80$			;oops - no process
+	cmpb	pr.wai(r4),#prwto.	;waiting for output?
+	bne	80$			;no
+	$revive	te.oqu(r3)		;yes - revive it
+80$:	return
+.endc
+
+.end
+

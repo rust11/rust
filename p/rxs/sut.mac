@@ -1,0 +1,422 @@
+newwak=1
+attrig=1
+.title	sut
+.include "lib:rust.mac"
+.psect	sut d
+$erdef		;errors
+$rpdef		;rp
+$prdef		;pcr
+$srdef		;system rights
+;$s$def		;system messages
+
+;	RUST/XM system utilities
+;
+;	%build
+;	macro	rxs:sut/object:rxb:sut
+;	%end
+;
+;	%date
+;	<20-Nov-2010 20:53:39.09>
+;	%edit
+;	<17   >
+;
+;
+;	sy$gpa	Get process access
+;	sy$gpg	Get process generic
+;
+;	rp.p0	pid address
+;	rp.p1	prn address
+;
+;	call	sy$gpa
+;
+; ???	r3 ->	phd - perhaps via data window
+;	r4 ->	pcr
+;	c=1	some error
+;
+;	sy$gpn 	Get process name
+;
+;	r0 ->	user mode name address
+;
+;	r0 ->	past username address
+;	r2/r3	rad50 process name
+;	c=1	some error
+;
+;	sy$fpn	Find process by name
+;
+;	r2/r3	rad50 process name
+;
+;	r4 ->	pcr
+;	c=1	invalid, not found
+;
+;	sy$fpi	Find process by id
+;
+;	r0 =	pid
+;
+;	r4 ->	pcr
+;	c=1	invalid, empty, wrong sequence number
+;
+;	sy$cmk	Change mode to kernel
+;	sy$cms	Change mode to system process
+;	sy$cmp	Change mode to process
+;	sy$wak	Wake system process
+;	pr$wak	Wake process
+;	pr$nam	Construct process name
+;	pr$mnx	Minimize/Maximize
+.sbttl	get process access
+
+;	Get process access
+;
+;	The following system calls use pid/pnm to address processes.
+;	Find the process, return the pid and check access rights.
+;	Return the pid before the access check of the process.
+;
+;	$stpri		set priority		set priority, signal
+;	$wake		wakeup process		set wake, signal
+;	$suspnd		suspend process		set suspend, signal
+;	$resume		resume process		clear suspend, signal
+;	$forcx		force exit		set exit, signal
+;	$delprc		delete process		set delete, signal
+;	$attach		attach terminal
+;
+;	$schdwk		schedule wakeup		marktime with other pcr
+;	$canwak		cancel wakeup		cancel marktime
+;	$getjpi		get job/process		ugh
+;
+;	rp.p0	pid.da	address of pid
+;	rp.p1	pnm.da	address of asciz process name
+;			name maybe alpha name or pid
+;
+;	call	sy$gpa
+;
+; ???	r3 ->	phd of target process - may be in data window
+;	r4 ->	pcr of target process
+;
+;	These requests share the common errors below:
+;
+;	eradr.	Access error on pid or pnm.
+;	0	No such process.
+;	1	Missing right to access process.
+;
+;	The combination of pnm/pid is encoded for the following:
+;
+;	blank	Not specified. Address = zero.
+;	null	Location contains zero.
+;	whole	Specified and contains whole value.
+;
+;	prn	pid	result	select
+;	blank	blank	no	self
+;	blank	zero	yes	self
+;	blank	whole	yes	pid
+;	whole	blank	no	pnm
+;	whole	zero	yes	pnm
+;	whole	whole	yes	pid
+;
+;	pid=nonblank	return result pid
+;	pid=whole	use pid
+;	pnm=whole	use pnm
+;	else		use self
+;
+;	Check access rights to process.
+
+sy$gpa::			;get process access
+	$cmsch			;stop the world
+	call	sy$gpg		;get the generic specification
+	bcc	sy$cpa		;fine - check process access
+	.soft	0		;no such process
+
+;	r4 ->	pcr
+;	scheduler blocked
+
+sy$cpa::			;check process access
+10$:	cmp	r4,p$hpcr	;is this ourself?
+	beq	40$		;yes (uic may have changed)
+	cmp	pr.own(r4),p$hpcr ;do we own it?
+	beq	40$		;yes
+	cmp	pr.uic(r4),p$huic ;same uic?
+	beq	40$		;yes - we can do what we like
+ .if ne attrig
+	$right	srwor.		;world rights?
+	bcc	40$		;fine - we can access it
+	cmpb	pr.gic(r4),p$hgic ;in the same group?
+	bne	35$		;nope - we failed
+	$right	srgrp.		;yes - try group rights
+ .iff
+	cmpb	pr.gic(r4),p$hgic ;in the same group?
+	bne	20$		;no - check for world
+	$right	srgrp.		;require group
+	br	30$		;check whether we have it
+20$:	$right	srwor.		;require world
+ .endc
+
+30$:	bcc	40$		;fine
+35$:	.soft	1		;missing rights
+40$:	mov	rp.p0(r5),r3	;want the pid back?
+	beq	50$		;no
+	mov	pr.prn(r4),r0	;yes
+	call	mm$mtw		;move it back to them
+50$:	return			;fine - access permitted
+.sbttl	get process generic, name
+
+;	Get process generic
+;
+;	rp.p0	pid address
+;	rp.p1	prn address
+;
+;	r4 ->	pcr
+;	c=1	some error
+
+sy$gpg::			;get process
+	mov	rp.p0(r5),r3	;get the pid
+	beq	10$		;pid is blank
+	call	mm$mfw		;get the pid
+	tst	r0		;is pid whole?
+	beq	10$		;no - find it by name
+	call	sy$fpi		;find process by id
+	br	20$		;go check c-bit
+
+;	No pid - check name
+
+10$:	mov	p$hpcr,r4	;assume self
+	clc			;assume success
+	mov	rp.p1(r5),r0	;specified a name?
+	beq	20$		;no - its us
+	call	sy$gpn		;get a process name
+	bcs	20$		;invalid process name
+	call	sy$fpn		;find process by name
+20$:	return			;c=1 => not found or invalid
+.sbttl	find process by name, id
+
+;	Find process by name
+;
+;	r2/r3	rad50 process name
+;
+;	r0/r1	burnt
+;	r4 ->	pcr - zero if none found
+;	c=1	invalid, not found
+;
+;	p$rprs:	number of processes
+;	p$rmap:	pcr address list
+
+.enabl	lsb
+sy$fpn::			;find process name
+	mov	#p$rprs,r0	;point to the processes
+	mov	(r0)+,r1	;r1 = number of processes
+10$:	mov	(r0)+,r4	;r4 -> current process
+	beq	20$		;slot not in use
+	cmp	pr.nam(r4),r2	;is this the process?
+	bne	20$		;no
+	cmp	pr.nam+2(r4),r3	;really?
+	beq	40$		;c=0 - yes
+20$:	sob	r1,10$		;do them all
+	br	30$		;not found
+
+;	Find process by id
+;
+;	r0 =	pid
+;
+;	r0	burnt
+;	r4 ->	pcr - zero if none found
+;	c=1	invalid, empty, wrong sequence number
+
+pr$map::
+sy$fpi::			;find process by id
+	cmpb	r0,p$rprs	;is this too high?
+	bhis	30$		;yes
+	movzbw	r0,r4		;get the process number
+	asl	r4		;make a word offset
+	mov	p$rmap(r4),r4	;get the pcr
+	beq	30$		;oops - not mapped
+	swab	r0		;got a sequence number?
+	beq	40$		;c=0 - no
+	cmpb	pr.pid+1(r4),r0	;is this the same?
+	beq	40$		;c=0 - yes
+30$:	clr	r4		;no process found
+	sec			;not found or invalid
+40$:	return			;c=1 => no go
+.dsabl	lsb
+.sbttl	get name
+
+;	Get process name
+;
+;	r0 ->	user mode name address
+;
+;	call	sy$gpn
+;
+;	r0 ->	past username address
+;	r2/r3	rad50 process name
+;	c=1	some error
+
+sy$gpn::
+	clr	-(sp)		;make some clear space
+	clr	-(sp)		;
+	clr	-(sp)		;
+	mov	sp,r2		;r2 -> destination
+	mov	r0,r1		;r1 -> previous mode address
+	mov	#6.,r0		;r0 = byte count
+	call	sy$mfs		;get the name (truncate to six)
+	mov	sp,r0		;r0 -> ascii name
+	call	na$car		;convert to rad50
+	mov	r1,r2		;r2 = first word of name
+	beq	10$		;oops - invalid name
+	call	na$car		;get the next
+	mov	r1,r3		;r3 = second word
+	tst	(pc)+		;fine
+10$:	sec			;invalid process name
+	bit	(sp)+,(sp)+	;clean up the stack
+	bit	r0,(sp)+	;
+	return
+.sbttl	put name
+
+;	Put process name
+;
+;	r0 ->	user mode name address
+;	r2/r3	rad50 process name
+;
+;	call	sy$ppn
+;
+;	c=1	some error
+
+sy$ppn::
+	psh	r0		;save user mode address
+	clr	-(sp)		;make some clear space
+	clr	-(sp)		;
+	clr	-(sp)		;
+	clr	-(sp)		;
+	stack	0 2 4 6 adr ret
+	mov	r2,r0		;r0 = first word
+	mov	sp,r1		;r1 = ascii
+	call	sx$cra		;get the ascii stuff
+	mov	r3,r0		;
+	call	sx$cra		;
+	mov	#7.,r0		;count
+	mov	sp.adr(sp),r1	;user mode address
+	mov	sp,r2		;current mode address
+	call	sy$mts		;move to string
+	add	#sp.ret,sp	;clean up
+	return
+.sbttl	move to/from string
+
+;	Move from quad/long/string
+;	Move to quad/long/string
+;
+;	r0 =	count
+;	r1 ->	previous mode address
+;	r2 ->	current mode address
+;	r3 =	byte count
+;
+;	Addresses are updated
+;	Byte alignment errors not checked
+
+.enabl	lsb
+sy$mfq::mov	#8.,r0		;get quad
+	br	sy$mfs		;
+sy$mfl::mov	#4.,r0		;get long
+sy$mfs::psh	r0		;move from string
+10$:	call	mm$grb		;get request byte
+	bcs	40$		;oops
+	movb	r0,(r2)+	;
+	dec	(sp)		;count it
+	bne	10$		;more
+	br	30$		;
+
+sy$mtq::mov	#8.,r0		;put quad
+	br	sy$mts		;
+sy$mtl::mov	#4,r0		;put long
+sy$mts::psh	r0		;save the count
+20$:	movb	(r2)+,r0	;get the next byte
+	call	mm$prb		;send it to the caller
+	bcs	40$		;address error
+	dec	(sp)		;count it
+	bne	20$		;
+30$:	tst	(sp)+		;done
+	return
+40$:	.hard	eradr.		;invalid address
+.dsabl	lsb
+.sbttl	miscellaneous
+
+;	Change mode to kernel
+;
+;	chmker	addr
+;
+;	jsr	r5,sy$cmk
+;	.word	routine-address
+
+sy$cmk::			;generic call kernel routine
+	$cmkrnl	#s$mare,(r5)+	;change mode to kernel
+	rts	r5
+
+;	Change mode to system process
+;	Change mode back to process
+;
+;	Frees scheduler if it was blocked
+;
+;	r0 & r3 are wiped out
+
+sy$cms::			;change mode to system process
+	$obtain	#s$yque		;get the system queue
+	return
+
+sy$cmp::			;change mode back to process
+	$divest	#s$yque		;get rid of the system process	
+	return
+
+;	Wakeup system process
+
+sy$wak::mov	p$rmap+prsyi.,r4;wakeup system process
+	fall	pr$wak
+
+;	Wakeup process
+;
+;	r3	burnt
+;	r4 ->	process pcr
+
+pr$wak::bis	#prwak$,pr.sta(r4) ;wake it up
+.if ne newwak
+	clr	r0		;null signal
+	callr	as$pms		;post signal to wake them up
+.iff
+	$revive	#s$cp00		;and set them going at current priority
+	return
+.endc
+.sbttl	pid & limit
+
+;	Convert pid to rad50
+;
+;	r0 	pid
+;
+;	call	pr$nam
+;
+;	r0	rad50 process number
+
+pr$nam::			;construct process name
+	pshs	<r2,r1>		;
+	mov	#^r000,r2	;start with zeros
+	mov	r0,r1		;r1 = low order
+	clr	r0		;r0 = high order
+	div	#8.,r0		;0 to 32.
+	add	r1,r2		;add in the low order (remainder)
+	mul	#40.,r0		;form the high digit
+	add	r1,r2		;add in the high digit
+	mov	r2,r0		;and return it
+	pops	<r1,r2>		;
+	return
+
+;	Minimise/Maximise
+;
+;	jsr	r5,pr$mnx
+;	.word	address of value
+;	.word	minimum value
+;	.word	maximum value
+
+pr$mnx::			;min/max
+	mov	@(r5)+,r1	;get the value
+pr$mn1::			;value is in r1
+	cmp	r1,(r5)+	;is this too low?
+	bhis	10$		;no
+	mov	-2(r5),r1	;yes - replace it
+10$:	cmp	r1,(r5)+	;is this too high?
+	blos	20$		;no
+	mov	-2(r5),r1	;yes - replace it
+20$:	rts	r5		;and return
+.end
+

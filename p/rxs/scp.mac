@@ -1,0 +1,88 @@
+.title	scp - create process
+.include "lib:rust.mac"
+.psect	scp d
+meta	<chmker c><jsr r5,sy$cmk><.word c>
+$rpdef		;rp
+
+;	RUST/XM Create process
+;
+;	%build
+;	macro	rxs:scp/object:rxb:scp
+;	%end
+;
+;	Main routine for create process. Also calls:
+;
+;	scp	create process system service
+;	sbp	build process specifications
+;
+;	sys	system process dispatcher
+;	spr	central process construction
+;	sph	fill in process header
+;
+;	sda	create process data
+;
+;	This routine has the following tasks:
+;
+; 1.	Obtain exclusive use of the system process mainline.
+; 2.	Copy callers parameters to system process message area.
+; 3.	Preprocess the task in callers space.
+; 4.	Wake up system process.
+; 5.	Wait unconditionally for system process to finish.
+; 6.	Handle system process exit status.
+; 7.	Dispose exclusive use of system process.
+; 8.	Return to caller.
+.sbttl	create process system service
+
+;	$creprc - create process system service
+;
+;	Kernel mode routine in context of calling process.
+;	Routine located in SYS overlay with other routines.
+;
+;	r5 ->	rp
+
+.enabl	lsb
+ss$cpr::			;create process system service
+	call	sy$cms		;get system process
+
+;	Note - abort not permitted while system process locked
+;	Copy parameters to system message area.
+
+	mov	#s$mpcr,r1	;
+	mov	p$hpcr,(r1)+	;s$mpcr - callers pcr
+	mov	rp.r0(r5),(r1)+	;s$mr0	- callers r0
+	clr	(r1)+		;s$merr - exit status
+	clr	(r1)+		;s$msta - none
+	mov	p$hprn,(r1)+	;s$mpid - process id
+	clr	p$rpid		;init result pid
+
+;	Call the preprocessing routine
+
+	call	sy$sbp		;build it first
+	bcs	20$		;we have an error
+
+;	Tell the system process to create it
+
+	clr	s$mcre		;tell system process to create it
+	call	sy$wak		;wakeup system process
+10$:	.spnd			;wait for system process to complete
+	tst	s$mcre		;is it done yet?
+	beq	10$		;no - keep waiting
+
+;	Return result message & PID
+
+20$:	mov	p$hcrp,r5	;get this back
+	movb	s$merr,rp.err(r5) ;return status
+	mov	p$rpid,r0	;get the result pid
+	mov	#-1,s$mcre	;make system process available
+	call	sy$cmp		;change back to process mode
+				;we can accept traps again
+	mov	rp.p0(r5),r3	;yes - do they want the id back?
+	beq	30$		;no
+	call	mm$mtw		;yes - return it
+30$:	tstb	rp.err(r5)	;got an error?
+	bne	40$		;yes
+	return			;no
+40$:	jmp	em$err		;yes - report it
+
+.end
+

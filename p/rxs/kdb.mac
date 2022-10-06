@@ -1,0 +1,461 @@
+step=0
+.sbttl	kdb	kernel debugger
+.include "lib:rust.mac"
+.psect	kdb d
+$aldef		;alphabet
+$mmdef		;memory management
+$psdef		;ps
+$vedef		;vectors
+
+;	RUST/XM kernel debugger
+;
+;	This debugger is used during development only
+;
+;	%build
+;	macro rxs:kdb/object:rxb:kdb
+;	%end
+;	%date
+;	<20-Nov-2010 20:53:39.09>
+;	%edit
+;	<41   >
+
+meta <save><.irpc x,<543210>><psh r'x><.endr>
+meta <restore><.irpc x,<012345>><pop r'x><.endr>
+
+meta	<dbtyp$ str><mov str,r0><call db$typ>
+meta	<dbprt$ str><mov str,r0><call db$prt>
+meta	<dbput$ cha><mov cha,r0><call db$put>
+meta	<dbnum$	val><mov val,r1><call db$num>
+
+;	Debugger frame
+
+map	db.loc	word,0		;address
+map	db.val			;value
+map	db.mod	byte		;memory mode
+map	db.reg	byte		;register mode
+map	db.rea			;reason
+map	db.r0			;r0
+map	db.r1			;
+map	db.r2			;
+map	db.r3			;
+map	db.r4			;
+map	db.r5			;
+map	db.sp			;
+map	db.pc			;
+map	db.ps			;
+map	db.rti			;rti
+
+;	Dispatch & help table
+
+.macro	dbtab$
+dbcmd$	lowg.	db$jmp	<g  - go>
+dbcmd$	lowh.	db$hlp	<h  - display help>
+dbcmd$	lowk.	db$ker	<k  - kernel mode>
+dbcmd$	lowp.	db$pro	<p  - proceed>
+dbcmd$	lowr.	db$reg	<r  - registers>
+dbcmd$	lowu.	db$usr	<u  - user mode>
+dbcmd$	lowz.	db$shp	<z  - SHAREplus debugger>
+dbcmd$	minus.	db$prv	<-  - previous>
+dbcmd$	atsgn.	db$ind	<@  - indirect>
+dbcmd$	under.	db$rel	<_  - relative>
+dbcmd$	perct.	db$bra	<%  - branch>
+dbcmd$	slash.	db$sam	</  - same again>
+dbcmd$	equal.	db$dep	<=  - deposit>
+dbcmd$	space.	db$nop	<sp - nop>
+.endm
+
+meta	<dbcmd$	cha rou txt><.word rou,cha>
+d$bcmd:	dbtab$			;setup dispatch table
+	.word	0
+meta	<dbcmd$	cha rou txt><.ascii &txt&<cr.><lf.>>
+d$bhlp:	dbtab$			;setup help table
+	.byte	0
+
+d$blin:	.blkb	84.		;the input line
+d$brub:	.byte	bs.,space.,bs.,0;
+d$bprm:	.asciz	"| "		;prompt
+d$badr:	.asciz	"Address "	;
+d$bsyn:	.asciz	"Command "	;
+	.even
+.sbttl	entry, exit
+
+;	Setup KDB as debugger
+
+d$bbot::
+db$ini::mov	#db$bus,v$ebus	
+	mov	#db$cpu,v$ecpu
+	mov	#db$bpt,v$ebpt
+	return
+
+;	Reset SHAREplus as debugger
+
+db$shp::mov	#ve$bus,v$ebus	
+	mov	#ve$cpu,v$ecpu
+	mov	#ve$bpt,v$ebpt
+	return
+
+	stack	pc ps	
+db$bus::cmp	(sp),#d$bprb	;are we probing?
+	blo	10$		;no
+	cmp	(sp),#d$bprx	;really?
+	bhi	10$		;no
+	bis	#vbit,sp.ps(sp)	;set return vbit
+	rti			;
+10$:	jsr	r5,db$ent	;enter
+	.ascii	"bus"<128.>	;bus
+
+db$cpu::jsr	r5,db$ent	;cpu
+	.asciz	"cpu"		;
+db$bpt::jsr	r5,db$ent	;breakpoint
+	.asciz	"bpt"		;
+
+db$ent:	psh	(sp)		;copy r5 down into place
+	pshs	<r4,r3,r2,r1,r0>;push the rest
+	psh	r5		;reason
+	clr	-(sp)		;modes
+	clr	-(sp)		;value
+	clr	-(sp)		;location
+	mov	sp,r5		;point to the block
+	bic	#tbit,db.ps(r5)	;clear tbit, test mode
+	bmi	10$		;user mode
+	mov	sp,db.sp(r5)	;yes
+	add	#db.rti,db.sp(r5) ;compute offset
+	br	20$		;
+10$:	bis	#mmpum$,@#ps	;set previous user mode
+	incb	db.mod(r5)	;remember user mode
+	mfpd	sp		;get previous mode sp
+	pop	db.sp(r5)	;save it
+20$:	call	db$new		;newline
+	mov	db.pc(r5),r1	;get the pc
+	call	db$loc		;write the number
+	dbtyp$	db.rea(r5)	;print reason
+30$:	mov	db.pc(r5),r1	;get the pc
+	call	db$prb		;and probe it
+db$err:	call	db$new		;newline
+	mov	#d$blin,r4	;setup the line
+	clrb	(r4)		;nothing coming
+10$:	mov	r5,sp		;reset the stack
+	call	db$cmd		;do the loop
+	br	10$		;till they exit
+
+.if ne step
+db$stp:	bis	#tbit,db.ps(r5)	;step next instruction
+	br	db$pro		;
+.endc
+db$jmp:	mov	(r5),db.pc(r5)	;jump to location
+db$pro:	mov	r5,sp		;restore the pointer
+	add	#db.r0,sp	;point to registers
+	restore			;restore the stack
+	tst	(sp)+		;pop saved sp
+	rti			;and go back
+.sbttl	process command
+
+db$cmd:
+10$:	tstb	(r4)		;more coming?
+	bne	20$		;yes
+	call	db$dis		;display current
+	dbtyp$	#d$bprm		;display prompt
+	call	db$gln		;get next line
+	tstb	(r4)		;got anything?
+	bne	20$		;yes
+	call	db$adv		;no - default is next line
+	br	10$		;go again
+				;
+20$:	call	db$low		;lowercase next character
+	mov	#d$bcmd,r3	;get the command list
+30$:	mov	(r3)+,r2	;get the command address
+	beq	40$		;unknown - try examine
+	cmp	r0,(r3)+	;is this the character?
+	bne	30$		;no
+	inc	r4		;skip character
+	call	(r2)		;yes - do it
+	br	10$		;
+
+40$:	call	db$oct		;get a number
+	bcs	db$syn		;invalid command
+	mov	r0,r1		;
+	call	db$prm		;probe memory
+	br	10$		;go again
+.sbttl	commands
+
+db$hlp:	dbtyp$	#d$bhlp		;display help
+	return
+
+	.enabl	lsb		;
+db$usr:	bis	#mmpum$,@#ps	;set previous user mode
+	movb	#1,db.mod(r5)	;user mode
+	mov	#m$uip0,r1	;check for pars
+	br	10$		;
+db$ker:	clrb	db.mod(r5)	;kernel mode
+	mov	#m$kip0,r1	;check for pars
+10$:	call	db$oct		;try for number
+	bcs	20$		;nothing coming
+	cmp	r0,#7		;in range?
+	bhi	db$syn		;no
+	asl	r0		;make words
+	add	r0,r1		;look at it
+	clrb	db.mod(r5)	;force kernel mapping for pars
+20$:	call	db$prb		;probe it
+	return
+	.dsabl	lsb
+
+db$sam:	mov	(r5),r1		;use same again
+	br	db$prb		;
+db$ind:	mov	db.val(r5),r1	;use location
+	br	db$prm		;probe memory
+
+db$rel:	mov	(r5),r1		;get address
+	add	db.val(r5),r1	;add in offset
+	add	#word,r1	;past pc
+	br	db$prm		;probe memory
+
+db$bra:	movb	(r1),r0		;get branch offset
+	asl	r0		;make words
+	br	db$adv		;add word and pc
+
+db$prv:	call	db$oct		;try for a number
+	bcc	10$		;got one
+	mov	#word,r0	;use default
+10$:	neg	r0		;backup
+	br	db$off		;position
+
+	.enabl	lsb		;
+db$nxt:	call	db$oct		;get a number
+	bcc	db$off		;got one
+db$adv:	mov	#word,r0	;use default
+db$off:	mov	(r5),r1		;
+	add	r0,r1		;
+	br	db$prb
+	.dsabl	lsb		
+.sbttl	probe and deposit
+
+;	r1 ->	address
+
+d$bprb:
+db$prm:	call	db$prs		;probe memory - select
+	clrb	db.reg(r5)	;clear register mode
+db$nop:	return
+
+db$prb:	tstb	db.reg(r5)	;register mode?
+	bne	db$prk		;yes - always kernel
+db$prs:	tstb	db.mod(r5)	;user mode?
+	bne	db$pru		;yes
+db$prk:	mov	(r1),r0		;this a valid address
+	bvs	db$adr		;no		
+	br	db$prx		;
+db$pru:	mfpd	(r1)		;get previous mode
+	bvs	db$adr		;forget it
+	pop	r0		;
+db$prx:	mov	r0,db.val(r5)	;store value
+	mov	r1,(r5)		;store location
+	return
+
+;	deposit
+
+db$dep:	call	db$oct		;get something to deposit
+	mov	(r5),r1		;get the address
+	tstb	db.mod(r5)	;user mode?
+	bne	10$		;yes
+	mov	r0,(r1)		;no - store it
+	bvs	db$adr		;forget it
+	br	20$		;
+10$:	psh	r0		;save value
+	mtpd	(r1)		;store it
+	bvs	db$adr		;
+20$:	cmpb	(r4),#slash.	;no advance?
+	bne	30$		;no
+	return			;dont advance
+30$:	jmp	db$nxt		;advance
+d$bprx:
+
+;	bad address
+
+db$adr:	dbtyp$	#d$badr		;invalid address
+	call	db$loc		;display r1 location
+	jmp	db$err
+
+db$syn:	dbtyp$	#d$bsyn		;invalid command
+	jmp	db$err		;
+.sbttl	displays
+
+db$reg:	tstb	(r4)		;want them all?
+	beq	db$all		;yes
+	call	db$dig		;get a number
+	bcc	db$prg		;single
+	call	db$low		;lowercase
+	cmpb	r0,#lows.	;rs?
+	bne	db$syn		;no - invalid command
+	inc	r4		;skip character
+	mov	#8.,r1		;use r8
+db$prg:	movb	#1,db.reg(r5)	;in register mode
+	asl	r1		;get an offset
+	add	r5,r1		;add in the base
+	add	#db.r0,r1	;add in offset
+	br	db$prb		;go probe it
+
+db$all:	psh	(r5)		;save the location
+	psh	db.val(r5)	;save the value
+	sec			;
+	rorb	db.reg(r5)	;set register mode
+	mov	r5,(r5)		;
+	add	#db.r0,(r5)	;setup address
+	psh	#9.		;
+10$:	mov	(r5),r1		;
+	call	db$prb		;probe the next
+	call	db$dis		;display it
+	call	db$new		;newline
+	add	#word,(r5)	;
+	dec	(sp)		;more
+	bne	10$		;
+	tst	(sp)+		;clean up
+	aslb	db.reg(r5)	;
+	pop	db.val(r5)	;
+	pop	(r5)		;
+	return
+
+;	Display location and value
+
+db$dis:	mov	(r5),r1		;get the location
+	call	db$loc		;display it
+	dbnum$	db.val(r5)	;and the value
+	return
+
+;	Display location
+;
+;	r1	location
+;	db.mod	access mode
+
+db$loc:	tstb	db.reg(r5)	;in register mode?
+	beq	20$		;no
+	sub	r5,r1		;yes
+	sub	#db.r0,r1	;compute register
+	asr	r1		;register number
+	cmp	r1,#8.		;in range?
+	blos	5$		;fine
+	clr	r1		;register 0
+	call	db$prg		;probe that
+	br	db$loc		;start over
+5$:	dbput$	#lowr.		;
+	add	#dig0.,r1	;
+	cmp	r1,#dig8.	;rs?
+	bne	10$		;no
+	mov	#lows.,r1	;
+10$:	dbput$	r1		;
+	br	30$		;
+20$:	call	db$dum		;display location
+	tstb	db.mod(r5)	;is this kernel mode
+	bne	30$		;no
+	dbput$	#lowk.		;yes
+30$:	dbput$	#ht.		;and tab
+	return
+.sbttl	input
+
+;	Get octal number in r0
+
+db$oct:	psh	r1		;
+	clr	r0		;clear result
+	call	db$dig		;get another digit
+	bcs	20$		;oops
+10$:	asl	r0
+	asl	r0
+	asl	r0
+	add	r1,r0		;add it in
+	call	db$dig		;get another
+	bcc	10$		;got another
+	tst	(pc)+		;got a number
+20$:	sec			;no number
+	pop	r1		;
+	return
+
+;	Get next digit from (r4)+
+
+db$dig:	movb	(r4),r1		;get the next
+	sub	#dig0.,r1	;deascify it
+	cmp	r1,#7		;too high or low?
+	bhi	10$		;not digit
+	inc	r4		;skip it
+	tst	(pc)+		;done
+10$:	sec			;
+	return			;
+
+;	Get input line
+
+db$gln:	mov	#d$blin,r4	;setup the line
+10$:	call	db$get		;get another
+	cmpb	r0,#cr.		;this it?
+	beq	30$		;forget that
+	cmpb	r0,#lf.		;end of it?
+	beq	30$		;yes
+	cmpb	r0,#del.	;rubout?
+	bne	20$		;no
+	cmp	r4,#d$blin	;anything to rubout?
+	beq	10$		;no ignore it
+	dec	r4		;
+	dbtyp$	#d$brub		;rubout
+	br	10$		;
+20$:	cmp	r4,#d$blin+80.	;too far?
+	bhis	10$		;yes - ignore it
+	movb	r0,(r4)+	;store it
+	call	db$put		;echo it
+	br	10$		;
+30$:	clrb	(r4)		;terminate it
+	call	db$new		;newline
+	mov	#d$blin,r4	;reset it
+	return
+
+db$low:	movb	(r4),r0		;
+	cmpb	r0,#uprA.	;uppercase?
+	blo	10$		;no
+	cmpb	r0,#uprZ.	;really?
+	bhi	10$		;no
+	sub	#lowA.-uprA.,r0	;yes - adjust
+10$:	return
+.sbttl	output
+
+;	r1	number
+
+db$num:	call	db$dum		;dump number
+	dbput$	#ht.		;and a tab
+	return
+
+db$dum:	pshs	<r3,r2>		;save these
+	clr	r2		;not printing yet
+	mov	#111111,r3 	;loop control.
+10$:	clr	r0		;who fancied the occassional fidget
+20$:	asl	r1		;well, its fetch a bit here
+	rol	r0		;and fudge a bit there
+30$:	asl	r3		;when it itches, ya just find ya digit
+	bcc	20$		;keep fiddling
+	beq	40$		;must print the final digit
+	bis	r0,r2		;got a digit?
+	beq	10$		;no - keep going
+40$:	add	#dig0.,r0	;start or continue printing
+	call	db$put		;display it
+	tst	r3		;done all digits ?
+	bne	10$		;nope, go scritch it
+	pops	<r2,r3>		;
+	return
+
+;	type string
+;
+;	r0 ->	string
+
+db$prt:	call	db$typ		;type it first
+db$new:	dbput$	#cr.		;newline
+	dbput$	#lf.		;
+	return
+
+db$typ:	psh	r1		;save these
+	mov	r0,r1		;
+10$:	movb	(r1)+,r0	;get the next
+	ble	20$		;all over
+	call	db$put		;
+	br	10$		;
+20$:	pop	r1		;
+	return
+
+db$put:	jmp	db$opt		;put
+db$get:	jmp	db$igt		;get
+
+.end
+

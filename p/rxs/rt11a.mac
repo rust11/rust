@@ -1,0 +1,1805 @@
+;???;	RXS:RT11A - Finish non-EVA get/set file info
+pnd$c=0	; pending delete fix for extended date
+sub$c=0	;sub-directories
+inf$c=0	;.sfinf
+Y2K=1
+newabt=1
+renfix=1;		change on next release !!
+newsplit=1
+zerent=1
+creaif=0
+.title	rt11a
+.include "lib:rust.mac"
+.psect	rt11a d
+$apdef		;acp
+$ardef		;access right
+$chdef		;channel
+$dedef		;device
+$erdef		;error
+$fedef		;features
+$fndef		;filenames
+$mmdef		;mmu (EVE calls)
+$prdef		;pcr
+$rtdef		;rt11a
+$tbdef		;tb
+$undef		;unit
+meta	<rtchk$ c><jsr r0,rt$chk><.word c!acerr$>	;check error
+meta	<rterr$ c><jsr r0,rt$err><.word c!acerr$>	;report error
+meta	<rtcal$ c><jsr r1,rt$cal><.word c>		;acp call-back
+
+;	RUST/XM RT11A/RT11X RT-11 disk ACP
+;
+;	%build
+;	macro rxs:rt11a/object:rxb:rt11a
+;	%end
+;	%date
+;	<20-Nov-2010 20:53:39.09>
+;	%edit
+;	<288  >
+;
+;	Non-file operations are sent to RT11N.
+;	Non-file always succeed but may not have read or write enabled.
+;	File oriented calls must pass unit protection first.
+;
+;	RT11A uses UN.FPR for files. RT11X uses individual file protection.
+;	RT11A adds following:
+;
+;	rt.job	Stores creation time in 3 second intervals.
+;	rt.dat	pnd$c=1: value 100000 flags pending delete on tentative file
+;	rt.dat	pnd$c=0: High-order bit flags pending delete on tentative file
+;
+;	RT11X adds the following directory fields:
+;
+;	rt.ctl	Low-order time and controls
+;	rt.uic	UIC of owner
+;	rt.pro	File protection
+;
+;	Offline	Forces call to ap$mnt to calculate free space
+;	Mount	computes total empty space.
+;	Enter	subtracts tentative space allocated.
+;	Delete	adds space deallocated. remove.
+;	Rename	adds space deallocated. remove.
+;	Close	adds space deallocated. internal.
+;	Purge	adds deallocated tentative space.
+;
+;	r3 ->	filename
+;	r4 ->	csw
+;	r5 ->	directory entry
+.sbttl	dispatch & exit
+
+;	Dispatch RT11A/RT11X ACP request
+;
+;	a$p...	ACP packet
+;	r5 ->	RP
+
+rt$11a::mov	sp,a$posp		;save stack for exits
+.if ne newabt
+	rtcal$	acscs.			;set critical section 
+.endc
+	mov	a$punr,r3		;get the unit record
+	bit	#unonl$,un.con(r3) 	;are we on-line yet?
+	bne	10$			;yes
+	tst	a$pfna+fn.fil		;got a name?
+	beq	10$			;no - its non-file structured
+	call	rt$mnt			;automount the device
+10$:	movb	a$popr,r0		;dispatch the request
+	asl	r0			;get a word offset
+	mov	#a$pfna+fn.fil,r3 	; r3 -> filename
+	call	@r$tdis(r0)		;and dispatch it
+	br	rt$fin			;done
+
+;	Error and success exits
+;
+;	jsr	r0,rt$err
+;	.word	error code
+
+rt$chk:	bcs	rt$err			;we have an error
+	tst	(r0)+			;no error - skip the code
+	rts	r0			;return happy
+rt$err:	mov	(r0),r0			;get the error code
+rt$er0:	mov	r0,a$psta		;return the status
+rt$fin:	mov	a$posp,sp		;get the stack back
+	fall	rt$ret			;and get out
+
+;	Redundant or not implemented.
+
+rt$dsm:					;dismount
+rt$sav:					;savestatus
+rt$reo:					;reopen
+.if eq inf$c
+rt$gfi:					;get file
+.endc
+rt$gvo:					;get volume
+rt$svo:					;set volume
+rt$ret:	return				;return
+
+	table	word, step=1
+r$tdis:;	address	assume		;dispatch table
+	item	rt$loo	acloo.		;00 lookup
+	item	rt$ent	acent.		;02 enter
+	item	rt$ren	acren.		;04 rename
+	item	rt$del	acdel.		;06 delete
+	item	rt$clo	acclo.		;10 close
+	item	rt$pur	acpur.		;12 purge
+	item	rt$sav	acsav.		;14 savestatus
+	item	rt$reo	acreo.		;16 reopen
+	item	rt$gfi	acgfi.		;20 get file
+	item	rt$sfi	acsfi.		;22 set file
+	item	rt$gvo	acgvo.		;24 get volume	(remove)
+	item	rt$svo.	acsvo.		;26 set volume	(remove)
+	item	rt$mnt	acmnt.		;30 mount	(remove)
+	item	rt$dsm	acdsm.		;32 dismount	(remove)
+	assume	$ eq acomx.		;make we do them all
+.sbttl	acp and image cache calls
+
+;	ACP call-back
+;
+;	Call back RAX for ACP utility routine
+;
+;	jsr	r1,rt$cal
+;	.word	call-back code
+
+rt$cal:	mov	(r1)+,r0		;get the call-back code
+	psh	r1			;reset return address
+	stack	ret r1			;
+	mov	sp.r1(sp),r1		;send callers r1 to acp routine
+	call	@a$pcal			;call them
+	pop	r1			;get back return address
+	rts	r1			;return restoring callers r1
+
+;	Image cache calls
+;
+;	r2 ->	directory entry
+;	call	rt$img
+;
+;	r3 ->	directory entry
+;	r2 ->	feature
+;	call	imagecache
+;	r2 ->	directory entry
+;
+;	c=0	image cache success
+;	c=1	no image cache or image cache failure
+
+rt$img:	psh	r3			;save this
+	tst	f$emap+<feimg.*2> 	;image cache installed?
+	beq	10$			;no - forget it
+	mov	r2,r3			;copy entry pointer to r3
+	mov	#feimg.,r2		;supply index
+	call	fe$dis			;call the image cache
+	br	20$			;c=?
+10$:	sec				;c=1 => no cache
+20$:	pop	r3			;c=?
+	return				;c=?
+.sbttl	lookup
+
+;	Lookup a file
+;
+;	Handle spooler wildcard lookup
+;
+;	fil_$l.typ	find first alpha 'nam'
+
+rt$loo:	call	rt$sup			;lookup - find the file
+	cmp	a$pfna+fn.nam,#29.*40.+<^r  l> ;wildcards?
+	bne	40$			;no
+
+;	Spooler wildcard search
+
+	clr	-(sp)			;space for the start block
+	psh	rt.nam(r2)		;yes - save the first
+	stack	nam sbl			;yes - search for more
+10$:	cmp	rt.nam(r2),(sp) 	;this lower?
+	bhi	20$			;no
+	mov	rt.nam(r2),(sp)		;yes - replace it
+	mov	a$psbl,sp.sbl(sp) 	;save the start block
+	mov	rt.len(r2),a$pr0	;save the result length
+20$:	call	rt$mor			;look for another
+	bcc	10$			;got another - compare it
+	mov	(sp),ch.use(r4)		;report name found
+	pop	a$pfna+fn.nam		;report for show process
+	pop	ch.sbl(r4)		;setup the start block
+	mov	a$pr0,ch.len(r4)	;and the file length
+	return				;we won
+
+;	Standard lookup
+
+40$:;	mov	a$punr,r0		;get the unit record
+	call	rt$gfe			;get file information
+	mov	rt.dat(r2),a$pdat 	;setup the date
+	mov	rt.tim(r2),a$ptim 	;return the time
+	mov	(r2),a$ptim+2		;control and time
+	jmp	rt$map			;go map the channel
+.sbttl	get file
+
+;	Get file information
+;
+;	.lookup	.enter	.rename	.sfdat	.fprot
+;
+;	len	long	File length in blocks. Inverted format.
+;	dat	word	RT-11 date.
+;	tim	long	Two word time (seconds).
+;	uic	word	Two byte UIC.
+;	pro	word	Protection.
+;	del	word	Deletion control.
+;	ctl	word	RT11X control word
+;
+;	r0	first word of data (used by SET)
+;	r1	dispatch parameter (offset into directory entry)
+;	r2 ->	directory entry
+;	r3
+;	r4 ->	call data (mapped in par6)
+
+rt$gfe:	mov	#100$,r1		;point to the packages
+	jmp	rt$evp			;and process them
+
+100$:	$evdgr	gfi	200$		;get file parameters
+	$evdgr				;no more groups
+
+200$:	$evdca	tim	word*2	0	400$	;time is hand-held
+	$evdca	del	word	0	450$	;deletion is hand-held
+	$evdca	uic	word	rt.uic	500$	;rt11x only
+	$evdca	pro	word	rt.pro	500$	;rt11x only
+	$evdca	len	word*2	rt.len	550$	;long
+	$evdca	dat	word	rt.dat	600$	;date
+	$evdca	ctl	word	rt.ctl	500$	;rt11x only
+	$evdca	
+
+;	RT11A/RT11X time
+;
+;	rt.tim	3-second units
+;	rt.ctl	3-second overflow
+
+400$:	mov	rt.tim(r2),r0		;get the time
+	bmi	410$			;we have the time
+	clr	(r4)+			;no time in entry
+	clr	(r4)+			;return zero
+	br	700$			;quit
+					;
+410$:	bic	#100000,r0		;clean out the flag
+	mov	t$ifre,r1		;r1 = frequency
+	mul	#3,r1			;r1 = frequency*3
+	mul	r1,r0			;r0 = secs*3*freq
+	cmpb	a$pact,#acrtx.		;this an rt11x directory?
+	bne	420$			;no
+	psh	r1			;save the low order
+	mov	rt.ctl(r2),r1		;get the low order
+	bic	#^c3,r1			;isolate it
+	mul	t$ifre,r1		;get the ticks
+	add	(sp)+,r1		;add back the high order
+	adc	r0			;setup the high order
+420$:	mov	r0,(r4)+		;store mod-3 time in seconds
+	mov	r1,(r4)+		;store overflow
+	br	700$			;and quit
+
+;	RT11A/RT11X del
+
+450$:	clr	(r4)			;assume not protected
+	tst	(r2)			;protected?
+	bpl	460$			;no
+	inc	(r4)			;yes
+460$:	br	700$			;and quit
+
+;	RT11X uic pro ctl
+
+500$:	cmpb	a$pact,#acrtx.		;this RT11X?
+	bne	700$			;no - ignore it
+	br	600$			;yes - set it
+
+;	RT11A/RT11X length
+;
+;	len	long word. Clear first word.
+
+550$:	clr	(r4)+			;clear first word of length
+	fall	600$			;
+
+;	RT11A/RT11X len dat tim del
+
+600$:	add	r2,r1			;point to it
+	mov	(r1),(r4)+		;return the value
+700$:	return				;
+.if ne inf$c
+.sbttl	get/set file info
+
+;	.fprot .gfdat .gfinf .gfsta .sfdat .sfinf .sfsta
+;
+;	.byte	req,chn
+; a$pp0	.word	dblk
+; a$pp1	.word	value (0 for gfinf)
+; a$pp2	.byte	opr,off
+; a$pp3	.word	0/1		supress logical name translation if area is odd
+;
+;	opr: 0=get, 1=bic, 2=bis, 3=mov (??? 2xx user)
+
+rt$gfi::stack	xxx		; required length
+rt$sfi::clr	-(sp)		; empty size for truncate/expand
+	clr	-(sp)		;
+	stack	len,ent,blk	;
+	call	rt$sul		; setup, find and lock
+				; r2 -> directory entry
+5$:	mov	r2,sp.ent(sp)	; save entry address
+	mov	a$psbl,sp.blk(sp);
+	mov	#a$pp1,r3	; r3 -> value
+	mov	(r3)+,r0	; r0 = value
+	movb	1(r3),r1	; r1 = offset
+	cmp	r1,a$pebs	; longer than entry?
+	bhis	103$		; yep - error 3
+	bit	#1,r1		; odd offset?
+	bne	103$		; yep -invalid offset
+	add	r1,r2		; r2 -> target word
+	mov	(r2),a$pr0	; return previous value
+				;
+	movb	(r3)+,r1	; get the operation
+	beq	60$		; get already done
+	cmpb	(r3),#rt.len	; trying to change length?
+	beq	70$		; yes - that's special
+	tstb	(r3)		; status word?
+	bne	20$		; nope
+	cmpb	r1,#rtMOV.	; move?
+	bne	10$		; nope
+	bic	#^c17,r0	; can't alter low bits
+	bic	#17,(r2)	;
+	dec	r1		; make it a bis
+				; falls through test below
+10$:	bit	#7400,r0	; invalid bits?
+	bne	104$		; yep - error 4
+				;
+20$:	sub	#2,r1		; dispatch us
+	bmi	40$		; bic
+	beq	30$		; bis
+	dec	r1		; mov?
+	bne	102$		; nope
+	clr	(r2)		; do move with a bis
+30$:	bis	r0,(r2)		;
+	br	50$		;
+40$:	bic	r0,(r2)		;
+50$:	mov	sp.ent(sp),r2	; restore entry address
+	mov	sp.blk(sp),a$psbl
+	call	rt$upf		; set file, get file & update
+60$:	add	#6,sp		;
+	return			;
+;
+;	Change file size
+;
+70$:	bneb	r1,#3,103$	; only move is accepted
+	mov	r2,r3		; r3 -> length
+	mov	sp.ent(sp),r2	; restore entry address
+	assume	sp.len eq 0	;
+	mov	(r3),(sp)	; save current length
+	call	rt$skp		; point at next entry
+	sub	r0,(sp)		; check operation
+	ble	90$		; expand
+	bit	#rtEMP$,(r2)	; this an empty?
+	bne	80$		; yes
+	call	rt$exp		; nope - move it up
+	bcc	75$		; fine
+	call	rt$sea		; segment split - start over
+	br	5$		;
+75$:	mov	#rtEMP$,(r2)	; make an empty
+	clr	rt.len(r2)	; make a zero length empty
+80$:	sub	(sp),(r3)	; reduce our entry
+	add	(sp),rt.len(r2)	; difference to empty
+	br	50$		; update and purge
+				;
+90$:	bit	#rtEMP$,(r2)	; need empty to extend
+	beq	103$		; no room
+	mov	rt.len(r2),r0	; do trial extend
+	add	(sp),r0		; ((sp) has negative delta)
+	bge	80$		; sufficient space availabe
+	stack	len		; rt$err: resets sp
+	fall	102$		;
+102$:	rterr$	acdiu.		; 2 - invalid operation 
+103$:	rterr$	acprf.		; 3 - invalid offset
+104$:	rterr$	acsnf.		; 4 - invalid value
+	.dsabl	lsb		;
+.endc
+.sbttl	set file
+
+;	Set file processing
+;
+;	Rename, fprot and sfdat all require delete access to the file.
+;	This is checked by the default setupl/search path.
+;	.Enter requests can set anything they want.
+;	Therefore write-attributes rights can be obtained by any process
+;	with delete rights. 
+;
+;	.enter		May always set rights
+;	.rename		Delete rights required
+;	.fprot		Delete rights required
+;	.sfdat		Delete rights required
+;
+;	Set calls:
+;
+;	dat	word	RT-11 date.
+;	tim	long	RT-11 long word time.
+;	uic	word	VMS word (byte+byte) UIC
+;	pro	word	VMS word protection.
+;	del	word	RT-11 deletion.
+;			0=noprotect, <>0=protect
+;	ctl	word	RT11X control word
+
+; 	Set file
+;
+;	SFDAT & FPROT
+
+.if eq inf$c
+rt$sfi:	call	rt$sul			;setup, find and lock it
+	mov	a$pp1,r0		;get the parameter
+	tst	a$pp2			;is this date or deletion protect?
+	beq	10$			;set date
+	call	rt$sdl			;set delete protection
+	br	20$			;
+10$:	call	rt$sda			;set date
+20$:	fall	rt$upf			;update file
+.endc
+
+;	Update file
+;
+;	Set file, get file, update image cache
+
+rt$upf:	call	rt$sfe			;set file extended
+	call	rt$gfe			;get file extended
+	call	rt$img			;update the image cache
+	jmp	rt$upd			;and update it
+
+;	Set file EVA
+
+rt$sfe:	mov	#100$,r1		;point to dispatch table
+	br	rt$evp			;process the package
+
+100$:	$evdgr	sfi	200$		;set file parameters
+	$evdgr				;
+
+;	call	size	par	rou
+
+200$:	$evdca	dat	word	0	rt$sda	;set date
+	$evdca	tim	word*2	0	300$	;set time
+	$evdca	uic	word	0	rt$sui	;set uic
+	$evdca	pro	word	0	rt$spr	;set protection
+	$evdca	del	word	0	rt$sdl	;set deletion
+	$evdca	ctl	word	0	rt$sct	;set control
+	$evdca
+
+;	Set file time
+;
+;	r0	high order time
+;	2(r4)	low order time - pass in r1
+
+300$:	mov	2(r4),r1		;get the second word of the time
+	br	rt$sti			;set the time
+
+;	RT11A/RT11X EVE interface
+;
+;	RAX left page in a$pp4 and package address in a$pp5
+;
+;	mov	#table,r1
+;	call	rt$evp
+
+rt$evp:	rtcal$	acpep.			;process eve package
+	return				;
+.sbttl	time, date, uic, prot, del
+
+;	Set directory entry items
+;
+;	date		rt-11 date
+;	time		time-of-day. Seconds/3 + 100000
+;	ctl		Control. Low order time.
+;	uic		per-file or per-unit
+;	protection	lookup, enter, rename, delete
+;			enter sets default protection
+;	del		rt-11 deletion control
+;
+;	r2 ->	directory entry
+
+;	Set date
+
+rt$sda:
+.if eq Y2K
+	bic	#140000,r0		;did we get a date?
+	beq	rt$dat			;nope - setup date & time
+.iff
+	tst	r0			;did we get a date?
+	beq	rt$dat			;nope - setup date & time
+rt$sdt:	cmpb	a$popr,#acent.		;is this an enter?
+	beq	10$			;nope
+.endc
+	mov	r0,rt.dat(r2)		; put in the date
+10$:	return				;
+					;
+rt$dat:	clr	r0			;set the date
+rt$tim:	tst	r0			;did we get a date
+	bne	10$			;yes - go set it
+	rtcal$	acgtm.			;get the time
+	mov	a$pdat,r0		;get the date
+10$:
+.if eq Y2K
+	mov	r0,rt.dat(r2)		;setup the date
+.iff
+	call	rt$sdt			;set date
+.endc
+	psh	r1			;save this
+	mov	a$ptim,r0		;get the time
+	mov	a$ptim+2,r1		;get the low order
+	call	rt$sti			;set rt-11 time
+	pop	r1			;restore this
+30$:	return				;
+
+;	Set time
+;
+;	r0 =	high order time
+;	r1 =	low order time
+
+rt$sti:	cmpb	a$popr,#acent.		;this an enter?
+	beq	30$			;yes - dont overwrite job/chn with time.
+	psh	r3			;save this one
+	mov	t$ifre,r3		;get the ticks per second
+	mul	#3,r3			;get three second units
+	div	r3,r0			;get the number of 3 second units
+	bis	#100000,r0		;flag the time
+	mov	r0,rt.tim(r2)		;rt.tim = 100000 ! 3-second unit time
+					;
+	cmpb	a$pact,#acrtx.		;this rt11x?
+	bne	20$			;nope
+	clr	r0			;now do the remainder
+	div	t$ifre,r0		;make it smaller
+	bic	#^c3,r0			;clean it up
+	bicb	#3,rt.ctl(r2)		;make space for it
+	bisb	r0,rt.ctl(r2)		;and set it up
+20$:	pop	r3			;get this back
+30$:	return				;	
+
+;	Set UIC
+
+	.enabl	lsb
+rt$sui:	tst	r0			;specified a uic?
+	bne	10$			;yes - use it
+rt$uic:	mov	a$puic,r0		;set default uic
+10$:	psh	#rt.uic			;setup uic
+	br	rt$set			;go set it
+	.dsabl	lsb
+
+;	Set all
+;
+;	date, uic, protection
+
+rt$all:	call	rt$dat			;set the date & time
+	call	rt$uic			;set the uic
+	fall	rt$pro			;setup the protection
+
+;	Set protection
+
+rt$pro:	mov	a$ppro,r0		;set default protection
+rt$spr:	psh	#rt.pro			;set protection
+rt$set:	cmpb	a$pact,#acrtx.		;this rt11x?
+	bne	10$			;nope
+	add	r2,(sp)			;add in the base
+	mov	r0,@(sp)		;put it in
+10$:	tst	(sp)+			;forget it
+	return
+
+;	Set deletion protection
+
+rt$sdl:	bic	#rtpro$,(r2)		;clear existing delete protection
+	asr	r0			;low bit set?
+	bcc	10$			;no
+	bis	#rtpro$,(r2)		;yes - set delete protection
+10$:	return				;
+
+;	Set RT11X control word
+
+rt$sct:	cmpb	a$pact,#acrtx.		;this rt11x?
+	bne	10$			;no
+	bic	#3,r0			;clear out the time
+	bic	#^c3,rt.ctl(r2)		;isolate time in control
+	bis	r0,rt.ctl(r2)		;set it
+10$:	return				;
+.sbttl	enter
+
+;	Enter new file in directory
+;
+;	Volume create access rights required.
+;	Read/write/delete access required to existing file.
+;
+; ???	Remember the segment we found the hole in.
+;	Adjust volume size for space allocated.
+;
+; ???	Support EVE OFI CIF create-if option.
+; ???	If file exists, convert operation to lookup.
+;
+; ???	rtcif$	only if file does not exist
+; ???	rtexa$	exact block number		block number
+; ???	rthgh$	as high as possible		top limit
+; ???	rtlow$	as low as possible		low limit
+; ???	rtadj$	adjust file length		size to add/subtract
+; ???	rtsds$	squeeze directory segments	
+
+rt$ent:					;enter
+	call	rt$uar			;check unit access rights
+10$:	rtcal$	aclun.			;lock the unit
+
+;	Pass one
+;
+;	Find and check protected file
+;	Find available holes
+;
+;	a$psiz	stp	size type
+;		 =0	bigger of half/biggest or second biggest
+;		 =-1	biggest hole
+;		 n	exact match
+;		sbh	biggest hole
+;		ssh	second biggest
+
+	clr	-(sp)			;make space for the size
+	stack	siz			;
+20$:	mov	a$pp2,(sp)		;(sp) = length
+	mov	#a$psiz,r0		;get the size list
+	mov	(sp),(r0)+		;set up the size flag
+30$:	clr	(r0)+			;no biggest
+	clr	(r0)+			;no next best
+	call	rt$sea			;search - check file length
+40$:	bcs	50$			;not found - goto pass 2
+.if ne creaif
+	bit	#occif$,a$popr		;this create-if?
+	bne	rt$map			;yes - treat it as lookup
+.endc
+	call	rt$prt			;check for protection
+	call	rt$mor			;do the whole directory
+	br	40$			;
+
+;	Check and select hole size
+
+50$:	mov	#a$psiz,r0		;get the size list
+	cmp	(r0)+,#-1		;biggest?
+	beq	60$			;yes
+	tst	-word(r0)		;exact?
+	bne	70$			;c=0 - yes
+	ror	(r0)			;c=0 - halve the biggest
+	cmp	(r0)+,(r0)		;which is larger
+	blo	60$			;the second best is
+	tst	-(r0)			;half the biggest is
+60$:	mov	(r0),(sp)		;get the size
+70$:	tst	(r0)			;did we get anything at all?
+	bne	80$			;fine
+	rterr$	acfnf.			;file-not-found
+
+;	Pass two
+;
+;	Setup tentative entry
+
+80$:	call	rt$vol			;get the directory again
+90$:	bcs	100$			;next segment
+	bit	#rtemp$,(r2)		;is this it?
+	beq	100$			;no way
+	cmp	rt.len(r2),(sp)		;is this it?
+	bhis	110$			;yep
+100$:	call	rt$nxt			;nope, get the next entry
+	br	90$			;and look again
+110$:	call	rt$exp			;go make space for us
+	bcs	20$			;we just split, start again
+
+;	Fill in tentative entry
+
+120$:	mov	r2,r1			;get another copy
+	mov	#rtten$,(r1)+		;rt.sta - entry status
+.if ne creaif
+	bit	#occif$!ocper$,a$popr+1	;create permanent file?
+	beq				;no
+	mov	#rtper$,-2(r1)		;yes
+.endc
+125$:	mov	(r3)+,(r1)+		;rt.fil	
+	mov	(r3)+,(r1)+		;rt.nam
+	mov	(r3)+,(r1)+		;rt.typ
+	mov	(sp),(r1)+		;rt.len - length
+	movb	a$pchn,(r1)+		;rt.chn	- channel number
+	movb	a$pprn,(r1)+		;rt.job	- process number
+.if eq zerent
+	tst	(r1)+			;rt.dat - skip date
+.iff
+	clr	(r1)+			;rt.dat - clear date & pending delete
+.endc
+	mov	rt.ext(r5),r0		;get extra bytes
+	beq	140$			;are none
+130$:	clrb	(r1)+			;clear out extra words
+	sob	r0,130$			;
+					;
+					;r1 -> next entry
+140$:	sub	(sp),rt.len(r1)		;reset length of following empty
+	call	rt$all			;setup date, time, uic & protection
+	call	rt$upf			;set file, get file and update
+	bis	#csten$,(r4)		;make it an enter channel
+					;return path frees volume
+	neg	(sp)			;make this an allocate
+	call	rt$dfs			;allocate space (pop sp)
+
+;	Map the channel
+;
+;	Lookup/Enter completion
+
+rt$map:
+.if ne sub$c
+	bit	#csSUB$,(r4)		;this a sub-directory?
+	bne	10$			;yes
+	clr	ch.sbl(r4)		;no - force a move
+10$:	add	a$psbl,ch.sbl(r4)	;set start block
+.iff
+	mov	a$psbl,ch.sbl(r4)	;get the start block
+.endc
+	mov	rt.len(r2),ch.len(r4)	;file length
+	mov	rt.len(r2),a$pr0	;return r0 value
+	clr	ch.use(r4)		;clear used size
+	return				;
+.sbttl	rename
+
+;	Rename a file
+;
+;	r3 ->	fna+fn.fil
+;	r4 ->	csw
+;
+;	The filename being manipulated must be in a$pfna.
+;	Errors and image cache always use a$pfna.
+;
+;	Find and store information about FNA
+;	Remove previous version of FNB
+;		Different start blocks.
+;		Same start block, but name FNA<>FNB (FNA is zero length)
+;	Position at FNA again and change name.
+;		Ignore name change if fn.fil(FNA)=0.
+;	Update date, time, protection etc.
+
+rt$ren:	call	rt$sul			;find FNA - check, lock & find it
+	psh	a$pseg			;save current segment
+	stack	seg			;
+	psh	r2			;save this
+.if eq renfix
+	mov	#-1,r2			;signal purge to cache
+.iff
+	mov	#b$ypio,r2		;until next release
+.endc
+	call	rt$img			;this is horrible
+	pop	r2			;get back entry
+					;
+	psh	a$psbl			;FNA start block
+					;
+	stack	sbl seg			;delete FNB if it exists
+	call	rt$sab			;swap to FNB
+	call	rt$sea			;search for new name
+	bcs	40$			;no prior version of new name
+	cmp	a$psbl,(sp)		;different start block?
+	bne	20$			;yes - delete it
+	mov	#fn.typ+word,r0		;no - compare FNA and FNB
+	assume	fn.fil eq word		;
+10$:	sub	#word,r0		;next word
+	beq	50$			;they are the same
+	cmp	a$pfna(r0),a$pfnb(r0)	;different name element?
+	beq	10$			;same - try next
+					;
+20$:	call	rt$rem			;remove - different start-block or name
+					;no return for access denial
+	stack	sbl seg			; Get back FNA again
+40$:	call	rt$sab			;swap back to fna
+	mov	sp.seg(sp),r0		;get the segment for position
+	call	rt$pos			;and position us there
+	call	rt$sch			;find it again
+	rtchk$	erdin.			;should be found - else invalid dir
+	call	rt$sab			;swap to fnb
+					; Change FNA to FNB
+50$:	cmp	(sp)+,(sp)+		;clean off sbl and seg
+	mov	r3,r0			;r0 -> new name
+	movi	rt.fil,r2,r1		;r1 -> name
+	tst	(r0)			;got a new name?
+	beq	60$			;no - dont put blank names in directory
+	mov	(r0)+,(r1)+		;move it in
+	mov	(r0)+,(r1)+		;
+	mov	(r0)+,(r1)+		;
+60$:;	call	rt$dat			;reset the date & time
+	call	rt$upf			;set file, get file & update
+	fall	rt$sab			;swap back to fna and exit
+
+;	Swap FNA and FNB
+
+rt$sab:	mov	r3,r0			;r0 -> a$pfna+fn.fil
+10$:	psh	fn.bbs(r0)		;save the other
+	mov	(r0),fn.bbs(r0)		;move a to b
+	pop	(r0)+			;move b to a
+	cmp	r0,#a$pfna+fn.bbs	;all done?
+	blo	10$			;no
+	return				;
+.sbttl	close
+
+;	Close tentative file
+;	Remove previous version unless previous protected
+;
+;	Tentative too large for file space - truncate
+;	Directory entry not found - invalid directory
+;	Tentative not followed by empty - invalid directory
+;
+;	For sub-directories we look for enclosing sub-directory
+;	files. For each applicable the base block is updated
+;	and the search restarted.
+
+	assume	csten$ eq 200
+rt$clo:	tstb	(r4)			;opened by enter?
+	bpl	130$			;nope, forget it
+	bic	#csnre$!csnwr$,(r4)	;ensure read/write
+	rtcal$	aclun.			;lock the unit
+	psh	ch.sbl(r4)		;(sp) = start block
+	clr	ch.sbl(r4)		;make it non-file structured
+	mov	#-1,ch.len(r4)		;non-file structured length
+	stack	sbl ret			;
+					;
+5$:	call	rt$vol			;get the directory
+10$:	bcs	140$			;no more entries - invalid directory
+
+	.if ne sub$c
+	bit	#csSUB$,(r4)		;sub-directory file?
+	beq	15$			;nope
+	cmp	(sp),a$psbl		;start must be above
+	blos	15$			;but it's not (eq handles preceding)
+	psh	a$psbl			;
+	add	rt.len(r2),(sp)		;
+	cmp	(sp)+,(sp)		;end must be in file
+	blos	15$			;but it isn't
+	cmp	rt.typ(r2),#^rdsk	;sanity check for removable media
+	bne	15$			;let it fail normally
+	add	a$psbl,ch.blk(r4)	;setup volume	
+	sub	a$psbl,(sp)		;and relocate inside it
+	clr	a$pseg			;force restart
+	br	5$			;
+	.endc
+
+15$:	bit	#rtten$,(r2)		;this a tentative file?
+	beq	20$			;nope - look again
+.if ne zerent
+.if ne pnd$c
+	cmp	rt.dat(r2),#rtpdl$	;pending delete?
+	beq	20$			;yes - ignore this one
+.iff
+	assume	rtpdl$ eq 100000	;pending delete flag
+	tst	rt.dat(r2)		;this a pending delete?
+	bmi	20$			;yes - ignore this one
+.endc
+.endc
+	cmpb	rt.chn(r2),a$pchn 	;same channel?
+	bne	20$			;nope - look again
+	cmpb	rt.job(r2),a$pprn	;same process number?
+	bne	20$			;nope
+	cmp	a$psbl,(sp)		;same start block?
+	beq	40$			;yes - we have the directory entry
+20$:	call	rt$nxt			;nope - get the next entry
+	br	10$			;try the next
+
+;	Fixup the directory entry
+;
+;	r0 ->	next directory entry - must be empty
+;	r1 ->	rt.len of tentative
+;	r2 ->	tentative directory entry
+;	r4 ->	channel
+
+40$:	mov	r2,r0			;compute address of next entry
+	add	a$pebs,r0		;point to it
+	bit	#rtemp$,(r0)		;this must be an empty file
+	beq	150$			;invalid directory
+					;
+	psh	ch.use(r4)		;(sp) = ch.use(r4) - final size
+	movi	rt.len,r2,r1		;r1 -> rt.len(r2) - entry size
+	cmp	(sp),(r1)		;trying for more than we have?
+	blos	50$			;nope
+					;??? should report process error
+	mov	(r1),(sp)		;yes - truncate to maximum
+50$:	sub	(sp),(r1)		;get the used blocks
+					;must exit via 120$ below here
+	add	(r1),rt.len(r0)		;update the empty
+	mov	(r1),a$psiz+ap.cfs	;save it for the deallocate
+	mov	(sp),a$plen		;store the length for others
+	pop	(r1)			;fix the permanent length
+					;
+	bic	#rtten$,(r2)		;remove tentative flag
+	bis	#rtper$,(r2)		;make it permanent
+					;
+	mov	#a$pfna+fn.typ,r3	;save the filename
+	assume rt.typ+word eq rt.len	;rt.len
+	mov	-(r1),(r3)		;rt.typ
+	mov	-(r1),-(r3)		;rt.nam
+	mov	-(r1),-(r3)		;rt.fil (r3 -> filename for search)
+
+;	Fill in date & time, update image cache, compress
+
+	call	rt$dat			;reset date & time
+	call	rt$img			;update the cache
+	call	rt$com			;compress and update the segment
+
+;	Delete any previous version
+;
+;	Delete first unprotected file of same name at different start block
+;	or with	different length.
+;
+;	A special case  occurs where the new version has a previous version
+;	at the same start block and both files are zero blocks long. In this
+;	case the first file is the previous version. Rewind and delete first
+;	when this situation is detected.
+;
+;	r2 ->	previous permanent entry
+;	r3 ->	filename
+;	a$psbl	start block of new file
+;	a$plen	length of new file
+;	a$psiz	ap.czf - zero-file flag (counts two occurences)
+
+	clr	a$psiz+ap.czf		;init zero-length file flag
+	call	rt$sea			;find our name
+60$:	bcs	120$			;no duplicate, forget it
+	cmp	a$psbl,sp.sbl(sp)	;the same block?
+	bne	110$			;nope, go delete it
+	cmp	a$plen,rt.len(r2)	;different length?
+	bne	110$			;yes - delete it
+	tst	rt.len(r2)		;this zero-length?
+	bne	70$			;no
+	com	a$psiz+ap.czf		;is this second such file?
+	beq	80$			;yes - go back and delete the first
+70$:	call	rt$mor			;keep looking
+	br	60$			;and check for delete
+
+;	Two zero-length files at same start block.
+;	Rewind and delete first such file.
+;	It may be in an earlier segment
+; ???	Could it really be in an earlier segment?
+
+80$:	call	rt$sea			;find the first zero length
+90$:	bcs	120$			;this is insane
+	cmp	a$psbl,sp.sbl(sp)	;must be same start block
+	bne	100$			;is not same start block
+	tst	rt.len(r2)		;must be zero blocks long
+	beq	110$			;it is - remove it
+100$:	call	rt$mor			;get the next duplicate
+	br	90$			;check the next
+					;
+;	Remove duplicate
+;
+;	REMOVE reports protected duplicate and aborts
+
+110$:	call	rt$rem			;remove duplicate
+
+;	Add size left over from tentative to unit free
+
+120$:	psh	a$psiz+ap.cfs		;get the free space
+	call	rt$dfs			;deallocate free space
+130$:	jmp	rt$fin			;finish up
+
+;	Invalid directory
+
+140$:					;tentative file not found
+150$:					;tentative not followed by empty
+;160$:					;ch.use > tentative hole
+	jmp	rt$din			;invalid directory
+.sbttl	mount, dismount, deallocate space
+
+;	Mount volume
+;
+;	Check that this a good directory and count free space.
+;	Empties and hanging tentative files are free space.
+
+rt$mnt:	rtcal$	aclun.			;lock the unit for count synchronisation
+	clr	-(sp)			;
+	call	rt$vol			;rewind it
+10$:	bit	#rtemp$!rtten$,(r2) 	;is this free?
+	beq	20$			;no
+	add	rt.len(r2),(sp)		;yes - accumulate the space
+20$:	call	rt$nxt			;get the next
+	bcc	10$			;more
+	mov	a$punr,r3		;get the unit record
+	pop	un.lof(r3)		;setup free space
+	bis	#unonl$,un.con(r3) 	;set it on-line
+;	mov	a$pvid,r0		;supply vid in r0
+;	$bypass	b$ymnt			;call mount routines
+	return				;fine
+
+;	Dismount volume
+;
+; ???	Purge the cache of all segment entries.
+;	No plans to implement.
+;
+;rt$dsm:				;dismount volume
+;	mov	a$pvid,r0		;supply vid in r0
+;	$bypass	b$ydsm			;dismount it
+;	return
+
+;	Deallocate free space
+;
+;	psh	#freespace
+;	call	rt$dfs
+;
+;	Updates un.lof and pops parameter off 
+
+rt$dfs:	psh	r3			;save this
+	stack	r3 ret fre		;
+	mov	a$punr,r3		;get the unit
+	add	sp.fre(sp),un.lof(r3) 	;add in free space
+	pop	r3			;restore r3
+	pop	(sp)			;pop out size
+	return				;
+.sbttl	setup acp operation
+
+;	Setup for ACP lookup operation.
+;	Setupl for ACP operation and lock unit.
+;
+;	Called by lookup, delete, rename, gfile, sfile
+;
+;	Redispatch non-file stuff to RT11N.
+;	Check file-structured for unit protection.
+;	Lock unit if required
+;	Search for filename A
+;	Error file-not-found if not found
+
+rt$sul:	psh	(pc)+			;(sp)<>0 => lock
+rt$sup:	clr	-(sp)			;(sp)==0 => no lock
+	stack	lck			;
+
+;	Ignore non-file structured 
+
+	tst	a$pfna+fn.fil		;is this file-structured?
+	bne	10$			;yes
+	mov	a$posp,sp		;no - reset the stack
+	jmp	rt$11n			;and treat as non-file
+
+;	File-structured - check unit protection
+
+10$:	call	rt$uar			;check unit access rights
+
+;	Lock the unit maybe
+
+	stack	lck			;
+20$:	tst	(sp)+			;should we lock it?
+	beq	30$			;nope - lookup operation
+	rtcal$	aclun.			;lock the unit
+	br	40$			;and ignore the cache
+
+;	Find the first filename - only lookup goes to cache
+
+30$:	mov	a$punr,r2		;get the unit record
+	bit	#unpur$,un.con(r2) 	;is the cache valid?
+	bne	40$			;nope - ignore cache
+	clr	r2			;r2=0 => open
+	call	rt$img			;look for it
+	bcc	60$			;fine - found
+					;
+40$:	call	rt$sea			;find the file
+	bcc	50$			;fine
+	rterr$	acfnf.			;file-not-found
+50$:	call	rt$img			;update cache - except cache lookup
+60$:	br	rt$far			;check file access and return
+.sbttl	access rights & protection
+
+;	Check unit access
+
+	.enabl	lsb
+rt$uar:	bit	a$puad,a$puar		;do we have all the rights we need?
+	beq	30$			;yes
+	rterr$	eracr.			;no - unit access failed
+
+; 	Check protect for delete
+;
+;	Enter, close and rename only require delete rights if
+;	they result in a delete operation.
+
+rt$prt:	tst	(r2)			;is hard protected?
+	bmi	20$			;yes
+	call	rt$acr			;setup file access rights
+	bit	#ardel$,a$pfar		;may we delete the file?
+	br	10$			;go test it
+
+;	Check file access rights
+
+rt$far:	call	rt$acr			;get the access rights
+	bit	a$pfad,a$pfar		;do we have them all?
+10$:	beq	30$			;yes
+20$:	rterr$	acprf.			;no, protected file
+
+;	Get file access rights
+;	Already setup if this was in the cache.
+;
+;	r2 ->	entry
+;	r5 ->	segment
+
+rt$acr:	cmpb	a$pact,#acrtx.		;this rt11x?
+	bne	30$			;nope
+	mov	rt.uic(r2),a$pfui 	;and the uic
+	mov	rt.pro(r2),a$pfpr 	;yes - collect the protection
+	rtcal$	acgfp.			;get file protection
+30$:	return				;
+	.dsabl	lsb			;
+.sbttl	search file, match names, record sizes
+
+;	Search for a filename
+;
+;	r2 ->	directory entry
+
+rt$sea:	call	rt$vol			;get the directory
+rt$sch:	call	rt$mat			;match this entry
+	bcc	rt$yep			;got the same guy
+rt$mor:	call	rt$nxt			;continue search past match
+	bcc	rt$sch			;more to come
+	return				;directory exhausted
+
+;	Match a filename
+
+rt$mat:	call	rt$rec			;look for the .enter size
+	bit	#rtper$,(r2)		;is this permanent?
+	beq	rt$nop			;oops, nope
+	movi	rt.fil,r2,r0		;get the entry name
+	mov	r3,r1			;our target name
+	cmp	(r0)+,(r1)+		;fil?
+	bne	rt$nop			;nope
+	cmp	(r0)+,(r1)+		;nam?
+	beq	10$			;yes
+	cmp	-2(r1),#29.*40.+<^r  l> ;wildcards?
+	bne	rt$nop			;no
+10$:	cmp	(r0)+,(r1)+		;typ?
+	bne	rt$nop			;no
+	return				;c=0; found
+
+;	Record available empty holes
+
+rt$rec:	bit	#rtemp$,(r2)		;this an empty?
+	beq	20$			;nope, forget it
+	mov	#a$psiz,r0		;get the list
+	cmp	(r0)+,#-1		;biggest?
+	beq	10$			;yes
+	tst	-word(r0)		;half algorithm?
+	beq	10$			;yes
+	tst	(r0)+			;exact - already got one?
+	bne	20$			;yes, use it
+	cmp	rt.len(r2),a$pp2	;this o.k.?
+	bhis	15$			;yes, record it
+	br	20$			;exit
+10$:	cmp	rt.len(r2),(r0)		;a new high?
+	blo	20$			;nope
+	mov	(r0)+,(r0)		;yep, move it up
+15$:	mov	rt.len(r2),-(r0)	;and save the new high
+20$:	return				;
+.sbttl	volume, segment, update, first, next, entry 
+.sbttl	purge, delete
+
+;	Directory I/O and positioning
+;
+;	r5 ->	TB buffer
+
+	.enabl	lsb
+rt$vol:	mov	#1,r0			;volume - force segment one
+	br	rt$pos			;join common position code
+rt$seg:	mov	rt.nxt(r5),r0		;get the next segment number
+	beq	rt$nop			;oops - no more
+rt$pos:	cmp	a$pseg,r0		;position - is this the same segment?
+.if ne sub$c
+	bne	10$			;nope
+	cmp	a$pbas,ch.sbl(r4)	;same base block?
+	beq	rt$fir			;yes
+.iff
+	beq	rt$fir			;yep, use it for first
+.endc
+10$:	mov	r0,a$pseg		;set it up
+.if ne sub$c
+	mov	ch.sbl,a$pbas		;base block
+.endc
+	mov	#acatb.,r0		;acquire a tb
+	br	20$			;and join the common stuff
+rt$ref:	mov	#acrtb.,r0		;refresh - setup a read
+20$:
+.if ne newsplit
+	mov	#512.,a$pwct		;setup transfer word count
+.endc
+	call	rt$tra			;go do transfer
+					;
+	cmpb	a$popr,#acent.		;is this an enter?
+	bne	rt$fir			;nope
+	call	rt$mer			;yes - merge the segment
+					;
+rt$fir:	mov	rt.blk(r5),a$psbl 	;first - renovate this guy
+	movi	rt.hbs,r5,r2		;point to the first
+	movb	#acrta.,a$pact		;assume rt11a
+	cmp	rt.ext(r5),#6.		;this rt11x?
+	bne	rt$yep			;nope
+	movb	#acrtx.,a$pact		;yes - set the type
+rt$yep:	tst	(pc)+			;report fine
+rt$nop:	sec				;report fail
+	return				;
+	.dsabl	lsb			;
+
+;	Purge a channel
+;
+;	Deallocate file space for tentative files
+
+rt$pur:	tstb	(r4)			;is this a tentative file?
+	bpl	rt$yep			;no - ignore it
+	psh	ch.len(r4)		;yes - get the space
+	br	rt$dfr			;deallocate free and return
+
+;	Delete a file
+
+rt$del:	call	rt$sul			;setup, lock directory and find file
+	fall	rt$rem			;remove, compress & update
+
+;	Remove a file
+
+rt$rem:	call	rt$prt			;check for protection
+	psh	rt.len(r2)		;get the deallocated space
+	stack	spc			;
+	call	rt$era			;try to eraze it
+					;rtten$ or rtemp$ setup
+	call	rt$img			;update the cache
+	call	rt$com			;compress & update
+	stack	spc			;deallocate space - removed
+rt$dfr:	call	rt$dfs			;\ deallocate
+	return				;/ [sic] rt$dfs expects call
+.sbttl	compress, update, transfer
+				
+;	Compress, update, transfer
+;
+;	Compress - call compact
+;	Update - write segment
+;	Transfer - read or write segment
+;
+;	r0	TB cache function - read or write
+;	a$pblk	Required block number
+;	a$pwct	Required word count - always 512. for read
+;		Split calls rt$upd with adjusted word count
+
+rt$com:	call	rt$mer			;merge & compact the segment
+rt$upd:	movb	#acwtb.,r0		;write the segment
+rt$tra:	psh	r1			;read/write segment
+	psh	a$pseg			;save the segment
+	stack	seg r1			;
+	mov	(sp),r1			;get the desired segment number
+	asl	r1			;r1 = segment*2
+	add	#4,r1			;r1 = segment*2+4
+	mov	r1,a$pblk		;setup the block
+.if eq newsplit
+	mov	#512.,a$pwct		;setup the word-count
+.endc
+	clr	a$pseg			;be paranoid about hanging segments
+					;r0 = acp code
+	psh	r0			;save the acp code
+	stack	cod seg r1		;
+	call	@a$pcal			;call back the acp
+					;does not return on errors
+	pop	r0			;get back the acp code
+	pop	a$pseg			;get back the segment
+	stack	r1			;
+	cmp	r0,#acwtb.		;was this a write?
+	beq	10$			;yes - dont update things
+
+	mov	a$pbuf,r5		;get the new tb buffer address
+
+;	Check segment 1
+;
+;	Record high segment
+;	Record entry byte size
+
+	cmp	a$pseg,#1		;is this the first segment?
+	bne	10$			;nope
+.if eq newsplit
+	mov	rt.hgh(r5),a$phgh 	;remember the high segment
+.endc
+	mov	#rt.ebs,a$pebs		;setup the entry byte size
+	add	rt.ext(r5),a$pebs	;compute it
+					;
+10$:	stack	r1			;
+	pop	r1			;restore real r1
+	br	rt$yep			;return with c=0
+.sbttl	get directory entry
+
+;	Get next entry
+;
+;	Skip to next segment if end of current segment
+;
+;	r2 ->	next directory entry
+;	c=0	entry available
+;	c=1	end of directory
+
+rt$nxt:	call	rt$skp			;get the next entry
+	bne	rt$seg			;get the next segment
+	return				;c=1, failure
+
+;	Get entry checking for segment end
+;
+;	Check valid directory entry
+;	If not end of segment get next entry
+;	Otherwise skip ENDBLK and return
+
+rt$end:	call	rt$ven			;check valid and segment end
+	beq	rt$skp			;not end of segment
+	tst	(r2)+			;skip segment end
+	return				;
+
+;	Skip to next directory entry
+;
+;	Accumulate directory start block
+;	Point to next entry
+;	Check for entry pointer even
+;	Check for entry pointer within segment
+;	Check for valid directory status bits
+;	Abort operation if invalid directory entry
+;
+;	r2 ->	next directory entry
+;	z=1	not end of segment
+;	z=0	end of segment
+
+rt$skp:	add	rt.len(r2),a$psbl	;remember where we are
+	add	a$pebs,r2		;point to the next entry
+	bit	#1,r2			;is this odd?
+	bne	rt$din			;yes - invalid directory
+	psh	r5			;make sure we are still in buffer
+	add	#512.*word,(sp)		;point past end of buffer
+	cmp	(sp)+,r2		;are we too far?
+	blo	rt$din			;yes - invalid directory
+					;c=0
+rt$ven:	bit	#^c<rtpro$!rtper$!rtten$!rtemp$!rtend$>,(r2) ;valid entry?
+	bne	rt$din			;nope
+	bit	#rtend$,(r2)		;is it the last?
+	return				;neq => end of segment
+
+;	Directory invalid
+;
+;	Purge cache segment
+;	Report invalid directory error
+
+rt$din::mov	a$ptbr,r0		;get the tb
+	clr	tb.sta(r0)		;mark it no good
+	rterr$	erdin.			;report invalid directory - abort
+.sbttl	merge segment
+
+;	Compact a directory segment.
+;	Before enter. After close or delete.
+;
+;	Compact must look-ahead to next entry. ENDENT takes care of not
+;	overrunning the buffer for 1-word ENDBLK records.
+;
+;	Elide handles passes elide candidate to the pending delete routine.
+;	This routine searchs all channels of all processes which takes awhile.
+;
+;	r0 ->	current - source pointer
+;	r1 ->	copy out destination pointer
+;	r2 ->	next entry or endblk
+;	r3 ->	previous
+
+rt$mer:	psh	r3			;save this
+	stack	r3			;
+	call	rt$fir			;get the first one
+	mov	r2,r1			;r1 -> start of directory
+
+;	Process first file in segment - skip zero-length empties
+
+20$:	call	rt$eli			;check for hanging tentative
+	bit	#rtemp$,(r2)		;this an empty entry?
+	beq	30$			;no
+	tst	rt.len(r2)		;a zero-length empty?
+	bne	30$			;no
+	call	rt$skp			;yes - get next entry
+	beq	20$			;not endblk
+
+;	Process remainder of segment
+
+30$:					;r1 -> current now
+	mov	r1,r3			;r3 -> what will be previous entry
+	mov	r2,r0			;r0 -> entry to copy in
+	call	rt$end			;get next entry
+					;r2 -> current now - known as next
+40$:	mov	(r0)+,(r1)+		;copy down entry
+	cmp	r0,r2			;all done?
+	blo	40$			;nope
+	bit	#rtend$,(r3)		;was that the last?
+	bne	70$			;yep
+					;
+50$:	call	rt$eli			;check for empty
+	bit	#rtemp$,(r2)		;is it empty?
+	beq	30$			;nope - copy it
+	bit	(r2),(r3)		;was the last empty too?
+	bne	60$			;yes - merge empties
+					;
+	bit	#rtper$,(r3)		;is last a permanent?
+	beq	30$			;nope - copy this one
+	tst	rt.len(r2)		;is this an empty empty?
+	bne	30$			;nope
+					;yes - empty empty following permanent
+60$:	add	rt.len(r2),rt.len(r3) 	;merge two empties
+					;
+	call	rt$end			;get the next one
+	br	50$			;and ignore one
+70$:	pop	r3			;restore this
+	return				;
+.sbttl	elide
+
+;	Elide hanging tentative files
+;
+;	This routine must be cautious about process databases: they can
+;	be deleted and replaced while we are running. This is mostly a
+;	problem in getting pointers out of the pcr.
+;
+;	r2 ->	directory entry
+;	r4 ->	channel
+;
+;	r1 ->	channel being checked
+
+rt$eli:	.enabl	lsb			;elide hanging tentatives
+	bit	#rtten$,(r2)		;is this a tentative file?
+	beq	30$			;nope
+	pshs	<r5,r3,r1,r0>		;yes - save these
+					;
+	clr	r0			;
+	bisb	rt.job(r2),r0		;get the job number
+	mov	#p$rprs,r5		;get the counter
+	cmp	r0,(r5)+		;too high?
+	bhis	10$			;yes - elide
+	asl	r0			;get the job offset
+	add	r0,r5			;r5 -> slot
+	mov	(r5),r3			;r3 -> pcr
+	beq	10$			;it does not exist
+					;
+	clr	r1			;get the channel number
+	bisb	rt.chn(r2),r1		;r1 = channel number
+	cmpb	r1,pr.chs(r3)		;is the channel number too high?
+	bhis	10$			;yes
+	mov	pr.chr(r3),r0		;get their channels
+	beq	10$			;no channels - elide
+	cmp	r3,(r5)			;did the process die meantime?
+	bne	10$			;yes - new process has no channels
+					;
+	mul	#ch.bbs,r1		;get the offset to the channel
+	add	r0,r1			;r1 -> csw
+	call	rt$rel			;relate channel & file
+	bcc	20$			;still the same file
+					;
+10$:
+.if ne pnd$c
+	cmp	rt.dat(r2),#rtpdl$	;pending delete?
+	beq	rt$erz			;yes - call them
+.iff
+	tst	rt.dat(r2)		;pending delete?
+	bmi	rt$erz			;yes - call them
+.endc
+	mov	#rtemp$,(r2)		;no - make it empty
+rt$elx:					;
+20$:	pops	<r0,r1,r3,r5>		;restore these
+30$:	return				;
+	.dsabl	lsb			;
+.sbttl	relate
+
+;	Relate channel & file
+;
+;	See if this channel matchs current directory entry
+;	Get a result as quickly as possible
+;
+;	r1 ->	target to check
+;	r2 ->	directory entry
+;	r4 ->	our channel
+;
+;	c=0	does match
+;	c=1	not open, different block!unit!device, same channel
+
+rt$rel:	.enabl	lsb			;relate file & channel
+	tst	(r1)			;is it open?
+	bpl	20$			;no - 95% are not open
+rt$rlt:	cmp	ch.sbl(r1),a$psbl 	;same start block?
+	bne	20$			;no - 99% have a different block
+					;
+	movb	ch.uni(r1),-(sp)	;get the unit
+	swab	(sp)			;in the high byte
+	movb	(r1),(sp)		;get the device index
+	bicb	#csin$m,(sp)		;isolate it
+	cmp	(sp)+,a$pvid		;same volume?
+	bne	20$			;no
+					;
+	cmp	r1,r4			;is this our channel?
+	beq	20$			;yes - it cant match
+					;
+10$:	tst	(pc)+			;it matchs
+20$:	sec				;it does not match
+	return				;
+	.dsabl	lsb			;
+.sbttl	erase entry
+
+;	Remove a permanent entry from the directory
+;
+;	Delay the delete if file is open on another channel.
+;
+;	rt.sta	rtten$
+;	rt.dat	100000	- signals pending delete
+;	rt.job/rt.chn	- process with the file open
+;
+;	Convert the file into a tentative file on the channel found.
+; ???	rt.dat&100000 signals COMPRESS and CLOSE that this is a pending delete.
+; ???	rt.dat==100000 signals COMPRESS and CLOSE that this is a pending delete.
+;	Compress calls us to look for the next channel with the file open.
+;	There is no race condition: we set the file tentative before the
+;	channel search.
+;
+;	Search each channel of each process. Ignore tentative and null files.
+; ???	This is a lengthy procedure that should not be repeated. Thus we
+; ???	update the directory each time we set a pending delete. Pending
+; ???	deletes should occur very rarely.
+;
+; ???	Update directory if pending delete status changes.
+; ???	Savestatus/Reopen not handled with this technique. Need file cache.
+; ???	Mount/Dismount should clear these out - but need not.
+; ???	Directory listings should show pending delete status.
+;
+;	r2 ->	directory entry
+;	r4 ->	callers channel
+;
+;	rtemp$	if no match found
+;	rtten$	if match found
+;	rtpdl$	in rt.dat if match found (100000)
+
+rt$era:	pshs	<r5,r3,r1,r0>		;save some
+rt$erz:	mov	#rtemp$,(r2)		;assume its empty
+.if ne pnd$c
+	clr	rt.dat(r2)		;pending delete flag
+.iff
+	bic	#rtpdl$,rt.dat(r2) 	;clear pending delete
+.endc
+.if ne zerent
+	tst	rt.len(r2)		;zero length file?
+	beq	80$			;yes, always delete these
+.endc
+	mov	#p$rprs,r5		;point to them
+	psh	(r5)+			;count processes
+	stack	cnt			;
+					;
+10$:	mov	(r5)+,r3		;get the next process
+	beq	40$			;oops - not there
+	mov	pr.chs(r3),r0		;get the channel count
+	beq	40$			;no channels
+	mov	pr.chr(r3),r1		;get the channel record
+	beq	40$			;it has none
+	cmp	-2(r5),r3		;did the process just change?
+	bne	40$			;yes - new one cannot be a candidate
+					;following loop must be fast
+20$:	tst	(r1)			;is it open?
+	bpl	30$			;no - 98% are not open
+	call	rt$rlt			;relate channel & file
+	bcc	60$			;we have found one
+30$:	add	#ch.bbs,r1		;next channel
+	sob	r0,20$			;get the next
+					;
+40$:	dec	(sp)			;any more processes?
+	bne	10$			;yes 
+	br	70$			;no - no match found
+
+;	Set up pending delete entry
+
+60$:	mov	#rtten$,(r2)		;make it a tentative file
+.if ne pnd$c
+	mov	#rtpdl$,rt.dat(r2) 	;flag the pending delete entry
+.iff
+	bis	#rtpdl$,rt.dat(r2) 	;flag the pending delete entry
+.endc
+	movb	pr.prn(r3),rt.job(r2) 	;save the process number
+	movb	pr.chs(r3),r1		;work out the channel number
+	sub	r0,r1			;r1 = channel number
+	movb	r1,rt.chn(r2)		;and the channel number
+70$:	tst	(sp)+			;forget the process count
+80$:	br	rt$elx			;and quit via elide exit
+;[sic]	pops	<r0,r1,r3,r5>		;[these are restored be elidex]
+;[sic]	return				;[this is executed by elidex]
+.sbttl	expand
+
+;	Expand directory
+;
+;	r2 ->	empty
+;	r5 ->	start of buffer
+;
+;	Make space for a tentative.
+;
+;	r2 ->	empty on exit
+;
+;	Must be room for three empties.
+;
+;	not-tent, our-empty	not-tent, our-empty, empty
+;	tent, our-empty		tent, empty, our-empty, empty
+;
+;	During the actual split we set a critical section.
+;	This ensures that the directory remains consistant.
+;	The split is designed to survive hardware failures.
+;
+;	First find end of segment
+
+rt$exp:	mov	r2,r0			;point to current entry
+	mov	a$pebs,r1		;r1= entry byte size
+10$:	add	r1,r0			;point to the next
+	bit	#rtend$,(r0)		;is this the end of it
+	beq	10$			;nope
+	mul	#3.,r1			;get the size of three tentatives
+	add	r0,r1			;add in what we have used
+	sub	#512.*2,r1		;backoff from it
+					;
+	cmp	r1,r5			;enough room for the tentatives?
+	bhis	rt$spl			;nope
+
+;	Move the entries up to make a hole
+
+	mov	r0,r1			;get another copy
+	add	a$pebs,r0		;r0 -> next one
+	mov	(r1),(r0)		;move the first
+20$:	mov	-(r1),-(r0)		;move an entry
+	cmp	r1,r2			;just moved our guy?
+	bne	20$			;nope
+
+;	Convert tent our-empty empty to tent empty our-empty empty
+;
+;	r0 ->		   empty
+;	r1 ->	our-empty, empty
+;	r2 ->	our-empty, empty
+
+	sub	a$pebs,r1		;point back to previous entry
+	cmp	r1,r5			;was this the first entry?
+	blo	30$			;yes - no previous
+					;
+	bit	#rtten$,(r1)		;is previous a tentative?
+	beq	30$			;nope
+					;r0 -> new empty
+	mov	rt.len(r2),rt.len(r0) 	;yes - steal its empty space
+	clr	rt.len(r2)		;and clear its empty
+	mov	r0,r2			;replace the pointer
+	br	rt$exp			;and do it again
+30$:	clc				;c=0 => no split
+	return				;r2 -> our-empty, r0 -> empty
+.if ne newsplit
+;a$phgh - not required
+.sbttl	split directory segment
+
+;	Split directory segment
+; 
+;	1.	Read first segment and update high-segment
+;	2.	Reread current segment and compress
+;	3.	Write high half to new segment
+;	4.	Write low half to current segment
+;	5.	Signal .ENTER to start over again
+; 
+;	Channel aborts are inhibited by setting up a critical section
+;	During critical sections channels with the same CSW as the
+;	A$PCSW are not aborted.
+;
+;	The split is fail-soft. The worst-case error is an unused segment.
+;	The SHOW VOLUME utility catchs this error.
+;	Standard RT-11 worst-case is a time-bomb corrupted directory.
+;
+;	The high and low halves must result from the same call to elide.
+;	Hanging tentatives can dissappear while this procedure works.
+;	This was a problem until V2.2.
+
+rt$spl:	clr	-(sp)			;slot for new segment number
+	psh	a$pseg			;save the segment number
+	stack	cur new			;
+.if eq newabt
+	rtcal$	acscs.			;set critical section
+.endc
+					;
+;	Update rt.hgh in first segment
+
+	call	rt$vol			;read in the first segment
+
+	assume	rt.tot eq 0		;
+	cmp	rt.hgh(r5),(r5) 	;rt.tot - any more segments available?
+	blo	10$			;yep
+	rterr$	erful.			;directory overflow
+10$:	inc	rt.hgh(r5)		;increment it
+	mov	rt.hgh(r5),sp.new(sp)	;save the new segment number
+	call	rt$upd			;update it
+
+;	Reread current segment
+
+	assume	sp.cur eq 0		;
+	mov	(sp),a$pseg		;setup to read it again
+	call	rt$ref			;reread and compress segment
+
+;	Search for split point
+; 
+;	Find the first non-empty file after the half way mark
+
+	call	rt$fir			;get set up
+20$:	call	rt$skp			;get the next
+	bit	#rtemp$,(r2)		;this an empty?
+	bne	20$			;yep, dont split here
+	mov	r5,r0			;compute the middle of the segment
+	add	#512.,r0		;point to the middle
+	cmp	r2,r0			;gone far enough?
+	blos	20$			;no
+
+;	Push a header in before the split 
+;	Save the directory entry data on the stack
+; 
+;	r2 ->	split point
+
+	movi	rt.hbs,r5,r1		;point to the end of the header
+	mov	#rt.hbs/word,r0		;count it
+30$:	psh	-(r2)			;save this entry data
+	mov	-(r1),(r2)		;copy in the header
+	sob	r0,30$			;
+	mov	a$psbl,rt.blk(r2)	;setup the header start-block
+	mov	rt.hbs+sp.new(sp),a$pseg;setup new segment number
+
+;	Write the new segment
+;
+;	r2 ->	new segment header
+;	a$pwct	word count of new segment
+
+	mov	r5,r0			;compute word count
+	add	#512.*2,r0		;point to end of buffer
+	sub	r2,r0			;compute bytes
+	asr	r0			;make words
+	mov	r0,a$pwct		;setup word count
+	mov	r2,a$pbuf		;setup the buffer pointer
+	call	rt$upd			;update the segment
+	mov	a$pbuf,r2		;restore r2
+
+;	Restore the dummy header area
+;	Rewrite the new current segment
+;
+;	r2 ->	
+
+	mov	#rt.hbs/word,r0		;copy back the last entry
+40$:	pop	(r2)+			;restore another
+	sob	r0,40$			;do them all
+	mov	#rtend$,(r2)		;fill in the end pointer
+	stack	cur new			;
+	pop	a$pseg			;reset the current guy
+	pop	rt.nxt(r5)		;setup the next link
+	mov	r5,a$pbuf		;reset buffer pointer
+	mov	#256.*2,a$pwct		;back to full segment word count
+	call	rt$upd			;update the current segment
+.if eq newabt
+	rtcal$	acccs.			;clear critical section
+.endc
+	sec				;signal enter to try again
+	return				;
+.endc 
+.if eq newsplit
+.sbttl	split directory segment
+
+;	Split directory segment
+;
+;	1.	Write second-half to new segment
+;	2.	Increment highest used in segment 1
+;	3.	Write first-half to current segment
+;
+;	The directory will always be valid even if the system crashs
+;	in between steps. Worst case error would be an unused segment.
+;	Standard RT-11 worst-case is a time-bomb corrupted directory.
+
+rt$spl:	cmp	a$phgh,rt.tot(r5) 	;any more segments available?
+	blo	10$			;yep
+	rterr$	erful.			;directory overflow
+10$:	call	rt$fir			;get set up
+20$:	call	rt$skp			;get the next
+	mov	r5,r0			;compute the middle of the segment
+	add	#512.,r0		;point to the middle
+	cmp	r2,r0			;hit the middle yet?
+	blo	20$			;nope
+	bit	#rtemp$,(r2)		;this an empty?
+	bne	20$			;yep, dont split here
+	psh	r2			;save the middle marker
+	sub	r5,(sp)			;(sp) = offset to split point
+	psh	a$pseg			;save the current segment number
+	movi	rt.hbs,r5,r1		;point to the first entry
+	mov	r5,r0			;compute the end of the buffer
+	add	#512.*word,r0		;r0 points to the end of it
+30$:	mov	(r2)+,(r1)+		;move them down
+	cmp	r2,r0			;all done?
+	blo	30$			;nope
+	mov	a$psbl,rt.blk(r5) 	;setup the new start
+	inc	a$phgh			;increment highest segment used
+	mov	a$phgh,a$pseg		;reset the segment number
+	rtcal$	acscs.			;set critical section
+	call	rt$upd			;write new segment
+	call	rt$vol			;get the first
+	inc	rt.hgh(r5)		;setup the new segment
+	call	rt$upd			;update first segment
+	pop	a$pseg			;get the current segment back
+	call	rt$ref			;refresh - read it in
+	pop	r2			;get the split-point back
+	add	r5,r2			;offset into current segment
+	mov	#rtend$,(r2)		;close of the segment
+	mov	a$phgh,rt.nxt(r5) 	;setup the new link
+	call	rt$upd			;rewrite current truncated segment
+	rtcal$	acccs.			;clear critical section
+	sec				;c=1=> we split - enter must look again
+	return				;
+.endc
+.end
+

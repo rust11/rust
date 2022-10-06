@@ -1,0 +1,860 @@
+;???;	RXS:RIM - Checking process corruption (crp$c)
+crp$c=1		; testing ercrp.
+.title	rim - image control
+.include "lib:rust.mac"
+.psect	rim d
+
+;	RUST/XM image exit, activation and load
+;
+;	%build
+;	macro rxs:rim/object:rxb:
+;	%end
+;	%date
+;	<20-Nov-2010 20:53:39.09>
+;	%edit
+;	<241  >
+
+$cfdef		;command files
+$chdef		;
+$cldef		;cli
+$cndef		;config
+$dedef		;device
+$emdef		;emt
+$erdef		;error
+$fedef		;feature
+$fndef		;filename
+$icdef		;image control
+$imdef		;image
+$indef		;ind
+$iodef		;io
+$jbdef		;rt-11 job
+$jsdef		;jsw
+$mmdef		;mmu
+$pedef		;process enables
+$prdef		;pcr
+$psdef		;ps
+$rpdef		;rp
+$srdef		;system rights
+$stdef		;states
+$svdef		;shift values
+$tedef		;terminal
+$txdef		;text
+$vedef		;vectors
+
+;	Image exit, activation and load
+;
+;	image exit synchronisation
+;	image exit	
+;	load image
+;	activate image
+;	reset process syscom
+;
+;	Image exit consists of exiting the different process levels:
+;
+;	monitor ast
+;	client kernel ast
+;	client user ast
+;	monitor root
+;	client root
+;
+;	There are a number of different cases of image exit:
+;
+;	Destroy		Clean-up errant process.
+;	External abort	Terminal abort, STOP
+;	Internal abort	Exception
+;	Exit		Normal exit
+;
+;	Exit and abort are intermixed. Problems during exit may turn the
+;	exit into an abort.
+;
+;	Abort is handled differently for user and kernel code. During abort
+;	control does not return to the process user-mode. Control is always
+;	returned to the kernel levels with the abort flag set. A number of
+;	wait conditions will be satisfied by the abort flag - in particular
+;	terminal waits. The kernel code recognises the abort flag and exits
+;	after it gives back any resources it may have obtained.
+;
+;	If the kernel code hangs then the process may never exit. This is
+;	mainly a concern when a handler hangs. We can usually abort all I/O
+;	for a process. The exception is when the process is currently
+;	performing directory I/O. The destroy function is used to handle
+;	these cases. Destroy delivers an error to all exception handlers.
+;
+;	p$hsta and pr.sta contain the exit and abort flags.
+;
+;	After the process completes client root exit the monitor cleans up.
+;	It releases all resources that were obtained by the process.
+;	Control is then passed to the CLI interpreter. CLI is responsible
+;	for getting the next command or logging the process out.
+.sbttl	astx, exit, stop & chain
+
+;	astx, exit, stop & chain
+;
+;		ast		mainline
+;	stop	abort		abort
+;	astx	next ast	exit image
+;	chain	abort		exit & chain		
+;	exit	abort		exit image
+;
+;	These routines execute in the twighlight - they do not assume
+;	request packets and never return. The exit path makes sure that
+;	the monitor and client ast paths clean up.
+;
+;	The ast cleanup and exit handler paragraphs both push things
+;	on the stack that might not get popped. They rely on the stack
+;	reset just below them.
+;
+;	.exit ignores the r0 flag - it does not perform .hreset.
+;
+;	Kernel par6 is mapped to user space par0
+
+astx::	bit	#stact$,p$hast		;.astx from mainline?
+	beq	exit			;yes - convert to stop
+	jmp	as$nca			;no - do the next client ast
+
+chain::	bis	#prcha$,p$hsta		;flag chain in progress
+	fall	exit			;
+
+exit::	mov	#mmpum$,@#ps		;set previous user mode
+	mov	p$hpcr,r4		; r4 -> pcr
+	bic	#primg$!prexi$,p$hsta	;no longer have an image
+	bic	#primg$!prexi$,pr.sta(r4) ;which discards user asts
+
+;	Clean up asts
+
+	psh	#as$nma			;assume in monitor ast
+	stack	nma			;
+	bit	#stact$,pr.ast(r4) 	;are we in a monitor ast?
+	bne	10$			;we are in monitor ast
+	mov	#as$nca,(sp)		;assume in client ast
+	bit	#stact$,p$hast		;.exit from an ast?
+	beq	20$			;nope
+10$:	jmp	ab$set			;yes - setup abort
+
+;	Deliver exit handlers
+;
+;	These must be delivered before the feature cleanup.
+
+20$:	ovcal$	uv$exi	utl		;exit user vectors
+					;
+	mov	p$hexh,r5		;check for an exit handler
+	beq	40$			;is none
+	movfd	(r5)+,p$hexh,30$	;take us out of chain
+					;
+	clr	r1			;
+	movtd	#40000,(r1)+		;reset restart locations
+	movtd	#104356,(r1)		;setup .astx call
+					;
+	movfi	sp,r1			;get their stack
+	movtd	#0,-(r1)		;let them restart via location zero
+	movti	r1,sp			;reset their stack
+	psh	#mmdum$			;setup default user mode
+	mfpd	(r5)+			;get routine address
+	bvs	30$			;corrupt list
+	jmp	ab$rtx			;clear abort rti path and rti
+30$:	clr	p$hexh			;skip exit handlers	
+
+;	Reset stack
+
+40$:	clr	p$hcrp			;remove any rp
+	mov	#p$hkst,sp		;reset the kernel stack
+	mov	#ve$emb,p$hemb		;reset emt bypass
+
+;	Reset terminal	
+
+	mov	pr.ter(r4),r3		;get the terminal
+	beq	60$			;is none
+	mov	te.pco(r3),te.con(r3) 	;reset to permanent control
+	tst	p$hjoc			;got a command file?
+	bne	50$			;yes - dont reset terminal
+	clr	te.sig(r3)		;turn off lost signals
+	clrb	te.ila(r3)		;reset last input character for [ctrl/c]
+50$:	call	te$rco			;.rctrlo - burns r3
+
+;	Exit features
+;
+;	Features must be called early so that they can cleanup
+;	conflicting status areas - such as JSW under RSX.
+
+60$:	call	fe$can			;exit features
+	clr	p$hmvb			;clear monitor vector bypass
+	clr	p$hsgl			;clear signal ast address
+
+;	Reset user mapping
+
+	$cmsch				;dont reschedule in the middle of this
+	clr	r0			;reset user mapping
+70$:	mov	p$hcip(r0),p$huip(r0) 	;phd par
+	mov	p$hcip(r0),m$uip0(r0) 	;mmu par
+	mov	p$hcid(r0),p$huid(r0) 	;phd 
+	mov	p$hcid(r0),m$uid0(r0) 	;mmu
+	tst	(r0)+			;next one
+	cmp	r0,#8.*2		;done eight of them?
+	blo	70$			;no
+	$cmpro				;turn the scheduler back on
+
+;	Grab the exit status - avoid loose race
+
+	stack	sp.sta			;exit status
+	mov	#p$hsta,r5		;r5 -> p$hsta thruout
+	bis	pr.sta(r4),(r5)		;copy most recent
+	assume	prabt$ eq 100000	;
+	psh	(r5)			;is this an abort?
+	bpl	80$			;no
+	stack	sta			;process status copy
+	clr	p$hjsw			;yes - zap all channels
+	call	ab$abi			;abort I/O requests
+	bic	#prabt$,(r5)		;abort now handled
+	bic	#prabt$,pr.sta(r4)	;clear it there too
+
+;	Clean up various flags
+
+;[sic]	series	ph,word usx xl0 xl1
+80$:;	mov	#p$husx,r0		;clean these up
+;	clr	(r0)+			;ph.ucx - cntxsw
+;	clr	(r0)+			;ph.xl0 - device
+;	clr	(r0)+			;ph.xl1 - device
+
+;[sic]	series	ph,word	scc trp sfp ser imf cdf
+	mov	#p$hscc,r0		;clean these up
+	clr	(r0)+			;ph.scc	- scca
+	clr	(r0)+			;ph.trp	- trpset
+	clr	(r0)+			;ph.sfp	- sfpa
+	clr	(r0)+			;ph.ser	- serr
+	clrb	(r0)+			;ph.imf - image flags
+
+;	Check for revert from CDFN
+
+	tstb	(r0)			;ph.cdf - defined channels?
+	beq	95$			;no
+	clrb	(r0)			;yes - once only
+	.sreset				;do a soft reset to revert
+
+;	Map kernel par6 to user par0
+;
+;	This is done where first needed to avoid losing the mapping.
+;
+;	Clean up jsw
+
+95$:	mov	m$uip0,m$kip6		;map kernel par6 to user par0
+	lodis$ = ^c<jsind$!jscha$!jsovr$!jscom$>
+	bic	#lodis$,m$mpa6+jb.jsw 	;cleanup the JSW
+	mov	m$mpa6+jb.jsw,p$hjsw	;save a copy
+
+;	Check for error level abort
+
+100$:	movb	m$mpa6+jb.lev,r0	;get the error word
+	clrb	m$mpa6+jb.lev		;and clean it up
+	bisb	r0,p$hinx		;save it for ind
+	bitb	r0,p$herl		;did the user crash?			
+	bne	110$			;yes - stop everything
+	bit	#prabt$!prexi$,(sp) 	;abort or force exit?
+	beq	120$			;no
+
+110$:	bic	#^cjsovr$,p$hjsw	;clear all except image channel
+	clr	p$hjoc			;stop command files
+	call	ed$abt			;abort the input line
+	bic	#prcha$,(sp)		;forget the chain
+
+;	Abort or forced exit
+
+120$:	bit	#prabt$!prexi$,(sp) 	;abort or force exit?
+	beq	130$			;no
+	clr	m$mpa6+jb.jsw		;yes - clear the user jsw
+	bic	#inrs$n,p$hinx		;reset in.inx and in.ins
+	clr	p$hkma			;no kmon in memory
+
+;	Soft, command and memory reset
+
+130$:	call	ab$gen			;general I/O rundown
+	bit	#prcha$,(sp) 		;this a chain?
+	bne	140$			;yes - no I/O reset
+	call	ab$pur			;no - issue soft reset
+140$:	call	cf$res			;reset command files
+	clr	p$htop			;reset the top address
+
+;	Reset process rights	
+;
+;	ovcal$	ux$ssr utl		;set process rights
+;
+;	Delete process
+
+150$:	bit	#prdel$,(r5)		;is a process delete pending?
+	beq	160$			;no
+	$remprc	#p$hare			;returns for permanent process
+
+;	Exit done
+;	
+;	Reset those PR.STA/P$HSTA bits we dealt with
+
+	stack	sta			;pr.sta
+160$:	loneg$ = ^c<prexi$!primg$!prcha$!prdel$!prwak$>
+	bic	#loneg$,(sp)		;cleanup those we cleaned up
+	bic	(sp),(r5)		;cleanup phsta$
+	bic	(sp),pr.sta(r4)		;and pr.sta
+	bpl	im$con			;fine
+	.exit				;we were aborted - do it again
+.sbttl	chain, command-file chain, ind, tell, cli
+
+;	Check for corrupt process
+;	Continue image
+;
+;	Chain
+;	Chain to command file
+;	IND
+;	TELL
+;	CLI
+
+im$con:	call	im$cor			;check for corrupted image
+
+;	Chain
+
+10$:	bit	#prcha$,(sp)		;are we chaining?
+	beq	20$			;nope
+	mov	#fn.bbs/word,r0		;count them
+	mov	#j$bcha,r1		;get the filename
+	mov	#a$pfnb,r2		;get the file name
+	mov	r2,r3			;r3 -> filename for cl$rux
+	call	mm$mfc			;move them in
+	mov	#imcha$!imchs$,r4 	;r4 = control = chain
+	br	130$			;jump to cl$rux
+
+;	Update IND command file level
+
+20$:	call	cf$siz			;r0 = current command file size
+	mov	#p$hins,r1		;r1 -> IND status
+	tstb	(r1)			;is IND active?
+	bmi	25$			;yes
+	clr	p$hifs			;no - clear IND file size
+
+;	Chain to command file
+
+25$:	bit	#jscom$!jsind$,p$hjsw 	;got a command file chain?
+	beq	35$			;no
+	bit	#cfinx$,p$hcfs		;is IND running?
+	beq	30$			;no
+	mov	r0,p$hifs		;yes - store new limit
+30$:	mov	p$hjsw,r3		;yes - get the flags
+	jmp	cl$dcx			;exit to dcl
+
+;	Check for command file active
+;
+;	Command file size is checked against remaining for IND
+
+35$:	cmp	r0,p$hifs		;more than IND file size?
+	bhi	im$cli			;yes - execute that first
+					;ind, tell, cli
+;	IND
+
+	assume	inind$ eq 200		;
+40$:	tstb	(r1)			;is ind active?
+	bpl	60$			;nope
+	bisb	#inrun$,(r1)		;yes - say we are running ind
+	bicb	#inlin$!inind$,(r1) 	;turn off the others
+	mov	#50$,r3			;r3 -> filename
+	br	120$			;go run ind
+50$:	.rad50	/sy ind   sav/		;
+
+;	TELL	
+
+60$:	mov	#p$hmer,r0		;r0 -> message buffer
+	cmpb	(r0),#'C		;is this a command?
+	bne	80$			;no
+	clrb	(r0)+			;yes - once only
+70$:	tstb	(r0)			;make sure we dont overrun
+	beq	80$			;forget it
+	cmpb	(r0)+,#space		;find the command part
+	bne	70$			;
+	br	85$			;and move it in
+
+;	SET CLI	
+;
+;	Overrides CLI AST command line
+
+80$:	mov	#p$hclr,r0		;check for user cli
+85$:	tstb	(r0)			;got a user cli?
+	beq	100$			;nope
+	mov	#p$hasl,r1		;get the line buffer
+90$:	movb	(r0)+,(r1)+		;move in the command
+	bne	90$			;more to do
+	bis	#prcom$,p$hsta		;remember we have a command
+	br	im$cli			;execute some command
+
+;	Unconditional restart vector
+
+100$:	mov	p$hurv,r3		;check unconditional restart vector
+	bne	im$urv			;yes - process it
+
+;	Check for batch process
+
+110$:	bit	#pebat$,p$hpe0		;is this a batch process?
+	beq	im$cli			;nope
+	mov	#140$,r3		;r3 -> filename
+120$:	clr	r4			;r4 = control flags
+130$:	jmp	cl$rux			;and run batch
+140$:	.rad50	/sy batch sav/		;
+
+;	Image initialisation
+;
+;	Stack is empty
+;	Called here when process first created
+
+	.enabl	lsb
+im$ini::mov	#mmpum$,@#ps		;reset the ps
+	movtd	#0,@#j$bjsw		;reset the jsw
+	movtd	#0,@#j$berr		;and the error
+	mov	p$hurv,r3		;got an unconditional restart vector?
+	bne	im$urv			;start them up
+	call	im$res			;reset the image
+	bit	#pehbe$,p$hpe1		;have they set hibenate?
+	beq	im$cli			;no
+	bic	#pehbe$,p$hpe1		;yes - once only
+	.spnd				;wait for wake
+im$cli:	jmp	cl$cli			;
+im$urv:	jmp	im$ent			;enter image - r3=start address
+	.dsabl	lsb			;
+.sbttl	image activation
+
+;	$IMGACT	area, img, ctl, sta, par
+;
+;	rp.chn	image channel - imchn. or imcli.
+;	rp.p0	image filename pointer
+;		null when image reset operations
+;	rp.p1	control flags
+;		imget$	dont run the image
+;		imcha$	chain to the image
+;		imopn$	image file open on channel 17
+;		imact$	activate only - don't load
+;		imsta$	start only (at start address)
+;		imree$	reenter only
+;		imres$	reset image header
+;		imvov$	virtual overlays (internal flag)
+;		imnac$	dont count image
+;		imucf$	ucf activate
+;		imdcl$	dcl activate
+;		imccl$	ccl activate
+;		imucl$	ucl activate
+; ???		imopt$	set image options
+;	rp.p2	start address
+;	rp.p3	parameter to pass to image in r0
+;	rp.p4	internal - top address to load from image file
+;	rp.p5	unused
+;
+;	Calls to IND are qualified with the process number.
+;
+;	erfil.	file not found
+;	erdev.	invalid device
+;	erimg.	invalid image
+;	erism.	insufficient memory
+;	eracr.	insufficient rights
+;	ersta.	invalid start address
+;
+;	Image control flags
+;
+;	iciop$	Map par7 of user space to I/O page
+;
+; ???	Some stuff cleared by exit is not reset on start/reenter
+;	e.g. PLAS regions
+
+meta	<imgerr c><jsr r1,im$err><.word c>
+meta	<imginv c><jsr r1,im$inv><.word c>
+
+imgact::clr	p$hkma		;kmon no longer in memory
+	movb	#imchn.,(r5)	;assume image channel
+
+	mov	#4.,r0		;r0 = count
+	mov	r3,r1		;r1 -> previous mode name
+	beq	30$		;no name specified
+	mov	#p$himg,r2	;r2 -> phd image name
+	call	mm$mfc		;move from counted
+				;r2 -> past p$himg
+;	Check for IND
+
+	bic	#cfinx$,p$hcfs	;assume not ind
+	cmp	-(r2),#^rsav	;this ind?
+	bne	30$		;no
+	tst	-(r2)		;really?
+	bne	30$		;no
+	cmp	-2(r2),#^rind	;really?
+	bne	30$		;no
+	mov	p$hxpn,(r2)	;yes - fill in process id
+	bis	#cfinx$,p$hcfs	;flag IND running
+
+30$:	bit	#imopn$,rp.p1(r5) ;is this image open already?
+	bne	40$		;yes - dont open it again
+				;
+	clrbuf	p$hir0,sr.bbs	;clear previous image rights
+	clr	p$hic0		;clear image control (nopath)
+	.purge	#imchn.		;no - purge the channel
+;;;	.lookup	#p$hare,#imchn.,#p$himg,#0 ;look it up
+	mov	#p$hare+4,r0	;build the emt
+	clr	(r0)		;sequence number
+	mov	#p$himg,-(r0)	;filename pointer
+	mov	#emloo.*256.+imchn.,-(r0) ;lookup on 15.
+	emt	375		;
+	bcc	40$		;fine
+	imgerr	erfil.		;file not found
+
+;	Switch to previous mode user
+
+40$:	movbuf	p$himg,a$pfna,8.;set up the name for errors
+	mov	#mmpum$,@#ps	;force previous mode user
+	mov	rp.p1(r5),r3	;r3 -> control flags
+	bit	#imres$,r3	;image reset?
+	beq	50$		;no
+	call	im$res		;yes - reset the image
+50$:	bit	#imsta$,r3	;this a start?
+	bne	im$sta		;yes
+	bit	#imree$,r3	;this a reenter?
+	bne	im$ree		;yes
+	bit	#imact$,r3	;is this an activate only?
+	bne	60$		;yes
+	call	im$loa		;nope - load the image
+	$callf	.icgir		;and get image rights
+60$:	bit	#imget$,rp.p1(r5) ;should we start it?
+	beq	im$tra		;yes
+	return			;nope
+.sbttl	start image
+
+;	Start the image
+;
+;	rp.p3	parameter to pass to image in r0
+;	r2	offset from start address
+;	r2	image options (below)
+;	r3	image transfer address
+;
+;	On entry to image
+;
+;	r0	parameter
+; ???	r1/r2	process name - like rsx
+;	r3	
+;	r4	stb date
+;	r5	^rshp
+ 
+	.enabl	lsb			;
+im$ree::mov	#-word,r2		;setup for reenter
+	br	10$			;reenter
+im$sta::mov	rp.p2(r5),r3		;start - get user address
+	bne	20$			;we have an address
+im$tra:	clr	r2			;use default transfer address
+10$:	movfd	@#j$bupc,r3,30$		;get the start address
+	add	r2,r3			;add offset to base
+20$:	asr	r3			;is the start odd or null?
+	blos	30$			;yes - c=1 or z=1
+	asl	r3			;no
+	mfpd	@#j$btop		;get the top address
+	mov	(sp),p$htop		;reset the top address
+	cmp	r3,(sp)+		;is this too high?
+	blos	40$			;nope
+30$:	.hard	ersta.			;invalid start address
+40$:	mfpd	@#j$busp		;get their stack
+	asr	(sp)			;check for zero or odd
+	blos	50$			;zero or odd
+	asl	(sp)			;o.k.
+	cmp	(sp),p$husr		;is it too high?
+	blos	60$			;nope
+50$:	.hard	erusp.			;user-stack address
+60$:	mtpi	sp			;setup their stack
+
+;	Check image control flags
+
+	mov	r$msyg,p$hsyg		;setup current sysgen flags
+	ovcal$	ux$sir utl		;setup image rights
+	mov	p$hic0,r2		;get the control word
+	bit	#iciop$,r2		;do they need the i/o page?
+	beq	70$			;no
+	$right	srcmk.			;need cmkrnl for this
+	bcc	65$			;fine
+	.hard	eracm.			;invalid access mode
+65$:	mov	s$yiop,p$huip+mm.p7	;yes - map the i/o page
+	mov	#mmd4k.,p$huid+mm.p7	;
+	mov	s$yiop,m$uip0+mm.p7	;map mmu directly
+	mov	#mmd4k.,m$uid0+mm.p7	;
+					;
+70$:	mov	p$hter,r4		;get the terminal
+	beq	90$			;none
+	bit	#ictct$,r2		;do they want to disable [ctrl/t]?
+	beq	80$			;no
+	bic	#tectt$,te.con(r4) 	;disable it
+80$:	bit	#ictcy$,r2		;disable [ctrl/y]?
+	beq	85$			;no
+	bic	#tecty$,te.con(r4) 	;disable it
+85$:	bit	#ictcf$,r2		;disable [ctrl/f]
+	beq	90$			;no
+	bic	#tectf$!tectb$,te.con(r4) ;disable it
+90$:	bit	#cnfpu$,r$mcfg		;do we have fpu?
+	beq	95$			;no
+	bic	#^cicfpu$,r2		;isolate the flag (r2 destroyed)
+	mov	r2,p$hfpu		;set/reset /fpu flag
+95$:	fall	100$			;
+
+;	Setup image activation type
+
+100$:	movb	rp.p1+1(r5),p$hclt	;get ucl start type
+	bicb	#clct$n,p$hclt		;clean it up
+	mov	rp.p3(r5),r0		;r0 = image parameter
+
+;	Enter image
+;
+;	r0 =	image parameter
+;	r3 =	image start address
+;
+;	r0 =	image parameter
+; ???	r1 =	process id
+; ???	r2 =	image name (part 1)
+; ???	r3 =	image name (part 2)
+;	r4 =	stb date
+;	r5 =	^rshp
+
+im$ent:	mov	p$hpcr,r4		;reset these flags
+	bis	#primg$,pr.sta(r4) 	;set image and clear others
+	bis	#primg$,p$hsta		;set image status
+	mov	t$istb,r4		;r4 = stb date
+	mov	#^rshp,r5		;r5 = ^rshp
+	clr	p$hcrp			;no rp
+	mov	#p$hkst,sp		;reset the stack
+	psh	#mmdum$			;setup the ps
+	psh	r3			;the start address
+	spl	7			;go up
+	jmp	@p$hrti			;use rti path out to catch aborts
+	.dsabl	lsb			;
+.sbttl	load image
+
+;	Load image
+;
+;	Image file is open on channel 15. Previous user mode is set.
+;	Use 1000:2000 of user memory for temporary buffer mapped via par6.
+;
+; ???	Store information about vir, rel, ovr, vov
+; ???	Call feature bypass for image loading.
+	
+im$loa:	clr	p$hic0			;clear image control flags
+	clr	p$hic1			;
+
+;	Read image header into working area
+
+10$:	mov	m$uip0,r0		;get their par0 address
+	add	#1024./mmbip.,r0	;adjust to block two
+	mov	r0,m$kip6		;map to par6
+	$io	#p$hare,#imchn.,#0,#iorea$!iouim.,#1024.,#256.,#0,#0
+	bcc	20$			;fine
+	imgerr	erimg.			;invalid image
+
+;	Map & check control buffer; set default stack
+
+20$:	mov	#m$mpa6,r3		;point to it
+.if ne 0
+	$feat	#febim.			;call the feature bypass - images
+.endc
+	tst	jb.usp(r3)		;got a stack?
+	bne	25$			;yes
+	mov	#1000,jb.usp(r3)	;no - RT defines 1000 as default
+
+;	Check for valid STB date
+
+25$:	cmp	jb.isi(r3),#^rshp 	;this one of ours?
+	bne	30$			;no
+	mov	jb.isd(r3),r0		;yes - got an STB date?
+	beq	30$			;no
+	cmp	r0,t$istb		;is this our STB date?
+	beq	30$			;yes
+	imginv	erstb.			;no - invalid STB
+
+;	Check virtual settop and virtual overlays
+
+30$:	mov	jb.top(r3),rp.p4(r5) 	;rp.p4 = top address to read in
+	assume	jb.vif eq 0		;
+	clr	rp.p5(r5)		;assume no plas
+	cmp	(r3),#^rvir		;is this a virtual program?
+	bne	40$			;no
+	mov	jb.vto(r3),rp.p5(r5) 	;yes - store virtual limit
+
+;	Check for sufficient memory
+
+40$:	cmp	p$husr,jb.top(r3) 	;is it too large?
+	bhi	60$			;nope
+50$:	.hard	erism.			;insufficient memory
+
+;	Merge fixed data into buffer
+
+60$:	mov	#i$mscd,r0		;get the syscom data
+70$:	mov	(r0)+,r1		;get the next word
+	psh	r1			;save it
+	bic	#1,r1			;clean up the address
+	add	r3,r1			;point to the work area
+	mov	(r0)+,(r1)		;put us in
+	asr	(sp)+			;does it need relocation?
+	bcc	80$			;nope
+	add	p$hrmc,(r1)		;yes - add in our base
+80$:	tst	(r0)			;any more?
+	bne	70$			;yes
+
+;	Save kiloword limit for settop
+;
+;	Force LINK.SAV to 28kw unless kiloword limit setup
+
+	clr	r0			;assume none
+	cmp	jb.ref(r3),#^rrel	;this a .REL file?
+	beq	85$			;yes - kiloword limit not supported
+	mov	jb.kwl(r3),r0		;no - get the kiloword limit
+	bne	85$			;it has a kiloword limit
+	cmp	p$himg+fn.fil,#^rlin	;this link?
+	bne	85$			;no
+	cmp	p$himg+fn.nam,#^rk	;really?
+	bne	85$			;no
+	mov	#28.,r0			;yes - reduce to 28kw
+85$:	ash	#sv02k.,r0		;get the number of bytes (avoid sign)
+	sub	#2,r0			;back off to top adr (handles 32kw-2)
+	mov	r0,p$hkwt		;save the kiloword top
+
+;	Some sites pass information between images in location 56
+
+	assume	jb.ttf eq jb.kwl	;same offset as kiloword limit in image
+	movfi	@#j$bttf,jb.ttf(r3)	;copy location 56
+
+;	Check for chain
+
+90$:	mov	#1000,r0		;assume top of 1000
+	mov	r0,r4			;get another copy
+	bit	#imcha$,rp.p1(r5) 	;is this a chain?
+	beq	100$			;no
+	mov	#500,r0			;yes - reset top address
+100$:	mov	r0,r1			;assume caller limit
+	asrb	jb.jsw+1(r3)		;called chain bit set?
+	bcc	110$			; nope, use caller limit
+	mov	r4,r1			; yes - use 1000 as limit
+110$:	cmp	r0,r4			;caller chain bit set?
+	bit	#imchs$,rp.p1(r5) 	;really want it set?
+	bne	111$			;yes
+	clc				;no
+111$:	rolb	jb.jsw+1(r3)		;c=caller chain bit
+	asr	r1			;make it words
+	mov	jb.jsw(r3),p$hjsw 	;remember the jsw
+
+;	Check for image control
+
+115$:	cmp	jb.vic(r3),#^rvic	;this a control area?
+	bne	120$			;no
+	mov	jb.vic+2(r3),p$hic0	;yes
+	mov	jb.vic+4(r3),p$hic1	;
+
+;	Move in block zero
+
+120$:	clr	r0			;setup the usermode pointer
+125$:	movti	(r3)+,(r0)+		;move them
+	sob	r1,125$			;count them
+
+;	Block zero of the image is no longer available.
+;
+;	Read the rest of the image
+
+130$:	mov	rp.p4(r5),r2		;compute the wordcount
+	sub	#1000,r2		;remove what we have
+	blo	140$			;its all in (remember settop)
+	clc				;
+	ror	r2			;make it words
+	inc	r2			;one more for settop logic
+	$io	#p$hare,,#0,#iorea$!iouim.,#1000,r2,#1,#0
+	bcc	140$			;fine
+	imgerr	erimg.			;invalid image
+140$:	bit	#jsovr$,p$hjsw		;is it overlayed?
+	bne	150$			;yes
+	.purge	#17			;no - purge it (this purges the name)
+	movbuf	p$himg,a$pfna,8.	;put back the name for errors
+
+;	Initialize virtual images
+
+150$:	mov	rp.p5(r5),r1		;this a virtual image?
+					;r1 = virtual high limit
+	beq	160$			;no
+	tst	f$emap+<fepla.*word> 	;got virtual overlays
+	bne	155$			;yes
+	imginv	erpni.			;PLAS not installed
+155$:	bit	#jsvir$,p$hjsw		;want virtual settop?
+	bne	156$			;yes
+	clr	r1			;no
+156$:	$crovl	#p$hare, r1		;yes - create virtual structure
+	bcc	160$			;no problems
+	.hard	erikm.			;insufficient kernel memory
+
+;	Account for the image
+
+160$:	assume	imnac$ eq 200		;
+	tstb	rp.p1(r5)		;count the image?
+	bmi	170$			;no
+	inc	p$haim			;count the image (DCL decrements this)
+170$:	return				;
+
+;	Image activation errors	
+
+im$err:	movb	p$herr,rp.err(r5) 	;get the error code
+	bmi	im$fat			;a hard error
+im$inv:	movb	(r1)+,rp.err(r5)	;get their code instead
+im$fat:	jmp	em$err			;report the error
+
+i$mscd:	.word	0,	40000		;bic r0,r0
+	.word	2,	emt!emasx.	;.astx
+	.word	j$bsys!1,ph.mon-ph.mon	;client rmon address
+	.word	v$eemt!1,ph.emx-ph.mon	;emt for tcfig
+	.word	0			;
+	.dsabl	lsb			;
+.sbttl	reset image
+
+;	Reset image
+;
+;	Called if imres$ set in image activator flags
+;	Copy kernel device tables to process device header.
+
+im$res::.enabl	lsb			;image reset
+	clr	r0			;slot index
+	mov	d$edes,r1		;number of devices
+10$:	mov	d$emap(r0),r2		;get the next device
+	bne	20$			;we have a device
+	clr	p$hpnm(r0)		;remove the device
+	br	30$			;
+20$:	mov	de.dev(r2),p$hpnm(r0) 	;pname
+	mov	de.typ(r2),p$htyp(r0) 	;device type
+	assume	de.sta eq 0
+	assume	de.hsz eq 2
+	assume	de.ent eq 4
+	assume	de.dsz eq 6
+	mov	(r2)+,p$hdst(r0)	;device status
+	mov	(r2)+,p$hhsz(r0)	;handler size
+	mov	(r2)+,p$hent(r0)	;entry point
+	mov	(r2)+,p$hdsz(r0)	;device size
+30$:	tst	(r0)+			;next index
+	sob	r1,10$			;do them all
+40$:	return
+
+;	Check for corrupt process
+;
+;	Compare second word of RMON for correct address.
+;	(The first word is ignored because it is often corrupted).
+;	If process is futch then display message and hibernate.
+;	Try to exit again after hibernate to permit process deletion.
+;
+; ???	Ensure that ph$joc is a valid address
+
+im$cor::mov	p$hmon+word,r0		;get $inten address
+	sub	p$hktc,r0		;make a kernel address
+	cmp	r0,#p$hinr		;is this the right address?
+	bne	50$			;no
+	mov	p$hjoc,r0		;get command file address
+	beq	40$			;is none
+	sub	p$hktc,r0		;get a kernel address
+	cmp	r0,#m$mpa2		;in par2?
+;.if ne crp$c
+;	br	40$
+;.iff
+	blo	50$			;no - crap
+;.endc
+	cmp	r0,#m$mpa3		;really?
+	blo	40$			;yes
+50$:bpt
+;	mov	#ercrp.,r0		;no - crap
+	call	er$dis			;display the message
+	.spnd				;go to sleep first
+	.exit				;and try again
+	.dsabl	lsb			;
+.end
+

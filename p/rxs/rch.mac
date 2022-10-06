@@ -1,0 +1,473 @@
+.title	rch - rt-11 channel
+.include "lib:rust.mac"
+.psect	rch d
+$chdef		;channel
+$dedef		;der
+$erdef		;error codes
+$fkdef		;fork block
+$hadef		;handler
+$iqdef		;i/o queue
+$rpdef		;rp
+$prdef		;pcr
+$psdef		;ps
+$stdef		;state
+$tpdef		;tp
+map	cu.kab,,6
+
+;	RUST/XM channel requests
+;	
+;	%build
+;	macro	rxs:rch/object:rxb:rch
+;	%end
+;	%date
+;	<20-Nov-2010 20:53:39.09>
+;	%edit
+;	<70   >
+;
+;	cwait
+;	mwait
+;	cstat
+;	cdfn
+;	abtio		
+;
+;	Following are ACP requests for RUST/XM:
+;
+;	close
+;	purge
+;	savest
+;	reopen
+;
+;	Following are I/O requests:	
+;
+;	io
+;	read
+;	write
+;	spfun
+.sbttl	map channel
+
+;	Map channel number to csw address
+;
+;	+-------------------------------------------------------+
+;	! TSX emulator has similiar routine			!
+;	+-------------------------------------------------------+
+;
+;	rp.chn		channel number
+;
+;	r5 ->	rp
+;
+;	r4 ->	csw
+;	erchn.	invalid channel number
+;
+;	When a process has less than 16 channels the image channel
+;	is remapped to the second last channel. The channel number 
+;	must also be changed in the RP - otherwise the ACP gets confuse.
+
+	assume	rp.chn eq 0	;
+ch$mch::movb	(r5),r4		;get the channel
+	cmpb	r4,p$hchs	;is this too high?
+	blo	20$		;nope - its fine
+	cmp	r4,#chimg.	;this the image channel?
+	beq	10$		;yes
+	.hard	erchn.		;invalid channel
+10$:	movb	p$hchs,r4	;get the channel count
+	sub	#2,r4		;use second last channel for the image
+	movb	r4,(r5)		;change it for the ACP
+20$:	fall	ch$mkc		;map the channel
+
+;	Map kernel channel
+;
+;	r4 =	channel number - byte
+
+ch$mkc::psh	r5		;
+	bic	#^c377,r4	;isolate channel byte
+	mul	#ch.bbs,r4	;get the offset
+	mov	r5,r4		;get back the result
+	pop	r5		;
+	add	p$hchr,r4	;point to kernel channel
+	return
+.sbttl	wait, mwait
+
+;	.wait	chan
+;
+;	r4 ->	CSW being waited for
+;
+;	0	channel not open
+;	1	hard error
+
+cwait::	tst	(r4)		;channel open?
+	bpl	ch$er0		;channel not open
+	call	ch$wax		;go wait for it
+	fall	ch$her		;check for hard error
+
+;	Check hard error
+
+ch$her::bit	#csher$,(r4)	;got hard error?
+	beq	ch$ret		;nope
+	assume	csher$ eq 1	;sic] dont assume this and dec (r4)
+	bic	#csher$,(r4)	;yes - turn it off
+	.soft	1		;report it
+
+;	.mwait
+
+mwait::	mov	#p$hmsw,r4	;get the channel
+	fall	ch$wax		;
+
+;	Wait for channel done
+;
+;	Called directly from ACP and others via MSY.
+;	We handle I/O abort here.
+
+ch$wax::
+10$:	$float			;synch with the system
+	tstb	ch.ioc(r4)	;i/o done on channel?
+	beq	30$		;yes
+	tst	p$hsta		;are we aborting?
+	bpl	20$		;no
+	$land			;come back for this
+	call	ch$abt		;yes - abort the channel
+	$float			;float again
+	tstb	ch.ioc(r4)	;i/o done on channel?
+	beq	30$		;yes
+20$:	$stall	#10$, prwio.	;wait for it
+30$:	$land			;wait done
+ch$ret:	return			;return
+
+;	Check hard error and eof
+;
+;	Soft error issued if error detected
+;
+;	0	Eof
+;	1	Hard error
+
+ch$err::call	ch$her		;check hard error first
+	fall	ch$eof		;check end of file
+
+;	Check eof
+
+ch$eof::bit	#cseof$,(r4)	;got end of file?
+	beq	ch$ret		;nope
+	bic	#cseof$,(r4)	;yes - clear it
+ch$er0:	.soft	0		;eof of file error
+.sbttl	cstat
+
+;	.CSTAT	Get channel status
+;
+;	.cstat	area, chan, addr
+;
+;		+-------+-------+
+;	r0 ->	!   27	!  chan	!
+;		+-------+-------+
+;		!      addr	!	rp.p0
+;		+-------+-------+
+;
+;	return	r0 ->	addr
+;		0	csw
+;			csw sign bit clear if channel not open
+;		2	starting block number
+;		4	length of file
+;		6	highest relative block number written
+;		10	device unit number
+;		12	device name in radix-50
+;
+;	emt	^o375, ^o27
+;
+;	0	channel not open
+;	eradr.	if access error
+;
+;	Ensure channel is open.
+;	Convert it to cstat return form.
+;	Copy it back to the client.
+
+cstat::	mov	r3,rp.r0(r5)	;return addr in r0
+	mov	(r4),r2		;r2 = csw
+	call	10$		;move the first four
+	tst	r2		;is the channel open?
+	bpl	ch$er0		;channel not open
+	movb	1(r4),r0	;get the unit number
+	call	20$		;move it back
+	bic	#csin$n,r2	;clean up the index
+	mov	r$mpnm(r2),r0	;get the pname
+	br	20$		;send it
+				;
+10$:	call	(pc)		;move the first four
+	call	(pc)		;
+	mov	(r4)+,r0	;get the next
+20$:	jmp	mm$mtw		;move r0 back via (r3)+
+.sbttl	cdfn
+
+;	.CDFN	Define channels
+;
+;	.cdfn	area, addr, num
+;
+;		+-------+-------+
+;	r0 ->	!   15	!	!
+;		+-------+-------+
+;		!      addr	!	rp.p0
+;		+-------+-------+
+;		!      num	!	rp.p1
+;		+-------+-------+
+;
+;	emt	^o375, ^o27
+;
+;	0	too few channels
+;
+;	Should be:
+;
+;	Wait for I/O to run down.
+;	If insufficient kernel space, wait.
+;	Channel 255. not available.
+;
+;	Currently is:
+;
+;	Set flag indicating CDFN was done.
+;	SRESET all channels on exit if CDFN was done.
+;	This variable follows serr/herr.
+;
+;	Actual channel count is set during process creation (pcr.mac)
+
+cdfn::	movb	rp.p1(r5),p$hcdf 	;remember the number of channels
+	return				;
+.sbttl	abort I/O
+
+;	.ABTIO	Abort I/O on a channel
+;
+;	.abtio	chan
+;
+;		+-------+-------+
+;	r0 =	!   13	! chan	!
+;		+-------+-------+
+;
+;	emt	^o374, ^o13
+;
+;		not from an ast
+;
+;	errors	ignored like rt-11
+;
+;	abort I/O in AST
+;	hard error flag
+;	completion routines
+;	buffered I/O
+;	use tp.qco for asts and to cancel buffered I/O
+;	per-process handlers
+;
+;	Abort I/O must handle a number of race conditions.
+;	Handler abort holds the handler to stop multiple completion.
+;	Hard error is set to terminate buffered I/O - screws error count too.
+;
+;	The I/O queue element might not be in a TP envelope since some
+;	handlers create their own on the fly. What we can trust is the
+;	CSW address in the queue element to identify the channel.
+;
+;	prcri$ in p$hsta inhibits aborts on directory channel a$pcsw.
+;
+;	Aborted elements must receive the following treatment:
+;
+;	1.	Completion routines are not delivered
+;	2.	Buffered I/O operations are terminated
+;
+;	The flag for this treatement must be in the standard RT-11 queue
+;	element since some handlers use psuedo queue-elements which do
+;	not have the TP envelope. The solution is to use TP.QCO - the
+;	completion routine flag. RIO sets this to 1 or the completion routine
+;	address. Abort I/O clears the value signalling an aborted element.
+;	Some device handlers (e.g. NQ:) also clear TP.QCO.
+;
+;	This flag must also be handled for queue elements that complete
+;	during device abort for the appropriate job or channel.
+;
+;	deabo$ in de.con controls .abtio aborts.
+;
+;	r4 ->	channel
+
+abtio::	.enabl	lsb
+
+;	Abort all I/O requests on a channel or for a job
+;
+;	(1)	Abort first in queue
+;	(2)	Abort subsequent entries
+;	(3)	Abort HNDLR$ and ABTIO$ device handlers
+;
+;	r2 ->	device record if generic abort
+;	r3 ->	handler during system state routines
+;	r4 ->	csw - must be returned intact
+;	r4=0	Generic handler abort from exit in RIM for dehab$ devices
+;		Only occurs in mainline code
+;	r5 ->	handler ($cmsys saves r4/r5)
+
+ch$abt::save				;save them all
+					;
+	cmp	r4,#p$hmsw		;this the message channel?
+	beq	200$			;yes - different
+	tst	r4			;this a generic abort?
+	beq	20$			;yes - skip the tests
+					;
+	bit	#prcri$,p$hsta		;are we in a critical section?
+	beq	10$			;no
+	cmp	r4,a$pcsw		;is this the ACP channel?
+	beq	190$			;yes - ignore this
+					;
+10$:	mov	(r4),r2			;find the handler
+	bpl	190$			;it has been closed
+;	$bypass	b$yabt			;call abort i/o bypass
+	bit	#csspl$,(r4)		;is this a spool file.
+	bne	300$			;yes
+	bic	#csin$m,r2		;isolate the device
+	mov	d$emap(r2),r2		;r2 -> device
+	beq	190$			;no device - this is insane
+	bit	#deabo$,de.typ(r2) 	;installed with abort?
+	beq	190$			;no - ignore .abtio requests
+
+;	Check for abort
+;
+;	r2 ->	device record
+;	r4 ->	csw
+
+20$:	$cmsys	190$			;return via 190$
+	mov	de.ent(r2),r3		;r3 -> handler ha.lqe
+	beq	190$			;no handler is insane
+	mov	r3,r0			;r0 -> lqe
+	assume	ha.cqe-ha.lqe eq word	;
+	tst	(r3)+			;r3 = cqe
+	assume	ha.lqe-ha.hol eq word	;
+	sec				;
+	ror	-(r0)			;r3 -> ha.hol - hold the handler
+	assume	de.sta eq 0		;
+	bit	#dehab$!degab$,(r2) 	;this want all aborts?
+	bne	30$			;yes
+	bit	#deext$,de.typ(r2) 	;external handler?
+	bne	30$			;yes - send abort to extern
+	jsr	r1,70$			;search for an element
+					;
+	assume	ha.hol-ha.isr eq word	;
+30$:	mov	-(r0),r1		;r1 = offset to isr
+	add	r0,r1			;point to isr
+	psh	r4			;save csw pointer/flag
+	psh	r3			;save queue element pointer
+	psh	r2			;r2 -> device record
+	stack	r2 r3 r4		;
+	mov	r4,r3			;r3 -> csw (RUST/XM external)
+	mov	p$hprn,r4		;r4 =  process number
+	mov	r3,r5			;r5 -> channel csw (rt-11 v5.4)
+
+;	r1 -> 	abort entry point - rt-11 compatibility
+;	r2 ->	device record - required by external handlers
+;	r3 ->	csw - for external handlers
+;	r4 =	job number (not multiplied by two)
+;	r5=csw	abort only i/o on this channel for this job - rt-11 v5.4
+;	r5=0	abort all i/o for this job - rt-11 v5.4
+;
+;	Abort routine saves/restores all registers
+
+	call	-(r1)			;call abort routine
+	stack	r2 r3 r4 ret		;
+	pop	r2			;r2 -> device record
+	pop	r3			;r3 -> queue element
+	pop	r4			;r4 = csw pointer/flag
+	stack	ret			;
+
+;	External handlers do not consider kernel elements
+;	If this is an external handler and the top element has
+;	not completed then check it as well.
+;
+;???	External kernel element never completes
+
+	jsr	r1,70$			;check the top element
+					;r5 -> queue element
+	clr	i.qcom(r5)		;cancel completion routine
+	bit	#deext$,de.typ(r2) 	;external handler?
+	beq	50$			;no - forget this
+	bit	#hadon$,ha.hol-ha.cqe(r3);did it complete?
+	beq	65$			;no - remove it
+
+;	r5 ->	cqe
+;	r4 ->	csw
+
+50$:	mov	r5,r3			;get the next
+60$:	jsr	r1,70$			;call the routine
+65$:	mov	(r5),(r3)		;remove it from link
+	save				;save the lot
+	sub	#tp.qsu,r5		;point to the start of tp
+	clr	tp.qco(r5)		;clear completion flag
+	call	io$rem			;remove one element
+	restore				;restore the lot
+	br	60$			;and try for another
+
+;	.SDAT/.RCVD Channel
+
+200$:	decb	p$hmsw+ch.ioc		;decrement this
+
+;	Return after system state
+
+190$:	return				;and go back
+
+;	Check queue element for abort
+;
+;	r3 ->	next queue element
+;	r4 ->	csw
+;	r4=0	generic abort
+;
+;	jsr	r1,70$
+;
+;	r5 ->	queue element to abort
+;	50$	find next element
+;	90$	no more elements
+
+70$:	tst	(sp)+			;skip saved r1
+	mov	(r3),r5			;get i/o element
+	beq	90$			;done
+	assume	i.qblk eq 4		;
+	cmp	-(r5),-(r5)		;point to start of element
+					;
+	cmp	r4,i.qcsw(r5)		;this our channel?
+	beq	80$			;yes
+	tst	r4			;abort by CSW?
+	bne	50$			;yes - skip this one
+	movb	i.quni(r5),-(sp)	;no - generic process abort
+	bic	#iqjo$m,(sp)		;isolate job number
+	asr	(sp)			;put it in place
+	asr	(sp)			;
+	asr	(sp)			;
+	cmpb	(sp)+,p$hprn		;is this the same job?
+	bne	50$			;no
+80$:	jmp	(r1)			;yes - return to abort entry
+	
+;	All I/O requests for handler have been processed
+;	Check for handler completed while we were doodling
+
+90$:	mov	de.ent(r2),r4		;r4 -> ha.lqe
+	assume	ha.lqe-ha.hol eq word	;
+	asl	-(r4)			;did it complete?
+	bpl	190$			;nope
+
+;	Handler completed - remove dead fork elements
+
+	mov	#f$kcqe,r0		;point to the first
+100$:	mov	r0,r1			;get another copy
+110$:	mov	(r1),r0			;link it out
+	beq	130$			;that was the last
+	tst	fk.kpc(r0)		;got a routine?
+	bne	100$			;yes - get the next
+	spl	7			;no - block interrupts
+	mov	(r0),(r1)		;yes - take it out
+	bne	120$			;not the last
+	mov	r1,f$klqe		;change last queue element pointer
+120$:	spl	0			;back down
+	br	110$			;and look again
+
+130$:	clr	(r4)+			;clear handler hold flag
+	tst	(r4)+			;skip lqe
+					;r4 -> cqe
+	jmp	io$don			;complete the call
+
+;	Spooler abort
+
+300$:	call	by$dsc			;disable scheduler
+	mov	@#s$pspp,r2		;get spooler record
+	beq	310$			;not there
+	cmp	(r2),@#p$hpcr		;this the spooler process?
+	beq	310$			;yes - ignore
+	call	@cu.kab(r2)		;call abort routine
+310$:	callr	by$esc			;
+	.dsabl	lsb
+.end
+

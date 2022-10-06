@@ -1,0 +1,216 @@
+.title	sjo - get job
+.include "lib:rust.mac"
+.psect	sjo d
+$erdef		;errors
+$evdef		;eve
+$mmdef		;mmu
+$prdef		;pcr
+$rpdef		;rp
+$tedef		;terminal
+$xmdef		;plas
+
+;	RUST/XM RT-11 Get job request
+;
+;	%build
+;	macro	rxs:sjo/object:rxb:sjo
+;	%end
+;
+;	.gtjb	area, addr, [jobblk]
+;
+;		+-------+-------+
+;	r0 ->	!   20	!  0/1	!
+;		+-------+-------+
+;	p0	!      addr	!	rp.p0
+;		+-------+-------+
+;	p1	!     jobblk	!	rp.p1
+;		+-------+-------+
+;
+;	rp.chn	if <>0 then rp.p1 holds jobblk information
+;	rp.p0	addr	address of return area
+;	rp.p1	0	calling process - twelve words
+;		-1	12 words on current job
+;		-3	8 words on current job
+;		0:400	job number * 2
+;		400+	address of ascii jobname
+;
+;	rp.p5	PHD buffer page
+;
+;		jobnam	.ascii	/6CHARS/  ;0 and space skipped
+;
+;		word	offset
+;	addr	1	0	job number (process number * 2)
+;		2	2	high-memory limit
+;		3	4	low-memory limit	always zero
+;		4	6	channel area va		valid only for current
+;		5	10	impure area va		zero (skipped by SJ)
+;
+;	v4	6	12	terminal unit number
+;			13	reserved		always zero	
+; 		7	14	virtual high limit	XM only
+;		8-9	16-20	reserved		always zero
+;		10-12	22-27	.ascii "JOBNAM"
+;
+;	emt	^o375, ^o20, 0
+;
+;	r0	addr
+;	0	no such job is currently running
+;	1	maximum job number exceeded - SHAREplus only
+;
+;	r3 ->	rp.p0
+;
+;		jobnam	.ascii	/6CHARS/  ;0 and space skipped
+
+meta	<gjmov$ c><jsr r0,gt$mov><.word c>
+
+em$gjb::mov	r3,rp.r0(r5)		;return addr in r0
+	mov	r3,r0			;get the buffer address
+	call	ev$mbu			;map par6 to eve buffer
+	psh	r0			;save eve buffer address
+					;
+	mov	p$hpcr,r4		;assume this job
+	tstb	(r5)			;is this a v4 request?
+	beq	40$			;no
+	mov	rp.p1(r5),r0		;get the job specifier
+	beq	40$			;they are always background
+	cmp	r0,#-3			;this a v3 return?
+	beq	40$			;yes
+	cmp	r0,#-1			;this us?
+	beq	40$			;yes
+	cmp	r0,#400			;this a number?
+	bhi	20$			;no - must be a name
+	asr	r0			;yes - make a process number
+	ovcal$	sy$fpi sys		;find the process
+	br	30$			;
+20$:	ovcal$	sy$gpn sys		;get the process name
+	bcs	30$			;oops - bad name
+	ovcal$	sy$fpn sys		;r0 -> user mode name
+30$:	bcc	40$			;fine
+	.soft	0			;no such job
+40$:	mov	pr.phd(r4),rp.p5(r5)	;rp.p5 is page number
+	mov	pr.nam(r4),r2		;process name
+	mov	pr.nam+word(r4),r3	;second part of name
+	clr	r0			;
+	bisb	pr.prn(r4),r0		;get the process number
+	pop	r4			;r4 -> return area
+	asl	r0			;convert to job number
+	mov	r0,(r4)+		;move it back
+	gjmov$	p$husr+mmp62.		;get high memory 
+	clr	(r4)+			;low memory location
+	gjmov$	p$hrmc+mmp62.		;get client address of rmon
+	add	#ph.csw-ph.mon,-word(r4);add in the offset to csw area
+	clr	(r4)+			; impure area address - none
+	gjmov$	p$hter+mmp62.		;get the terminal record
+	mov	-(r4),r0		;get the terminal record
+	beq	60$			;is none
+	movb	te.tid(r0),r0		;get the unit number
+60$:	mov	r0,(r4)+		;terminal number
+	gjmov$	p$hxmr+mmp62.		;get the xm record
+	mov	-(r4),r0		;get the xm record pointer
+	beq	70$			;no plas being used
+	mov	xm.vhi(r0),r0		;get the virtual high limit
+70$:	mov	r0,(r4)+		;virtual high limit
+					;
+;	v4 requests			;
+					;
+	tstb	(r5)			;is this a v4 request?
+	beq	80$			;no
+	cmp	rp.p1(r5),#-3		;v3 specified?
+	beq	80$			;yes - no more here
+					;
+	clr	(r4)+			;another free one
+	clr	(r4)+			;another free one
+	mov	r4,r1			;point to return area
+	clr	(r4)+			;clear out the name area
+	clr	(r4)+			;
+	clr	(r4)+			;
+	psh	(r4)			;save this - it gets destroyed
+	mov	r2,r0			;first part of name
+	ovcal$	sx$cra sys		;convert to ascii
+	mov	r3,r0			;second part of name
+	ovcal$	sx$cra sys		;convert to ascii
+	pop	(r4)			;restore end of string
+
+80$:	fall	gj$eve			;and do the eve stuff
+.sbttl	.gtjb EVE calls
+
+;	EVE extension to .GTJB
+;
+;	Par6 is also used to map the PHD
+
+gj$eve::.enabl	lsb		;eve extension to GTJB
+	mov	r4,r0		;r0 -> remainder of buffer
+	$evpro	pac=r0, tab=#100$ ;process it
+	return			;
+
+100$:	$evdgr	gpr	200$	;get process group
+	$evdgr
+
+200$:	$evdca	img	word*4	p$himg+mmp62.	404$	;image name
+	$evdca	nam	word*2	p$hnam+mmp62.	402$	;process name
+	$evdca	pid	word	p$hprn+mmp62.	401$	;process number
+	$evdca	pri	word	p$hpri+mmp62.	401$	;priority
+	$evdca	pro	word	p$hpro+mmp62.	401$	;protection
+	$evdca	uic	word	p$huic+mmp62.	401$	;uic
+	$evdca	usn	word*2	p$husn+mmp62.	402$	;username
+	$evdca	tdc	word	p$hter+mmp62.	300$	;terminal type code
+	$evdca	acn	word*2	p$hacn+mmp62.	402$	;accounting name
+	$evdca	cpu	word*2	p$hcpu+mmp62.	402$	;cpu time
+	$evdca	dio	word*2	p$hdio+mmp62.	402$	;dio count
+	$evdca	bio	word*2	p$hbio+mmp62.	402$	;bio count
+	$evdca	avo	word	p$havo+mmp62.	401$	;volumes mounted
+	$evdca	aim	word	p$haim+mmp62.	401$	;images run
+	$evdca	con	word*2	p$hali+mmp62.	310$	;connect time
+	$evdca	nod	word*2	s$ynod		402$	;node name
+	$evdca	nid	word	s$ynid		401$	;node id
+	$evdca	dsk	word	p$hdsk+mmp62.	401$	;login default disk
+	$evdca	uif	word	p$huif+mmp62.	401$	;directory uic
+	$evdca	ver	word	s$yver		401$	;version number
+	$evdca	bas	word	p$hcip+mmp62.	401$	;base page number
+	$evdca
+
+;	Return terminal type
+
+300$:	call	401$		;get the terminal record
+	mov	-(r4),r0	;get the terminal record
+	beq	400$		;none there - clean it up
+	mov	te.typ(r0),r0	;get the type
+	br	400$		;and store it
+
+;	Return connect time
+
+310$:	call	402$		;store process hot & lot
+	neg	-(r4)		;make it negative time
+	adc	-(r4)		;
+	neg	(r4)		;
+	call	ti$tik		;get system time
+	add	r0,(r4)+	;add in system time
+	add	r1,(r4)+	;
+	adc	-4(r4)		;adjust it
+	return
+
+;	r0 =	value
+;	r1 ->	phd or kernel value
+;	r2/r3	unchanged
+;	r4 ->	eve buffer address
+;	r5 ->	rp
+
+gt$mov:	mov	(r0)+,r1	;get the pointer
+	mov	r0,(sp)		;setup the return
+	br	401$		;move back one
+
+403$:	call	401$		;store three
+	br	402$		;
+404$:	call	(pc)		;store four
+402$:	call	(pc)		;store two
+401$:	psh	m$kip6		;save par6
+	psh	r5		;save r5
+	mov	p$hcrp,r5	;get the request packet
+	mov	rp.p5(r5),m$kip6;map the phd
+	mov	(r1)+,r0	;get the value
+	pop	r5		;restore r5
+	pop	m$kip6		;restore par6
+400$:	mov	r0,(r4)+	;store the value
+	return			;
+	.dsabl	lsb		;
+.end
+

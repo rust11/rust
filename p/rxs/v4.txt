@@ -1,0 +1,938 @@
+-Editor		MLE screen editor
+-EXTERN.FEA	Built in
+-pool.sys	Secondary pool for logical names & plas
+-JOBLIB		Wildcard directory search
+-UTS:ASCII.SAV	Lists ascii character set
+-dup.sys		
+get/put		simple packet transfer
+-mle.sav	
+?PERVE.SAV	Program performance analysis
+-NOP.SYS	SHAREplus nodevice handler
+LPP.SYS	SHAREplus line printer handler
+
+$SCHED	AREA PRN PID	
+$CATCH	AREA ADR SIG DSB	
+$SIGNAL	AREA PRN PID FLG	
+	tectc$	[ctrl/c]
+	tecty$	[ctrl/y]
+	tectt$	[ctrl/t]	
+	tecto$	[ctrl/o]
+	tecat$	[attach]	
+	tectb$	[ctrl/b]
+	tectf$	[ctrl/f]
+	tecth$	[ctrl/h]
+
+	r0	$signal flags
+	r1	terminal signal flags
+.title	RUST/XM dictionary
+
+;	A simple short-element pool
+;
+;	o  Logical names
+;	o  Command definitions
+;
+;	Data is stored in the overlay itself.
+;
+;	xx$get	prc, typ, nam, buf, len	- lookup if no buf specified
+;	xx$put	prc, typ, nam, buf, len
+;	xx$del	prc, typ, nam, 
+;	xx$nth	prc, typ, nam, buf, len	- name has wild cards)
+;
+;	nam	asciz string
+;	prc	process id (byte)
+;	typ	see below (type)
+;	buf	address of kernel buffer
+;		result is asciz string
+;	len	maximum result length
+
+ $$ SHAREplus V3	
+
+SHAREplus V3		SHAREplus V3 is aimed at larger 22-bit machines.
+			V3 development will be handled as a new project.
+			All system interfaces must hit full power.
+			Functionality will replace size as a goal.
+			Many modules in the system will require reworking.
+			V3 must be able to support 63 processes & terminals.
+			Terminal is state-of-the-art.
+			F11B support will be standard.
+			PLAS, EXTERN, MAILER, LOGGER, SDATA & IMAGES built-in.
+			Loadable built-in support for DU: and NQ:
+
+DOCUMENTATION		System will be redocumented during development
+			Internals roadmap required
+
+Changed philosophy:	
+
+MINIMAL KERNEL		RT-11 will be 'just another runtime' system.
+			The kernel will be more system independent.
+			More attention to asts, messages, overlays.
+
+BUILTIN FEATURES	MAILER, LOGGER
+			EXTERN
+			IMAGES
+
+MORE MEMORY		Processes require more memory for headers.
+			Header is external to process.
+			Contains channel record (moved from pool).
+			Contains line edit buffers (from process body).
+			Contains command file buffers (from body).
+			Contains logger buffers (from body).
+			Equivalent method is to map 28kw processes.
+
+MORE MEMORY		Support supervisor mode for programs.
+
+PROCESSES		Remove all header stuff from user space.
+			Remove channel records from kernel to process header.
+			MPPHD$ to map the header of a process.
+			Support 63 processes.
+TERMINALS		Remove all data and most code from the kernel.
+			Support full blown terminal driver - everything.
+			Support 63 terminals.
+DEVICES			Support full ACPs.
+			MSCP interface to all devices.
+			Built-in options for MSCP and Ethernet.
+LOGICAL NAMES		Remove all logical names from the kernel.
+			Longer logical names
+
+-MAREE			All possible functionality moves to MAREE.
+-EVE & SHAREplus	Where possible the same utilities will be used.
+-CUSPS			All possible functionality moves to CUSPS.
+
+DCL DECOMPOSED		DCL decomposed to major functionality CUSPs.
+			Functions largely as a command/option decoder.
+			Handlers DCL operator syntax.
+			Performs very few actions.
+			Resident DCL dispatcher is mandatory.
+ACCLIB			Shared library for file access - wildcards etc
+
+CLILIB			Shared library for DCL CUSPS.
+CUSPS	MOUNT		Rework
+	INIT		
+	SQUEEZE		
+
+	ACCESS		LOGIN/LOGOUT operations.
+	PROCESS		Process operations.
+	NAMES		Logical name operations.
+	DEVICE		Device operations - replace MOUNT.
+	HANDLER		Handler operations.
+	TERMINAL	Terminal operations.
+	SYSTEM		System SET & SHOW operations.
+
+	COPY		Copy, print & type files.
+	DELETE		Delete files.
+	RENAME		Rename & change attributes.
+
+STB AVOIDED		Vectors to common routines and addresses.
+			Automatic fillin of preface pointer tables.
+
+SUB-DIRECTORIES		Replace logical disks with sub-directories. These
+			are what users are really looking for. Either extend
+			RT-11 or use F11A/F11B. F11B would be preferable.
+			Logical name tables used to map short RT-11 name
+			to full directory name:
+
+			. |assign dl2:[0,4] ian|	
+
+			Named directories. Two levels of sub-directory.
+			Overlapped directory operations not required.
+			Direct windowing of I/O requests required.
+			Use ACP redirection in I/O module.
+
+SYNCHRONISATION		More use of mutex. Protect against pool deletes better.
+VECTORED SYSTEM		Most of the system is vectored to avoid STB problems.
+			Vectors call overlay routines. Should end up with
+			free pool space in par0.
+BARE SYSTEM		Kernel consists of bare routines. Most functionality
+			is in overlays.
+PRIMITIVE STRUCTURES	Where possible well-defined primitive structures
+			will be used to construct the monitor. Mutexs,
+			rings and processes are obvious candidates.
+			Remove RT-11 dependencies from primitive system.
+MULTIPLE SYSTEMS	Kernel designed to support multiple operating systems.
+			RT-11, RSX, TSX, MPP, UNIX are goals.
+NULL POOL		Kernel pool reserved for essential items only.
+			Secondary pools and private pools used for others.
+PROCESSES		64 processes must be supported.
+FEATURES		64 features. Generalise interface to handle:
+			Monitor overlays, extended handlers, realtime servers.
+			Processes can define in-line features (e.g. spool).
+MONITOR OVERLAYS	All intra-overlay calls will go via overlay dispatch.
+			Overlays are features with transfer vector table.
+CHANNELS		Pointers in PHD will be used.
+			Only static channels will be present in kernel.
+TERMINAL DRIVER		SHAREplus will get a terminal driver.
+			TT: will look like a device record with 64 units.
+			TT:, T99:, MB:, LS:, XL:, MTT:, LOG:, SL:
+			User/server input and output AST queues required.
+			Host sync. Broadcast. Output formatting. LOGGER/MAILER.
+			Modem and timeout support. Set characteristics.
+			In-line code for specific terminals.
+			User-written terminal interfaces supported.
+DEVICE EXTENSIONS	Device and unit records will be variable length.
+HANDLER EXTENSIONS	Extended handler preface and interface with TP.
+			RT11S supplies more information in buffer.
+			Device handler can map secondary portion to par1.
+			Timeout and synch support. Internal queues.
+			Psuedo mapping via first eight process slots.
++EXTERNAL HANDLERS	Support par6 external handlers with runtime in par1.
+			Interrupts transferred to these pars.
++SYSTEM PARAMETERS	A system parameter file will control system build.
+			This will control the initial selection of features.
+DCL			DCL should interpret commands - not execute them
+			The exceptions are displays and assignments.
+-LIBRARIES		SHAREplus will get a library for common routines.
+UTILITIES IN MAREE	More utilities will be moved to Maree code.
+UTILITY OVERLAYS	Utilities will use overlays.
+BATCH PRIORITY		Setup autobatch priority during command files.
+SYSTEM MESSAGES		Replace MER with message file. Support MESSAGE feature.
+			Throw out all slips. Generalize interface.
+			Errors and CSI prompt with image name.
+			Add system messages to all requests. Report in MSW.
+ACP & EVE		ACP's get/return information in AP area.
+			EVE works from AP when possible.
+ACP & WILDCARDS		ACP's support internal wildcard lookup.
+$STTIA			Set terminal input ast
+$STTOA			Set terminal output ast
+TRAPS & JOBSPACES	Generalize to support non-RT-11 SYSCOM and vectors.
+TERMINAL DEFAULT	Utilities such as DUMP will use the terminal rather
+			than the printer as the default.
+DECIMAL DEFAULT		Decimal will be the default for all numbers.
+			%o and %h will be supported.
+COMMAND FILES		Reorganise to read from a file during operation.
+			Savestatus/Reopen will be used.
+CHANGED STRUCTURES			
+
+RP			Add par6. Really use exception.
+PO			Shorten.
+DE,UN,TE,FE,PR		Common preface to deal with locking.
+DE,UN			Variable length. Secondary pools supported.
+UN			Short form unit records supported.
+TE			TE looks like UN. t$emap in psuedo TE device.
+NA			Variable length names.
+AS			More information for dispatch.
+			Add image count to disable delivery to wrong image.
+CH			Single word pointers. Out of kernel.
+TB/WB			Mapped TB's must be supported.
+TP			Remove crap. Shorten them. Variable length?
+			Move TP's to secondary pool - link to kernel TP.
+			Move I/O processor to own overlay with space for
+			50 internal TP's (cost 2000 words).
+PHD			Reduce size. Remove redundant RT-11 stuff.
+			Remove redundant padding space.
+
+MOVED STRUCTURES:	
+TU, XM, NA, HA		Move out of the kernel.
+EVE			Move out of the kernel.
+DVM			Move out of the kernel.
+MOVBLK			Combine this for all.
+
+NEW STRUCTURES	
+MP			Message
+WP			Window package
+CW			CSW window
+FI			File descriptor
+CD			Class dispatcher
+OP			File open packet (uic, prot, etc.) for networking.
+UP			Usermode pool element. Replaces dynamic stuff.
+			Common routine to check validity of UP.
+
+CHANGED INTERFACES	
+
+CLI			Resident CLI calling interface
+PROCESS/PROCESS		Formalise inter-process interface
+PROCESS/TERMINAL	Make terminal attach more formal. Control displays.
+TERMINAL		Process/terminal and terminal/driver interfaces
+STATUS INTERFACE	Formalise and use message files
+OUTPUT INTERFACE	Formatted output interface
+FEATURE INTERFACE	Generalised overlay interface
+REQUEST PACKET		Add par6. Implement exceptions
+REQUEST ROUTINES	Replace RT-11 routine names
+
+NEW FEATURES		
+STREAM			Stream data driver.
+			Current MAILER and LOGGER move to STREAM.
+MAILER			Really is mailbox handler.
+IMAGES			Image cache and filename tracking.
+			Required for RMS.
+RMS			Record management and locking. ENQ/DEQ.
+			Pipelined spooling supported.
+TSX			TSX support.
+RT11A/RT11X		RT11A & RT11X ACP
+RT11S/RT11V		RT11S and RT11V (vamp/net)
+F11A			Support F11A disks.
+F11B			Consider F11B disks.
+RSX			RSX feature.
+VMS			VMS feature. More VMS requests. SPAWN.
+SHAREnet		SHAREnet system.
+
+NEW UTILITIES	
+DEVICE			Device manager - replaces MOUNT routines
+TERMINAL		Terminal manager - replaces DCL routines
+COPY, DELETE, RENAME	Individual utilities for new CSI stuff.
+
+
+NEW DATA STRUCTURES:	
+LOGICAL NAMES		Facility logical name tables.
+			Long ascii names.
+FILENAMES		DDCUU:[GRP.MEM]FILNAMETC.TYP;VER
+			Overlay DCI parser. DCL support.
+			CSI elides redundant information.
+NODENAMES		Network node names.
+VOLUME LABELS		12-character strings (ascii)
+
+FEATURE			Preface structure redefined.
+HANDLERS		Extended preface defined.
+TP			Long blocks, event numbers, etc.
+			UIC, protection, UFD, eve package, IOSB
+DCI			DCL command interpreter
+
+NEW FUNCTIONALITY:	
+WILDCARD LOOKUPS	ACP supports wildcard lookups.
+LIBRARIES		Common modules in supported library.
+DCI			DCL command interpreter
+
+
+NEW SYSTEM CALLS:	
+$ACP			Acp request structure.
+$FEA			Feature requests
+SYSTEM SERVICES		More VMS services
+DIRECTIVES		More RSX directives
+
+ASECTS	
+STACKS			Reduce stack requirements.
+KDA	
+REDUCE SIZE		Remove all possible to secondary database.
+KPO			Move out of kernel.
+			Use unique mutex to lock pool.
+			Support multiple pools.
+			Reduce pool header size.
+			Support page aligned pools.
+KQU			Remove from kernel.
+			Replace most with mutexes.
+			Setup a process abort mechanism.
+KVE			Formalize interface more.
+			Move post-processing out of kernel with errors.
+			Deliver process traps via monitor.
+KEV			Clean up interfaces.
+			Support monitor independance.
+KIN			Formalize direct fork.
+			Support fork level 2 for terminal processing.
+			Support monitor independance.
+			Support root bypass.
+			Support additional context areas.
+MIO			Make this monitor independant.
+			Support multiple queue elements.
+			Support transfer vectors and remapping.
+			All header manipulation here.
+MIX			Optimise movlblk for all such purposes.
+KTE			Kernel interrupt routines only.
+			Move remainder to new TER overlay.
+			Convert terminal requests to I/O requests.
+			Support full translation sets.
+			Support multi-terminal line mode for terminals.
+MNA			Move out of kernel.
+MUT			Move some out of kernel.
+MSY - MOV		Formalize all dispatchs via feature interfaces.
+			Each feature starts with transfer vectors.
+.ffaaa			Overlay dispatch symbol.
+			.byte	feat*2, vect*2.
+			32 system features, 32 user features.
+MER			Generalise this structure to handle conversions.
+			Setup fixed codes so that reassemble not required.
+			Support RSX and RT-11 error codes.
+MEP			Revector dispatchs via overlay.
+			Do not map and check channel - leave to routine.
+			Check for forwarding trace.
+			Dispatch feature requests.
+RMI
+PHD			Remove physical name tables.
+			Extend process stack.
+RIM			Command line is available via CCL.
+			Command file is active.
+			STATWD bit.
+SPH			Optimise for size. 150 words can be saved here.
+PHD			Remove redundant RT-11 stuff. Move RSX header.
+			Remove unused space. Setup dynamic pool header.
+			400 words can be saved here.
+ ` V3 SIZE	
+
+PR 31	620 31  620	Process
+CH 89	220 110 2200	Process + 16 channels
+TE 228	338 6760	Process, channels & terminal
+
+ ` V3 POOL	
+
+VM: & POOLS		V3 BUILD maps pools into VM: directory.
+NAMED POOLS		Named system pools can be allocated in V3.
+			Created as VM: files.
+			Kernel pointers to pool base.
+
+ ` rationale	
+Big systems need bigger pools. Small systems can't afford more pool. We  do  not
+want to produce two versions of the system. 
+
+The approach is to categorise pools into a number of types:	
+
+PR		Kernel - scheduler queues
+AD		Kernel
+TB		Kernel - could have some external for 18/22
+TP		Kernel - shorter
+DE		Monitor - not used during I/O
+UN		Kernel - scheduler queues - shorter
+TE		Kernel and terminal, different
+CH		Kernel pointers & channels
+HA		Kernel and external Handler
+MP		Monitor
+NA		Monitor
+CO		
+XM		Monitor - but difficult because of par6
+FE		Kernel
+SP		Remove
+DB		
+RT		Kernel
+ID		Kernel
+
+There are two primary types: the kernel pool and mapped pools. The  kernel  pool
+is fixed at 12kw. External pools are mapped into par6 and are limited to 4kw. 
+
+Kernel		The components that must be in memory during interrupts.
+		For example, interrupt dispatchers, tentative channels,
+
+Mapped pools can take on different functions:	
+
+External	External drivers
+
+Terminal	Terminal structures
+
+Monitor		VM:, NL:, logical names, spooler hook,
+
+Physical	The physical par6 pool maps to the actual memory used by
+		par6. Some external handlers need to be loaded into the
+		actual physical locations they occupy (e.g. DL, DM, MT).
+
+This approach suggests the following:	
+
+Each system component has a target pool. Each pool is located by a pointer: 
+
+map	po.had	word,0		;header address
+map	po.hp6	word		;header par6 value
+
+k$epoo:	.word	k$ephr		;points to kernel pool header
+	.word	par6		;par6 value for pool
+e$xpoo:	.word	k$ephr		;points to kernel pool initially
+
+e$xpoo:	.word	e$xphr		;may be changed to point to a different pool
+
+The pool header itself consists of the following:	
+
+	po.suc	word,0		;usual header
+	po.pre			;
+	po.len			;
+	po.typ	byte		;
+	po.prn	byte		;
+	po.kp6			;kernel par6
+
+Par6 would be setup via po.kp6 during pool operations. 
+
+This approach is compatible with the existing system. 
+
+A small system would simply have all pointers directed to  the  kernel  pool.  A
+larger system would install pools for specific functionality. 
+
+	install/feature mpool
+
+	install/pool poonam [filnam]
+
+	poonam		name of the pool
+	filnam		defaults to POONAM, created on VM: if it does
+			not already exist. Default size is 16k words.
+
+The Physical pool must be created during system build (since this normally  res~
+erved for the SYS overlay). 
+
+The monitor pool would be best allocated during build (since the  initial  names
+are  placed  there),  but  need not be. The logical name services can work quite
+happily with some names in the kernel pool and some in the monitor pool.
+
+
+Four different types of pool are handled. 
+
+Kernel		The kernel pool - compatible with SHAREplus V1
+		Standard size is 12kw. Can be reduced for small systems.
+Mapped		Optional secondary pools. Upto 32 4kw pools.
+		Objects are page aligned and mapped via par6.
+		The pool pointer returned is an MMU page number.
+Driver		Optional driver pools in par6.
+		These are controlled by INSTALL logic.
+		Can alternatively be used for kernel overlays or mapped pools.
+
+p$osp1::.word	0	;par1 overlay default.
+p$osp6::.word	0	;par6 overlay default.
+p$omap::.blkw	16.	;mapped pool map
+p$olen::.blkw	16.	;mapped pool lengths - in pages
+
+map	p$obuf,,m$mpa6+po.bbs
+
+ ` mapped pool	
+A mapped pool header has a different format when its mapped to the standard log~
+ic. 
+
+	po.suc	
+	po.pre	
+	po.typ	byte
+	po.prc	byte
+	po.len	base page of mapped pool
+
+	$crmpo	typ siz
+
+	typ.lb	pool type
+	typ.hb	pool control
+ ` V3 terminal	
+
+V3 combines all terminal functionality in a single module. This is a
+new system overlay (TER).
+
+o	Combines the functionality listed below.
+o	Frees up space in KER and REQ, permitting some module
+	moves that supply space all around.
+o	Will create problems for 128kw unibus systems.
+	They may decided to stay with V2.
+
+SYS	KTE largely moves out, leaving room for pool code to move down.
+REQ	RED and RCF move out, leaving room for some new code and RSF.
+ACP	RSF moves to REQ, creating space.
+SYS	SJO probably moves out, leaving space for code.
+MTT	Is standard in TER.
+MAILER	Is replaced by TER.
+LOGGER	Is replaced by TER.
+DDH	Integrated.
+TSX	Direct terminal support.
+RSX	Additional support.
+Attach	Moves from SMI.
+
+KTE	590	
+RTE	
+RED	
+RCF	
+LOG	
+MBX	
+MTT	
+DTT	
+KCO	
+
+The new functionality includes:	
+
+Port drivers	Support runtime port modules.
+Async		Fully asynchronous terminal read/write.
+Asts		Attention ASTs all over.
+RSX		RSX terminal support.
+Modem		Full modem support, and set-speed.
+Ring-buffers	Full ring-buffer support.
+External rings	Ring buffers mapped via par6 (optional)
+Windows		Interface to window support routines.
+
+The new modules are:	
+
+TER		Terminal requests.
+TCF		Command files.
+TED		Terminal editor.
+TLO		Terminal log.
+TMT		Multi-terminal.
+
+TIN		Terminal interrupts.
+TAS		Terminal AST's.
+TMO		Terminal mode.
+
+TDL		DL and DZ support.
+TDH		DH terminal support.
+TTS		TSX terminal support.
+TRS		RSX terminal support.
+;	Terminal control record
+
+	.word	flags			;various flags
+	.word	tabsize			;soft tab size
+	.word	fieldsize		;input field size
+	.word	delete-char		;delete character
+	.word	timeout			;timeout in seconds
+	.blkw	2			;terminator mask
+	.blkw	2			;interrupt mask
+	.word	i-routine		;interrupt routine
+	.word	t-string		;^T string
+	.word	
+
+;	The terminal record
+;
+;	Kernel record
+;
+;	The kernel record contains only that data which must
+;	be contained in the kernel. This includes pointers to
+;	external structures and process queues.
+;
+;	External	Pointers to external records
+;	Forks		Fork blocks
+;
+;	External record
+;
+;	The external record contains all the data needed to
+;	drive the terminal. Some of these structures conform
+;	to the system ring-buffer and mailbox standards.
+;
+;	Name		Name, id & type descriptions
+;	Data		Ring-buffer or message-buffer access
+;	 input		Input data structures
+;	 output		Output data structures
+;	Format		Static data formatting control
+;	 permanent	Permanent database
+;	 temporary	Temporary or current database
+;	Control		AST queues, select dispatch
+;	Device		Device access and control
+;	 hardware	CSR & vector addresses
+;
+;	The first part of a terminal record is the same as a half-duplex mailbox.
+;
+map	te.int		interrupt routine
+	...
+map	te.pag		page number of external record
+
+map	te.sel		;select routine
+map	te.tex		;external record page
+map	te.iaq	long	;input access queue
+map	te.oaq	long	;output access queue
+;
+;	Input ring
+;
+map	te.inp	null	;input area
+map	te.igq		;input get ast queue
+map	te.ipq		;input put ast queue
+map	te.irb		;input ring base address
+map	te.ire		;input ring end address
+map	te.igp		;input get pointer
+map	te.ipp		;input put pointer
+map	te.ipc		;input count & semaphore
+map	te.igt		;input get restart & ast threshold
+map	te.ipt		;input put restart & ast threshold
+;
+;	Terminal control area
+;
+map	te.ccu	quad	;current control
+map	te.cpe	quad	;permanent control
+;
+map	te.tc0,,0	;terminal characteristics
+map	te.tc1		;
+map	te.tc2		;
+map	te.tc3		;
+map	te.wid	byte	;terminal width (80)
+map	te.len	byte	;page length (24)
+map	te.par	byte	;0:1 parity, 2:3 bits, 4 stop bits
+map	te.spe	byte	;speed encoding
+;			;
+map	te.typ		;terminal type (te100.=vt100)
+map	te.mod	word*2	;terminal model - rad50 brandname
+map	te.nam		;terminal name (T02:)
+map	te.cor		;controller record address (below at present)
+map	te.tid		;	- terminal id
+;
+; Physical description
+;
+map	te.csr	null	;	- CSR address
+map	te.tks		;tks
+map	te.tkb		;tkb	- input buffer
+map	te.tps		;tps	- output status
+map	te.tpb		;tps	- output buffer
+map	te.vec		;vec	- vector address
+map	te.uni	byte	;uni	- unit of controller
+map	te.cot	byte	;cot	- controller type
+map	te.iie		;ie	- input enable bit
+map	te.oie		;ie	- output enable bit
+map	te.ipr	byte	;n	- input priority
+map	te.opr	byte	;n	- output priority
+;
+; Process specific data
+;
+map	te.pcr		;pcr	- pcr of owner
+map	te.con		;bits	- ctrl character mask
+map	te.sig		;bits	- pending signals
+map	te.msk		;te7b$m	- 7/8 bit mode mask
+;
+map	te.sbs	null	;status block byte size ($gette)
+;
+; Input 
+;			;ordered
+map	te.isr	word*2	;jsr r5,@#dl$isr - input isr
+map	te.ikb		;tkb	- input buffer address
+map	te.ich	byte	;0	- input character buffer
+map	te.iid	byte	;tid	- terminal id for input
+;			;unordered
+map	te.ict		;0	- input count
+map	te.igt		;te.irn	- input ring get pointer
+map	te.ito		;te.ire	- input ring top pointer
+map	te.ipt		;te.irn	- input ring put pointer
+map	te.ibo		;te.irb	- input ring bottom pointer
+;
+map	te.ifc	byte	;0	- input get fail counter
+map	te.ofc	byte	;0	- output fail count
+map	te.ila	byte	;0	- last input character (ctrl/c, ctrl/y)
+map	te.roo	byte	;	- process number of root
+map	te.iqu		;queue	- input scheduler queue
+;
+; Output
+;			;ordered
+map	te.osr	word	;jsr r5,@#dl$osr - output isr
+map	te.obc	word	;te.obc	- DH dma byte count or dl$osr
+map	te.oct		;0	- output character count
+map	te.ogt		;te.orb	- output ring get pointer
+map	te.oto		;te.ore	- output top pointer
+;			;unordered
+map	te.opt		;te.orb	- output put pointer
+map	te.obo		;te.orb	- output bottom pointer
+;
+map	te.omo	null	;0	- output mode (see below)
+map	te.ocs	byte	;0	- ctrl/s state - other terminal id
+map	te.oco	byte	;0	- ctrl/o state
+map	te.oen		;ie	- output enable state
+;
+;			;??? temporary
+map	te.cor	null	;controller record address
+map	te.ola		;0	- output last character - te.cor
+map	te.oqu		;	- output scheduler queue
+;
+; Fork
+;
+map	te.frk		;suc	- output done fork block
+map	te.fpc		;te$frk	- fork goto
+map	te.fr5		;te.ter	- setup by install
+map	te.sel	null	;te.sel	- DH unit selector. Fudged for DL/DZ.
+map	te.fr4		;	- unused
+;
+; Rings
+;
+map	te.irb	teirs.	;	- input ring
+map	te.ire	null	;	- input ring end
+map	te.orb	teors.	;	- output ring
+map	te.ore	null	;	- output ring end
+;
+map	te.mbx		;	- mbx pcr
+map	te.mt0	byte	;	- mtt attach control
+map	te.mt1	byte	;	- mtt connect control
+map	te.pco		;	- permanent controls - restored after exit
+map	te.ith	byte	;	- input threshold
+map	te.fgd	byte	;	- foreground process number
+map	te.flo		;	- flow control
+map	te.bbs
+;
+; te.cot - controller type
+;
+map	tedlt.,,0	;dl type
+map	tedzt.,,1	;dz type
+map	tedht.,,2	;dh type
+map	tembt.,,3	;mb type
+map	tequt$,,100003	;quiet type (unused???)
+;
+; te.obc - dma control
+;
+map	teodm$,,100000	;dma in progress
+;
+; te.omo -  output mode
+;
+map	tecsp$,,200	;ctrl/s pending
+map	tecsi$,,100	;ctrl/s from input ring
+map	tecso$,,40	;ctrl/s from output
+map	tecsm$,,20	;ctrl/s from mailbox
+;			;
+map	teocs$,,377	;ctrl/s enabled
+map	teoco$,,177400	;ctrl/o enabled
+;
+; te.msk - 7/8 bit mask
+;
+map	te7b$m,,177600	;7-bit mask (default)
+map	te8b$m,,177400	;8-bit mask
+;
+; te.con/te.sig 
+;
+map	tectc$,,1	;ctrl/c
+map	tecth$,,2	;ctrl/h - backspace
+map	tecty$,,4	;ctrl/y
+map	tecat$,,10	;attach
+map	tecdt$,,20	;detach - not used
+map	tecto$,,40	;ctrl/o
+map	tectt$,,100	;ctrl/t
+map	tecli$,,200	;[cliast] - continue with cli ast
+map	tectb$,,400	;ctrl/b
+map	tectf$,,1000	;ctrl/f
+map	tectx$,,2000	;ctrl/x
+map	tects$,,4000	;ctrl/s - also ctrl/q
+map	tectp$,,10000	;ctrl/p
+map	tect0$,,20000	;ctrl/0 - actually null for rall/wall
+map	tecrt$,,40000	;realtime signal
+map	tesdt$,,100000	;sdat
+;			;default set and permanent
+map	tecds$,,tectc$!tecty$!tecat$!tecto$!tectt$!tects$
+map	tecdp$,,tects$!tecto$!tecat$
+;
+; te.con bit numbers
+;
+.if nb <ttv>
+map	tecc$v,,0	;ctrl/c
+map	tech$v,,1	;ctrl/h - backspace
+map	tecy$v,,2	;ctrl/y
+map	teca$v,,3	;attach
+map	tecd$v,,4	;detach - not used
+map	teco$v,,5	;ctrl/o
+map	tect$v,,6	;ctrl/t
+map	tecl$v,,7	;[cliast] - continue with cli ast
+map	tecb$v,,8.	;ctrl/b
+map	tecf$v,,9.	;ctrl/f
+map	tecx$v,,10.	;ctrl/x
+map	tecs$v,,11.	;ctrl/s - also ctrl/q
+map	tecp$v,,12.	;ctrl/p
+map	tec0$v,,13.	;ctrl/0 - actually null for rall/wall
+;		14.
+;		15.
+.endc
+;
+; te.flo
+;
+map	tefcs$,,100000	;flow ctrl/s active
+;
+; te.sel - class dispatch offsets
+;
+map	tesse.,,0	;terminal select
+map	tesde.,,-2.	;terminal deselect
+map	tesxf.,,-4.	;terminal xoff
+map	tesxn.,,-6.	;terminal xon
+;
+; physical terminal
+;
+map	tks,,177560	;terminal keyboard status
+map	tkb,,177562	;terminal keyboard buffer
+map	tps,,177564	;terminal printer status
+map	tpb,,177566	;terminal printer buffer
+map	v$etks,,60	;terminal keyboard vector
+map	v$etps,,64	;terminal printer vector
+;
+map	te.rsr,,0	;receiver status
+map	te.rbu		;receiver buffer
+map	te.xsr		;transmitter status
+map	te.xbu		;transmitter buffer
+.ENDM
+ $ SYSTEM
+
+The SYSTEM utility is used to manage SHAREplus configurations.	
+
+Design		Design a SHAREplus configuration
+Virtual		Build a virtual SHAREplus image that can be booted
+Runtime		Modify a SHAREplus system at runtime
+
+The DCL interpreter has been reduced to a sensible size for VM: - it  now  runs
+as  a  shared  image.  The  following  commands  have  been moved to the SYSTEM
+utility: 
+
+		install/remove	
+		load/unload	
+		mount/dismount		includes MOUNT functionality
+		set device/terminal	
+
+
+MEMORY		Dynamic memory models
+DEVICES		Address space, installation options
+		Has defaults for standard devices
+TERMINALS	
+NAMES	
+
+model MODEL> show/create/delete/set object options use dy show set /22bit 
+
+mount dy define/group=devel log equ 
+mount `Cc
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ $$ 							SHAREplus V2.2
+
+ $$ 							Release Notes
+						
+ $$ 							HAMMONDsoftware	
+`Sc
+

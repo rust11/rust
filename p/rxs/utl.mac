@@ -1,0 +1,57 @@
+v3=1
+.title	utl
+.include "lib:rust.mac"
+.psect	utl d
+
+;	RUST/XM UTL overlay dispatch
+;
+;	%build
+;	macro	rxs:utl/object:rxb:utl
+;	%end
+;
+;	Continue EMT dispatch to routines in UTL overlay.
+;
+;	MEP dispatchs UTL routines to dummies in MSY.
+;	MSY computes a dispatch index in r1, maps & calls us.
+;	Compute the routine address, reset r1 to zero
+;	and test (r4) to set channel open status.
+;
+;	r0 =	rp.r0
+;	r1 =	dispatch index
+;	r2 =	free
+;	r3 =	rp.p0
+;	r4 ->	channel
+;	r5 ->	rp
+;
+;	call	ac$dis
+;
+;	r1 =	0
+;	n	n=1 => channel open
+
+ut$dis::			;dispatch the task
+	cmp	(sp)+,(sp)+	;dont return to msy
+	asl	r1		;r1 = dispatch variable
+	mov	10$(r1),r2	;r2 -> routine
+	clr	r1		;r1 = 0
+	tst	(r4)		;n=1 => channel open
+	jmp	(r2)		;and call the routine
+
+;	UTL overlay dispatch table
+;	Relative from top of table
+
+.if ne v3
+	.word	na$cre		;crelog
+	.word	na$del		;dellog
+	.word	na$trn		;trnlog
+.endc
+	.word	em$prt		;.protect
+	.word	em$dev		;.device
+	.word	em$gjb		;.gtjb
+	.word	em$cmt		;.cmkt
+	.word	em$mkt		;.mrkt
+	.word	em$twt		;.twait
+	.word	em$sdt		;.sdttm
+	.word	em$gtm		;.gtim
+10$:	.word	em$dat		;.date
+.end
+

@@ -1,0 +1,79 @@
+.title	rkm - kmon requests
+.include "lib:rust.mac"
+.psect	rkm d
+$erdef		;errors
+$rpdef		;rp
+$txdef		;text
+
+;	STAR-eleven KMON requests
+;
+;	%build
+;	macro	rxs:rkm/object:rxb:
+;	%end
+
+;meta <.feed><emt 362>
+;meta <.abort s,l><emt 363><.iif nb l,l==.><.iif nb <s>,string <s>>
+;meta <.fatal s,l><emt 364><.iif nb l,l==.><.iif nb <s>,string <s>>
+;meta <print s><emt 365><string <s>>
+;meta <type s><emt 365><string <s>,200>
+;meta <.ttin><emt 366>
+;meta <.ttou a><.iif nb,a,movb a,r0><emt 367>
+;meta <string a,t=0,?l><l:.ascii&a&><.iif eq .-l&1,.byte 177><.byte t>
+;meta <.gslots a><mov a,r0><emt 370>
+
+em$kmo::movb	(r5),r1		;get the offset
+	asl	r1		;
+	jmp	@10$(r1)	;
+
+10$:	.word	km$nop		;360
+	.word	km$nop		;361
+	.word	km$fee		;362
+	.word	km$abo		;363
+	.word	km$fat		;364
+	.word	km$pri		;365
+	.word	km$tti		;366
+	.word	km$tto		;367
+	.word	km$gsl		;370
+
+km$fee:	.print	#10$
+	return
+10$:	.word	0
+
+km$abo:	clr	p$hjoc
+km$fat:	call	km$str
+	.exit
+
+km$str:	.print	#10$
+	br	km$pri
+10$:	.ascii	/?SHARE-F-/<200>
+	.even
+
+km$pri:	mov	rp.pc(r5),r1	;point to the string
+10$:	call	mm$grb		;get the next one
+	tstb	r0		;what is this?
+	beq	30$		;end of line
+	bpl	20$		;a character
+	bic	#177600,r0	;end of line?
+	beq	40$		;yes
+20$:	.ttyout
+	br	10$
+30$:	call	km$fee		;new line
+40$:	inc	r1
+	bic	#1,r1
+	mov	r1,rp.pc(r5)
+km$nop:	return
+
+km$tti:	.ttyin			;get one
+	cmpb	r0,#cr		;this a cr?
+	beq	km$tti		;yes
+	cmpb	r0,#lf		;this a lf?
+	bne	10$		;no
+	clr	r0		;yes
+10$:	mov	r0,rp.r0(r5)	;return it
+	return
+
+km$tto:	.ttyout	r3		;ttout
+	return
+
+km$gsl:	.hard	eremt.		;invalid emt
+.end

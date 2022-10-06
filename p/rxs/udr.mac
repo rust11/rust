@@ -1,0 +1,507 @@
+.title	udr - driver support routines
+.include "lib:rust.mac"
+.psect	udr d
+$chdef		;channels
+$dedef		;devices
+$drdef		;driver calls
+$emdef		;emts
+$ekdef		;external driver
+$evdef		;eva
+$imdef		;images
+$iodef		;i/o
+$mmdef		;mmu
+$psdef		;psw
+$rrdef		;rt-11 regions
+$svdef		;shift values
+$tbdef		;tbs
+$xmdef		;rt11xm codes
+
+;	RUST/XM Driver support routines
+;
+;	%build
+;	macro	rxs:udr/object:rxb:udr
+;	%end
+;	%date
+;	<20-Nov-2010 20:53:39.09>
+;	%edit
+;	<59   >
+;
+;	Global region support
+;
+;	Allocate/deallocate only during symbiont routines
+;	Allocate/deallocate search for free process channel
+;	Only channels 0:15. are considered - others not mapped by p$hcsw
+;	ACP requests are permitted
+; ???	NU: is not supported - it does its own XM allocation.
+;
+;	Fixed overhead is 5 words.
+;	Each region costs 5 words.
+;	Support for 4 drivers - 20 words.
+;
+;	A dummy device table area is required.
+;	The slot count is one.
+;	The only device present is the device being installed.
+;
+; !!!	The scheduler is usually blocked during installation/removal.
+;	This means that the system will block during installation.
+;	Worst case the system could hang if installation hangs.
+.sbttl	dispatch p1ext request
+
+;	Dispatch driver call
+;
+;	r0/r5	driver call registers
+;
+;	off	offset from driver call to d$rdik
+;
+	stack	krt kp1 irt off hrt	;kernel, io$dis, driver
+
+dr$dix::psh	sp.off(sp)		;get the offset
+	add	#d$rdix,(sp)		;add in extension
+	psh	@(sp)+			;get the routine address
+	jmp	@(sp)+			;call the routine
+
+	.word	dr$dlx			;deallocate region
+	.word	dr$nop			;convert virtual to physical
+	.word	dr$frx			;find global region
+	.word	dr$alx			;allocate region
+d$rdix:	.word	dr$nop			;block move & p1ext
+	.word	dr$utx			;dispatch driver utility
+.sbttl	allocate external region
+
+;	Allocate external region
+;
+; ???	Error if region already exists
+;
+;	This call is only supported during driver installation or
+;	during a driver symbiont call.
+;	
+;	d$rpnm	driver name - else request fails
+;	chn(0)	is available
+;
+;	r2	requested size in mmu blocks
+;	call	p1ext(xalloc)
+;
+;	r3	channel number
+;	r4 ->	channel csw
+;
+;	c=0	allocated
+;	r1 =	page number	
+;	r2 =	requested page size
+;	r3	burnt by RT-11 - not by RUST/XM
+;
+;	c=1	insufficient space
+;	r1 =	xe.siz
+;	r2 =	maximum size available
+;	r3	burnt by RT-11 - not by RUST/XM
+;
+;	Create new region and close with fixed size
+;	Return largest size.
+
+dr$alx::call	dr$aci			;setup for operation
+	bcs	20$			;no channel available
+					;
+;	mov	#emloo.,205$		;setup for lookup
+;	call	115$			;look it up
+;	bcc	5$			;region already exists
+;	movb	#ement.,205$		;setup for enter
+					;
+	call	100$			;try to enter for fixed size
+	bcs	10$			;fail - return largest size
+	mov	r0,ch.use(r4)		;setup the permanent size
+5$:	mov	ch.sbl(r4),r1		;get the start block
+	.close	r3			;close the channel
+	assume	mmpib. eq 8.		;pages in block
+	ash	#sv008.,r1		;convert start block to page number
+;sic]	clc				;c=0 - from ASH instruction
+	br	40$			;c=0
+					;
+10$:	mov	#-1,r2			;get largest size
+	call	110$			;open that
+	bcs	20$			;no space at all
+	.purge	r3			;purge the channel
+	br	30$			;return size
+					;
+20$:	clr	r2			;no space at all
+					;
+30$:	mov	#xminm.,r1		;error - return xe.siz
+	sec				;failed
+40$:	return				;return via dr$aci
+
+;	Create region
+;
+;	r2	requested page size
+;		must be less than 2^16-7
+;	r$rpnm	permanent name
+;
+;	r0	acquired block size
+;	r2	acquired page size
+
+	assume	mmpib. eq 8.		;pages in a block
+100$:	add	#mmpib.-1,r2		;even up to a block
+	ror	r2			;c=0 - rotate
+	asr	r2			;/4
+	asr	r2			;/8
+110$:	mov	r2,210$			;setup the size
+115$:	jsr	r5,dr$ace		;issue ACP call with EVA
+	.word	200$			;emt area address
+	bcs	120$			;failed
+	mov	r0,r2			;return page size
+	ash	#sv008.,r2		;r0 is result page count
+120$:	return				;
+
+200$:	.byte	0			;channel - filled in by dr$acp
+205$:	.byte	ement.			;enter code
+	.word	d$rfsp			;file name
+210$:	.word	0			;requested size
+	.word	0			;sequence number
+.sbttl	deallocate global region
+
+;	IO$XDL - Deallocate driver region
+;
+;	Unprotect and delete the driver region
+;	Delete the global region record as well
+;
+;	r1	page address of region
+;	r2	page size of region
+;
+;	c=1	regions too fragmented for deallocation
+;	r1 =	xmdea./xe.dea = 11
+
+dr$dlx::psh	r1			;save return value
+	mov	#r$rgrl,r1		;get the global region list
+10$:	cmp	(r1),#rrgen$		;end of the list?
+	beq	20$			;yes - not found, ignore it
+	cmp	rr.gsp(r1),(sp)		;the same start address?
+	bne	10$			;no
+	assume	rr.gps eq 0		;
+	clr	(r1)			;yes - free the area
+20$:	pop	r1			;restore r1
+					;
+	call	dr$aci			;setup for operation
+	bcs	30$			;no hope
+	jsr	r5,dr$acp		;unprotect the region
+	.word	100$			;emt area
+	bcs	30$			;file not available
+	jsr	r5,dr$acp		;delete the region
+	.word	100$			;emt area
+	bcc	40$			;
+30$:	mov	#xmdea.,r1		;replace return value
+40$:	return				;return via dr$aci
+
+;	Unprotect area
+
+100$:	.byte	0			;channel
+	.byte	emfpr.			;.fprot - unprotect file
+	.word	d$rfsp			;filespec
+	.word	0			;unprotect the file
+					;
+;	Delete area
+
+110$:	.byte	0			;channel - filled in by dr$acp
+	.byte	emdel.			;.delete - delete file
+	.word	d$rfsp			;filespec address
+	.word	0			;sequence number
+.sbttl	ACP routines
+
+;	ACP routines for allocate & deallocate
+;
+;	ACP operation init
+;
+;	Calls back caller as co-routine
+;	Not permitted in AST or system state
+;	D$RPNM must be non-zero
+;	Find free channel for operation
+;
+;	r3 =	channel number
+;	r4 ->	rmon csw area
+
+dr$aci:	pshs	<r4,r3,r0>		;save these
+	stack	r0 r3 r4 rou		;
+	mov	d$rpnm,d$rfnm		;setup the region name
+	beq	20$			;no name - quit
+					;
+	clr	r3			;start with zero
+	mov	#p$hcsw,r4		;point to first
+10$:	tst	(r4)			;is this channel free?
+	bpl	30$			;this one is free
+	add	#ch.bbs,r4		;skip to the next
+	inc	r3			;increment channel number
+	cmp	r3,#16.			;way too high?
+	bhi	20$			;yes
+	cmpb	r3,p$hchs		;above process maximum?
+	blo	10$			;no
+20$:	sec				;not found
+30$:	call	@sp.rou(sp)		;call them back again
+	stack	r0 r3 r4 rou ret	;
+	pops	<r0,r3,r4>		;restore these
+	inc	(sp)+			;forget coroutine
+dr$nop:	return				;nop routine
+
+;	Issue ACP request
+;
+;	jsr	r5,dr$acp
+;	.word	emt-area-address
+;
+;	c=0	fine
+;	c=1	fail
+;	r0	request result
+
+	.enabl	lsb			;
+dr$ace:	mov	#evhtk.,d$reva		;setup EVA package
+	br	10$			;join common
+dr$acp:	clr	d$reva			;skip the EVA package
+10$:	.purge	r3			;purge the channel
+	mov	(r5)+,r0		;get the EMT area address
+	movb	r3,(r0)			;put in the channel number
+	emt	375			;issue the emt
+	rts	r5			;return
+	.dsabl	lsb			;
+
+;	ACP file specification
+;
+;	EVA package is used for ENTER only
+
+d$rfsp:	.rad50	/vm /			;device
+d$rfnm:	.rad50	/dd    /		;filename
+	.rad50	/reg/			;region
+d$reva:	$evbeg				;EVE package for enter
+	$evgro	sfi			;set file
+	$evcal	uic word dat=yes	;
+	.byte	4,1			;uic = [1,4]
+	$evcal	pro word dat=yes	;
+	.word	177200			;pro = (s:rwed,o:rwe,g:r,w:)
+	$evcal	del word dat=yes	;
+	.word	1			;del = nodelete
+	$evend				;
+.sbttl	find global region
+
+;	Find global region
+;
+;	This routine must be reentrant and support system state.
+;	The region name may located in previous par1.
+;
+;	r5 ->	2-word region name
+;
+;	r1	
+;	sp.gn0	
+;	sp.gn1
+;
+;	c=0	found
+;	r1 ->	global region record
+;
+;	c=1	not found
+;	r1=0	no global region available
+;	r1=n	global region allocated, name filled in
+;	r5	points past 2-word name if filled in
+
+	stack	rt0 kp1 rt1 off rt2 gn1 rt3
+dr$frx::psh	r1			;save first word of name
+	clr	-(sp)			;no alternative yet
+	stack	new gn0 rt0 kp1 rt1 off rt2 gn1 rt3
+	mov	#r$rgrl,r1		;point to the list
+10$:	cmp	(r1),#-1		;this the last?
+	beq	40$			;yes - failure
+	tst	(r1)			;this one available?
+	beq	20$			;yes
+	cmp	sp.gn0(sp),rr.gn0(r1)	;this the name?
+	bne	30$			;no
+	cmp	sp.gn1(sp),rr.gn1(r1)	;really?
+	beq	60$			;c=0 - yes
+	br	30$			;no
+20$:	tst	(sp)			;already got a free one?
+	bne	30$			;yes
+	mov	r1,(sp)			;no
+30$:	add	#rr.gbs,r1		;point to the next
+	br	10$			;
+40$:	mov	(sp),r1			;no such name - got a free one?
+	beq	50$			;no
+	mov	sp.gn0(sp),rr.gn0(r1)	;yes - plug in the name
+	mov	sp.gn1(sp),rr.gn1(r1)	;
+	cmp	(r5)+,(r5)+		;advance r5 for rt-11 compatibility
+50$:	sec				;c=1 - error
+	stack	new gn0 rt0 kp1 rt1 off rt2 gn1 rt3
+60$:	bit	(sp)+,(sp)+		;c=?
+	return				;c=?
+.sbttl	driver service routines
+
+;	Driver service routines
+;
+;	The runtime code and data may not be in par1 or par6.
+;	Par1 is free for use by the driver utilities.
+;	Par6 is free to map the external driver
+;
+;	A 2-block segment is required to hold the driver code.
+;	The driver utility may perform region operations which require a TB.
+;	Thus, if we use a TB the system will need at least two TBs.
+;	At present this is an accepted restriction.
+;
+;	Some dummy code is kept in the kernel for this call.
+;
+;	System build calls here before the operator process is built to
+;	process SY: driver utilities. The system device driver is on VM:
+;	under the name VM:SYSHAN.SYS. This is deleted after the calls.
+;	The file VM:DU_$.REG is also setup on VM: - if this region is
+;	not used it is deleted. This permits positioning the DU: region
+;	at the end (or near the end) of physical memory.
+;
+;	EDE/BDE		During RUST/XM system device installation
+;	SDA/		During RUST/XM system device installation
+;	DCL		During RUST/XM device installation
+;	MOUNT		During RUST/XM device removal.
+;	KMON		During SHARE-eleven device installation/removal.
+;			During satellite device installation/removal.
+.sbttl	driver service routines
+
+;	Driver service routines
+;
+;	System interface:
+;
+;	r0	utility function code
+;	r1	image channel - may not be channel zero
+;	r2 ->	device record
+;	imchn.	device driver is open on channel 15.
+;	r$rpnm	permanent name of device
+;		call	@#dr$cal
+;
+;	Internal:
+;
+;	r0	block
+;	r1	wordcount
+;	r2 ->	transaction buffer
+;	r3 =	function code
+;	r4	routine address
+;
+;	Utility interface:
+;
+;	r0 ->		routine entry point
+;	r1 ->	r$mert	getvec routine
+;	r2 =	2      	$slot*2 - slot count
+;	r3 =		driver function code
+;	r4 ->	dr$rea 	system read routine (in kdv)
+;	r5 ->	r$rpnm	driver $entry slot
+;			par6 mapped address for external drivers
+;
+;	Exit:
+;
+;	c=0	fine
+;	r0=0
+;
+;	c=1	fail
+;	r0=0	no routine in driver
+;	r0=n	driver return code
+;	r0=^rsys system error reading driver
+;		or invalid function code (too big or odd)
+;
+; ???	RT-11 special calls 10/12 are not supported.
+; ???	SHOW and FORMAT are dispatched to driver.
+; ???	Invalid codes should be dispatched thru the spare slot.
+
+dr$utx::jsr	r5,ut$sav		;save registers
+	psh	@#m$kip6		;save par6
+	stack	res r0 r1 r2 etc	;restore return
+	psh	d$rpnm			;save the permanent name
+	clc				;clear the saved cbit
+	psh	@#ps			;save the psw
+	bic	#mmpum$,@#ps		;setup kernel/kernel
+	stack	psw pnm kp6 res etc	;
+					;
+	movb	r1,d$rchn		;r1 = driver channel
+	mov	de.dev(r2),d$rpnm	;$pname - setup dummy $RMON area
+	mov	de.ent(r2),d$rent	;$entry
+	mov	de.hsz(r2),d$rhsz	;$hsize
+	mov	de.dsz(r2),d$rdsz	;$dsize
+					;
+	bit	#deext$,de.typ(r2)	;this an external driver?
+	beq	5$			;no
+	mov	de.han(r2),r1		;get the kernel driver
+	mov	ek.pag(r1),@#m$kip6	;map the driver
+	mov	ek.bas(r1),d$rent	;get the driver base address
+	add	#dr.lqe-dr.dri,d$rent	;point to lqe in par6
+					;
+5$:	call	tb$acq			;acquire a buffer - burns r3
+	movi	tb.buf,r3,r2		;r2 -> buffer
+					;
+	assume	drftc. eq 0		;FETCH code
+	mov	r0,r3			;get the function
+	bne	10$			;not fetch
+	mov	#drloc.,r3		;change FETCH to LOAD
+10$:	cmp	r3,#drmuc.		;this code too high?
+	bhis	30$			;yes - system error
+					;odd codes checked below
+					;
+;	Read in first two blocks	;
+					;
+	clr	r0			;r0 = block - driver start
+	mov	#512.,r1		;r1 = words - 2 blocks
+					;r2 -> buffer 
+	call	dr$rea			;read it
+	bcs	30$			;i/o error
+					;
+;	Check pointer flags etc.	;
+					;
+	mov	dr.ptf(r2),r0		;get the pointer flags
+	bit	w$omap(r3),r0		;is this function enabled?
+	bvs	30$			;oops - odd code - system error
+	beq	40$			;no
+	assume	nop eq 240		;yes
+	bic	#37,r0			;is this really a NOP
+	cmp	r0,#nop			;is this a NOP?
+	bne	40$			;no
+					;
+	assume	dr.gua eq 0		;
+	cmp	(r2),#^rhan		;this a v5.4 driver?
+	bne	40$			;no - forget this
+	movi	dr.ptr,r2,r0		;get the pointer base
+	add	r3,r0			;point to the code
+	mov	(r0),r4			;get the routine address
+	beq	40$			;no such routine
+					;
+	mov	r4,r0			;isolate the block
+	bic	#777,r0			;isolate the block
+	beq	20$			;its in block zero
+	sub	r0,r4			;r4 is offset to routine
+	swab	r0			;get block low
+	asr	r0			;r0 = block number
+					;r1 = word count - 512.
+					;r2 -> buffer 
+	call	dr$rea			;read the segment
+	bcs	30$			;i/o error
+					;
+;	Call the utility		;
+					;
+20$:	psh	r2			;save buffer across this
+	stack	r2 psw pnm kp6 etc	;
+	mov	r2,r0			;r0 -> buffer
+	add	r4,r0			;r0 -> routine in buffer
+	mov	r$mgvc,r1		;r1 -> getvec routine
+	mov	#word,r2		;r2 =  slot count * 2
+					;r3 =  function
+	mov	#dr$rea,r4		;r4 -> kernel read routine address
+	mov	#d$rent,r5		;r5 -> driver $entry slot
+	call	(r0)			;call the routine
+	pop	r2			;restore buffer address
+	stack	psw pnm kp6 etc		;
+	adc	(sp)			;setup the exit status
+	br	60$			;and exit
+					;
+;	Error handling			;
+					;
+30$:	mov	#^rsys,r0		;system error
+	br	50$			;report it
+40$:	clr	r0			;no routine
+50$:	bis	#cbit,(sp)		;setup exit cbit
+					;
+;	Clean up and quit		;
+					;
+60$:	mov	r2,r3			;point to this again
+	sub	#tb.buf,r3		;point back to the header
+	call	tb$dsp			;dispose of it
+	pop	@#ps			;reset the psw - set/clear cbit
+	pop	d$rpnm			;c=? - restore the permanent name
+	pop	@#m$kip6		;c=? - restore par6
+	stack	res r0 r1 etc		;c=? - restore return
+	mov	r0,sp.r0(sp)		;c=? - restore exit r0
+	return				;c=?
+
+.end
+

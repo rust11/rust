@@ -1,0 +1,75 @@
+rst$c=1
+.title	kco - console
+.include "lib:rust.mac"
+.psect	kco d
+$jsdef		;jsw
+$tedef		;terminal definitions
+$txdef		;text
+
+;	RUST/XM console
+;
+;	%build
+;	macro	rxs:kco/object:rxb:kco
+;	%end
+;
+;	Non-interrupt console I/O
+;	Must work in unmapped environment
+;???	Implement VMI
+;
+;	co$igt	- process console input
+;	co$opt	- process console output
+;	db$igt	- debugger input
+;	db$opt	- debugger output
+
+	.enabl	lsb		;
+.if ne rst$c			;moved to kdv.mac for V4. See kda.mac V4
+te$cgt::			;console get
+	call	co$chk		;try to get one
+	bcc	20$		;fine
+	bic	r0,r0		;clear r0
+	bit	#jstts$,p$hjsw	;in single character mode?
+	bne	20$		;fine
+	jmp	@p$htti		;try again
+.endc
+
+db$igt::			;debugger input
+10$:	call	co$chk		;get one
+	bcs	10$		;none there
+20$:	return			;c=0 - r0 = character
+	.dsabl	lsb		;
+
+te$cpt::			;console put
+db$opt::			;debugger output
+	psh	r0		;save the output character
+10$:	call	co$chk		;handle ctrl/q & ctrl/s
+	tstb	@r$mtps		;ready yet?
+	bpl	10$		;no
+	pop	r0		;get the character back
+	movb	r0,@r$mtpb	;move it in
+	return			;c=0
+
+;	Check for ctrl/q & ctrl/s
+
+co$chk::.enabl	lsb		;check terminal
+10$:	call	100$		;get another
+	bcs	40$		;nothing doing - ignore it
+	beq	10$		;ignore spurious ctrl/q
+	cmpb	r0,#ctrls	;this ctrl/s
+	bne	110$		;it aint
+20$:	call	100$		;get another
+	bcs	20$		;none there
+	bne	20$		;not ctrl/q
+40$:	fall	sy$ert		;error return
+sy$ert::sec			;c=1 => no character
+	return
+
+100$:	tstb	@r$mtks		;get one
+	bpl	40$		;none there
+	movb	@r$mtkb,r0	;get it
+	bic	#^c177,r0	;clean it up
+	cmp	r0,#ctrlq	;check for ctrl/q
+110$:	clc			;got one
+	return			;
+	.dsabl	lsb		;
+.end
+

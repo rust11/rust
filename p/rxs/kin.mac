@@ -1,0 +1,708 @@
+v11$c=1
+;V4+	can the scheduler/switch/ast delivery be moved to an overlay?
+swi$c=0		;swap process at pr7
+;=====
+lan$c=0		;new in$lan code -- it's probably wrong though
+.title	kin
+.include "lib:rust.mac"
+.psect	kin
+$addef		;ast
+$cndef		;config (change to endef$)
+$erdef		;error
+$icdef		;image control
+$jbdef		;job
+$mmdef		;mmu
+$prdef		;pcr
+$psdef		;ps
+$qudef		;queues	
+$rpdef		;rp
+$scdef		;scheduler
+$sidef		;signals
+$stdef		;states
+$uvdef
+$vedef		;vectors
+
+;	RUST/XM interrupt ladder
+;
+;	%build
+;	macro	rxs:kin/object:rxb:kin
+;	%end
+;
+;	%date
+;	<20-Nov-2010 20:53:31.29>
+;	%edit
+;	<51   >
+;
+; 	Hard	PR7	Hardware interrupt 
+;	ISR	PR6	Clock
+;		PR5	Disks
+;		PR4	Terminals
+;
+;	System	Fork	Most drivers
+;		Limbo	Long driver routines
+;	...................................
+;	Soft	System
+;
+;	Process
+;	P15..P8	Realtime
+;	P7..P0	Normal
+;
+;	Process	AST
+;		Main
+.sbttl	float, fly, land
+
+;V4	ssbeg$, sscal$, sslea$
+;	$ensys, $cosys, $exsys
+;
+;	$float	- Float process
+;	$fly 	- Make sure process is floating
+;	$land	- Land process	
+;
+;	This is an optimised case that minimises the instruction count
+;	and the time at pr7. Most calls to this routine do not require
+;	subsequent processing of forks or the scheduler. Always called
+;	at scheduler or process state.
+;
+;	IN$FLT	$float	- Go into system state.	
+;
+;	Performed in-line.
+;
+;in$flt::			;enter system state at priority zero
+;	inc	i$nins		;register the interrupt
+;	return			;go back to them
+;
+;	IN$FLY	$fly
+;
+;	Coroutine to ensure we are in system state.
+
+in$fly::.enabl	lsb		;ensure we are in system state
+	tst	i$nins		;are we in system state?
+	bpl	20$		;yes
+	$float			;no
+	call	@(sp)+		;call them back as co-routine
+	fall	in$lan		;and land again
+
+;	IN$LAN	$land
+;
+;	Return from system state.
+;
+;	call	in$lan
+;
+;???	Isn't there a race condition between dec and inc?
+
+.if ne lan$c
+in$lan::tst	i$nins		;system call done
+	bgt	15$		;we're not last out
+	tst	f$kcqe		;got any forks?
+	bne	10$		;yep
+	tst	s$csta		;should we schedule?
+	bne	15$		;nope
+10$:	psh	(sp)		;move down the pc
+	stack	pc ps		;
+	mov	@#ps,sp.ps(sp)	;put in our ps
+	br	in$exs		;and return from an interrupt
+15$:	dec	i$nins		;go down
+20$:	return			;nope
+	.dsabl	lsb
+.iff
+in$lan::dec	i$nins		;system call done
+	bpl	20$		;we were already in system state
+	tst	f$kcqe		;got any forks?
+	bne	10$		;yep
+	tst	s$csta		;should we schedule?
+	bne	20$		;nope
+10$:	inc	i$nins		;yes - setup real system state
+	psh	(sp)		;move down the pc
+	stack	pc ps		;
+	mov	@#ps,sp.ps(sp)	;put in our ps
+	br	in$exs		;and return from an interrupt
+20$:	return			;nope
+	.dsabl	lsb
+.endc
+.sbttl	interrupt to fork
+
+;	User vector interrupt
+;
+;	jsr	r5,@#uv$int
+;	.word	-1		;initial semaphore
+;	.blkw	4		;fork block
+
+	assume	uv.sem eq uv.isr+4
+	assume	uv.fsu eq uv.sem+2
+in$sem::			;semaphore interrupt & fork
+uv$int::inc	(r5)+		;already processing one?
+	beq	in$frk		;no
+	dec	-(r5)		;yes - backup
+	pop	r5		;get that back
+uv$rti:	rti			;
+				;
+uv$frk::mov	#s$cpuv,r3	;setup the scheduler queue
+	jmp	as$pma		;post the ast
+
+;	Fork interrupt
+;
+;	Converts interrupt to fork routine.
+;	Caller must ensure non-reentrancy.
+;	Called at pr7.
+;
+;	jsr	r5,in$frk
+;	.word	0	;fk.suc
+;	.word	fpc	;fk.fpc - routine address
+;	.word	fr5	;fk.fr5 - routine r5 value
+;	.word	fr4	;fk.fr4 - routine r4 value
+;
+;	Note: driver forks handled by kev.mac fk$enq
+
+in$frk::mov	r5,@f$klqe	;queue the fork routine
+	mov	r5,f$klqe	;
+	pop	r5		;restore r5
+	tst	i$nins		;
+	bmi	fk$del		;this was the first
+	rti			;quit
+.sbttl	interrupts, fork
+
+;	Interrupt entry point
+;	Enter system state
+;
+;	i$nins:
+;
+;	bmi		not in system state
+;	bpl		system state
+;	-1 to  0	entering system state
+;	 0 to -1	leaving system state
+;	 0 to  1	reentering system state
+;	 1 to  2	etc
+;	.word	128.+n	limbo routine active
+
+in$sys::spl	7		;enter system state
+in$int::			;interrupt entry point
+	inc	(pc)+		;count the interrupt
+i$nins::.word	-1		; interrupt counter
+	bic	(r5)+,@#ps	;pr7> setup the interrupt
+	psh	r4		;save r4 too
+	call	(r5)		;call them back again
+in$exi::pops	<r4,r5>		;restore these
+in$exs::spl	7		;go up again 
+in$ext::dec	i$nins		;is this the last? (PR7)
+	bmi	in$exp		;yes
+in$rti::rti			;nope
+
+;	Exit interrupt to process
+
+in$exp:	tst	f$kcqe		;got forks to do? (PR7)
+	bne	fk$del		;yes
+	tst	s$csta		;should we schedule?
+	beq	sc$del		;yes - deliver scheduler
+	jmp	@p$hrti		;exception gate
+
+;	Deliver forks.
+;
+;	A separate stack is used for fork processing.
+;	This guarantees a minimum (and maximum) stack size.
+;
+;	Limbo forks must be queued from fork routine
+;	(otherwise they may not scheduled)
+
+fk$del::clr	i$nins		;stop others
+	spl	0		;pr7> and come down
+	pshs	<r5,r4>		;save these on process stack
+	mov	sp,f$kusp	;save the current stack
+	mov	#f$kksp,sp	;setup the fork stack
+10$:	pshs	<r3,r2,r1,r0>	;save the rest
+fk$loo::mov	#f$kcqe,r5	;r5 -> cqe
+	spl	7		;
+	mov	(r5),r4		;pr7> get the fork pointer
+	beq	20$		;pr7> nope, try the done routines
+	mov	(r4),(r5)	;pr7> link it in
+	bne	10$		;pr7> not empty
+	mov	r5,2(r5)	;pr7> fix lqe
+10$:	spl	0		;pr7>
+	clr	(r4)+		;fk.nxt - clear the link
+	mov	(r4)+,r3	;fk.fpc - r3 -> routine
+	beq	fk$loo		;oops, its been aborted
+	mov	(r4)+,r5	;fk.fr5 - get fork user r5
+	mov	(r4),r4		;fk.fr4 - get fork user r4
+	call	(r3)		;call fork user
+	br	fk$loo		;look for another
+20$:	fall	fk$exi		;
+
+
+fk$exi:	spl	0		;forks done - try to exit
+	pops	<r0,r1,r2,r3>	;restore them
+	mov	f$kusp,sp	;reset the user stack
+10$:	br	in$exi		;and try to quit again
+				;i$nins=0, so forks/schedule are checked
+.sbttl	scheduler
+
+;	Schedule process
+; 
+;	Requeue current process.
+;	Select next process.
+;	Stay in idle loop if nothing doing.
+; 
+;	System state used to synchronise reschedule.
+;
+;	s$csta = sthol$ during build. System is started with
+;	jump to sc$del which clears this flag.
+
+sc$del::			;deliver scheduler
+sc$pre:	clr	i$nins		;sic] fast $float (i$nins was -1)
+	spl	0		;and come down
+	mov	#stact$,s$csta	;set us active
+	pshs	<r5,r4>		;save these again
+	mov	s$cprc,r4	;get current process
+
+;	Requeue current process 
+
+10$:	cmp	(r4),r4		;is this in some queue already?
+	bne	sc$sel		;yes - don't requeue it
+	tstb	pr.wai(r4)	;is it waiting for something?
+	bne	sc$sel		;yes - don't requeue it
+	mov	pr.que(r4),r5	;get the queue to reschedule on
+	mov	qu.pre(r5),r5	;put us at the end
+	insque	r4,r5		;insert it in the queue
+
+;	Select the next process to run.	
+;
+;	In worst case the following loop could be traversed 31 times. 
+;	The average scenario will be fluctuate between one and seven. 
+;	The scenario works out well for a busy system where the average is one.
+; 
+;	(We should simply bis #stdor$,s$csta. However we can assume that the 
+;	scheduler is not disabled and we save having to set #stact$ above with 
+;	the move instruction below) 
+
+sc$sel:	mov	#stdor$!stact$,s$csta 	;sic] remember we are dormant & active
+	mov	s$cpnd,r4	;get the next queue
+	br	20$		;do the first
+10$:	sub	#sc.bbs,r4	;get the next lowest queue
+20$:	cmp	(r4),r4		;is this queue empty? (qu.suc=q$uhed)
+	bne	30$		;nope - we have one
+	cmp	r4,#s$cp00	;is this the lowest queue?
+	bne	10$		;nope
+	clr	r5		;yes - signal none available
+	br	40$		;and quit
+
+;	Remove next process from queue 
+
+30$:	remque	r5,(r4)		;get the new one
+	mov	r4,pr.que(r5)	;reset the queue
+	cmp	r4,pr.bqu(r5)	;should we demote?
+	blos	40$		;no
+	sub	#sc.bbs,pr.que(r5)    ;yes - demote it
+40$:	mov	r4,s$cpnd	;reset pending queue
+	$land			;back to process
+
+;	Back from system state. r5 -> next pcr or none 
+
+sc$new::			;r5 -> new element
+	mov	r5,r4		;did we get one?
+	bne	sc$swi		;yes - go switch
+
+;	Idle loop 
+
+10$:	bit	#stdor$,s$csta	;nope - anything happened?
+.if ne v11$c
+	nop
+	call	kd$v11		;do idle
+.iff
+	bne	10$		;nope - just wait
+	$float			;go into system state
+.endc
+	br	sc$sel		;and select one
+.sbttl	switch context
+meta	<repeat c d><.irp reg,<d>><c><.endr>
+meta	<loop c d><.rept c><d><.endr>
+
+;	Switch context
+;
+;	Current phd is mapped into par2
+;	Stack frame is used by SHOW PROCESS
+;
+;	+-------------------------------------------------------+	
+;	!  Update SMS:LDC $CXDEF and DCS:SHOPR2.MAC for changes !
+;	+-------------------------------------------------------+	
+
+sc$swi:	cmp	r4,s$cprc		;are new and old the same?
+	beq	40$			;yep - this is easy
+	pshs	<r3,r2,r1,r0>		;save the other registers
+	psh	@#m$kip6		; kernel par6
+	psh	@#m$kip1		; kernel par1
+	psh	@#ps			;save the kernel ps
+	mov	#mmpum$,@#ps		;force previous user mode
+	mfpd	sp			; user stack pointer
+	tst	p$hfpu			;are we using floating point?
+	beq	10$			;nope
+	stfps	-(sp)			;fpp status
+	setd				;set double
+repeat	<std	reg,-(sp)><r0,r1,r2,r3>
+	ldd	r4,r0			;two steps here
+	std	r0,-(sp)		;
+	ldd	r5,r0			;
+	std	r0,-(sp)		;done
+					;
+10$:	bit	#icmmu$,p$hic0		;want user par switching?
+	beq	20$			;no
+	mov	#m$uip0,r2		;point to the user pars
+	mov	#p$huip,r3		;client user pars
+loop 8.	<mov	(r2)+,(r3)+>		;setup the pars
+	mov	#m$uid0,r2		;mmu user descriptors
+;[sic]	mov	#p$huid,r3		;client user descriptors
+loop 8.	<mov	(r2)+,(r3)+>		;setup the descriptors
+
+;	Switch in new process
+
+20$:	mov	s$cprc,r3		;r3 -> old process -> rxs:kdv.mac
+	mov	sp,pr.ksp(r3)		;save current stack
+	spl	7			;stack switch
+	mov	pr.phd(r4),@#m$kip2 	;get new par2
+	mov	pr.ksp(r4),sp		;setup process kernel stack
+.if ne swi$c
+	mov	r4,s$cprc		; swap the new job in
+	spl	0			;
+.iff
+	spl	0			;
+	mov	r4,s$cprc		; swap the new job in
+.endc
+					; user aprs
+	mov	#p$huip,r2		;client user pars
+	mov	#m$uip0,r3		;point to the user pars
+loop 8.	<mov	(r2)+,(r3)+>		;setup the pars
+;[sic]	mov	#p$huid,r2		;client user descriptors
+	mov	#m$uid0,r3		;mmu user descriptors
+loop 8.	<mov	(r2)+,(r3)+>		;setup the descriptors
+					; floating point
+	tst	p$hfpu			;using fpu?
+	beq	30$			;nope
+.if ne swi$c
+	ldfps	#128.			;yes, set double, clear exception
+.iff
+	setd				;yes
+.endc
+	ldd	(sp)+,r0		;two step
+	std	r0,r5			;
+	ldd	(sp)+,r0		;
+	std	r0,r4			;
+repeat	<ldd	(sp)+,reg><r3,r2,r1,r0>
+	ldfps	(sp)+			;restore the status
+30$:	mtpd	sp			; user stack
+	pop	@#ps			; get our kernel ps back
+	pop	@#m$kip1		; kernel par1
+	pop	@#m$kip6		; kernel par6
+	pops	<r0,r1,r2,r3>		;restore these
+40$:	fall	sc$exi			;escape
+.sbttl	exit to process
+
+;	Deliver monitor and client asts
+;
+;	Starts in scheduler state with r4:r5 on the stack.
+;
+;	The design here depends on whether the expected system behaviour
+;	is compute-bound or not. Since compute-bound behaviour presents
+;	the lowest system load we optimise for the other case: highly
+;	interactive.
+
+sc$exi::$float			;system state
+10$:	bic	#stact$,s$csta	;set scheduler not active
+15$:	mov	p$hpcr,r4	;get the pcr
+	clr	p$hifc		;clear terminal fail count
+
+;???	Shouldn't the suspend test come after the AST test?
+
+	bit	#prsus$,pr.sta(r4) ;is this process suspended?
+	bne	70$		;yes - go away
+	tst	pr.ast(r4)	;got any asts?
+	beq	20$		;yes
+	jmp	in$exi		;no - exit to process
+
+;	Monitor asts	
+;
+;	Following stack used to set trace traps.
+;
+; V4	There's a bit of a gap between testing pr.ast above
+;	and clearing it below. Race?
+
+stack	crp exc op1 r0 r1 r2 r3 r4 r5 pc ps
+20$:	pshs	<r3,r2,r1,r0>	;save the rest
+	psh	@#m$kip1	;save par1
+	psh	p$hexc		;save exception path
+	psh	p$hcrp		;save current rp
+	mov	#mmkp1.,@#m$kip1;set default kernel mapping
+	clr	p$hexc		;clear exception path
+				;p$hexc reset to zero by monitor asts
+	clr	p$hcrp		;clear current rp
+				;p$hcrp not used by monitor asts
+				;floating
+30$:	inc	pr.ast(r4)	;set monitor asts active
+	call	as$dma		;deliver monitor asts
+	dec	pr.ast(r4)	;set monitor ast not active
+	beq	30$		;more
+				;floating
+;	Client asts	
+
+40$:	tst	p$hast		; deliver client ast?
+	bne	60$		;nope - exit to process
+50$:	inc	p$hast		;yes - block this state
+	$land			;come down again
+	call	as$dca		;deliver client asts
+	$float			;go up again
+	dec	p$hast		;set client asts not active
+	beq	50$		;more to do
+
+;	Restore AST context
+
+60$:	pop	p$hcrp		;rp
+	pop	p$hexc		;exception
+	pop	@#m$kip1	;restore par1
+	pops	<r0,r1,r2,r3>	;registers
+	br	15$		;and try again
+
+70$:	movb	#prwsu.,pr.wai(r4) ;suspend
+	jmp	sc$sel		;and get the next one
+.sbttl	deliver monitor ast
+
+;	Deliver monitor asts & signals
+;
+;	Monitor asts synchronise with system state.
+
+as$nma::mov	#mmkp1.,m$kip1	;next monitor ast - reset par1
+	mov	p$hpcr,r4	;get this back
+	bit	#stact$,pr.ast(r4) ;are we doing asts?
+	bne	10$		;yes
+	call	ab$set		;setup abort
+	.astx			;and quit - ??? bugcheck required
+10$:	mov	p$hasm,sp	;get back the stack
+	$float			;next monitor ast
+				;
+as$dma::mov	sp,p$hasm	;deliver monitor ast - save stack
+	bis	#stdor$,pr.ast(r4) ;set asts dormant
+				;
+10$:	mov	pr.acq(r4),r0	;got any client asts to forward?
+	beq	30$		;no
+	clr	pr.acq(r4)	;yes - move the whole list
+	mov	#p$hasq,r1	;put them in the queue
+20$:	mov	r1,r2		;retain link
+	mov	(r1),r1		;get the next
+	bne	20$		;
+	mov	r0,(r2)		;put us in
+	bic	#stdor$,p$hast	;and trigger the client
+
+30$:	tst	pr.sig(r4)	;any signals?
+	bne	as$dms		;yes - deliver monitor signal
+	mov	pr.asq(r4),r5	;got an ast?
+	beq	40$		;nope - try to exit again
+
+	mov	(r5),pr.asq(r4)	;link to the next
+	$land			;come back down
+	mov	ad.kp1(r5),m$kip1 ;setup the par1
+
+;	Kernel AST context
+;
+;	par1	ad.kp1
+;	ps	ad.kps
+;
+;	r0:r3	undefined
+;	r4 	ad.kr4
+;	r5 ->	ast block
+
+	mov	ad.kps(r5),@#ps	;setup the ps
+	mov	ad.kr4(r5),r4	;setup the r4
+	call	@ad.kpc(r5)	;and call them
+	br	as$nma		;get the next
+40$:	return
+
+;	Deliver monitor signals	
+;
+;	monitor ast	cannot be interrupted
+;	abort signal	cannot be interrupted
+;??	debug signal	can be interrupted
+;??	realtime signal	can be interrupted
+;??	terminal signal	can be interrupted
+
+as$dms::$land			;deliver monitor signal - come down
+10$:	mov	#30$,r3		;get the list
+20$:	mov	(r3)+,r5	;r5 -> routine
+	beq	as$nma		;and start over
+	bit	(r3)+,pr.sig(r4);is this one set?
+	beq	20$		;nope
+	bic	-(r3),pr.sig(r4);yes - clear it
+	mov	#mmpum$,@#ps	;setup a sensible ps
+	call	(r5)		;call the routine
+	br	as$nma		;try for the next ast
+				;
+30$:	.word	te$sig,siter$	;terminal
+	.word	ab$sig,siabt$	;abort
+	.word	0		;end of them
+.sbttl	deliver client asts & signals
+
+;	Deliver client asts	
+;
+;	Client ast queue is synchronised with scheduler state.
+;	Float is not required here.
+;	Can be delivered to kernel or user mode
+;	
+;	Avoid problems with exceptions. They will be reproduced later.
+; ???	Change this to a call to a SST exception.
+;
+;	Signals take priority over asts.
+;
+;	Save j$berr, p$herr & p$hjsw during client asts.
+;
+;	r3 ->	adb
+;	ps =	mmpum$
+;
+;	Deliver client ast
+
+	.enabl	lsb		;$float
+as$dca::psh	p$hjsw		;deliver client ast - save the jsw
+	psh	p$herr		;save phd error status	
+	clr	-(sp)		;make space for client j$berr.
+	mfpd	j$berr		;attempt to get it
+	bvs	5$		;failed - nothing on stack
+	pop	(sp)		;got it - move it up
+5$:	mov	sp,p$hask	;save ast kernel stack pointer
+	br	10$		;???
+
+as$xck:				;exit client kernel ast
+as$nca::mov	p$hask,sp	;next client ast - reset the stack
+	mov	p$hpcr,r4	;get pcr back again
+				;
+10$:	bis	#mmpum$,@#ps	;ensure previous user mode
+	mov	#mmkp1.,@#m$kip1;reset this
+	$cmsch			;synchronise
+	bis	#stdor$,p$hast	;synchronise
+	mov	p$hsig,r0	;got a signal?
+	bne	as$dcs		;yes - deliver client signal
+				;??? must check stdis$
+	mov	p$hasq,r3	;get the next ast
+	bne	20$		;we got one
+
+;	Exit client asts
+
+	$cmpro			;done
+	mfpd	@#j$berr	;get the error word
+	bvs	15$		;ignore errors
+	movb	3(sp),1(sp)	;reset userrb
+	mtpd	@#j$berr	;reset the error byte
+	bvs	15$		;ignore errors
+15$:	tst	(sp)+		;pop intermediate or null status
+	pop	p$herr		;and restore this
+	pop	p$hjsw		;restore previous jsw
+	return			;done with client asts
+
+;	Deliver ast
+
+20$:	mov	(r3),p$hasq	;link it out
+	$cmpro			;we have our ast
+
+;	Client kernel ast	
+
+.if eq 0
+30$:	tst	ad.cps(r3)	;is this user mode?
+	bmi	40$		;yes
+	psh	#as$xck		;nope - exit kernel ast later
+				;
+40$:	psh	ad.cps(r3)	;ps
+	psh	ad.cpc(r3)	;pc
+	mov	ad.cr0(r3),r0	;r0
+	mov	ad.cr1(r3),r1	;r1
+	call	ad$dsp		;release the adb
+.iff
+				;
+30$:	add	#ad.cr1,r3	;
+	mov	(r3),r1		;r1
+	mov	-(r3),r0	;r0
+	mov	-(r3),r5	;ps
+	bmi	40$		;user mode
+	psh	#ad$xck		;exit kernel ast later
+40$:	psh	r5		;ps
+	psh	-(r3)		;pc
+	tst	-(r3)		;back to start of ad
+	assume	asper$ eq 128.	;
+	tstb	r5		;this permanent?
+	bmi	as$tca		;yes
+	call	ad$dsp		;no - deassign it
+.endc
+
+;	Transfer client ast
+;
+;	sp.ps	ast ps
+;	sp.pc	ast pc
+;	r0	ast r0
+;	r1	ast r1 (real ps for adint.)
+
+as$tca::stack	pc ps		;transfer client ast (realtime signal ast)
+	tst	sp.ps(sp)	;kernel or client?
+	bpl	50$		;kernel
+	assume	prabt$ eq 100000;
+	bit	#prabt$!primg$,p$hsta ;abort or no image?
+	ble	as$nca		;yes - discard AST
+				;
+	movfi	sp,r2		;get the stack
+	cmpb	sp.ps(sp),#adint. ;this a psuedo-interrupt?
+	bne	44$		;no
+	mov	r1,sp.ps(sp)	;yes - get the real ps
+	clr	-(sp)		;push two zeros
+	mtpd	-(r2)		;push it
+	bvs	45$		;
+44$:	clr	-(sp)	;	;push a return to zero
+	mtpd	-(r2)	;	;push it on
+	bvs	45$	;	;oops - mmu error ???
+45$:	movti	r2,sp		;put back the stack
+				;
+50$:	jmp	@p$hrti		;goto them
+	.dsabl	lsb		;
+
+;	Deliver kernel client signal even during abort.
+;	The only client signal is for the CLI ast dispatcher.
+;	This also handles realtime signal dispatching.
+;	Assumes RCL module is in default par1 overlay.
+;
+;	r0 =	signals
+
+as$dcs:	clr	p$hsig		;remove the signal
+	$cmpro			;come back down
+	jmp	cl$ast		;call the cli ast
+.sbttl	deliver abort, forced-exit, fpu exception
+
+;	Return to user mode
+;
+;	Deliver abort or exit
+;	Deliver floating point exception
+;
+;	Abort, forced exit and FPU exceptions get here via p$hrti.
+;	Ignore return to kernel mode.
+;
+;	ps =	pr7, mmpum$
+
+	stack	pc ps
+ab$rti::.enabl	lsb		;catch process aborts
+	tst	sp.ps(sp)	;pr7> this going to the kernel?
+	bmi	10$		;pr7> nope
+	rti			;pr7> let it thru
+
+;	Abort or exit user
+;
+;	Ignore exit to user mode with .ASTX
+
+10$:	spl	0		;come down
+	bit	#prabt$!prexi$,p$hsta ;we aborting or exiting?
+	beq	30$		;no - try fpu error
+	.astx			;yes - soft exit
+
+;	Catch floating point exceptions
+;
+; ???	Race condition between spl 0 and mov #in$rti
+; ???	Could lose process abort during FPU exception delivery
+
+ab$rtx::
+30$:	mov	#in$rti,p$hrti	;reset the rti
+	asr	p$hfpx		;got a floating point exception?
+	bcc	50$		;nope
+	jsr	r5,ve$com	;yes - call common routine
+	.word	v$efpu,vefpu.	;
+50$:	jmp	@p$hrti		;try again
+	.dsabl	lsb
+
+.end
+

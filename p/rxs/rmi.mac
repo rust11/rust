@@ -1,0 +1,408 @@
+v3que=1
+.title	rmi - mixed requests
+.include "lib:rust.mac"
+.psect	rmi d
+$chdef		;channel
+$cndef		;context
+$dsdef		;device
+$emdef		;emt
+$erdef		;error
+$fedef		;feature
+$imdef		;image activation
+$indef		;ind
+$jbdef		;job
+$jsdef		;jsw
+$mmdef		;mmu
+$prdef		;pcr
+$psdef		;ps
+$rpdef		;rp	
+$srdef		;system rights
+$stdef		;state
+$svdef		;shift value
+$tedef		;terminal
+$tpdef		;transaction packet
+$xmdef		;plas
+
+;	%build
+;	macro	rxs:rmi	/object:rxb:
+;	%end
+;
+;	gval, pval, peek, poke
+;	herr, serr
+;	spnd, rsum
+;	trpset, sfpa, scca
+;	hreset, sreset
+;	settop
+;	qset
+.sbttl	gval pval peek poke
+
+;	.gval	area, offset
+;	.pval	area, offset, value	+-------+-------+
+;				r0 ->	!   34	!  0/2	!
+;	0	out of range		+-------+-------+
+;	r0	value			!     offset	!
+;					+-------+-------+
+;					!     value	!
+;					+-------+-------+
+;
+;	.peek	area, addr
+;	.poke	area, addr, value	+-------+-------+
+;				r0 ->	!   34	!  1/3	!
+;	r0	value			+-------+-------+
+;					!      addr	!
+;					+-------+-------+
+;					!     value	!
+;					+-------+-------+
+;
+;	Check gval/pval offset range for header area. Remap to kernel window.
+;	Map peek/poke to virtual headers to kernel. May cause iopage blindspot.
+;	Require cmkrnl for peek/poke outside header area.
+;	All rmon addresses are in pvas. CSW peek/poke access virtual CSW table.
+;
+;	r3 =	rp.p0 - address or offset
+;
+;	r0	always returns current value of location
+;	0	offset out of range on gval/pval
+;	bus	transmitted to client as bus trap
+
+getput::
+gval::
+pval::
+peek::	assume	rp.chn eq 0	;
+poke::	asrb	(r5)		;gval=0, pval=2
+	bcs	20$		;peek=1, poke=3
+10$:	mov	#-p$hmon,r1	;gval/pval - add p$hroo to get address
+	cmp	r3,#ph.gua	;is this in range?
+	blo	40$		;yes
+	$bypass	b$ygvl		;call tsx if its around
+	cmp	r3,#-ph.mon	;is this in the negative area?
+	bhis	40$		;yes - accept it
+	.soft	0		;no - gval/pval out of range
+20$:	mov	p$hktc,r1	;r1 = peek/poke relocation
+	mov	r3,r0		;get a test copy
+
+	sub	p$hphc,r0	;check for virtual rmon
+	cmp	r0,#ph.gua	;is this in the area?
+	blo	40$		;yes
+30$:	clr	r1		;kernel address - no relocation
+	$right	srcmk.		;check for change mode to kernel
+	bcs	60$		;oops - report as bus error
+				;get or get/set location
+40$:	sub	r1,r3		;r1 = address relocation
+	mov	(r3),r0		;return current value in r0
+	bvs	60$		;bus error
+	mov	r0,rp.r0(r5)	;return it (must be two-step for BVS logic)
+	asrb	(r5)		;gval=0 or peek=0?
+	bcc	50$		;pval=1 or poke=1
+	mov	rp.p1(r5),(r3)	;its poke or pval
+	bvs	60$		;bus error
+50$:	return			;
+60$:	.hard	erbus.		;report bus error
+.sbttl	herr serr
+
+;	.serr indicates hard errors should be returned to image.
+;	.herr indicates monitor should handle hard errors.
+;
+;	.serr	subcode=4
+;	.herr	subcode=5
+;
+;		+-------+-------+
+;	r0 =	!  4/5	!   0	!
+;		+-------+-------+
+;
+;	emt	374, 4/5, 0
+;
+;	r0	Unchanged. IND & Jim rely on this.
+;		We used to return the previous state.
+;		RT-11 does not return previous setting.
+;
+;	errors	none
+
+serr::	inc	r1		;set the flag
+herr::	mov	r1,p$hser	;set the flag
+	return
+.sbttl	spnd rsum
+
+;	.spnd	hibernate
+;
+;		+-------+-------+
+;	r0 =	!   1	!   0	!
+;		+-------+-------+
+;
+;	.rsum	wake caller process
+;
+;		+-------+-------+
+;	r0 =	!   2	!   0	!
+;		+-------+-------+
+;
+;	emt	374, 1/2, 0
+;
+;	rsum	set wake pending flag
+;		Abort performs an implicit wake
+;		$resume performs implicit wake
+;		[ctrl/c] twice performs implicit wake
+;		.rsum is like $wake but cannot specify process.
+;		.rsum is not the same as $resume.
+;
+;	spnd	mainline .spnd waits for wake bit
+;		AST .spnd clears wake pending
+;		.spnd is identical to $hibernate.
+;		.spnd is quite different to $suspnd
+;
+;	errors	none
+;
+;	RT-11 maintains a hibernate count; RUST/XM uses a single bit.
+;	It is unlikely that this would affect any sensible program.
+;
+;	EM$SPD is also called directly by TWAIT
+;	UV$AST performs in-line .RSUM (so may some others)
+
+em$spd::				;suspend
+spnd::					;suspend
+10$:	mov	p$hpcr,r4		;get the pcr
+	$float				;stop the scheduler
+	mov	pr.sta(r4),r0		;get the status
+	bic	#prwak$,pr.sta(r4) 	;clear the bit
+	bit	#stact$,p$hast		;are we in an AST?
+	bne	20$			;yes - forget the rest
+	bit	#prwak$,r0		;did we get a wake up?
+	bne	20$			;yes
+	$stall	#10$, prwhi.		;hibernate
+20$:	$land
+	return
+
+rsum::	mov	p$hpcr,r4		;get the pcr
+	bis	#prwak$,pr.sta(r4) 	;set wake pending
+	return
+.sbttl	trpset sfpa scca
+
+;	.scca	area, addr
+;	.sfpa	area, addr	setup fpu flag
+;	.trpset	area, addr
+;
+;	rp.p0	addr or zero
+;	
+;	r1 =	0
+;	r3 =	addr
+;
+;	Callers r0 may not be modified
+;	Access error results in invalid address error.
+;
+;	rm.inx	416
+;	rm.ins	417
+
+scca::	tstb	(r5)		;this a global call?
+	beq	scca2		;no
+	call	scca2		;yes - do local first
+
+;	global scca
+
+	mov	p$hinx,rp.r0(r5);get r$minx & r$mins
+	bic	#^c<incgl$*256.>,rp.r0(r5) ;return previous status
+	tst	r3		;this a set or clear?
+	bne	10$		;set it
+	bicb	#incgl$,p$hins	;clear it
+	br	20$		;
+10$:	bisb	#incgl$,p$hins	;
+20$:	return
+
+sfpa::	bit	#cnfpu$,r$mcfg	;do we have fpu?
+	beq	10$		;no
+	mov	sp,p$hfpu	;yes - signal fpu context switch
+10$:	tst	(r1)+		;\  r1 = 4  p$hsfp
+trpset::tst	(r1)+		;!  r1 = 2  p$htrp
+scca2::				;!  r1 = 0  p$hscc
+	add	#p$hscc,r1	;/ point to variable
+	mov	r3,(r1)		;and set the new value
+20$:	return
+.sbttl	hreset sreset
+
+;	.hreset
+;	.sreset
+;
+;	User jsw has been copied to p$hjsw
+;	Like SJ, neither routine is accepted from a completion routine.
+;
+;	i/o	hreset aborts open channels (except overlay channel)
+;	i/o	sreset waits for I/O
+;	i/o	purges open channels (except overlay channel)
+;	mrkt	cancels .mktm requests
+;	vamp	reset remote vamp I/O
+;	sdat	cancels messages sent by process
+;	fetch	releases handlers
+;	cdfn	cancels .cdfn - reverts to 16 channels - ignored
+; ???	spnd	clears .spnd/.rsum counter (clears wake pending)
+;	qset	cancels .qsets
+;	mrkt	cancels .mktm requests
+;
+;	hreset
+;
+;	Abort I/O on all active channels except logger channel.
+; ???	Logger should peform I/O abort before purge/close.
+
+em$hrs:
+hreset::call	ab$abi			;abort I/O first
+	fall	sreset			;
+
+;	Sreset
+;
+;	Send generic abort to appropriate handlers
+;
+;	Cancel marktime requests
+;	Call handler generic abort routines
+;	Wait for I/O to complete
+;	Purge channels
+;	Signal network ACPs
+
+em$srs:
+sreset::call	ab$gen			;abort general
+	br	ab$pur			;purge channels
+
+ab$gen::jsr	r5,ut$sav		;save them all
+	ovcal$	ti$cal	utl		;cancel marktimes
+
+;	Signal process exit/reset to handlers
+;
+;	r1 ->	device map entry
+;	r2 ->	device record
+;	r3 = 	device map count
+;	r4 =	0 to signal generic abort
+
+	mov	#d$edes,r1		;r1 -> devices
+	mov	(r1)+,r3		;r3 = map slot count
+10$:	mov	(r1)+,r2		;get the next device
+	beq	20$			;no such device
+	bit	#dsgab$,(r2)		;want aborts on exit?
+	beq	20$			;no
+	clr	r4			;yes - signal generic abort
+	call	ch$abt			;process generic abort
+20$:	sob	r3,10$			;do them all
+
+;	Abort all internal handler requests
+
+.if ne v3que
+25$:	$cmsch				;block scheduler
+	remque	r3,p$hioq,empty=26$	;get the next
+	mov	tp.csw(r3),r0		;get the csw
+	decb	ch.ioc(r0)		;down the count
+	dec	p$hioc			;count it out
+	call	tp$dr3			;get rid of it
+	br	25$			;and look again
+26$:	$cmpro				;back to process
+.endc
+
+;	Wait for all I/O to complete
+
+30$:	$float				;float the process
+	tst	p$hioc			;all done?
+	beq	40$			;yes - come out of this
+	$stall	#30$, prwio.		;waiting for i/o
+40$:	$land				;i/o done
+	return				;
+
+;	Abort all channels
+
+ab$abi::mov	#emabi.*256.,r0		;.abtio code
+	br	ab$chs			;
+
+;	Purge all channels
+
+ab$pur::mov	#empur.*256.,r0		;.purge code
+	fall	ab$chs			;purge the channels
+
+;	Abort or purge channels
+;
+;	r0	emt code in high byte
+;
+;	Do not abort or purge the last channel unless process is deleting
+;	Do not purge image channel if program is overlayed
+
+ab$chs:	call	ut$nas			;not from ast
+	jsr	r5,ut$sav		;save them all
+	mov	p$hchr,r4		;r4 -> channels
+	mov	p$hchs,r1		;r1 = channel count
+	bit	#prdel$,p$hsta		;is this process deleting?
+	bne	10$			;yes - purge all
+	dec	r1			;dont purge the last
+10$:	cmp	r0,#empur.*256.+imchn. 	;purging image channel 15.?
+	bne	30$			;no
+	bit	#jsovr$,p$hjsw		;is it overlayed?
+	bne	40$			;yes - don't purge it
+30$:	tst	(r4)			;is this open anyway?
+	bpl	40$			;no - avoid it for speed and trace
+	emt	374			;purge or abort it
+40$:	add	#ch.bbs,r4		;get the next channel
+	incb	r0			;next channel
+	cmpb	r0,r1			;was that the last
+	bne	10$			;no - get another
+50$:	return				;done
+.sbttl	settop
+
+;	.settop	addr
+;
+;	rp.p0 	addr - requested top address
+;
+;	<addr> is the usable address - not the last address plus two.
+;	This handles the top-most address which rolls over from 177776 to 0.
+;	Most users do not know this reason, and therefore forget the rule
+;	and specify a word too much. So what.
+;
+;	Pass the request to PLAS if they are using XM. PLAS handles both
+;	virtual and standard settop operations.
+;
+;	no errors are returned
+;	r0	new top address
+;	j$btop	new top address
+;
+;???	Jobspace KWL applies only to RT-11 programs - not RSX.
+;
+;	r3 = rp.p0 = top address requested
+
+settop::			;settop
+
+;	Check kiloword limit (in 56 if 60<>^rrel)
+
+10$:	bis	#mmpum$,@#ps	;force previous user mode
+	cmp	r3,p$hkwt	;are we lower than the kiloword top address?
+	blos	20$		;yes
+	mov	p$hkwt,r3	;no - replace with lower value
+
+;	Pass to PLAS if this is virtual image or using XM requests
+
+20$:	bit	#fepla$,p$hfem	;this program using PLAS?
+	beq	30$		;no
+				;yes - convert RP to PLAS settop RP
+	movb	#emxmr.,rp.req(r5) ;change generic code
+	mov	#xmstc.,(r5)	;change to XM settop codes
+				;we forward r3 to XM settop
+	jmp	plas		;does not return
+
+;	Process standard unmapped settop
+
+30$:	cmp	r3,p$husr	;above the limit?
+	blos	40$		;nope
+	mov	p$husr,r3	;yes, use our top
+
+;	Return result size
+
+40$:	mov	r3,rp.r0(r5)	;and return the value
+	movtd	r3,@#j$btop	;reset their top address
+	mov	r3,p$htop	;reset our copy of the top address
+	return			;and exit
+.sbttl	qset
+
+;	.qset	addr, len
+;
+;	rp.p0	len  - number of new entries
+;	rp.p1	addr - address of new elements
+;
+;	RUST/XM does not use these queue elements.
+;
+;	no errors
+;
+;	r0	addr
+
+qset::	mov	rp.p1(r5),rp.r0(r5) ;return addr in r0
+	return
+.end
+

@@ -1,0 +1,323 @@
+.title	ede - environment devices
+.include "lib:rust.mac"
+.psect	ede d
+$apdef		;acps
+$asdef		;address space
+$dcdef		;device codes
+$dedef		;device
+$endef		;environment
+$esdef		;error severity
+$fndef		;filename
+$hadef		;handler
+$hrdef		;handler defaults
+$sgdef		;sysgen
+$undef		;unit
+$vedef		;vector
+
+;	ENV Setup system device handler
+; 
+;	%build
+;	macro	rxs:ede/object:rxb:
+;	%end
+; 
+;	Check a device handler.
+;	Open it on channel 14.
+;	Make sure this is really a handler
+;	Return partial device & unit records.
+; 
+;	e$nbub	buffer beginning
+;	e$nbue	buffer end (what we have used)
+;	e$nbut	buffer top
+; 
+;	call	en$ede
+;	r0 ->	buffer used
+; 
+;	r2 ->	device record
+;	r5 ->	e$nsyh
+; 
+;	enhnf$	handler not found
+;	enhio$	handler i/o error
+;	enhcs$	handler csr does not exist
+;	enhic$	handler installation check failed
+; 
+;	e$nbfa	input buffer
+;	e$nbbs	buffer byte size
+
+meta	<check c><jsr r0,500$><.word c>
+.sbttl	check handler
+
+;	Check system device handler
+;
+;	Leave handler open on channel enhfc.
+;	
+; 	V5.4 changes to RT-11 no longer permit simple installation checks.
+;	The DU: handler, and others, attempt to claim extended memory.
+;	HANDLR may supply default settings in last block
+
+en$syh::				;build system device
+	mov	#e$nsdr,r2		;r2 -> system device record
+	mov	#e$nsyh,r5		;r5 -> system handler status
+					;
+	mov	b$osys,de.dev(r2)	;de.dev
+					;
+	movi	de.fnm,r2,r1		;r1 -> filename
+	psh	r1			;save it
+	mov	#^rsy,(r1)+		;fn.dev
+	mov	b$osys,(r1)+		;fn.fil
+;	add	#<^r  x>,(r1)+		;make it mapped
+	clr	(r1)+			;
+	mov	#^rsys,(r1)+		;fn.typ
+					;
+	mov	#e$nhfn,r0		;got an explicit handler?
+	tst	(r0)			;got explict name?
+	beq	10$			;no
+	mov	(sp),r1			;yes
+	mov	(r0)+,(r1)+		;copy it in
+	mov	(r0)+,(r1)+		;
+	mov	(r0)+,(r1)+		;
+	mov	(r0)+,(r1)+		;
+	pop	r1			;
+	br	15$			;lookup one file only
+					;
+10$:	pop	r1			;point to file name
+	add	#<^r  p>,fn.fil(r1)	;try with P suffix
+	.lookup	#b$uare, #enhfc., r1	;try to find it
+	bcc	20$			;fine
+	mov	b$osys,fn.fil(r1)	;try unmapped
+	add	#<^r  x>,fn.fil(r1)	;try with S suffix
+	.lookup	#b$uare, #enhfc., r1	;try to find it
+	bcc	20$			;fine
+	mov	b$osys,fn.fil(r1)	;try unmapped
+15$:	.lookup	#b$uare, #enhfc., r1	;try to find it
+	check	enhnf$			;check handler not found
+	bcc	20$			;fine
+	jmp	200$			;skip the rest
+
+;	Read device handler
+
+20$:	mov	r0,e$nhbs		;store system handler block size
+	mov	b$osyu,e$nsyu		;get another copy
+	mov	e$nbub,r3		;point to our buffer
+	mov	e$nbut,r4		;make sure we have space
+	sub	r3,r4			;
+	bcs	30$			;oops - no room at all
+	cmp	r4,#512.		;got enough space?
+	bhis	40$			;yes
+30$:	bis	#enhnr$,(r5)		;no room for handler
+	jmp	200$			;and quit
+
+;	Read HANDLR default settings
+
+40$:	mov	e$nhbs,r1		;get the last block
+	dec	r1			;
+	ble	50$			;forget it
+	.readw	#b$uare,#enhfc.,r3,#256.,r1 ;read last block
+	bcs	50$			;forget it
+	cmp	(r3),#^rhan		;this the signature?
+	bne	50$			;no
+	cmp	hr.gd1(r3),#^rdlr	;really?
+	bne	50$			;no
+	mov	hr.con(r3),de.con(r2)	;save de.con
+	mov	hr.typ(r3),de.typ(r2)	;and de.typ
+
+;	Read block zero
+
+50$:	.readw	#b$uare,#enhfc.,r3,#256.,#0 ;read the handler
+	check	enhio$			;check i/o error
+	bcs	200$			;and quit
+
+;	Perform installation checks	
+;	Handler installation routine is not called since
+;	RT-11 V5.4 routines may attempt to create global regions etc.
+
+	tst	e$nmod			;are we in kernel mode?
+	bmi	100$			;nope - ignore this
+	pshs	<r5,r3,r2>		;save these
+	call	en$dkt			;catch traps
+	mov	ha.csr(r3),r0		;get the csr
+	beq	100$			;none defined
+	tst	(r0)			;is it present?
+	check	enhcs$			;check non-existant csr
+	bcs	95$			;it failed
+90$:	call	en$ckt			;cancel trap catcher
+95$:	pops	<r2,r3,r5>		;
+
+;	Fill in device record.
+; 
+;	This must be filled in after the installation check since
+;	some handlers modify them on the fly.
+
+100$:	mov	ha.hsz(r3),de.hsz(r2)	;copy the new parameters
+	mov	ha.dsz(r3),de.dsz(r2)	;device size in blocks
+	mov	ha.sta(r3),de.sta(r2)	;device status
+	mov	ha.syg(r3),de.syg(r2)	;sysgen options
+	mov	ha.csr(r3),de.csr(r2)	;the csr word
+					;
+	bisb	#as16c$,de.asp(r2)	;all can get to 16 bits
+	bis	#de16b$,de.con(r2)	;
+					;
+	bit	#sgmmg$,ha.syg(r3)	;is this mapped?
+	beq	110$			;nope
+	bisb	#dedma$,de.typ(r2)	;yes - remember it
+	bis	#demap$!de18b$,de.con(r2) ;
+	bisb	#asmap$!as18c$,de.asp(r2) ;18-bit address space
+	cmpb	ha.sta(r3),#deduc.	;is this a mapped DU: handler?
+	beq	114$			;yes - a 22bit device
+					;
+110$:	assume	ha.22b eq 0		;
+	bit	#de22b$,de.con(r2)	;default 22-bit?
+	bne	114$			;yes
+	cmp	(r3),#ha22b.		;this a 22-bit device?
+	bne	115$			;nope
+114$:	bisb	#dedmx$,de.typ(r2)	;yes - setup the type
+	bis	#de18b$!de22b$,de.con(r2)
+	bisb	#as22c$,de.asp(r2)	;22-bit address space
+					;
+115$:	movb	#acrta.,de.act(r2)	;assume rt11a/rt11x
+	assume	derta$ eq 100000	;
+	bit	#derta$!despc$,de.sta(r2) ;what kind of ACP?
+	bmi	120$			;rt11a
+	bne	116$			;rt11s
+	bis	#enhrn$,(r5)		;report non-file structured
+	movb	#acrtn.,de.act(r2)	;paper-tape RUST/XM?
+	br	120$			;
+116$:	movb	#acrts.,de.act(r2)	;rt11s
+
+;	Check header for valid handler
+; 
+;	ha.hsz	Zero is invalid.
+;		8kw is limit on size.
+
+120$:	mov	ha.hsz(r3),r0		;get the size
+	beq	130$			;its invalid
+	cmp	r0,#8.*1024.		;this more than 8kw?
+	blo	140$			;nope
+130$:	bis	#enhii$,(r5)		;yes - invalid image
+					;
+140$:	call	en$syb			;get the body
+200$:	return				;
+
+;	Check for an error
+
+500$:					;check for errors
+	bcc	510$			;no error
+	bis	(r0),(r5)		;set the error
+	bis	#esfat$,e$ners		;and return a fatal error
+510$:	bit	(r0),(r0)+		;and pop past it
+	rts	r0			;cbit same as at entry
+.sbttl	handler body
+
+;	Read in the handler
+;
+;	r2 ->	device record
+;	r3 ->	handler body
+;	r5 ->	e$nsyh
+;
+;	Not called for invalid handler image.
+
+en$syb:					;read system handler
+	mov	e$nbub,r3		;get the size
+	mov	r3,r4			;compute the end of it
+	add	de.hsz(r2),r4		;
+	cmp	r4,e$nbut		;overflow?
+	blos	20$			;nope
+	bis	#enhnr$,(r5)		;yes
+	br	100$			;
+					;
+20$:	mov	r4,e$nbue		;store the buffer end
+	mov	r3,de.han(r2)		;store the handler address
+	mov	r3,de.ent(r2)		;and store it
+	add	#ha.lqe,de.ent(r2) 	;store the rt-11 style entry point
+					;
+	psh	de.hsz(r2)		;get the handler size
+	clc				;get words
+	ror	(sp)			;make it words
+	.readw	#b$uarea,#enhfc.,r3,(sp)+,#1 ;read the handler in
+	bcc	30$			;
+	bis	#enhio$,(r5)		;i/o error
+	br	100$			;
+
+;	Check the body for a valid image
+;
+;	ha.cqe	must be zero
+;	ha.lqe	must be zero
+;
+;	r0	address to check
+;	r1	vector temp
+;	r2 ->	device record
+;	r3 ->	handler
+;	r4 ->	end of handler
+;	r4 ->	s$nsyh
+
+30$:	tst	ha.lqe(r3)		;zero?
+	beq	50$			;yes
+40$:	bis	#enhii$,e$nsyh		;invalid image
+
+;	Check and store vectors
+;
+;	We store only two vector addresses at present
+
+50$:	mov	r3,r5			;get the handler
+	mov	(r5)+,r1		;h.vec
+	beq	100$			;oops, no vector
+	bmi	60$			;a vector table
+	mov	r1,de.vec(r2)		;store the main vector
+	mov	r5,r0			;get the base
+	add	(r5),r0			;add in the offset
+	call	500$			;check for within handler
+	br	100$			;
+
+;	Vector table
+
+60$:	asl	r1			;read sysmac for this
+	add	r1,r5			;point to the table
+	bcs	70$			;oops
+	mov	r5,r0			;get it to check it
+	call	600$			;check the table address out
+	bcc	80$			;fine
+70$:	bis	#enhit$,e$nsyh		;invalid vector table address
+					;
+80$:	mov	(r5),de.vec(r2)		;store the main vector
+90$:	mov	(r5)+,r1		;get the vector
+	beq	50$			;no more vectors
+	cmp	(r5)+,(r5)+		;skip it
+	mov	r5,r0			;relocate
+	add	(r5)+,r0		;to the ast
+	call	500$			;check the vector
+	tst	(r5)+			;skip the ps
+	call	500$			;check for valid vector
+	bcs	100$			;invalid vector
+	tst	(r5)			;got more vectors?
+	ble	100$			;nope
+	mov	(r5),de.ve2(r2)		;yes - store the second one
+	br	90$			;look for more
+					;
+100$:	return				;
+
+;	r0	isr address
+;	r1	vector
+
+500$:	bcs	510$			;overflow
+	bit	#3,r1			;check vector address
+	bne	510$			;invalid
+	cmp	r1,#v$emax		;this above the maximum?
+	blo	520$			;nope
+510$:	bis	#enhiv$,e$nsyh		;yes - invalid vector address
+	call	600$			;check the service routine address
+	bcc	520$			;fine
+	bis	#enhis$,e$nsyh		;not fine
+520$:	return
+
+600$:	bit	#1,r0			;odd address?
+	bne	610$			;yes - invalid
+	cmp	r0,r3			;isr below the start of the handler?
+	blo	610$			;yes
+	cmp	r0,r4			;above the top?
+	blo	620$			;nope
+610$:	bis	#enhis$,e$nsyh		;invalid service routine address
+	sec				;error
+	return				;
+620$:	clc				;fine
+	return				;
+.end
+

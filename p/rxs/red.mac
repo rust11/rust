@@ -1,0 +1,719 @@
+.title	red - terminal editor
+.include "lib:rust.mac"
+.psect	red d
+$cfdef		;command file
+$eddef		;edit
+$erdef		;error
+$icdef		;image control
+$indef		;ind
+$jsdef		;jsw
+$rpdef		;rp
+$prdef		;pcr
+$rpdef		;rp
+$sedef		;set
+$tedef		;terminal
+$ttdef		;terminal setting
+$txdef		;text
+
+meta <type c><jsr r1,ed$typ><.asciz &c&><.even>
+meta <echo c><.iif nb <c>,movb c,r0><call ed$ech>
+
+;	RUST/XM terminal editor
+;
+;	%build
+;	macro	rxs:red/object:rxb:red
+;	%end
+;
+;	r0 =	current character
+;	r1	local operations
+;	r2 	local operations
+;	r3	reserved for terminal record
+;	r4 ->	p$hedc - input counter
+;	r5 ->	rp
+;
+;	rp.chn	gold flag	
+;	rp.cod	escape sequence control
+;	rp.p0	extension parameters	
+;	rp.p1	signal enables
+;	rp.p2	prompt address
+;	rp.p3	GL controls
+; ???	rp.p3	fill character (default=space)	
+; ???	rp.p3+1	field size (default=80)
+;	rp.p4	gtlin buffer pointer
+;	rp.p5	default line	
+;
+;	$A	up	recall	store-0
+;	$B	down	recall	recall-0
+;	$D	<-	left	sol
+;	$C	->	right	eol
+;
+;	$P	gold
+;	$Q	help
+;	$R	unused
+;	$S		dellin	undlin
+;	delete		delcha	undcha
+;	backsp		swplft	swprt
+;	return		endlin	endlin & truncate
+;
+;	^R		redisplay line
+;	^U		delete line
+
+e$dctl:					;control character routines
+;		a	b	c	d	e	f	g
+.word	ed$edt,	ed$ins,	ed$ins,	ed$exi,	ed$ins,	ed$ins,	ed$ins,	ed$ins	;000
+;	h	i	j lf	k	l	m cr	n	o
+.word	ed$ins,	ed$ins,	ed$exi,	ed$ins,	ed$ins,	ed$exi,	ed$ins,	ed$ins	;010
+;	p	q	r	s	t	u	v	w
+.word	ed$ins,	ed$ins,	ed$cr,	ed$ins,	ed$ins,	ed$cu,	ed$ins,	ed$cw	;020
+;	x	y	z	esc
+.word	ed$ins,	ed$ins,	ed$exi,	ed$esc,	ed$ins,	ed$ins,	ed$ins,	ed$ins	;030
+.sbttl	edit ttyin
+
+;	Return next character
+;
+;	Get next from buffer
+;	Handle single character mode
+;	Call editor for line mode
+;	Pass editor exception returns back
+;	Handle terminal abort
+
+ed$tti::			;get a character
+	movb	p$hedc,r2	;get the offset
+	add	#p$hedl,r2	;point to it
+	movb	(r2)+,r0	;get the character
+	beq	ed$cha		;oops - all done
+	cmpb	r0,#cr		;this a return?
+	beq	10$		;yes - lf next time
+	incb	p$hedc		;step over it
+	tstb	(r2)		;is the next the last?
+	beq	ed$abt		;yes - clean up
+	return			;c=0
+10$:	movb	#lf,-(r2)	;lf next time
+	return			;c=0
+
+;	Check for single character input
+
+ed$cha:	call	ed$abt		;clean up the line
+	tst	rp.p4(r5)	;this a gtlin?
+	bne	ed$lin		;yes - always use line mode
+;	call	ed$ned		;single-line editor active?
+;	bcs	5$		;nope - character mode
+	bit	#jstts$,p$hjsw	;are we in special mode?
+	beq	ed$lin		;nope
+5$:	call	ed$get		;yes - go get one
+	bcs	20$		;nothing doing
+;
+;	bit	#jstts$,p$hjsw	;noedit or special mode?
+;	bne	7$		;noedit
+;	call	te$put		;display it
+;
+7$:	cmpb	r0,#cr		;this a return?
+	bne	ed$clc		;clear carry and return
+	movb	#lf,p$hedl	;yes - linefeed next time
+20$:	return
+
+;	Set up to collect a line
+;
+;	r4 ->	p$hedc
+
+ed$lin:	psh	r1		;save this
+	movb	p$hloc+1,p$hloc	;get the first last line
+	mov	#p$hedc,r4	;input count
+	call	ed$edt		;get a line
+	pop	r1		;restore this
+	bcc	ed$tti		;look again
+	bic	r0,r0		;clean this up
+
+;	Abort edit - cancel line
+;
+;	If AST, force mainline to reprompt
+;	retain c-bit
+
+ed$abt::bic	-(sp),(sp)	;get a zero constant
+	mov	(sp),p$hedc	;use mov to retain c-bit
+	mov	(sp)+,p$hedl	;clean up
+	return
+.sbttl	edit line
+
+;	Accept and edit input line
+;
+;	Control & escape sequences
+
+	.enabl	lsb			;
+ed$gol:	mov	#1,(r5)			;set gold, clear escape
+	br	ed$nxt			;
+ed$esc:	bcs	30$		;noedit	;ignore for no edit
+	bis	#140000,(r5)		;set escape
+	br	ed$nxt			;
+ed$edt::clr	(r5)			;clear gold, clear escape
+
+;	Main loop - get next character
+
+ed$nxt:	call	ed$inp			;input a character
+	bcs	ed$ret			;oops - no more coming
+	call	ed$pnt			;r1 -> next character
+	aslb	1(r5)			;is this an escape?
+	bcs	ed$alt			;yes
+					;
+	movb	r0,r2			;get the offset
+	cmpb	r0,#csi			;new escape?
+	beq	10$			;yes
+	cmpb	r0,#ss3			;new keypad escape?
+	bne	20$			;no
+10$:	movb	#esc,r2			;replace it
+20$:	cmpb	r2,#rubout		;this a delete?
+	beq	ed$rub			;yes - straight to it
+	cmpb	r2,#space		;this a printing character?
+	bhis	30$			;yes - insert it
+;	movb	r0,r2			;get the offset
+	asl	r2			;
+	call	ed$ned		;noedit	;check for no edit
+
+;	r0	original character
+;	r1 ->	output line
+;	r2	jump offset
+;	r4 ->	counter sometimes
+;	r5 ->	flags
+;	c=1	line edit disabled
+
+	jmp	@e$dctl(r2)		;dispatch the control routine
+30$:	jmp	ed$ins			;insert the character
+
+ed$alt:					;escape sequence
+	cmpb	r0,#'O			;this redundant?
+	beq	ed$nxt			;yes - ignore it
+	cmpb	r0,#'[			;this redundant?
+	beq	ed$nxt			;yes
+	cmpb	r0,#'P			;[esc/p] - gold?
+	beq	ed$gol			;yes - go set it
+	sub	#'A,r0			;get the character
+	beq	100$			;[esc/a] - last line operation
+	cmp	r0,#'D-'A		;bigger than a three?
+	bhi	ed$edt			;nope - ignore sequence
+	beq	ed$lef			;[esc/d] < left
+	dec	r0			;[esc/b] or [esc/c]
+	bne	ed$rig			;[esc/c] > right
+	call	ed$dwn			;[esc/b] v down
+	br	ed$edt			;start over
+100$:	call	ed$up			;[esc/a] ^ up
+	br	ed$edt			;start over
+
+;	Exit - insert final character
+
+ed$exi:					;end of line character
+	call	ed$rem			;display till end of line
+	call	ed$pnt			;point to end of line
+	movb	r0,(r1)+		;put in the character
+	clrb	(r1)			;and terminate it
+	call	ed$ech			;echo it
+	clrb	(r4)			;start at the beginning
+	call	ed$sto			;store last line
+ed$clc:	clc				;signal we did o.k.
+ed$ret:	return				;and return to the mainstream
+	.dsabl	lsb			;
+.sbttl	control characters
+
+;	Control characters
+
+	.enabl	lsb			;
+ed$cu:	bcc	10$		;noedit	;its edit mode
+	call	ed$abt			;clear the line out
+	mov	#ctrlu,r0		;setup the character
+	br	30$			;display it
+
+10$:	incb	(r5)			;[ctrl/u]
+ed$rub:	call	ed$del			;[delete]
+	bcs	20$			;oops
+	tstb	(r5)			;any more?
+	bne	ed$rub			;yes
+20$:	br	ed$edt			;more
+
+ed$cr:	bcs	ed$ins		;noedit	;no edit
+	call	ed$rem			;display to the end
+	movb	#ctrlr,r0		;
+30$:	call	ed$ech			;echo it
+	call	ed$new			;newline
+	call	ed$prm			;prompt it
+	clrb	(r4)			;reset the count
+	call	ed$rem			;display the remainder
+	br	ed$edt			;
+	.dsabl	lsb			;
+
+ed$cw:	bcs	ed$ins		;noedit	;[ctrl/w]
+	call	ed$rem			;display till the end
+10$:	call	ed$bac			;move all the way back
+	bcc	10$			;
+	call	ed$rem			;and redisplay it all
+	br	ed$edt			;and start again
+
+ed$lef:					;[left]
+10$:	call	ed$bac			;try to backup
+	bcs	ed$edt			;nothing doing
+	bne	10$			;gold is active
+	br	ed$edt			;try for another
+
+ed$rig:					;[right]
+10$:	call	ed$for			;try to go forward
+	bcs	ed$edt			;no more
+	bne	10$			;
+	br	ed$edt			;and get the next
+.sbttl	insert character
+
+;	Insert character in line
+;
+;	Ignore attempts to insert too much.
+;	Always leave enough room for the line terminator
+;	Make sure line ends with null
+;
+;	r0 =	character
+;	r1 ->	line position
+
+	.enabl	lsb
+ed$ins:	psh	#ed$edt			;return to ed$edt later
+
+;	Make sure we still have room for it
+;	Wriggle the end of line null along
+
+	mov	r1,r2			;get another copy
+	tstb	(r1)			;are we at end of line?
+	bne	10$			;no
+	clrb	1(r1)			;yes - move the null along
+
+10$:	tstb	(r2)+			;get to the end
+	bne	10$			;more to go
+	psh	r2			;get it again
+	sub	#p$hedl,(sp)		;(sp) = bytes used
+	cmp	(sp)+,#80.;rp.len(r5)	;got enough room?
+	bhis	ed$ret			;nope - return
+
+;	Make a hole
+
+20$:	movb	-(r2),1(r2)		;move them up
+	cmp	r2,r1			;was this the last
+	bne	20$			;nope
+	movb	r0,(r2)			;replace with insert
+
+;	Display the result line
+
+30$:	echo	(r2)+			;type the next
+	tstb	(r2)			;till the end
+	bne	30$			;
+	inc	r1			;end one later
+	incb	(r4)			;and advance ibyte
+	fall	ed$pos			;reverse back
+
+;	Reverse back to position
+;
+;	r1	target position
+;	r2	current postion
+
+ed$pos:
+40$:	cmp	r2,r1			;all done?
+	blos	ed$ret			;yes
+	movb	-(r2),r0		;get the next to rubout
+	call	ed$rev			;and reverse over it
+	br	40$			;nope
+	.dsabl	lsb			;
+.sbttl	delete character
+
+;	Delete  character
+;
+;	Compress line
+;	Display till end of line
+;	Backup to position
+
+ed$del:	call	ed$bac			;try to get another
+	bcs	ed$rt2			;no more - return
+
+;	Compress & display line
+
+	psh	r0			;save the character for later
+	mov	r1,r2			;point again
+	inc	r2
+10$:	movb	(r2),-1(r2)		;move them back into place
+	beq	20$			;that was all
+	echo	(r2)+
+	br	10$
+
+;	Substitute blanks at end of line
+
+20$:	call	ed$spa			;make a space
+	pop	r0			;perhaps a control character
+	call	ed$cla			;what is it?
+	bcc	30$			;its simple
+	call	ed$spa			;space
+	call	ed$bs			;backspace
+
+;	Reposition
+
+30$:	br	ed$pos			;and reposition
+.sbttl	move pointer & cursor
+
+;	Backup - Line backup
+;	Reverse - Screen reverse
+;
+;	c=1	No space
+;	z=0	Gold is set
+
+ed$bac:					;try to back up
+	tstb	(r4)			;at end of line?
+	beq	ed$mis			;yes - c=1
+	decb	(r4)			;no - reverse
+	call	ed$pnt			;and point to it
+	movb	(r1),r0			;get the character
+
+ed$rev:	call	ed$cla			;what do we have?
+	bcc	10$			;simple
+	call	ed$bs			;backspace
+10$:	call	ed$bs			;
+	br	ed$goc			;check gold
+
+;	Forward - Line & screen jump
+
+ed$for:	call	ed$end			;are we at eol?
+	bcs	ed$mis			;yes ignore it
+	incb	(r4)			;skip it
+	echo	(r1)			;jump over it
+ed$goc:	tstb	(r5)			;z=0 => gold
+	return				;c=0 => we did it
+
+;	Check NoEdit setting
+
+ed$ned:	bit	#jsedi$,p$hjsw		;edit disabled?
+	bne	ed$mis			;yes
+	bit	#seted$,p$hset		;sl enabled?
+	bne	ed$hit			;yes - c=0
+	br	ed$mis			;no - c=1
+
+;	End - Test at end of line
+
+ed$end:	call	ed$pnt			;point at the next
+	tstb	(r1)			;is this the end?
+	beq	ed$mis			;yes - ignore it
+ed$hit:	tst	(pc)+			;still room in here
+ed$mis:	sec
+ed$rt2:	return				;return
+.sbttl	input character
+
+;	Get next input character
+;
+;	Ripple back for exceptions
+;	Handle no character in special mode
+;
+;	Check for terminal signals.
+;	Handle handle [ctrl/t] during AST input.
+;	Discard [ctrl/c] if global SCCA is enabled.
+;
+;	r0	returns character
+;	r1	burnt
+;	r4 ->	control area
+;	r5 ->	rp
+
+ed$inp:	.enabl	lsb		;
+10$:	bit	rp.p1(r5),p$hsig;do we have a signal pending?
+	bne	70$		;yes - forget this
+	bit	#prcom$,p$hsta	;got a ctrl/y command pending?
+	bne	70$		;yes
+	bit	#tectt$,p$hsig	;got a ctrl/t pending?
+	beq	20$		;no
+	bic	#tectt$,p$hsig	;yes - we do it
+	.rctrlo			;turn the terminal back on
+	mov	#erctt.,r0	;yes
+	call	er$dis		;display it
+	br	30$		;and force a reprompt
+				;
+20$:	bit	#edrpt$,(r4)	;should we repaint?
+	beq	40$		;no
+30$:	bic	#edint$!edrpt$,(r4) ;once-only
+	call	ed$rpt		;repaint
+				;
+40$:	tst	p$hsta		;aborting?
+	bmi	70$		;yes - forget this
+	call	ed$get		;get another
+	bcc	50$		;fine - we have one
+				;
+	tstb	(r4)		;this the first?
+	bne	10$		;no
+	bit	#jsttr$,p$hjsw	;check for null input line
+	beq	10$		;none
+	br	70$		;ripple back
+				;
+50$:	tst	r0		;was this anything real?
+	beq	10$		;no
+
+;	Handle lower case conversion
+
+	psh	p$hter		;got a terminal?
+	beq	55$		;no - (sp)=0
+	psh	@(sp)+		;yes - get tt.low options
+	assume	tt.low eq 0	;
+	assume	ttlow$ eq 200	;
+	assume	cfdis$ eq 200	;display/everything
+55$:	bicb	p$hcfs,(sp)+	;terminal/nolower or display/everything?
+	bmi	60$		;no 
+	call	te$low		;yes - do conversion first for echo
+
+60$:	br	ed$hit		;c=0 - clc and return
+70$:	clr	r0		;no character
+	br	ed$mis		;c=1 = sec and return
+				;
+ed$get:				;get single character
+90$:	call	te$get		;get another
+	bcs	ed$rt2		;none coming - return
+	cmpb	r0,#ctrlc	;this a [ctrl/c]?
+	bne	60$		;no - pass it back
+	bitb	#incal$,p$hins	;global [ctrl/c] enabled?
+	beq	60$		;not global scca
+	br	90$		;ignore it - get another
+	.dsabl	lsb		;
+.sbttl	output string
+
+;	Repaint line
+;	Called after interrupt
+;	We must establish whether we still actually have a line
+
+	.enabl	lsb		;
+ed$rpt:	call	ed$prm		;prompt first
+	movb	(r4),r1		;save the position
+	clrb	(r4)		;start at the beginning
+	call	ed$rem		;display the rest
+	movb	(r4),r2		;get where we are
+	movb	r1,(r4)		;and put us back where we were
+	jmp	ed$pos		;go position - it returns for us
+
+;	Display prompt
+
+ed$prm::psh	r1		;save this
+	mov	rp.p2(r5),r1	;get the prompt string
+	beq	30$		;forget it
+	call	te$prt		;print it
+	br	30$		;quit
+
+;	Display remainder of line
+;
+;	r1 ->	next char or zero
+;	(r4)	line position
+
+ed$rem:	pshs	<r1,r0>		;[sic]
+	call	ed$pnt		;point to it
+10$:	tstb	(r1)		;at the end?
+	beq	20$		;yes
+	echo	(r1)+		;type the next
+	incb	(r4)		;and step it up
+	br	10$		;
+20$:	pop	r0		;restore this
+30$:	pop	r1		;and that
+	return			;used to set c=0
+
+ed$typ:	psh	r0		;type some
+110$:	movb	(r1)+,r0	;get the character
+	beq	120$		;we are done
+	call	te$put		;dump it
+	br	110$		;try again
+120$:	inc	r1		;even up
+	bic	#1,r1		;
+	pop	r0		;
+	rts	r1		;
+
+ed$spa:	type	< >		;space
+	return			;
+ed$bs:	type	<&<bs>&>	;backspace
+	return			;
+ed$ccr:;bit	#glncc$,rp.p3(r5) ;disabled carriage control?
+;	bne	130$		;yes - ignore this
+ed$new::type	<&<cr><lf>&>	;new line
+130$:	return			;
+	.dsabl	lsb		;
+.sbttl	echo character
+
+;	Echo character
+;
+;	esc	$
+;	tab	space
+;	cr	cr,lf
+;	lf	lf
+;	^C	^C newline
+;	^Z	^Z newline
+
+ed$ech:	cmpb	r0,#ht		;this a tab?
+	bne	ed$opt		;nope
+	call	ed$ned		;edit disabled?
+	bcs	ed$opt		;yes - don't replace it
+	movb	#space,r0	;replace it with a space
+ed$opt::cmpb	r0,#cr		;this a return?
+	beq	ed$ccr		;yes - do carriage control check
+	psh	r0		;save the character
+	cmpb	r0,#esc		;this an escape?
+	bne	40$		;nope
+	movb	#'$,r0		;yes
+40$:	cmpb	r0,#space	;is this a control character?
+	bhis	60$		;no
+	cmpb	r0,#bell	;this a bs = 10?
+	blo	50$		;no - control character
+	cmpb	r0,#cr		;a return?
+	blos	60$		;no - a line control
+50$:	mov	#'^,r0		;display a hat
+	call	te$put		;
+	mov	(sp),r0		;get it back
+	add	#'@,r0		;make it ascii
+60$:	call	te$put		;send it out into the world
+70$:	pop	r0		;restore it
+	call	ed$ccz		;terminating [ctrl/c] or [ctrl/z]?
+	bcc	ed$ccr		;yes - check carriage control
+	return
+.sbttl	position & classify
+
+;	Point & Increment
+;
+;	(r4)	column
+;
+;	r1 ->	next character
+;	(r4)	column
+
+ed$pnt:	movb	(r4),r1		;get the column
+	add	#p$hedl,r1	;r1 -> line
+	return			;and quit
+
+ed$ccz::.enabl	lsb		;check terminating [ctrl/c] or [ctrl/z]
+	bit	#icctz$,p$hic0	;[ctrl/z] enabled?
+	bne	10$		;yes - check [ctrl/z] or [ctrl/c]
+	br	20$		;no - check for [ctrl/c]
+ed$eol::			;check for end of line
+	tst	r0		;this line feed?
+	beq	40$		;yes - c=0, z=1
+	cmpb	r0,#cr		;return?
+	beq	30$		;yes
+	cmp	r0,#lf		;line feed?
+	beq	30$		;yes
+10$:	cmpb	r0,#ctrlz	;ctrl/z?
+	beq	30$		;yes
+20$:	cmpb	r0,#ctrlc	;ctrl/c?
+	bne	120$		;no - c=1
+30$:	clz			;c=0, z=0 end-of-line - not zero
+40$:	return			;c=0, z=?
+
+;	Classify character
+	
+ed$cla:	call	ed$ned		;edit turned off?
+	bcs	110$		;yes - not a control character
+	tstb	r0		;this a null?
+	beq	110$		;yes - this is not a control character
+	cmpb	r0,#40		;this a control character?
+	bhis	110$		;nope
+	cmpb	r0,#10		;under a tab?
+	blo	120$		;yes - its a control character
+	cmpb	r0,#15		;higher than cr?
+	bhi	120$		;its a control character
+110$:	tst	(pc)+		;c=0
+120$:	sec			;c=1 - a control character
+	return			;
+	.dsabl	lsb		;
+.sbttl	line recall
+
+;	Line recall
+; 
+;	p$hedl	edit line
+;	p$hedb	client address of lines
+;	p$heds	number of lines
+; 
+;	p$hloc	last up recalled - set by store
+;	p$hloc+1 last stored
+;	p$hfr0	last down - set by up
+; 
+;			normal			gold
+;	^   $A	ed$up	recall previous		store permanent
+;	v   $B	ed$dwn	recall next		recall permanent
+;	endline	ed$sto	store current line
+
+	.enabl	lsb			;
+ed$up:	call	ed$rup			;setup
+	bcs	ed$sl0			;store line zero
+	tstb	-(r0)			;recall previous
+	call	ed$mpl			;map the line
+	movb	(r0),p$hfr0		;remember it
+	incb	(r0)			;next line, next time
+	br	ed$rcl			;
+ed$dwn:	call	ed$rup			;setup
+	bcs	ed$rcl			;recall line zero
+	mov	#p$hfr0,r0		;get next line
+	decb	(r0)			;recall next
+	call	ed$mpl			;map the line
+	fall	ed$rcl			;recall the line
+
+;	Recall, insert & display line
+; 
+;	r1 ->	cache line
+;	r2 ->	edit line
+;	r4 ->	character in line
+
+ed$rcl:	tstb	(r4)			;are we in edit?
+	beq	120$			;nope
+	psh	r1			;yes - save this
+;	movb	#1,(r5)			;set gold
+	call	ed$rem			;display till end of line
+110$:	call	ed$del			;delete the line
+	bcc	110$			;until all characters done
+	pop	r1			;restore that
+120$:	clrb	(r4)			;init the counter
+	clrb	edlbs.-1(r1)		;make sure its terminated
+130$:	movb	(r1)+,(r2)		;get the next
+	beq	220$			;that was the last
+	movb	(r2),r0			;get the character
+	call	ed$eol			;this eol?
+	bcc	130$			;yes - ignore it
+	incb	(r4)			;count it
+	echo	(r2)+			;and display it
+	br	130$			;do the next
+.sbttl	store, setup, map
+
+;	Store line
+; 
+;	r1 =	line number
+
+ed$sto:	call	ed$rup			;setup
+	cmpb	(r2),#space		;is this anything worth while?
+	blo	220$			;no - ignore it
+	decb	(r0)			;store - push backwards
+	call	ed$mpl			;map line into r1
+	movb	(r0),-(r0)		;reset the up recall
+ed$sl0:					;
+210$:	movb	(r2)+,(r1)+		;move in the line
+	bne	210$			;end must be found
+220$:	return				;all over
+	.dsabl	lsb			;
+
+;	Setup
+; 
+;	Out:	r0 ->	p$hloc+1
+;		r1 ->	saved line if gold
+;		r2 ->	p$hedl
+;		c=1	gold - saved line operation
+
+ed$rup:	tst	p$heds			;got anything?
+	beq	10$			;no
+	mov	#p$hedl,r2		;r2 -> edit line
+	mov	#p$hloc+1,r0		;r0 -> last stored line number
+	asrb	(r5)			;get gold state
+	bcc	20$			;not stored line
+	clr	r1			;get line zero
+	br	ed$ml0			;map line zero
+10$:	tst	(sp)+			;no line editor
+20$:	return				;
+
+;	Map line
+
+ed$mpl:	tstb	(r0)			;gone below?
+	bgt	10$			;fine
+	movb	p$heds,(r0)		;use last instead
+	decb	(r0)			;
+10$:	cmpb	(r0),p$heds		;too high
+	blo	20$			;no
+	movb	#1,(r0)			;yes - wrap backward
+20$:	movb	(r0),r1			;
+	mul	#edlbs.,r1		;get the byte number
+ed$ml0:	add	p$hedb,r1		;point to it
+	sub	p$hktc,r1		;make it a kernel address
+	sec				;for ed$ml0
+	return				;done
+.end 
+

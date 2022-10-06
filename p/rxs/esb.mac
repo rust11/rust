@@ -1,0 +1,217 @@
+.title	esb - build shape
+.include "lib:rust.mac"
+.psect	esb d
+$sbdef		;SHAPE builtin
+$txdef		;ascii
+$endef		;environment
+$esdef		;error severity
+$jbdef		;rt-11 job
+$mmdef		;memory management
+$prdef		;pcr
+$psdef		;ps
+
+;	RUST/XM SHAPE 
+;
+;	%build
+;	macro rxs:esb/object:rxb:esb
+;	%end
+;
+;	Read, validate and copy to main record
+
+en$bui::mov	#e$nsbr,r5			;r5 -> record
+	mov	#e$nbst,r4			;r4 -> error flags
+	mov	#enbnf$,r1			;assume error
+	mov	#e$nbfn,r2			;point to filename
+	tst	(r2)				;got a build file?
+	beq	120$				;no
+	call	en$bfo				;open it
+	bcs	100$				;forget it
+	mov	#enbio$,r1			;assume i/o error
+	.readw	#b$uare,#enbfc.,#e$nsbr,#sb.bbs/2.,#0 ;read it in
+	bcs	100$				;i/o error
+	mov	#enbgd$,r1			;assume guard wrong
+	cmp	sb.gua(r5),#^rsbg		;this our guy?
+	bne	100$				;no
+	mov	#enbv1$,r1			;assume v1 only
+	cmp	sb.ver(r5),#3			;this the version we need?
+	beq	20$				;yes
+	bis	r1,(r4)				;no - warning only
+20$:	call	en$bfp				;process the build file
+	bcc	110$				;fine
+100$:	bis	r1,(r4)				;return status
+110$:	.purge	#enbfc.				;purge the channel
+120$:	call	en$cvt				;convert customisations
+	return					;
+.sbttl	process builtin
+
+;	Process the builtin parameters
+; 
+;	Check each for validity
+;	Setup default if missing
+;	Use default startup if any parameter fails
+; 
+;			;meaning		default
+;	sb.gua	word,0	;guard word		^rSBG
+;	sb.ver		;SHAPE version		1
+;	sb.sys		;system disk		SYS
+;	sb.scf	word*4	;startup command file	SY:RUSTX.COM
+;	sb.sdh	word*4	;system device handler	SY:ccX.SYS (boot device)
+;	sb.ads		;number of ads		10.
+;	sb.tbs		;number of tbs		3
+;	sb.tps		;number of tps		10.
+;	sb.wsd		;working set default	128.
+;	sb.vds		;VM: directory segments	1
+;	sb.kp6		;par6 option		no
+;	sb.u22		;unibus 22bit		no
+;	sb.lim		;memory limit		none
+;	sb.dbg		;kernel_debug		no
+;
+;	r5 ->	sb record
+
+en$bfp:	mov	#e$nsbr,r5			;r5 -> record
+	mov	#e$nbst,r4			;r4 -> error flags
+						;
+	jsr	r3,en$bmf			;move filename
+	.word	sb.scf,e$nsfn			;setup startup command file
+						;
+	jsr	r3,en$bmf			;move file name
+	.word	sb.sdh,e$nhfn			;system device handler
+						;
+	jsr	r3,en$bpl			;number of ad's
+	.word	sb.ads,sbadl.,sbadh.		;sb.ads
+	mov	r0,b$oads			;set it up
+						;
+	jsr	r3,en$bpl			;number of tb's
+	.word	sb.tbs,sbtbl.,sbtbh.		;sb.tbs
+	mov	r0,b$otbs			;set it up
+						;
+	jsr	r3,en$bpl			;number of tp's
+	.word	sb.tps,sbtpl.,sbtph.		;sb.tps
+	mov	r0,b$otps			;set it up
+						;
+	jsr	r3,en$bpl			;ws default
+	.word	sb.wsd,sbwsl.,sbwsh.		;
+	mov	r0,e$nwsd			;setup default
+						;
+;	V2					;
+						;
+200$:	mov	#1,e$nvds			;setup default segments
+	clr	e$nkp6				;clear par6 reserve
+						;
+	cmp	sb.ver(r5),#2			;this the end of V1?
+	blo	300$				;yes
+	jsr	r3,en$bpl			;vm segments
+	.word	sb.vds,sbvdl.,sbvdh.		;
+	mov	r0,e$nvds			;vm directory segments
+						;
+	mov	sb.kp6(r5),e$nkp6		;setup par6 reserve
+						;
+;	V3					;
+
+300$:	clr	e$nu22				;not unibus 22-bit
+	cmp	sb.ver(r5),#3			;version 3?
+	blo	400$				;no
+	mov	sb.u22(r5),e$nu22		;get the setting
+						;
+;	V4
+
+400$:	cmp	sb.ver(r5),#4			;version 4?
+	blo	500$				;no
+	mov	sb.lim(r5),e$nlim		;yes - kiloword limit
+
+;	V5
+
+500$:	clr	e$ndbg				;not debugger
+	cmp	sb.ver(r5),#5			;version 5?
+	blo	600$				;no
+	mov	sb.dbg(r5),e$ndbg		;yes
+600$:	return					;
+.sbttl	convert customisations
+
+;	Some parameters need conversion for system use
+;
+;	e$nsfn		startup file name
+;	e$nsfs		startup file name string
+;	p$rcmd		operator process command
+
+en$cvt:	mov	#e$nsfs,e$nout		;use text output
+	mov	#e$nsfn,r1		;point to rad50 name
+	call	tx$fil			;produce the name
+	clr	e$nout			;return to terminal mode
+	return				;
+.sbttl	apply customisations
+
+;	Apply SYS overlay customisations
+;
+;	Called with SYS mapped into par1
+;
+;	p$rcmd	.byte	0		;patched with @
+;		.asciz	/sy rustx com/	;start file name
+
+en$asy::mov	#e$nsfs,r1		;get the string
+	mov	#p$rcmd+byte,r2		;point to initial command
+10$:	movb	(r1)+,(r2)+		;move it in
+	bne	10$			;
+	return				;
+.sbttl	utilities
+
+;	Open build file
+;
+;	r1 =	error flag
+;	r2 ->	filename
+;	r4 ->	build status
+;	r5 ->	build record
+
+en$bfo:	tst	(r2)				;got a file spec?
+	beq	10$				;no - ignore this
+	.purge	#enbfc.				;purge it first
+	.lookup	#b$uare,#enbfc.,r2,#0		;yes - try to open it
+	bcc	10$				;fine
+	bis	r1,(r4)				;set the error flag
+10$:	return					;
+
+;	Move file name
+;
+;	jsr	r3,eb$bmf
+;	.word	offset
+;	.word	address
+;
+en$bmf:	mov	(r3)+,r0			;get the offset
+	add	r5,r0				;point to the name
+	mov	(r3)+,r2			;point to destination
+	tst	(r0)				;got a name?
+	beq	10$				;no
+	mov	(r0)+,(r2)+			;yes - move it in
+	mov	(r0)+,(r2)+			;
+	mov	(r0)+,(r2)+			;
+	mov	(r0)+,(r2)+			;
+10$:	rts	r3				;
+
+;	Parameter limit
+;
+;	r4 ->	status
+;	r5 ->	sb record
+;
+;	jsr	r3,eb$bpl
+;	.word	offset
+;	.word	low-limit
+;	.word	high-limit
+;
+;	r0 =	result value
+
+en$bpl:	mov	(r3)+,r0			;get the offset
+	add	r5,r0				;point to value
+	mov	(r0),r0				;get the value
+	cmp	r0,(r3)				;below lower?
+	bhis	10$				;no - its fine
+	mov	(r3),r0				;yes - get low limit
+	bis	enbpl$,(r4)			;remember error
+10$:	tst	(r3)+				;skip low limit
+	cmp	r0,(r3)				;too high?
+	blos	20$				;no
+	mov	(r3),r0				;yes
+	bis	#enbpl$,(r4)			;report parameter limit
+20$:	tst	(r3)+				;skip high limit
+	rts	r3				;
+.end
+

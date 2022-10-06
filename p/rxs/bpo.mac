@@ -1,0 +1,380 @@
+.title	bpo - build pool
+.include "lib:rust.mac"
+.psect	bpo d
+$addef		;ast
+$dedef		;device
+$jbdef		;rt-11 job
+$mmdef		;mmu
+$nadef		;name
+$podef		;pool
+$prdef		;pcr
+$qudef		;queue
+$tbdef		;tb
+$tedef		;terminal
+$tpdef		;tp
+$sgdef		;sysgen
+$undef		;unit
+
+;	RUST/XM build pool
+;
+;	%build
+;	macro	rxs:bpo/object:rxb:bpo
+;	%end
+;
+;	Copy of pool code included in this module since the pool
+;	has to be built before memory management is enabled. The
+;	standard RUST/XM pool routines can only be used after 
+;	management is enabled (they are external).
+;
+;	Build all the pool elements we will need.
+;	Store pointers in the boot data area.
+;	Store the environment pool pointers
+;
+;	Zero them
+;
+;	tbr	transaction buffers
+;	tpr	transaction packets
+;	adr	ast delivery packets
+
+.MACRO	FRAME	P1,P2,P3,P4,P5,P6,P7,P8,P9,P10
+	ma$off=0
+.irp	ma$itm,<P1 P2 P3 P4 P5 P6 P7 P8 P9 P10>
+  .if nb <ma$itm>
+	fp.'ma$itm=ma$off
+	ma$off=ma$off+2
+  .endc
+.endr
+.ENDM
+
+.sbttl	pool macros
+
+.macro	pool	addr	type	length	message
+	jsr	r5,po$bge
+	.word	addr
+	.word	type!poclr$
+	.word	length
+	.ascii	_message_<200>
+	.even
+.endm
+
+frame	adr typ len msg
+po$bge:				;build generic element
+	$crepo	fp.typ(r5),fp.len(r5) ;create it
+	bcs	po$bfa		;we failed
+	mov	r0,@fp.adr(r5)	;store its address
+	add	#fp.msg,r5	;
+10$:	tstb	(r5)+		;find the end
+	bpl	10$		;
+	inc	r5		;
+	bic	#1,r5		;
+	rts	r5
+
+;	Pool fatal error
+
+po$bfa:				;fatal pool error
+	mov	#10$,r2		;r2 -> main error
+	mov	r5,r3		;r3 -> sub message
+	add	#fp.msg,r3	;
+	jmp	bu$fat		;fatal error
+10$:	.ascii	/No room for /<200>
+	.even
+.sbttl	build the pool
+
+bu$poo::
+	mov	j$btop,r2	;top of us
+	tst	(r2)+		;point past it
+	tst	e$ndbg		;want the debugger?
+	bne	5$		;yes
+	mov	#d$bbot,r2	;no - overwrite that instead
+5$:	mov	r2,r3		;
+	.settop	#m$mpa6-po.bbs-2;get available memory
+	mov	r0,r4		;get truncated top
+	mov	r4,r5		;make another copy
+	sub	r3,r5		;get the size
+	cmp	r5,#1000.	;must have something
+	bhis	10$		;got something
+	mov	#40$,r2		;
+	clr	r3
+	jmp	bu$fat		;
+
+10$:	clc			;
+	ror	r5		;r5 = words available in pool
+20$:	clr	(r3)+		;clear out all memory
+	dec	r5		;count them
+	bne	20$		;
+	mov	r2,r3		;get the start again
+	sub	#po.bbs,r4	;point to the last element
+				;
+	mov	r3,p$ohed	;p$ohed+po.suc
+	mov	r4,(r3)+	;po.suc
+	mov	#p$ohed,(r3)+	;po.pre
+	mov	r4,(r3)		;po.len - its length
+	sub	r2,(r3)+	;po.len - compute it
+	clr	(r3)+		;po.typ = empty
+
+	mov	r4,e$nbut	;store buffer top for environment
+	mov	r4,p$ohed+po.pre ;setup header element
+	mov	#p$ohed,(r4)+	;po.suc
+	mov	r2,(r4)+	;po.pre
+	clr	(r4)+		;po.len
+	mov	#-1,(r4)+	;po.typ - permanent
+
+;	Create the pool elements we need for the build
+;
+;		addr	type	length	message
+	pool	s$yder	poder.	de.bbs	<SY: device record>
+	pool	s$yunr	pounr.	un.bbs	<SY: unit record>
+	pool	v$mder	poder.	de.bbs	<VM: device record>
+	pool	v$munr	pounr.	un.bbs	<VM: unit record>
+	pool	t$tder	poder.	de.bbs	<TT: device record>
+	pool	t$tunr	pounr.	un.bbs	<TT: unit record>
+	pool	n$lder	poder.	de.bbs	<NL: device record>
+	pool	n$lunr	pounr.	un.bbs	<NL: unit record>
+.if ne 0
+	pool	50$	ponar.	na.bbs	<System logical names>
+;	pool	60$	ponar.	na.bbs	<System logical names>
+	mov	50$,r0
+	insque	r0,r1,#n$asys	;system logical names
+;	mov	60$,r0		;
+;	insque	r0,r1,n$asys	;
+.endc
+
+	pool	s$ypcr	popcr.	pr.bbs	<System process pcr>
+
+				;assume that channels is last below
+	pool	s$ychr	pochr.	17.*10.	<System process channels>
+
+	mov	s$ychr,r0	;get the last pool element
+	sub	#po.bbs,r0	;point to it
+	mov	(r0),r0		;
+	add	#po.bbs,r0	;
+	mov	r0,e$nbub	;and save it
+	return
+40$:	.ascii	/kernel pool/<200>
+	.even
+;50$:	.word	0		;dummy to pick up system name record
+;60$:	.word	0		;second logical name record
+.sbttl	record creation
+
+;	Extend pool to cover RT-11
+;	Build adr, tpr and tbr records
+
+.macro	record	count	routine	message
+	jsr	r5,po$cce
+	.word	count
+	.word	routine
+	.word	0
+	.ascii	_message_<200>
+	.even
+.endm
+frame	cnt rou dum msg
+	
+po$cce:					;create counted element
+	mov	@fp.cnt(r5),r4		;get a counter
+10$:	call	@fp.rou(r5)		;call them
+	bcc	20$			;fine
+	jmp	po$bfa			;no room
+20$:	sob	r4,10$			;do another
+	add	#fp.msg,r5		;skip the message
+30$:	tstb	(r5)+			;
+	bpl	30$			;
+	inc	r5			;
+	bic	#1,r5			;
+	rts	r5
+
+bu$pox::
+	mov	e$nbue,r1		;get end of buffer
+	sub	e$nbub,r1		;compute length of handler
+	$crepo	#pohar.,r1		;setup the system handler
+	mov	-po.bbs(r0),r4		;r4 -> last element (after sy:)
+	mov	#m$mpa6,r5		;r5 -> top of memory
+
+					;fill in last entry
+	mov	#-1,-(r5)		;po.typ
+	clr	-(r5)			;po.len
+	mov	r4,-(r5)		;po.pre
+	mov	#p$ohed,-(r5)		;po.suc
+					;compute size of empty
+	mov	r5,(r4)			;po.suc
+	mov	r5,p$ohed+po.pre	;po.pre of header
+	sub	r4,r5			;get the byte size
+	mov	r5,po.len(r4)		;po.len
+	clr	po.typ(r4)		;po.typ - make it empty
+
+;		count	task	message
+	record	b$oads	po$cad	<AST delivery record>
+	record	b$otps	po$ctp	<Transaction packet record>
+	record	b$otbs	po$ctb	<Transaction buffer record>
+	pool	50$	ponar.	na.bbs	<System logical names>
+	pool	60$	ponar.	na.bbs	<System logical names>
+	mov	50$,r0
+	insque	r0,r1,#n$asys		;system logical names
+	mov	60$,r0			;
+	insque	r0,r1,n$asys		;
+	return
+
+50$:	.word	0			;dummy to pick up system name record
+60$:	.word	0			;second logical name record
+.sbttl	create ad, tb and tp elements
+
+;	Create single record of specified type
+
+meta	<crepe len typ que cal=0><jsr r4,po$cpe><.word len,typ,que,cal>
+
+;	Create AST delivery record
+;	Create transaction buffer or packet
+
+po$cad::crepe	ad.bbs,poadr.!poclr$,a$dque,0
+po$ctp::crepe	tp.bbs,potpr.!poclr$,t$pque,0
+
+;	Create transaction buffer
+;	Call-back to fill in relocation information
+;	Fill in TB linkages for purges
+
+po$ctb::crepe	tb.bbs,potbr.!poclr$,t$bque,10$
+
+10$:	psh	r0		;
+	mov	r0,r3		;r3 -> tb
+	add	#tb.buf,r0	;r0 -> buffer
+	call	io$ckm		;convert kernel to mapped
+	mov	r1,tb.pag(r3)	;fill in the par1
+	mov	r2,tb.off(r3)	;fill in the offset
+	mov	t$bfir,tb.nxt(r3) ;link us in the list
+	mov	r3,t$bfir	;
+	pop	r0		;
+	return			;
+
+	frame	len typ que cal
+po$cpe:	pshs	<r0,r1,r3>
+	$crepo	fp.typ(r4),fp.len(r4)
+	bcs	20$		;oops
+	mov	fp.cal(r4),r1	;got a call back?
+	beq	10$		;nope
+	call	(r1)		;yes - call them back
+10$:	mov	fp.que(r4),r1	;get the record queue
+	mov	qu.rec(r1),(r0)	;link us in
+	mov	r0,qu.rec(r1)	;
+	clc
+20$:	pops	<r0,r1,r3,r4>	;restore all these
+	return
+.sbttl	create pool element
+
+;	Create pool element
+;
+;	psh	typ
+;	psh	len
+;	call	po$cre
+; or	mova	pool,r0
+;	call	po$crs
+;
+;	c=0
+;	r0 ->	start of element
+;
+;	c=1	no pool space available
+;	r0 	zero indicates failure too
+
+	stack	r0 r1 r2 r3 ret len typ
+po$cre:	mov	#p$ohed,r0	;create kernel pool element
+po$crs:	pshs	<r3,r2,r1>	;create secondary pool element
+	clr	-(sp)		;restores to r0 - assume failure
+	mov	sp.len(sp),r2	; r2 = target length
+	inc	r2		;make sure its even
+	bic	#1,r2		;
+	beq	60$		;oops - zero length element requested
+	add	#po.bbs,r2	;add in our overhead to length
+
+;	find appropriate empty	
+
+10$:	cmp	po.suc(r0),#p$ohed ;is this the last?
+	beq	60$		;yes - no space
+	mov	(r0),r0		;get the next
+	tstb	po.typ(r0)	;is this free?
+	bne	10$		;nope
+	cmp	po.len(r0),r2	;is this big enough?
+	blo	10$		;nope
+
+;	split element
+
+	mov	r0,r1		;split this element
+	add	r2,r1		;r1 -> potential empty
+	mov	po.len(r0),r3	;compute length of new element
+	sub	r2,r3		;compute the remainder
+	cmp	r3,#po.bbs	;enough space for a header?
+	blo	20$		;nope - use it all
+	mov	r2,po.len(r0)	;set length of new one
+	mov	r3,po.len(r1)	;set length of new empty
+	clr	po.typ(r1)	;po.typ=empty
+	insque	r1,r0		;insert the empty in the chain
+
+;	clear element
+
+20$:	bit	#poclr$,sp.typ(sp) ;should we clear it?
+	beq	40$		;nope
+	bic	#poclr$,sp.typ(sp) ;yes - remove the clear bit
+	mov	r0,r1		;point to it
+	add	#po.bbs,r1	;point past the header
+	mov	sp.len(sp),r2	;get the length (must be <16kw)
+	asr	r2		;get a word size
+30$:	clr	(r1)+		;clear it
+	sob	r2,30$		;
+
+;	set process number
+
+	assume	poprc$ eq 100000
+40$:	mov	sp.typ(sp),po.typ(r0) ;put in the type
+	bpl	50$		;its a system element
+	movb	p$hprn,po.prn(r0) ;move in the process number
+
+;	return status
+
+50$:	add	#po.bbs,r0	;return r0 pointing past header
+	assume	sp.r0 eq 0	;
+	mov	r0,(sp)		;return this on stack
+	tst	(pc)+		;c=0 => o.k.
+60$:	sec			;c=1 => no room. r0 = 0
+	pops	<r0,r1,r2,r3>	;get these back
+	pop	(sp)		;pop out len
+	pop	(sp)		;pop out typ
+	return
+.sbttl	delete pool element
+
+;	psh	#addr
+;	call	po$del
+;
+;	addr=0	ignored
+;
+;	The algorithm relies on the pool header being a non-empty element.
+;	Merge by moving back across empties and then merge all forward empties.
+;	A side-affect is that this algorithm does some garbage collection.
+
+	stack	r0 r1 r2 ret adr
+po$del:				;delete primary pool element
+po$dls:	pshs	<r2,r1,r0>	;delete secondary pool element
+	mov	sp.adr(sp),r1	; r0 -> element
+	beq	30$		;no element
+	sub	#po.bbs,r1	;point back to element
+	clr	po.typ(r1)	;make it an empty
+
+;	move backward across empties
+
+10$:	mov	r1,r0		;swap to previous
+	mov	po.pre(r0),r1	;get the predecessor
+	tstb	po.typ(r1)	;is this an empty?
+	beq	10$		;yes - back up
+
+;	merge all succeeding empties
+
+20$:	mov	(r0),r1		;r1 -> successor
+	tstb	po.typ(r1)	;is next empty?
+	bne	30$		;no
+	add	po.len(r1),po.len(r0) ;yes - get its length
+	mov	(r1),(r0)	;get its successor
+	mov	(r1),r1		;point to its successor
+	mov	r0,po.pre(r1)	;and make us its predecessor
+	br	20$		;try again
+
+30$:	pops	<r0,r1,r2>	;restore these
+	pop	(sp)		;squeeze out sp.adr
+	return
+.end
+

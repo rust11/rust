@@ -1,0 +1,186 @@
+lnx$c=1		; logical name extensions
+.title	syx
+.include "lib:rust.mac"
+.psect	syx d
+
+;	RUST/XM SYS external routines
+;
+;	%build
+;	macro	rxs:syx/object:rxb:syx
+;	%end
+;
+;	These external routines must be in the SYS overlay because
+;	the SYS overlay contains string data areas. No other overlay
+;	contains data.
+
+.sbttl	convert rad50 to ascii
+
+;	r0	rad50 value
+;	r1 ->	output stream
+;
+;	call	na$cra
+;
+;	r0	burnt
+;	r1 ->	past last moved at null
+
+sx$cra::pshs	<r5,r2>		;save them all
+	mov	r1,r2		;r2 -> output stream
+	mov	r0,r1		;r1 = value
+	mov	#100$,r5	;get the divisors
+20$:	mov	#-1,r0		;init the result
+30$:	clr	r0		;
+	div	(r5)+,r0	;get the next
+	tst	r0		;a null?
+	beq	90$		;yep, forget it
+	cmp	#33,r0		;nah?
+	blo	70$
+	beq	80$
+50$:	add	#56,r0
+70$:	add	#11,r0
+80$:	add	#11,r0
+	movb	r0,(r2)+	;store it
+90$:	tst	(r5)		;any more?
+	bne	20$		;yep
+	clrb	(r2)		;cleanup
+	mov	r2,r1		;r1 -> output
+	pops	<r2,r5>		;restore the others
+	return
+100$:	.word	40.*40.,40.,1.,0
+.sbttl	convert ascii to filename
+
+;	sx$caf	convert ascii to filename
+;
+;		dev:filnam.typ
+;
+;		dev:[g,m]filnam.typ;1
+;
+;	r0 ->	input stream
+;	r1 ->	output block
+;	r2 ->	extension block
+;
+;	c=0	filename present
+;	c=1	no filename found
+;
+;	r0 ->	past string
+;	r1 ->	output block (unchanged)
+;
+;	csigen	should not accept wildcards
+;	space	non-standard '_' representation
+
+sx$caf::			;get a filename
+	pshs	<r2,r1>		;
+	mov	r1,r2		;r2 -> area
+	call	50$		;get the name
+	beq	30$		;nothing found - dont accept null device
+	cmpb	(r0),#':	;got a colon?
+	bne	10$		;nope
+	mov	(r2),-(r2)	;yes - move in the device
+	call	40$		;now get the name
+10$:	call	50$		;get the second half
+	call	sx$ska		;skip alphanumeric characters
+	cmpb	(r0),#'.	;got a dot coming?
+	bne	20$		;nope
+	call	40$		;yes - get the type
+20$:	tst	(pc)+		;we got something
+30$:	sec			;nothing there
+	pops	<r1,r2>		;restore these
+	return
+
+40$:	inc	r0		;skip colon or dot
+50$:	tst	(r2)+		;next word
+	call	sx$car		;get the word
+	mov	r1,(r2)		;store it
+	return
+
+.if ne 0
+60$:	cmpb	(r0),#'[	;got a UIC?
+	bne			;no
+65$:	inc	r0		;yes
+	call	sx$ska		;skip alphas
+	cmpb	(r0),#',	;got a member?
+	beq	65$		;yes - skip it too
+	cmpb	(r0)+,#']	;must be there?
+.endc
+.sbttl	convert ascii to rad50
+
+;	Convert ascii to rad50
+;
+;	r0 ->	input ascii stream (popped past)
+;	r1 =	output word
+
+sx$car::			;get rad50
+	pshs	<r4,r3,r2>	;save them
+	clr	r1		;assemble word here
+	mov	#3,r3		;get a counter
+10$:	mul	#40.,r1		;get the next digit
+	mov	#40$,r2		;get the states list
+20$:	movb	(r2)+,r4	;get the next offset
+	beq	30$		;forget it
+	bpl	20$		;skip range parameters
+	cmpb	(r2)+,(r0)	;check the range
+	bhi	20$		;its too low
+	cmpb	(r2)+,(r0)	;too high
+	blo	20$		;
+	add	r4,r1		;add in the offset
+	movb	(r0)+,r4	;accept the character
+	add	r4,r1		;add in the character
+30$:	dec	r3
+	bne	10$		;do another sign
+	pops	<r2,r3,r4>	;restore these
+	tst	r1		;say if we got anything
+	return
+
+40$:	.byte	-11,'%,'%,-15,'*,'*,-137,'_,'_
+.if ne lnx$c
+	.byte	28.-'?,'?,'?,27.-'$,'$,'$					;V4
+.endc
+50$:	.byte	-22,'0,'9,-100,'A,'Z,-140,'a,'z,0
+	.even
+.sbttl	character routines
+
+;	Convert to upper case
+; 
+;	r0 = 	character
+;	call	ut$cas
+;	r0 =	character converted to upper case
+;	c=0	character is alphabetic
+; 
+;	mer rcl rsi rte
+
+sx$cas::.enabl	lsb		;convert to upper case
+	psh	#10$		;return at 10$
+	psh	#<'z*256.>!'a	;check lowercase
+	br	30$		;check them
+10$:	bcs	20$		;not lower case
+	bic	#'a-'A,r0	;strip case
+20$:	psh	#<'Z*256.>!'A	;compare ascii
+	br	30$		;check limits
+sx$dig::psh	#<'9*256.>!'0	;check digit
+30$:	cmpb	r0,(sp)		;is it to low?
+	bcs	40$		;yes
+	cmpb	1(sp),r0	;is it too high?
+40$:	inc	(sp)+		;skip this
+50$:	return			;c=0 => within limits
+	.dsabl	lsb
+
+;	Skip alphanumeric characters
+; 
+;	r0 ->	asciz stream
+;	call	ut$ska
+;	r0 ->	next non-alphanumeric
+; 
+;	mna rsi - ??? remove
+
+sx$ska::psh	r1		;save this
+	mov	r0,r1		;get a pointer
+10$:	movb	(r1)+,r0	;get the next
+	call	sx$cas		;make it an upper
+	bcc	10$		;get another
+	call	sx$dig		;this a digit?
+	bcc	10$		;yes
+	dec	r1		;nope
+	mov	r1,r0		;
+	pop	r1		;
+	return
+.end
+

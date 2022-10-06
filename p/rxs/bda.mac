@@ -1,0 +1,172 @@
+.title	bda - build data
+.include "lib:rust.mac"
+.psect	bda d
+$endef		;environment
+$dedef		;device record
+$sbdef		;system build
+$undef		;unit record
+
+;	RUST/XM Environment data
+;
+;	%build
+;	macro	rxs:bda/object:rxb:bda
+;	%end
+;
+;	note - this data may only be referenced by environment and boot
+;	modules. It is not available after the system starts.
+;
+;	Check that we match the order in $ENDEF
+;
+series	en,word	 mod ops opv opu syg cfg cf2
+series	en,word,,tet tec tcs tve
+series	en,word,,cpp cpc cpi cpt cpr cpx cpf cpe
+series	en,word,,clk
+series	en,word,,mem mep meb mek mio
+series	en,word,,ers syh syu
+series	en,word,,bst kst,rr4,rr5,emu
+series	en,word,,bbs
+
+;
+e$nmod::.word	0	;operating mode (kernel/virtual)
+;
+;	Operating system
+;
+e$nops::.word	0	;operating system environment (see $endef)
+e$nopv::.word	0	;operating system version
+e$nopu::.word	0	;operating system update
+;
+;	RT-11 sysgen & config
+;
+e$nsyg::.word	0	;rt-11 sysgen (see $sgdef)
+e$ncfg::.word	0	;rt-11 config (see $cndef)
+e$ncf2::.word	0	;rt-11 confg2 (see $cndef)
+;
+;	System terminal
+;
+e$ntet::.word	0	;terminal type
+e$ntec::.word	0	;terminal numeric code
+e$ntcs::.word	0	;terminal csr
+e$ntve::.word	0	;terminal vector
+;
+;	CPU
+;
+e$ncpc::.word	0	;cpu numeric code
+e$ncpp::.word	0	;cpu processor (see $endef)
+e$ncpi::.word	0	;cpu internal code (see $endef)
+e$ncpt::.word	0	;cpu type - from mfpt
+e$ncpr::.word	0	;cpu revision - from mfpt
+e$ncpx::.word	0	;cpu extensions (see $endef)
+e$ncpf::.word	0	;cpu fingerprints (see $endef)
+e$ncpe::.word	0	;cpu expected fingerprints
+;
+;	Clock
+;
+e$nclk::.word	0	;clock status (see $endef)
+;
+;	Memory management
+;
+e$nmem::.word	0	;mmu options (see $endef)
+e$nmep::.word	0	;memory size in pages
+e$nmeb::.word	0	;memory size in blocks
+e$nmek::.word	0	;memory size in kwords
+e$nmio::.word	0	;i/o page page
+;
+;	System device handler
+;
+e$ners::.word	0	;error severity (see $esdef)
+e$nsyh::.word	0	;system handler (see $endef)
+e$nsyu::.word	0	;system device unit
+;
+;	Build file
+;
+e$nbst::.word	0	;build file status
+e$nkst::.word	0	;kmon status
+e$nrr4::.word	0	;runtime r4 (stb)
+e$nrr5::.word	0	;runtime r5 (shp)
+e$nemu::.word	0	;emulator 				;V4
+;
+;	Unordered data
+;
+;	Impure area for environment tests
+;
+e$ndum::.word	0	;general purpose dummy for tests
+e$nksp::.word	0	;saved kernel stack for some
+e$nbus::.blkw	4	;saved bus and cpu vectors
+e$ntim::		;time for clock-active check
+e$nhot::.word	0	;
+e$nlot::.word	0	;
+e$ndat::.word	0	;
+e$npsw::.word	0	;psw returned from traps
+e$nbub::.word	0	;buffer beginning
+e$nbue::.word	0	;buffer end
+e$nbut::.word	0	;buffer top
+
+;	Intermediate variables
+
+e$nout::.word	0		;used for conversion output
+e$nwsd::.word	0		;working set default
+e$nvds::.word	0		;vm_segs - corrected
+e$nkp6::.word	0		;par6_reserve - corrected
+e$nu22::.word	0		;unibus_22 specified
+e$nlim::.word	0		;memory_limit in kilowords
+e$nmkw::.word	0		;memory found in kilowords
+e$ndbg::.word	0		;kernel_debug flag
+				;
+e$nbfn::.rad50	/sy shape sys/	;build filename
+e$nhfn::.rad50	/            /	;system handler filename
+e$nsfn::.rad50	/sy rustx com/	;system command file
+				;
+e$nsfs::.ascii	/SY:RUSTX.COM/<0><0>	;used to apply it to p$rcmd
+	.even
+e$nhbs::.word	0		;system handler block size
+				;
+e$nsdr::.blkb	de.bbs		;system device record
+e$nsur::.blkb	un.bbs		;system device unit record
+e$nsbr::.blkb	sb.bbs		;system build record
+.sbttl	boot & build
+
+b$oads::.word	sbadd.		;ad default count
+b$otps::.word	sbtpd.		;tp default count
+b$otbs::.word	sbtbd.		;tb default count
+;
+;	Build data
+;
+b$uare::.blkw	5		;area
+b$usts::.word	0		;build status
+b$uerl::.word	0		;error level ($esdef)
+b$uers::.word	0		;error status ($esdef)
+b$uscc::.word	0		;scca control
+;
+map	busha$,,200		;RUST/XM is in control (rt-11 is gone)
+;
+;	Boot data from host
+;
+b$otim::.blkw	2		;boot time
+b$odat::.word	0		;boot date
+b$ocfg::.word	0		;boot config
+b$ocf2::.word	0		;confg2
+b$osyg::.word	0		;sysgen
+b$osyi::.word	0		;sy index
+b$osyu::.word	0		;sy unit
+b$osys::.word	0		;system device name
+b$over::.byte	0		;version
+b$oupd::.byte	0		;update
+b$omes::.word	0		;memory size (v5 only)
+;
+b$ort::	.word	0		;<> => rt-11 gone
+;
+;	Build data
+;
+s$ychr::.word	0		;system chr (bpo/bpr)
+s$yunr::.word	0		;system unr - (bde/bke/bpo)
+t$tunr::.word	0		;tt unr (bde/bpo)
+n$lunr::.word	0		;nl unr (bde/bpo)
+v$munr::.word	0		;vm unr (bde/bpo)
+;
+b$uacp::.word	0		;acp overlay page address
+b$uutp::.word	0		;utl overlay page address
+b$uvdp::.word	0		;vm directory page address
+b$uhap::.word	0		;system handler page address
+;
+.end
+

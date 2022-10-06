@@ -1,0 +1,310 @@
+.title	sdp - delete process
+.include "lib:rust.mac"
+.psect	sdp d
+$dedef		;device
+$erdef		;errors
+$fndef		;filename
+$qudef		;queues
+$rpdef		;rp
+$prdef		;pcr
+$sidef		;signal
+$tedef		;terminal
+$undef		;unit
+
+;	RUST/XM delete process
+;
+;	%build
+;	macro	rxs:sdp/object:rxb:sdp
+;	%end
+;
+;	Process deletion takes place in three stages:
+;
+;	Post	$delprc	Set delete-pending and trigger abort signal.
+;			May be issued by any process.
+;			Common system service in smi.mac.
+;	Deliver	ab$prc	Deliver abort signal to process.
+;			Process exits, cleans up, issues $remprc.
+;			Handled by the victim process.
+;	Remove	$remprc	Delete subprocesses. Wait till all deleted.
+;			Convert to logout if permanent process.
+;			Remove process structures otherwise.
+;			Write accounting record.
+;			Handled by system process.
+;
+;	An alternate entry point is made to remove a process that was
+;	partially created but that cannot be completed.
+;
+
+;	In this module:
+;
+;	pr$epr		Elide processes.
+;	pr$rpr		Remove process.
+.sbttl	delete process service
+
+;	$delprc	area pid prn
+;
+; p0	pid.da	pid address
+; p1	prn.da	process name address
+;
+;	Called in process context.
+;
+;	r4 ->	pcr of target process
+;
+;	Scheduler is blocked on entry exit with error or cmpro$
+;
+;	0	no such process
+;	1	missing rights
+;
+;	Refuse to remove null or kernel process.
+;	Set delete status, post abort.
+
+	assume	prnln. eq 0		;null process id
+	assume	prsyn. eq 1		;kernel process id
+ss$dpr::cmpb	pr.pid(r4),#prsyn.	;this null or kernel?
+	bhi	10$			;fine
+	.soft	1			;missing rights
+
+10$:	bit	#prrem$,pr.sta(r4)	;already removing?
+	bne	20$			;yes - dont interrupt it
+	bic	#prsus$,pr.sta(r4)	;clear suspend
+	bis	#prabt$!prdel$!prwak$,pr.sta(r4) ;set delete
+	mov	#siabt$,r0		;signal abort
+	call	as$pms			;post monitor signal
+20$:	$cmpro				;back to process mode
+	return
+.sbttl	remove process service
+
+;	$remprc	area
+;
+;	Called by image-exit code of process to be removed.
+;	May only be called from kernel mode.
+;	PR$REM (later in this module) completes the task in the system process.
+;
+;	erusr.	access mode error - not kernel
+;
+;	Make sure its coming from the kernel.
+;	Detach terminal back to root.
+;	Deallocate resources
+;	Deassign process SY: assignment
+;	Delete all subprocesses.
+;	Set remove status and signal system proces.
+; ???	Suspend
+;	Force logout if delete!remove is cleared.
+; ???	Remove debugger
+;
+;	r4 ->	pcr
+;	r5 ->	rp
+
+ss$rpr::mov	p$hpcr,r4	;get our pcr
+	tst	rp.ps(r5)	;kernel only
+	bpl	5$		;fine
+	.hard	erusr.		;access mode error
+
+;	Detach terminal back to root
+
+5$:	mov	pr.ter(r4),r3	;get the terminal
+	beq	10$		;it has none
+	movb	te.roo(r3),r1	;get the root
+	beq	10$		;is none
+	cmpb	r1,pr.prn(r4)	;is this us?
+	beq	10$		;yes
+	psh	r1		;setup PID pointer
+	$attach	#s$mare,sp,#0, #0 ;no - get rid of it
+	tst	(sp)+		;drop PID
+
+; 	Delete subprocesses
+
+10$:	call	ss$rpa		;remove process allocations
+	call	sy$cms		;get the system process
+	clr	p$hset		;stop all terminal functions
+	bis	#prabt$!prdel$!prrem$,pr.sta(r4) ;force delete & remove
+	bis	#prabt$!prdel$!prrem$,p$hsta ;force delete & remove
+	tstb	pr.cnt(r4)	;got any subprocesses?
+	beq	40$		;no - we can remove
+	mov	#p$rprs,r2	;get the process list
+	mov	(r2)+,r1	;get the count
+20$:	mov	(r2)+,r3	;get the next
+	beq	30$		;not in use
+	cmp	r3,r4		;is this us?
+	beq	30$		;yes
+	cmp	pr.own(r3),r4	;is this one of ours?
+	bne	30$		;no
+	$delprc	#p$hare, pr.pid(r3), #0 ;yes - delete it
+30$:	sob	r1,20$		;keep doing them
+
+;	Wait for executioner
+;
+;	System process is responsible for calling SY$CMP.
+;	Theoretically control does not return here unless
+;	the process is a permanent LOGIN process (not yet implemented).
+
+40$:	call	sy$cms		;get system again for repeats
+	inc	s$mdel		;signal processes to delete
+	call	sy$wak		;wake system process
+	.spnd			;and pause
+	mov	p$hpcr,r4	;get this back
+	bit	#prdel$!prrem$,pr.sta(r4) ;still deleting?
+	bne	40$		;yes - keep waiting
+
+;	Reprieved - logout
+
+	mov	#100$,r0	;force feed a logout
+	mov	#p$hclr,r1	;set cli logout
+60$:	movb	(r0)+,(r1)+	;move it in
+	bne	60$		;
+	.exit			;and quit
+100$:	.asciz	&_log&		;logout avoiding user symbols
+	.even
+.dsabl	lsb
+.sbttl	remove process allocations
+
+;	Deallocate resources
+;
+;	Executes in context of process
+;
+;	Terminal root and foreground
+;	Allocated devices
+; ???	Deassign process SY: assignment
+; ???	Deassign process assignment paths
+;
+;	Remove all terminal references 
+;
+;	r4 ->	pcr
+;	r5 ->	rp
+
+ss$rpa:				;remove process allocations/assignments
+	mov	#t$etes,r0	;r0 -> terminals
+	mov	(r0)+,r1	;r1 = terminals
+10$:	mov	(r0)+,r3	;get the next
+	beq	20$		;not installed
+	cmpb	te.roo(r3),pr.prn(r2) ;is this us?
+	bne	15$		;no
+	clrb	te.roo(r3)	;yes
+15$:	cmpb	te.fgd(r3),pr.prn(r2) ;is this us?
+	bne	20$		;no
+	clrb	te.fgd(r3)	;yes
+20$:	sob	r1,10$		;done
+
+;	Deallocate devices
+
+	mov	#d$edes,r0	;r0 -> devices
+	mov	(r0)+,r1	;r1 = device count
+30$:	mov	(r0)+,r2	;r2 = device
+	beq	60$		;not loaded
+	psh	r1		;save device count
+	add	#de.unm,r2	;r2 -> device map
+	mov	#8.,r1		;r1 = units
+40$:	mov	(r2)+,r3	;get next unit
+	beq	50$		;not loaded
+	cmpb	pr.prn(r4),un.own(r3) ;owned?
+	bne	50$		;no
+	bic	#unalc$,un.con(r3) ;yes
+	clrb	un.own(r3)	;deallocate it
+50$:	sob	r1,40$		;more
+	pop	r1		;device count
+60$:	sob	r1,30$		;more devices
+	return
+.sbttl	elide processes
+
+;	Elide processes
+;
+;	Kernel routine
+;
+;	Called to look for processes to elide.
+;	
+;	If process has delete!remove and pr.own=0 elide it.
+;	Check all processes to avoid hanging entire system if
+;	a process refuses to delete.
+;
+;	Do not use a recursive algorithm here.
+;
+;	This routine is called by a process that has obtained ownership
+;	of the system queue. Its PCR address is stored at S$YQUE+QU.PCR.
+;	After we complete here that process will no longer exist.
+;	Thus we place our PCR address (i.e. of the system process) in
+;	its place in S$YQUE+QU.PCR.
+
+pr$eli::			;elide processes
+	mov	p$hpcr,s$yque+qu.pcr ;steal system queue
+10$:	clr	s$mdel		;catch any that come later
+	call	100$		;get the next
+	bcs	20$		;no more
+	call	pr$rem		;got one - remove it
+	br	10$		;and look again
+20$:	dec	s$mdel		;was that the last?
+	bpl	10$		;no - go again
+	callr	sy$cmp		;free system resource
+
+;	Look for a removable process
+
+100$:	mov	#p$rprs,r2	;point to them
+	mov	(r2)+,r1	;count them
+110$:	mov	(r2)+,r4	;get the next
+	beq	120$		;not in use
+	bit	#prrem$,pr.sta(r4) ;is it already deleted?
+	beq	120$		;no
+	tstb	pr.cnt(r4)	;got any subprocesses?
+	beq	130$		;c=0 => delete this one
+120$:	sob	r1,110$		;look for more
+	sec			;c=1 => none found
+130$:	return
+.sbttl	destroy process
+
+;	Destroy process
+;
+;	Kernel routine
+;
+;	The final step is to destroy the process structures.
+;
+;	This routine is also called to destroy a partially built
+;	process when an error is detected by create process.
+;
+; ???	Check all terminals linked to this process number.
+
+pr$rem::			;remove process
+	tst	r4		;do we have a pcr?
+	beq	40$		;no
+
+;	Get rid of the terminal
+
+	$cmsch			;stop the scheduler
+	mov	pr.ter(r4),r3	;make sure we lose it
+	beq	10$		;we lost it
+	clr	pr.ter(r4)	;delete it here
+	clr	te.pcr(r3)	;disconnect us
+	clrb	te.roo(r3)	;and its root
+	clrb	te.fgd(r3)	;and its foreground
+
+;	Clear out the process map
+
+10$:	remque	r4		;remove it from its queue
+	movzbw	pr.prn(r4),r0	;get the slot number
+	beq	40$		;we did not get one
+	asl	r0		;get word offset
+	clr	p$rmap(r0)	;purge slot
+
+;	Delete the channel record
+
+	mov	pr.chr(r4),r0	;get the channel record
+	beq	20$		;does not have one
+	$delpo	r0		;delete it
+
+;	Delete the body file
+
+20$:	$cmpro			;
+	movb	pr.prn(r4),r0	;get the process number
+	call	pr$nam		;build its name
+	mov	r0,p$rdel+fn.nam;setup the filename
+	.purge	#0		;get a channel
+	.fprot	#p$rare,#0,#p$rdel,#0 ;unprotect the body file
+	.delet	#p$rare		;delete any previous body
+				;ignore errors
+;	Delete the pcr record
+
+	$cmsch			;stop the scheduling
+	$delpo	r4		;delete the pcr
+
+40$:	$cmpro			;done
+	return
+.end
+

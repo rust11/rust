@@ -1,0 +1,848 @@
+V4=0
+bugchk=1
+.title	mer
+.include "lib:rust.mac"
+.psect	mer d
+$emdef		;emt
+$erdef		;error
+$fedef		;feature
+$fndef		;filename
+$jbdef		;rt-11 job
+$mmdef		;mmu
+$rpdef		;rp
+$prdef		;pcr
+$psdef		;ps
+$sedef		;process sets
+$tedef		;terminal
+$txdef		;text
+$vedef		;vectors
+$vpdef		;vector packet
+
+meta	<type c><jsr r2,er$typ><.asciz _c_><.even>
+
+;	RUST/XM status & errors
+;
+;	%build
+;	macro	rxs:mer/object:rxb:mer
+;	%end
+;
+;	There are four mechanisms for reporting errors:
+;
+;	rp.err		reports a global error code
+;	.soft	code	
+;	.hard	code	
+;	em$rep		reports an unconditional error in r0
+;
+;	.soft	par=r0	reports error in r0
+;	.error	cod, sev, str, itm
+;
+;	360:370		soft errors 0 thru 10
+;	371		reserved
+;	372		error in r0
+;
+;	373		RUST/XM emts
+;	374		rt-11
+;	375		rt-11
+;	376		hard errors
+;	377		rsx
+;
+;	Errors are handled in three ways:
+;
+;	client errbyt	client errors
+;	monitor p$herr	monitor errors
+;	abort		fatal & unconditional error conditions
+;
+;	Trap errors
+;
+;	Kernel and process errors come here to be reported.
+;	A kernel trap error may or may not cause a system crash.
+;	A process trap error always causes a process abort.
+;
+;	All errors should be reported with a system call so that trace
+;	can get hold of them. We need a call that reports errors in r0.
+;
+;	Global entry points:
+;
+;	er$sof	soft
+;	er$har	hard
+;	em$erx	em$err
+;	er$dix	er$dis
+;
+;	DB	uses some others. In same overlay.
+;	TR	uses some others. In same overlay.
+.sbttl	.hard & .soft
+
+;	.hard	code
+; 
+;	emt	376
+;	.byte	0,ovl.		;rt-11 overlay
+;	.byte	v1,0		;RUST/XM V1 status
+; ???	.byte	v2,100!v1	;RUST/XM V2 + V1 code
+; 
+;	Usermode .HARD always aborts process - catchs overlay handler.
+;	ACP overlay code - exit via em$exi to reset par1.
+;	Scheduler may be blocked - unblock it
+; 
+;	r3 =	error code (from rp.p0)
+
+er$har::cmp	r3,#erovl.*256.		;is this the overlay handler?
+	bne	10$			;no
+	swab	r3			;yes
+	clr	p$hser			;overlay errors always abort
+10$:	fall	er$sof			;continue
+
+;	report soft error
+; 
+;	.soft	code
+; 
+;	emt	360!code
+; 
+;	r3 =	error code (from rp.r0)
+
+er$sof::mov	rp.orp(r5),r5		;backup to previous frame
+	bne	10$			;we have one
+	mov	p$hcrp,r5		;no rp - use current instead
+					;
+10$:	cmp	r3,#12			;is this the error reporting case
+	beq	40$			;yes
+					;
+30$:	movb	r3,rp.err(r5)		;put in the error code
+40$:	mov	r5,p$hcrp		;and store it
+	br	er$gen			;
+
+;	EMT error exit
+; 
+;	rp.err	error code
+; 
+;	All these errors set the cbit
+
+em$erx::				;generic error handler
+	bit	#settr$,p$hset		;are they tracing?
+	beq	10$			;no
+	tst	f$emap+<fetra.*word> 	;is trace installed?
+	beq	10$			;no
+	movb	rp.err(r5),r0		;yes - report it
+	emt	372			;report it - .soft 12
+10$:	fall	er$gen			;report the error
+
+;	All error paths converge here
+; 
+;	rp.err	error code
+
+er$gen:	mov	p$hcrp,r5		;get back the request packet
+	mov	r5,sp			;pop off all their stuff
+	$cmpro				;force back to scheduler mode
+	movb	rp.err(r5),r0		;get the error code
+
+;	Kernel & client errors
+
+10$:	movb	r0,p$herr		;save error status
+	bis	#cbit,rp.ps(r5)		;set the error bit
+	bpl	60$			;it is a kernel error
+
+;	Client error
+
+20$:	bis	#mmpum$,@#ps		;force mapping back to them
+					;
+	cmpb	r0,#erbus.		;is this a bus error?
+	bne	30$			;no
+	mov	p$htrp,r1		;got a handler?
+	bne	50$			;yes - give a trap to four
+					;
+30$:	mfpd	@#j$berr		;get their jsw
+	movb	r0,(sp)			;setup the error
+	mtpd	@#j$berr		;and set it
+					;
+	tstb	r0			;this a fatal error?
+	bpl	60$			;no - exit EMT
+	tst	p$hser			;are they handling them?
+	bne	60$			;yes
+
+;	Report fatal error
+
+40$:	call	er$rep			;report error
+	cmpb	r0,#erctt.		;this [ctrl/t] code?
+	beq	60$			;yes - non-fatal
+	bis	#prabt$,p$hsta		;and force an abort
+	.exit				;and quit
+
+;	Pass bus error back to user service routine
+; 
+;	These are detected by peek/poke etc. RT-11 dispatchs
+;	a trpset routine but does not supply a good return path for
+;	the service routine (it rti's back into the monitor code).
+;	RUST/XM supplies a good path for those interested in such.
+;	TRACE also reports these errors.
+; 
+;	r1 =	p$htrp
+
+50$:	clr	p$htrp			;once only
+	mfpd	sp			;get the stack
+	mov	(sp),r2			;r2 -> user stack
+	sub	#word*2,(sp)		;adjust for pc/ps
+	mtpd	sp			;put it back
+	movtd	rp.ps(r5),-(r2)		;push the old ps
+	movtd	rp.pc(r5),-(r2)		;and the old pc
+	mov	r1,rp.pc(r5)		;point to the routine
+60$:	jmp	em$exi			;and quit back to them
+.sbttl	report message
+
+;	Report any message.
+;
+;	This handles all system messages and system terminal output.
+;	It reports kernel & process conditions and general messages.
+;	It is also called by features.
+;
+;	er$rep		Reports the message in rp.err
+;	er$dis		Reports the message in r0
+;
+;	Error messages are token driven. This costs a little more space.
+;	However, it permits us to report process & kernel messages with
+;	a single set of routines - which saves more space.
+;
+;	?FACILITY-F-message IMAGE location filespec
+;
+;	ep.flg	byte	flags
+;	ep.lst	byte	last character
+;	ep.fil		fill character
+;	ep.bas		numeric base
+;	ep.out		output routine
+;
+;	Called here from er$rep or er$dis in MSY.
+;
+;	r0 =	negative error code
+;	r1 =	value perhaps
+
+er$dix::			;display item in r0
+	save			;save all registers
+	mov	#e$rpos,r2	;assume a positive code
+	tstb	r0		;is this positive?
+	bpl	20$		;yes
+	cmpb	r0,#ermax.	;is this the maximum code?
+	bhis	10$		;yes (this is a negative number)
+	movb	#ermax.,r0	;no
+10$:	neg	r0		;get a code
+	mov	#e$rmes,r2	;point to the messages
+20$:	call	er$fnd		;and find it
+	fall	er$mes		;
+
+;	r2 ->	message string
+;	r4 =	pc
+
+er$mes:				;display a message
+	psh	#te$put		;ep.out - output routine
+	bit	#vefat$,s$ycra	;have we crashed?
+	beq	5$		;no
+	mov	#te$cpt,(sp)	;yes - use system console
+5$:	clr	-(sp)		;ep.bas - no base
+	clr	-(sp)		;ep.fil/sgn - no fill or sign
+	clr	-(sp)		;ep.col/flg - no column or flags
+	mov	sp,r4		;point to it
+10$:	cmp	r2,#e$rpos	;is this a simple thing?
+	bhis	20$		;yes
+	call	er$new		;get a newline
+	cmpb	(r2)+,#'!	;this got its own prefix?
+	beq	20$		;yes
+	dec	r2		;no
+	type	<?RUST-F->	;the question mark
+20$:	call	er$tok		;display the message
+	cmp	r2,#e$rpos	;is this a positive code?
+	bhis	30$		;yes
+	call	er$new		;get a newline
+30$:	cmp	ep.out(r4),#er$put ;is this a record?
+	bne	40$		;no
+	clr	r0		;yes - we need a null
+	call	er$out		;
+40$:	add	#ep.bbs,sp	;clean up the stack
+	return			;and quit
+.sbttl	interrupt tokens
+
+;	Interpret the tokens
+;
+;	r0	free
+;	r1	free
+;	r2 ->	token list
+;	r3	free
+;	r4 ->	ep
+;	r5 ->	rp
+
+er$tok:				;token loop
+10$:	movb	(r2)+,r0	;get the next
+	beq	80$		;all over
+	bmi	30$		;not a printable
+	tstb	(r4)		;is this the first of them?
+	bmi	20$		;nope
+	bis	#eplow$,(r4)	;remember we got the first one
+	call	ut$cas		;yes - make it upper case
+20$:	call	er$out		;display it
+	tstb	(r2)		;got another?
+	bpl	10$		;yes - or the end
+25$:	call	80$		;display a space perhaps
+	br	10$		;and get the next
+
+30$:	neg	r0		;make it positive
+	cmpb	r0,#erslp.	;is this a slip?
+	bhis	40$		;yes
+	asl	r0		;nope
+	call	@e$rtsk(r0)	;call the routine
+	br	25$		;space and the next
+
+40$:	psh	r2		;save this
+	sub	#erslp.,r0	;backoff
+	mov	#e$rslp,r2	;get the dictionary entries
+	call	er$fnd		;find the slip
+	call	er$tok		;call ourselves back
+	pop	r2		;restore this
+	br	10$		;and get the next
+80$:	cmp	r2,#e$rpos	;this just data?
+	bhis	100$		;yes
+	cmpb	ep.lst(r4),#'=	;was the last '='?
+	beq	100$		;yes - don't space
+	cmpb	ep.lst(r4),#'-	;or '-'?
+	bne	90$		;no
+	bicb	#eplow$,(r4)	;yes - cap the next
+	br	100$		;
+90$:	type	< >		;a trailing space
+100$:	return			;done
+
+;	Find an error message
+;
+;	r0	message code
+;	r2	message list
+;
+;	Message list starts with a null byte
+
+er$fnd:				;find the n'th message
+10$:	tstb	(r2)+		;nope - skip to next
+	bne	10$		;more
+	decb	r0		;is this it?
+	bpl	10$		;nope
+	return			;
+.sbttl	report tasks
+
+et$pus:	mov	#er$pus,ep.out(r4) ;put string - no zero terminator
+	return
+et$put:	mov	#er$put,ep.out(r4) ;return data to user
+	return
+et$rep:
+.if eq bugchk
+	return
+.iff
+;	?RUST-F-Fatal system halt
+;	code	vector	pid	op1
+;	r0	r1	r2	r3
+;	r4	r5	pc	ps
+;	sp	+0	+2	+4
+
+	psh	r2		;save this
+	mov	p$hprn,rp.p2(r5);store pid for message
+	mov	r5,rp.p3(r5)	;store stack address
+	add	#rp.bbs,rp.p3(r5) ;
+	mov	#100$,r3	;point to codes
+10$:	call	er$new		;newline
+20$:	movb	(r3)+,r2	;get the next
+	beq	70$		;all done
+	bmi	10$		;new line
+	add	r5,r2		;add in base address
+	bic	#1,r2		;clean up address
+	movb	(r3)+,(r5)	;get the counter
+30$:	mov	(r2)+,r1	;get the value
+	bvs	50$		;invalid address
+40$:	call	et$oct		;display the number
+	br	60$		;tab and repeat
+50$:	type	<?>		;invalid address
+60$:	type	<	>	;next column
+	dec	(r5)		;count them
+	bne	30$		;more
+	br	20$		;next field
+70$:	pop	r2		;restore that
+	return			;
+				;
+100$:	.byte	rp.p0,3,rp.op1,1;
+	.byte	-1,rp.r0,4	;
+	.byte	-1,rp.r4,4	;
+	.byte	-1,rp.p3,1,rp.bbs,3 ;
+	.byte	-1,0		;
+	.even			;
+.endc
+
+et$loc:				;report location
+	mov	rp.pc(r5),r1	;get the location
+	br	et$oct		;and display it
+
+et$vun:	call	et$vec		;report the vector
+et$brk:	call	er$new		;put out a newline
+	clr	s$ycra		;turn off the crash
+	mov	r5,p$hcrp	;finish off setup
+	jmp	em$exi		;and exit stray interrupt
+
+et$fpu:	mov	p$hfea,r1	;get the address
+	br	et$oct		;and show it
+
+et$prn:				;process number
+	movb	p$hprn,r1	;get the process number
+	mov	#100000,ep.fil(r4) ;fill with zeroes
+	call	er$oct		;display it
+	clr	ep.fil(r4)	;clean up
+	return
+
+et$ten:	mov	p$hter,r0	;get the terminal
+	beq	10$		;it has none
+	add	#te.nam,r0	;point to the name
+	call	er$r5p		;display it
+	type	<:>		;
+10$:	return
+
+.enabl	lsb
+et$nam:				;filename in acp block
+	mov	#a$pfna,r0	;point to the name
+	tst	(r0)		;got a name?
+	beq	20$		;nope
+	call	er$r5p		;type the device
+	type	<:>		;
+	tst	(r0)		;got a name?
+	beq	20$		;nope
+	call	er$r52		;display two
+	type	<.>		;
+	br	er$r5p		;display the last
+
+et$ndn:				;node name
+	mov	#s$ynod,r0	;get the node name
+	br	et$r52		;
+
+et$imn:				;image name
+	bit	#primg$,p$hsta	;got an image at present?
+	beq	10$		;no - must be dcl
+	mov	#p$himg+fn.fil,r0 ;display image name
+	br	et$r52		;display two rad50
+10$:	type	<(DCL)>		;put one in
+20$:	return
+.dsabl	lsb
+
+et$ion:	mov	p$hdio+2,r1	;direct i/o
+	add	p$hbio+2,r1	;add in buffered i/o
+	br	et$num		;display it
+
+et$men:	mov	p$hpcr,r1	;memory size in pages
+	mov	pr.len(r1),r1	;get the number of pages
+	clr	r0		;
+	div	#mmpib.,r0	;get the number of blocks
+	mov	r0,r1		;
+et$num:	br	er$num		;and display it
+
+et$vec:				;report vector
+	mov	rp.p1(r5),r1	;get the vector
+et$oct:	br	er$oct		;display it
+
+et$tap:	mov	#e$tgtm,r0	;get time and show process name
+	emt	375		;pickup the time
+et$prm:				;process name
+	mov	p$hpcr,r0	;point to pcr
+	add	#pr.nam,r0	;point to the name within
+et$r52:	br	er$r52		;display it
+.sbttl	device, name and rad50
+
+;	Device name
+
+er$dev: mov	e$rdev,r1	;get the device name
+	call	er$r50		;the device
+	type	<:>		;do the colon
+	return
+
+;	Radix 50
+
+et$r5l:				;rad50 in lower case
+	bisb	#epr5l$,(r4)	;set the flag
+	br	er$r50		;join common
+er$r52:	call	(pc)		;do it twice
+er$r5p:	mov	(r0)+,r1	;get the next
+et$r50:				;r1 = rad50
+er$r50:	pshs	<r5,r0>		;save them all
+	mov	#100$,r5	;get the divisors
+20$:	mov	#-1,r0		;init the result
+	cmp	#174777,r1	;is it an *
+	blo	50$		;yep
+30$:	inc	r0		;next character
+	sub	(r5),r1		;this it?
+	bcc	30$		;nope
+	add	(r5),r1		;bump back
+
+	tst	r0		;a null?
+	beq	90$		;yep, forget it
+	cmp	#33,r0		;nah?
+	blo	70$
+	beq	80$
+	bitb	#epr5l$,(r4)	;do they want lower case?
+	beq	50$		;no
+	add	#'a-'A,r0	;yes - get lower case
+50$:	add	#56,r0
+70$:	add	#11,r0
+80$:	add	#11,r0
+	call	er$out		;display it
+90$:	tst	-(r5)		;any more?
+	bne	20$		;yep
+95$:	pops	<r0,r5>		;restore it
+	return
+	.word	0,1,50
+100$:	.word	50*50
+.sbttl	decimal, octal, value
+
+;	octal/decimal/hexadecimal
+;	signed, unsigned
+;	nofill, fill-space, fill-zero
+;
+;	decimal
+
+et$dec:
+er$dec:	call	er$num		;get a decimal
+	type	<.>		;put out a dot
+	fall	er$num
+
+er$num:				;decimal without a dot
+	mov	#e$rb10,ep.bas(r4) ;decimal base
+	br	er$val		;
+
+;	octal
+
+er$oct:	mov	#e$rb08,ep.bas(r4) ;set up the base
+	fall	er$val		;display it
+
+;	value
+;
+;	ep.bas	e$rdec or e$roct
+;	ep.sgn	0=> unsigned
+;	ep.fil	0=> no fill, N=> fill when below N
+
+er$val:	save			;save them all
+	mov	ep.fil(r4),r3	;get the filler
+	mov	ep.bas(r4),r5	;get the exponents
+	bitb	#epsgn$,(r4)	;is this signed?
+	beq	10$		;nope
+	tst	r1		;a negative number?
+	bpl	10$		;nope
+	neg	r1		;yep, make it positive
+	type	<->		;and dump a minus sign
+				;
+10$:	clr	r0		;clear high order
+	div	(r5)+,r0	;get the next digit
+	bpl	15$		;positive reply
+	neg	r0		;adjust special case 1ooooo/100000
+15$:	bne	20$		;yes - digits from now on
+	cmp	r3,(r5)		;should we fill?
+	blo	40$		;no
+20$:	mov	#-1,r3		;get all remaining digits
+30$:	add	#'0,r0		;make a digit
+	call	er$out		;and display it
+40$:	tst	(r5)		;any more to do ?
+	bne	10$		;yes
+	return
+
+e$rb10:	10000.,1000.,100.,10.,1,0
+e$rb08:	100000,10000,1000,100,10,1,0
+.sbttl	time
+
+;	Time display
+;
+;	r0,r1	time in ticks (50 or 60 herz)
+;
+;	First divide must extract seconds since word quotient required
+
+e$tgtm:	.word	emgtm.*256.	;gtim
+	.word	p$htim		;
+
+.enabl	lsb
+et$cpn:				;cpu time
+	psh	r2		;save it
+	psh	#-1		;display the ticks
+	mov	#p$hcpu,r2	;point to cpu time
+	br	10$		;join the common stuff
+et$tim:				;report the time
+	psh	r2		;save it
+	mov	#p$htim,r2	;point to the time
+	clr	-(sp)		;forget the ticks
+10$:	mov	(r2)+,r0	;high order
+	mov	(r2),r1		;low order
+
+	mov	t$ifre,r3	;compute second factor
+	mul	#60.,r3		;r3 = seconds factor
+
+	div	r3,r0		;extract seconds
+	mov	r0,r2		;r2 = minutes/hours
+	clr	r0		;
+	div	t$ifre,r0	;get ticks & seconds
+	psh	r1		;ticks
+	psh	r0		;seconds
+	clr	r0		;
+	mov	r2,r1		;minutes/hours
+	div	#60.,r0		;
+	psh	r1		;minutes
+	psh	r0		;hours
+	mov	#3,r2		;count again
+	br	30$		;do another
+20$:	type	<:>		;separator
+30$:	pop	r1		;
+	mov	#1.,ep.fil(r4)	;fill below 99.
+	call	er$num		;display it
+	sob	r2,20$		;count them
+	pop	r1		;get the ticks
+	tst	(sp)+		;should we display them?
+	beq	50$		;no
+	type	<.>		;yes
+
+	mul	#100.,r1	;*100
+	clr	r0		;clear the high order
+	div	t$ifre,r0	;/frequency
+	asl	r1		;round it up
+	cmp	r1,t$ifre	;this a half a point?
+	blo	40$		;no
+	inc	r0		;yes
+40$:	mov	r0,r1		;get the quotient
+	call	er$num		;and display them
+50$:	clr	ep.fil(r4)	;remove the fill
+	pop	r2		;
+	return
+.dsabl	lsb
+.sbttl	type, dump, character
+
+;	meta	<type c><jsr r2,er$typ><string <c>>
+;	meta	<print c><jsr r2,er$typ><string <c>,0>
+
+er$typ:	call	er$dmp		;dump it first
+	rts	r2		;and quit
+
+;	New line
+
+et$new:
+er$new:	jsr	r2,er$typ	;newline
+	.byte	cr,lf,200,0	;
+	return
+
+;	r2 ->	string
+
+er$dmp:				;dump the string in r2
+	psh	r0		;save this
+10$:	movb	(r2)+,r0	;get the next
+	bit	#177,r0		;this the end of the string?
+	beq	20$		;yes
+	call	er$out		;dump it
+	br	10$		;get another
+20$:	inc	r2		;even up
+	bic	#1,r2		;
+	pop	r0		;
+	return
+
+;	output character
+;
+;	r0 =	character
+
+er$out:				;single character out
+	movb	r0,ep.lst(r4)	;remember the last character
+	jmp	@ep.out(r4)	;call the routine
+
+er$pus:	nop			;sic] required for terminator check
+er$put:	pshs	<r5,r1>		;save them
+	mov	p$hcrp,r5	;get the rp
+	mov	rp.exc(r5),r1	;get the address
+	inc	rp.exc(r5)	;step past it
+	call	mm$prb		;return a byte to the user
+	pops	<r1,r5>		;
+	return			;
+.sbttl	error message data
+
+;	+---------------------------------------+
+;	! Assemble KVE when this list changes	!
+;	+---------------------------------------+
+;
+;	.asciz	_message_
+;
+;	neg	negative bytes indicate slip or task.
+;	slip	A word from the slip table.
+;	task	A message task.
+
+meta	<error c d e><assume er'c'. eq $><$=$-1><e$r'c: .asciz __d__>
+
+;-----------------------------------------------;
+; negative error codes				;
+;-----------------------------------------------;
+;
+e$rmes:	.byte	0			;error messages
+	.byte	0			;error zero is unused
+$=erusr.				;starting value
+error	usr	<<inv>_access mode_<loc>> ;Invalid access mode (USR)
+error	ndv	<<inv><dev><nam><loc>>	;No device
+error	dio	<<dir>_I/O_<err><nam><loc>> ;Directory I/O error
+error	fet 	<_Fetch_<err><nam><loc>>;Fetch error DEV: location
+error	ovl	<_Overlay_<err><loc>>	;Overlay error location
+error	ful	<<dir><ful><nam><loc>>	;Directory full DEV: location
+error	adr	<<inv><adr><loc>>	;Invalid address location
+error	chn	<<inv>_channel_<loc>>	;Invalid channel location
+.if ne V4
+error	emt	<<inv>_system call_<loc>> ;Invalid system call location
+.iff
+error	emt	<<inv>_EMT_<loc>>	;Invalid EMT location
+.endc
+error	bus	<<trp>_4_<loc>>		;Trap to 4 location
+error	cpu	<<trp>_10_<loc>>	;Trap to 10 location
+error	din	<<inv><dir><nam><loc>>	;Invalid directory DEV: location
+error	unl	<_Unloaded handler_<loc>>;Unloaded handler location
+error	fpu	<_FPU_<err><fpu>>	;FPU error location
+error	mem	<<mem><err>>		;Memory error location
+error	mmu	<_MMU_<err><loc>>	;MMU error location
+error	sst	<_SST_<err><loc>>	;SST error location
+error	ovr	<>			;Unused alternate for overlays
+error	sp0	<>			;spares for rt-11
+error	sp1	<>			;
+error	sp2	<>			;
+error	sp3	<>			;
+error	sp4	<>			;
+;
+; CSI errors
+;
+error	com	<<inv>_command_>	;Invalid command
+error	dev	<<inv><dev><nam>>	;Invalid device DEV:
+error	pro	<_protected_<fil><nam>>	;Protected file DEV:
+error	dvf	<<dev><ful><nam>>	;Device full DEV:
+error	fil	<<fil>_not found_<nam>>	;File not found DEV:
+;
+; CLI errors
+;
+error	ism	<<ins><mem><nam>>		;Insufficient memory DEV:
+error	img	<<inv><img><nam>>		;Invalid image DEV:
+error	ioe	<_I/O_<err><nam>>		;I/O error DEV:
+error	sta	<<inv>_start_<adr><nam>>	;Invalid start address DEV:
+;
+; Vector errors
+;
+error	usp	<<inv>_user_<stk>>		;Invalid user stack
+error	ksp	<<inv><ker><stk>>		;Invalid kernel stack
+error	bug	<<ker>_bugcheck_<vec>>		;Kernel bugcheck vector
+error	unv	<_Stray interrupt_<vun>>	;Stray interrupt vector
+error	pow	<_power restart_>		;Power restart
+error	bpt	<<inv>_BPT_<loc><brk>>		;BPT without vector
+error	iot	<<inv>_IOT_<loc>>		;IOT without vector
+error	trp	<<inv>_TRAP_<loc>>		;TRAP without vector
+;
+; System errors
+;
+error	acp	<_ACP_<err><nam>>		;ACP callback error
+error	uns	<<dir>_unsafe_<nam>>		;directory unsafe
+error	acr	<_missing rights_>		;missing rights
+;
+; Other errors
+;
+error	prc	<<inv><prc>>			;Invalid process
+error	ter	<<inv><ter>>			;Invalid terminal
+error	ats <>;	<_!_<inf><ten>_attached to_<prn><prm>>;term att to proc n
+error ctt <_!_<tap><prn><ten><tim><imn>_ Cpu=_<cpn>_I/O=_<ion>_Mem=_<men><ndn>>
+						;process time image cpu io mem
+e$rcra:
+error	cra	<_Fatal system halt_<rep>>	;Fatal system halt
+;
+error	pni	<_PLAS_<not><ist>>		;PLAS not installed
+error	stb	<<inv>_STB_<nam>>		;Invalid STB
+error	spf	<_!_<inf><fil>_queued to_<nam>>	;File spooled to DEV:FILNAM.TYP
+error	crp	<<prc>_corrupted_>		;Process corrupted
+error	ikm	<<ins><ker><mem><nam>>		;Insufficient kernel memory
+;
+;error	ema	<<exi><fro>_monitor_<ast>>	;Exit from monitor ast
+;error	eca	<<eca><fro>_client_<ast>>	;Exit from client ast
+;erro	efo	<_forced_<exi>>			;Exit from process
+;
+;	ermax. must be last error code
+;
+error	max	<<inv><err>>			;Invalid error - this code is
+	.byte	0				;used only within mer
+	.even
+;
+;-----------------------------------------------;
+; message tasks					;
+;-----------------------------------------------;
+;
+;	-1...-127	negative bytes within the stream
+;
+meta	<task c d><c=:-$><$=$+1><.word d>
+$=1				;
+e$rtsk:				;tasks
+	.word	0		;task zero is unused
+task	loc	et$loc		;location
+task	rep	et$rep		;report
+task	nam	et$nam		;name
+task	vec	et$vec		;vector
+task	prn	et$prn		;process number
+task	prm	et$prm		;process name
+task	imn	et$imn		;image name
+task	tim	et$tim		;time
+task	cpn	et$cpn		;cpu time
+task	ion	et$ion		;io count
+task	men	et$men		;memory size in blocks
+task	new	et$new		;newline
+task	oct	et$oct		;octal number in r1
+task	dec	et$dec		;decimal number in r1
+task	r50	et$r50		;rad50 value in r1
+task	r5l	et$r5l		;rad50 in lower case
+task	put	et$put		;put to user
+task	ten	et$ten		;terminal name
+task	vun	et$vun		;vector and unwind interrupt
+task	fpu	et$fpu		;put fpu exception address
+task	tap	et$tap		;get the time & show name
+task	pus	et$pus		;put string without zero terminator
+task	brk	et$brk		;BPT traps - ignore them
+task	ndn	et$ndn		;node name
+;
+;-----------------------------------------------;
+; dictionary slips				;
+;-----------------------------------------------;
+;
+;	-n...-127	slips follow tasks
+;
+meta	<slip c d><c=:-$><$=$+1><.asciz _d_>
+erslp.=$
+e$rslp:	.byte	0		;starts with null byte
+slip	inv	<invalid>	;Invalid_
+slip	err	<error>		;_error
+slip	dev	<device>	;device
+slip	fil	<file>
+slip	dir	<directory>
+slip	mem	<memory>
+slip	img	<image>
+slip	ful	<full>
+slip	trp	<trap to>
+slip	stk	<stack>
+slip	ker	<kernel>
+slip	adr	<address>
+slip	ins	<insufficient>
+slip	exi	<exit>
+slip	fro	<from>
+slip	ter	<terminal>
+slip	prc	<process>
+slip	inf	<?RUST-I->
+slip	not	<not>
+slip	ist	<installed>
+;
+;-----------------------------------------------;
+; positive message codes			;
+;-----------------------------------------------;
+;
+; This section must be at end.
+;
+;	1...127		positive codes come here
+;
+meta	<error c d e><assume er'c'. eq $><$=$+1><e$r'c: .asciz __d__>
+$=ernew.
+;
+e$rpos:	.byte	0				;positive error codes
+error	new	<<new>>				;newline
+error	oct	<<oct>>				;octal number
+error	dec	<<dec>>				;decimal number
+error	r50	<<r50>>				;rad50 value
+error	r5l	<<r5l>>				;rad50 lower case
+;
+; return data to user
+;
+error	poc	<<put><oct>>			;put octal
+error	pde	<<put><dec>>			;put decimal
+error	pr5	<<put><r50>>			;put rad50
+error	pgj	<<pus><prm>>			;put gtjb process name
+	.byte	0
+	.even
+.end

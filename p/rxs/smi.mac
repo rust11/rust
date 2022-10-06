@@ -1,0 +1,639 @@
+.sbttl	smi - mixed services
+.include "lib:rust.mac"
+.psect	smi d
+$erdef		;errors
+$fodef		;formatted output
+$mmdef		;mmu
+$rpdef		;rp
+$pqdef		;quotas
+$prdef		;pcr
+$psdef		;psw
+$scdef		;scheduler
+$sidef		;signals
+$srdef		;system rights
+$stdef		;states
+$tedef		;terminal
+
+;	RUST/XM VMS system services	
+;
+;	%build
+;	macro	rxs:smi/object:rxb:smi
+;	%end
+;
+;	$sys	area, tsk, p0, p1, p2, p3, p4, p5
+;
+; ajs	$adjstk	acm adj new	adjust stack
+; aws	$adjwsl	pag wst		adjust working set limit
+; alc	$alloc	dev nml nmb acm	allocate device		acp - pending
+; atm	$asctim	len buf tim cvt	binary time to ascii	time library
+; ace	$ascefc efn nam pro per	associate cefc
+; ass	$assign	dev chn acm mbx	assign device or mbx
+;+atc	$attach	pid prn 	attach terminal		s+ attach
+; btm	$bintim	buf tim		ascii time to binary	time library
+; brd	$brdcst	msg dev		broadcast to terminals
+; cio	$cancel	chn		cancel i/o		.abtio
+; cxh	$canexh	xhb
+; ctm	$cantim	req acm		cancel timer		.cmkt
+; cwk	$canwak	pid prn
+; cef	$clef	efn		clear event flag
+; cme	$cmexec	rou arg		change mode to exec
+;+cmk	$cmkrnl	rou arg		change mode to kernel	done
+; cnr	$cntreg	pct ret acm reg	contract region
+;+clg	$crelog	tbl log eqv acm	create logical name	done
+; cmb	$crembx	prm chn max buf pro acm log
+;+cpr	$creprc	...		create process		done
+; cva	$cretva	iad ret acm	create va space
+; cms	$crmpsc	...		create & map section
+; dce	$dacefc	efn		disassociate cefc
+; dlc	$dalloc	dev acm		deallocate device	acp - pending
+; dsg	$dassgn	chn		deassign channel
+; das	$dclast adr per		declare ast		sys - planned
+; dcm	$dclcmh	rou pre typ	declare change mode
+; deq	$deq
+; dxh	$dclexh xhb		declare exit handler	funny .device
+;+dlg	$dellog	tbl log acm	delete logical name	done
+; dmb	$delmbx	chn		delete maibox
+; dpr	$delprc	pid prn		delete process		sys - pending
+; dva	$delva	iad ret acm	delete va space
+; dgs	$dgblsc	flg gsd idn	delete global section
+; dcc	$dclefc	name		delete cefc
+; enq	$enq			
+;+exi	$exit	cod		exit with status	sys - planned
+; erg	$expreg	pct ret acm reg	expand region
+; fao	$fao	ctr len buf p1	formatted ascii output	fao library
+; fal	$faol	ctr len buf prs	fao with list
+;+fex	$forcx	pid prn cod	force exit		sys - pending
+; gch	$getchn	chn pln pbu sln	get channel info
+; gdv	$getdev	dev ...		get device info
+; gjp	$getjpi	 ...		get job info		.gtjb eve
+; gmg	$getmsg	cod len buf flg get error message		
+; gtm	$gettim	tim		get binary time		.gttm - time library
+;+hib	$hiber			hibernate		.spnd
+;+ima	$imgact	...		activate image		done
+; io							s+ io
+; inp	$input	chn len buf ios	input
+; lpg	$lckpag	iad ret acm	lock pages in memory
+; lws	$lkwset	iad ret acm	lock pages in ws
+; mgs	$mgblsc	iad ret acm ...	map global section
+; ntm	$numtim	tim buf		binary to numeric	time library
+; out	$output	chn len buf ...	output
+; pws	$prgws	iad		purge working set
+; pmg	$putmsg	msv rou fac	display a message	message library
+; qio	$qio	efn chn ...	queue i/o request
+; qiw	$qiow	efn chn ...	qio and wait
+;+rpr	$remprc			remove process
+;+res	$resume	pid prn		resume process		sys - pending
+; swk	$schwak	pid prn tim rep	schedule wakeup		sys - planned
+;+sam	$stast	enb		set ast mode		sys - planned
+;+sxv	$stexv	vec adr mod pre	set exception vector	possible
+;+spu	$stpra	adr acm		set power recovery ast	with feature
+;+spr	$stpri	pid prn pri pre	set priority		sys - pending	
+;+spn	$stprn	nam		set process name	sys - pending
+;+sdp	$stpro	pro pre		set default protection	???
+; spp	$stprt	iad ret acm pro	set protection on pages	
+;+srg	$stprv	enb prv per pre	set process rights	sys - pending
+;+srm	$strwn	enb		set resource wait mode	sys - planned
+;+sfm	$stsfm	enb		set system failure mode	sys - planned
+;+swm	$stswm	enb		set swap mode
+; sst	$sttim	tim		set or calibrate time	.sdttm - time library
+; stm	$sttmr	efn tim ast req	set timer		.mrkt - time library
+;+sic	$stuic	uic pre		set uic			???
+; sac	$sndacc	msg chn		send accounting message	possible
+; sop	$sndopr	msg		send operator message	possible
+; ssm	$sndsmb	msg chn		send symbiont message	possible
+;+sus	$suspnd	pid prn		suspend process		sys - pending
+;+tlg	$trnlog	log len buf...	translate logical name	done
+; upg	$ulkpag	iad ret acm	unlock pages
+; unw	$unwind	dep npc		unwind call stack
+; usc	$updsec	iad ret acm ...	update section
+; wef	$waitfr	efn		wait for event flag
+;+wak	$wake	pid prn		wakeup process		sys - pending
+; wan	$wfland	efn mask	wait for logical and
+; wor	$wflor	efn msk		wait for logical or
+;	
+;	time library		rt-11 & vms time. Recent time only.
+;	message library		implements message stuff
+;	fao library		implements fao
+;
+;	.quad	time		subtract 1972
+;				divide by days
+;				subtract days
+;				convert days to date
+;				convert ticks to time
+;				2000 is leap year
+.sbttl	set process name
+
+;	Set process name
+; v3	Set image name
+; v3	Set node name
+; v3	Set user name
+; v3	Set uic
+;
+;	$stprn	#area, #nam
+;	$stimn	#area, #nam
+;	$stnod	#area, #nam
+;
+; rp.p0	nam.da	address of asciz process name.
+; rp.p1	pre.da	previous process name
+; rp.p2	tmp.dv	temporary name (while image executes)
+;
+;	0	duplicate process name
+; 	1	invalid logical name
+;		no name, name starts with "log"
+
+ss$spn::			;set process name
+	mov	rp.p0(r5),r0	;get the process name
+	beq	30$		;no new name
+	call	sy$gpn		;get the process name
+	tst	r2		;this a real process name?
+	beq	5$		;no - invalid
+	cmp	r2,#^rlog	;is this a reserved name?
+	bne	10$		;no
+5$:	.soft	1		;yes - invalid name
+10$:	call	sy$fpn		;find process by name
+	bcs	20$		;not found - no duplicate
+	cmp	r4,p$hpcr	;is this us?
+	beq	20$		;yes - not a duplicate
+	.soft	0		;duplicate name
+20$:	$cmsch			;stop the scheduler
+	mov	r2,p$hnam	;change the phd name
+	mov	r3,p$hnam+2	;
+	mov	p$hpcr,r4	;get the pcr
+	mov	r2,pr.nam(r4)	;change the pcr name
+	mov	r3,pr.nam+2(r4)	;
+	$cmpro			;
+30$:	return
+.sbttl	set system rights
+
+;	Set system rights
+;
+;	$strig	area enb rig per pre
+; 	$stprv	area enb prv per pre		
+;	
+; p0	enb.dv	0=> disable, 1=>enable
+; p1	rig.da	address of quad process rights block
+; p2	per.dv	0=>temporary, 1=>permanent, 2=>missing
+; p3	pre.da	address of quadword to receive previous rights
+;
+;	Get and/or set process system rights.
+;	Adds support to get/set/clear missing rights.
+;
+;	(2)	if its set in p$har0 - authorised
+;	(3)	if its temporary and set in p$hir0 - image
+;	(4)	if request comes from kernel
+;	(5)	if setprv is set in authorised
+;
+;	p$har0	authorised rights
+;	p$hpr0	process rights - permanent
+;	p$hir0	image rights
+;	p$hsr0	current rights - temporary
+;	p$hmr0	missing rights
+;
+;	0	Not all rights set
+;	1	Invalid mask id
+
+ss$ssr::.enabl	lsb		;set system rights
+;sic]	mov	p$hpcr,r4	;r4 -> pcr
+10$:	mov	rp.p2(r5),r0	;get the set to modify
+	cmpb	r0,#2		;is this in range?
+	blos	20$		;yes
+	.soft	1		;invalid flags
+20$:	asl	r0		;get the address
+	psh	200$(r0)	;save the address
+
+;	Build mask containing granted rights
+
+	mov	#4.,r0		;count these
+	mov	#p$har0+10,r1	;
+	mov	r1,r2		;assume temporary
+	tstb	rp.p2(r5)	;want permanent?
+	bne	30$		;yes
+	mov	#p$hir0+10,r2	;no - temporary - add image rights
+30$:	psh	-(r1)		;build the frame
+	bis	-(r2),(sp)	;add the others
+	sob	r0,30$		;
+
+;	Build prototype mask for requested rights
+
+	mov	sp,r3		;r3 -> granted mask
+	clr	-(sp)		;make space
+	clr	-(sp)		;
+	clr	-(sp)		;
+	clr	-(sp)		;
+	stack	n0 n1 n2 n3 a0 a1 a2 a3 tgt ret
+
+; 	Send back previous mask
+
+	mov	rp.p3(r5),r1	;get the return area
+	beq	40$		;none
+	mov	sp.tgt(sp),r2	;r2 -> target
+	call	sy$mtq		;move back previous
+	
+;	Get request mask
+
+40$:	mov	rp.p1(r5),r1	;get the input set
+	beq	100$		;none there
+	mov	sp,r2		;current mode address
+	call	sy$mfq		;get the quad word
+
+;	Check permission for requested mask
+
+	tst	rp.ps(r5)	;from kernel?
+	bpl	70$		;yes
+	bit	#srprv$,p$har0+sr.prv ;got setprv?
+	bne	70$		;yes
+	cmpb	rp.p3(r5),#2	;missing rights?
+	beq	70$		;yes
+
+	mov	#4,r0		;count these
+	mov	r3,r1		;r2 -> granted
+	mov	sp,r2		;r1 -> requested
+50$:	psh	(r1)+		;get next granted
+	com	(sp)		;get the complement
+	bit	(sp),(r2)	;is it granted?
+	beq	60$		;yes
+	bic	(sp),(r2)	;no - remove missing right
+	bis	#srprv$,p$hmr0+sr.prv ;remember missing right
+	bisb	#1,rp.err(r5)	;remember the error later
+
+60$:	cmp	(r1)+,(r2)+	;skip past them
+	sob	r0,50$		;do the next
+
+;	Setup result mask
+
+70$:	mov	sp.tgt(sp),r2	;target set to modify
+	mov	r2,r3		;assume not permanent
+	cmp	r2,#p$hpr0	;this the permanent set?
+	bne	80$		;no
+	mov	#p$hsr0,r3	;yes - do temporary as well
+
+80$:	mov	#4,r0		;count them
+	mov	sp,r1		;get the modifying set
+85$:	tst	rp.p2(r3)	;set or clear?
+	bne	85$		;set
+	bic	(r1),(r2)+	;clear
+	bic	(r1)+,(r3)+	;clear
+	br	90$		;
+	bis	(r1),(r2)+	;
+	bis	(r1),(r3)+	;
+90$:	sob	r0,85$		;do some more
+
+;	Setup current rights and return status
+
+100$:	ovcal$	ux$sir utl	;reset current rights
+	asrb	rp.err(r5)	;got an error?
+	bcc	110$		;no
+	jmp	em$err		;report the error
+110$:	fall	ss$nop		;
+ss$nop::jmp	em$exi		;exit
+
+;		0	1	2
+200$:	.word	p$hsr0,	p$hpr0,	p$hmr0
+	.dsabl	lsb		;
+;all routines removed
+.sbttl	set modes, vectors
+
+;	Set modes and vectors.
+;	Return previous setting in r0.
+;
+;	Set ast mode
+;
+;	$stast	area enb
+;
+; p0	enb.dv	0=>disable, 1=>enable
+;
+;	r0=0	was clear
+;	r0=1	was set
+;
+;	s$was.	Was set.
+;	s$wac.	Was clear.
+;
+;	Only user mode asts may be disabled.
+
+.if ne 0
+ss$sam::			;set ast mode
+	clr	rp.r0(r5)	;assume was clear
+	bit	#stdis$,p$hast	;was it set?
+	beq	5$		;no
+	inc	rp.r0(r5)	;yes - return 1
+5$:	tst	rp.p0(r5)	;enable or disable?
+	bne	10$		;enable
+	bis	#stdis$,p$hast	;disable asts
+	br	20$		;and signal them
+10$:	bic	#stdis$,p$hast	;
+20$:	br	ss$sg0		;let pending asts thru
+.endc
+
+;	Set resource wait mode
+;	Set system failure mode
+;	Set swap mode		requires pswapm
+;
+;	$strwn	area enb
+;	$stsfm	area enb
+;	$stswm	area enb
+;
+; p0	enb.dv	0=>disable, 1=>enable
+;
+;	sswas.	Was set.
+;	sswac.	Was clear.
+
+ss$ssm::;add	#x,(sp)		;set swap mode
+ss$sfm::			;set fail mode
+ss$srm::			;set resource mode
+;	tst	r1		;set or clear
+;	bne	10$		;set
+;	bic	(sp),p$hpe0	;
+;	return
+
+;	Set power recovery ast
+;	Set exception vector
+;
+; 	$stpra	adr acm		set power recovery ast
+; 	$stexv	vec adr mod pre	set exception vector
+;
+;	Currently ignored
+;	Exception vector will parallel VMS
+
+ss$spu::			;set powerup
+ss$sxv::			;set exception vector
+	return
+.sbttl	set priority
+
+;	Set process mode
+;
+;	$stmod	area mod
+;
+;	mod.dv	mode
+;	mod=-1	batch
+;	mod=-2	interactive
+;
+;	Set process priority
+;
+;	$stpri	area pid prn pri pre
+;
+; p0	pid.da	pid address
+; p1	prn.da	process name address
+; p2	pri.dv	base and top priority
+;	pri=-1	set batch mode
+;	pri=-2	set interactive mode
+;	pri=-3	just return previous
+; p3	pre.da	address of word to receive previous priority pair
+;
+;	Scheduler is blocked on entry. Return via ss$sig or error.
+;
+;	r0	return old priority
+;	r4 ->	pcr for exit signal
+;
+;	0	no such process
+;	1	missing right to access process
+;	2	missing right to change priority
+;
+;	Use common setpri routine.
+;	Move all priority information to pcr.
+
+	.enabl	lsb		;
+ss$smd::mov	rp.p0(r5),r0	;$stmod
+	fall	sy$smd		;
+
+;	mov	#-1/-2,r0	;set batch or interactive
+;	ovcal$	sy$smd	sys	;call us
+
+sy$smd::mov	p$hpcr,r4	;point to current process
+	$cmsch			;stop the scheduler
+	br	10$		;
+
+ss$spr::			;set priority
+	call	100$		;get current priority
+	mov	rp.p3(r5),r3	;want previous?
+	beq	5$		;no
+	call	mm$mtw		;yes - move it back
+5$:	mov	rp.p2(r5),r0	;get the requested priority
+10$:	tst	r0		;sic] this a control code?
+	bpl	15$		;no - priority values
+	mov	r0,r1		;get a copy
+	mov	#1+<3*256.>,r0	;assume batch
+	inc	r1		;was this batch?
+	beq	15$		;yes
+	mov	p$hpri,r0	;no - set interactive priority
+	inc	r1		;was this interactive?
+	bne	40$		;no - just ignore it
+
+;	r0 =	requested priority
+;	r1 ->	requested queue
+;	r2 ->	p$hpri or p$htpr
+;	r3 ->	pr.bqu or pr.tqu
+
+15$:	psh	#ss$sg0		;signal target when done
+	mov	#p$hpri,r2	;callers limits
+	movi	pr.bqu,r4,r3	;target current queues
+	call	20$		;
+	inc	r2		;point at p$htpr
+	add	#pr.tqu-pr.bqu,r3 ;point at 
+	swab	r0		;get top priority
+	beq	40$		;no change required
+
+20$:	bicb	#^c31.,r0	;clean it up
+	movb	r0,r1		;convert to queue
+	mul	#sc.bbs,r1	;convert to queue offset
+	add	#s$cp00,r1	;make it a queue address
+	cmp	(r3),(r1)	;current higher than requested?
+	bcc	30$		;yes - they can have it
+	cmpb	r0,(r2)		;higher than callers limit?
+	blos	30$		;no
+	$right	srpri.		;got the right to change it?
+	bcc	30$		;yes
+	.soft	2		;missing ALTPRI right
+30$:	mov	r1,(r3)		;change the priority
+40$:	return
+
+;	Get current priority
+;
+;	pr.bqu	address of base queue
+;	pr.tqu	address of top queue
+;
+;	r0.lb	base queue number
+;	r0.hb	top queue number
+
+	assume	sc.bbs eq 4	;
+100$:	clr	r0		;
+	mov	pr.bqu(r4),r1	;get the first
+	call	110$		;
+	mov	pr.tqu(r4),r1	;get the top queue
+110$:	sub	#s$cp00,r1	;remove base
+	asr	r1		;/2
+	asr	r1		;/4
+	bisb	r1,r0		;set it up
+	swab	r0		;
+	return			;
+	.dsabl	lsb		;
+.sbttl	set process state
+
+;	Set process state
+;
+;	$hiber	area
+;
+;	$suspnd	area pid prn
+; 	$resume	area pid prn
+;	$wake	area pid prn
+;	$suspnd	area pid prn
+;	$forcx	area pid prn cod
+;	$schedl	area	
+;	$stsig	area adr
+;	$signal	area pid, prn, prm
+;
+;	Scheduler blocked for all but $hiber. Return via ss$sig or error.
+;
+; p0	pid.da	pid address
+; p1	prn.da	process name address
+; p2	cod.dv	exit code for process
+
+;	$sched	#area	
+;
+;	Force reschedule
+
+ss$sch::clr	s$csta			;reschedule
+	jmp	sc$enb			;do it
+
+;	$stsig	#area, adr, msk, dsb	
+;
+;	Set signal AST address	
+;	Return previous setting in r0
+;	Same signal routine as realtime server
+
+ss$ssa::mov	p$hsig,rp.r0(r5)	;return previous
+	mov	rp.p0(r5),p$hsgl	;setup signal address
+	return
+
+;	$signal	#area, pid, prn, res	
+;
+;	Send signal to target process	
+;	RES is reserved for AST parameter later
+
+ss$ssg::psh	@#m$kip6		;save the window
+	mov	pr.phd(r4),@#m$kip6 	;map the target phd
+	bis	#tecrt$,p$hsig+mmp62.	;set the realtime flag
+	bic	#stdor$,p$hast+mmp62.	;open the gate
+;	bis	#rp.p3(r5),p$hxxx+mmp62.;set the flag
+	pop	@#m$kip6		;save the window
+	br	ss$sg0			;send it
+
+ss$hib::.spnd				;suspend
+	return				;
+ss$sus::bis	#prsus$,pr.sta(r4) 	;suspend it
+	br	ss$sg0			;
+ss$res::bic	#prsus$,pr.sta(r4) 	;resume it
+	br	ss$sg0			;and signal it
+ss$wak::bis	#prwak$,pr.sta(r4) 	;wake it
+	br	ss$sg0			;
+
+;	Force exit
+
+ss$fex::bis	#prexi$!prwak$,pr.sta(r4) ;force exit
+	bic	#prsus$,pr.sta(r4)	;resume it
+	psh	@#m$kip6		;save the window
+	mov	pr.phd(r4),@#m$kip6 	;map the target phd
+	bis	#prexi$,p$hsta+mmp62.	;set flag
+	mov	#ab$rti,p$hrti+mmp62.	;force exit
+	pop	@#m$kip6		;
+	fall	ss$sg0			;
+					;
+ss$sg0::clr	r0			;dummy signal
+ss$sig::call	as$pms			;post a signal to it
+ss$ret::jmp	sc$cmp			;$cmpro & return
+.sbttl	attach terminal
+
+;	$attach	pid, prn, tid
+;
+;	rp.p0	pid  - process id
+;	rp.p1	prn  - process name
+;
+; ???	rp.p2	tid  - if null use current terminal
+; ???	pid	process id - if zero detach terminal
+; ???	pr.own	we grab processes that we should not
+;
+;	erter.	Terminal does not exist.
+;	erprc.	Process does not exist or is unavailable.
+;
+;	0	no such process
+;	1	missing rights to access process
+;	2	invalid terminal
+;
+;	Terminal is detached from current process.
+;	Target process terminal is detached.
+;	Terminal is attached to target process.
+;
+;	Attach terminal to some other process.
+;	Terminal may not already have a process - unless it is ourself.
+;	Process may not already have a terminal - unless it is ourself.
+;
+;	Routine runs with scheduler blocked.
+
+sy$atx::$cmsch				;block the scheduler a long time
+	call	sy$gpg			;get the process specification
+	bcs	30$			;process does not exist
+
+;	Check attach to LOGIN process
+
+	cmp	pr.nam(r4),#^rlog	;is this LOGIN
+	bne	10$			;no - ignore it
+	cmp	pr.nam+word(r4),#^rin	;really?
+	bne	10$			;no
+	tst	p$hquo+pq.prc		;subprocesses permitted?
+	bne	15$			;yes - LOGIN on the process
+	.soft	1			;no - missing rights
+
+;	Check process access rights
+
+10$:	call	sy$cpa			;check process access rights
+
+;	Check the terminal
+
+15$:	mov	p$hter,r3		;get our terminal
+	bne	20$			;fine - we have one
+	.soft	2			;invalid terminal
+
+;	Check the process
+
+20$:	cmpb	pr.prn(r4),#prsyn. 	;attempt to attach system process?
+	bhi	40$		 	;no - its o.k.
+;	blo	30$			;null process is impossible
+;	bit	#kcmai$,s$ykc0		;in maintenance mode?
+;	bne	40$			;yes
+30$:	.soft	0			;invalid process
+					;
+40$:	mov	pr.ter(r4),r2		;get its terminal
+	beq	50$			;it has none - attach this one
+	cmp	r2,r3			;is this our own terminal?
+	bne	30$			;no - process has terminal
+	br	70$			;yes - already attached
+
+;	Stop terminal working for current process
+;
+;	r2	our pcr
+;	r3	ter
+;	r4	pcr of target
+
+50$:	call	te$zap			;clean up the terminal
+					;
+	mov	p$hpcr,r2		;
+	mov	#te$tiq,p$htti		;make this one quiet
+	mov	#te$toq,p$htto		;
+	mov	#fofio$,p$hlof		;force the logger
+	clr	p$hter			;remove the terminal from us
+	clr	pr.ter(r2)		;we have no terminal
+	mov	pr.own(r2),r1		;move the owner across
+	beq	60$			;we are not an owner
+	mov	r1,pr.own(r4)		;grab the process
+60$:	clr	te.pcr(r3)		;
+
+;	Attach terminal to new process
+;	Force a switch to the other process
+
+	mov	r3,pr.ter(r4)		;connect pcr to terminal
+	mov	r4,te.pcr(r3)		;connect terminal to pcr
+	mov	#tecat$,te.sig(r3) 	;signal attach
+	mov	#siter$,r0		;signal the process
+	br	ss$sig			;signal and return
+70$:	br	ss$ret			;cmpro and return
+.end
+

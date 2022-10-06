@@ -1,0 +1,894 @@
+v3que=1
+;iousm$=2
+.title	rio
+.include "lib:rust.mac"
+.psect	rio d
+$addef		;ast
+$asdef		;address space
+$chdef		;channel
+$dedef		;device
+$erdef		;error
+$fedef		;features
+$hadef		;handler
+$icdef		;image control
+$iodef		;i/o
+$iqdef		;i/o queue
+$kcdef		;kernel control
+$mmdef		;mmu
+$rpdef		;rp
+$pqdef		;quota
+$psdef		;ps
+$sfdef		;spfun
+$sgdef		;sysgen
+$srdef		;rights
+$tbdef		;tb
+$tpdef		;tp
+$uidef		;uic
+$undef		;unit
+
+;	RUST/XM I/O requests
+;
+;	%build
+;	macro	rxs:rio/object:rxb:rio
+;	%end
+;
+;	%date
+;	<20-Nov-2010 20:53:39.09>
+;	%edit
+;	<223  >
+;
+;	+-------------------------------------------------------+
+; 	! PLAS, SPOOL and RSF depend on the assignments below.	!
+;	+-------------------------------------------------------+
+;
+;	io$ini	init i/o request
+;	io$win	window processor
+;	io$dir	direct i/o transaction
+;	io$buf	buffered i/o transaction
+;	io$que	queue to handler (in rio)
+;	io$ast	i/o monitor ast
+;	io$pos	post-process - status, client ast, dispose
+;
+;	r0 =	request r0
+;	r1 = 	0
+;	r3 =	rp.p0
+;	r4 ->	kernel channel
+;	r5 ->	RP
+;
+;	+-------------------------------------------------------+
+; 	! PLAS, SPOOL and RSF depend on the assignments below.	!
+;	+-------------------------------------------------------+
+;
+;	RP is extended by two words to handle spfuns.
+ 
+map	rp.asp,,rp.cod	;replace code with address space
+map	rp.blk,,rp.p0	;block number
+map	rp.buf,,rp.p1	;buffer address
+map	rp.wct,,rp.p2	;wordcount
+map	rp.mod,,rp.p3	;RUST/XM mode
+map	rp.fun,,rp.p3+1	;spfun function
+map	rp.com,,rp.p4 	;user completion routine (moved here by read/write)
+map	rp.sfc,,rp.p5	;spfun control
+map	rp.sfd	-word,rp.ret ;special function data
+map	rp.xbs		;spfun data
+;
+;	q.link	next element	
+;	q.csw	csw address
+;	q.blkn	block number
+; byte	q.func	function code (0 => read/write)
+; byte	q.unit	unit number
+; -	q.jnum	process number
+;	q.buff	buffer address
+;	q.wcnt	word count (<0 => write)
+;	q.comp	completion routine
+;	q.par	par1 displacement
+;	q.free	2 spare
+; ???	q.pid	process id
+; ???	q.iosb	i/o status block
+;
+;	r0	words transferred
+;	0	eof
+;	1	i/o error - no rights
+;	2	channel not open
+;	eradr.	Invalid address
+;
+; ???	Recognise spfuns encoded as read
+
+read::	mov	#iorea$,r0	;mode = read
+	br	io$ini		;
+write::	mov	#iowri$,r0	;mode = write
+	br	io$ini		;
+spfun::	mov	#iospf$,r0	;mode = spfun
+	br	io$in2		;
+io$sys::			;mode is setup
+	clr	rp.p5(r5)	;clear out special functions
+	br	io$in3		;
+.sbttl	init i/o request
+
+;	Brute-force I/O preprocessing
+;
+;	r0	i/o mode
+;	r4 ->	csw
+;
+;	r0	blocks transferred
+;	0	eof
+;	1	i/o error
+;	2	channel not open
+;
+; ???	Test for negative wordcount
+; ???	Clear EOF for file-structured requests?
+;
+;	io$ini	r0=mode, rp.com moved
+;	io$in2	r0=mode
+;	io$in3	
+
+io$ini:					;read/write entry point
+	mov	rp.p3(r5),rp.com(r5) 	;move read/write comp into place
+	clr	rp.p3(r5)		;and zero the function
+io$in2:					;spfun entry point
+	movb	r0,rp.mod(r5)		;collect the mode
+io$in3::				;$io entry point
+	clr	rp.r0(r5)		;default r0 return for errors is zero
+	clr	rp.sfc(r5)		;clear spfun control
+	psh	(sp)			;make space for rp.sfd
+	clr	2(sp)			;and zero it
+
+;	Check channel errors
+
+	assume	ch.csw eq 0		;
+	mov	(r4),r2			; r0 = csw
+	bmi	10$			;channel is open
+	.soft	2			;oops - channel not open
+10$:	bic	#csin$m,r2		;clear out all but index
+	mov	d$emap(r2),r2		;r2 -> device record
+	beq	55$			;oops - not loaded
+	assume	derta$ eq 100000	;
+	tst	(r2)			;this RT11A?
+	bpl	15$			;no
+	bic	#cseof$,(r4)		;yes - clear EOF flag
+					;
+15$:	bit	#cseof$!csher$,(r4) 	;does it have an error?
+	beq	40$			;nope
+	jmp	ch$err			;return the error codes
+20$:	.soft	0			;eof
+25$:;	bis	srpio$,sr.pio+p$hmr0 	;set missing right bit
+30$:	.soft	1			;hard error
+
+40$:	movb	ch.uni(r4),r3		;compute the unit record
+	asl	r3			;make it a word offset
+	add	r2,r3			;add in the der
+	mov	de.unm(r3),r3		;r3 -> unit record
+	bne	60$			;fine - its mounted
+	bit	#desin$,de.con(r2) 	;this a single unit device?
+	beq	55$			;no - no device
+	mov	de.unm(r2),r3		;yes - get unit zero
+	bne	60$			;we have the device
+55$:	.hard	erunl.			;unloaded handler
+					;
+60$:	bitb	#iospf$,rp.mod(r5) 	;is this an spfun?
+	beq	70$			;no
+;	ovcal$	io$sfp	utl		;do spfun preprocessing
+	call	io$sfp			;yes - do preprocessing
+	fall	70$			;rp.mod setup by io$sfp
+.sbttl	check word count
+
+;	Check for request eof
+
+70$:	bitb	#iorea$!iowri$,rp.mod(r5) ;is this a control access?
+	beq	130$			;yes - no eof tests
+					;
+	tst	ch.sbl(r4)		;this non-file structured?
+	beq	80$			;yes - no eof tests
+	mov	ch.len(r4),r0		;get size of file (unsigned)
+	sub	rp.blk(r5),r0		;subtract user block (unsigned)
+	blos	20$			;nothing at all, eof.
+	swab	r0			;convert to word count
+	bne	80$			;256.+ blocks is large enough for anything
+	cmp	r0,rp.wct(r5)		;is file big enough?
+	bhis	80$			;yes, its fine
+
+;	Truncate request wordcount - report it for writes
+
+	mov	r0,rp.wct(r5)		;no, truncate request
+	assume	iowri$ eq 200		;
+	tstb	rp.mod(r5)		;is this a write?
+	bpl	120$			;nope
+	psh	#20$			;yes - report truncate later
+
+;	Update write blocks-used and access rights
+
+	assume	iowri$ eq 200		;
+80$:	tstb	rp.mod(r5)		;this a write?
+	bpl	120$			;nope
+	jsr	r0,io$pro		;check protection
+	.word	csnwr$			;nowrite mask
+	bcc	100$			;not physical
+	cmp	de.dev(r2),#^rVM	;this VM?
+	bne	90$			;no
+	cmp	p$huic,#uisys.		;this the system UIC?
+	bne	30$			;no - protection error
+90$:	bis	#sfphw$,rp.sfc(r5)	;set the physical write bit flag
+100$:	bis	#cswri$,(r4)		;no - set the file-written bit
+	movb	rp.wct+1(r5),r0		;yes
+	tstb	rp.wct(r5)		;writing a partial block?
+	beq	110$			;no
+	inc	r0			;yes - count it too
+110$:	add	rp.blk(r5),r0		;set high block
+	cmp	r0,ch.use(r4)		;is this higher?
+	blos	130$			;nope
+	mov	r0,ch.use(r4)		;yes - set it
+	call	ch$mku			;update user copy
+	br	130$			;fine
+
+;	Check read access rights
+
+120$:	jsr	r0,io$pro		;check protection
+	.word	csnre$			;check noread
+
+;	Control functions return here
+;	Return wordcount
+
+130$:	mov	rp.wct(r5),rp.r0(r5) 	;return the wordcount
+	fall	io$mod		
+.sbttl	determine mode & space
+
+;	Determine mode & space
+;
+;	mode	kernel or user
+;	rp.mod	$IO may specify mode
+;
+;	space	16-bit, 18-bit or 22-bit
+;	16-bit	only kernel mode - qualified by m$kip0
+;	p$hasp	18-bit or 22-bit process default
+;	icmmu$	use m$uip0 if this image flag set
+;		assumes that process VA 0 is not used as buffer address
+
+io$mod:	movb	rp.mod(r5),r0		;get the access mode
+	assume	iocim. eq 0		;callers mode
+	bic	#ioam$m,r0		;clean it up
+	bne	10$			;it has been specified
+	assume	iokim. eq 1		;kernel mode
+	inc	r0			;assume kernel
+	tst	rp.ps(r5)		;this from the kernel?
+	bpl	10$			;yes
+	assume	iouim. eq 2		;user mode
+	inc	r0			;no - assume user
+
+;	Setup target space type
+
+10$:	bisb	r0,rp.mod(r5)		;setup the access mode
+	assume	as16b$ eq iokim.	;16bit space
+	assume	iokim. eq 1		;kernel mode
+	mov	#m$kip0,r1		;assume kernel mapping
+	movb	r0,-(sp)	 	;assume its the kernel
+	dec	r0			;is it the kernel?
+	beq	20$			;yes
+					;
+	mov	#m$uip0,r1		;use user mapping
+	movb	p$hasp,(sp)		;no - get user root type
+	assume	icmmu$ eq 100000	;
+	tst	p$hic0			;this image using its own mapping?
+	bpl	40$			;no
+
+;	r1 ->	m$uip0 for user address, m$kip0 for kernel address
+;	(sp)	default mapping
+
+20$:	mov	rp.buf(r5),r0		;get the first word of the buffer
+	beq	40$			;no buffer to check
+	ash	#-<<16.-3>-1>,r0	;shift mmu offset down to word offset
+	bic	#^c<7*word>,r0		;isolate word index into mapping tables
+	add	r1,r0			;r0 -> MMU mapping register
+					;
+	movb	#as16b$,(sp)		;assume 16 bit
+	cmp	r1,#m$kip0		;is this kernel mode?
+	bne	30$			;no - cannot be contiguous 16-bit buffer
+	cmp	(r0),#28.*mmpik.	;is this a 16-bit address?
+	blo	40$			;yes - kernel mode unmapped buffer
+					;
+	assume	as18b$ eq <as16b$*2>	;
+30$:	aslb	(sp)			;assume 18-bit address
+	cmp	(r0),#124.*mmpik. 	;check 18-bit - avoid last 4kw
+	blo	40$			;this is an 18-bit buffer
+	assume	as22b$ eq <as18b$*2>	;
+	aslb	(sp)			;it is 22bit
+40$:	movb	(sp)+,rp.asp(r5)	;setup the space
+	fall	io$lim			;check I/O buffer limits
+.sbttl	check buffer limits
+
+;	Compute transfer virtual high address	
+;	Check virtual address limit
+
+io$lim:	bitb	#iorea$!iowri$,rp.mod(r5) ;is this a control access?
+	beq	70$		  	;yes - no eof tests
+	bitb	#iousm$,rp.mod(r5)	;this user/supervisor mode?
+	beq	70$			;no - dont address check kernel
+	bit	#fepla$,p$hfem		;using PLAS?
+	beq	50$			;no - use non-plas check
+
+;	Check PLAS mapping and region boundaries
+
+	psh	r2			;save this from destruction
+	psh	@#m$kip1		;yes - build return path
+	call	plas			;plas plas knows its i/o from rp.req
+	pop	r2			;restore r2
+	bcc	70$			;fine (it exits for other errors)
+	fall	50$			;not plas - use unmapped test
+
+;	Check non-plas buffer boundaries
+
+50$:	mov	rp.buf(r5),r1		;get the buffer address
+	mov	rp.wct(r5),r0		;get the wordcount
+	beq	70$			;special case - seek
+	dec	r0			;handle 32kw case
+	asl	r0			;make it bytes
+	bcs	60$			;oops
+	add	r0,r1			; r1 = virtual high address
+	bcs	60$			;oops - overflows
+	cmp	r1,p$hval		;above virtual address limit?
+	blo	70$			;no - its fine
+60$:	.hard	eradr.			;invalid address
+70$:	fall	io$asy			;handle the asynchronous stuff
+.sbttl	fill in tp
+
+;	Fill in TP. Synchronous errors have been checked.
+;
+;	r1 =	high virtual address
+;	r2 ->	device record
+;	r3 ->	unit record
+;	r4 ->	csw
+;	r5 ->	rp
+
+io$asy:	mov	r5,r0			;save rp pointer
+	psh	r3			;save the unit record address
+	call	tp$acq			;acquire a TP
+	mov	r3,r5			;put it in r5
+	pop	r3			;get back unit record
+					;tp.kad - ast queue
+	series	tp,word	kpc,kps,kp1,kr4,pcr,der,unr,tbr,csw,spu
+	mov	r5,r1			;
+	assume	tp.kpc eq word*2	;
+	cmp	(r1)+,(r1)+		;point to tp.kpc
+	mov	#io$ast,(r1)+		;tp.kpc - kernel ast pc
+	mov	@#ps,(r1)+		;tp.kps - kernel ast ps
+	mov	@#m$kip1,(r1)+		;tp.kp1 - kernel ast par1
+	mov	r4,(r1)+		;tp.kr4 - kernel ast r4 = csw
+	mov	p$hpcr,(r1)+		;tp.pcr
+	mov	r2,(r1)+		;tp.der - device record
+	mov	r3,(r1)+		;tp.unr - unit record
+	tst	(r1)+			;tp.tbr - transaction buffer
+	mov	r4,(r1)+		;tp.csw - csw record ???
+	clr	(r1)+			;tp.spu	- stranger usr status
+;;;	r1 ->	rp.rch			;
+	series	rp,word	    chn,blk,buf,wct,mod,com,sfc
+	series	tp,word	spu,rch,rbl,rbu,rwc,rmo,rcr
+	mov	rp.ps(r0),tp.rps(r5)	;tp.rps
+	mov	rp.sfd(r0),tp.sfd(r5)	;tp.sfd
+;[sic]	movi	tp.rch,r5,r1		;r1 -> tp.rch - from above
+	.rept 5 			;tp.rch to tp.rmo
+	mov	(r0)+,(r1)+		;tp.rch to tp.rcr	
+	.endr
+	mov	(r0)+,tp.qco(r5)	;tp.qco - completion routine
+	bne	50$			;	- got one
+	inc	tp.qco(r5)		;	- abort flag
+50$:					;tp.rps - done above
+					;tp.twc - tp.tp1
+					;tp.q%%, tp.f%%
+	mov	(r0)+,tp.sfc(r5)	;tp.sfc
+
+;	Count process-level access
+
+	inc	p$hioc			;count process i/o requests
+	incb	ch.ioc(r4)		;count the i/o request
+	call	io$win			;do the first window
+
+;	Check wait and post-check errors. We have lost the tp.
+
+	mov	p$hcrp,r5		;get back our request packet
+	mov	rp.com(r5),r0		;get completion
+	asr	r0			;wait, return or completion?
+	beq	60$			;not completion
+	bit	#csin$p,(r4)		;is this the terminal?
+	bne	80$			;no - completion 
+	br	70$			;check TT: errors to clear EOF
+60$:	bcs	70$			;its return - check errors
+	call	ch$wai			;its wait - go wait
+70$:	call	ch$err			;check errors
+
+;	Exit - maybe to 20$ above for write eof error
+
+80$:	return				;exit - must be a return
+.sbttl	window processor
+
+;	Window processor
+;
+;	Reset write limit in preprocess.
+;	Physical DM: reads must always be buffered if they can't make it.
+;
+;	The cases are:
+;
+;	Seek		No transfer.
+;	Direct		Single direct transaction to target.
+;	Buffered	Multiple buffer transaction to target.
+;
+;	tp.qbu, tp.qwc & tp.blk setup
+;
+;	These all function as completion routines. No stack.
+;	Only r4 and r5 are preserved across calls to IO$DIS.
+;	However, all registers are available.
+;
+;	The secondary device record is used for these calculations.
+;
+;	1=16 2=18 4=22
+;
+;	tp.asp	space	1=16, 2=18, 4=22
+;	de.asp	coverage 1=16, 3=18, 7=22
+;
+;	r2 ->	der
+;	r3 ->	unr
+;	r4 ->	csw
+;	r5 ->	tp
+
+io$win::				;determine i/o type
+	$bypass	b$ybio			;call before i/o bypass
+	bit	#csspl$,(r4)		;this a spool file?
+	bne	io$poj			;yes - post result
+10$:	mov	tp.rwc(r5),tp.qwc(r5) 	;setup wc - this a seek?
+	beq	io$dir			;yes - its direct
+;	$bypass	b$ytrn			;call those interested in I/O
+	mov	tp.der(r5),r2		;r2 -> device record
+	bitb	un.asp(r3),tp.asp(r5) 	;do we need a buffer?
+	bne	io$dir			;no - direct i/o
+	bit	#sfund$,tp.sfc(r5)	;this an undefined spfun?
+	beq	io$buf			;no - use buffered i/o
+	assume	despf$ eq 100000	;
+	tst	de.con(r2)		;does it accept undefined functions?
+	bpl	io$err			;no - report i/o error
+	fall	io$dir			;yes - use direct i/o
+
+;	Direct I/O
+
+io$dir:	add	#1,p$hdio+2		;account for it
+	adc	p$hdio			;long word
+	dec	p$hlim+pq.dio		;count it
+	mov	tp.rbu(r5),r0		;get the buffer address
+	mov	r0,tp.qbu(r5)		;assume unmapped
+	clr	tp.qp1(r5)		;
+	bitb	#asvab$,un.asp(r3)	;this a virtual address device?
+	bne	30$			;yes - dont relocate
+	bitb	#asmap$,un.asp(r3) 	;does it require relocation?
+	beq	30$			;nope
+	bitb	#iousm$,tp.rmo(r5)	;this user/supervisor mode?
+	bne	10$			;yes
+	call	io$ckm			;no - convert kernel to mapped
+	br	20$			;
+10$:	call	io$cum			;convert user to mapped
+20$:	mov	r1,tp.qp1(r5)		;par1
+	mov	r2,tp.qbu(r5)		;buffer address
+30$:	fall	io$qio			;queue it
+
+io$qio:					;queue request
+	bit	#sfwct$,tp.sfc(r5)	;does this have a special wordcount?
+	beq	10$			;no
+	mov	tp.sfd(r5),tp.qwc(r5)	;yes - send it
+10$:	bit	#sferb$,tp.sfc(r5)	;want an error block?
+	beq	20$			;no
+	movi	tp.sfe,r5,tp.rbl(r5)	;yes - point to kernel area
+20$:	jmp	io$que			;and dispatch it
+
+io$ber::				;buffered i/o error
+io$err::bis	#csher$,(r4)		;set the error
+io$poj:	jmp	io$pos			;and post process it
+.sbttl	buffered transaction
+
+;	Buffered I/O processing
+;
+;	io$buf	buffered i/o
+;	io$nxt	next buffer
+;	io$con	continue from monitor ast
+;	io$ber	exception during buffered operation
+;
+;	tp.rwc		request word count
+;
+;	tp.rbu		request buffer
+;
+;	tp.twc		transaction word count
+;	tp.tbu		transaction buffer offset
+;	tp.tp1		transaction par1
+;
+;	tp.qwc		queue word count
+;	tp.qbu		queue buffer
+;	tp.qp1		queue par1
+;
+;	Transaction buffer contains its own relocation information.
+
+io$buf::				;buffered I/O
+	add	#1,p$hbio+2		;account for it
+	adc	p$hbio			;long word
+	dec	p$hlim+pq.bio		;count for quotas
+
+;	Relocate user buffer for move to/from buffer operation
+;???	Buffered I/O is never called for kernel transactions.
+
+	mov	tp.rbu(r5),r0		;get the user buffer address
+
+	assume	sfrws$ eq 100000	;DM: read/write with status word
+	tst	tp.sfc(r5)		;is this DM: physical?
+	bpl	10$			;no
+	movtd	#0,(r0)+		;yes - clear the status word
+					;r0 -> second word of buffer
+
+10$:	bitb	#iousm$,tp.rmo(r5)	;kernel or user mode?
+	bne	11$			;user mode
+	call	io$ckm			;kernel
+	br	12$			;
+11$:	call	io$cum			;map user buffer
+12$:	mov	r1,tp.tp1(r5)		;transaction par
+	mov	r2,tp.tbu(r5)		;transaction buffer address
+
+	call	tb$acq			;acquire a buffer
+	mov	r3,tp.tbr(r5)		;store it
+					;
+io$nxt:					;next buffer
+	mov	tp.tbr(r5),r1		;r1 -> tb
+	mov	tp.der(r5),r2		;r2 -> der
+	mov	tp.unr(r5),r3		;r3 -> unr
+					;
+	bitb	#asmap$,un.asp(r3)	;should we relocate?
+	bne	10$			;yes
+	movi	tb.buf,r1,tp.qbu(r5) 	;nope - setup absolute buffer address
+	clr	tp.qp1(r5)		;and clear the par1
+	br	20$			;
+10$:	mov	tb.off(r1),tp.qbu(r5) 	;and the buffer address
+	mov	tb.pag(r1),tp.qp1(r5) 	;setup par1 page
+					;
+20$:	mov	tp.rwc(r5),r1		;get the request wordcount
+	cmp	r1,#512.		;too big?
+	blos	30$			;nope
+	mov	#512.,r1		;yes - replace it
+30$:	mov	r1,tp.twc(r5)		; >> q.twc  = wc
+	mov	r1,tp.qwc(r5)		; >> q.wcnt = wc
+
+;	Move write buffer
+
+	bitb	#iowri$,tp.rmo(r5) 	;is this a write?
+	beq	40$			;nope
+					;r1 = wordcount
+	call	io$mwb			;move write buffer
+	bcs	io$ber			;oops - we bombed
+40$:	br	io$qio			;dispatch this one
+					;
+io$con:					;i/o continuation
+	bit	#iorea$,tp.rmo(r5) 	;is this a read?
+	beq	10$			;nope
+	mov	tp.twc(r5),r1		;r1 is wordcount
+	call	io$mrb			;move read buffer
+	bcs	io$ber			;oops - buffered error
+
+;	Update counts
+
+10$:	bit	#sfonc$,tp.sfc(r5) 	;this a once-only spfun?
+	bne	20$			;yes - we are done
+	add	#1024./64.,tp.tp1(r5) 	;advance page
+	add	#2,tp.rbl(r5)		;advance block number
+	sub	#512.,tp.rwc(r5)	;decrease word count
+	bgt	io$nxt			;do another buffer
+20$:	br	io$pos			;post process it
+.sbttl	i/o completion
+
+;	Monitor I/O AST
+;
+;	r5 ->	tp.kad
+;
+;	tp.qco	0 => I/O request was aborted
+
+	assume	tp.kad eq word		;
+io$ast::tst	-(r5)			;r5 -> tp.suc
+	mov	tp.csw(r5),r4		;r4 -> csw
+	mov	tp.unr(r5),r3		;get the unit
+	inc	un.opc(r3)		;count the operation
+	bit	#csher$,(r4)		;got a hard error?
+	beq	10$			;no
+	inc	un.erc(r3)		;yes - count it
+	br	20$			;and force a cache purge
+10$:	bit	#sfphw$,tp.sfc(r5)	;was this a physical write?
+	beq	30$			;no
+20$:	bis	#unpur$,un.con(r3)	;yes - purge the segment cache
+30$:	bit	#cseof$!csher$,(r4)	;got an error?
+	bne	io$pos			;yes - abort
+	tst	tp.qco(r5)		;ast or active flag
+	beq	io$pos			;request was aborted
+	tst	tp.tbr(r5)		;is this buffered?
+	bne	io$con			;yes - continue with it
+	fall	io$pos			;no - post-process it
+
+;	Post process i/o request
+;
+;	Update spusr, dispose resources, update CSW, build AST
+;	No explicit action need be taken to reschedule.
+;	Spfun error block stuff. Avoid redundant use users sometimes
+;	forget that the block number is really an error block address.
+;
+;???	r2 ->	user ast address or 1
+;	r4 ->	csw
+;	r5 ->	tp
+
+io$pos::tstb	tp.rfu(r5)		;was this a special function
+	beq	20$			;nope
+	bmi	10$			;yes - but not an acp function
+	mov	tp.qwc(r5),p$hssz	;return acp function file size etc
+10$:	mov	tp.spu(r5),p$hspu	;return special function status
+	bit	#sferb$,tp.sfc(r5)	;error block?
+	beq	20$			;no
+	bit	#csher$!cseof$,@tp.csw(r5) ;do they have an error?
+	beq	20$			;no - avoid this
+	mov	tp.sfd(r5),r1		;point to their error block
+	beq	20$			;they dont want one
+	movtd	tp.sfe(r5),(r1)+,20$  	;ignore errors
+	movtd	tp.sfe+2(r5),(r1),20$ 	;
+					;
+20$:	dec	p$hioc			;decrement process i/o count
+	decb	ch.ioc(r4)		;decrement channel i/o count
+	mov	tp.qco(r5),r2		;is there a client AST to call?
+	bic	#1,r2			;clean out the return bit
+	beq	30$			;no completion
+	mov	(r4),r0			;r0 = ast r0 = csw
+	movb	tp.rch(r5),r1		;r1 = ast r1 = channel
+					;r2 = ast pc
+	mov	tp.rps(r5),r3		;r3 = ast ps
+	call	as$pca			;post client ast
+30$:	mov	tp.tbr(r5),r3		;get the tb
+	beq	40$			;we have none
+	clr	tp.tbr(r5)		;once only
+	call	tb$dsp			;dispose of it
+	inc	p$hlim+pq.bio		;adjust the quota
+	br	50$			;
+40$:	inc	p$hlim+pq.dio		;adjust the quota
+dm$tpd==.				;\ demo patch point
+50$:	jmp	tp$dsp			;/ free the tp and exit
+.sbttl	check I/O protection
+
+;	jsr	r0,io$pro
+;	.word	mask
+;
+;	r2 ->	device record
+;	r3 ->	unit record
+;	r4 ->	channel
+;	r5 ->	rp
+;
+;	soft 1  protection error
+;	c=0	not a physical access
+;	c=1	physical access
+
+io$pro:	bit	(r0)+,(r4)		;this access permitted?
+	bne	40$			;no - drop this
+	tst	ch.sbl(r4)		;this non-file?
+	bne	30$			;nope
+	tst	rp.ps(r5)		;this a kernel request?
+	bpl	30$			;yes - always succeeds
+	assume	derta$ eq 100000	;
+	tst	de.sta(r2)		;this a disk-like device
+	bpl	30$		;c=0	;no - let it thru
+	assume	unmou$ eq 100000	;
+	bit	#unmou$!uncac$,un.con(r3) ;mounted or /cache?
+	beq	30$		;c=0	;nope - let it thru
+	bpl	20$			;no access right check if not mounted
+	assume	iowri$ eq 200		;
+	tstb	rp.mod(r5)		;this a write?
+	bmi	10$			;yes - needs PHY_IO
+	bit	#kcpro$,s$ykc0		;is protection on?
+	beq	30$			;no - dont check logical i/o
+	$rights	srlio.			;check read with LOG_IO
+	bcc	20$			;got it
+10$:	$rights	srpio.			;check read/write with PHY_IO
+	bcs	40$			;missing
+20$:	sec				;physical access
+30$:	rts	r0			;c=1 => physical access
+40$:	.soft	1			;error=1 - protection error
+.sbttl	move transaction buffer
+
+;	Move transaction buffer
+;
+;	Setup for IO$BLM to move the buffers. Handles external tb's.
+;
+;	tp.tp1	user par1
+;	tp.tbu	user buffer offset
+;
+;	tb.pag	transaction buffer par1
+;	tb.off	transaction buffer offset
+;
+;	Write	Get user buffer
+;	Read	Put user buffer
+;
+;	r1	word count
+;	r5 ->	tp
+;
+;	r0	temp
+;	r1	source page
+;	r2	source par1 offset
+;	r3	destination page
+;	r4	destination par1 offset
+;	r5	word count
+;
+;	c=1	Bus error
+
+io$mrb:	tst	(pc)+			;move read buffer
+io$mwb:	sec				;move write buffer
+	pshs	<r5,r4>			;save some
+	psh	r1			;save the wordcount
+	rol	-(sp)			;save the read/write flag
+	stack	flg wct r4 r5		;
+					;Assume a read
+	mov	tp.tbr(r5),r0		;get the tb
+	mov	tb.pag(r0),r1		;tb page
+	mov	tb.off(r0),r2		;tb displacement
+	mov	tp.tp1(r5),r3		;caller page
+	mov	tp.tbu(r5),r4		;caller displacement
+					;Handle DM: case
+	assume	sfrws$ eq 100000	;DM: read/write with status word
+	tst	tp.sfc(r5)		;is this DM: physical?
+	bpl	10$			;no
+	add	#word,r2		;yes - skip a word
+	stack	flg wct r4 r5		;
+					;reverse for write
+10$:	ror	(sp)+			;this read or write?
+	bcc	20$			;its a read
+	pshs	<r1,r2>			;other way around
+	mov	r3,r1			;reverse them
+	mov	r4,r2			;
+	pops	<r4,r3>			;
+20$:	pop	r5			;r5 = word count
+	call	io$blm			;move the block
+	pops	<r4,r5>			;restore them
+	return				;c=1 => bus error
+.sbttl	queue i/o 
+
+;	Queue I/O element to handler
+;
+;	Fill in the rest of the queue element
+;	Wordcount, buffer and par1 setup by caller
+;	Supports RT-11 V5.1 requeue interface
+;	Supports handler hold for internal queues
+;
+;	r4 ->	channel
+;	r5 ->	tp
+
+	.enabl	lsb
+io$que:	series	tp,word qsu,qcs,qbl,qfu,qbu,qwc
+	movi	tp.qsu,r5,r1		;iq.lnk
+	clr	(r1)+			;iq.lnk = 0
+	mov	tp.csw(r5),(r1)+	;iq.csw = csw
+	mov	r1,r0			;r0 	= q.blkn (see below)
+	mov	tp.rbl(r5),(r1)		;iq.blk = request block number
+	add	ch.sbl(r4),(r1)+	;	  + channel start block
+	movb	tp.rfu(r5),(r1)+	;iq.fun = request function
+					;
+	movb	p$hhpn,(r1)		;iq.jnm = process id handler style
+	bisb	ch.uni(r4),(r1)+	;iq.uni = unit from csw
+	tst	(r1)+			;iq.buf = buffer address or displacement
+					;iq.wct = word count
+					;
+	tstb	tp.rmo(r5)		;this a write?
+	bpl	10$			;nope
+	bitb	#iospf$,tp.rmo(r5)	;perhaps an spfun?
+	bne	10$			;yes - dont negate these
+	neg	(r1)			;iq.wct = negated word count
+					;iq.com = completion routine address
+					;	- or 1 - cleared by I/O abort
+					;iq.par	= par1 value or unused
+					;iq.fre	= unused
+;	Get the handler entry point
+;
+;	r2 ->	i/o queue element
+
+10$:	pshs	<r5,r4>			;r0 =  undefined
+					;r1 -> ha.lqe 
+	mov	tp.der(r5),r2		;r2 -> device record
+	mov	tp.unr(r5),r3		;r3 -> unit record
+	mov	r0,r4			;r4 -> iq.blk
+					;r5 -> tp
+	mov	de.ent(r2),r1		;r1 -> handler lqe
+					;
+	bitb	#asprc$,un.asp(r3)	;is this a per process device?
+	bne	io$pqu			;yes - do these differently
+	$cmsys	40$			;enter system state
+	inc	de.ioc(r2)		;count the device access
+	inc	un.ioc(r3)		;count the unit access
+	mov	r1,r2			;r2 -> ha.lqe
+	fall	io$rqu			;queue the request
+.sbttl	requeue handler
+
+;	Queue to standard RT-11 handler
+;
+;	System state
+;
+;	Use standard RT-11 register assignments
+;	Support RT-11 V5 requeue mechanism
+;	Assumes requeue will occur immediately
+;
+;		entry		start i/o	requeue
+;	r0	?		?		?
+;	r1 ->	ha.lqe		ha.beg		?
+;	r2 ->	ha.lqe		ha.cqe		ha.lqe
+;	r3 ->	un.suc		?		?
+;	r4 ->	iq.blk		iq.blk		iq.blk
+;	r5 ->	tp		?		?
+
+io$rqu:	mov	r2,r1			;ha.lqe - setup pointers
+	bis	#hahol$,-(r1)		;ha.hol - set handler hold
+	tst	(r2)+			;ha.lqe - skip lqe
+	mov	(r2),r0			;ha.cqe - got a queue entry?
+	bne	30$			;	  yes
+	clr	(r1)+			;ha.hol - clear hold
+	tst	(r1)+			;ha.lqe - skip lqe - RT-11 fills it
+	mov	r4,(r1)+		;ha.cqe - fill cqe
+	call	(r1)			;ha.beg - call them
+	br	50$			;sic] quit like RT-11/XM
+	br	io$rqu			;sic] requeue like standard RT-11
+
+;	Handler busy - queue it for later
+;
+;	r0 ->	iq.blk of ha.cqe
+;	r1 ->	ha.hol
+;	r2 ->	ha.cqe
+;	r3 ->	unr
+;	r4 ->	iq.blk of tp.qlk
+;	r5 ->	tp
+
+20$:	mov	iq.lnk(r0),r0		;link to the next
+30$:	tst	iq.lnk(r0)		;any more?
+	bne	20$			;yes
+	mov	r4,iq.lnk(r0)		;nope - put us in
+
+;	Check for handler done while we were at work
+;
+;	Access to the queue is mutually exclusive if
+;	a handler operates in system/fork state.
+
+	assume	hahol$ eq 100000	;
+	assume	hadon$ eq 40000		;
+	asl	(r1)			;ha.hol - handler completed?
+	bpl	50$			;	  no
+	clr	(r1)			;ha.hol - yes
+	mov	r2,r4			;ha.cqe - point to handler
+	mov	(r4),r5			;r5 -> tp.qbl
+	sub	#tp.qbl,r5		;point to tp
+	jmp	io$dn2			;complete it
+
+40$:	pops	<r4,r5>			;get them back
+50$:	return
+
+;	Queue to per-process handler
+;
+;	TT:, MB:, VM: & NL: are per-process handlers.
+;	Per-process handlers manage I/O counts internally.
+;	The element is not placed in handler queue.
+;
+;		entry		start i/o
+;	r0	undefined	undefined
+;	r1 ->	ha.lqe		ha.beg
+;	r2 ->	der		der
+;	r3 ->	unr		unr
+;	r4 ->	iq.blk		iq.blk
+;	r5 ->	tp		tp
+	
+	stack	r4 r5 ret		;
+io$pqu:					;process queue
+.if ne v3que
+	$cmsch				;block scheduler
+	insque	r5,r0,#p$hioq		;remember it for later
+	$cmpro				;back to process state
+.endc
+	cmp	(r1)+,(r1)+		;skip lqe & cqe
+	call	(r1)			;ha.beg - call them
+	pops	<r4,r5>			;get these back
+.if ne v3que
+	$cmsch				;scheduler state
+	remque	r5			;take it out of the list
+	$cmpro				;
+.endc
+	assume	tp.kad eq word		;
+	tst	(r5)+			;r5 -> kernel ast packet (tp.kad)
+	jmp	@tp.kpc-tp.kad(r5)	;complete the request
+	.dsabl	lsb
+.end
+

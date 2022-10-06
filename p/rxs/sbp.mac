@@ -1,0 +1,423 @@
+newhib=1
+;cpu time conversion
+.title	sbp - build process packet
+.include "lib:rust.mac"
+.psect	sbp d
+$fndef		;filename
+$rpdef		;request packet
+$pbdef		;process build
+$pcdef		;process create
+$pedef		;process enables
+$pqdef		;process quotas
+$prdef		;process control
+$srdef		;system rights
+;$s$def		;system messages
+
+;	RUST/XM Build create process call
+;
+;	%build
+;	macro	rxs:sbp/object:rxb:sbp
+;	%end
+;
+;	Kernel process is locked.
+;	Pickup callers parameters and validate them.
+;	Catch exceptions to stop kernel process hanging.
+;
+;	pcdup.	Duplicate name.
+;	pcexq.	Exceeded quota.
+;	pcidm.	Insufficient dynamic memory. Returns immediately.
+;	pcivl.	Invalid logical name.
+;	pcivq.	Invalid quota list.
+;	pcivs.	Invalid status flag.
+;	pcmsr.	Missing system right.
+;	pcslo.	No slot available.
+;	pcipm.	Insufficient permanent memory.
+;	pcmsr.	Missing system right.
+;	pcacc.	Access violation.
+;	pcifn.	Invalid filename.
+;
+;	s$mr0	points to request block
+;
+;	Check for kernel mode call
+;
+;	dk:	Translate logical name.
+;	det	Check for detached process and right.
+;	sub	Check for subprocess limit & pagefile limit.
+;	pri	Check priority and SETPRI.
+;	nam	Check name given. Check duplicate name.
+
+;meta	<bprerr c d><jsr r0,sy$bpe><.word c!<d!100*256.>>
+;meta	<deferr c d><loerr$=c!<d!100*256.>>
+
+meta	<bprerr c d><jsr r0,sy$bpe><.word d>
+meta	<deferr c d><loerr$=d>
+
+;	Build process exception	
+;
+;	Access error intercepted by kernel trap handler.
+;	Return pcacc. to caller.
+
+.enabl	lsb
+	deferr	s$adr. pcacc.
+sy$bpx:	mov	#loerr$,s$merr	;access error
+	br	10$		;join common
+
+;	Build process error
+;
+;	r0 ->	error code
+;
+;	Use the kernel trap handler to unwind the stack.
+; ???	Replace this technique
+
+sy$bpe:	mov	(r0),s$merr	;setup the error
+	mov	p$hexc,sp	;get our sp
+	pop	p$hexc		;reset it
+	tst	(sp)+		;skip the handler
+10$:	sec			;
+	return
+.dsabl	lsb
+.sbttl	build create process 
+
+;	Build create process parameters
+;
+;	Kernel mode in callers context
+;	Not used for kernel or operator process
+;
+;	r5 ->	rp
+
+series	pc,word	 chn pid img inp out err prv
+series	pc,word,,quo nam pri uic mbx sts bbs
+sy$sbp::			;create process preface
+	$dclth	sy$bpx		;catch exceptions
+	clrbuf	b$pimg,pb.bbs	;clear it first
+	movbuf	p$hjib,b$pjib,b$pquo-b$pjib ;move in defaults
+	clr	p$rdet		;assume not detached
+	clr	p$rsta		;and no status flags yet
+				;
+	mov	rp.r0(r5),r3	;r3 -> callers parameters
+	add	#rp.p1,r3	;skip channel, code & pid address
+				;
+	mov	#b$pimg,r4	;r4 -> build process data
+	call	sy$bpf		;bp.img - ascii filename
+	call	sy$bpf		;bp.inp - ascii filename
+	call	sy$bpf		;bp.out - ascii filename
+	call	sy$bpf		;bp.err - ascii filename
+				;
+	call	mm$mfw		;bp.prv	- privilege record address
+	psh	r0		;4(sp)	- privileges
+	call	mm$mfw		;bp.quo - quota list address
+	psh	r0		;2(sp)	- quota list address
+				;
+				;Get the 2-word process name as filename
+				;and then push it back into place. We then
+				;overwrite bp.pri and bp.mbx anyway.
+	call	sy$bpf		;bp.nam - process name
+	sub	#6,r4		;back up and move back
+	mov	(r4)+,-4(r4)	;move the name 
+	mov	(r4),-2(r4)	;move the name 
+				;
+	call	sy$bpw		;bp.pri - priority
+	tstb	r0		;this the default?
+	bne	10$		;no
+	bisb	#4.,r0		;yes - try for four
+10$:	cmpb	r0,p$hpri	;is this higher than current priority?
+	blos	20$		;no - use it
+	$right	srpri.		;must have SETPRI right
+	bcc	20$		;fine
+	clrb	r0		;use their current priority
+	bisb	p$hpri,r0	;(VMS returns missing right error)
+20$:	bic	#^c<37*256.!37>,r0 ;mask out invalid values
+24$:	mov	r0,b$ppri	;set it up
+	swab	r0		;check the top priority
+	bne	25$		;specified one
+	movb	p$hpri+1,b$ppri+1 ;change the top priority
+				;
+25$:	call	mm$mfw		;bp.uic - uic
+	mov	r0,p$rdet	;	- <> 0 => detached
+	beq	30$		;	- not detached - dont change default
+	mov	r0,b$puic	;	- it goes in the arr
+	$right	srdet.		;must have DETACH rights
+	bcc	35$		;they do
+	bprerr	s$msr. pcmsr.	;they do not - missing system right error
+				;
+30$:	mov	p$hpcr,b$pown	;bp.own - parent of sub-process
+35$:	call	sy$bpw		;bp.mbx - mailbox
+				;end of r4 pointer
+				;
+	call	mm$mfw		;	- status flags address
+	call	sy$bps		;bp.st0 - process status flags
+				;bp.own - done above during detach check
+				;
+	pop	r3		;	- quota address
+	call	sy$bpq		;bp.quo	- process quotas
+				;
+	mov	p$hpro,b$ppro	;bp.pro - protection
+				;
+	pop	r3		;	- privileges address
+	call	sy$bpp		;bp.bpp - privileges
+				;
+	call	sy$bpi		;	- setup image & command
+				;
+	$canth			;cancel the trap handler
+	clc			;c=0 => o.k.
+	return
+.sbttl	status flags
+
+;	Status flags
+;
+; ???	Setup mask of denied status flags
+;
+;	/hibernate sets up a suspend rather than a hibernate.
+
+s$ybps:;rbt	rof	sbt	sad
+.word	0,	0,	pedrw$,	b$ppe0	;1    disable resource wait mode
+.word	0,	0,	pesuf$,	b$ppe0	;3    enable system service failure mode
+.word	srswp$,	sr.swp,	pensw$,	b$ppe0	;7    inhibit swapping
+.word	srnac$,	sr.nac,	penac$,	b$ppe0	;17   inhibit accounting
+.word	srdet$,	sr.det,	pebat$,	b$ppe0	;37   batch process
+.word	0,	0,	pehbe$,	b$ppe1	;77   hibernate first (suspend)
+.word	srdet$,	sr.det,	pelgi$,	b$ppe1	;177  login using creator rights
+.word	srdet$,	sr.det,	penwo$,	b$ppe1	;377  process is network connect object
+.word	0,	0,	pedwa$,	b$ppe1	;777  disable working set adjustment
+sybps$=^c777
+
+	set	lo.rbt	0	;right bit
+	set	lo.rof	2	;right record offset
+	set	lo.sbt	4	;status bit
+	set	lo.sad	6	;status flag address
+	set	lo.bbs	10	;
+
+;	r0 =	requested rights
+;
+;	Mask requested status flags.
+
+sy$bps:				;status flags
+;[sic]	cmp	(r4)+,(r4)+	;skip past bp.pe0 & bp.pe1
+	bit	#sybps$,r0	;is it valid?
+	beq	10$		;yes
+	bprerr	s$ifl. pcivs.	;invalid status flags
+10$:	mov	#s$ybps,r1	;get our list
+20$:	asr	r0		;is the next set
+	bcc	40$		;not set
+	mov	lo.rof(r1),r2	;get the right to check
+	beq	30$		;no right required
+	bit	(r1),p$hsr0(r2)	;do they have the right?
+	bne	30$		;yes
+	bprerr	s$msr. pcmsr.	;insufficient rights
+30$:	bis	lo.sbt(r1),@lo.sad(r1) ;set the bit somewhere
+40$:	add	#lo.bbs,r1	;pop past them
+	tst	r0		;any more coming?
+	bne	20$		;yes
+
+50$:
+.if eq newhib
+	bit	#pehbe$,b$ppe1	;have they set hibenate?
+	beq	60$		;no
+	bis	#prsus$,p$rsta	;yes - set suspend
+.endc
+60$:	return			;
+.sbttl	quotas
+
+;	Quotas
+;
+;	Setup default quotas.
+;	Validata minimum & maximum values.
+;	Check process limits if not detached or EXQUOTA not granted.
+;	Sets missing exquota right if not all granted.
+;
+; ???	Fix CPU quota
+;	CPU quota is in 10 second units. Anything less is ridiculous.
+;	Anything more than five days is forever.
+;
+;	r3 ->	quota list. Zero indicates none.
+
+assume	pqend. eq 0
+
+sy$bpq::			;get process quotas
+	movbuf	p$qdef,b$pquo,pq.bbs ;move in the defaults
+	tst	r3		;do we have a list?
+	beq	70$		;no - use the default
+
+; Get the next quota
+
+10$:	call	mm$mfw		;get the next
+	cmp	r0,#pqmax.	;is this out of range?
+	blo	20$		;no
+	bprerr	s$iql. pcivq.	;yes - invalid quota list
+
+20$:	mov	r0,r1		;save the offset
+	beq	70$		;oops - that was the last
+	call	mm$mfw		;get the value
+				;maximise with sysgen
+30$:	asl	r1		;get a word offset
+	cmp	r0,p$qmin(r1)	;is this under the minimum?
+	bhis	40$		;no
+	mov	p$qmin(r1),r0	;yes - replace it
+				;minimise with creator
+35$:	cmp	r0,p$qmax(r1)	;over maximum?
+	blos	40$		;no
+	mov	p$qmax(r1),r0	;yes - use maximum
+
+40$:	cmp	r0,p$hquo(r1)	;is this over their maximum quota?
+	blos	50$		;no
+	tst	p$rdet		;this a detached process?
+	bne	50$		;yes - dont check process limit
+	$right	srquo.		;may they exceed quota?
+	bcc	50$		;no - else missing right set
+	mov	p$hquo(r1),r0	;maximise it
+50$:	mov	r0,b$pquo(r1)	;now set it up
+	br	10$		;
+
+70$:	movbuf	b$pquo,b$plim,pq.bbs ;setup the limits
+	return
+.sbttl	privileges
+
+;	Privileges
+;
+;	r3 ->	usermode quadword privileges
+;
+;	Current rights have been set as default.
+;	Mask out missing rights. Report missing rights.
+;
+; ???	Make this a general routine.
+
+sy$bpp:				;get process privileges
+;[sic]	add	#10,r4		;skip the area
+	tst	r3		;any specified?
+	beq	40$		;no - forget this lot
+	clr	r2		;offset into table
+10$:	call	mm$mfw		;get the next in r0
+	bit	#srprv$,p$hsr0+sr.prv ;can we set any privilege?
+	bne	30$		;yes
+	mov	b$psr0(r2),r1	;get the current bits
+	com	r1		;make them complement
+	bit	r1,r0		;are we denying any?
+	beq	30$		;no
+	psh	r1		;yes
+	bic	r0,(sp)		;isolate missing bits
+	bis	(sp)+,p$hmr0(r2);remember the missing rights
+20$:	bic	r1,r0		;clear out the bits
+30$:	mov	r0,b$psr0(r2)	;setup the bits
+	add	#2,r2		;next offset
+	cmp	r2,#10		;all done?
+	blo	10$		;no
+40$:	return
+.sbttl	image
+
+;	Image processing
+;
+;	prn	imn
+;	login	-	create interactive login process
+;	login	nam	login user named
+;	*	-	?
+;	*	nam	run program named
+;	*	nam.com	run command file
+;	*	nam.uaf	login user named
+;
+;	IMG specifies the name of an image to run.
+;	Handle IMG by passing a command to the process.
+; ???	If INP is a quoted string pass that instead.
+; 	If process name is LOG*, clear name and force login.
+;
+;	log*.*	interactive process
+;	.com	run the command file
+;	.uar	login the user
+;	.*	run the image
+
+sy$bpi:				;image
+	mov	#b$pimg,r2	;r2 -> point to the image filename
+	mov	#p$rcmd,r3	;r3 -> points to the command string
+	mov	#<"lo>,(r3)+	;assume login
+	mov	#<"g >,(r3)+	;
+	cmp	b$pnam,#^rlog	;process name 'log%%%'?
+	bne	3$		;no
+	cmp	b$pnam+2,#^rin	;really?
+	beq	50$		;yes
+				;
+3$:	tst	(r2)+		;skip the device name
+	bne	4$		;got an image
+	clr	-(r3)		;no command
+	clr	-(r3)		;backup
+	br	50$		;and quit
+
+4$:	cmp	(r2)+,#^rlog	;fn.fil - login anyone?
+	bne	10$		;no
+	cmp	(r2),#^rin	;really?
+	bne	10$		;no
+5$:	clr	b$pnam		;yes - make it anonomous
+	br	50$		;and force login
+
+10$:	tst	(r2)+		;fn.typ - stay on this
+	cmp	(r2),#^ruar	;login user
+	beq	20$		;yes
+				;
+	cmp	-(r3),-(r3)	;no - backup
+	movb	#'@,(r3)+	;assume a command file
+	cmp	(r2),#^rcom	;is it a command file?
+	beq	20$		;yes - do it
+	dec	r3		;forget @
+	mov	#<"ru>,(r3)+	;ru
+	mov	#<"n >,(r3)+	;n
+
+;	Get callers image name string again
+
+20$:	mov	pc.img(r5),r1	;get the image string
+30$:	call	mm$grb		;get the next
+;sic]	bcs	bus		;already checked
+	cmpb	r0,#'.		;this the type?
+	bne	40$		;no
+	cmp	(r2),#^ruar	;doing a login?
+	beq	50$		;yes
+40$:	movb	r0,(r3)+	;copy in the string
+	bne	30$		;more
+50$:	clrb	(r3)		;terminate command
+	return			;
+				;
+;110$:	.ascii	/log /		;login command
+;120$:	.ascii	/run /		;run command
+.sbttl	get word, get filename
+
+;	Get parameter from user mode
+;
+;	call	sy$bpw
+;
+;	r3 ->	user mode parameter, popped past
+;	r4 ->	output area, popped past
+
+sy$bpw:				;get a parameter word
+	call	mm$mfw		;get the next from r3
+	bne	10$		;we got one
+	mov	(r4),r0		;get the default
+10$:	mov	r0,(r4)+	;put it in
+	return
+
+;	Get ascii filename from caller
+;	Convert and store in rad50
+;
+;	r3 ->	usermode parameters - save it
+;	r4 ->	output rad50 filename
+
+sy$bpf:				;get a filename
+	call	mm$mfw		;get the parameter
+	tst	r0		;what did we get?
+	beq	40$		;nothing there
+	psh	r3		;
+	mov	r0,r1		;r1 -> previous mode address
+	mov	#p$rlin,r2	;use our ascii line
+10$:	clrb	(r2)		;terminate us
+	call	mm$grb		;get next byte
+	bcc	20$		;fine
+	bprerr	s$adr. pcacc.	;access error
+20$:	movb	r0,(r2)+	;store it
+	beq	30$		;fine
+	cmp	r2,#p$rlin+15.	;is the name too long?
+	blo	10$		;no
+	bprerr	s$ifn. pcifn.	;invalid name
+30$:	mov	#p$rlin,r0	;ascii string
+	mov	r4,r1		;rad50 block
+	call	na$caf		;convert ascii to filename
+	pop	r3		;restore this
+40$:	add	#fn.bbs,r4	;skip past it
+	return
+.end
+

@@ -1,0 +1,223 @@
+v3=1
+.title	xev - events
+.include "lib:rust.mac"
+.psect	xev d
+$addef		;asts
+$fkdef		;fork
+$okdef		;kernel overlays
+$qudef		;queue
+$sidef		;signals
+$stdef		;states
+$prdef		;pcr
+$psdef		;ps
+$tpdef		;tp	
+
+;	RUST/XM event routines overlay
+;	Kernel routines in KEV.MAC
+;
+;	%build
+;	macro	rxs:xev/object:rxb:xev
+;	%end
+;
+;	Post events
+;
+;	Fork
+;	Scheduler
+;	Monitor ast
+;	Client ast
+.sbttl	scheduler routines
+
+;	$enque	adr.da, wai.sv - call in scheduler state
+;	$stall	adr.da, wai.sv - call in system state
+;
+;	mov	#queue,r3
+;	psh	@#ps
+;	psh	addr
+;	jsr	r5,in$sta
+;	.word	wait
+;
+;	r3 ->	queue for $enque
+;	r4 =	wait state
+;
+;in$enq::psh	r4			;save that for in$exi
+;	movb	(r5)+,r4		;pass wait state
+;	ovcal$	xe$enq	utl		;enqueue - returns to IN$EXI
+;in$sta::psh	r4			;
+;	movb	(r5)+,r4		;
+;	ovcal$	xe$sta	utl		;stall
+;10$:	jmp	in$exi
+
+xe$enq::tst	(pc)+			;c=0 => $enqueue
+xe$sta::sec				;c=1 => $stall
+	psh	r4			;save that
+	mov	p$hpcr,r4		;point to it
+	bcs	10$			;its a stall
+	$float				;float for enque
+	psh	r3			;save it
+	insque	r4,r3,qu.pre(r3)	;put us in the queue
+	pop	r3			;
+	bic	#stdis$,s$csta		;force the scheduler wide open
+10$:	movb	(sp)+,pr.wai(r4)	;set the wait condition
+	bic	#stdor$!stact$,s$csta 	;force reschedule
+	mov	#in$exi,ok.ret(sp) 	;force return to IN$EXI
+	return
+.sbttl	post scheduler
+
+;	$reviv	schedule process
+;
+;	$revive	#queue	
+;
+;	Call in system state.
+;	Always force reschedule if its for current process
+;
+;	r3 ->	scheduler queue
+;	r4 ->	pcr
+;
+;sc$pos::ovjmp$	xe$pos	utl	;post process
+
+	assume	pr.suc eq 0	;
+xe$pos::psh	r3		;save this guy
+	stack	r3 ret		;optimised entry point from below
+	cmp	(r4),r4		;is this in a queue?
+	beq	10$		;no
+	remque	r4		;yes - take it out
+10$:	cmp	r3,pr.bqu(r4)	;lower than base priority?
+	bhis	20$		;no	
+	mov	pr.bqu(r4),r3	;yes - setup the base
+20$:	cmp	r3,pr.tqu(r4)	;is it too high?
+	blos	30$		;no
+	mov	pr.tqu(r4),r3	;yes - chop it off
+30$:	mov	r3,pr.que(r4)	;reset current queue
+	cmp	r3,s$cpnd	;is this higher?
+	bhi	50$		;definitely yes
+	blo	40$		;nope
+	cmp	(r3),r3		;was this queue empty?
+	beq	60$		;yes - preempt them
+40$:	cmp	r4,s$cprc	;is this the current process?
+	bne	70$		;no
+	tst	pr.ast(r4)	;got a pending monitor ast?
+	bne	70$		;no
+	br	60$		;yes - don't miss it
+50$:	mov	r3,s$cpnd	;change to new high
+60$:	bic	#stdor$,s$csta	;open the gate
+70$:	insque	r4,r3,qu.pre(r3);insert at end of queue
+	clrb	pr.wai(r4)	;state = able to run
+	pop	r3		;restore r3
+	return			;
+.sbttl	post monitor ast/signal
+
+;	Post monitor ast
+;
+;	Call in system state or below.
+;	Synchronise ast queue with $float	
+;
+;	Place ADB in pcr ast queue.
+;	Reschedule process if no ast in progress.
+;
+;	r3 ->	scheduler queue
+;	r4 ->	pcr
+;	r5 ->	ad record
+;
+;	ad.suc		successor	
+;	ad.kpc		kernel pc
+;	ad.kpr	0	priority
+;	ad.kps		kernel ps
+;	ad.kp1		kernel par1
+;	ad.ar5		ast r5
+;
+;as$pma::ovjmp$	xe$pma	utl	;post monitor ast
+
+xe$pma::call	in$fly		;ensure we are in system state
+	psh	r3		;save this
+	clr	(r5)		;terminate ast list
+	movi	pr.asq,r4,r3	;point to ast queue
+10$:	tst	(r3)		;this the last?
+	beq	20$		;yes
+	mov	(r3),r3		;no - get the next
+	br	10$		;
+20$:	mov	r5,(r3)		;put us in
+	pop	r3		;get the scheduler queue
+	bic	#stdor$,pr.ast(r4) ;asts active or disabled?
+	beq	xe$pos	;sc$pos	;no - schedule it
+	return
+
+;	Post monitor signal
+;
+;	r0 =	signal
+;	r0 = 0	wake up process from process state
+;	r4 ->	pcr
+;
+;as$pmw::ovjmp$	xe$pmw	utl	;post monitor wake
+;as$pms::ovjmp$	xe$pms	utl	;post monitor signal
+
+	.enabl	lsb		;
+xe$pmw::call	in$fly		;float
+	br	10$		;force wakeup
+				;
+xe$pms::call	in$fly		;ensure we are in system state
+	bit	r0,pr.sig(r4)	;already active?
+	bne	20$		;yes - don't repeat it
+	bis	r0,pr.sig(r4)	;set the signal
+	bic	#stdor$,pr.ast(r4)
+	bne	20$		;asts are disabled
+10$:	psh	r3		;save this
+;;;	$revive	#s$cpsi		;signal them
+	mov	#s$cpsi,r3	;signal them
+	call	xe$pos	;sc$pos	;post process
+	pop	r3		;get this back
+20$:	return			;
+	.dsabl	lsb		;
+.sbttl	post client ast/signal
+
+;	Post client ast
+;
+;	Can be called from any process state.
+;	Must be in context of the target process.
+;	Client AST's are delivered with ADR's.
+;	If an ADR is not available the process blocks.
+;
+;	r0	user r0 - destroyed
+;	r1	user r1
+;	r2	user pc - destroyed
+;	r3	user ps
+;
+;as$pca::ovcal	xe$pca	utl	;post client ast
+;	jmp	sc$cmp		;change mode to process & return
+
+xe$pca::pshs	<r5,r4,r3>	;post client ast
+	stack	r3,r4,r5	;
+	mov	p$hpcr,r4	;r4 -> pcr
+	$cmsch			;set scheduler state
+	tst	p$hsta		;are we aborting?
+	bmi	40$		;yes - skip this
+	call	ad$acq		;acquire an adb
+	series	ad,word suc cpc cps cr0 cr1
+10$:	clr	(r3)+		;ad.suc - clear the link
+	mov	r2,(r3)+	;ad.cpc
+	mov	(sp),(r3)+	;ad.cps
+	mov	r0,(r3)+	;ad.cr0
+	mov	r1,(r3)		;ad.cr1
+	sub	#ad.cr1,r3	;backup to the front
+
+	bic	#stdor$,p$hast	;clear the dormant flag
+	mov	p$hasq,r2	;is this the first?
+	bne	30$		;nope - just queue it
+	mov	r3,p$hasq	;yes it is
+	bit	#stact$,pr.ast(r4) ;are we in a monitor ast?
+	bne	40$		;yes - don't reschedule
+				;??? Should call without reschedule
+	bit	#stact$,p$hast	;are we in a client ast?
+	bne	40$		;yes - dont reschedule us
+	clr	r0		;force process reschedule
+	call	xe$pms	;as$pms	;post monitor signal
+	br	40$
+
+20$:	mov	(r2),r2		;get the next
+30$:	tst	(r2)		;are we at the end?
+	bne	20$		;nope
+	mov	r3,(r2)		;yes
+40$:	pops	<r3,r4,r5>	;restore them
+	return
+
+.end
+

@@ -1,0 +1,388 @@
+ctc$c=0	; .scca ctrl/c ast if address is odd
+qui$c=1	; quiet, no ctrl/t on attach
+half=1
+.title	rte - terminal requests
+.include "lib:rust.mac"
+.psect	rte d
+$addef		;ast delivery
+$cfdef		;command file
+$eddef		;editor
+$erdef		;error & message
+;$fedef		;features
+$fodef		;formatted output
+$gldef		;getline
+$jbdef		;job
+$jsdef		;job status word
+$icdef		;image control
+$indef		;ind
+$rpdef		;rp
+$prdef		;pcr
+$psdef		;ps
+$srdef		;system rights
+$tedef		;terminal
+$ttdef		;terminal flags
+$txdef		;text
+
+;	RUST/XM RT-11 terminal requests
+;
+;	%build
+;	macro	rxs:rte/object:rxb:rte
+;	%end
+;
+;	%date
+;	<20-Nov-2010 20:53:39.09>
+;	%edit
+;	<48   >
+;
+;	lower	command file input
+;	wait	csi input - better jsw rules
+;	termina	gline from terminal - getline bit
+;	ctrlc	goto - fudge it - it can never be standard
+;
+;	scca	rmi
+;	ttyout	kte
+;	tt:	dtt
+;
+;	gtlin
+;	ttyin
+;	print	
+;	rctrlo
+;
+;	p$hjsw	setup by emt dispatcher
+;
+;	Cancel terminal I/O
+
+te$can::call	te$zap		;init the terminal
+	call	cf$abt		;abort command file
+	call	ed$abt		;abort line editor
+rctrlo::jmp	te$rco		;reset terminal ctrl/o
+.sbttl	get line
+
+;	Get line from terminal
+;
+;	.gtlin	lin, prm, ctl
+;
+;	lin.da	line buffer address
+;	prm.da	prompt buffer address
+;	ctl.dv	control flags
+;
+;		csigen		csispc		gtlin		$gtlin
+;	rp.p0	unused		unused		future		future
+;	rp.p1	[cstrng]	[cstrng]	0		signals
+;	rp.p2	defext		defext		[prompt]	[prompt]
+;	rp.p3	devspc[!1]	outspc[!1]	1 or 3		control
+; p3&1	rp.p4	[linbuf]	[linbuf]	linbuf		linbuf
+;	rp.p5							record
+;
+;	r0 exit	devspc&177776	outspc&177776	unchanged	unchanged
+;
+;	rp.p0	field width
+;	rp.p0+1	fill character
+;
+;	rp.p3	control:
+;	1	gllin$	This is a getline (optional).
+;	2	glter$	Avoid command file input.
+; ???	100	glwai$	Ignore return mode.
+; ???	200	glctc$	Do not interpret [ctrl/c].
+;	400	glncc$	No carriage control - do not echo cr/lf
+;
+;	rp.p5	record
+;		line, column
+;		terminators (32-bits)
+;
+;	Gtlin may not modify r0 under any conditions. Track later routines.
+;
+;	Input forced from terminal?
+;
+;	Gtlin can be interrupted by a cli ast. We have to store the
+;	prompt so that getline can repeat on return from the ast.
+;
+;	Gtlin returns a failure if jstts$!jsttr$ and no first character
+;	is available. If it can get one it waits for the rest.
+;
+;	RT-11 lets [ctrl/z] terminate ttyin line input but not gtlin input.
+;	Hence users cannot rub [ctrl/z] out. We emulate the mistake.
+;	SIPP falls over if we dont.
+;	Programs can request [ctrl/z] termination with SET PROGRAM/CTRLZ
+;
+;	cr	ignored
+;	lf	converted to zero
+;	ctrlc	terminates line
+;	ctrlz	does not terminate line (RT-11 rules)
+;		terminates line if icctz$ in image control
+;	long	long lines are truncated to 80 characters and a null
+
+te$glw::;bic	#jsgtl$,p$hjsw	;turn gtlin off
+gtlin::bic	#jsttr$!jstts$,p$hjsw ;turn off wait and edit 
+
+;	Put the prompt
+
+	call	cf$prm		;should we prompt?
+	bcs	10$		;no
+	call	ed$prm		;yes - go prompt
+
+;	Get the line
+
+10$:	mov	rp.p4(r5),r1	; r1 -> the buffer address
+	psh	#81.-1		; (sp) = maximum length
+20$:	call	te$gti		;get some character
+	cmpb	r0,#cr		;this a return?
+	beq	20$		;yes - ignore it
+	cmpb	r0,#lf		;a linefeed?
+	bne	40$		;no
+30$:	clr	r0		;terminate the line
+40$:	call	mm$prb		;store it
+	dec	(sp)		;got space for more?
+	bpl	50$		;yes
+	dec	r1		;no - overwrite last character
+50$:	call	ed$ccz		;check terminating [ctrl/c] or [ctrl/z]
+	bcc	30$		;found terminator
+	tstb	r0		;was it end of line?
+	bne	20$		;no - get another
+	tst	(sp)+		;skip the counter
+	return			;
+.sbttl	print line
+
+;	.print
+;
+;	rp.p0	string address
+;
+;	Do not strip 8th bit for 8-bit support.
+;	User mode request is aborted if process is aborted.
+;	This handles run-away .print statements.
+;
+;	200	End of line without newline
+;	0	End of line with newline
+
+em$pri::mov	r3,r1		;r1 -> string
+
+te$prt::assume	prabt$ eq 100000;r1 -> previous mode string
+10$:	bit	rp.ps(r5),p$hsta;have we aborted the user?
+	bmi	te$ccr		;yes - quit
+	call	mm$grb		;get next byte
+	bit	#177,r0		;is this end of line?
+	beq	20$		;yes - done
+	call	te$put		;display it
+	br	10$		;more
+20$:	tstb	r0		;newline required?
+	bne	te$ccr		;no
+	callr	ed$new		;display new line
+	.dsabl	lsb
+.sbttl	terminal input
+
+;	Standard RT-11 terminal input
+;
+;	TTYIN uses command file unless /nocommand or DCL/CLI ttyin prompt
+;	If DCL input and ttlc$=0, convert to upper case
+;	If [ctrl/c], exit process, unless scca
+;
+;	TTYIN processing is optimised since some applications check for
+;	pending input after each character output. Thus terminal output
+;	thruput is dependent on the speed of failed terminal input requests.
+; ???	We should flag earlier on if input is available for the process.
+; ???	Test terminal record, edit line and command files.
+;
+;	The TTYIN path builds an RP but bypasses the general dispatcher and
+;	trace in particular. We handle the return error path in-line.
+
+ttyin::	call	te$tti			;get one
+	bcc	10$			;fine
+	bis	#cbit,rp.ps(r5)		;set error without using .soft
+;	bpl	20$			;not from user mode
+;	mfpd	@#j$berr		;get the error byte
+;	clrb	(sp)			;error zero
+;	mtpd	@#j$berr		;put it back
+	br	20$			;
+10$:	mov	r0,rp.r0(r5)		;return the character either way
+20$:	jmp	em$exi			;[sic] no return path
+
+;	Generic input for ttyin
+
+	lodis$ = cfdcl$!cftti$!cfspd$!cfinx$ ;dcl prompt, cli ast, IND
+te$tti:	bit	#lodis$,p$hcfs		;something special or tt nocommand?
+	bne	te$rti			;yes - avoid command file
+
+;	Generic input for ttyin & gtlin
+;
+;	rp.r0	unchanged - required by .gtlin
+
+te$gti:	tst	p$hjoc			;got a command file?
+	beq	te$rti			;nope - use the ring
+	bit	#glter$,rp.p3(r5) 	;gtlin avoiding command files?
+	bne	te$rti			;yes - use terminal
+	call	cf$get			;get one from command file
+	bcc	te$ccr			;fine - avoid upper case conversion
+					;command file exhausted
+te$rti:	call	ed$tti			;get a character from the ring
+	bcs	te$c1r			;nothing doing
+
+;	Handle [ctrl/c]
+
+	cmpb	r0,#ctrlc		;is it ctrlc?
+	bne	te$low			;nope
+	tst	p$hscc			;do we abort on ctrl/c?
+	bne	te$ccr			;nope - and cannot be lowercase
+	call	cf$abt			;yes - abort any command file
+	.exit				;exit the program (abort if completion)
+
+;	Check for upper case conversion	
+;
+;	ictup$	set program/lower - does not convert
+;	jsttl$	jsw lower case - does not convert
+;
+;	cli	use terminal/lower setting
+;
+;	Perform the conversion in-line for speed.
+
+te$low::bit	#jsttl$,p$hjsw		;is lower case enabled?
+	bne	30$			;yes
+	bit	#ictup$,p$hic0		;set program/lower?
+	bne	30$			;yes - don't convert
+	tst	rp.p1(r5)		;is this from CLI?
+	beq	20$			;no - convert to uppercase
+	assume	ttlow$ eq 200		;sign bit
+	assume	tt.low eq 0		;of first byte
+	psh	p$hter			;get and check terminal
+	beq	10$			;has no terminal
+	psh	@(sp)+			;get first word of record
+10$:	tstb	(sp)+			;lowercase enabled?
+	bmi	30$			;yes - dont convert
+20$:	cmpb	r0,#'a			;this a lower case alphabetic?
+	blo	30$			;no
+	cmpb	r0,#'z			;really?
+	bhi	30$			;nope
+	bicb	#'a-'A,r0		;yes - convert to uppercase
+30$:	fall	te$ccr			;
+te$ccr:	tst	(pc)+			;clear the c bit
+te$c1r:	sec				;no character available
+	return				;
+.sbttl	terminal signals
+
+;	Terminal monitor signals
+;
+;	[ctrl/c] - abort image
+;	[ctrl/h] - signal debugger
+;	[ctrl/y] - interrupt process
+;	[ctrl/t] - display process status
+;	[ctrl/o] - clean out the terminal
+;	[ctrl/b] - detach to background
+;	[ctrl/f] - detach to foreground
+;	[attach] - attach terminal signal
+;	realtime - realtime signal
+;
+;	ps =	mmpum$
+;	r0 =	terminal signal
+;
+;	Monitor completion routine.
+;	No wait states permitted.
+;	This code must stay in the default par1 overlay (see kin as$dms).
+
+	stack	dma scx crp exc op1 r0 r1 r2 r3 r4 r5 pc ps
+te$sig::mov	pr.ter(r4),r3		;get our terminal record
+	mov	r3,p$hter		;maybe it just changed
+	beq	30$			;ignore it if we lost it
+10$:	mov	#40$,r2			;look for the next one
+20$:	mov	(r2)+,r1		;get the address
+	beq	30$			;no more
+	mov	(r2)+,r0		;r0 = bit
+	bit	r0,te.sig(r3)		;look for the signal
+	beq	20$			;not this one
+	bic	r0,te.sig(r3)		;clean it out
+	call	(r1)			;call them
+	tst	te.sig(r3)		;any more?
+	bne	10$			;yes - look again
+30$:	return
+
+40$:	.word	ts$ctc,	tectc$		;[ctrl/c]
+	.word	ts$cty,	tecty$		;[ctrl/y]
+	.word	ts$ctt,	tectt$		;[ctrl/t]
+	.word	ts$cto,	tecto$		;[ctrl/o]
+	.word	ts$cat,	tecat$		;[attach]
+	.word	ts$ctb, tectb$		;[ctrl/b]
+	.word	ts$ctf,	tectf$		;[ctrl/f]
+	.word	ts$cth,	tecth$		;[ctrl/h]
+;sic]	.word	ts$crt, tecrt$		;realtime
+	.word	0
+
+;	[ctrl/h]	
+;
+;	Set trace trap to call debugger
+;	Stack frame dma...ps defined in kin.mac.
+
+stack	sig dma scx crp exc op1 r0 r1 r2 r3 r4 r5 pc ps
+ts$cth:	tst	s$ybug			;got a debugger?
+	beq	40$			;no - ignore this
+30$:	bis	#tbit,sp.ps(sp)		;yes - set it up
+40$:	return				;
+
+;	[ctrl/c]
+
+ts$ctc:	bitb	#incal$,p$hins		;global [ctrl/c] stopping this?
+	bne	110$			;yes - ignore this
+	mov	p$hscc,r1		;is the user controlling this?
+	beq	120$			;no - drop them
+.if ne ctc$c				;
+	bit	#1,r1			;flag or ast?
+	beq	105$			;flag
+	bic	#1,r1			;clean up
+	mov	r1,r2			;
+	mov	#adint.,r3		;
+	call	as$pca			;
+	br	110$			;
+.endc	
+105$:	mfpd	(r1)			;get the scca word
+	bvs	120$			;abort on error
+	bis	#100000,(sp)		;set the error bit
+	mtpd	(r1)			;abort on error
+	bvs	120$			;[sic] ignore errors
+110$:	return				;[sic] fine
+
+120$:	tst	p$hsta			;are we already aborting?
+	bmi	110$			;yes - ignore this
+	psh	#ab$ctc			;no - exit via ab$ctc
+	br	ts$zap			;after zap & signal post
+
+;	[ctrl/o]
+
+ts$cto:	call	te$zap			;zap the terminal
+	.print	#310$			;display the [ctrl/o]
+	br	ts$sco			;force [ctrl/o] and reprompt
+310$:	.asciz	<cr><lf>_^O_		;
+	.even
+
+;	[attach]
+
+ts$cat:	mov	#te$igt,p$htti		;terminal input
+	mov	#te$opt,p$htto		;terminal output
+	mov	#fofio$,p$hlof		;force a logger pass
+	bic	#prsus$,p$hsta		;unsuspend this process
+	bis	te.iie(r3),@te.tks(r3)	;enable the terminal
+	bis	#prwak$,pr.sta(r4)	;wake the process up
+.if ne half
+	bit	#tthlf$,tt.hlf(r3)	;this halfduplex?
+	bne	ts$ctt			;yes - dont convert to ctrl/t
+.endc
+.if ne qui$c
+	br	ts$ctt			;quiet-no ctrl/t
+.iff
+	mov	#tectt$,r0		;convert to [ctrl/t]
+.endc
+
+;	[ctrl/b]
+;	[ctrl/f]
+;	[ctrl/t]
+;	[ctrl/y]
+
+ts$ctt:	call	te$res			;[ctrl/t] - just reset it
+	br	ts$pcs			;send the signal
+ts$cty:	tst	p$hsig			;[ctrl/y] - still one pending?
+	bne	ts$ctt			;yes - be less drastic
+ts$zap:	call	te$zap			;clean up all output & input
+ts$ctb:					;
+ts$ctf:					;
+ts$crt:					;
+ts$pcs:	call	as$pcs			;post a client signal
+ts$sco:	jmp	te$sco			;force [ctrl/o] and reprompt
+
+.end
+

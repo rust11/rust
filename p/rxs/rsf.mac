@@ -1,0 +1,332 @@
+bypass=1
+byshif=1
+.title	rsf - special functions
+.include "lib:rust.mac"
+.psect	rsf d
+$chdef		;channel
+$dcdef		;device codes
+$dedef		;device record
+$iodef		;i/o
+$mmdef		;mmu
+$rpdef		;rp
+$sfdef		;spfun
+$srdef		;system rights
+
+;	RUST/XM spfun support
+;
+;	%build
+;	macro	rxs:rsf/object:rxb:
+;	%end
+;
+;	Special functions present a special kind of fun. The I/O request
+;	parameters can be freely interpreted by the device handler. This
+;	makes buffered I/O and security difficult. To say the least. We
+;	handle 'standard' DEC spfuns with descriptors. User handlers still
+;	have to be solved.
+;
+;	We get control before I/O preprocessing; after the TP has been
+;	filled in and at I/O completion.
+;
+;	.SPFUNs should theoretically only be performed on non-file structured
+;	channels. But, since this is not tested on RT-11 it does not hold. 
+;	.SPFUN read/write operations are consided physical. But if the channel
+;	was opened in file mode the access tests will have been based on
+;	file access rather than volume access. Thus we have to test the
+;	access permission again.
+;
+;	Ignored		Ignore spfuns to handlers that don't support them.
+;			Directory SPFUNS - i.e. positive codes
+;			Wierd read/writes with stuffed spfun codes fail;
+;	Equivalent	Some devices share spfun codes. E.g. MM:, MS:, MT:
+;	Control		Control spfuns transfer no data (CT:).
+;			Unknown devices and codes are handled as control codes
+;	Transfer	Spfuns that map directly to read/write requests (DL:).
+;	Bytecount	Spfuns that use bytecounts instead of wordcounts.
+;	Complex		Spfuns that require extensive hand-holding (DM:).
+;	Handheld	Some need later handholding.
+;	Contiguity	Some need contiguous (18-bit) buffers. E.g. MT:.
+;	Mapped handlers	Some require a mapped handler.
+;	Unmapped hands.	Some require an unmapped handler.
+;	Nonfile		Channels should be opened non-file for spfuns.
+;
+;	Directory	These are not supported. RUST/XM uses $IO here.
+;	Devsiz		This is the same for all varsz$ devices.
+;
+;	de.sfr	->	Special function record for device.
+;			System contains fixed records for DEC devices.
+;			User records are installed with handler.
+;	tp.sfe	word*2	Spfun error block for MT:
+;	tp.sfc		Spfun control
+;	tp.sfd		Spfun data
+;
+; CT:	All spfuns are control functions. Use sfctl$.
+; DL:	Straight forward.
+; DM:	Physical read & write use first word of buffer for status. Ugh.
+; DU:	Force translation table read word-count to 16.
+;	Packet operation must use TB and is both read/write. Wordcount is 52.
+; DX:	
+; DY:	Physical read/write have fixed word-counts.
+;	rp.wct is actually sector number. Force transaction wc to 65. or 129.
+;	Device must be opened non-file structured.
+; MM:	Same as MT:
+; MS:	Same as MT:	
+; MT:	Block number points to error buffer. Easy for unmapped handlers.
+;	Mapped handlers must be patched to use a kernel address.
+;
+;	chn	Must be open. Used to locate device.
+;	blk	Block number, block count or error status address.
+;		MIO adds ch.sbl to tp.rbl to form tp.qbl.
+;	buf	Buffer address. Filename buffer for directory requests.
+;	wct	Wordcount, bytecount or sector number. Fixup required.
+;	fun	Special function code. Must be positive.
+;	com	Completion routine address.
+
+map	rp.asp,,rp.cod	;replace code with address space
+map	rp.blk,,rp.p0	;block number
+map	rp.buf,,rp.p1	;buffer address
+map	rp.wct,,rp.p2	;wordcount
+map	rp.mod,,rp.p3	;RUST/XM mode
+map	rp.fun,,rp.p3+1	;spfun function
+map	rp.com,,rp.p4 	;user completion routine (moved here by read/write)
+map	rp.sfc,,rp.p5	;special-function control
+map	rp.sfd	-word,rp.ret ;emt return => spfun data
+map	rp.xbs		;
+
+;	mscp constants
+
+map	mp.buf,,16.		;offset to mscp buffer
+map	mp.bbs,,48.		;mscp block size
+map	mp.hdr,,word*2		;header size
+map	mp.cmd,,mp.hdr+mp.bbs	;offset to command packet
+map	mp.bal,,mp.cmd+mp.hdr+mp.buf ;high order address
+map	mp.bah,,mp.bal+word	;low order address
+.sbttl	preprocess
+
+;	Preprocess spfun request
+;
+;	r0 	free
+;	r1	free
+;	r2 ->	device record
+;	r3 ->	unit record
+;	r4 ->	channel
+;	r5 ->	csw
+;
+;	rp.mod	iorea$, iowri$, iospf$
+;	rp.sfc	spfun control word
+;	rp.sfd	spfun data
+
+	assume	de.sta eq 0	;
+io$sfx::bit	#defun$,(r2)	;does the handler support spfuns?
+	beq	sf$ign		;no - ignore it
+	tstb	rp.fun(r5)	;this a directory function?
+	bpl	sf$ign		;yes - ignore it
+
+;	Generic device size request
+;	Does not require LOG_IO
+
+	bit	#devar$,(r2)	;is this a variable size device?
+	beq	300$		;no
+	cmpb	rp.fun(r5),#sfgvs. ;this get variable size?
+	bne	300$		;no
+	movb	#iorea$,rp.mod(r5) ;yes - setup to read
+	mov	#1,rp.wct(r5)	;force the size
+	br	500$		;avoid logical I/O check
+
+;	Find device function record
+
+300$:	mov	#s$fdev,r0	;search for the device
+				;
+310$:	cmpb	(r0),(r2)	;same device?
+	beq	320$		;yes
+	cmp	(r0)+,(r0)+	;no - skip to next
+	cmp	(r0),#-1	;end of the table?
+	bne	310$		;
+	br	335$		;treat as control function
+
+;	Find function code element
+
+320$:	mov	2(r0),r1	;r1 -> control block
+330$:	cmpb	sf.fun(r1),rp.fun(r5) ;is this the function?
+	beq	340$		;yes
+	add	#sf.ebs,r1	;no
+	cmp	(r1),#-1	;end of it all?
+	bne	330$		;no
+335$:	mov	#s$fgen,r1	;yes - use default function
+				;control function
+;	Setup mode
+
+340$:	mov	(r1),rp.sfc(r5)	;rp.sca - return control area
+	movb	(r1),r0		;send the mode
+	bic	#^c<iorea$!iowri$>,r0 ;clean it up
+	bisb	r0,rp.mod(r5)	;return it
+
+;	Fixup wordcount
+
+	mov	rp.wct(r5),r0	;check the wordcount
+	mov	r0,rp.sfd(r5)	;keep a copy of it for the handler
+.if ne bypass
+	bit	#sfbyp$,(r1)	;is this a bypass request?
+	beq	350$		;no
+	tst	r0		;got virtual address?
+	beq	370$		;no
+	psh	r2		;save that
+	call	io$cup		;convert user r0 to physical r1/r2
+.if ne byshif
+	ash	#-4,r1		;shift address into place
+.endc
+	psh	@#m$kip6	;save that
+	mov	rp.buf(r5),r0	;get the buffer address
+	call	ev$mbu		;map the buffer
+	mov	r2,mp.bal(r0)	;move in low order
+	mov	r1,mp.bah(r0)	;move in high order
+	pop	@#m$kip6	;map back again
+	pop	r2		;restore that
+	clr	r0		;remove virtual address flag
+	br	370$		;go on
+.endc
+350$:	bit	#sfbct$,(r1)	;is this a byte count?
+	beq	360$		;no
+	clc			;yes
+	ror	r0		;make a word count
+	adc	r0		;
+360$:	bit	#sfwct$,(r1)	;should we force a word count
+	beq	370$		;no
+	mov	sf.dat(r1),r0	;yes - replace it
+370$:	mov	r0,rp.wct(r5)	;replace wordcount
+
+;	Fixup block number - check MT: error blocks
+
+380$:	bit	#sferb$,(r1)	;does this return an error block?
+	beq	400$		;no
+	mov	rp.blk(r5),r0	;get the error block
+	mov	r0,rp.sfd(r5)	;store it - ignored if sferb$ clear
+	cmp	r0,#1000	;is this really a block number?
+	blo	385$		;yep
+	bit	#1,r0		;is it odd?
+	beq	390$		;no
+385$:	bic	#sferb$,rp.sfc(r5) ;they dont - dont return one
+390$:	clr	rp.blk(r5)	;clean it up (fixup DUP error)
+
+;	Check for physical I/O to file structured channel.
+;	Require logical_io rights for read, physical_io for write.
+;	Force a segment cache purge for a write.
+
+400$:	tst	ch.sbl(r4)	;is it opened for physical I/O?
+	beq	420$		;checked later
+	assume	iowri$ eq 200	;
+	bitb	#iorea$!iowri$,rp.mod(r5) ;is this a transfer?
+	beq	420$		;no
+	bmi	410$		;its a write
+	$right	srlio.		;read needs logical I/O or physical I/O
+	bcc	420$		;they have logical
+410$:	$right	srpio.		;do they have physical I/O rights?
+	bcs	sf$err		;no - treat as invalid function
+420$:
+500$:	return
+
+sf$ign:	jmp	em$exi		;ignore the function
+sf$err:	.soft	0		;invalid function code or eof
+				;
+s$fgen:	.word	sfctl$!sfund$	;undescribed control function
+	.word	0		;no data
+.sbttl	data
+
+;	Device pointers
+
+s$fdev:;code	table
+;	-------------
+$sfdev	demtc.	s$fmt
+$sfdev	demmc.	s$fmt
+$sfdev	demsc.	s$fmt
+$sfdev	demuc.	s$fmu
+$sfdev	dectc.	s$fct
+$sfdev	dedlc.	s$fdl
+$sfdev	dedmc.	s$fdm
+$sfdev	dedxc.	s$fdx
+$sfdev	dedyc.	s$fdy
+$sfdev	deduc.	s$fdu
+;$sfdev	deldc.	s$fld
+$sfdev	dexlc.	s$fxl
+$sfdev	
+
+s$fmu:;	-10						;direct access
+s$fmt:;-------------------------------------------------;
+s$fmm:;fun	ctl			dat	mod	;
+s$fms:;-------------------------------------------------;
+$sfent	-1	sferb$!sfctl$				;write tape mark
+$sfent	-2	sferb$!sfctl$				;forward, wct=blocks
+$sfent	-3	sferb$!sfctl$				;backspace, wct=blocks
+$sfent	-4	sferb$!sfwri$		0	iowri$	;write extended
+$sfent	-5	sferb$!sfctl$				;rewind
+$sfent	-6	sferb$!sfctl$				;rewind & go offline
+$sfent	-7	sferb$!sfwri$		0	iowri$	;write physical
+$sfent	-10	sferb$!sfrea$		0	iorea$	;read physical
+$sfent	-11	sferb$!sfwri$!sfwct$	1	iowri$	;stream
+.if ne bypass
+$sfent	-20	sfrea$!sfwri$!sfbyp$	0	iorea$	;direct mscp access
+.endc
+$sfent	
+
+s$fct:
+$sfent	-1	sfctl$					;forward to next file
+$sfent	-2	sfctl$					;forward to last block
+$sfent	-3	sfctl$					;forward to next file
+$sfent	-4	sfctl$					;forward to next block
+$sfent	-5	sfctl$					;rewind to load point
+$sfent	-6	sfctl$					;write file gap
+$sfent
+
+s$fdx:
+$sfent	-1	sfrea$!sfwct$!sfonc$	65.	iorea$	;read physical sector
+$sfent	-2	sfwri$!sfwct$!sfonc$!sfphw$ 65.	iorea$	;write physical sector
+$sfent	-3	sfwri$!sfwct$!sfonc$!sfphw$ 65.	iowri$	;write with deleted data
+$sfent	-5	sfrea$!sfonc$!sfwct$	1	iorea$	;get device size
+$sfent
+
+s$fdy:
+$sfent	-1	sfrea$!sfwct$!sfonc$	129.	iorea$	;read physical sector
+$sfent	-2	sfwri$!sfwct$!sfonc$!sfphw$ 129. iorea$	;write physical sector
+$sfent	-3	sfwri$!sfwct$!sfonc$!sfphw$ 129. iowri$	;write with deleted data
+$sfent	-5	sfrea$!sfonc$!sfwct$	1	iorea$	;get device size
+$sfent	
+
+s$fdl:
+$sfent	-1	sfrea$			0	iorea$	;physical read
+$sfent	-2	sfwri$!sfphw$		0	iowri$	;physical write
+$sfent	-4	sfctl$					;init bad block table
+$sfent	-5	sfrea$!sfonc$!sfwct$	1	iorea$	;get device size
+$sfent	
+
+s$fdm:	
+$sfent	-1	sfrea$!sfrws$		0	iorea$	;physical read
+$sfent	-2	sfwri$!sfrws$!sfphw$	0	iowri$	;physical write
+$sfent	-4	sfctl$					;init bad block table
+$sfent	-5	sfrea$!sfonc$!sfwct$	1	iorea$	;get device size
+$sfent
+
+s$fdu:
+$sfent	-1	sfrea$!sfrws$		0	iorea$	;physical read
+$sfent	-2	sfwri$!sfrws$!sfphw$	0	iowri$	;physical write
+;$sfent	-5	sfrea$!sfonc$!sfwct$	1	iorea$	;get device size
+$sfent	-6	sfrea$!sfwct$!sfonc$	16.	iorea$	;read translation table
+.if ne bypass
+$sfent	-7	sfrea$!sfwri$!sfbyp$	0	iorea$	;direct MSCP access
+$sfent	-20	sfrea$!sfwri$!sfbyp$	0	iorea$	;direct mscp access
+.endc
+$sfent
+
+;s$fld:
+;$sfent	-5	sfrea$!sfonc$!sfwct$	1	iorea$	;get device size
+;$sfent	-6	sfrea$!sfwri$		?		;
+;$sfent
+
+s$fxl:
+$sfent	201	sfctl$					;clr - clear
+$sfent	202	sfctl$					;brk - break
+$sfent	203	sfrea$!sfbct$!sfonc$	0	iorea$	;srd - bytecount read
+$sfent	204	sfrea$!sfwct$!sfonc$	1	iorea$	;sts - read status word
+$sfent	205	sfctl$					;off - switch it off
+$sfent
+
+.end
+

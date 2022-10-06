@@ -1,0 +1,385 @@
+chncnt=1
+creerr=1
+.title	sda - system process data
+.include "lib:rust.mac"
+.psect	sda d
+$dedef		;devices
+$emdef		;emts
+$erdef		;error codes
+$evdef		;eve
+$fndef		;filename
+$pbdef		;process build
+$pedef		;process enables
+$pqdef		;process quotas
+$prdef		;pcr
+$rpdef		;request package
+$uidef		;uic
+
+;	RUST/XM process creation data
+;
+;	%build
+;	macro	rxs:sda/object:rxb:sda
+;	%end
+;
+;	$creprc deals with a large number of parameters that must be
+;	validated before the system process creates the process.
+;
+;	The initial state of this data area is used to create both the
+;	system process and the initial operator process. SY$GO modifies
+;	a couple of parameters to reflect the differences between the
+;	system process and operator process.
+;
+;	Changing the order of the data on this page is dangerous.
+;	It took me long enough to get it right in the first place.
+
+.macro	bpmap c d e
+	assume .-b$pske eq pb.'c
+b$p'c::	d e
+.endm
+.sbttl	build process skeleton
+
+;	The following area is copied to target PHD
+
+b$pske::				;build processs skeleton
+bpmap	img	.rad50 </   rustx com/>	;image name
+bpmap	inp	.rad50 </            />	;input
+bpmap	out	.rad50 </op0         />	;output
+bpmap	err	.rad50 </op0         />	;error
+					;/VM PRC002PRC/ for operator
+bpmap	nam	.rad50 </kernel/>	;process name
+bpmap	pri	.byte	<4,31.>		;priority, top_priority
+bpmap	mbx	.word	0		;mailbox
+	lope0$=penac$			;
+	lope1$=pende$!pedwa$		;
+bpmap	pe0	.word	lope0$		;process enables 0
+bpmap	pe1	.word	lope1$		;process enables 1
+bpmap	own	.word	0		;owner pcr
+
+;	Following is copied from creator process.
+
+bpmap	jib	.word	0		;job pcr
+bpmap	usn	.rad50 </SYSTEM/>	;username
+bpmap	acn	.rad50 </      />	;accounting name
+bpmap	cli	.rad50 </SY DCL   SYS/>	;default CLI filename
+bpmap	dsk	.rad50 </SY />		;login disk
+					;
+bpmap	uic	.word	uisys.		;uic = [1,4]
+bpmap	pro	.word	120000		;default protection
+bpmap	sr0	.word  <-1,-1,-1,-1>	;system rights
+bpmap	ar0	.word  <-1,-1,-1,-1>	;authorized rights
+bpmap	pr0	.word  <-1,-1,-1,-1>	;process current rights
+bpmap	quo				;quota list
+					;
+b$pcph::.word	0			;cpu high order
+b$past:	.word	6			;ast limit
+b$pbio:	.word	6			;buffered I/O
+b$pbyt:	.word	12.*1024.		;dynamic byte limit
+b$pcpu::.word	0			;cpu limit (low order)
+b$pdio:	.word	6			;direct I/O limit
+.if ne chncnt
+b$pfil::.word	3.			;number of channels for system process
+.iff
+b$pfil::.word	17.			;number of channels
+.endc
+b$ppfg:	.word	0			;page file pages
+b$pprc:	.word	30.			;number of subprocesses
+b$ptqe:	.word	1			;timer elements
+b$pwsd::.word	128.			;ws default
+b$pwsq: .word	128.			;ws quota
+b$penq:	.word	0			;enqueue limit
+b$pwse:	.word	0			;working set extent
+b$plim::.word	0			;null
+	.word	6			;ast 
+	.word	6			;bio
+	.word	12.*1024.		;byt
+	.word	0			;cpu
+	.word	6			;dio
+.if ne chncnt				
+	.word	3.			;fil
+.iff
+	.word	17.			;fil
+.endc
+	.word	0			;pgf
+	.word	30.			;prc
+	.word	1			;tqe
+	.word	128.			;wsd
+	.word	128.			;wsq
+	.word	0			;enq
+	.word	0			;wse
+b$pend::				;
+.sbttl	create/delete data
+
+;	Process creation data
+
+p$rdet::.word	0			;<>0 => detached process being created
+p$rpcr::.word	0			;process control record
+p$rpid::.word	0			;result pid from create process
+p$rsta::.word	primg$			;initial flags (image for SHOW SYSTEM)
+
+p$rnam::.rad50	/vm /			;Process creation enter name
+	.rad50	/prc/			;
+p$rxpn::.rad50	/001/			;rad50 process number
+	.rad50	/prc/			;
+	$evbeg				;EVE package for enter
+	$evgro	sfi			;set file
+	$evcal	uic word dat=yes	;
+	.byte	4,1			;uic = [1,4]
+	$evcal	pro word dat=yes	;
+	.word	177200			;pro = (s:rwed,o:rwe,g:r,w:)
+	$evcal	del word dat=yes	;
+	.word	1			;del = nodelete
+	$evend				;
+
+p$rlin::.blkb	82.			;string processing
+p$rcmd::.byte	0			;replaced with '@' for operator process
+	.asciz	/sy:rustx/		;initial command
+	.blkb	13.			;a little more space
+	.even
+
+;	Process delete data
+
+p$rdel::.rad50	/vm prc000prc/		;delete filename (avoid eve)
+
+;	Common data
+
+p$rare::.blkw	7			;emt area
+.sbttl	general data
+
+;	General data
+;
+;	This data is used by the system process to handle
+;	requests from other processes.
+
+s$mcre::.word	-1		;create process control flag
+				;-1	nothing to do
+				; 0	create process
+				; 1	reply available
+s$mdel::.word	-1		;delete process control flag
+				;-1	nothing to do
+				; 0	delete scan in progress
+				; n	more deletes arrived
+
+s$mare::.blkw	7		;general area
+
+s$mpcr::.word	0		;pcr	address of calling pcr
+s$mr0::	.word	0		;r0	return r0
+s$merr::.word	0		;err	return error
+s$msta::.word	0		;sta	task status
+s$mpid:	.word	0		;pid	pid of calling process
+.sbttl	process quota tables
+
+;	Quota minima for create process.	
+
+p$qmin::.word	0		;cph
+	.word	2		;ast
+	.word	2		;bio
+	.word	1024.		;byt
+	.word	0		;cpu
+	.word	2		;dio
+	.word	0		;fil
+	.word	48.		;pgf
+	.word	0		;prc
+	.word	0		;tqe
+	.word	8.		;wsd
+	.word	8.		;wsq
+	.word	0		;enq
+	.word	8.		;wse
+	assume	.-p$qmin eq pq.bbs
+
+;	Quota default for create process.
+
+p$qdef::.word	0		;cph
+	.word	6		;ast
+	.word	6		;bio
+	.word	8192.		;byt
+	.word	0		;cpu
+	.word	6		;dio
+	.word	17.		;fil
+	.word	128.		;pgf
+	.word	8.		;prc
+	.word	8.		;tqe
+	.word	128.		;wsd
+	.word	128.		;wsq
+	.word	0		;enq
+	.word	0		;wse
+	assume	.-p$qdef eq pq.bbs
+
+;	Quota maxima for worst-case error checking.
+
+p$qmax::.word	0		;cph
+	.word	100.		;ast
+	.word	512.		;bio
+	.word	16.*1024.	;byt
+	.word	0		;cpu
+	.word	512.		;dio
+	.word	255.		;fil
+	.word	512.		;pgf
+	.word	255.		;prc
+	.word	255.		;tqe
+p$qwsd::.word	512.		;wsd
+	.word	512.		;wsq
+	.word	64.		;enq
+	.word	512.		;wse
+	assume	.-p$qmax eq pq.bbs
+
+;	Quota types
+
+.if ne 0			;unused
+p$qtyp::			;types
+	.word	0		;cph - unused
+	.word	pqnde$		;ast - non-deductible
+	.word	pqnde$		;bio - non-deductible
+	.word	pqpoo$		;byt - pooled
+	.word	pqded$		;cpu - deductible
+	.word	pqnde$		;dio - non-deductible
+	.word	pqnde$		;fil - non-deductible (pooled in vms)
+	.word	pqpoo$		;pgf - pooled
+	.word	pqpoo$		;prc - pooled
+	.word	pqpoo$		;tqe - non-deductible (pooled in vms)
+	.word	pqnde$		;wsd - non-deductible
+	.word	pqnde$		;wsq - non-deductible
+	.word	pqnde$		;enq - non-deductible
+	.word	pqnde$		;wse - non-deductible
+	assume	.-p$qtyp eq pq.bbs
+.endc
+.sbttl	build operator process
+
+;	Create the operator process.
+;
+;	. rustx			! run standard system
+;	. rustx test		! test system 
+;	. rustx file		! use alternative file spec
+;
+;	The operator process (pid) is built by modifying the skeleton
+;	setup for the system process.
+;
+;	b$pnam		PRC002 - SYSTEM
+;	b$pimg		SY:RUSTX.COM or alternative from RUSTX.INI
+;	b$pinp		CO0: - Console input.
+;	b$pout		CO0: - Console output.
+;	p$qwsd		Size of the process. From SYSGEN parameters.
+;	b$pfil		Increment to 17. channels
+;
+;	The operator process is required to build the rest of the system.
+;	If the create fails, the boot fails. After the operator process
+;	completes it can be used as a general purpose process.
+;
+;	This is additional stack space after we complete.
+;	Use .hard/.serr to report errors.
+;	Rationalize change mode for errors.
+
+sy$go::	$cmkrnl	#p$hare #sy$god 	;finish system device fetch
+	bcc	20$			;fine
+	.print	#2000$			;HAN error
+
+;	Create the operator process
+
+20$:	movb	#'@,p$rcmd		;force /@sy:rustx/
+	mov	#17.,b$pfil		;bp.fil - file limit
+	mov	#^rsys,b$pnam		;bp.nam - force PRC002
+	mov	#^rtem,b$pnam+2		;
+	mov	#^rco0,b$pinp		;bp.inp - input device
+	mov	#^rco0,b$pout		;bp.out - output device
+	lope0$=penac$!pelgi$
+	lppe1$=0
+	mov	#lope0$,b$ppe0		;bp.pe0 - status flags
+	mov	#lope1$,b$ppe1		;bp.pe1 -
+	mov	s$ywsd,b$pwsd		;setup operator working set default
+	mov	s$ywsd,p$qwsd		;setup the usual default
+	call	sy$cpr			;create a process
+	bcc	30$			;fine
+	.print	#60$			;
+	mov	s$merr,r0		;get the error code
+	dec	r0			;
+	cmp	r0,#11.			;too high?
+	blos	25$			;
+	mov	#11.,r0			;
+25$:	asl	r0			;
+	.print	50$(r0)			;
+30$:	jmp	sy$sta			;and start up
+.sbttl	build errors
+
+.if ne 0
+50$:	.word	100$,200$,300$,400$,500$,600$,700$,800$,900$,1000$,1100$,1200$
+60$:	.ascii	/?RUST-E-/<200>	;
+100$:	.asciz	/Duplicate name/
+200$:	.asciz	/Exceed quota/
+300$:	.asciz	/Insufficient dynamic memory/
+400$:	.asciz	/Invalid logical name/
+500$:	.asciz	/Invalid quota list/
+600$:	.asciz	/Invalid status flag/
+700$:	.asciz	/Missing system right/
+800$:	.asciz	/No slot available/
+900$:	.asciz	/Insufficient permanent memory/
+1000$:	.asciz	/Access violation/
+1100$:	.asciz	/Invalid filename/
+1200$:	.asciz	/System error/
+2000$:	.asciz	/System handler fetch error/
+	.even
+.endc
+
+.if ne creerr
+50$:	.word	100$,200$,300$,400$,500$,600$,700$,800$,900$,1000$,1100$,1200$
+60$:	.ascii	/?RUST-E-/<200>	;
+
+100$:	.asciz	/DUP/
+200$:	.asciz	/EXC/
+300$:	.asciz	/IDM/
+400$:	.asciz	/ILN/
+500$:	.asciz	/IQL/
+600$:	.asciz	/ISF/
+700$:	.asciz	/MSR/
+800$:	.asciz	/NSA/
+900$:	.asciz	/IPM/
+1000$:	.asciz	/AVI/
+1100$:	.asciz	/IFN/
+1200$:	.asciz	/SYS/
+2000$:	.asciz	/HAN/
+	.even
+.endc
+.sbttl	build system handler
+
+;	Call system handler fetch routine - if any
+;
+;	Kernel mode - not position independent
+
+sy$god:	mov	#s$ygof,r0		;point to the emt
+	emt	375			;lookup the file
+	bcc	10$			;found it
+	.soft	0			;no such handler
+
+10$:	mov	@#d$emap+desyi.,r2 	;point to the system device record
+	mov	de.dev(r2),@#a$pfna+fn.fil;setup name for errors
+	clr	@#a$pfna+fn.nam		;clear second part of name
+					;
+	clr	r0			;fetch - actually load
+	clr	r1			;channel
+	mov	@#d$emap+desyi.,r2 	;point to the system device record
+	call	@#io$utk		;call the routine
+	bcc	20$			;success
+	tst	r0			;was there a routine to call?
+	beq	20$			;no - no error
+	mov	#erfet.,r0		;yes - report fetch error
+	call	@#er$dis		;report the error to terminal
+20$:	.purge	#0			;purge the channel
+	mov	#s$ygof,r0		;point to the area
+	.delete	r0			;delete it
+	return
+
+;	System handler lookup block
+
+s$ygof:	.byte	0			;channel zero
+	.byte	emloo.			;lookup code
+	.word	10$			;filename
+	.word	0			;sequence number
+10$:	.rad50	/vm handlrsys/		;device handler copy
+
+;---------------------------------------;
+; system user mode stack		;
+;---------------------------------------;
+					;code above is also stack space
+	.blkw	16.			;system process user mode stack
+s$yusp::				;
+
+.end
+

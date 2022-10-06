@@ -1,0 +1,151 @@
+.title	rsh - share calls
+.include "lib:rust.mac"
+.psect	rsh d
+$rddef		;realtime
+$srdef		;system rights
+$vedef		;vectors
+$psdef		;psw
+
+;	SHARE-eleven system calls:
+;
+;	%build
+;	macro	rxs:rsh/object:rxb:rsh
+;	%end
+;
+;	%date
+;	<20-Nov-2010 20:53:39.09>
+;	%edit
+;	<45   >
+;
+;	iot			;iot trap
+;	.rad50	/sys/
+;	.word	code
+;
+;	VE$IOT calls us with:
+;
+;	sp.ps	user ps
+;	sp.pc	user pc
+;	sp.r5	user r5
+;	sp.r4	user r4
+;	sp.vec	iot vector
+;	sp.rea	trap reason
+;	sp.kve	return to ve$iot in kve
+;	sp.op1	old par1
+;	sp.msy	return to ov$jmp in msy
+;
+;	c=0	operation handled
+;	c=1	convert to invalid IOT or BUS trap for peek/poke.
+;
+;	Dispatch must be JMP rather than CALL since realtime server
+;	remaps par1 to the server, leaving no return path.
+
+stack	msy op1 kve rea vec r4 r5 pc ps
+
+sh$cal::			;SHARE-eleven call
+	clc			;c=0 on entry
+	jmp	@s$hcal(r4)	;call them
+
+	.word	sy$mbl		;-50	move block to memory
+	.word	sy$ins		;-46	install/remove handler
+	.word	sy$set		;-44	set handler
+	.word	xm$pok		;-42	xm$pok	xm poke
+	.word	xm$pee		;-40	xm$pee	xm peek
+	.word	xm$ini		;-36	xm$ini	xm setup
+
+	.word	sy$ser		;-34	server
+	.word	sy$pob		;-32	poke byte
+	.word	sy$peb		;-30	peek byte
+	.word	sy$uba		;-26	user-mode buffer address
+	.word	sy$mat		;-24	table manager			nope
+	.word	sy$lic		;-22	check a license
+	.word	sy$stj		;-20	stop a job			nope
+	.word	sp$pro		;-16	spooler processes
+	.word	sy$jba		;-14	get job buffer kernel address	nope
+	.word	sy$pok		;-12	poke r1 into address r0
+	.word	sy$pee		;-10	peek into address r0
+	.word	sy$tab		;-6	return system table address	nope
+	.word	sy$boo		;-4	reboot rt-11
+	.word	sy$pti		;-2	put date (r0=rt11 date)
+s$hcal:
+
+;	Move block to kernel memory
+;
+;	Used by TIL to remap MMU
+;	No security checks are performed
+;
+;	.word	pair count
+;	.word	address,value
+;	.word	address,value
+;	...
+
+sy$mbl:	mfpi	(r0)+		;get the count
+	pop	r1		;get the counter
+10$:	mfpi	(r0)+		;get the address
+	mfpi	(r0)+		;get the value
+	mov	(sp)+,@(sp)+	;store the value
+	bvs	sy$bus		;bus error
+	sob	r1,10$		;do them all
+	return
+
+sy$ser:				;call the server
+	tst	s$yrea		;got a server?
+	beq	10$		;no - forget it
+	jmp	@s$yrea		;yes - call it
+10$:	mov	#rt.nrt,r0	;
+	assume	rt.nrt eq cbit	;both are 1
+	bis	r0,sp.ps(sp)	;setup return error
+	return			;
+
+;	r0	address
+;	r1	poke data
+
+sy$pee:	call	sy$rig		; 
+	mov	(r0),r0		; PEEK	
+	bvs	sy$bus		;
+	return
+sy$pok:	call	sy$rig		; 
+	mov	r1,(r0)		; POKE
+	bvs	sy$bus		;
+	return
+sy$peb:	call	sy$rig		; 
+	movb	(r0),r0		; PEEKB
+	bvs	sy$bus		;
+	return			;
+sy$pob:	call	sy$rig		; 
+	movb	r1,(r0)		; POKEB
+	bvs	sy$bus		;
+	return
+
+;	check rights
+
+sy$rig:	$rights	srcmk.		;do they have CMKRNL rights?
+	bcs	10$		;nope - report bus error
+	return			;
+10$:	tst	(sp)+		;bus error with pop
+	fall	sy$bus		;and report bus error
+
+;	Setup bus trap
+
+sy$bus:	mov	#v$ebus,sp.vec(sp) ;vector
+	mov	#vebus.,sp.rea(sp) ;reason
+	fall	sy$scs		;share-eleven error
+
+sy$set:				;set handler - changed to cmkrnl
+sy$ins:				;share-eleven install - unused
+xm$pee:				;xm peek
+xm$pok:				;xm poke
+xm$ini:				;xm init
+sy$uba:				;r0 = user address of sysbuf
+sy$mat:				;no table manager
+sy$stj:				;r0 = job number - stop a job
+sp$pro:				;spooler
+sy$jba:				;r0 = kernel address of sysbuf
+sy$tab:				;r0 = kernel address of systab
+sy$boo:				;boot system - not used
+sy$pti:				;put time
+
+sy$scs:	sec			;Invalid IOT
+sy$lic:	return			;r0 = license number - ignored
+
+.end
+

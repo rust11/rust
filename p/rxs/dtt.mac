@@ -1,0 +1,100 @@
+v3que=1
+.title	dtt - tt: device
+.include "lib:rust.mac"
+.psect	dtt d
+$chdef		;channel
+$mmdef		;mmu
+$prdef		;process record
+$txdef		;text
+.qeldf		;rt-11 i/o queue
+
+;	RUST/XM TT: terminal driver
+;
+;	%build
+;	macro	rxs:dtt/object:rxb:dtt
+;	%end
+;
+;	This is not really a driver. It is part of the calling process.
+;	Does not have an I/O queue (although it has an I/O count).
+;	Passed the address of the queue element in r4.
+;	Handles multiple simultaneous requests.
+;	Complete with a return.
+;
+;	The terminal can be aborted by other routines. This can screw up
+;	the I/O counters. Solved by decrementing the counts before
+;	an I/O operation and resetting them afterwards.
+;
+;	Abort everything if the process aborts.
+;
+;	r2 ->	csw area
+;	r3 ->	unit record
+;	r4 ->	queue element (q$blkn)
+;	r5 ->	tp
+;
+;	Driver header is in kernel dispatcher
+;	Executes in UTL overlay
+
+tt$sta::			;rt-11 terminal device driver
+	mov	q$csw(r4),r2	;get the csw
+.if eq v3que
+	decb	ch.ioc(r2)	;turn it off
+	dec	p$hioc		;and this too
+.endc
+
+	mov	q$wcnt(r4),r5	;get the count
+	asl	r5		;make a byte count
+	beq	tt$exi		;its a seek
+	bcs	tt$wri		;its a write
+	fall	tt$rea		;its a read
+
+;	Read
+;
+;	r1 ->	Buffer - virtual user address
+;	r5 =	Word count
+;
+;	EOF is delayed until subsequent request (flagged in CH.USE).
+
+tt$rea:	asr	ch.use(r2)	;got end of file last time?
+	bcs	tt$eof		;yes - go set it and exit
+	tst	q$blkn(r4)	;is this block zero?
+	bne	10$		;nope
+	movb	#'^,r0		;put out a prompt
+	call	te$put		;display it
+10$:	tst	r0		;are we padding?
+	beq	20$		;yes
+	.ttinr			;get a character
+	bit	#prabt$!prexi$,p$hsta	;abort or forced exit?
+	bne	tt$exi		;yes
+	bcs	10$		;no character
+	cmpb	r0,#ctrlz	;eof ?
+	bne	20$		;no
+	inc	ch.use(r2)	;remember it for next time
+	clr	r0		;now pad the buffer
+20$:	psh	r0		;supply the byte to io$pbt
+	call	io$ptb		;return the byte
+	sob	r5,10$		;count them
+	br	tt$exi		;and quit
+
+;	Write
+
+tt$wri:	neg	r5		;convert to positive count
+40$:	call	io$gtb		;get a byte from the caller
+	movb	(sp)+,r0	;get it
+	beq	50$		;oops, null; ignore it
+	call	te$put		;put it
+	tst	p$hsta		;have we aborted?
+	bmi	tt$eof		;yes - report eof
+50$:	sob	r5,40$		;count it
+	br	tt$exi		;
+
+tt$exc:	bis	#csher$,@q$csw(r4)  ;set hard error
+	br	tt$exi		    ;
+tt$eof:	bis	#cseof$,@q$csw(r4)  ;set end of file
+tt$exi:
+.if eq v3que
+	incb	ch.ioc(r2)	;put it back
+	inc	p$hioc		;and this too
+.endc
+	return			;
+.end
+

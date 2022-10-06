@@ -1,0 +1,460 @@
+Y2K=1
+rst$c=1
+.title	bvm - build vm
+.include "lib:rust.mac"
+.psect	bvm d
+$budef		;build
+$endef		;environment
+$hadef		;handler
+$mmdef		;mmu
+$psdef		;psw
+$rtdef		;rt11a
+$sbdef		;build file
+$tidef		;time
+
+;	RUST/XM Build VM directory
+;
+;	%build
+;	macro	rxs:bvm/object:rxb:bvm
+;	%end
+;
+;	%date
+;	<20-Nov-2010 20:53:39.09>
+;	%edit
+;	<44   >
+;
+;	Setup unibus, limbo or qbus directory
+;	Fill in date & time on directory entries
+;	First directory entry receives STB date
+;	Setup ACP and UTL overlay pointers in MSY
+
+bu$vmd::call	bu$vmt		;get date/time variables
+	mov	r0,hot		;high-order time
+	mov	r1,lot		;low-order time
+	mov	r2,dat		;date
+	mov	r3,stb		;stb date in rt-11 format
+	mov	e$nkp6,kp6	;get par6 enable/disable flag
+	mov	e$nhbs,han	;get system handler block size
+				;
+	call	bu$seg		;check segments
+				;
+	mov	#v$mprt,r5	;point to the prototype directory
+	assume	rt.tot eq 0	;
+	mov	seg,(r5)	;setup number of segments
+	add	dir,rt.blk(r5)	;setup starting block
+	add	#rt.hbs,r5	;point to the first entry
+				;
+	mov	v$mdsz,r0	;get the device size
+	bne	5$		;explicit size
+	mov	e$nmeb,r0	;
+	mov	r0,v$mdsz	;and set it up
+5$:	mov	r0,dev		;store the device size
+				;
+	cmp	r0,#128.*4	;what kind of machine is it
+	beq	10$		;exactly 128kw
+	bhi	20$		;22-bit
+	call	unibus		;18-bit machine
+	br	30$		;
+10$:	call	limbo		;18/22 bit machine
+	br	30$		;
+20$:	tst	e$nu22		;unibus system?
+	bne	25$		;yes - uni22
+	call	qbus		;no - qbus 22-bit machine
+	br	30$		;
+25$:	call	uni22		;unibus 22-bit program
+
+30$:	mov	stb,v$mprt+rt.hbs+rt.dat ;first entry has STB date
+	mov	acp,r1		;get the overlay block number
+	mul	#mmpib.,r1	;multiply by pages in block
+	mov	r1,b$uacp	;store the ACP overlay page
+	add	#4*mmpik.,r1	;add 4kw for ACP
+	mov	r1,b$uutp	;store the UTL overlay page
+	mov	hnd,r1		;get the HND start block
+	mul	#mmpib.,r1	;get the page number
+	mov	r1,b$uhap	;store handler page
+	call	bu$cpd		;copy directory
+	return			;done
+.sbttl	copy directory to extended memory
+
+;	Copy directory to extended memory
+
+bu$cpd:				;
+	mov	dir,v$mdeb	;store directory size
+	add	#6.,v$mdeb	;maximum directory block
+	mov	sta,r1		;get the start address
+	mul	#mmpib.,r1	;multiply by pages in block
+	mov	r1,v$mdsp	;save vm: directory page
+	psh	@#ps		;save priority
+	spl	7		;go up
+	psh	@#m$kip6	;save current par6
+	mov	r1,@#m$kip6	;map the directory
+	mov	seg,r5		;get number of segments
+	mov	#v$mprt,r0	;get source
+	mov	#m$mpa6,r1	;get destination
+	mov	#512.,r2	;get segment size
+10$:	mov	(r0)+,(r1)+	;copy it to extended memory
+	sob	r2,10$		;until done
+30$:	pop	@#m$kip6	;restore par6
+	movb	(sp)+,@#ps	;come down
+	return			;
+.sbttl	variable segment number
+
+;	Process segment count
+;
+;	SHAPE> SET VM_SEGMENTS segs
+;
+;	Get number of segments from build files.
+;	Init the pointers
+
+bu$seg:	mov	e$nvds,r0		;get vm segments
+	bne	10$			;fine
+	inc	r0			;default is one segment
+10$:	cmp	r0,#sbvdh.		;above maximum?
+	blos	20$			;nope
+	mov	#sbvdh.,r0		;reduce to maximum
+20$:	mov	r0,seg			;save number of segments
+	clc				;
+	asl	r0			;get block size of directory
+	mov	r0,dir			;save length for directory creation
+	return				;
+.sbttl	setup language
+
+;	VM: setup language
+;
+;	The calculation of the initial directory is error prone.
+;	The MACRO's simplify this work.
+;
+;	begin$	begin
+;		clear accumulator and total
+;	do$	move accumulator to total
+;		clear accumulator
+;	ad$	add
+;	sb$	subtract
+;	sf$	subtract from
+;	pt$	put total
+;	if$	if variable not_set clear accumulator and skip next instruction
+;	em$	emit - write directory entry
+;		accumulator is file size
+;		total is start block
+;	end$	finish program
+;
+;	r5 ->	directory pointer
+;	r4 ->	code pointer
+;	r3 =	grand accumulator - start block
+;	r2 =	line accumulator - file size
+;	r1 ->	directory entry
+;
+;	unibus	less than 18-bits
+;	limbo	exactly 128 kw
+;	qbus	22-bits
+
+.macro	begin$	lab
+lab:	call	bg$
+.endm
+
+.macro	end$
+	.word	ex$
+.endm
+
+.macro	do$	c d e f g h i j
+.if b <c>
+	.word	ex$
+.iff
+	.word	en$
+.irp	x,<c d e f g h i j>
+.irp	y,<x>
+	.word	y
+.endr
+.endr
+.endc
+.endm
+
+.macro	entry$	sta nam
+	.word	sta
+	.rad50	"nam"
+.endm
+.sbttl	database
+
+;	VM: setup database
+
+han:	.word	24.		;device handler size
+hnd:	.word	0		;result block of handler
+				;
+dev:	.word	0		;device size - setup above from v$mdsz
+hom:	.word	6		;home block area size
+dir:	.word	2		;directory size
+seg:	.word	1		;number of segments
+sta:	.word	0		;start block of directory
+ker:	.word	bukbl.		;kernel block size
+ovr:	.word	buubl.+buabl.	;UTL+ACP overlay block size
+iop:	.word	16.		;i/o page size
+uni:	.word	512.		;unibus size
+qbu:	.word	8192.		;q-bus size
+acp:	.word	0		;acp start block - returned
+hot:	.word	0		;high-order time - from bu$vmt below
+lot:	.word	0		;low-order time
+dat:	.word	0		;rt-11 date
+stb:	.word	0		;stb rt-11 date
+uic:	.word	1*256.+4 	;system uic
+.if ne rst$c
+pro:	.word	177614		;s:rw o:rw g: w:
+.iff
+pro:	.word	167316		;s:r o:rw g:r w:r
+.endc
+p6p:	.word	16.		;par6 block size
+kp6:	.word	0		;1=> build par6
+
+;	Directory entries
+
+kernel:	entry$	rtprp$	<kernelsys>
+empty:	entry$	rtemp$	<empty fil>
+hole:	entry$	rtprp$	<hole  bad>
+system:	entry$	rtprp$	<systemsys>
+vmdir:	entry$	rtprp$	<vmdir sys>
+iopage:	entry$	rtprp$	<iopagesys>
+b22bit:	entry$	rtprp$	<22bit bad>
+par6:	entry$	rtper$	<par6  sys>
+sys18b:	entry$	rtprp$	<sys18bsys>
+sys22b:	entry$	rtprp$	<sys22bsys>
+handlr:	entry$	rtper$	<handlrsys>
+.sbttl	programs
+
+;	18-bit unibus program
+;
+;	kernel.sys
+; kp6	par6.sys
+;	empty.sys
+; han	handlr.sys
+;	system.sys
+;	vmdir.sys
+;	hole.bad
+;	iopage.sys
+
+begin$	unibus
+do$	<ad$ hom> <ad$ dir>			;+hom +dir
+do$	<sf$ ker> <em$ kernel>			; ker
+do$	<ad$ p6p> <if$ kp6> <em$ par6>		;+p6p if kp6
+do$	<sf$ dev> <sb$ ovr> <sb$ dir> <sb$ han> <em$ empty> ;dev- -ovr -dir -han
+do$	<pt$ hnd> <ad$ han> <em$ handlr> ;< ^	;+han
+do$	<pt$ acp> <ad$ ovr> <em$ system>	;+ovr
+do$	<pt$ sta> <ad$ dir> <em$ vmdir>		;+dir
+do$	<sf$ uni> <sb$ iop> <em$ hole>		; uni- -iop
+do$	<ad$ iop> <em$ iopage>			;
+end$
+
+;	18-bit/22-bit limbo program
+;
+;	Machine has exactly 128kw
+;	DEV=UNI
+;
+;	kernel.sys
+; kp6	par6.sys
+;	empty.sys
+; han	handlr.sys
+;	system.sys
+;	vmdir.sys
+;	22bit.bad
+;	hole.bad
+;	iopage.sys
+
+begin$	limbo
+do$	<ad$ hom> <ad$ dir>			;+hom +dir
+do$	<sf$ ker> <em$ kernel>			;ker
+do$	<ad$ p6p> <if$ kp6> <em$ par6>		;+p6p if kp6
+do$	<sf$ uni> <sb$ ovr> <sb$ dir> <sb$ han> <em$ empty> ;uni- -ovr -dir -han
+		;uni-
+do$	<pt$ hnd> <ad$ han> <em$ handlr> ;< ^	;+han
+do$	<pt$ acp> <ad$ ovr> <em$ system>	;+ovr
+do$	<pt$ sta> <ad$ dir> <em$ vmdir>		;
+do$	<em$ b22bit>				;
+do$	<sf$ qbu> <sb$ iop> <em$ hole>		;qbu- -iop
+do$	<ad$ iop> <em$ iopage>			;+iop
+end$
+
+;	22-bit qbus program
+;
+;	kernel.sys
+; kp6	par6.sys
+;	empty.fil
+; han	handlr.sys
+;	22bit.bad
+; 	empty
+;	system.sys
+;	vmdir.sys
+; +	empty
+;	hole.bad
+;	iopage.sys
+
+begin$	qbus
+do$	<ad$ hom> <ad$ dir>			;+hom +dir
+do$	<sf$ ker> <em$ kernel>			;ker
+do$	<ad$ p6p> <if$ kp6> <em$ par6>		;+p6p if kp6
+do$	<sf$ uni> <sb$ han> <em$ empty>		;uni- -han
+do$	<pt$ hnd> <ad$ han> <em$ handlr> ;< ^	;+han
+do$	<em$ b22bit>				;22bit
+do$	<pt$ acp> <ad$ ovr> <em$ system>	;+ovr
+do$	<pt$ sta> <ad$ dir> <em$ vmdir>		;+dir
+do$	<sf$ dev> <em$ empty>			;dev-
+do$	<sf$ qbu> <sb$ iop> <em$ hole>		;qbu- -iop
+do$	<ad$ iop> <em$ iopage>			;+iop
+end$
+
+;	22-bit unibus program
+;
+;	SYSTEM fills last 4kw of unibus space
+;	and runs into 22-bit space.
+;
+;	kernel.sys
+; kp6	par6.sys
+;	empty
+; han	handlr
+;	sys18b.sys
+;	22bit.bad
+;	sys22b.sys
+; --	empty
+;	vmdir.sys
+; ++	empty
+;	hole.bad
+;	iopage.sys
+
+begin$	uni22
+do$	<ad$ hom> <ad$ dir>			;+hom +dir
+do$	<sf$ ker> <em$ kernel>			;ker
+do$	<ad$ p6p> <if$ kp6> <em$ par6>		;+p6p if kp6
+do$	<sf$ uni> <sb$ iop> <sb$ han> <em$ empty> ;uni- -iop -han
+do$	<pt$ hnd> <ad$ han> <em$ handlr> ;< ^	;+han
+do$	<pt$ acp> <ad$ iop> <em$ sys18b>	;+iop		system part 1
+do$	<em$ b22bit>				;22bit
+do$	<ad$ ovr> <sb$ iop> <em$ sys22b>	;+ovr -iop	system part 2
+do$	<pt$ sta> <ad$ dir> <em$ vmdir>		;+dir
+do$	<sf$ dev> <em$ empty>			;dev-
+do$	<sf$ qbu> <sb$ iop> <em$ hole>		;qbu- -iop
+do$	<ad$ iop> <em$ iopage>			;+iop
+end$
+.sbttl	processor
+
+bg$:	clr	r2			;clear accumulator
+	clr	r3			;clear total
+	pop	r4			;get the start address
+	jmp	@(r4)+			;do the program
+en$:	add	r2,r3			;setup grand total
+	clr	r2			;clear accumulator
+	jmp	@(r4)+			;next
+ad$:	add	@(r4)+,r2		;add to accumulator
+	jmp	@(r4)+			;
+sb$:	sub	@(r4)+,r2		;subtract from accumulator
+	jmp	@(r4)+			;
+sf$:	mov	@(r4)+,r2		;subtract total from - get variable
+	sub	r3,r2			;
+	jmp	@(r4)+			;
+pt$:	mov	r3,@(r4)+		;store total
+	jmp	@(r4)+			;
+if$:	tst	@(r4)+			;is this enabled?
+	bne	10$			;yes
+	add	#4,r4			;no - skip next instruction
+	clr	r2			;and clear accumulator
+10$:	jmp	@(r4)+			;
+em$:	mov	(r4)+,r1		;r4 -> directory entry
+	mov	(r1)+,(r5)+		;rt.sta
+	mov	(r1)+,(r5)+		;rt.fil
+	mov	(r1)+,(r5)+		;rt.nam
+	mov	(r1)+,(r5)+		;rt.typ
+	mov	r2,(r5)+		;rt.len
+	mov	hot,(r5)		;rt.tim
+	bis	#100000,(r5)+		;
+	mov	dat,(r5)+		;rt.dat
+	mov	lot,(r5)+		;rt.ctl
+	mov	uic,(r5)+		;rt.uic
+	mov	pro,(r5)+		;rt.pro
+	mov	#rtend$,(r5)		;terminate directory
+	jmp	@(r4)+			;next
+ex$:	return				;all done
+.sbttl	get date and time
+
+;	Get date and time for directory
+; 
+;	r0 =	low order time
+;	r1 =	high order time
+;	r2 =	current date
+;	r3 =	stb date
+
+bu$vmt$:call	200$			;fill in env date if none there
+	psh	r0			;save stb date
+	clr	r0			;default low order time
+	mov	#100000,r1		;default high order time
+	mov	(sp),r2			;default date to stb date
+	tst	e$ndat			;got a date?
+	beq	120$			;no - we are done
+
+	mov	e$nhot,r0		;get the time
+	mov	e$nlot+2,r1		;
+	mov	#50.,r3			;assume 50 herz
+	bit	#enc50$,e$nclk		;this 50 herz?
+	bne	110$			;yes
+	mov	#60.,r3			;no
+110$:	psh	r3			;save frequency
+	mul	#3,r3			;get frequency * 3
+	div	r3,r0			;
+	bis	#100000,r0		;time in three second units
+	mov	r0,r2			;save high order
+	clr	r0			;
+	div	(sp)+,r0		;get low order
+	bic	#^c3,r0			;r0 = low order
+	mov	r2,r1			;r1 = high order
+	mov	e$ndat,r2		;r2 = current date
+120$:	pop	r3			;r3 = stb date
+	return
+
+;	Convert STB date to rt-11 format
+; 
+;	..mmmmdddddyyyyy
+;	YYYYYYYMMMMDDDDD
+;	.  .  .  .  .  .
+;	       .       .
+; 
+;	r0 =	rt-11 creation date
+
+200$:	mov	#stbdat,r0		;get the stb date
+.if ne Y2K
+	psh	r0			;setup prototype
+	bic	#tiie$n,(sp)		;isolate era
+.endc
+	ash	#tiyev.-tisyv.,r0	;adjust to rt-11
+	bic	#tiiy$n,r0		;isolate the year
+.if ne Y2K
+	bis	r0,(sp)			;
+.iff
+	psh	r0			;save year
+.endc
+	mov	#stbdat,r0		;and again
+	ash	#timov.-tismv.,r0	;adjust month
+	bic	#tiim$n,r0		;isolate the month
+	bis	r0,(sp)			;merge month
+	mov	#stbdat,r0		;get the date again
+	ash	#tidav.-tisdv.,r0	;adjust to rt-11
+	bic	#tiid$n,r0		;isolate day
+	bis	(sp)+,r0		;merge them all
+	return
+.sbttl	prototype vm: directory
+
+;	VM: directory
+;
+;	0	6	vm:boot.sys 6	boot area
+;	6	2	vm:dir.sys
+;	10	102	vm:kernel.sys	kernel
+;	112	?	vm:empty.fil	18-bit space
+;	?	?	vm:18bit.bad	unavailable 18-bit space
+;	496	16	vm:iopage.sys	18-bit systems
+;	512	0	vm:22bit.sys	divider
+;	512	?	vm:empty.fil	available 22-bit memory	
+;	?	?	vm:22bit.bad	unavailable 22-bit memory
+;	8176	16	vm:iopage.sys	i/o page
+
+loprt. = ^b1110111011001110	;S:R, O:RW, G:R, W:R
+
+;		tot	nxt	hgh	ext	sta
+v$mprt:	.word	1,	0,	1,	6,	6.
+
+	.blkb	1024.-<.-v$mprt>		;reserve the space
+
+.end

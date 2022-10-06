@@ -1,0 +1,477 @@
+rst$c=1
+sub$c=0		;sub directories
+clz$c=1		;.closz
+v54=1
+.title	rac - acp preprocessing
+.include "lib:rust.mac"
+.psect	rac d
+$apdef		;acp
+$ardef		;access rights
+$chdef		;channel
+$dedef		;device
+$dsdef		;device status
+$fedef		;feature (for $icdef)
+$emdef		;emt
+$erdef		;error
+$fndef		;filename
+$icdef		;image control
+$npdef		;name path
+$prdef		;pcr
+$qudef		;queue
+$rpdef		;rp
+$rtdef		;rt11a
+$srdef		;system rights
+$stdef		;state
+$tbdef		;tb
+$undef		;unit
+
+;	RUST/XM ACP request preprocessing
+;
+;	%build
+;	macro	rxs:rac/object:rxb:rac
+;	%end
+;
+; ???	Kernel mode protection?
+; ???	Physical device name forced?
+;
+;	dstatus
+;	lookup	enter	delete	rename	sfdat	fprot
+;	close	purge	savest	reopen
+;
+;		lookup	enter	delete	rename	sfdat	fprot	sfile
+;	p0	dblk	dblk	dblk	dblk	dblk	dblk	dblk
+;	p1	seqnum	seqnum	seqnum		date	prot	date!prot
+;	p2	path	length					1 => protect
+;	p3	File open processing options
+;	p4	EVE package par6 page number
+;	p5	EVE package address
+;	dblkodd	?	collect	?	collect	
+;
+;		lookup	enter	delete	rename	sfdat	fprot	g/sfile
+;	p0	dblk	dblk	dblk	dblk	dblk	dblk	dblk
+;	p1	seqnum	seqnum	seqnum		date	prot	value (get=0)
+;	p2	path	length					[off|opr]
+;	rp.p3	call	call	call	call	notrn	notrn	notrn
+;	p3	File open processing options
+;	p4	EVE package par6 page number
+;	p5	EVE package address
+;
+;	  call	rp.p3 -> call back routine
+;		don't translate logical name if rp.p3 odd
+;	  notrn	as above
+;
+;	dblk	If odd, signals collect call for lookup/enter/delete/rename.
+;		Must be BG program for RT-11/XM (direct call).
+;		Not supported by RUST/SJ or RUST/XM.
+
+;		If odd, for all filename requests, and p3 is odd,
+;		use physical name. To be supported.
+;		If odd, signals physical name for .dstat/.fetch
+;
+; ???		Does CTS-300 use the collect call?
+;	lookup	Process directory paths.
+;	enter	Swap length and seqnum positions.
+;	sfdat	Convert to .SFILE 
+;	fprot	Convert to .SFILE
+.sbttl	device status, fetch
+
+;	.dstatu	retspc, dnam
+;
+;	rp.p0	dnam		r0
+;	rp.p1	retspc!pflag	0(sp)
+;
+;	emt	342
+;
+;	retspc	4-word device block
+;	pflag	Search only permanent table if set
+;
+;	r0	retspc&<177776>	
+;	0	invalid device
+;
+;	de.sta	device status word - normalized
+;	de.hsz	handler byte size
+;	de.ent	handler entry point - null if unit not loaded
+;	de.dsz	device block size
+;
+;	de.typ	device type flags
+;	de.con	device control flags
+;
+;	Two image control flags are recognised:
+;
+;	icnrs$	Normalise RT11S devices to RT11A (KED, SIPP, PASCAL)
+;		Returns rt11a device with code=200
+;	icnra$	Normalise RT11A devices (DL: & DM: spfuns)
+;		Returns rt11a device with code=200
+;		Variable size flag is not changed
+;
+; ???	EVE	Return extended device and unit information.
+
+ap$dst::.enabl	lsb		;dstatus
+	call	ap$fet		;.soft 0 if device not installed
+	call	ev$mbu		;r0 -> mapped user buffer
+				;r1
+; Normalize devices		;r2 -> device record
+				;r3 -> unit record
+	assume	de.sta eq 0	;r4 = requested device name
+	mov	(r2)+,r1	;r1 = device status word
+	bpl	3$		;not rt11a
+	bit	#icnra$,p$hic0	;should we normalise rt11a?
+	bne	4$		;yes (no will fail next test)
+3$:	bit	#despc$,r1	;is this rt11s?
+	beq	5$		;no
+	bit	#icnrs$,p$hic0	;should we normalize rt11s?
+	beq	5$		;no
+;	bne	4$		;yes
+;	mfpd	@#240		;get the twist vector
+;	cmp	(sp)+,#^rtwi	;is this a twist vector?
+;	bne	5$		;no
+
+4$:	bic	#despc$!377,r1	;remove special & device code
+	bis	#derta$!200,r1	;make it a fixed disk
+
+;	Move back the data
+
+5$:	mov	r1,(r0)+	;de.sta - status & code
+	mov	(r2)+,(r0)+	;de.hsz - handler size
+
+	mov	(r2)+,r1	;de.ent - handler entry point
+	tst	r3		;is the unit loaded?
+	bne	6$		;yes
+	tst	r4		;was it generic or unit zero?
+	beq	6$		;yes
+	clr	r1		;no - forget this
+6$:	mov	r1,(r0)+	;de.ent - zero => not loaded
+	mov	(r2)+,(r0)+	;de.dsz - device size
+
+;	Process eve package
+;	sub	#10,r2		;backup to start of der
+
+	return			;quit
+
+;	Return
+;
+
+;	Fetch	addr[+1], dnam
+;
+;	Called by dstatus above.
+; ???	Is release being handled properly
+;
+;	r0	return r0 -> <addr> if device found.
+;	r2 ->	device record.
+;	r3 ->	unit record. zero => none.
+;	r4	unit number
+;	rp.r0	addr&177776
+
+ap$fet::			;fetch a device
+	call	mm$mfw		;get (r3)+ in r0 = the device name
+;	mov	r0,r4		;save it in r4 for generic test
+	psh	rp.p1(r5)	;(sp) -> return area
+	asr	(sp)		;is bit0 set to indicate permanent name?
+	bcs	10$		;yes
+	call	na$clp		;convert logical to permanent
+	bcs	20$		;oops - invalid device
+10$:	call	na$cpi		;convert permanent to index
+	bcc	30$		;fine
+20$:	.soft	0		;device not found
+30$:	mov	r3,r4		;r4 = unit number
+	call	na$cir		;get the records
+	tst	r2		;got a device record?
+	beq	20$		;no - this should not occur
+	pop	r0		;r0 -> return space/2
+	asl	r0		;clear bit zero
+	mov	r0,rp.r0(r5)	;r0 = addr&177776
+	return
+.dsabl	lsb
+.sbttl	lookup paths, lookup
+
+;	Lookup paths
+;
+;	Check for an assignment path.
+;	Point rp.p2 at the path. RAX does the rest.
+;	Any fatal error terminates the path.
+;	Ignore errors in path tables. Just do the usual lookup.
+;
+;	r3 ->	caller-mode filename
+;	r4 ->	csw - must be retained
+;
+;	paths:
+;		.word	pthnam, log1, log2, log3, log4, 0
+;		...
+;		.word	-1
+
+ap$loo::			;lookup
+.if ne sub$c
+	bpl	5$		;not open
+	bpcw	#csWLK$,(r4),30$;not walking
+.iff
+	bmi	30$		;open channels are always wrong
+.endc
+5$:	clr	rp.r0(r5)	;default return size is zero
+.if ne sub$c
+	bpsw	#csWLK$,(r4),30$;
+;???	might need to use rts:rtmon check
+.endc
+	bit	#1,r3		;is this a physical name?
+	bne	30$		;yes
+	bit	#icnap$,p$hic0	;/nopath set for image?
+	bne	30$		;yes - ignore paths
+
+	call	mm$mfw		;get the logical name in r0
+
+	mov	#p$hptr,r1	;point to the paths
+	cmp	np.eot(r1),#-1	;is the path table valid?
+	bne	30$		;no - ignore them
+10$:	tst	np.eor(r1)	;is this path record valid?
+	bne	30$		;no - ignore paths
+	cmp	(r1),#-1	;end of them?
+	beq	30$		;yes - forget this entirely
+	cmp	(r1)+,r0	;is this the path?
+	beq	20$		;yes
+	add	#np.ebs-word,r1	;point to the next entry
+	br	10$		;
+				;we have a path
+20$:	mov	r1,rp.p2(r5)	;send address of first path name
+
+30$:	fall	ap$lku
+
+;	Lookup
+;
+;	RAX jumps back here for each lookup path
+
+ap$lku::jsr	r3,ap$fil	;file routine
+	.word	acloo.		;lookup
+	.word	acseq$!acopn$	;sequence number present
+	.word	arrea$		;unit needs read
+	.word	arrea$		;file needs read
+.sbttl	enter, rename, delete, sfdat, fprot, finfo
+
+
+; ???	Enter file access requires read/write/delete
+;	Create-if requires read/write.
+
+ap$ent::			;enter
+	psh	rp.p1(r5)	;[patch] swap p1=len and p2=seq
+	mov	(sp),rp.r0(r5)	;p1=len is default return size
+	cmp	(sp),#-1	;this a request for -1 blocks?
+	bne	10$		;no
+	clr	rp.r0(r5)	;yes - default return is zero
+10$:	mov	rp.p2(r5),rp.p1(r5)
+	pop	rp.p2(r5)	;
+	jsr	r3,ap$fil	;
+	.word	acent.		;enter
+	.word	acseq$!aclen$!acopn$ ;sequence & length
+	.word	arcre$		;unit needs create
+	.word	arrea$!arwri$	;existing file rights required
+
+ap$ren::jsr	r3,ap$fil	;rename
+	.word	acren.		;rename operation
+	.word	acopn$!accls$	;open & close
+	.word	arcre$		;unit needs create
+	.word	ardel$		;file needs delete
+
+ap$del::jsr	r3,ap$fil	;delete
+	.word	acdel.		;delete operation
+	.word	acseq$!acopn$!accls$ ;sequence number
+	.word	0		;unit needs nothing
+	.word	ardel$		;file needs delete
+
+.if ne rst$c
+
+;	Convert .fprot/.sfdat to .sfinf
+;	Separate get/set file operations
+
+ap$fpr::			;set file protection
+	mov	#rtBIC.,rp.p2(r5); assume clear (offset is 0)
+	tst	rp.p1(r5)	;is it a clear?
+	beq	10$		;yes
+	assume	<rtBIC.+1> eq rtBIS.
+	inc	rp.p2(r5)	; make into set
+10$:	mov	#rtpro$,rp.p1(r5); protection mask
+	br	ap$sfi		;set file
+
+ap$sfd::mov	#rtMOV.+<rt.dat*256.>,rp.p2(r5) ;set file date
+ap$sfi:	jsr	r3,ap$fil	;set file info
+	.word	acsfi.		;set file
+	.word	acdat$!acopn$!accls$ ;controls
+	.word	0		;unit needs nothing
+	.word	ardel$		;file needs delete
+
+ap$inf::			;get/set file inf
+	tstb	rp.p2(r5)	;get/set?
+	bne	ap$sfi		;set
+ap$gfi:	jsr	r3,ap$fil	;get file info
+	.word	acgfi.		;get file
+	.word	acdat$!acopn$!accls$ ;controls
+	.word	0		;unit needs nothing
+	.word	arrea$		;file needs read
+
+.iff
+ap$fpr::			;set file protection
+	inc	rp.p2(r5)	;signal file protect operation
+ap$sfd::			;set file date
+ap$inf::			;get/set file inf
+	jsr	r3,ap$fil	;rp.p1 = date
+	.word	acsfi.		;set file
+	.word	acdat$!acopn$!accls$ ;controls
+	.word	0		;unit needs nothing
+	.word	ardel$		;file needs delete
+.endc
+.sbttl	acp calls
+
+;	All calls have the format
+;
+;	$acp	area, chan, func, mode, file, s
+;
+;	$alloc	allocate a device
+;	$dalloc	deallocate a device
+;	$mount	mount a device
+;	$dsmnt	dismount a device
+
+ap$syx::			;$acp (remove)
+	return
+.sbttl	purge, close
+
+;	.purge	chan
+;
+;		no errors
+;	ignore	channel not open
+;
+;	r0	not modified (not by rt11s either)
+;
+;	R0 is not modified. RT11S includes a check for this case since
+;	standard RT-11 does not pass a purge to an RT11S device, or to
+;	any device for that matter. However, we still get fooled when
+;	a purge is converted to a close since RT11S sees a close code
+;	rather than a purge code (which it is never passed).
+;
+;	CH.USE is cleared - this signals a purge to RT11S VAMP.
+;	Magtapes will write EOF - even if that is not what is wanted.
+;	All open channels are either purged or closed via an ACP.
+;	This means that MT: HNDLR$ abort calls are not required.
+;
+;	Purges are converted to close by CSNPU$ unless process is aborting.
+
+.enabl	lsb
+ap$pur::bpl	60$		;ignore inactive channels
+	tst	p$hsta		;was this process aborted?
+	bmi	40$		;yes - don't close this file
+	bit	#csnpu$,(r4)	;are we permitted to purge?
+	bne	50$		;nope - close it
+40$:	clr	ch.use(r4)	;yes - force zero length
+	jsr	r3,ap$chn	;purge it
+	.word	acpur.		;purge
+	.word	acchn$!accls$	;
+	.word	0		;unit needs nothing
+	.word	0		;file needs nothing
+
+;	.close	chan
+;
+;	ignore	channel not open
+;	3	superseded existing file
+;	r0	may be modified by rt11s close
+
+.if ne clz$c
+ap$clz::bpl	60$		;not open
+	call	ch$muk		;move user to kernel
+	mov	rp.p0(r5),ch.use(r4) ;setup the high block
+	br	55$		;join common
+.endc
+ap$clo::bpl	60$		;channel not open
+50$:	call	ch$muk		;move user to kernel
+55$:	jsr	r3,ap$chn	;close
+	.word	acclo.		;close it
+	.word	acchn$!accls$ ;!acclr$				; V4
+	.word	0		;unit needs nothing
+	.word	0		;file needs nothing
+60$:	return
+.dsabl	lsb
+.sbttl	savestatus, reopen
+
+;	.saves	area, chan, cblk
+;
+;	rp.p0	cblk
+;
+;	r0 =	rp.p0 - cblk
+;	0	channel not open
+;	1	enter channel
+;
+;	RT11S opens set CSTEN$ in the csw which precludes .savestatus.
+;	VAMP clears CSTEN$ for lookups which permits a savestatus.
+;	RT-11 V5.4 permits .savestatus on RT11S with CSTEN$ if WONLY$ set.
+;	RUST/XM permits .savestatus with CSTEN$/WONLY$ when not RT11A.
+;
+;	Shared files set CSSHA$ which precludes .close operation.
+;	Shared file logic applies only to TSX emulation.
+;	Wait for I/O to run down on the channel - RT-11 does not.
+;
+; ???	Set un.mcc in ch.use
+
+.enabl	lsb
+ap$sav::tst	(r4)		;is the channel open?
+	bpl	10$		;no - not open
+	call	ch$wai		;yes - wait for it to run-down
+
+;	Return the channel area in any case
+
+10$:	mov	r3,rp.r0(r5)	;r0 = cblk on return
+	mov	r4,r2		;channel
+	mov	rp.p0(r5),r1	;return area
+	mov	#ch.bbs/2,r0	;count them
+	call	mm$mtc		;move r0 times (r2)+,(r1)+
+
+;	Check the channel
+
+	assume	csact$ eq 100000;
+20$:	mov	(r4),r0		;is the channel open?
+	bmi	40$		;yes
+30$:	.soft	0		;channel not open
+	assume	csten$ eq 200	;
+40$:	tstb	r0		;tentative file?
+	bpl	50$		;nope
+.if ne v54
+	bic	#csin$n,r0	;isolate the device index
+	assume	de.sta eq 0	;
+	assume	dsrta$ eq 100000;
+	bit	#derta$!dewon$,@d$emap(r0) ;check rt11a and wonly
+	bgt	50$		;mi=rt11a eq=not_wonly$
+.endc
+	.soft	1		;channel open for enter
+
+;	Call the ACP
+
+50$:	jsr	r3,ap$chn	;channel operation
+	.word	acsav.		;savestatus
+	.word	acchn$!accls$	;channel operation
+	.word	0		;unit needs nothing
+	.word	0		;file needs nothing
+
+;	.reopen	area, chan, cblk
+;
+;	rp.p0	cblk
+;
+;	r0	rp.p0 - cblk
+;	0	channel already open
+;
+;	Write is not permitted to reopened files.
+; ???	Reopen should test for valid CSW patterns.
+; ???	Reopen should reopen the file with the CSW information.
+; ???	Disable write access on reopened files.
+
+ap$reo::tst	(r4)		;active?
+	bmi	30$		;yes - an error
+
+	mov	r3,rp.r0(r5)	;r0 = cblk on return
+	mov	#5,r0		;count
+	mov	r3,r1		;client channel address
+	mov	r4,r2		;kernel channel address
+	call	mm$mfc		;move from counted
+				;test here for valid CSW patterns
+	clrb	ch.ioc(r4)	;clear the channel i/o count
+	jsr	r3,ap$chn	;channel operation
+	.word	acreo.		;reopen
+	.word	acchn$!acopn$	;channel open
+	.word	0		;unit needs nothing
+	.word	0		;file needs nothing
+
+.end
+

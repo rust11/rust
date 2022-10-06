@@ -1,0 +1,130 @@
+mapchn=1
+.title	mch - channels
+.include "lib:rust.mac"
+.psect	mch
+$chdef		;channel
+$erdef		;error
+$rpdef		;rp
+
+;	Kernel channel operations
+;
+;	%build
+;	macro	rxs:mch/object:rxb:mch
+;	%end
+;	%date
+;	<20-Nov-2010 20:53:39.09>
+;	%edit
+;	<24   >
+;
+;	The kernel looks only at kernel channels. This module is responsible
+;	for maintaining client copies of channel areas.
+;
+;	The client copy is usually in the RT-11 header.
+;	Native processes do not have a client copy.
+;	Some processes extend the size of their channel area.
+;
+;	Most of copying activity is from the kernel to the client.
+;	The only real exception is .CLOSE, which forces C.USED to be updated
+;	from the client copy first. This approach is sufficient for STAR.
+;
+;	The other transfers take place after the following:	
+;
+;	read, write, spfun
+;	lookup, enter (not delete, rename, fprot, sfdat)
+;	wait, close, purge
+;	savest, reopen
+;
+;	The kernel uses the kernel copy at all times.
+;
+;	ch$mch		map a channel - returns both pointers
+;	ch$mkp		move kernel to process
+;	ch$mpk		move process to kernel
+;
+;	c.csw		bis to maintain old errors
+;	c.sblk		modified by RE:
+;	c.leng		modified by VX:
+;	c.used		modified by VX: and KED
+;	c.devq		modified by kernel - checked by WAIT
+;	c.unit		
+.sbttl	manipulate channels
+
+;	Move kernel channel to user
+;
+;	r4 ->	kernel channel
+;	r3 ->	rmon channel (from ch$muc)
+;
+;	Ignore channel numbers greater than 16.
+
+ch$mku::			;move kernel to user
+	jsr	r5,ch$muc	;map user channel
+	mov	(r4)+,(r3)+	;move five
+	call	(pc)		;move another four
+	mov	(r4)+,(r3)+	;
+	mov	(r4)+,(r3)+	;
+	return			;back to ch$muc
+
+;	Move user channel to kernel
+;
+;	r4 ->	kernel channel
+;	r3 ->	rmon channel
+;
+;	Only ch.use is acquired.
+;	Ignores channel numbers greater than 16.
+
+ch$muk::			;move user to kernel
+	jsr	r5,ch$muc	;get set up
+	mov	ch.use(r3),ch.use(r4) ;get the used size
+	return			;return to ch$muc
+
+;	Map user channel
+;	Ignores channels greater than 16.
+;	Calls back caller as co-routine
+;
+;	r4 ->	kernel channel
+;	jsr	r5,ch$muc
+;	r3 ->	rmon channel
+;	r2	available
+
+ch$muc:				;map user channel
+	pshs	<r4,r3>		;save some more
+	mov	r4,r3		;map it to kernel first
+	sub	p$hchr,r3	;
+	cmp	r3,#ch.bbs*17.	;is this outside the usual area?
+	bhis	10$		;yes - ignore it
+	add	#p$hcsw,r3	; r3 -> rmon channels
+	call	(r5)		;call them back
+10$:	pops	<r3,r4,r5>	;restore all these
+	return
+
+.end
+.sbttl	kernel channel format
+
+;	Each process has a channel map.
+;	A null entry indicates not open
+;	A full entry points to a kernel channel.
+;
+;	12 word kernel channel
+;
+;	kc.csw		;csw
+;	kc.sbl		;start block
+;	kc.len		;file length
+;	kc.use		;used length
+;	kc.ioc	byte	;io count
+;	kc.uni	byte	;unit
+;	kc.ctl		;control flags
+;	kc.uic		;uic
+;	kc.pro		;protection
+;	kc.dev		;dev
+;	kc.fil		;fil
+;	kc.nam		;nam
+;	kc.typ		;typ
+;	kc.bbs		;
+;
+;	Kernel channels simplify, or make possible:
+;
+;	show device/files
+;	deletion control
+;	savestatus/reopen control
+;	image cache
+;	permanent files
+

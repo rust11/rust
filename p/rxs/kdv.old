@@ -1,0 +1,120 @@
+;RXM:	Module emptied
+;
+v55han=0	;RXM: data moved to kda
+V4=0
+tecgt=0		;RXM: moved back to kco
+termon=0	;terminal monitor code was never used
+kdint=0		;RXM: code moved back to kin
+v54han=0	;RXM: code moved to mix
+strint=0	;RXM: code moved to kev
+.title	kdv
+.include "lib:share.mac"
+.psect	kdv d
+
+;	RUST/XM kernel development patches
+;
+;	%build
+;	macro	rxs:kdv/object:rxb:kdv
+;	%end
+;
+;	%date
+;	<20-Nov-2010 20:53:39.09>
+;	%edit	
+;	<74   >
+$addef
+$chdef		;csw
+$prdef		;process record
+$tpdef		;
+$dedef		;
+$ekdef		;
+
+.if ne strint
+as$pmw::ovjmp$	xe$pmw	utl		;wake them up
+
+sy$sti::mov	s$ypol,r4		;got a polling process?
+	beq	10$			;no
+	bit	#prwak$,pr.sta(r4)	;already awake?
+	bne	10$			;yes
+	bis	#prwak$,pr.sta(r4)	;yes - wake them up
+	call	as$pmw			;wakeup the process
+10$:	return				;
+.endc
+.if ne kdint
+$addef
+.sbttl	kd$int	setup interrupt
+
+;	from KIN
+
+	stack	ret pc ps
+kd$int::cmpb	sp.ps(sp),#adint. ;this a psuedo-interrupt?
+	bne	10$		;no
+	mov	r1,sp.ps(sp)	;yes - get the real ps
+	call	(pc)		;push two
+10$:	clr	-(sp)	;	;push a return to zero
+	mtpd	-(r2)	;	;push it on
+	bvs	20$	;	;oops - mmu error ???
+20$:	return
+.endc
+
+.if ne termon
+.sbttl	terminal monitors
+
+;	Terminal monitor dispatcher
+;
+;	Called when terminal input present
+;
+;	r0 =	character
+;	r1 =	line
+;	
+;	Out:	r0 =		character
+;		r1 =		line
+;		r3 ->		terminal block
+;		r4 ->		monitor chain
+
+te$mon:	mov	#t$emon,r4		;first in chain
+10$:	mov	(r4),r4			;get next
+	beq	20$			;all done
+	mov	tm.kp1(r4),@#m$mkp1	;setup par1
+	call	@tm.rou(r4)		;call the routine
+	bcs	10$			;more
+	tst	(pc)+			;we did it
+20$:	sec				;we did not do it
+	return
+
+.endc
+.if ne tecgt
+.sbttl	console get
+$jsdef
+
+;	Moved here from KCO to make temporary V5.5 space
+
+te$cgt::			;console get
+	call	co$chk		;try to get one
+	bcc	20$		;fine
+	bic	r0,r0		;clear r0
+	bit	#jstts$,p$hjsw	;in single character mode?
+	bne	20$		;fine
+	jmp	@p$htti		;try again
+20$:	return
+.endc
+
+.sbttl	v55 handler stuff
+
+;	Dummy V5.5 unibus mapping register routine entry points
+
+.if ne v55han
+
+;	Dummy transfer vectors for UB and TT.
+
+h$brcc::nop		; ub.get
+	nop		; ub.all
+	clc		; ub.rel
+	return
+h$brcs::nop
+	nop	
+	sec
+	return
+
+.endc
+
+.end

@@ -1,0 +1,553 @@
+v54=0
+.title	rsi - csi
+.include "lib:rust.mac"
+.psect	rsi d
+$dedef		;device
+$emdef		;emt
+$erdef		;error
+$fndef		;filename
+$rpdef		;rp
+
+;	%build
+;	macro	rxs:rsi/object:rxb:rsi
+;	%end
+;
+;	RUST/XM CSIGEN & CSISPC program requests
+;
+;		csigen		csispc		gtlin		$gtlin
+;	rp.p0	unused		unused		future		future
+;	rp.p1	[cstrng]	[cstrng]	0		signals
+;	rp.p2	defext		defext		[prompt]	[prompt]
+;	rp.p3	devspc[!1]	outspc[!1]	1 or 3		control
+; p3&1	rp.p4	[linbuf]	[linbuf]	linbuf		linbuf
+;
+;	r0 exit	devspc&177776	outspc&177776	unchanged
+;
+;	.gtlin code located in rte.
+;	Direct call to MNA for dstat and .fetch.
+;	Outspc may overlay cstrng. Thus collect cstrng before clearing outspc.
+;	May not be called from kernel mode.
+;	Line-too-long condition ignored. Line truncated.
+;
+;			csigen				csispc
+;		entry		retry			retry
+;	v1	.close 0:9	
+;	v4	.close 0:9	.purge 0:2
+;	v5	.purge 0:9	.purge 0:9		.purge 0:2
+;	v5.4	.purge 0:9	.purge 0:9
+;
+;	set program/v4		uses V4.0 protocols
+
+map	rp.mod,,rp.p0	;	mode (special/general/again)
+map	rp.rst,,rp.p1	;	string pointer
+map	rp.rty,,rp.p2	;	types
+map	rp.rop,,rp.p3	;	output space
+map	rp.rbu,,rp.p4	;	user buffer (for string)
+map	rp.dev,,rp.p5	;	default device name	
+map	rp.rts	-word,rp.ret ;	return to emt processor
+map	rp.ksp	-word	;	kernel sp of csi
+map	rp.usp	-word	;	user stack at entry
+map	rp.opt	-word	;	output space pointer
+map	rp.fln	-word	;	current file number
+map	rp.sws	-word	;	switch count
+map	rp.xbs		;	extended bytesize
+;
+; rp.mod
+;
+map	siagn$,,1		;this is a second pass
+map	siinp$,,200		;we are doing input files
+map	sispc$,,100000		;this is a csispc
+
+.sbttl	errors
+
+map	sicom.,,0	;invalid command	syntax, nfs check
+map	sidev.,,1	;invalid device		lookup/enter
+map	sipro.,,2	;protection error	enter
+map	sidvf.,,3	;device full		enter
+map	sifil.,,4	;file not found		lookup
+meta	<csierr c,d><call si$err><.byte c,d>
+
+si$acr:	csierr	eracr.	sidev.	;access rights
+si$pro:	csierr	erpro.	sipro.	;protected file
+;si$com:csierr	ercom.	sicom.	;invalid command
+;si$dev:csierr	erdev.	sidev.	;invalid device
+;si$fnf:csierr	erfil.	sifil.	;file not found
+;si$dvf:csierr	erdvf.	sidvf.	;device full
+
+;		lookup			enter
+;
+;	0	channel in use
+;	1	file not found		device full
+;	2	device allocated	
+;	3				protection restriction
+;	4	seq not found
+;	5	seq or filename invalid
+;
+;	RUST/XM returns secondary errors if the message is going
+;	to the terminal or if extended errors have been requested:
+;
+;	erciu.	channel in use
+;	erald.	device allocated
+;	eracr.	insufficient rights
+;	ernfo.	non-file output to rt11a
+;	erifs.	invalid filesize
+;	erltl.	line too long
+;	erquo.	quota error
+;
+;	Exception
+
+si$exc:	$dclth	si$exc		;exception - catch subsequent
+si$adr:	mov	#eradr.,r0	;invalid address
+	br	si$er2		;abort it all
+
+;	Errors
+;
+;	r0.lb	generic error code
+;	r0.hb	csi request error code
+
+si$err:				;report an error
+	mov	@(sp)+,r0	;get the error code
+si$er1:	tst	rp.rst(r5)	;did they supply a string?
+	bne	10$		;yes - return with an error
+	call	er$dis		;report it
+	jmp	si$agn		;and do it over
+10$:	swab	r0		;get the rt-11 code
+	fall	si$er2		;abort
+
+;	Report error to program
+;	Purge channels first - RT-11 might not.
+;	
+; ???	do not purge channels. Programs rely on this. They want to find out
+; ???	which channel caused the failure.
+
+si$er2:	mov	p$hcrp,r5	;get rp for exceptions
+	movb	r0,rp.err(r5)	;save the error code
+;	bis	#siagn$,rp.mod(r5) ;force purge
+;	bmi	10$		;ignore special mode (could be error source)
+;	call	si$ini		;clean up
+10$:	$canth			;cancel the trap handler
+	jmp	em$err		;and report the error
+.sbttl	requests, rp, get line
+
+.enabl	lsb
+si$spc::			;csispc
+	mov	#sispc$,rp.mod(r5) ;signal csispc
+	br	20$		;
+si$gen::			;csigen
+	clr	rp.mod(r5)	;signal csigen
+20$:	call	ut$nas		;not from an ast
+	bic	#1,rp.p3(r5)	;we dont need the linbug flag
+	mov	rp.p3(r5),rp.r0(r5) ;return devspc or outspc in r0
+
+;	Build an RP extension
+
+	mov	r5,r0		;check the rp assumption
+	add	#rp.ret,r0	;push down to the emt return
+	mov	#-<rp.xbs>/r2,r1;clean out the extension area
+30$:	clr	-(r0)		;
+	sob	r1,30$		;
+	mov	r0,sp		;reset the kernel stack
+	$dclth	si$exc		;catch exceptions
+	mov	sp,rp.ksp(r5)	;remember it for restarts
+	movfi	sp,rp.usp(r5)	;save the users stack
+.dsabl	lsb
+
+
+si$agn:	mov	rp.ksp(r5),sp	;get back the kernel stack
+	call	si$ini		;go startup
+	assume	siagn$ eq 1	;set this
+	assume	siinp$ eq 200	;clear this
+	movb	#siagn$,rp.mod(r5) ;set secondary pass flag for init
+
+;	Get a string
+
+	mov	#p$hlin,r4	;get our line
+	mov	rp.rst(r5),r1	;get the user string
+	beq	50$		;none - get one from terminal
+	mov	r4,r2		;get another copy
+	mov	#80.,r3		;maximum size
+40$:	call	mm$grb		;get another
+45$:	bcs	si$adr		;invalid address (45$ is branch link)
+	bitb	#177,r0		;
+	bne	46$		;
+	clrb	r0		;
+46$:	movb	r0,(r2)+	;store it
+	beq	60$		;
+	sob	r3,40$		;get the next
+;	br	60$		;
+				;??? - ignore line-too-long
+	jmp	si$com		;line too long - invalid command
+
+;	Get command from terminal or command file
+;
+;	Check set flag to prompt with image or process name.
+
+50$:	$canth			;cancel trap handler
+;sic]	$cmkrnl	#p$hare, #gtlin, p2=#s$iprm, p4=r4
+	mov	#s$iglw,r0	;get a line
+	emt	373		;get it
+	$dclth	si$exc		;catch traps
+
+;	Return line buffer to user
+
+60$:	mov	rp.rbu(r5),r1	;get the user buffer
+	beq	80$		;has none
+	mov	r4,r2		;r2 -> string
+70$:	movb	(r2),r0		;get the next
+	call	mm$prb		;put next byte
+	bcs	45$		;invalid address
+	tstb	(r2)+		;was this the last?
+	bne	70$		;nope (must be found)
+
+80$:	call	si$clr		;clear special mode output area
+	call	si$spe		;get the specs
+	movfd	sp,r0		;get the stack
+	movtd	rp.sws(r5),-(r0);send back switch count
+	movtd	r0,sp		;reset their stack
+	$canth			;cancel the trap handler
+	jmp	em$exi		;and exit
+
+s$iprm:	.ascii	_*_<200>	;prompt
+s$iglw:	$cmkrnl	rtn=te$glw p0=0,p1=0,p2=s$iprm,p3=0,p4=p$hlin,static=yes
+.sbttl	initialize
+
+;	Init csi request
+;
+;	Called before CSI parse.
+;	Called after CSI error.
+;
+;	r0/r1 only
+
+si$ini:				;init this
+	movti	rp.usp(r5),sp	;reset their stack
+	tst	rp.mod(r5)	;special or general?
+	bmi	20$		;special - dont close them
+.if eq v54
+	mov	#emclo.*256.+8.,r1 ;close the channels
+	bit	#siagn$,rp.mod(r5) ;is this a repeat?
+	beq	10$		;nope
+.endc
+	mov	#empur.*256.+8.,r1 ;yes - purge them
+10$:	mov	r1,r0		;next channel
+	emt	374		;close one
+	decb	r1		;get the next
+	bpl	10$		;more
+20$:	return			;
+
+;	si$clr
+;
+;	Clear special mode output area
+
+si$clr:				;clear special mode area
+	tst	rp.mod(r5)	;is this special mode?
+	bpl	30$		;no - forget this
+10$:	mov	rp.rop(r5),r0	;get the user area
+	bic	#1,r0		;clean it up
+	mov	r0,rp.opt(r5)	;save it for file-specs
+	mov	#39.,r1		;get a counter
+20$:	movtd	#0,(r0)+	;clean it up
+	sob	r1,20$		;count it
+30$:	return			;
+.sbttl	parse line
+
+;	Split string into output and input files
+;
+;	r4 -> 	line
+
+si$spe:				;get specs
+	mov	#p$hlin,r4	;r4 -> string thruout
+	clr	rp.sws(r5)	;and we have no switchs
+	mov	r4,r0		;r0 -> input string
+20$:	cmpb	(r0),#'=	;this an equals sign?
+	beq	30$		;yes
+	cmpb	(r0),#'<	;or the alternative?
+	beq	30$		;yes
+	tstb	(r0)+		;end of string?
+	bne	20$		;nope - must be found
+	br	50$		;input files only
+30$:	movb	#'=,(r0)	;make sure its an equals sign
+
+40$:	clr	rp.fln(r5)	;start with filezero
+	mov	rp.rop(r5),rp.opt(r5) ;user filespace
+	mov	#'=*256.+3,r0	;chars and terminator
+	call	si$fls		;get some files
+
+50$:	bis	#siinp$,rp.mod(r5) ;setup for input
+	mov	#3,rp.fln(r5)	;remember the filenumber
+	mov	rp.rop(r5),r0	;get the user area again
+	add	#<5.*3*2>,r0	;compute end of output files
+	mov	r0,rp.opt(r5)	;and remember it
+	mov	#6,r0		;number of files & terminator
+	fall	si$fls		;and get the inputs
+
+;	r0	number of files to collect
+;	r4 ->	input string
+
+si$fls:				;get a number of spesi
+	psh	r0		;save the count
+;	mov	#^rdk,a$pfna	;setup the default device
+	mov	#^rdk,rp.dev(r5);setup the default device
+10$:	call	si$fil		;get the file
+	call	si$swi		;get some switchs
+	inc	rp.fln(r5)	;get the next file
+	dec	(sp)		;any more?
+	beq	20$		;we are done
+	cmpb	(r4)+,#',	;got a comma?
+	beq	10$		;yes
+	dec	r4		;nope - backup
+20$:	swab	(sp)		;check for the right terminator
+	cmpb	(sp)+,(r4)+	;is this the right terminator?
+	bne	30$		;no - invalid command
+	return			;and quit
+30$:	jmp	si$com		;invalid command
+.sbttl	parse filespec
+
+;	Get a filespec
+;	The default device is already setup
+;	
+;	r3	output area
+;	r4	string
+
+si$fil:				;get a file specification
+	mov	#a$pfna,r3	;get the filename
+	mov	r3,r1		;r1 -> output area
+	mov	rp.dev(r5),(r3)	;setup default device
+
+;	Get the default type
+
+	movb	rp.fln(r5),r0	;get the file number
+	movb	s$itym(r0),r0	;get the correct offset
+	add	rp.rty(r5),r0	;point to the type address
+	movfd	(r0),fn.typ(r3)	;setup the type
+
+;	Get the filename
+
+	mov	r4,r0		;get the string
+	call	na$caf		;convert ascii to filename
+	mov	r0,r4		;reset our pointer
+	bcs	10$		;nothing specified
+	mov	(r3),rp.dev(r5)	;change device default
+	br	20$		;
+
+10$:	mov	r3,r2		;no name - clear the name block
+	clr	(r2)+		;default to no name
+	clr	(r2)+		;
+	clr	(r2)+		;
+	clr	(r2)+		;
+
+;	Get the allocation
+
+20$:	clr	r2		;assume no size
+	tstb	rp.mod(r5)	;this output?
+	bmi	50$		;nope
+	cmpb	(r0),#'[	;got a size?
+	bne	30$		;nope
+	inc	r0		;yes
+	call	na$cad		;get a decimal number
+	cmpb	(r0)+,#']	;got the closing ]
+	bne	si$com		;nope - invalid command
+	mov	r1,r2		;get the size
+	mov	r0,r4		;get back the string
+
+;	Check valid non-file output device
+
+30$:	mov	(r3),r0		;get the device
+	beq	50$		;null file
+	tst	fn.fil(r3)	;does it have a filename?
+	bne	50$		;yes
+	call	si$dch		;check the output device
+	tst	r0		;is this rt11a?
+
+	bmi	si$com		;yes - invalid command
+;	bpl	50$		;no - its o.k.
+;40$:	csierr	erdev.	sidev.	;invalid device
+
+;	Move in special mode name
+
+50$:	tst	rp.mod(r5)	;this special mode?
+	bpl	100$		;nope - general
+	psh	r2		;save the size
+	mov	r3,r2		;the name
+	mov	rp.opt(r5),r1	;get the output pointer
+	mov	#4,r0		;count them
+	call	mm$mtc		;move four of them
+	pop	r2		;get the size back
+	tstb	rp.mod(r5)	;is this output?
+	bmi	70$		;nope
+	movtd	r2,(r1)+	;yes - send the length
+70$:	mov	r1,rp.opt(r5)	;remember where we are
+	br	150$		;and quit
+
+;	General mode lookup or enter
+
+map	lo.chn,,0
+map	lo.cod,,1
+map	lo.dbl,,2
+map	lo.len,,4
+map	lo.seq,,6
+
+100$:	mov	(r3),r0		;get the device
+	beq	150$		;null filespec
+	call	si$dch		;check the device
+	bcc	110$		;fine
+	csierr	erdev.	sidev.	;invalid device
+110$:	mov	#p$hare+lo.seq,r0 ;point to the area
+	clr	(r0)		;lo.seq - remove seqnum for enter
+	mov	r2,-(r0)	;lo.len	- length for enter - null for lookup
+	mov	r3,-(r0)	;lo.dbl	- dblk pointer
+	movb	#ement.,-(r0)	;lo.cod	- assume an enter
+	movb	rp.fln(r5),-(r0);lo.chn	- the channel number
+	tstb	rp.mod(r5)	;but is this an enter?
+	bmi	120$		;no - a lookup
+	emt	375		;try to open it
+	bcc	150$		;fine
+	csierr	erdvf.	sidvf.	;device full
+
+120$:	movb	#emloo.,lo.cod(r0) ;change the emt code
+	clr	lo.len(r0)	;and force length to zero
+	emt	375		;do the lookup
+	bcc	150$		;fine
+	csierr	erfil.	sifil.	;file not found
+
+150$:	return			;
+
+si$com:	csierr	ercom.	sicom.	;invalid command
+s$itym:				;type map
+	.byte	1*2,2*2,3*2	;the output files
+	.byte	0,0,0,0,0,0	;the input files
+	.even
+.sbttl	parse switch
+
+;	Get a switch and options
+
+si$swi:				;get a switch
+10$:	cmpb	(r4),#'/	;a switch?
+	bne	90$		;nope, no switch
+	inc	r4		;skip it
+	movb	(r4)+,r0	;get the switch
+	beq	si$com		;oops
+	call	ut$cas		;make it upper case
+	psh	r0		;save the switch
+	call	si$sk4		;skip alphanumerics
+	movb	rp.fln(r5),1(sp);and the file number
+	movfd	sp,r3		;r3 -> user stack
+
+;	Skip trailing ascii characters
+
+20$:	inc	rp.sws(r5)	;count the switch
+	psh	(sp)		;get a copy of the switch
+	cmpb	(r4),#':	;got a value?
+	bne	60$		;no - return switch only
+30$:	inc	r4		;skip the colon
+	bis	#100000,(sp)	;remember its a value
+	cmpb	(r4),#'*	;this a wildcard?
+	beq	35$		;yes - alpha
+	movb	(r4),r0		;rad50 or numeric?
+	call	ut$cas		;check for alphabetic
+	bcs	40$		;its a number
+35$:	mov	r4,r0		;its rad50
+	call	na$car		;convert ascii to rad50
+	psh	r1		;stack the result
+	call	si$sk0		;skip ascii
+	br	50$		;move it to the user
+
+40$:	mov	r4,r0		;get the pointer
+	call	na$cao		;convert ascii to octal or decimal
+	mov	r0,r4		;get back the string
+	psh	r1		;setup for the move
+50$:	mtpd	-(r3)		;move in the value
+60$:	mtpd	-(r3)		;move in the switch
+	cmpb	(r4),#':	;got another?
+	beq	20$		;yes - do it
+80$:	movtd	r3,sp		;reset the stack
+	tst	(sp)+		;forget the switch
+	br	10$		;and try again
+90$:	return
+.sbttl	utilities
+
+;	Skip alphanumerics
+;
+;	Called after any string access except device
+;	Name, type, switch, rad50 value
+
+si$sk4:	mov	r4,r0		;r4 -> string
+si$sk0:	call	ut$ska		;r0 -> string
+	mov	r0,r4		;get back the string
+	return
+
+;	Device characteristics
+;
+;	r0	device status word
+;	c=1	invalid device
+
+si$dch:	pshs	<r3,r2,r1>	;save this lot
+	call	na$cli		;convert logical to index
+	bcs	10$		;oops - not loaded
+	call	na$cir		;convert index to record
+	bcs	10$		;oops - not loaded
+	assume	de.sta eq 0	;
+	mov	(r2),r0		;return the device status
+10$:	pops	<r1,r2,r3>	;
+	return
+.sbttl	convert ascii to numeric
+
+;	na$cad		convert ascii to decimal
+;	na$cao		convert ascii to octal
+;
+;	[n]		filesize = decimal
+;	[g,u]		uic number
+;	[s:rwed...]	protection
+;
+;	/a:b		option
+;	/a:-b
+;
+;	We cannot support /A=B since it is ambiguous with A,B/C=D,E,F
+;	We will not support /D:12-MAR-84 since we may have to support
+;	negative switchs for RSX someday.
+;
+;	r0 ->	input stream
+;	r1 =	value
+
+stack	str r2 bas
+
+.enabl	lsb
+na$xad::psh	#10.		;decimal base
+	br	10$		;join the common stuff
+na$xao::psh	#8.		;octal base
+10$:	pshs	<r2,r0>		;save these
+20$:	mov	(sp),r2		;r2 -> string
+	clr	r1		;start with nothing
+	cmpb	(r2),#'-	;this a negative number?
+	bne	30$		;no
+	inc	r2		;yes - skip it
+30$:	movb	(r2),r0		;get the next digit
+	call	ut$dig		;check for a digit
+	bcs	40$		;all over
+	inc	r2		;skip the digit
+	sub	#'0,r0		;make it a number
+	mul	sp.bas(sp),r1	;get the next digit
+	add	r0,r1		;
+	br	30$		;and try again
+40$:	cmpb	(r2),#'.	;was this decimal?
+	bne	50$		;nope
+	inc	r2		;yes - skip the dot
+	cmp	sp.bas(sp),#10.	;did we just do decimal?
+	beq	50$		;yes
+	mov	#10.,sp.bas(sp)	;nope - go again
+	br	20$		;
+50$:	mov	r2,r0		;r0 -> past string
+	pop	r2		;point at original string
+	cmpb	(r2)+,#'-	;was this negative?
+				;r2 -> past sign or first digit
+	bne	60$		;no
+	neg	r1		;yes - negate it
+	inc	r2		;r2 -> sign and first digit
+60$:	cmp	r0,r2		;did we move at least one digit?
+;[sic]	bcc	o.k.		;c=0 => at least one digit
+	pop	r2		;
+	bit	(sp),(sp)+	;
+	return
+.dsabl	lsb
+
+.end
+

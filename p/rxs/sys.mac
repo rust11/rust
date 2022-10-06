@@ -1,0 +1,148 @@
+v3=1
+.title	sys - system process
+.include "lib:rust.mac"
+.psect	sys d
+meta	<chmker c><jsr r5,sy$cmk><.word c>
+$erdef		;errors
+$jbdef		;rt-11 job
+$mmdef		;mmu
+$rpdef		;rp
+$prdef		;pcr
+$sidef		;signal
+$ssdef		;system service codes
+$stdef		;states
+
+;	RUST/XM SYS overlay dispatch
+;
+;	%build
+;	macro	rxs:sys/object:rxb:sys
+;	%end
+;
+;	Kernel overlay entry points
+;
+;	Any change here requires an STB compile
+;
+;	sy$dis	dispatch $SYS emt
+;		this is guaranteed to be first
+
+sy$dis::br	sy$dix		;call dispatch routine
+s$xgpa::jmp	sy$gpa		;get process access
+.sbttl	dispatch system service
+
+;	Continue EMT dispatch to routines in SYS overlay.
+;
+;	MEP dispatchs SYS routines to dummies in MSY.
+;	MSY computes a dispatch index in r1, maps & calls us.
+;	We must compute the routine address, reset r1 to zero
+;	and test (r4) to set channel open status.
+;
+;	r0 =	rp.r0
+;	r1 =	dispatch index
+;	r2 =	free
+;	r3 =	rp.p0
+;	r4 ->	channel
+;	r5 ->	rp
+;
+;	call	ac$dis
+;
+;	r1 =	0
+;	n	n=1 => channel open
+
+sy$dix:	cmp	(sp)+,(sp)+	;don't return to msy
+	asl	r1		;r1 = dispatch variable
+	mov	10$(r1),r2	;r2 -> routine
+	clr	r1		;r1 = 0
+	jmp	(r2)		;and call the routine
+
+	.word	sy$atx		;attach
+.if eq v3
+	.word	na$cre		;crelog
+	.word	na$del		;dellog
+	.word	na$trn		;trnlog
+.endc
+10$:	.word	ss$dis		;sys
+.sbttl	dispatch system service
+
+;	$sys	area, tsk, p0, p1, p2, p3, p4, p5
+;
+;	tsk	subcode
+;
+;	r0 =	rp.p0
+;	r1 =	rp.p1
+;	r2 =	rp.p2
+;	r3 =	rp.p3
+;	r4 ->	target pcr
+;	r5 ->	rp
+;	sp ->	16. free bytes
+
+ss$dis::movb	(r5),r1		;local process calls
+	cmp	r1,#ss.cls	;this too high?
+	blo	10$		;no
+	.hard	eremt.		;invalid system call
+10$:	asl	r1		;get a word offset
+	psh	s$sdis(r1)	;get the dispatch variable
+	mov	p$hpcr,r4	;r4 -> our pcr
+	asr	(sp)		;need process name?
+	bcc	30$		;no
+	call	sy$gpa		;get process access
+				;does not return for errors
+30$:	asl	(sp)		;clean up the address
+	jmp	@(sp)+		;call them
+				;they return to em$exi
+
+s$sdis:	$ssdef	tab=yes		;define the dispatch table
+.sbttl	system process loop
+
+;	System process mainline loop
+;
+;	System process has tasks below:	
+;
+;	Create process		Create a process
+;	Delete process		Delete one or more processes
+; ???	Watchdog		Watchdog timer
+; ???	Account			Write accounting file
+;
+;	User mode routine in system process in SYS overlay.
+;	Always called with system process resource locked.
+;	The usual calling procedure is shown below.
+;
+;	$obtain	#s$yque		;obtain system resource
+;	inc	s$mcre		;create process
+;	call	sy$wak		;wake up system process
+;	<get status>		;get results
+;	neg	s$mcre		;forget it
+;	$dispos	#s$yque		;release resource
+;
+;	Delete process uses a different technique:
+;	The system process takes care of $DISPOS S$YQUE since it
+;	cannot return to a deleted process for this task.
+;
+;	process:
+;
+;	$obtain	#s$yque		;obtain system resource
+;	inc	s$mdel		;signal deletes pending
+;	call	sy$wak		;wake up system process
+;
+;	system:
+;
+;	mov	p$hpcr,s$yque+qu.pcr ;system process steals s$yque
+;	$dispos	#s$yque		;system process disposes it when done
+;
+; ???	System process requires only 2 channels.
+
+sy$sta::			;start the system process
+10$:	tst	s$mdel		;got processes to delete?
+	bmi	20$		;no
+	chmker	pr$eli		;elide processes
+20$:	tst	s$mcre		;got a process to create?
+	bne	30$		;no
+	call	sy$cpr		;yes
+	inc	s$mcre		;reply to them
+	chmker	100$		;wake them up
+30$:	.spnd			;hibernate
+	br	10$		;
+
+100$:	mov	s$mpcr,r4	;get the called
+	callr	pr$wak		;and wake them up
+.end
+

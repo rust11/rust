@@ -1,0 +1,717 @@
+.title	kve	vector management
+.include "lib:rust.mac"
+.psect	kve
+$emdef		;emt codes
+$erdef		;error
+$icdef		;image control
+$rpdef		;rp
+$mmdef		;mmu
+$psdef		;ps
+$vedef		;vector
+$vpdef		;vector packet
+
+;	RUST/XM vector dispatch
+;
+;	%build
+;	macro	rxs:kve/object:rxb:kve
+;	%end
+;
+;	Interrupts, traps & faults.
+;
+;	Normalize trap and dispatch it somewhere.
+;	Vector frame is built on the stack.
+;
+;	Do not use external routines	
+;	This module must function even if MMU breaks
+;
+;	vp.rea		reason
+;	vp.vec		vector
+;	vp.r4		saved r4
+;	vp.r5		saved r5
+;	vp.pc		pc
+;	vp.ps		ps
+
+meta	<stop><.word 0>			;h a l t  is forbidden
+meta	<break><.word 3>		;b p t   is forbidden
+.sbttl	fpu, clock, power, memory
+
+;	FPU traps
+;
+;	FPU traps are asynchronous - can interrupt pr7 code.
+;	However, latency is such that they cannot interrupt scheduler.
+;	Abort/exit bypass used to deliver FPU traps to process.
+;	We assume (we cannot know) that FPU traps come from user mode.
+;
+;	First instruction below modified for FIS processors.
+;	FPU reports the address of the instruction (i.e. a fault).
+;	FIS reports the address past the instruction (i.e. a trap).
+
+.enabl	lsb
+ve$fpu::			;FPP fault/FIS trap - pr7
+	stst	@#p$hfec	;impure] store fec & fea
+;[sic]	mov	(sp),@#p$hfea	;impure] store FIS trap address
+	mov	#1,p$hfpx	;set the flag to catch it later
+	mov	#ab$rti,p$hrti	;catch the return to the user
+	tstb	ve.ps(sp)	;interrupt in progress?
+	bmi	10$		;yes - do it later
+	inc	i$nins		;go into system state
+	br	40$		;and handle it
+10$:	rti			;catch it later
+
+;	Clock traps
+;
+;	Run the timer on each tick. Schedule each tick.
+;	.INTEN is useless for PR6 devices: there are no PR7 devices.
+;	Clock ticks are rare but unavoidable - minimise CPU block.
+;	RTI does not cause FPU traps to be missed (because its only
+;	taken for nested clock interrupts).
+
+ve$clk::
+cl$int::			;clock interrupt - pr7
+	adc	(pc)+		;low order update
+c$llot::.word	0		; low order time
+	bne	20$		;faster
+	adc	(pc)+		;high order update
+c$lhot::.word	0		; high order time
+20$:	inc	(pc)+		;this the first tick?
+c$lsem::.word	-1		;
+	bne	10$		;no - ignore it
+30$:	inc	i$nins		;log the interrupt
+	movb	ve.ps(sp),@#ps	;use previous interrupt level
+	spl	7		;go back up
+	mov	#t$ifrk,@f$klqe	;post timer fork
+	mov	#t$ifrk,f$klqe	;
+40$:	jmp	in$ext		;and quit (must be at PR7)
+.dsabl	lsb
+
+; 	Powerfail. pr7
+
+ve$pow::mov	#ve$pwu,v$epow	;catch it on the way up
+	mov	sp,(pc)+	;save the stack
+v$epws:	.word	0		;powerfail stack
+	sub	#10,sp		;and clean it up a bit
+	stop			;HALT opcode is forbidden.
+ve$pwu:	mov	#ve$pow,v$epow	;reset the power fail vector
+	mov	v$epws,sp	;get the powerfail stack
+	jsr	r5,ve$com	;report it
+	.word	v$epow,vepow.!vefat$
+
+;	Report parity error. pr7
+
+ve$mem::inc	(pc)+		;count it
+v$empc::.word	0		;memory parity errors
+	jsr	r5,ve$com	;report
+	.word	v$emem,vemem.	;!vefat$
+.sbttl	trap handlers
+
+;	Declare trap handler
+;
+;	$dclth	except
+;
+;	call	ve$dth
+;	beq	except
+;
+;	p$hexc	points to most recent exception frame
+
+stack	xpr xpc
+ve$dth::			;declare trap handler
+	psh	p$hexc		;save previous
+	mov	sp,p$hexc	;remember it
+	jmp	@sp.xpc(sp)	;z=0 => non-exception return
+
+;	Cancel exception handler
+;
+;	sp	same as after $dclth
+;
+;	$canth
+;
+;	call	ve$cth
+;	cbit	unchanged
+;
+;	Check for null exception handler
+
+	.enabl	lsb
+stack	ret xpr xpc
+ve$cth::			;cancel trap handler
+	mov	(sp)+,sp.xpc-2(sp) ;replace trap handler with return
+	br	10$		;go restore previous handler
+
+;	Execute trap intercept
+	
+ve$xth::			;execute trap handler
+	mov	p$hexc,sp	;get the stack
+10$:	pop	p$hexc		;restore the previous
+	sez			;z=1 => signal condition
+	return			;c=? - unchanged
+	.dsabl	lsb
+.sbttl	bus, mmu
+
+;	Bus and mmu traps.
+;
+; ???	RT-11 does a once-only redirect of usermode MMU errors
+;	via usermode MMU vector.
+;	That's what we should do and treat any other MMU error
+;	as a bus error. RT-11 only.
+;
+;	Take at callers priority.
+;	Usermode traps are easy.
+;
+;	Kernel mode traps are difficult to assign to process or system.
+;	BVS escape works in any kernel mode.
+;	No other BUS/MMU trap is permitted in system state.
+;	Trap-handlers can catch any other bus/mmu trap.
+;	If an RP is present assign MMU traps there as invalid address error.
+;	(only if exception comes from kernel mode)
+;	If no RP, or a bus trap, assign it to the system and crash.
+;	Peek/Poke routines use BVS to handle their own traps.
+;
+;	Kernel bugs should not be hidden by assignment to process.
+;	Double bus traps may not loop here.
+;
+; ???	Support 11/73 emergency halt stack and usermode halts with feature
+; ???	Check for HALT and convert to CPU trap. Not worth it.
+;
+;	Bus trap
+;
+;	Invalid kernel stack crashs the system.
+;	Note, the kernel stack is usually in par2.
+;	Fork stack is in par0.
+
+	.enabl	lsb
+ve$bus::cmp	sp,#v$emax	;kernel stack o.k.?
+	bhi	10$		;yes
+	mov	#f$kksp,sp	;use the fork stack
+	jsr	r5,ve$com	;report it
+	.word	v$ebus,veksp.!vefat$ ;this is fatal
+
+;	Mmu trap
+
+ve$mmu::pshs	<r5,r4,#v$emmu,#vemmu.>	
+	br	20$		;join the common stuff
+
+10$:	pshs	<r5,r4,#v$ebus,#vebus.>	;build the frame
+
+;???	Revisit next instruction
+
+20$:	movb	vp.ps(sp),@#ps	;use callers priority
+	tst	vp.ps(sp)	;was this from the kernel?
+	bpl	ve$adr		;yes
+
+;	Check for valid user stack
+;
+;	User mode stack may be very low for emulators
+
+	mfpd	sp		;no - get the user stack
+	cmp	(sp)+,#20	;stack underflow?
+	bhis	30$		;nope
+	mov	#veusp.,(sp)	;change the reason
+30$:	br	ve$prj		;user bus trap
+	.dsabl	lsb
+
+;	Kernel bus/mmu trap. 
+;
+;	Check BVS escape
+
+ve$adr::			;common bus/mmu code
+10$:	mov	@vp.pc(sp),r5	;get the following instruction
+	bvs	20$		;ugly - should not occur
+	clrb	r5		;clear low-order byte
+	cmp	r5,#bvs		;is this a BVS instruction?
+	bne	20$		;nope
+	bis	#vbit,vp.ps(sp) ;yes - set the vbit
+	br	ve$rti		;and ignore it
+
+;	Check for system or device state	
+
+20$:	tst	i$nins		;system/fork/interrupt state?
+	bpl	45$		;system state trap is fatal
+
+;	Check for exception trap handler
+
+30$:	tst	p$hexc		;got an exception handler?
+	bne	ve$xth		;yes - execute it
+
+;	Unassigned kernel bus/mmu trap.
+;
+;	If MMU and an RP, report it process as invalid address.
+;	Otherwise assign it to the system and crash.
+
+40$:	cmpb	(sp),#vemmu.	;this an mmu trap?
+	bne	50$		;nope - this is a system bug
+	mov	p$hcrp,r5	;get current rp
+	beq	50$		;is none
+	.hard	eradr.		;invalid address
+
+;	System bug check
+
+45$:	bis	#vesys$,(sp)	;set the system state flag
+50$:	jmp	ve$prf		;set fatal and crash system
+ve$prj:	jmp	ve$pro		;and process it
+.sbttl	cpu, bpt, trap
+
+;	CPU traps
+;
+;	kernel/user
+;	halt
+;	trpset
+
+ve$cpu::jsr	r5,ve$com	;cpu trap
+	.word	v$ecpu,vecpu.	;
+
+;	BPT traps
+;
+;	kernel/user
+;	debugger
+;	transfer
+;
+;	Stray kernel BPT's are reported and ignored.
+
+ve$bpt::jsr	r5,ve$com	;bpt trap
+	.word	v$ebpt,vebpt.	;
+
+;	TRAP traps
+;
+;	kernel crash
+;	user intercept - fast as possible
+;	else user exit
+
+ve$trp::psh	ve.ps(sp)	;get a copy
+	bpl	10$		;oops - kernel trap
+	tst	p$hmvb		;got a bypass?
+	bne	10$		;yes - call it
+	stack	ps pc r5	;
+	mov	r5,sp.r5(sp)	;store r5
+	mfpd	sp		;get the stack
+	mov	(sp),r5		;r5 -> user stack
+	sub	#word*2,(sp)	;make space for pc/ps
+	mtpd	sp		;put it back
+	mtpd	-(r5)		;ps
+	mtpd	-(r5)		;pc
+	pop	r5		;restore r5
+	mfpd	v$etrp+ve.ps	;get the ps
+	bis	#mmdum$,(sp)	;force user mode
+	bic	#pr7,(sp)	;clean out priority
+	mfpd	v$etrp		;get the vector
+	rti			;and call it
+				;
+10$:	tst	(sp)+		;forget pushed ps
+	jsr	r5,ve$com	;kernel mode trap
+	.word	v$etrp,vetrp.	;
+.sbttl	emt
+
+;	EMT dispatcher
+;
+;	Accept any EMT - user, kernel, system state or ISR.
+;	EMT bypass is used by emulators to avoid RT-11 emts.
+;	Kernel emts and RT-11 emts should return control to VE$EMB
+;	.TTYOUT bypass or start RP build an jump to MEP.
+;	EMT exit here since it must be outside par1.
+
+ve$emt::			;emt trap
+	bicb	#cbit,ve.ps(sp) ;[sic] this pattern may not change ever.
+10$:	pshs	<r5,r4,r3>	;rp.r5, rp.r4, rp.r3
+	stack	r3 r4 r5 pc ps	;
+	mov	sp.pc(sp),r3	;point to the emt
+	movfi	-(r3),r3	;get the emt (cannot fail)
+	jmp	@p$hemb		;emt bypass - usually ve$emb
+
+;	ttyout bypass
+
+ve$emb::cmpb	r3,#emtto.	;is this ttyout?
+	bne	20$		;nope
+	call	@p$htto		;yes - use their ttyout path
+	br	em$rti		;and quit
+
+;	Continue packet and dispatch to REQ overlay.
+
+20$:	pshs	<r2,r1,r0,@#m$kip1> ;rp.r0, rp.r1, rp.r2
+	mov	#mmkp1.,@#m$kip1;restore our par
+	stack	kp1 r0 r1 r2 r3 r4 r5 pc ps
+	jmp	em$pro		;call the emt processor
+
+;	Internal vector RTI - pop packet
+
+	stack	rea vec r4 r5 pc ps
+ve$rti::cmp	(sp)+,(sp)+	;pop reason and vector
+	br	em$rtx		;join common
+
+;	EMT exit path (outside par1)
+
+em$exi::mov	p$hcrp,r5	;get the rp
+	mov	r5,sp		;reset the stack
+	add	#rp.orp,sp	;point back
+	pops	<p$hcrp,@#m$kip1,r0,r1,r2>
+	fall	em$rti
+
+;	ttyout exit path
+
+	stack	r3 r4 r5 pc ps	;
+em$rti::pop	r3		;restore this
+	stack	r4 r5 pc ps	;
+em$rtx::pops	<r4,r5>		;restore r4/r5
+	jmp	@p$hrti		;and return to them
+.sbttl	iot
+
+;	IOT trap
+;
+;	Stray interrupt
+;	SHARE-eleven system call
+;	User IOT
+;	Kernel IOTs are fatal
+;
+;	Kernel vectors contain pattern below to catch stray interrupts.
+;	Stray interrupts are reported, counted and ignored.
+;
+;	.word	.+2		;trap to IOT instruction
+;	.word	iot		;execute IOT
+
+ve$iot::.enabl	lsb		;iot
+	tst	ve.ps(sp)	;from the kernel?
+	bmi	10$		;nope
+	cmp	(sp),#v$emax	;from a vector?
+	bhi	15$		;nope - kernel iot
+
+;	Kernel stray interrupt
+
+	stack	ipc ips pc ps	;build to return from interrupt
+	inc	(pc)+		;count it
+v$esic::.word	0		;stray interrupt count
+	mov	r5,2(sp)	;save r5 in place
+	mov	(sp),r5		;r5 = vector
+	sub	#word*2,r5	;adjust for IOT mechanism
+	mov	r4,(sp)		;save r4
+	mov	r5,(pc)+	;store the vector for later
+v$esiv::.word	0		;
+	jsr	r5,ve$prr	;push vector (in r5)
+	.word	veunv.!vefat$	;stray unvectored interrupt
+
+;	User system call
+
+10$:	movb	ve.ps(sp),@#ps	;reset the priority
+15$:	pshs	<r5,r4,#v$eiot,#veiot.> ;also kernel iot
+	mov	vp.pc(sp),r5	;get their pc
+	mfpi	(r5)+		;get the next word
+	bvs	20$		;catch addressing errors
+	cmp	(sp)+,#^rsys	;this for us?
+	bne	30$		;nope
+	movfi	(r5)+,r4,20$	;get the code
+	mov	r5,vp.pc(sp)	;point past the emt
+
+;	(sp) =	ret,par1,r4,r5,pc,ps
+;	r4 =	code
+;	r5 =	burnt
+
+	ovcal$	sh$cal utl	;call the overlay
+	bcc	ve$rti		;fine - SHARE-eleven call
+	br	30$		;some error
+
+;	Access error during vector processing
+
+20$:	mov	#veadr.,(sp)	;change reason and abort
+
+;	User IOT
+
+30$:	br	ve$prk		;check kernel & transfer
+	.dsabl	lsb		;
+.sbttl	dispatch vector
+
+;	Dispatch vector
+;
+;			kernel	user
+;	veusp.	stack	bug	abort
+;	vebus.	bus	bug	trpset
+;	vecpu.	cpu	bug	trpset	halt
+;	vemmu.	mmu	bug	trpset
+;	vefpu.	fpu	bug	sfpa
+;	vebpt.	bpt	rep	db, bpt
+;	veiot.	iot	bug	share, iot
+;	vetrp.	trap	bug	trp
+;	vemem.	parity	bug	bug
+;	veunv.	vector	rep
+;	vepow.	power	bug	bug
+;	veksp.	stack	bug	bug
+;
+;	Common entry point to build vector packet
+;
+;	jsr	r5,ve$com
+;	.word	vector,reason
+
+ve$com::psh	r4		;vp.r4
+	psh	(r5)+		;vp.vec
+ve$prr:	psh	(r5)+		;vp.rea
+ve$prk:	tst	vp.ps(sp)	;was this from the kernel?
+	bmi	ve$pro		;nope
+ve$prf:	bis	#vefat$,(sp)	;yes - make reason fatal
+
+;	Process vector packet
+;
+;	vp.rea	reason & flags
+;	vp.vec	vector
+;	vp.r4	saved r4
+;	vp.r5	saved r5
+;	vp.pc	saved pc
+;	vp.ps	saved ps
+
+ve$pro::			;vector processor
+	mov	s$ybug,r4	;got a debugger?
+	beq	10$		;nope
+	call	(r4)		;yes - call the debugger
+	bcc	20$		;they did it - pass it on
+
+;	fatal condition
+
+	assume	vp.rea eq 0	;
+10$:	bit	#vefat$,(sp)	;was this fatal?
+	beq	20$		;nope
+	jmp	ve$rep		;yes - go report it
+
+;	dispatch it monitor handler
+
+20$:	bic	#tbit,vp.ps(sp)	;reset the tbit (after debugger call)
+	movb	vp.ps(sp),@#ps	;adjust priority
+				;
+	mov	p$hmvb,r4	;got a bypass
+	beq	30$		;no
+	call	(r4)		;yes - call it
+30$:	movb	(sp),r4		;get the reason
+	asl	r4		;make it a dispatch variable
+	psh	v$edis(r4)	;save the dispatch address
+	mov	vp.vec+2(sp),r4	; r4 = vector
+	clr	r5		; r5 = ps mask
+	jmp	@(sp)+		;call the handler
+.sbttl	vector dispatch table and error map
+
+;	Dispatch table for vector dispatcher
+;
+;	assume	veXXX.=$
+;	.word	vc$XXX
+
+meta	<addr	c d><assume d eq $><$=$+1><.word c>
+
+v$edis:;routine	vector	;dispatch table
+$=0
+addr	vc$nop	venop.	;zero is not a condition
+addr	vc$bus	vebus.	;conditions
+addr	vc$cpu	vecpu.	;cpu
+addr	vc$bpt	vebpt.	;bpt
+addr	vc$iot	veiot.	;iot
+addr	vc$pow	vepow.	;powerfail
+addr	vc$emt	veemt.	;emt
+addr	vc$trp	vetrp.	;trap
+addr	vc$adr	veadr.	;previous mode adr error
+addr	vc$mem	vemem.	;memory parity
+addr	vc$fpu	vefpu.	;fpu
+addr	vc$mmu	vemmu.	;mmu
+addr	vc$usp	veusp.	;user stack pointer
+addr	vc$ksp	veksp.	;kernel stack pointer
+addr	vc$unv	veunv.	;unvectored (stray) interrupt
+addr	vc$bug	vebug.	;bug check
+assume	vemax. eq $	;we must do them all
+
+;	Convert vector reason to error code
+;
+;	assume	veXXX. = $
+;	.byte	erXXX.
+
+meta	<error	c d><assume d eq $><$=$+1><.byte c>
+
+v$emap::;error	vector	;vector to error map
+$=0			;start value
+error	0	venop.	;unused
+error	erbus.	vebus.	;conditions
+error	ercpu.	vecpu.	;cpu
+error	erbpt.	vebpt.	;bpt
+error	eriot.	veiot.	;iot
+error	erpow.	vepow.	;powerfail
+error	eremt.	veemt.	;emt
+error	ertrp.	vetrp.	;trap
+error	eradr.	veadr.	;previous mode adr error
+error	ermem.	vemem.	;memory parity
+error	erfpu.	vefpu.	;fpu
+error	ermmu.	vemmu.	;mmu
+error	erusp.	veusp.	;user stack pointer
+error	erksp.	veksp.	;kernel stack pointer
+error	erunv.	veunv.	;unvectored (stray) interrupt
+error	erbug.	vebug.	;bug check
+assume	vemax. eq $	;we must do them all
+	.even
+.sbttl	dispatch trap to client
+
+;	dispatch to user mode client
+;
+;	r4 = 	vector
+;	r5 =	0
+;
+;	r4	set this to user pc
+;	r5	default ps mask
+;
+; ???	FPU comes here directly from the process RTI path.
+; ???	It only arrives here when there is no SFPA handler.
+
+vc$fpu::			;fpu
+	mov	p$hsfp,r4	;get the service routine
+	beq	10$		;is none
+	clr	p$hsfp		;once only
+	bit	#1,r4		;odd address or addr=1?
+	beq	vc$trn		;nope - transfer
+10$:	clr	p$hser		;always fatal
+	.hard	erfpu.		;report it
+
+;	EMT request address error
+
+vc$adr:	.hard	eradr.		;EMT address error
+
+;	Client mmu
+;
+;	Convert to bus trap if they don't have a service routine
+
+vc$mmu:	movfd	(r4),r4,vc$sst	;get the vector
+	beq	vc$bus		;no mmu routine
+	movtd	#0,v$emmu,vc$sst;zap it
+	br	vc$trn		;transfer to client
+
+	assume	cbit eq 1	;
+vc$cpu:	inc	r5		;set the c-bit
+vc$bus:	mov	p$htrp,r4	;get their bus/cpu trap routine
+	beq	vc$mbc		;got none - abort them
+	clr	p$htrp		;once only
+	br	vc$trn		;go transfer it
+
+	assume	v$ebus eq 4	;try user vectors for bus
+	assume	v$ecpu eq 10	;try user vectors for cpu
+	assume	v$emmu eq 250	;try user bus vector for mmu
+vc$mbc:	bit	#ictrp$,p$hic0	;do they want user traps?
+	beq	vc$abo		;no - forget it
+	movb	vp.vec(sp),r4	;last chance attempt for mmu/bus/cpu
+	bpl	vc$trp		;bus or cpu
+	mov	#v$ebus,r4	;mmu - convert to bus
+vc$bpt:				;bpt
+vc$iot:				;iot
+vc$trp:				;trap
+	movfd	ve.ps(r4),r5	;get the possible ps
+	movfd	(r4),r4		;get the pc
+	beq	vc$abo		;is none - abort the process
+	fall	vc$trn		;transfer it
+.sbttl	transfer client vector
+
+;	Transfer vector to client
+;
+;	r4	user pc
+;	r5	user ps
+
+vc$trn::.enabl	lsb		;transfer vector
+	psh	r5		;save the user ps
+	mfpd	sp		;get the user stack
+	mov	(sp),r5		;r5 -> user stack
+	sub	#word*2,(sp)	;adjust for pc/ps
+	mtpd	sp		;reset the stack
+	psh	vp.ps+2(sp)	;get the ps
+	mtpd	-(r5)		;push the return ps
+	bvs	20$		;oops - no memory
+	movtd	vp.pc+2(sp),-(r5),20$ ;push the return pc
+	bis	#mmpum$!mmcum$,(sp)
+	bic	#pr7,(sp)	;clean it up
+	pop	vp.ps(sp)	;setup the rti ps
+	mov	r4,vp.pc(sp)	;setup rti pc
+vc$fpc::br	10$		;changed to cmpb (sp),(pc)+ for FPU
+	.word	vefpu.		;this an FPU trap?
+	bne	10$		;no
+	psh	r5		;yes
+	sub	#word*2,(sp)	;make space for two more
+	mtpd	sp		;reset it
+	movtd	p$hfea,-(r5),20$;address
+	movtd	p$hfec,-(r5),20$;
+10$:	jmp	ve$rti		;pop packet and rti
+
+20$:	tst	(sp)+		;get rid of the pushed r5
+	br	vc$sst		;synchronous trap error
+	.dsabl	lsb		;
+.sbttl	abort process or system
+
+;	Synchronous trap error
+;
+;	Exception during delivery of a client trap.
+;	We try to report this condition to the debugger.
+
+vc$sst:				;synchronous trap error
+	bis	#vesst$,(sp)	;set the synchronous trap error
+
+;	Abort process
+;
+;	We could not find a mechanism to handle the trap.
+;	Thus, we prepare a packet for the error reporter.
+
+vc$mem:				;memory error
+vc$usp:				;user stack underflow
+vc$nop:				;should not occur
+vc$abo:	bis	#veprc$,(sp)	;abort the process later
+
+;	Abort system
+;
+;	We have a bug or unvectored interrupt
+
+vc$emt:				;should never be called
+vc$ksp:				;kernel stack
+vc$pow:				;power fail
+vc$unv:				;unvectored interrupt
+vc$bug:	fall	ve$rep		;bug check
+.sbttl	report vector
+
+;	Report vector
+;
+;	Convert vector packet to error packet
+;	An error packet looks like an RP.
+;	Abort process or system.
+;
+;	rea vec r4 r5
+;	rea vec regs r0 r1 r2 r3 r4 r5
+;
+; ???	Does not handle critical sections
+
+ve$rep::pop	r4		;r4 = reason
+	pop	r5		;r5 = vector
+	pshs	<r3,r2,r1,r0>	;save the remainder
+	psh	@#m$kip1	;rp.op1
+	psh	p$hcrp		;rp.orp
+	mov	#6,r0		;rp.exc rp.req
+5$:	clr	-(sp)		;rp.p5 rp.p4
+	sob	r0,5$		;rp.p3 rp.p2
+	psh	r5		;rp.p1 = vector
+	psh	r4		;rp.p0 = reason
+	clr	-(sp)		;rp.chn
+	mov	sp,r5		;r5 -> request packet
+10$:	mov	r4,s$ycra	;store the reason
+	beq	30$		;reason cleared - exit
+	movb	r4,r0		;get rid of the flags
+	movb	v$emap(r0),r0	;get the error code
+	call	er$dis		;report it
+	bit	#vefat$,rp.p0(r5) ;was this utterly fatal?
+	beq	40$		;nope
+	movb	#ercra.,r0	;system crash message
+	call	er$dis		;display it (er$dis switchs to console)
+
+;	Call debugger - if one available
+;	Otherwise stop the CPU
+;
+;	r0	bug pc
+;	r4	reason and flags
+;	r5 ->	rp
+;
+;	r0	can be changed to new pc
+;	r4	can be cleared to continue execution
+
+	mov	rp.pc(r5),r0	;report pc & ps
+	tst	@#s$ybug	;got a debugger?
+	beq	20$		;no
+	break			;yes - report with breakpoint
+20$:	stop			;stop the CPU
+	mov	r0,rp.pc(r5)	;reset exit address
+	br	10$		;check for condition cleared
+30$:	jmp	em$exi		;no - return to where ever
+
+;	Process error - abort it
+
+40$:	call	ab$set		;setup for an abort for the process
+sy$fex::.exit			;and exit
+.end
+

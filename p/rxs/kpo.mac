@@ -1,0 +1,68 @@
+.title	kpo - pool management
+.include "lib:rust.mac"
+.psect	kpo d
+$podef		;pool
+$qudef		;queues
+
+;	RUST/XM kernel pool management.
+;
+;	%build
+;	macro	rxs:kpo/object:rxb:kpo
+;	%end
+;
+;	Create pool element
+;
+;	Only the system process creates or delete pool elements.
+;	Thus, the pool is implicitly synchronised by system process access.
+;
+;	These routines are also called at build time.
+;
+;	sp.len	byte length of element
+;	sp.typ	type code of element
+;
+;	sp.typ
+;	poprc$	Process oriented - insert process number.
+;	poclr$	Clear element.
+;	null	Use pounr. - unknown record type
+;
+;	po.suc	word	successor
+;	po.pre	word	predecessor
+;	po.len	word	byte length of element
+;	po.typ	byte	type of element. Zero indicates free.
+;	po.prn	byte	process number. Zero indicates system element.
+;
+;	c=1	no room
+;	c=1	zero length element requested (bugcheck)
+.sbttl	create pool element
+
+;	psh	typ
+;	psh	len
+;	call	po$cre
+; or	mova	pool,r0
+;	call	po$crs	; upo.mac ux$cpo
+;
+;	c=0
+;	r0 ->	start of element
+;
+;	c=1	no pool space available
+;	r0 	zero indicates failure too
+
+	stack	ret len typ
+po$cre::mov	#p$ohed,r0	;create kernel pool element
+po$crs::ovjmp$	ux$cpo	utl	;create secondary pool element (not implemented)
+.sbttl	delete pool element
+
+;	psh	#addr
+;	call	po$del	; upo.mac ux$dpo
+;
+;	addr=0	ignored
+;
+;	The algorithm relies on the pool header being a non-empty element.
+;	Merge by moving back across empties and then merge all forward empties.
+;	A side-affect is that this algorithm does some garbage collection.
+
+	stack	ret adr		;
+po$del::			;delete primary pool element
+po$dls::ovjmp$	ux$dpo	utl	;delete secondary pool element (not implemented)
+
+.end

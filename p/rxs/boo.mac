@@ -1,0 +1,469 @@
+v11$c=1
+rst$c=1
+.title	boo - boot RUST/XM
+.include "lib:rust.mac"
+.psect	boo d
+.iif ndf demo, demo=0
+$txdef		;ascii
+$budef		;build
+$endef		;environment
+$esdef		;error severity
+$jbdef		;rt-11 job
+$mmdef		;memory management
+$podef		;pool
+$prdef		;pcr
+$psdef		;ps
+$qudef		;queue
+$stdef		;states
+$tedef		;terminal
+
+;	RUST/XM boot dispatcher
+;
+;	%build
+;	goto 'p1'
+;	macro rxs:boo/object:rxb:boo
+;	!macro rxs:demo+rxs:boo/object:rxb:bod
+;	exit:
+;	%end
+;	%date
+;	<20-Nov-2010 20:53:39.09>
+;	%edit
+;	<195  >
+;
+;	phaze	
+;	1	Arrive in par0. Load boot into par2.
+;	2	Execute out of par2.
+;	2.1	Load system process in par1 and copy to extended memory.
+;	2.2	Load request overlay into par1.
+;
+;	3	From par0 map system process to par1 and par2.
+;	3.1	Execute SYS boot code to finish up.
+;
+;	Error conditions are stored in status words. This lets us display
+;	all possible errors instead of just the first. The warning condition
+;	information is retained at run-time.
+;
+;	Build RUST/XM
+;
+;		run	1	2	3	4	5
+;	kp0	code
+;	kp1	code	pr1	req
+;	kp2	phd	boo				pr1	
+;	kp3	pool			po1
+;	kp5	rt11				pool
+;	kp6	rt11				pool
+;	kp7	i/o page
+;	up0			pr1
+.sbttl	RUST/XM start
+
+;	Start RUST/XM build
+;
+;	Call the major build modules.
+;	Copy the final once-only to the top of the pool.
+;
+; ???	Connect to user defined console terminal
+
+bu$sta::			;startup
+	mov	r4,e$nrr4	;save entry r4
+	mov	r5,e$nrr5	;and r5
+	call	ko$poo		;load the pool
+	call	bu$tit		;display the title
+	call	ov$env		;get the environment overlay
+				;
+	call	en$bui		;pickup built-in parameters
+	call	bu$poo		;build the initial pool
+	call	ov$env		;get environment overlay
+	call	en$sta		;check the machine
+	call	en$syh		;check the system handler
+	call	en$shp		;check the results
+	bcs	bu$abo		;wrong environment
+.if ne v11$c
+	mov	e$nemu,k$demu	;temp--see KDV
+.endc
+	bit	#eswar$,e$ners	;got any warnings?
+	beq	5$		;no
+	call	en$rep		;yes - report them
+5$:				;MMU now setup
+.if ne demo			;only for demo-kit
+	call dm$buf		;call demo routine
+	call dm$bu3		;call demo routine
+.endc				;end demo
+	call	ov$ld1		;load UTL, SYS, ACP, HAN & REQ
+	spl	7		;rt-11 just stopped
+	inc	b$ort		;signal RT-11 has gone away
+	call	bu$dbg		;setup debugger
+	bit	#enm22$,@#e$nmem;do we have 22-bit memory?
+	beq	10$		;no
+	bis	#mm22b$,@#m$msr3;yes - switch it on
+10$:	bis	#mmenb$,@#m$msr0;turn on management
+				;
+	clr	@r$mtks		;stop the terminal
+	clr	@r$mtps		;
+				;
+	call	bu$scq		;build the scheduler queues
+	call	bu$dtt		;build tt: - terminal
+	call	bu$dsy		;build sy: - system device
+				;
+	mov	o$vutl,@#m$kip1	;map the vm handler
+	call	bu$dvm		;build vm: - virtual memory
+	mov	o$vreq,@#m$kip1	;remap the request overlay
+	call	bu$dnl		;build nl: - null device
+				;
+	call	bu$pro		;build system process
+	call	bu$pox		;finish the pool up
+	call	bu$ker		;setup kernel data & vectors
+	call	bu$dbg		;setup debugger
+	call	bu$dve		;build system device vectors
+
+;	Copy the last part of the boot to the pool
+
+	$crepo	#pound.,#ovl3s.	;get some pool space for the last par
+	bcs	bu$abo		;should never happen
+	psh	r0		;save the address
+	$delpo	r0		;now delete it - just wanted the space
+	mov	b$uacp,o$vacp	;setup final overlay page addresses
+	mov	b$uutp,o$vutl	;
+	mov	#ov$ld3,r0	;source
+	mov	(sp),r1		;destination
+	mov	#ovl3s./2,r2	;count
+20$:	mov	(r0)+,(r1)+	;move them in
+	sob	r2,20$		;
+	jmp	@(sp)+		;finish up and start RUST/XM
+
+;	Abort the installation
+
+bu$abo:	call	en$rep		;report the environment
+	.exit			;just exit
+
+;	Build scheduler queues
+
+bu$scq:	mov	#32.,r0		;32 queues
+	mov	#s$cqbe,r1	;pointer
+10$:	mov	r1,(r1)		;qu.suc
+	mov	r1,qu.pre(r1)	;qu.pre
+	cmp	(r1)+,(r1)+	;next element
+	sob	r0,10$		;count them
+	return			;
+
+;	Init debugger
+
+bu$dbg:	tst	e$ndbg		;want debugger?
+	beq	10$		;no
+	call	db$ini		;yes
+10$:	return			;
+.sbttl	finish build
+
+;	Finish build
+;
+;	This PIC code copied to pool to execute outside of par1/par2.
+;	Memory management is enabled
+;
+;	Move HAN overlay from 40kw to HANDLR.SYS
+;	Move ACP overlay from 36kw to SYSTEM.SYS
+;	Move UTL overlay from 28kw to SYSTEM.SYS + 4kw
+;	Move SYS overlay from 28kw to physical par2
+;	Leave SYS in par1/par2 to complete the system process.
+;	Call the scheduler to start the system process.
+;
+;	IM$INI inits the system process syscom and starts it
+;	it via P$HURV at SY$GO which completes the system device
+;	installation in the temporary HAN overlay and the
+;	builds the operator process.
+
+ov$ld3::				;continue ov$ld2 in kernel mode
+
+;	Move system device handler into place
+;	This must come first since @#E$NHBS and @#B$UHAP are in par2.
+;	The routines below overwrite par2.
+;
+;	System device handler image may exceed 16 blocks.
+;	Therefore copy it in 16 block segments.
+
+	mov	@#e$nhbs,r4		;get the block size
+	beq	40$			;nothing to do
+					;
+	mov	#buhap.,@#m$kip1	;par1 -> HAN image
+	mov	@#b$uhap,@#m$kip2	;par2 -> HAN destination
+					;
+10$:	mov	#16.,r5			;next segment
+	cmp	r4,r5			;more than 16 blocks left?
+	bhis	20$			;yes
+	mov	r4,r5			;mo
+20$:	swab	r5			;make wordcount
+	asl	r5			;make bytecount
+	mov	r5,30$			;store it
+	jsr	r3,@#ut$mbf		;movbuf
+	.word	m$mpa1			;source
+	.word	m$mpa2			;destination
+30$:	.word	0			;wordcount
+	add	#4.*mmpik.,@#m$kip1	;next segment
+	add	#4.*mmpik.,@#m$kip2	;
+	sub	#16.,r4			;any more to do?
+	bhi	10$			;yes
+
+;	Move overlays into place	
+
+40$:	mov	#buacp.,@#m$kip1	;par1 -> ACP image
+	mov	@#o$vacp,@#m$kip2	;par2 -> ACP destination
+	movbuf	m$mpa1,m$mpa2,buacb.	;move ACP into place
+					;
+	mov	#buutp.,@#m$kip1	;par1 -> UTL image
+	mov	@#o$vutl,@#m$kip2	;par2 -> UTL destination
+	movbuf	m$mpa1,m$mpa2,buutb.	;move UTL into place
+					;
+	mov	#busyp.,@#m$kip1	;par1 -> SYS image
+	mov	@#o$vsys,@#m$kip2	;par2 -> SYS physical destination
+	movbuf	m$mpa1,m$mpa2,busyb.	;move SYS into place
+	mov	@#o$vsys,@#m$kip1	;par1 -> SYS physical destination
+
+;	System process now mapped into par1 and par2
+;	Finish building system process	
+
+	movbuf	ph$r0s,p$hr0s,ph.r0e-ph.r0s ;move up resident part of phd
+	mov	@#s$ypcr,r4		;r4 -> pcr
+	mov	r4,@#s$cprc		;setup current pcr
+	call	@#pr$cph		;finish pcr, phd & map process
+					;
+	mov	#mmkp2.,pr.phd(r4)	;force phd page
+	mov	@#p$huip+4,@#p$huip+mm.p1 ;remap par1 to par2
+	mov	@#p$hcip+4,@#p$hcip+mm.p1 ;remap par1 to par2
+	mov	@#m$kip7,@#p$huip+mm.p7	;map i/o page
+	mov	@#m$kip7,@#p$hcip+mm.p7
+	mov	@#m$kid0+mm.p7,@#p$huid+mm.p7
+	mov	@#m$kid0+mm.p7,@#p$hcid+mm.p7
+
+;	Map system process into user space for context switch
+
+	mov	#p$huip,r2		;client user pars
+	mov	#m$uip0,r3		;point to the user pars
+	.rept	8.			;
+	mov	(r2)+,(r3)+		;setup the pars
+	.endr				;
+	mov	#p$huid,r2		;[sic] client user descriptors
+	mov	#m$uid0,r3		;mmu user descriptors
+	.rept	8.			;
+	mov	(r2)+,(r3)+		;setup the descriptors
+	.endr				;
+	mov	#sy$go,@#p$hurv		;setup unconditional restart vector
+	mov	#mmpik.*4,@#m$kip1	;remap kernel par1
+
+;	Setup to start scheduler	
+
+	bis	#mmpum$,@#ps		;setup previous user mode
+	bic	#stdor$,@#s$csta	;enable the scheduler
+	movtd	#s$yusp,sp		;setup user-mode stack
+	mov	#p$hkst,sp		;setup the stack
+	clr	-(sp)			;ps	kernel
+	psh	#im$ini			;pc	image initialize
+					;
+	mov	#te$cpt,@#p$htto	;setup the output path
+	mov	#te$cgt,@#p$htti	;and the input path
+
+;	Start the system
+
+	jmp	@#sc$del		;run into the scheduler
+	ovl3s.=.-ov$ld3			;byte size
+.sbttl	move overlays
+
+;	Move overlays into extended memory
+;
+;	ko$boo	Loads BOO overlay in par2 - thats us
+;	ko$utl	Loads UTL overlay in par1
+;	ko$sys	Loads SYS overlay in par1
+;	ko$acp	Loads ACP overlay in par1
+;	ko$req	Loads REQ overlay in par1
+;
+;	ov$ld1	Load UTL overlay and move to extended memory
+;		Load SYS overlay and move to extended memory
+;		Load ACP overlay and move to extended memory
+;		Load UTL overlay and move to extended memory
+;		Load REQ overlay
+;
+;	ov$ld3	Copy UTL overlay to top of memory
+;		Copy ACP overlay to below UTL
+;		Copy SYS overlay to par2
+;		Go
+
+ov$ld1::			;first overlay
+
+;	Store UTL overlay at 28kw.	
+
+	call	ko$utl		;call in utility overlay
+	mov	#buutp.,r3	;r3 = user page
+	mov	#buutb./word,r5	;r5 = word count
+	call	100$		;
+
+;	Store ACP overlay at 36kw.
+
+	call	ko$acp		;get the acp overlay
+	mov	#buacp.,r3	;r3 = user page
+	mov	#buacb./word,r5	;r5 = word count
+	call	100$		;move it in
+
+;	Store SYS overlay at 32kw.
+
+	call	ko$sys		;call in the system process
+	call	en$asy		;apply build file to SYS
+	mov	#busyp.,r3	;r3 = user page
+	mov	#busyb./word,r5	;r5 = word count
+	call	100$		;
+
+;	Store HAN system device handler image
+;
+;	Handler image still open on enhch.
+;	Par1 can be used as 4kw buffer
+;
+;	r0	emts
+;	r1	block number
+;	r2
+;	r3	extended memory page
+;	r4	remaining blocks
+;	r5	word count
+
+	clr	m$mpa1-word	;clear overlay id
+	clr	r1		;initial block number
+	mov	e$nhbs,r4	;need to load the handler?
+	beq	80$		;no ignore this
+	mov	#buhap.,r3	;extended memory page
+50$:	mov	#16.,r5		;assume 4kw
+	cmp	r5,r4		;this the last segment?
+;	bhi	60$		;no
+	blo	60$		;no
+	mov	r4,r5		;yes
+60$:	swab	r5		;make word count
+	.readw	#b$uare, #enhfc., #m$mpa1, r5, r1 ;read the handler
+	bcc	70$		;fine
+	clr	r3		;no secondary message
+	jsr	r2,bu$fat	;fatal error
+	.asciz	"I/O error copying system device handler"
+	.even
+70$:	call	100$		;move it up
+	add	#16.,r1		;another 16 blocks
+	add	#4.*mmpik.,r3	;another 4kw
+	sub	#16.,r4		;16 blocks less
+	bhi	50$		;a very large handler
+
+;	Load REQ overlay into par1.
+
+80$:	call	ko$req		;load the request par
+	return
+
+;	Move 4kw section to extended memory
+;
+;	par1	Contains section to move
+;	r3	Start page in extended memory
+;	r5	Word count for the move
+
+100$:	pshs	<r5,r4,r3,r2,r1,r0>
+	mov	#4.*mmpik.,r1	;r1 = kernel page
+	mov	#m$mpa1,r2	;r2 = kernel offset
+				;r3 = destination page
+	mov	#m$mpa1,r4	;r4 = destination offset
+				;r5 = word count
+	spl	7		;go up
+	bis	#mmenb$,@#m$msr0;turn on management
+	call	io$blm		;move a block
+	bic	#mmenb$,@#m$msr0;turn if off again
+	spl	0		;come down
+	pops	<r0,r1,r2,r3,r4,r5>
+	return
+.sbttl	boot errors
+
+;	Fatal boot errors
+;
+;	r2 ->	first message
+;	r3 ->	second message
+
+bu$fat::mov	#b$ufat,r1	;get the message
+	call	bu$prt		;print it
+	mov	r2,r1		;the second header
+	call	bu$prt		;print it
+	mov	r3,r1		;the message
+	call	bu$prt		;print it
+	mov	#50$,r0		;the cr/lf
+	call	bu$prt		;print it
+	tst	b$ort		;are we still alive?
+	beq	20$		;yes
+	mov	#60$,r1		;no
+	call	bu$prt		;tell them
+10$:	.word	0		;halt
+	br	10$		;
+
+20$:	mov	sp,r0		;don't do it hard
+	bisb	#eserr$,j$blev	;setup an error
+				;
+	bit	#enmmu$,@#e$nmem;got memory management?
+	beq	40$		;no - don't try turning it off
+	bit	#enm22$,@#e$nmem;do we have 22-bit memory?
+	beq	30$		;no
+	bic	#mm22b$,@#m$msr3;yes - switch it off
+30$:	bic	#mmenb$,@#m$msr0;turn on management
+				;
+40$:	.exit			;quit
+
+50$:	.byte	cr,lf,200,0	;
+60$:	.ascii	_?RUST-F-System halt_<cr><lf><200>
+b$ufat:	.ascii	/?RUST-F-/<200>
+	.even
+bu$prt::			;print the string in r1
+	tst	r1		;got a string?
+	beq	30$		;no - ignore it
+	tst	b$ort		;rt-11 still there?
+	bne	20$		;nope
+	.print	r1		;yes - display it
+	br	30$		;
+20$:	movb	(r1)+,r0	;get the next
+	bmi	30$		;no more
+	call	bu$out		;dump it
+	br	20$		;
+30$:	return			;
+
+bu$out::jmp	te$cpt		;console output
+.sbttl	display title
+
+;	Display RUST/XM title
+;
+;	RUST/XM Vv.u dd-mon-yyyy mm:hh:ss.ml (field test level=n)
+;						(update level=b)
+;
+; RXM:	Display only "RUST/XM Vn.m"
+
+bu$tit:	.print	#100$		;display the first part
+	movb	s$yver,r0	;get the version number
+	add	#'0,r0		;
+	.ttyout			;
+	.ttyout	#'.		;
+	movb	s$yupd,r0	;get the update
+	add	#'0,r0		;
+	.ttyout			;
+				;
+	tst	#crsyr.		;this a release update?
+	beq	10$		;no
+	.ttyout	#'.		;another dot
+	mov	#crsyr.,r0	;get the character
+	add	#'0,r0		;
+	.ttyout			;display it
+				;
+10$:
+.if eq rst$c
+	.ttyout	#space		;put out a space
+	.print	#i$mdat		;display the creation date
+.endc
+				;
+	tst	#crsyl.		;this a field test?
+	beq	30$		;no
+	.print	#110$		;field test
+	mov	#crsyl.,r0	;get the level
+20$:	add	#'0,r0		;
+	.ttyout			;display it
+	.ttyout	#')		;terminate it
+				;
+30$:	.print	#130$		;newline
+	return			;
+
+100$:	.ascii	"RUST/XM V"<200> ;title
+110$:	.ascii	" (field test level="<200>
+130$:	.byte	0		;newline
+	.even			;
+.end
+
