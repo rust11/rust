@@ -53,7 +53,7 @@ hgh$c=0		; recover boot block after boot read fail (redundant)
 ;	%build
 ;	!@@cts:rtboo
 ;	macro cus:boot.r/object:cub:bootm
-;	rider cus:boot  /object:cub:bootr
+;	rider cus:boot  /object:cub:bootr/nodelete
 ;	link  cub:boot(m,r),lib:crt/exe:cub:boot/map:cub:boot/cross
 ;	set   program/traps/loop/jsw=41000 cub:boot
 ;	!
@@ -64,7 +64,7 @@ hgh$c=0		; recover boot block after boot read fail (redundant)
 ;	!
 ;	copy cub:boot.sav cub:rustx.sys
 ;	cub:rustx.sys
-;	set cub:rustx.sys/image=rustx.sav/suffix=X
+;	set cub:rustx.sys/image=rustx.sav/suffix=P
 ;	exit
 ;	end:
 ;	%end
@@ -116,9 +116,9 @@ $imgdef	BOOT 4 0
 $imginf	fun=sbo cre=hammo aut=ijh use=<RUST bootstrap manager>
 $imgham	yrs=<1986,1987,1988,2004,2011,2022> oth=<BOOT>
 ;	%date
-$imgdat	<23-Sep-2022 04:27:44>   
+$imgdat	<10-Oct-2022 03:49:08>   
 ;	%edit
-$imgedt	<436  >
+$imgedt	<438  >
 
 ;	Memory map
 
@@ -1550,18 +1550,18 @@ data	control block
   init	cuAhlp : [] * char
   is   "BOOT - RUST generic boot BOOT.SYS V4.1"
        ""
-;      "BOOT [spec]		Boot device or file"
+       "BOOT dev:|file		Boot device or file"
        "EXIT			Return to system"
        "HELP			Display this help frame"
-       "SHOW path		Display bootstrap setup"
-       "SET [\"self\"|dev:|file]	Configure bootstrap"
+       "SHOW SELF|dev:|file	Display bootstrap setup"
+       "SET  SELF|dev:|file	Configure bootstrap"
        " /[NO]IMAGE=spec	Set (clear) bootstrap image filespec"
        " /[NO]QUIET 	  	Enable (disable) startup identification"
        " /[NO]RUN 	  	Do (don't) run the monitor image"
        " /[NO]SUFFIX=char	Set (clear) default driver suffix"
        " /50HERTZ|60HERTZ  	Set bootstrap for 50 or 60 hertz clock"
        " /RUST			Set /IMAGE=RUST.SAV/SUFFIX=V"
-       " /RUSTX			Set /IMAGE=RUSTX.SAV/SUFFIX=X"
+       " /RUSTX			Set /IMAGE=RUSTX.SAV/SUFFIX=P"
 	<>
   end
 
@@ -1570,16 +1570,16 @@ data	control block
   is 1,	"EX*IT",	dc_exi, <>, 	 0, dcEOL_
      1,	"HE*LP",	dc_hlp, cuAhlp,	 0, dcEOL_
 
-;    1,	"BO*OT",	dc_act, <>,  	 0, dcNST_
-;     2,  <>,		dc_fld, ctl.Aboo,16,dcSPC|dcOPT_
-;     2,  <>,		cm_boo, <>, 	 0, dcEOL_
-;     2, "/FO*REIGN",	dc_set,&ctl.Qfor,1, 0
+     1,	"BO*OT",	dc_act, <>,  	 0, dcNST_
+      2,  <>,		dc_fld, ctl.Aboo,16,dcSPC
+      2,  <>,		cm_boo, <>, 	 0, dcEOL_
+      2, "/FO*REIGN",	dc_set,&ctl.Qfor,1, 0
 ;     2, "/SE*LF",	dc_set,&ctl.Qslf,1, 0
      1,	"SH*OW",	dc_act, <>,	 0, dcNST_
-      2,   <>,		dc_fld, ctl.Aboo,16,dcSPC|dcOPT_
+      2,   <>,		dc_fld, ctl.Aboo,16,dcSPC
       2,   <>,		cm_sho, <>,	 0, dcEOL_
      1,	"SE*T",		dc_act, <>,	 0, dcNST_
-      2,   <>,		dc_fld, ctl.Aboo,16,dcSPC|dcOPT_
+      2,   <>,		dc_fld, ctl.Aboo,16,dcSPC
       2,   <>,		cm_set, <>,	 0, dcEOL_
       2,  "/50*HERTZ",	dc_set,&ctl.Q50h,1, 0
       2,  "/60*HERTZ",	dc_set,&ctl.Q60h,1, 0
@@ -1603,15 +1603,15 @@ data	control block
   is	dcl : * dcTdcl
 	ops : rtTops 
 
-	ctl.Pboo = me_alc (2048)	; boot buffer
-	cc_stk (2048)			; get a bigger stack
 	im_ini ("BOOT")			;
+	cc_stk (2048)			; get a bigger stack
+	ctl.Pboo = me_alc (2048)	; boot buffer
 					;
 ;	ctl.Vboo = rt_ops(&ops) eq osRBT; activated by RUST/BT
 ;	if ctl.Vboo			;
 ;	   PUT("Shell\n")		; acts as boot shell
 ;	end				;
-
+					;
 	ctl.Pboo = me_alc (2048)	; boot buffer
 					;
 	dcl = ctl.Pdcl = dc_alc ()	;
@@ -1637,7 +1637,7 @@ data	control block
 
 	fine if !cu_get ()		; get the image 
 	if ctl.Vsys ne cuRST
-	.. fail im_rep ("E-Not a RUST bootstrap image", ctl.Aboo)
+	.. fail im_rep ("E-Not a RUST bootstrap image [%s]", ctl.Aboo)
 	cu_def ()			; setup defaults
 
       begin
@@ -1771,6 +1771,9 @@ code	cu_opt - display sysgen options
 
 code	cu_get - get boot image
 
+	cuSUB_ := (fcDIR_|fcDSK_|fcSUB_); \subdisk\
+	cuCON_ := (fcCON_|fcFIL_|fcDSK_); file.DSK
+
   func	cu_get
   is	spc : * char = ctl.Aboo
 	cla : * rtTcla~ = &ctl.Icla
@@ -1788,7 +1791,9 @@ code	cu_opt - display sysgen options
 	   pass fail
 
 	   rt_cla (fil, cla)
-	   if cla->Vflg & fcDEV_
+	   if cla->Vflg eq cuSUB_
+	   || cla->Vflg eq cuCON_
+	   || cla->Vflg & fcDEV_
 	      ctl.Vblk = 2
 	      ctl.Vtyp = cuDEV
 	   else
@@ -1797,7 +1802,7 @@ code	cu_opt - display sysgen options
 	end
 
 	rt_rea (fil, ctl.Vblk, boo, 1024, rtWAI)
-	fail im_rep ("E-Error reading boot file", ctl.Aboo) if fail
+	fail im_rep ("E-Error reading boot file [%s]", ctl.Aboo) if fail
 
 	if boo->Amon[0] eq 012737	; mov #,@#100
 	&& boo->Amon[2] eq 0100		; mov #x,v$eclk
@@ -1805,10 +1810,10 @@ code	cu_opt - display sysgen options
 					;
 	elif boo->Amon[0] eq 0240	; nop
 	&& boo->Amon[1] eq 012767	; mov #x,v$eclk
-	&& boo->Vrst ne cuRST		; .rad50 /rst/
+	&& boo->Vrst eq boRST		; .rad50 /rst/
 	   ctl.Vsys = cuRST		; RUST
 	else
-	.. fail im_rep ("E-Not a bootstrap image", ctl.Aboo)
+	.. fail im_rep ("E-Not a bootstrap image [%s]", ctl.Aboo)
 	fine
   end
 
@@ -1818,8 +1823,24 @@ code	cu_put - write boot
   func	cu_put
   is	rt_wri (ctl.Hboo, ctl.Vblk, ctl.Pboo, 1024, rtWAI)
 	pass fine
-	fail im_rep ("E-Error writing boot file", ctl.Aboo)
+	fail im_rep ("E-Error writing boot file [%s]", ctl.Aboo)
   end
 
 
+code	cm_boo - boot device or file
+
+;	BOOT dev:/FOREIGN/NOQUERY/WAIT
+;
+;???	BOOT spec/DRIVER=dd
+;???	Check SWAP.SYS (VUBOO)
+;???	Check BOOT.SYS
+;???	/NOQUERY
+;???	/WAIT
+
+  func	cm_boo
+  is	spc : * char = ctl.Aboo
+	spc = <> if !*spc
+	rs_exi () if rs_det ()		; RTX 
+	rt_boo (spc, ctl.Qfor, <>)	;
+  end
 
