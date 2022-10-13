@@ -35,16 +35,16 @@ $imgdef	TK 1 0
 $imginf fun=han cre=hammo aut=ijh use=<RUST terminal clock driver TK:>
 $imgham	yrs=<1985,2004> oth=<>
 ;	%date	
-$imgdat <29-Oct-2008 13:21:54.02>
+$imgdat <13-Oct-2022 18:00:34>   
 ;	%edit
-$imgedt <29   >
+$imgedt <31   >
 .endm
 
 	$csr=0
 	.drdef	tk,377,dswon$!dsron$,0,tkcsr.,tkvec.
 	.drest	class=dvc.ps.
 	$drptr
-	$drins	tk system=no,data=sj
+	$drins	tk system=no,data=ok
 
 ;	Tick component is computed as follows (using 50 hertz):
 ;
@@ -108,7 +108,7 @@ tk$bad:	sec				;fail
 ;	Fall thru to reset speed for local hertz
 
 tk$syg:	mov	(r3),r0			;get RMON impure
-	movb	rm.syg(r0),dr.syg 	;set the SYSGEN options
+	movb	rm.syg(r0),dr.syg 	;set the SYSGEN options (sic)
 	mov	(pc)+,r0		;reset the speed
 t$kspd:	.word	tkspd.			;default speed
 	fall	tk$spd			;reset the speed
@@ -168,7 +168,7 @@ dr$unl:	clr	@t$kcsr			;stop it
 	.drbeg	tk		;start I/O
 	.drfin	tk		;end I/O
 	return			;\device abort
-tkint:	clr	@(pc)+		;/start the next
+tkint:	clr	@(pc)+		;/start the next (tkint: ast ept from .drdef)
 t$kbuf:	.word	tkcsr.+word	;buffer address
 	sub	(pc)+,(pc)+	;compute the next component
 t$kinc:	.word	tkinc.		;tick increment
@@ -176,12 +176,13 @@ t$kacc:	.word	0		;accumulator
 	bmi	10$		;do another tick
 	rti			;ignore it
 
+	stack	pc,ps		;
 10$:	add	#tklim.,t$kacc	;reset the accumulator
 t$ktwo:	br	20$		;sic] BPL for 300 baud
 	add	#tklim.,t$kacc	;loop paranoia
 	psh	@#ps		;setup for a second one
 	call	(pc)		;do two
-20$:	mov	@#v$eclk,-(sp)	;get the real routine
+20$:	mov	@#v$eclk,-(sp)	;overwrite sp.pc with real routine
 	sec			;set the c-bit for the clock ast
 	jmp	@(sp)+		;and go to it
 
