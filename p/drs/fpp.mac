@@ -1,3 +1,4 @@
+.title	fpp - RUST FPU emulator driver
 .include "lib:rust.mac"
 .library "lib:drvmac.mlb"
 rst$c=1
@@ -133,9 +134,11 @@ fp$cpu:	vehgh$	f$pcpu		; cpu vector hook
 	TST	-(SP)		;SPACE FOR OLD SP
 	MOV	SP,(SP)		;STORE SP
 	ADD	#6,(SP)		;ADJUST TO GET USER SP
-	bis	#fd$,$fpsr,
 .IFF
 	MFPI	SP		;GET SP FROM USER SPACE
+;psh r0
+;mova fp$rti,r0
+;pop r0
 .ENDC
 	CLR	-(SP)		;EFFECTIVE ADDRESS
 	CLR	-(SP)		;RESERVE SPACE FOR TRAPPED$INSTRUCTION
@@ -170,14 +173,15 @@ fp$cpu:	vehgh$	f$pcpu		; cpu vector hook
 	MOV	(SP)+,R1	;RESTORE R1
 	ADD	#DSTEA,SP	;RESTORE STACK.POINTER
 .if ne rst$c
+	sec			;
 	jmp	@f$pcpu		;jump to previous trap handler
 .iff
 	MOV	(PC)+,-(SP)	;STACK OLD PSW FOR LOC 12
 SAVEPS:	.WORD	0		;OLD PSW FROM LOC 12
 	MOV	(PC)+,-(SP)	;STACK OLD PC FOR LOC 10
 SAVEPC:	.WORD	0		;OLD PC FROM LOC 10
-.endc
 	RTI			;JUMP TO THE PREVIOUS TRAP HANDLER
+.endc
 ;GET A WORD FROM THE USER'S SPACE IN EITHER MAPPED OR NON-MAPPED SYSTEMS.
 
 GETWRD:	
@@ -253,7 +257,11 @@ DOEXIT:	CMP	NEWSP(SP),OLDSP(SP)	;CHANGE SP?
 	BHI	1$			;if not, loop
 	MOV	R0,SP			;fix the sp
 .IFF
+.if ne rst$c
+	mov	newsp(sp),-(sp)
+.iff
 	MOV	(SP),-(SP)		;STACK USER SP FOR MTPI
+.endc
 	MTPI	SP			;CHANGE USER SP
 .ENDC
 2$:	MOV	(SP)+,R0	;RESTORE REGISTERS 0-5
@@ -266,8 +274,7 @@ DOEXIT:	CMP	NEWSP(SP),OLDSP(SP)	;CHANGE SP?
 	MOV	(SP)+,OLDPC-16.(SP)	;UPDATE USER PC
 	MOV	(SP)+,OLDPSW-18.(SP)	;UPDATE USER PSW
 	ADD	#OLDSP-NEWPSW,SP	;POINT STACK TO PC,PSW
-;bpt
-	RTI
+fp$rti:	RTI
 ;ROUTINES TO HANDLE ERRORS
 
 UNDER:	BIT	#$FIU,$FPSR	;is fp underflow interrupt enabled?
