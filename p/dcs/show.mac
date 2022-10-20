@@ -8,9 +8,9 @@
 ;	macro	dcs:show /object=dcb:show
 ;	%end
 ;	%date
-;	<04-Mar-2008 01:01:34.19>
+;	<20-Oct-2022 21:41:54>   
 ;	%edit
-;	<98   >
+;	<99   >
 
 $erdef		;error codes
 $icdef		;image control
@@ -40,11 +40,14 @@ show::	setup	$show,s.lex	;setup for the command
 	scan	<^M>		;get the switches
 	edit	<C1> 30$	;its resorc
 	setup	$dummy		;no more options
-	scanend	<^IF=1(C3Q="Program? "|C4Q="Handler? ")>
+	scanend	<^IF=1(C3Q="Program? "|C4Q="Driver? ")>
 30$:	edit	<*?>		;oops - not end of line
+	edit	<C4> 35$
 	edit	<C1S0"/L">
-	edit	<(C1C="RESORC"|C3C="PROGRA"|C4C="HANDLE")>
+	edit	<(C1C="RESORC"|C3C="PROGRA">;|C4C="DRIVER")>
 	jmp	program		;and call a utility
+35$:	edit	<^Z"R DRIVER"}"SHOW "_I}"EXIT"}>
+	jmp	build
 
 getdat:	$cmkrnl	#area, #100$, pic=yes
 	mov	r0,k$mspv	;save the version
