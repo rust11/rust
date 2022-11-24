@@ -13,18 +13,22 @@ include	rid:rtdev
 
 data	ddTrep - report structure
 
-	ddLEN := 4*1024
-	ddNOP := 0
+	ddSG0 := 0176761
+	ddSG1 := 0066666
+	ddLEN := 1024
 	ddASC := 1
 	ddIPT := 2
 	ddOPT := 3
 
   type	ddTrep
-  is	Vcnt : int
-	Abuf : [ddLEN] char
+  is	Vsg0 : int		; signature #1
+	Vsg1 : int		; signature #2
+	Pbas : * char		; buffer pointer
+	Pnxt : * char		; next byte in buffer
+	Plim : * char		; buffer end pointer
+	Vlen : int		; buffer length
+	Abuf : [ddLEN] char	; buffer
   end
-
-	Irep : ddTrep = {0}
 
   init	cuAhlp : [] * char
   is   "DD: report DDT.SAV"
@@ -42,7 +46,7 @@ data	ddTrep - report structure
 	cm_rep : dcTfun
 	cm_sav : dcTfun
 	cu_rep : (*char)
-	cu_get : (*<>)
+	cu_fnd : () *rtTdst
 
 	cuAopt : [mxSPC] char
 
@@ -69,7 +73,9 @@ data	ddTrep - report structure
 
   func	cm_clr
 	dcl : * dcTdcl
-  is	cu_get (&Irep, 0)
+  is	rep : * ddTrep
+	if (rep = cu_fnd()) ne
+	.. rep->Pnxt = rep->Pbas
 	fine
   end
 
@@ -94,26 +100,24 @@ code	cu_rep - report utility
   func	cu_rep
 	spc : * char
   is	opt : * FILE
-	rep : * ddTrep = &Irep
+	rep : * ddTrep
 	nxt : * char
-	cnt : int
+	lim : * char
 	dir : int = -1
 
-	fail if !cu_get (rep)
+	fail if (rep = cu_fnd()) eq
 
-	if !rep->Vcnt
+	if rep->Pnxt eq rep->Pbas
 	.. fine im_rep ("I-Report buffer is empty", <>)
 
 	opt = fi_opn (spc, "wb", "")
 	pass fail
 
-	cnt = rep->Vcnt/2
-	nxt = rep->Abuf
+	nxt = rep->Pbas
+	lim = rep->Pnxt
 
-	PUT("DDT: %d entries\n", cnt)
-	while cnt--
+	while nxt ne lim
 	   case *nxt++
-	   of ddNOP
 	   of ddASC
 	      DIS("%c ", *nxt++)
 	   of ddIPT
@@ -134,20 +138,24 @@ code	cu_rep - report utility
  	fine
   end
 
-code	cu_get - read DD: buffer
+code	cu_fnd - find the DD: report buffer
 
-	fil : * FILE = <>
+  func	cu_fnd
+	()  : * ddTrep
+  is	drv : * WORD
+	dst : rtTdst
+	cnt : int = 2000
 
-  func	cu_get
-	buf : * void
-  is
-	if !fil
-	   if (fil = fi_opn ("DD:", "r", "")) eq
-	      im_rep ("E-DD: not available", <>)
-	.. .. im_exi ()
+	if !rt_dst ("DD:", &dst)
+	|| (drv = <*WORD>dst.Vent) eq
+	.. fail im_rep ("W-DD: not loaded", <>)
 
-	me_clr (buf, ddLEN+2)
-	rt_rea (fil, -1, buf, ddLEN/2, 1)
-	reply that
+	while cnt--
+	   if drv[0] eq ddSG0 && drv[1] eq ddSG1
+	   .. reply <*ddTrep>drv
+	   ++drv
+	end
+
+	fail im_rep ("DD: report buffer not found", <>)
   end
-end file
+

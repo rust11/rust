@@ -11,7 +11,6 @@ prb$c=0;1	; probe device
 ;tk$c=1		; stack boot receive packet
 tim$c=0		; timeout
 rep$c=0		; driver debug reports
-log$c=1		; log operations
 wai$c=1		; set wait option
 odt$c=0		; terminal boot driver (obsolete)
 
@@ -60,9 +59,9 @@ $imgdef	DD 1 0
 $imginf fun=drv cre=hammo aut=ijh use=<RUST TU58 DECtape II driver DD:>
 $imgham	yrs=<2004> oth=<>
 ;	%date	
-$imgdat <25-Nov-2022 01:36:38>   
+$imgdat <30-Sep-2022 21:16:20>   
 ;	%edit
-$imgedt <102  >
+$imgedt <98   >
 .endm
 
 $brdef		;RT-11 bootstrap
@@ -214,49 +213,51 @@ upini$
 ;	is not a problem for DDP which ignores block out-of-range anyway.
 .sbttl	interface log
 
-	.if ne log$c
-	ifREA. = -1
+	ifSG0. = 176761
+	ifSG1. = 066666
+	ifLEN. = 1024.
 	ifASC. = 1	; ascii
 	ifIPT. = 2	; input byte
 	ifOPT. = 3	; output byte
 
-	ifLEN. = 4*1024.
-	ifTOT. = ifLEN.+2
-	.endc
-
-	.macro	ifasc$	val
-	.if ne log$c
-	psh	(pc)+
-	.ascii	/'val'/
+.if ne 0
+	.macro	drrep$	str
+	jsr	r1,if$asc
+	.asciz	~str~
 	.even
-	call	if$asc
-	.endc
 	.endm
+.endc
 
 	.macro	ifipt$	val
-	.if ne log$c
 	movb	val,-(sp)
 	call	if$ipt
-	.endc
 	.endm
 
 	.macro	ifopt$	val
-	.if ne log$c
 	movb	val,-(sp)
 	call	if$opt
-	.endc
 	.endm
 
 	.macro	ifcod$
-	.if ne log$c
+i$fsg0:	.word	ifSG0.,ifSG1.
 i$fbas:	.word	0
 i$fnxt:	.word	0
-i$fcnt:	.word	0
+i$flim:	.word	ifLEN.
+i$flen:	.word	ifLEN.
 i$fbuf:	.blkb	ifLEN.
 
-	.enabl	lsb
 if$asc:	psh	#ifASC.
+	call	if$sto
+10$:	bitb	(r1),(r1)
+	beq	20$
+	movb	(r1)+,-(sp)
+	call	if$sto
 	br	10$
+20$:	inc	r1
+	bic	#1,r1
+	rts	r1
+
+	.enabl	lsb
 if$ipt:	psh	#ifIPT.
 	br	10$
 if$opt:	psh	#ifOPT.
@@ -276,27 +277,15 @@ if$sto:	rol	-(sp)
 	mova	i$fbuf,r0
 	mov	r0,i$fbas
 	mov	r0,i$fnxt
-10$:	cmp	i$fcnt,#ifLEN.-2
+	add	r0,i$flim
+10$:	cmp	r0,i$flim
 	bhis	20$
 	movb	sp.val(sp),(r0)
 	inc	i$fnxt
-	inc	i$fcnt
 20$:	pop	r0
 	ror	(sp)+
 	pop	(sp)
 	return
-
-if$rep:	mova	i$fcnt,r2		; buffer
-	psh	#ifTOT./2
-10$:	mov	(r2)+,r0		;
-	call	xx$put			; send it back
-	dec	(sp)			;
-	bne	10$			;
-20$:	tst	(sp)+
-	mov	i$fbas,i$fnxt		; reset the buffer
-	clr	i$fcnt			;
-	return
-	.endc
 	.endm
 .sbttl	device
 
@@ -465,7 +454,7 @@ x$xodt:	.word	0			; terminal boot support
 .sbttl	start i/o
 
 xx$sta:
-ifasc$ <S>
+drrep$ <S>
      up	mov	#x$xpkt,r3		; contect
 	mov	x$xcsr,ip.csr(r3)	; save csr
 	mov	x$xrty,ip.rty(r3)	; retry count
@@ -500,22 +489,14 @@ ifasc$ <S>
 	inc	ip.trn(r3)		; make write
 	neg	r1			; logical write
 20$:	mov	r1,ip.rwc(r3)		; setup request word count
-.if ne log$c
-	beqw	ip.lb0(r3),#-1,xx$log	; reading log
-.endc
 	br	xx$loo			;
 
 30$:	cmpb	r2,#373			; check function code
 	bne	xx$der			; invalid
 	jmp	xx$siz			; do the size function
 					;
-.if ne log$c
-xx$log:	call	if$rep			; report
-	jmp	xx$don			;
-.endc
-
 xx$der:
-ifasc$ <E>
+drrep$ <Der>
 	jmp	xx$her			;
 .sbttl	i/o loop
 
@@ -530,7 +511,7 @@ xx$loo:	call	xx$agn		; setup retry point
 	bnew	x$xini,5$
 	call	xx$ini
 5$:
-ifasc$ <L>
+drrep$ <L>
 	call	xx$res		; restore addresses
 	mov	ip.rwc(r3),r0	; get total count
 	mov	r0,ip.twc(r3)	; running count
@@ -549,7 +530,7 @@ ifasc$ <L>
 
 xx$rea:
 10$:
-ifasc$ a
+drrep$ a
 	mov	#ddDAT.!<ddNUL.*256.>,r0
 	call	xx$gfw		; get control code and count
 	mov	r0,r2		;
@@ -569,11 +550,11 @@ ifasc$ a
 20$:	call	xx$gtw		; get data
 	call	xx$put		; put to user 
 	sobw	r2,20$		;
-ifasc$ c
+drrep$ c
 25$:
 	call	xx$chk		; get checksum
 	bnew	ip.twc(r3),10$	; more data
-;ifasc$ d
+;drrep$ d
 	br	xx$gep		; get end packet
 
 ;recv:	.byte	ddCON.
@@ -605,9 +586,9 @@ xx$wri:
 xx$gep:	call	xx$enp		; get end packet
 	jmp	xx$don		; all over
 
-xx$er1:	ifasc$	<1>
-xx$er2:	ifasc$	<2>
-xx$er3:	ifasc$	<3>
+xx$er1:	drrep$	<1>
+xx$er2:	drrep$	<2>
+xx$er3:	drrep$	<3>
 xx$erj:	jmp	xx$err
 .sbttl	i/o envelope
 
@@ -686,8 +667,8 @@ xx$abt:	call	xx$dsb			; disable interrupts
 xx$agn:	mov	(sp),x$xagn		; setup retry point
 	return
 
-xx$er4:	ifasc$	<4>
-xx$er5:	ifasc$	<5>
+xx$er4:	drrep$	<4>
+xx$er5:	drrep$	<5>
 xx$err:	dec	ip.rty(r3)		; final retry attempt?
 	bmi	xx$her			; all over
 	call	xx$ini			; go init
@@ -716,7 +697,7 @@ xx$fin:	.if ne odt$c			;
 	beqw	x$xodt,10$		;not in odt mode
 	bis	#ddenb$,@x$xcsr		;reenable terminal
 	.endc				;
-10$:	ifasc$ <X>			;
+10$:	drrep$ <Fin>			;
 	.drfin	xx			;finish up
 .sbttl	device utilities
 
@@ -818,7 +799,7 @@ xx$dsb:	.if ne tim$c			;
 	return
 
 xx$ini:	begin				; init device
-ifasc$ I
+drrep$ I
 	inc	x$xini			; init in progress
 	mov	#8.,r1			; eight retries
 10$:	movb	#ddbrk$,0(r5)	;7(r5)	; set break
@@ -829,11 +810,11 @@ ifasc$ I
 	call	xx$ptw			; send 377 twice
 	clrb	0(r5)		;7(r5)	; clear break
 	x$xdz4=.-2			; DZV patch
-ifasc$ j
+drrep$ J
 	mov	(pc)+,r0		;
 	.byte	ddini.,ddini.		; two inits
 	call	xx$ptw			; write two inits
-ifasc$ k
+drrep$ K
 25$:	tst	dd.rbu(r5)		; clear input errors
 .if ne dzv$c
 	nop				; empty DZV silo
@@ -842,7 +823,7 @@ ifasc$ k
 .endc
 	call	xx$gtb			; get the response
 	beqb	r0,#ddCON.,30$		; great
-ifasc$ l
+drrep$ L
 	sobw	r1,10$			; try again
 	jmp	xx$her			; declare it dead
 30$:	end
@@ -885,6 +866,7 @@ xx$pnt:
 	mov	xxcqe,r4		; r4 -> queue element
 	return				; z=1 => aborted
 
+drrep$
 ifcod$
 .sbttl	bootstrap
 
