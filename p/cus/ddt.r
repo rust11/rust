@@ -13,22 +13,18 @@ include	rid:rtdev
 
 data	ddTrep - report structure
 
-	ddSG0 := 0176761
-	ddSG1 := 0066666
-	ddLEN := 1024
+	ddLEN := 4*1024
+	ddNOP := 0
 	ddASC := 1
 	ddIPT := 2
 	ddOPT := 3
 
   type	ddTrep
-  is	Vsg0 : int		; signature #1
-	Vsg1 : int		; signature #2
-	Pbas : * char		; buffer pointer
-	Pnxt : * char		; next byte in buffer
-	Plim : * char		; buffer end pointer
-	Vlen : int		; buffer length
-	Abuf : [ddLEN] char	; buffer
+  is	Vcnt : int
+	Abuf : [ddLEN] char
   end
+
+	Irep : ddTrep = {0}
 
   init	cuAhlp : [] * char
   is   "DD: report DDT.SAV"
@@ -46,7 +42,7 @@ data	ddTrep - report structure
 	cm_rep : dcTfun
 	cm_sav : dcTfun
 	cu_rep : (*char)
-	cu_fnd : () *rtTdst
+	cu_get : (*<>)
 
 	cuAopt : [mxSPC] char
 
@@ -73,9 +69,7 @@ data	ddTrep - report structure
 
   func	cm_clr
 	dcl : * dcTdcl
-  is	rep : * ddTrep
-	if (rep = cu_fnd()) ne
-	.. rep->Pnxt = rep->Pbas
+  is	cu_get (&Irep, 0)
 	fine
   end
 
@@ -100,62 +94,72 @@ code	cu_rep - report utility
   func	cu_rep
 	spc : * char
   is	opt : * FILE
-	rep : * ddTrep
+	rep : * ddTrep = &Irep
 	nxt : * char
-	lim : * char
+	cnt : int
 	dir : int = -1
+	col : int
 
-	fail if (rep = cu_fnd()) eq
+	fail if !cu_get (rep)
 
-	if rep->Pnxt eq rep->Pbas
+	if !rep->Vcnt
 	.. fine im_rep ("I-Report buffer is empty", <>)
 
 	opt = fi_opn (spc, "wb", "")
 	pass fail
 
-	nxt = rep->Pbas
-	lim = rep->Pnxt
+	cnt = rep->Vcnt/2
+	nxt = rep->Abuf
 
-	while nxt ne lim
+	PUT("DDT: %d entries\n", cnt)
+	while cnt--
 	   case *nxt++
+	   of ddNOP
 	   of ddASC
 	      DIS("%c ", *nxt++)
+	      col += 2
 	   of ddIPT
-	      DIS("=", <>) if dir ne ddIPT
+	      DIS("=", <>), ++col if dir ne ddIPT
+	      col += cu_wid (*nxt & 255)
 	      DIS("%o ", *nxt++ & 255)
 	      dir = ddIPT
 	   of ddOPT
-	      DIS(">", <>) if dir ne ddOPT
+	      DIS(">", <>), ++col if dir ne ddOPT
+	      col += cu_wid (*nxt & 255)
 	      DIS("%o ", *nxt++ & 255)
 	      dir = ddOPT
 	   of other
 	      fi_prg (opt, "")
 	      fail im_rep ("E-Report buffer is garbage", <>)
 	   end case
+	   DIS("\n", <>), col = 0 if col gt 75
  	end
-	DIS("\n", <>)
+	DIS("\n", <>) if col ne
 	fi_clo (opt, "")
  	fine
   end
 
-code	cu_fnd - find the DD: report buffer
 
-  func	cu_fnd
-	()  : * ddTrep
-  is	drv : * WORD
-	dst : rtTdst
-	cnt : int = 2000
-
-	if !rt_dst ("DD:", &dst)
-	|| (drv = <*WORD>dst.Vent) eq
-	.. fail im_rep ("W-DD: not loaded", <>)
-
-	while cnt--
-	   if drv[0] eq ddSG0 && drv[1] eq ddSG1
-	   .. reply <*ddTrep>drv
-	   ++drv
-	end
-
-	fail im_rep ("DD: report buffer not found", <>)
+  func	cu_wid
+	val : int
+  is	reply 2 if val lt 10
+	reply 3 if val lt 100
+	reply 4
   end
-
+code	cu_get - read DD: buffer
+
+	fil : * FILE = <>
+
+  func	cu_get
+	buf : * void
+  is
+	if !fil
+	   if (fil = fi_opn ("DD:", "r", "")) eq
+	      im_rep ("E-DD: not available", <>)
+	.. .. im_exi ()
+
+	me_clr (buf, ddLEN+2)
+	rt_rea (fil, -1, buf, ddLEN/2, 1)
+	reply that
+  end
+end file
