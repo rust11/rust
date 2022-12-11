@@ -60,9 +60,9 @@ $imgdef	DD 1 0
 $imginf fun=drv cre=hammo aut=ijh use=<RUST TU58 DECtape II driver DD:>
 $imgham	yrs=<2004> oth=<>
 ;	%date	
-$imgdat <25-Nov-2022 01:36:38>   
+$imgdat <11-Dec-2022 14:38:25>   
 ;	%edit
-$imgedt <102  >
+$imgedt <103  >
 .endm
 
 $brdef		;RT-11 bootstrap
@@ -585,7 +585,7 @@ ifasc$ c
 
 xx$wri:
 10$:	call	xx$gtb		; synch with continue
-	bneb	r0,#ddCON.,xx$erj ; houston ...
+	bneb	r0,#ddCON.,xx$er9 ; houston ...
 	mov	#64.,r2		; assume full sector
 	cmp	r2,ip.twc(r3)	; got that?
 	blos	20$		; yep
@@ -608,7 +608,8 @@ xx$gep:	call	xx$enp		; get end packet
 xx$er1:	ifasc$	<1>
 xx$er2:	ifasc$	<2>
 xx$er3:	ifasc$	<3>
-xx$erj:	jmp	xx$err
+xx$er9:	ifasc$	<9>
+	jmp	xx$err
 .sbttl	i/o envelope
 
 ;	ip.trn	code
@@ -688,6 +689,8 @@ xx$agn:	mov	(sp),x$xagn		; setup retry point
 
 xx$er4:	ifasc$	<4>
 xx$er5:	ifasc$	<5>
+xx$er6:	ifasc$	<6>
+xx$er7:	ifasc$	<7>
 xx$err:	dec	ip.rty(r3)		; final retry attempt?
 	bmi	xx$her			; all over
 	call	xx$ini			; go init
@@ -726,7 +729,7 @@ xx$gfw:	begin	x$xgtw			; check first byte
 	call	xx$gtb			; get first
 	beqb	r0,(r3),10$		; fine
 	swab	(r3)			; is there an alternate?
-	beq	xx$err			; no alternate code
+	beq	xx$er6			; no alternate code
 	bneb	r0,(r3),xx$er4		; still no joy
 10$:	clr	(r3)			; clear checksum
 	br	20$			; get second byte
@@ -804,7 +807,7 @@ xx$ptb:	begin
 	end
 
 tm$abt:
-     up	mov	#xx$err,x$xctn		; timer abort
+     up	mov	#xx$er7,x$xctn		; timer abort
 xx$dsb:	.if ne tim$c			;
 	drtim$	#0			; cancel timeout
 	.endc				;
