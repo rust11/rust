@@ -60,9 +60,9 @@ $imgdef	DD 1 0
 $imginf fun=drv cre=hammo aut=ijh use=<RUST TU58 DECtape II driver DD:>
 $imgham	yrs=<2004> oth=<>
 ;	%date	
-$imgdat <11-Dec-2022 14:38:25>   
+$imgdat <12-Dec-2022 23:49:09>   
 ;	%edit
-$imgedt <103  >
+$imgedt <104  >
 .endm
 
 $brdef		;RT-11 bootstrap
@@ -224,13 +224,14 @@ upini$
 	ifTOT. = ifLEN.+2
 	.endc
 
-	.macro	ifasc$	val
+	.macro	ifasc$	val lab
 	.if ne log$c
 	psh	(pc)+
 	.ascii	/'val'/
 	.even
 	call	if$asc
 	.endc
+	.iif nb <lab>, br lab
 	.endm
 
 	.macro	ifipt$	val
@@ -605,11 +606,11 @@ xx$wri:
 xx$gep:	call	xx$enp		; get end packet
 	jmp	xx$don		; all over
 
-xx$er1:	ifasc$	<1>
-xx$er2:	ifasc$	<2>
-xx$er3:	ifasc$	<3>
+xx$er1:	ifasc$	<1> xx$erj
+xx$er2:	ifasc$	<2> xx$erj
+xx$er3:	ifasc$	<3> xx$erj
 xx$er9:	ifasc$	<9>
-	jmp	xx$err
+xx$erj:	jmp	xx$err
 .sbttl	i/o envelope
 
 ;	ip.trn	code
@@ -687,9 +688,9 @@ xx$abt:	call	xx$dsb			; disable interrupts
 xx$agn:	mov	(sp),x$xagn		; setup retry point
 	return
 
-xx$er4:	ifasc$	<4>
-xx$er5:	ifasc$	<5>
-xx$er6:	ifasc$	<6>
+xx$er4:	ifasc$	<4> xx$erj
+xx$er5:	ifasc$	<5> xx$erj
+xx$er6:	ifasc$	<6> xx$erj
 xx$er7:	ifasc$	<7>
 xx$err:	dec	ip.rty(r3)		; final retry attempt?
 	bmi	xx$her			; all over

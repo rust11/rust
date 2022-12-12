@@ -98,7 +98,7 @@ code	cu_rep - report utility
 	nxt : * char
 	cnt : int
 	dir : int = -1
-	col : int
+	col : int = 0
 
 	fail if !cu_get (rep)
 
@@ -116,7 +116,9 @@ code	cu_rep - report utility
 	   case *nxt++
 	   of ddNOP
 	   of ddASC
-	      DIS("%c ", *nxt++)
+	      DIS("\n", <>) if *nxt eq 'S'
+	      DIS("\n", <>) if *nxt eq 'a'
+	      DIS("{%c}", *nxt++)
 	      col += 2
 	   of ddIPT
 	      DIS("=", <>), ++col if dir ne ddIPT
