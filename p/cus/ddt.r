@@ -43,6 +43,7 @@ data	ddTrep - report structure
 	cm_sav : dcTfun
 	cu_rep : (*char)
 	cu_get : (*<>)
+	cu_dis : (*FILE, *char, *char)
 
 	cuAopt : [mxSPC] char
 
@@ -77,7 +78,7 @@ code	cm_rep - report command
 
   func	cm_rep
 	dcl : * dcTdcl
-  is	fine cu_rep ("TT:")
+  is	fine cu_rep (<>)
   end
 
 code	cm_sav - save command
@@ -89,11 +90,11 @@ code	cm_sav - save command
 
 code	cu_rep - report utility
 
-	DIS(fmt,str) := fprintf (opt,fmt,str)
+	DIS(fmt,str) := cu_dis (opt, fmt, str)
 
   func	cu_rep
 	spc : * char
-  is	opt : * FILE
+  is	opt : * FILE = <>
 	rep : * ddTrep = &Irep
 	nxt : * char
 	cnt : int
@@ -105,8 +106,9 @@ code	cu_rep - report utility
 	if !rep->Vcnt
 	.. fine im_rep ("I-Report buffer is empty", <>)
 
-	opt = fi_opn (spc, "wb", "")
-	pass fail
+	if spc ne
+	   opt = fi_opn (spc, "wb", "")
+	.. pass fail
 
 	cnt = rep->Vcnt/2
 	nxt = rep->Abuf
@@ -142,7 +144,6 @@ code	cu_rep - report utility
  	fine
   end
 
-
   func	cu_wid
 	val : int
   is	reply 2 if val lt 10
@@ -164,5 +165,17 @@ code	cu_rep - report utility
 	me_clr (buf, ddLEN+2)
 	rt_rea (fil, -1, buf, ddLEN/2, 1)
 	reply that
+  end
+
+code	cu_dis - display
+
+  func	cu_dis
+	opt : * FILE
+	fmt : * char
+	str : * char
+  is	if opt ne
+	   fprintf (opt, fmt, str)
+	else
+	.. PUT(fmt, str)
   end
 end file
