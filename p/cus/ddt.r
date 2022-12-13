@@ -111,7 +111,8 @@ code	cu_rep - report utility
 	cnt = rep->Vcnt/2
 	nxt = rep->Abuf
 
-	PUT("DDT: %d entries\n", cnt)
+	DIS("DDT: %d entries\n", cnt)
+
 	while cnt--
 	   case *nxt++
 	   of ddNOP
