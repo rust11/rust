@@ -1,10 +1,16 @@
-int$c=1
+die$c=1
+int$c=0
 ;	%build
-;	macro	tmp:dd/obj:tmp:
-;	macro	drs:mmg$t+tmp:dd/obj:tmp:ddx
-;	link	tmp:dd/execute:tmp:dd.sys/nobitmap/map:tmp:dd
-;	link	tmp:ddx/execute:tmp:ddx.sys/nobitmap/map:tmp:ddx
+;	macro	tmp:zd/obj:tmp:
+;	macro	drs:mmg$t+tmp:zd/obj:tmp:zdx
+;	link	tmp:zd/execute:tmp:zd.sys/nobitmap/map:tmp:zd
+;	link	tmp:zdx/execute:tmp:zdx.sys/nobitmap/map:tmp:zdx
 ;	%end
+;.if df mmg$t
+;	tim$it = 1
+;.endc
+
+
 .MCALL	.MODULE
 .MODULE	DD,VERSION=12,COMMENT=<DECtape II Handler>,AUDIT=YES
 
@@ -589,7 +595,8 @@ RCVPKT:	MOV	(R5)+,I$EFLG
 	BIS	#1,@TIVECA
 .endc
 	CALL	INPRTN
-1$:	MOV	@TIBFRA,R4
+1$:
+	MOV	@TIBFRA,R4
 	BMI	8$
 	MOVB	R4,PK$MBC
 	MOV	PK$FLG,PK$CKS
@@ -597,6 +604,17 @@ RCVPKT:	MOV	(R5)+,I$EFLG
 3$:	RETURN
 4$:	MOV	@TIBFRA,R4
 	BMI	8$
+.if ne die$c
+	dec	(pc)+
+100$:	.word	1000.
+	bpl	120$
+	mov	#1000.,100$
+110$:	tstb	@#177564
+	bpl	110$
+	mov	#'@,@#177566
+	br	8$
+120$:
+.endc
 	.IF NE MMG$T
 	MOV	@#KISAR1,-(SP)
 	MOV	I$PAR,@#KISAR1
@@ -778,4 +796,4 @@ BOOT:	MOV	#10000,SP
 	JMP	@#B$BOOT
 	.DREND	DD
 	.END
-                                                                                                                                                                                                                                                  
+                                           
