@@ -1,8 +1,14 @@
+;???;	DRS:DDP - Ports/DZV/Probe/Timeout temporarily disabled
 ;???;	DRS:DDP - where does ddNUL. come from?
 ;???;	DRS:DDP - DDP doesn't fork or PR7
+;???;	DRS:DDP - No driver abort routine
+;???;	DRS:DDP - Doesn't check overrun error
 .title	ddp - DD: driver
 .include "lib:rust.mac"
 ;variable size
+die$c=0		; auto-apoptosis
+fst$c=0		; fast mode
+pr7$c=0;1	; use .MTPS #340
 prt$c=0		; RUST/XM ports
 shp$c=0		; SHAREplus signature support
 dzp$c=0;1	; DZV port support
@@ -10,8 +16,7 @@ dzv$c=0;1	; DZV support
 prb$c=0;1	; probe device
 ;tk$c=1		; stack boot receive packet
 tim$c=0		; timeout
-rep$c=0		; driver debug reports
-log$c=1		; log operations
+log$c=0;1	; log operations
 wai$c=1		; set wait option
 odt$c=0		; terminal boot driver (obsolete)
 
@@ -50,6 +55,7 @@ odt$c=0		; terminal boot driver (obsolete)
 ;	set drb:ddp csr=176500
 ;	set drb:ddp vector=300
 ;	set drb:ddp retry=8
+;	set drb:ddv nowait
 ;	exit
 ;	@drs:check compare DDP
 ;	end:
@@ -60,9 +66,9 @@ $imgdef	DD 1 0
 $imginf fun=drv cre=hammo aut=ijh use=<RUST TU58 DECtape II driver DD:>
 $imgham	yrs=<2004> oth=<>
 ;	%date	
-$imgdat <12-Dec-2022 23:49:09>   
+$imgdat <08-Jan-2023 19:43:04>   
 ;	%edit
-$imgedt <104  >
+$imgedt <106  >
 .endm
 
 $brdef		;RT-11 bootstrap
@@ -214,6 +220,12 @@ upini$
 ;	is not a problem for DDP which ignores block out-of-range anyway.
 .sbttl	interface log
 
+	.macro	ddpr7$
+	.if ne pr7$c
+	.mtps	#340
+	.endc
+	.endm
+
 	.if ne log$c
 	ifREA. = -1
 	ifASC. = 1	; ascii
@@ -221,7 +233,6 @@ upini$
 	ifOPT. = 3	; output byte
 
 	ifLEN. = 4*1024.
-	ifTOT. = ifLEN.+2
 	.endc
 
 	.macro	ifasc$	val lab
@@ -288,7 +299,7 @@ if$sto:	rol	-(sp)
 	return
 
 if$rep:	mova	i$fcnt,r2		; buffer
-	psh	#ifTOT./2
+	psh	#ifLEN.-2/2
 10$:	mov	(r2)+,r0		;
 	call	xx$put			; send it back
 	dec	(sp)			;
@@ -669,7 +680,14 @@ xx$ret:	return				;
 
 ;	Interrupt entry point
 
+.if ne fst$c
+ddint:	beqw	(pc)+,20$
+d$dfst:	.word	0
+	jsr	r5,@i$inptr
+	.word	140
+.iff
 	.drast	xx,ddpri.,xx$abt	; INTERRUPT
+.endc
 	call	xx$dsb			; disable interrupts
 tm$ast:	pshs	<r3,r2,r1,r0>		;
 	call	10$			; dispatch via x$xctn
@@ -736,6 +754,17 @@ xx$gfw:	begin	x$xgtw			; check first byte
 	br	20$			; get second byte
 
 xx$gtw:	begin	x$xgtw			;
+.if ne die$c
+	dec	(pc)+
+100$:	.word	1000.
+	bpl	120$
+	mov	#1000.,100$
+110$:	tstb	@#177564
+	bpl	110$
+	mov	#'@,@#177566
+	br	xx$er6
+120$:
+.endc
 	call	xx$gtb			; get two bytes
 20$:	swab	r0			;
 	call	xx$gtb			;
@@ -781,7 +810,13 @@ xx$ptw:	begin				;
 xx$chk:	begin				; check the checksum
 	mov	(r3),r2			; get the checksum
 	call	xx$gtw			; get the checksum
+.if ne die$c
+	beqw	r0,r2,10$
+	jmp	xx$er5		; oops
+10$:
+.iff
 	bnew	r0,r2,xx$er5		; oops
+.endc
 	end				;
 
 xx$ptb:	begin
@@ -848,6 +883,7 @@ ifasc$ k
 	beqb	r0,#ddCON.,30$		; great
 ifasc$ l
 	sobw	r1,10$			; try again
+ifasc$ m
 	jmp	xx$her			; declare it dead
 30$:	end
 .if ne tim$c			;
