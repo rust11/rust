@@ -42,6 +42,7 @@ code	cuAdcl - DCL processing
        "BUS         Force a bus trap"
        "CONFIG      RT-11 CONFIG states"
 ;      "CONSOLE     Set console I/O addresses"
+       "CONTROL     Show control keys"
        "CPU         Force a cpu trap"
        "FLAKEY      Test process memory"
        "DISPLAY     Display string"
@@ -84,7 +85,8 @@ code	cuAdcl - DCL processing
      2,  <>,		cu_bau, <>,	0, dcEOL_
      1,	"BP*T",		gk_bpt, <>,	0, dcEOL_
      1,	"BU*S",		gk_bus, <>,	0, dcEOL_
-     1,	"CO*NFIG",	gk_cfg, <>,	0, dcEOL_
+     1,	"CONF*IG",	gk_cfg, <>,	0, dcEOL_
+     1,	"CONT*ROL",	gk_ctl, <>,	0, dcEOL_
      1,	"CP*U",		gk_cpu, <>,	0, dcEOL_
      1,	"DI*SPLAY",	dc_act,	<>,	0, dcNST_
       2,  <>,		dc_fld,&ctl.Astr,64,dcSTR

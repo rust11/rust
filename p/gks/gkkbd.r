@@ -12,19 +12,22 @@ include	gkb:gkmod
 	opt : * char
 	cnt : int
 
-	PUT("?KBD-I-Type characters, then <enter>\n")
+	if !ctl.Qcmt
+	   PUT("?KBD-I-Type characters, then <enter>\n")
+	else
+	   PUT("?KBD-I-Type characters, <enter>, comment, <enter>\n")
+	end
 
       repeat
 	PUT("KBD> ")
 	ipt = buf, cnt = mxLIN-3
 	while cnt--
 	   *ipt = rt_tin (1, 1)
-	   quit if *ipt eq '!'
 	   quit if *ipt eq '\r'		; return
 	   ++ipt			;
 	end				;
 
-	rt_tin (1) if *ipt ne '!'	; get/skip lf
+	rt_tin (1)			; get/skip lf
 	cnt = ipt - buf			;
 	opt = buf
 
@@ -36,13 +39,53 @@ include	gkb:gkmod
 	end
 	PUT("] ")
 
-	next PUT("\n") if *ipt ne '!'
-	repeat
-	   PUT("%c", *ipt)
-	   *ipt = rt_tin (1, 1)
-	   quit if *ipt eq '\r'		; return
-	end				;
-	PUT("\n")
+	next PUT("\n") if !ctl.Qcmt	; not commenting
+	co_prm ("! ", buf)
      forever
 	fine
   end
+code	gk_ctl - control keys
+
+  init	gkActl : [] * char
+  is	"^A  KEYPAD  Select All"
+	"^B  RUSTX   Back process"
+	"    KEYPAD  Bold"
+	"^C  RT-11   Cancel"
+	"    KEYPAD  Copy selected text"
+	"^D"
+	"^E  SIMH    Exit emulator"
+	"^F  RUSTX   Forward process"
+	"^G  KEYPAD  [Gold]"
+	"^H  KEYPAD  Help"
+	"^I  VT100   <HT> Horizontal Tab"
+	"^J  VT100   <LF> Newline"
+	"^K  KEYPAD  [Command]"
+	"^L  VT100   <FF> Formfeed"
+	"^M  VT100   <CR> Carriage Return"
+	"^N"
+	"^O  RT-11   Erase to line start"
+	"^P"
+	"^Q  VT100   Resume output"
+	"^R  KEYPAD  Repaint screen"
+	"^S  VT100   Suspend output"
+	"^T  RUSTX   Display status"
+	"^U  RT-11   Erase to line start  "
+	"^V  KEYPAD  Paste"
+	"^W"
+	"^X  KEYPAD  Cut selected text"
+	"^Y  RUSTX   Interrupt process"
+	"^Z  RT-11   End of text"
+	"    KEYPAD  Exit KEYPAD"
+	"^]"
+	"^|"
+	"^["
+	"^^"
+	"^_"
+	<>
+  end
+     
+  func	gk_ctl
+  is	im_hlp (gkActl, 2)
+	fine
+  end
+
