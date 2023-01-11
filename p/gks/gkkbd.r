@@ -52,7 +52,7 @@ include	gkb:gkmod
 	"    KEYPAD  Bold"
 	"^C  RT-11   Cancel"
 	"    KEYPAD  Copy selected text"
-	"^D"
+	"^D  KEYPAD  [Select]"
 	"^E  SIMH    Exit emulator"
 	"^F  RUSTX   Forward process"
 	"^G  KEYPAD  [Gold]"
