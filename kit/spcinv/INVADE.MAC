@@ -1,0 +1,563 @@
+.title	invade
+.enabl	lc
+.mcall	.lookup	.enter	.readw	.writw	.exit	
+.mcall	.gtim	.close	.wait
+.mcall	.print
+
+;	%build
+;	define spc ian
+;	macro spc:invade/object:spc:
+;	link spc:invade/exe:spc:
+;	set program/nopath spc:invade
+;	%end
+
+.macro	meta	m n o p
+.macro	m
+n
+o
+p
+.endm
+.endm
+meta	<cmpl c,d><mov c,r1><mov d,r2><call cmpl>
+meta	<cmplr c,d><mov c,r1><mov d,r2><call cmplr>
+meta	<movl c,d><mov c,r1><mov d,r2><call movl>
+meta	<subl c,d><mov c,r1><mov d,r2><call subl>
+
+limits=0
+	cr	=	15
+	lf	=	12
+
+	leftl	=	3
+	rightl	=	78.
+
+; this program runs space invaders
+;
+;	spaceo.com	the previous game
+;	space.com	the current game
+;	space.sta	the current status
+;	space.dat	the new test score
+.sbttl	start
+
+start:	call	getnew
+	call	getstat
+	call	getdata
+	call	gettimes		;get the times
+	bcs	worse			;we just rolled over
+	call	score			;score them
+	beq	same			;
+	bcc	better			;better than last time
+
+worse:	.print	#mworse
+	clr	sames			;not in a loop
+	inc	revers			;increment the revert count
+	inc	fails			;
+	call	getold			;get the old one back
+	cmp	fails,#10.		;too many fails?
+	blo	10$			;no
+	add	#5,static		;
+	add	#5,limit		;move window
+	clr	fails			;yes
+	call	check			;check window
+10$:	br	play			;now go play
+
+better:	.print	#mbetter
+	clr	sames			;not the same anymore
+	inc	acceps			;
+	clr	fails			;reset the fail count
+	add	#5,static		;add in some
+	add	#5,limit		;
+	cmp	ntotal,#50.		;must get at least fifty
+	blo	accept			;forget it
+	add	#20.,static		;move static 
+	add	#20.,limit		;skip forward
+	call	check			;move window end
+	br	accept			;
+
+
+same:	.print	#msame			;
+
+;	Catch frozen case here
+;	Three sames in a row is unlikely
+
+	cmp	ntotal,#100.		;unreliable at the start
+	blo	accept
+	inc	sames			;count it
+	cmp	sames,#3		;had three the same?
+	blo	20$			;no
+	clr	sames			;forget this
+	.print	#mloop			;it is looping
+	sub	#25.,limit		;
+	sub	#25.,static		;yes - move that back
+	call	check			;check the limits
+	br	accept
+
+20$:	cmp	sames,#2.		;ignore the second
+	beq	accept			;since third checks looping
+	add	#5,static
+	add	#5,limit		;step up limit
+	call	check			;and check it
+accept:	call	putold			;replace the old one
+	movl	#nscore,#oscore		;and reset the old total
+	movl	#ntime,#otime		;move these in
+	mov	ntotal,ototal		;
+
+play:	call	random			;get a random number
+	bic	#^c1,r1			;get the number of changes to make
+	mov	r1,plays		;save the play
+
+move:	call	random			;get one
+	bic	#^c16,r1		;one of four possibilities
+	mov	r1,r2			;and save it a sec
+
+	call	random			;get a random number
+	mov	r1,r3			;get the move factor
+	bic	#^c77,r3		;clean it up
+
+;	get start position for window
+;
+;	limit	last possible start position
+;	static	first possible start position
+;	fails	subtracted from static
+
+	call	random
+	mov	r1,r4
+	mov	static,r0		;get static count
+	sub	fails,r0		;adjust for fails
+	bpl	10$			;
+	clr	r0			;dont go too far back
+10$:	mov	limit,r1		;maximum
+	sub	r0,r1			;adjust maximum
+	cmp	r1,#10.			;at least 10
+	bpl	15$			;got enough space
+	mov	#10.,r1			;at least 10.
+15$:	cmp	r4,r1			;bigger than the modify range?
+	blo	20$			;nope
+	sub	r1,r4			;reduce it then
+	br	15$			;nope - reduce it
+20$:	add	r0,r4			;add in the other
+	cmp	r4,#spacel-10.		;got enough room?
+	blos	25$			;yes
+	mov	#spacel-10.,r4		;no
+25$:	add	#spaceg,r4		;point to the byte
+	call	places			;setup place
+
+	add	r2,pc			;dispatch it
+	br	delay			;delay something
+	br	fire			;fire at something
+	br	right			;go right
+	br	left			;go left
+	br	invert			;invert something
+	br	fire			;fire at something
+	br	left			;go left
+	br	right			;go right
+
+delay:	movb	#'x,(r4)		;put in a delay
+	br	exit
+fire:	movb	#' ,(r4)		;fire one
+	br	exit
+
+invert:	cmpb	(r4),#' 		;this a space?
+	bne	10$			;no
+	movb	#'x,(r4)+		;yes - replace with delay
+	br	exit
+10$:	cmpb	(r4),#'x		;this a delay?
+	bne	20$			;no
+	movb	#' ,(r4)+		;yes - replace with fire
+	br	exit			;
+20$:	cmpb	(r4),#'<		;left?
+	bne	30$			;no
+.if ne limits
+	cmp	place,#leftl		;at right limit?
+	beq	move			;yes - skip this one
+.endc
+	jsr	r5,50$			;
+	.byte	'<,'>			;
+	br	exit			;
+30$:	cmpb	(r4),#'>		;right?
+	bne	move			;no - crazy
+.if ne limits
+	cmp	place,#rightl		;at right limit?
+	beq	move			;yes - skip this one
+.endc
+	jsr	r5,50$			;
+	.byte	'>,'<			;
+	br	exit			;
+
+50$:	movb	1(r5),(r4)+		;replace it
+	call	random			;get some length
+	bic	#37,r0			;isolate range
+	add	r4,r0			;add in bottom
+	cmp	r0,#spacet		;any more ?
+	bhis	80$			;no
+60$:	cmpb	-(r0),1(r5)		;this a forward?
+	beq	70$			;yes
+	cmp	r0,r4			;done them all?
+	bne	60$			;no
+	br	80$			;yes
+70$:	movb	(r5),(r0)		;invert that too
+80$:	tst	(r5)+			;
+	rts	r5			;
+
+left:	cmpb	(r4),#cr
+	beq	10$
+.if ne limits
+	cmp	place,#leftl		;too far left?
+	blos	right
+.endc
+	dec	place
+	movb	#'<,(r4)+		;left
+	call	firer
+	dec	r3
+	bpl	left
+10$:	br	exit
+
+right:	cmpb	(r4),#cr
+	beq	10$
+.if ne limits
+	cmp	place,#rightl		;too far right?
+	bhis	left
+.endc
+	movb	#'>,(r4)+		;right
+	inc	place
+	call	firer
+	dec	r3
+	bpl	right
+10$:	br	exit
+
+;	Fire
+;
+;	3 in 4 chance to fire 
+
+firer:	call	random			;
+	bit	#3,r1			;
+	beq	10$
+	cmpb	(r4),#cr
+	beq	10$
+	movb	#' ,(r4)+
+10$:	return
+
+
+exit:	dec	plays			;was that all?
+	bmi	10$			;yes
+	jmp	move			;nope - do another move
+10$:	mov	#spaceg,r0		;the start
+	mov	#spacet,r4		;get the start
+	call	places			;adjust position thruout
+	call	gstime			;get the time
+	movl	#stime,#rtime		;
+	call	putstat			;write this
+	call	putnew			;and this
+	call	putdata			;reset the scoreboard
+	.exit				;go quit (set cli takes care of us)
+
+mbetter:.asciz	/Better/
+mworse:	.asciz	/Worse/
+msame:	.asciz	/Same/
+mloop:	.asciz	/Looping/
+	.even
+.sbttl	get & put
+
+getold:	call	openold
+	bcs	10$
+	.readw	#area,#0,#spaceb,#spacew,#0
+10$:	return
+
+putold:	call	openold
+	.writw	#area,#0,#spaceb,#spacew,#0
+	.close	#0
+	return
+
+openold:
+	.wait	#0
+	bcc	10$
+	.lookup	#area,#0,#oldn		;ignore not found
+	bcc	10$			;fine
+	.enter	#area,#0,#oldn,#0	;create it instead
+	sec
+10$:	return
+
+getnew:
+	call	opennew
+	bcs	10$
+	.readw	#area,#2,#spaceb,#spacew,#0
+10$:	return
+
+putnew:
+	call	opennew
+	.writw	#area,#2,#spaceb,#spacew,#0
+	.close	#2
+	return
+
+opennew:
+	.wait	#2
+	bcc	10$
+	.lookup	#area,#2,#newn		;ignore not found
+	bcc	10$			;fine
+	.enter	#area,#2,#newn,#0	;create it instead
+	sec
+10$:	return
+
+getstat:
+	.lookup	#area,#1,#statn		;find it
+	bcc	10$
+	.enter	#area,#1,#statn,#0
+	br	20$
+10$:	.readw	#area,#1,#statb,#statw,#0
+20$:	return
+
+putstat:
+	.writw	#area,#1,#statb,#statw,#0
+	.close	#1
+	return
+
+getdata:
+	.lookup	#area,#3,#datan
+	bcc	10$
+	.enter	#area,#3,#datan,#0
+	.writw	#area,#3,#datab,#dataw,#0
+	.close	#3
+	br	getdata
+10$:	.readw	#area,#3,#datab,#dataw,#0
+20$:	return
+putdata:
+	.writw	#area,#3,#datanb,#dataw,#0	;reset the score
+	return
+.sbttl	score
+
+score:
+	call	convert
+	mov	r1,ntotal
+;	add	fails,r1
+	cmp	r1,ototal	;how did we do?
+	beq	50$		;the same
+	blo	40$
+
+;	cmpl	#nscore,#oscore
+;	bhis	30$		;higher
+;	blo	40$		;lower
+;	cmpl	#ntime,#otime
+;	bhi	30$
+;	blo	40$
+;	com	flip		;flip it
+;	beq	40$		;
+30$:	clc			;higher
+	clz
+	return
+40$:	sec
+	return
+50$:	clc			;the same
+	sez			;
+	return
+
+gettimes:
+	call	gstime		;get the system time
+	cmpl	#stime,#rtime	;check for roll-over
+	blo	10$		;oops
+	movl	#stime,#ntime	;
+	subl	#rtime,#ntime
+	return
+10$:	sec
+	return
+
+gstime:
+	.gtim	#area,#stime
+	return
+
+cmpl:	
+	cmp	(r1)+,(r2)+	;
+	bne	10$
+	cmp	(r1),(r2)
+10$:	return
+
+;cmplr:
+;	cmp	2(r1),2(r2)
+;	bne	10$
+;	cmp	(r1),(r2)
+;10$:	return
+
+movl:
+	mov	(r1)+,(r2)+
+	mov	(r1)+,(r2)+
+	return
+
+subl:
+	sub	2(r1),2(r2)
+	sbc	(r2)
+	sub	(r1),(r2)
+	bne	10$
+	tst	2(r2)
+10$:	return
+
+;next=791.
+next=31013.
+
+random:	add	#next,seed
+	mov	seed,r1
+	return
+
+convert:
+	mov	#nscore,r2
+	mov	#4,r3
+	clr	r1
+10$:	movb	(r2)+,r4
+	cmpb	r4,#'0
+	blo	20$
+	cmpb	r4,#'9
+	bhi	20$
+	sub	#'0,r4
+	asl	r1
+	mov	r1,-(sp)
+	asl	r1
+	asl	r1
+	add	(sp)+,r1
+	add	r4,r1
+20$:	dec	r3
+	bne	10$
+	return
+
+;	places
+;
+;	r4 =	current
+;	place	position on screen
+
+places:
+.if ne limits
+	mov	#spaceg,r0		;get somewhere to start
+	mov	#4,place		;initial place
+10$:	cmp	r0,r4			;all done?
+	bhis	40$			;yes
+	cmpb	(r0),#'<		;go left?
+	bne	20$			;no
+11$:	cmp	place,#leftl		;already at limit?
+	blos	15$			;yes
+	dec	place			;no
+	br	30$			;
+15$:	movb	#'>,(r0)		;reverse it
+	inc	place			;count it
+	cmp	place,#rightl		;too far?
+	bhis	30$			;no
+16$:	inc	r0			;skip it
+	cmp	r0,r4			;far enough?
+	bhis	40$			;yes
+	cmpb	(r0),#'<		;another left?
+	beq	15$			;yes
+	cmpb	(r0),#'>		;another right?
+	bne	16$			;no
+20$:	cmpb	(r0),#'>		;right?
+	bne	30$			;no
+	cmp	place,#rightl		;at right limit?
+	bhis	25$			;yes
+	inc	place			;no
+	br	30$			;
+25$:	movb	#'<,(r0)		;reverse it
+	dec	place			;count it
+	cmp	place,#leftl		;too far?
+	blos	30$			;yes
+26$:	inc	r0			;skip it
+	cmp	r0,r4			;far enough?
+	bhis	40$			;yes
+	cmpb	(r0),#'>		;another?
+	beq	25$			;yes
+	cmpb	(r0),#'<		;going back now?
+	bne	26$			;no
+	br	11$			;and do it again
+30$:	inc	r0			;next
+	br	10$			;
+.endc
+40$:	return				;
+
+;	Check limit
+
+check:	cmp	ntotal,#50.		;must have 50 to start
+	blo	5$			;
+	tst	static			;too low?
+	bpl	10$			;no
+5$:	clr	static			;yes
+	mov	#64.,limit		;
+	br	20$
+10$:	cmp	limit,#spacel		;too large yet?
+	blo	20$			;nope
+	mov	#spacel,limit		;yes - set maximum
+20$:	return
+.sbttl	data
+
+; space.com
+
+oldn:	.rad50	/spcspaceocom/
+newn:	.rad50	/spcspace com/
+spaceb:
+	.ascii	/r spcinv/<cr><lf>
+	.ascii	/SHAREplus/<cr><lf>
+	.ascii	/>>>>>>>>>>>>>>>>>xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/
+	.ascii	/xxxxxxxxxxxxxxxxxxxxxx>>>>>>>>>>>>>>>>>>>xxxxxxxxxxx/
+	.ascii	/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/
+	.ascii	/xxx>>>>>>>>>>>>>>>>>>>>xxxxxxxxxxxxxxxxxxxxxxxxxxx/
+	.ascii	/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/
+spaceg:
+;	.rept	<24*512./256.>-1
+	.rept	<8.*512./256.>-1
+.ascii	/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/
+.ascii	/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/
+.ascii	/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/
+.ascii	/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/
+	.endr
+	.rept	512.-<spaceg-spaceb>-3
+	.byte	'x
+	.endr
+spacel=.-spaceg
+spacet:
+	.byte	cr,lf,0
+spacew=.-spaceb/2
+	.even
+
+; space.dat
+
+datan:	.rad50	/spcspace dat/
+datab:
+nscore=.+2
+	.byte	lf
+.rept	10.
+	.ascii	/ 0000/<cr><lf>
+	.ascii	/SHAREplus/<cr><lf>
+.endr
+	.blkb	512.-<.-datab>
+dataw=.-datab/2
+
+datanb:
+	.byte	lf
+.rept	10.
+	.ascii	/ 0000/<cr><lf>
+	.ascii	/SHAREplus/<cr><lf>
+.endr
+	.blkb	512.-<.-datanb>
+
+; space.sta	
+
+statn:	.rad50	/spcspace sta/
+statb:
+oscore:	.ascii	/    /	;0
+ototal:	.word	0	;4
+otime:	.word	-1,-1	;6
+rtime:	.word	0,0	;12
+plays:	.word	0	;16
+acceps:	.word	0	;20
+revers:	.word	0	;22
+fasts:	.word	0	;24
+slows:	.word	0	;26
+flip:	.word	0	;30
+seed:	.word	0	;32
+static:	.word	0	;34	;static elements - start
+limit:	.word	32.	;36	;initial limit
+last:	.word	0	;40	;last point of previous play
+fails:	.word	0	;42	;number of successive failures
+place:	.word	4	;44	;current place on x
+sames:	.word	0	;46	;sames checks for loops
+
+statw=.-statb/2
+
+ntotal:	.word	0
+ntime:	.word	0,0
+stime:	.word	0,0
+area:	.blkw	5
+.end	start
+                                                                                                                                                                                                                                                                                                                                                                                                               
