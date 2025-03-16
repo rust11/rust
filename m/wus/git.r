@@ -24,14 +24,17 @@ include rid:stdef
 	_exe := "\"c:\\program files\\git\\bin\\git.exe\""
 	_log := "c:\\tmp\\git.log"
 
+;	cuActl - control plex
+
   type	cuTctl
   is	Astr : [mxLIN] char	; command string
 	Aspc : [mxLIN] char	; command file spec
 	Qraw : int		; display raw output
 	Qver : int		; verify commands
-
   end
 	ctl : cuTctl = {0}
+
+;	Commands
 
 	cm_add : (*dcTdcl)
 	cm_cmt : (*dcTdcl)
@@ -45,11 +48,15 @@ include rid:stdef
 	cm_sts : (*dcTdcl)
 	cm_upd : (*dcTdcl)
 
+;	Utilities
+
 	cu_cmd : (*char)
 	cu_flt : ()
 	cu_spc : (*char, *char, *char)
 	cu_sub : (*char, *char)
 	cu_upd : (*char)
+
+;	cuAgen - generic qualifiers
 
   init	cuAgen : [] dcTitm
  ;level keyword		task	P1	  V1  	type|flags
@@ -58,6 +65,8 @@ include rid:stdef
       2,  "/VE*RIFY",	dc_set, &ctl.Qver, 1,	0
       2,  <>,		<>, <>, 	   0,	dcRET_
   end
+
+;	cuAdcl - DCL syntax table
 
   init	cuAdcl : [] dcTitm
  ;level keyword		task	P1	  V1  	type|flags
@@ -130,6 +139,7 @@ code	git add <file>
  	dcl : * dcTdcl
   is	cmd : [mxLIN] char
 	cu_spc ("add", ctl.Aspc, cmd)
+	fine if fail
 	cu_cmd (cmd)
 	fine
   end
@@ -148,6 +158,7 @@ code	git diff <file>
  	dcl : * dcTdcl
   is	cmd : [mxLIN] char
 	cu_spc ("diff", ctl.Aspc, cmd)
+	fine if fail
 	cu_cmd (cmd)
 	fine
   end
@@ -169,6 +180,7 @@ code	cm_rem - remove file
  	dcl : * dcTdcl
   is	cmd : [mxLIN] char
 	cu_spc ("rm", ctl.Aspc, cmd)
+	fine if fail
 	cu_cmd (cmd)
 	fine
   end
@@ -179,6 +191,7 @@ code	cm_res - restore file
  	dcl : * dcTdcl
   is	cmd : [mxLIN] char
 	cu_spc ("restore", ctl.Aspc, cmd)
+	fine if fail
 	cu_cmd (cmd)
 	fine
   end
@@ -225,6 +238,7 @@ code	cm_upd - update <file>
   func	cm_upd
 	dcl : * dcTdcl
   is	cu_upd (ctl.Aspc)
+	fine if fail
 	cm_add (dcl)
 	fine
   end
@@ -260,6 +274,7 @@ code	cu_spc - add file spec to command
 	if st_scn (_win, loc)	; scan the directory root
 	.. st_del (loc, st_len(_win)) ; elide git directory root
 	st_app (loc, cmd)	; "keyword spec"
+	fine
   end
 
 code	cu_sub - extract common subdirectory
@@ -269,7 +284,7 @@ code	cu_sub - extract common subdirectory
 	sub : * char
   is	loc : [mxSPC] char
 	fi_loc (spc, loc)		; localize spec
-	fail if! st_scn (_win, loc)	; scan the directory root
+	fail if !st_scn (_win, loc)	; scan the directory root
 	st_del (loc, st_len(_win)-1)   	; elide git directory root
 	st_cop (loc, sub)
 	fine
