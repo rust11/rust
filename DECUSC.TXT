@@ -1,0 +1,837 @@
+         
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                             DECUS C LANGUAGE SYSTEM
+
+
+                                The AS Assembler
+                                 for the PDP-11
+
+
+                                       by
+
+                                David G.  Conroy
+
+
+                                    Edited by
+
+                                  Martin Minow
+
+
+
+
+        This  document  describes  the AS assembler, used to compile the
+        output of the Decus C compiler to PDP-11 object code.  
+
+
+
+
+                         DECUS Structured Languages SIG
+
+                             Version of 11-Nov-1983
+
+                                      NOTE
+
+             This  software  is  made available without any support
+             whatsoever.    The   person   responsible    for    an
+             implementation of this system should expect to have to
+             understand and modify the source code if any  problems
+             are  encountered  in  implementing  or maintaining the
+             compiler  or  its   run-time   library.    The   DECUS
+             'Structured  Languages  Special Interest Group' is the
+             primary focus for communication among  users  of  this
+             software.  
+
+
+
+        UNIX  is  a  trademark  of  Bell  Telephone  Laboratories.  RSX,
+        RSTS/E, RT-11  and  VMS  are  trademarks  of  Digital  Equipment
+        Corporation.  
+
+        AS Reference Manual                                               Page 3
+
+
+
+        1.0  Introduction              ____________
+
+        AS  is a three pass assembler for the PDP-11 intended for use as
+        a target assembler for compilers.  It lacks  some  of  the  more
+        esoteric  assembler  directives  of the standard DEC assemblers;
+        it also lacks any form of  macro  facility.   However,  it  does
+        posess  the  ability  to  extend any branch instruction which is
+        unable to reach its target label  into  the  appropriate  branch
+        over a jump.  
+
+        The  input  syntax is, in general, similar in style to MACRO-11.
+        The actual details have in many cases been  changed  so  that  a
+        program  intended  to  be  assembled with AS cannot be assembled
+        with MACRO-11.  The  syntax  is  compatible  with  the  Unix  AS
+        assembler.  
+
+
+        2.0  Usage              _____
+
+        Under   RSX-11M,  RSX  compatibility  mode  under  VMS,  or  RSX
+        compatiblity mode under RSTS/E, AS is invoked as follows:  
+
+                XAS file [file ...] [-options] 
+
+        or      RUN XAS         AS> file [file ...] [-options] 
+
+        Under  RT-11  compatibility  mode under RSTS/E, AS is invoked as
+        follows:  
+
+                AS file,file=file[/options] 
+
+        Under RT-11, AS is invoked as follows:  
+
+                RUN AS 
+                AS> object,list=source[/options] 
+
+        In  RSX  mode,  the specified files are assembled separately and
+        the object code is placed in a file (on the same device  and  in
+        the same UIC) having the same name as the source file but with a
+        filetype of OBJ.  The default filetype for source files  is  .S.
+        Wildcard  file names are permitted on native RSX-11M and RSX-11M
+        compatibility mode under VMS.  They are not permitted on  RSTS/E
+        or RT-11.  
+
+        In RT-11 mode, only one file may be assembled and the object and
+        list files may be explicitly named.  The default case:  
+
+                AS file 
+
+        is equivalent to 
+
+                AS file=file 
+
+        The following options are defined:  
+        AS Reference Manual                                               Page 4
+
+
+
+
+            b   Causes  the  assembler  to  flag  all branches that were
+                extended to jumps.  
+
+            d   Causes  the  assembler  to  delete the source file after
+                assembly.  This option makes compiling C  programs  much
+                easier.  This option is turned off by errors.  
+
+            g   Causes  all  symbols  which  are undefined at the end of
+                pass 1 to be given the type  undefined  external;   this
+                corresponds to the .ENABL GBL directive of MACRO-11.  
+
+            l   Causes  the  assembler to generate a listing file.  This
+                is the only way to generate a listing file on RSX  mode.
+                It works on RT-11 mode as well.  
+
+            n   Causes  the  assembler  to produce no object file.  This
+                option is primarily used to prevent creating  a  lot  of
+                useless  object  files  when  debugging  the  assembler;
+                however, it may be of use  when  one  wishes  to  simply
+                check a file for errors.  
+
+            s   Causes  the  assembler to write internal symbol records.
+                These are needed to support  symbolic  debuggers.   Note
+                that,  since,  the  Decus  C  compiler does not generate
+                internal symbol tables,  the  assembler  symbol  records
+                will  only  contain  global  data  and  function  names.
+                Statement  numbers,  local  variables,   and   structure
+                offsets are not available.  
+
+        The  object  file  is in standard DEC format.  Note that the RSX
+        compiler produces an object  file  in  the  format  required  by
+        TKB.TSK, while the RT-11 compiler produces an object file in the
+        format required by LINK.SAV.  
+
+        The  title  of  the  object  file is always set to the first six
+        characters of the source file name.  This is of interest only to
+        people who load overlaid programs off libraries.  
+
+
+        3.0  Lexical Conventions              _______ ___________
+
+        Assembler  tokens  consist  of identifiers ('symbols', 'names'),
+        constants and operators.  
+
+
+        3.1  Identifiers              ___________
+
+        An  identifier consists of a sequence of alphanumeric characters
+        (including the period '.', the tilde  '~',  and  the  underscore
+        '_'),  the  first  of  which may not be numeric.  Only the first
+        eight characters of the name  are  significant;   the  rest  are
+        discarded.   Upper  and  lower  case  are  treated  identically.
+        Because the DEC object file stores symbols in radix 50, the  '_'
+        AS Reference Manual                                               Page 5
+
+
+
+        character  is  mapped  to  '.' in the symbol table while the '~'
+        character is mapped to  '$'.   Global  symbols  must  be  unique
+        within the first six characters.  If a global symbol begins with
+        an underscore '_', it will  be  stripped  off.   This  allows  C
+        programs  to  use PDP-11 register names, such as "sp", in global
+        symbols as the compiler will preface all global symbols  with  a
+        '_'.  
+
+
+                                     WARNING
+
+             Note  that  the  mapping of '_' to '.' and the magical
+             properties  of  '_'  in  global   symbols   constitute
+             incompatible  changes  from  earlier  versions of this
+             assembler.  
+
+
+
+
+        3.2  Constants              _________
+
+        An  octal  constant  is  a  sequence of digits;  '8' and '9' are
+        taken to have  octal  values  of  10  and  11.   The  number  is
+        truncated  to  16  bits  and  interpreted  in  two's  complement
+        notation.  
+
+        A  decimal  constant  is  a  sequence  of digits terminated by a
+        period.  The magnitude of the constant should  be  representable
+        in 15 bits;  i.e., be less than 32,768.  
+
+        A  single  character constant consists of the single quote (''')
+        followed by any  ASCII  character  (except  the  newline).   The
+        constant's  value  is the code for the character right justified
+        in the word, with zeros on the left.  
+
+
+        3.3  Operators              _________
+
+        There  are several single and multiple character operators;  see
+        section 6.1.  
+
+
+        3.4  Blanks and Tabs              ______ ___ ____
+
+        Blanks  and  tabs may be used freely between tokens, but may not
+        appear within identifiers.  A blank or  a  tab  is  required  to
+        separate adjacent tokens not otherwise separated.  
+
+
+        3.5  Comments              ________
+
+        The  character  '/'  introduces a comment, which continues until
+        the end of line.  Comments are ignored by the assembler.  
+        AS Reference Manual                                               Page 6
+
+
+
+        4.0  Program Sections              _______ ________
+
+        AS  permits  multiple  program  sections  (PSECTS).  The default
+        attributes are LOW, NOLIB, CON, RW, REL, LCL and ISPACE.  Option
+        bytes  may  be  specified to allow attribute specification shown
+        below.  
+
+
+        5.0  The Location Counter              ___ ________ _______
+
+        The  special  symbol  '.' is the location counter.  Its value is
+        the offset into the current program section of the start of  the
+        statement  in which it appears.  It may be assigned to, with the
+        restrictions that the assignment  must  not  either  change  the
+        program section or cause the value to decrease.  
+
+
+        6.0  Statements              __________
+
+        A  program  consists  of  a  sequence of statements separated by
+        newline or semicolons.  There are  three  kinds  of  statements;
+        null statements, assignment statements and keyword statements.  
+
+        Any statement may be preceeded by any number of labels.  
+
+
+        6.1  Labels              ______
+
+        A  name  label  consists  of  an  identifier followed by a colon
+        (':').  The program section and value of the label  are  set  to
+        those  of the location counter.  It is an error for the value of
+        a label to change between pass 1 and pass2.  
+
+        A  temporary  label consists of a digit '0' to '9' followed by a
+        colon (':').  Such a label serves to define temporary symbols of
+        the  form  'xf'  and  'xb', where 'x' is the digit of the label.
+        References of the form 'xf' refer to the first  temporary  label
+        'x:'  forward  from the reference;  those of the form 'xb' refer
+        to the first temporary label 'x:' backward from  the  reference.
+        Such  labels tend to conserve both the symbol table space of the
+        assembler and the inventive powers of the programmer.  
+
+
+        6.2  Null Statements              ____ __________
+
+        A  null  statement  is just an empty line (which may have labels
+        and be followed by a comment).  Null statements are  ignored  by
+        the  assembler.   Common  examples  of null statements are empty
+        lines or lines consisting of only a label.  
+        AS Reference Manual                                               Page 7
+
+
+
+        6.3  Assignment Statements              __________ __________
+
+        An assignment statement consists of an identifier followed by an
+        equal sign ('=') and  an  expression.   The  value  and  program
+        section  of  the  identifier  are set to that of the expression.
+        Any symbol defined by an assignment statement may be  redefined,
+        either by another assignment statement or by a label.  
+
+
+        6.4  Expression Statements              __________ __________
+
+        An expression statement consists of an arithmetic expression not
+        beginning with a keyword.  The assembler computes its  (16  bit)
+        value  and  places  it  in  the  output  stream  along  with the
+        appropriate relocation.  
+
+
+        6.5  String Statements              ______ __________
+
+        A  (UNIX  style)  string statement generates a sequence of bytes
+        containing ASCII characters.  It consists of a left string quote
+        '<'  followed  by  a  sequence of ASCII characters not including
+        newline followed by a  right  string  quote  '>'.   Any  of  the
+        characters may be replaced by an escape sequence as follows:  
+
+                \b      Backspace       (0010)
+                \f      Formfeed        (0014)
+                \n      Newline         (0012)
+                \r      Carriage Return (0015)
+                \t      Tab             (0011)
+                \nnn    Octal value     (0nnn)
+
+        These escape sequences may also be used in the .ASCII and .ASCIZ
+        keyword statements and in character constants.  
+
+
+        6.6  Keyword Statements              _______ __________
+
+        Keyword statements are the most common type;  all of the machine
+        operations and assembler pseudo operations are of this type.   A
+        keyword  statement begins with one of the assembler's predefined
+        keywords, followed by any operands  required  by  that  keyword.
+        All of the keywords and their required operands are described in
+        sections 7 and 8.  
+
+
+        7.0  Expressions              ___________
+
+        An  expression is a sequence of symbols representing a value and
+        a program section.  Expressions  are  made  up  of  identifiers,
+        constants,  operators  and  brackets.  All binary operators have
+        equal precidence and are executed in  a  strict  left  to  right
+        order (unless altered by brackets).  
+        AS Reference Manual                                               Page 8
+
+
+
+        7.1  Types              _____
+
+        Every  expression  has  a  type determined by its operands.  The
+        types that will be met explicitly are:  
+
+
+            Undefined 
+
+                Upon  first  encounter,  each  symbol  is  undefined.  A
+                symbol may also become undefined if it is assigned to an
+                undefined  expression.   It  is  an error to assemble an
+                undefined expression in pass 2.  Pass 1 allows  assembly
+                of undefined expressions, but phase errors may result if
+                undefined  expressions  are  used  in  certain  contexts
+                (i.e., in a .BLKW or .BLKB).  
+
+
+            Absolute 
+
+                An  absolute  symbol  is  one  defined ultimately from a
+                constant or  from  the  difference  of  two  relocatable
+                values.  
+
+
+            Register 
+
+                Register  symbols  refer to the general registers of the
+                PDP-11.   They  are  required  to  distinguish  register
+                addressing  from  normal memory addressing.  The symbols
+                R0, R1, R2, R3, R4, R5, SP  and  PC  are  predefined  as
+                register symbols.  
+
+
+            Relocatable 
+
+                All  other  user symbols are relocatable symbols in some
+                program section.  Each program section  is  a  different
+                relocatable type.  
+
+        Each keyword in the assembler has a secret type which identifies
+        it internally.  However, all of these secret types are converted
+        to  absolute in expressions.  Thus any keyword may be used in an
+        expression to obtain the  basic  value  of  that  keyword.   For
+        machine operations the basic value is the opcode with all of the
+        addressing  bits  set  to  zero;   the  basic  value  of  pseudo
+        operations is, in general, uninteresting.  
+
+
+        7.2  Operators              _________
+
+        The operators are:  
+
+                '+'             Addition
+                '-'             Subtraction
+        AS Reference Manual                                               Page 9
+
+
+
+                '*'             Multiplication
+                '%'             Integer (truncating) division
+                '&'             Bitwise AND
+                '|'             Bitwise OR
+                '>>'            Arithmetic right shift
+                '<<'            Arithmetic left shift
+                '-'             Unary negation
+                '!'             Unary ones complement
+                '^'             Value of the left, type of the right
+
+        Expressions  may be grouped by means of square brackets ('[' and
+        ']');  parentheses are reserved for use in address expressions. 
+
+
+        7.3  Type Propagation in Expressions              ____ ___________ __ ___________
+
+        When  operands are combined in expressions the resulting type is
+        a function of both the types of the operands and  the  operator.
+        Only   the   '+'   and   binary  '-'  operators  can  manipulate
+        non-absolute operands.  
+
+        The  '+'  operand  permits the addition of two absolute operands
+        (yielding an absolute result) and the addition of an absolute to
+        a  non-absolute operand (yielding a result with the same type as
+        the non-absolute operand).  As a consequence, R3 may be  refered
+        to as R0+3.  
+
+        The  binary  '-' operator permits two operands of the same type,
+        including relocatable, to be subtracted  (yielding  an  absolute
+        result)  and  an  absolute  to be subtracted from a non-absolute
+        (yielding a result with  the  same  type  as  the  non  absolute
+        operand).  
+
+        The notion of 'complex relocation' is not supported.  
+
+
+        8.0  Pseudo Operations              ______ __________
+
+        The  keywords  listed  below introduce statements which generate
+        data or effect the later operation of the assembler.  
+
+
+        8.1  .BYTE expression [ , expression ] ...               _____ __________ _ _ __________ _ ___
+
+        The  expressions  in the comma separated list are truncated to 8
+        bits and are assembled into successive bytes.   The  expressions
+        must be absolute.  
+
+
+        8.2  .WORD expression [ , expression ] ...               _____ __________ _ _ __________ _ ___
+
+        The  expressions  in the comma separated list are assembled into
+        successive words.  
+        AS Reference Manual                                              Page 10
+
+
+
+        8.3  .ASCII string              ______ ______
+
+        The  first  nonblank (or tab) character after the .ASCII keyword
+        is taken as a delimiter.  Successive characters from the  string
+        are  assembled  into  successive  bytes  until  the delimiter is
+        encountered.  
+
+
+        8.4  .ASCIZ string              ______ ______
+
+        This  pseudo  operation  is  identical  to .ASCII except that it
+        appends a null byte to the end of the string.  
+
+
+        8.5  .IDENT string              ______ ______
+
+        The  first  nonblank (or tab) character after the .IDENT keyword
+        is taken as a delimiter.  Successive characters from the  string
+        (which  must  follow  Radix-50 conventions) are assembled into a
+        module identifier until the delimiter is encountered.  Only  the
+        first  six  bytes  will  be recognized.  Shorter strings will be
+        left-justified.  The .IDENT field provides a way of recording  a
+        program  version  number in the object module;  it has no effect
+        on the computation.  
+
+
+        8.6  .EVEN              _____
+
+        If  the  location counter is odd, output a null byte so the next
+        statement will be assembled on an even boundry.  
+
+
+        8.7  .ODD              ____
+
+        If  the  location  counter is even, assemble a null byte so that
+        the next statement will be assembled on an odd boundry.  
+
+
+        8.8  .BLKB expression              _____ __________
+
+        This  statement  assembles  into  expression  null  bytes.   The
+        expression must be absolute.  
+
+
+        8.9  .BLKW expression              _____ __________
+
+        This  statement  assembles  into  expression  null  words.   The
+        expression must be absolute.  
+        AS Reference Manual                                              Page 11
+
+
+
+        8.10  .GLOBL identifier [ , identifier ] ...                ______ __________ _ _ __________ _ ___
+
+        The  identifiers  in  the  comma  separated  list  are marked as
+        global.  If they are defined in the current assembly they may be
+        referenced  by other object modules;  if they are undefined they
+        must be resolved by the loader before execution.  
+
+
+        8.11  .ENTRY expresion               ______ _________
+
+        The  value of the expression becomes the transfer address of the
+        object file.  This provides the function of  the  label  on  the
+        .END statement in MACRO-11.  
+
+
+        8.12  .PSECT identifier               ______ __________
+
+        This  statement  switches the assembler to the specified program
+        section.  If  the  program  section  has  not  been  encountered
+        previously  '.' is set to 0;  otherwise it is set to the highest
+        location already assembled into that  program  section.   .PSECT
+        attributes can be specified as follows:  
+                d Data space
+                i Instruction space (default)
+                r Read-only
+                w Read-write (default)
+                g Global scope
+                l Local scope (default)
+                o Overlay
+                c Concatenate (default)
+
+
+        8.13  .LIMIT               ______
+
+        This  statement assembles into two words that are filled in with
+        program limit information by the linker.  When  the  program  is
+        executed,  the  first  word  will have the lowest address in the
+        load image and the second word will have the highest address  in
+        the load image.  
+
+
+        8.14  .FLT2     number [ , number ] ...                _____     ______ _ _ ______ _ ___
+
+        The  floating  point  numbers  in  the  comma separated list are
+        converted to single precision  floating  point  binary  and  are
+        assembled into successive two word blocks.  
+
+
+        8.15  .FLT4     number [ , number ] ...                _____     ______ _ _ ______ _ ___
+
+        The  floating  point  numbers  in  the  comma separated list are
+        converted to double precision  floating  point  binary  and  are
+        assembled into successive four word blocks.  
+        AS Reference Manual                                              Page 12
+
+
+
+        8.16  End of file               ___ __ ____
+
+        The  assembly source is terminated by the end of the input file.
+        There is no separate .END statement.  
+
+
+        9.0  Machine Instructions              _______ ____________
+
+        Because  of  the  rather  complicated instruction and addressing
+        structure of the PDP-11, the syntax of the machine  instructions
+        is  varied.   The  PDP-11  handbooks should be consulted for the
+        detailed semantics of the instructions.  
+
+
+        9.1  Sources and Destinations              _______ ___ ____________
+
+        The  syntax  of  general source and destination addresses is the
+        same as in MACRO-11, except that '$' has  been  substituted  for
+        '#' and '*' has been substituted for '@'.  
+
+
+        9.2  Simple Machine Instructions              ______ _______ ____________
+
+        The following simple machine instructions are defined:  
+
+                HALT                    WAIT
+                RTI                     BPT
+                IOT                     RESET
+                RTT                     CLC
+                CLV                     CLZ
+                CLN                     SEC
+                SEV                     SEZ
+                SEN                     CLE     (= CLC)
+                SEE     (= SEC)
+
+        The  PDP-11  hardware  allows  more  than  one  of the 'set' and
+        'clear' instructions to be ored together.  There is no syntactic
+        provision for this;  such instructions may be generated by means
+        of the .WORD pseudo operation.  
+
+
+        9.3  Branches              ________
+
+        The  following  instructions  take  an expression as an operand.
+        The expression must lie in the same program section as '.'.   If
+        the value of the expression differs from the current location by
+        more than 254 (decimal) bytes the  instruction  assembles  as  a
+        branch   to   .+6   having  the  opposite  sense  to  the  coded
+        instruction, followed by a jump to the desired location.  
+
+                BR                      BNE
+                BEQ                     BPL
+                BMI                     BVS
+                BVC                     BCS
+        AS Reference Manual                                              Page 13
+
+
+
+                BCC                     BES     (= BCS)
+                BEC     (= BCC)         BLT
+                BGT                     BGE
+                BLE                     BHI
+                BLOS                    BHIS
+                BLO 
+
+
+        9.4  Single Operand Instructions              ______ _______ ____________
+
+        The  following  single  operand instructions take one address of
+        the general source-destination type.  
+
+                CLR                     CLRB
+                COM                     COMB
+                INC                     INCB
+                DEC                     DECB
+                NEG                     NEGB
+                TST                     TSTB
+                ASR                     ASRB
+                ASL                     ASLB
+                ROR                     RORB
+                ROL                     ROLB
+                ADC                     ADCB
+                SBC                     SBCB
+                JMP                     SWAB
+                SXT
+
+
+        9.5  Double Operand Instructions              ______ _______ ____________
+
+        The    double    operand    instructions    take   two   general
+        source-destination type address fields, separated by a comma.  
+
+                MOV                     MOVB
+                CMP                     CMPB
+                BIT                     BITB
+                BIS                     BISB
+                BIC                     BICB
+                ADD                     SUB
+
+
+        9.6  Other Instructions              _____ ____________
+
+        The following instructions have a more specialised syntax.  Here
+        reg  specifies  a  register  expression,  src  and  dst  general
+        source-destination addresses, and expr an expression.  
+
+                JSR     reg,dst 
+                RTS     reg
+                CALL    dst             (same as JSR PC,dst)
+                CALLR   dst             (same as JMP dst)
+                RETURN                  (same as RTS PC)
+                EMT     expr
+        AS Reference Manual                                              Page 14
+
+
+
+                TRAP    expr
+                SYS     expr            (same as EMT expr)
+                ASH     src,reg
+                ASHC    src,reg
+                MUL     src,reg
+                DIV     src,reg
+                XOR     reg,dst
+                MARK    expr
+                SOB     reg,expr
+
+        The  expression  in a SOB must be in the same program section as
+        '.' and must be within 176 bytes of '.'.  The assembler does not
+        attempt  to  adjust  SOB's which cannot reach their destinations
+        into DEC and BNE, because  the  DEC  and  BNE  do  not  set  the
+        condition codes in the same manner.  
+
+
+        9.7  Floating Point Instructions              ________ _____ ____________
+
+        The  following  floating  point  instructions  are defined, with
+        syntax as indicated.  
+
+                ABSF    dst             ABSD    dst
+                ADDF    src,reg         ADDD    src,reg
+                CLRF    dst             CLRD    dst
+                CMPF    reg,dst         CMPD    reg,dst
+                DIVF    src,reg         DIVD    src,reg
+                LDCDF   src,reg         LDCFD   src,reg
+                LDCIF   src,reg         LDCID   src,reg
+                LDCLF   src,reg         LDCLD   src,reg
+                LDEXP   src             LDFPS   src
+                LDF     src,reg         LDD     src,reg
+                MODF    src,reg         MODD    src,reg
+                MULF    src,reg         MULD    src,reg
+                NEGF    dst             NEGD    dst
+                STCFD   reg,dst         STCDF   reg,dst
+                STCFI   reg,dst         STCDI   reg,dst
+                STCFL   reg,dst         STCDL   reg,dst
+                STEXP   dst             STFPS   dst
+                STF     reg,dst         STD     reg,dst
+                SUBF    src,reg         SUBD    src,reg
+                SETF                    SETD
+                SETI                    SETL
+                STST    dst             CFCC
+                TSTF    dst             TSTD    dst
+
+
+        10.0  Diagnostics               ___________
+
+        Syntactic  or  semantic  errors  in  the  source are reported by
+        displaying the offending line on the console  device,  preceeded
+        by  the  appropriate  error flags.  The name of the file is also
+        displayed.  
+
+        AS Reference Manual                                              Page 15
+
+
+
+                a               Addressing
+                b               Byte allignment
+                d               Illegal operation on '.'
+                e               Expression syntax
+                j               Jump (-b)
+                m               Multiple definition
+                o               Illegal operation code
+                p               Phase
+                q               Questionable syntax
+                r               Relocation
+                u               Undefined symbol
+
+        Errors  encountered  in  the  accessing  of files or in internal
+        assembler operations are reported  in  English  on  the  console
+        device.   Overflows  are fatal and require that the assembler be
+        modified to have a larger table (this is easy).  
+
+        The  only  really  cryptic diagnostic is 'AS>', which means that
+        the MCR command line could not be obtained (you  probably  typed
+        RUN  AS).   Type  the  command  line you would have typed at MCR
+        (including the leading AS).  
+
+
+        11.0  Installation Notes               ____________ _____
+
+        The  AS  assembler may be installed on RSTS/E (V7.0 or later) in
+        RSX or RT-11 modes, on RSX-11M (V3.2 or later), on RT-11 (V3B or
+        later),  or  on  VMS  compatiblity  mode.  This section contains
+        installation instructions for RSTS/E and VMS.  
+
+
+        11.1  Installation on RSTS/E               ____________ __ ______
+
+        The  AS assembler is installed after building the CC compiler as
+        it must refer to the compiler support  library  which  is  built
+        together with CC.  Assuming the AS modules are stored in account
+        [5,3], the following command files should be run by ATPK:  
+
+                XMAKAS          Make RSX-style assembler 
+                RMAKAS          Make RT-11 style assembler 
+
+        You will have to edit the various command files as needed.  
+
+        In order to use AS, the System Manager must add the following to
+        the startup command file:  
+
+                RUN $UTILTY
+                ADD LOGICAL [5,2] C
+                CCL XAS-=C:AS.TSK;0
+                CCL AS-=C:AS.SAV;8192
+                EXIT
+        AS Reference Manual                                              Page 16
+
+
+
+        11.2  Installation on VMS               ____________ __ ___
+
+        The  build  command  file  for  the  AS assembler is VMAKAS.COM,
+        located in the same directory as other compiler components.  You
+        will  have  to  edit  it  as  needed,  running it as an indirect
+        command file.  
+
+        To use the assembler, define it as a command as follows:  
+
+                XAS :== $device:[account]AS.EXE XAS 
+
+
+        11.3  Installation on RT-11               ____________ __ _____
+
+        After  building  the  CC  compiler,  the TMAKAS.COM command file
+        should be edited and executed.  
+
+
+        11.4  Installation on RSX-11M               ____________ __ _______
+
+        After  building  the  CC  compiler,  the MMAKAS.CMD command file
+        should be invoked.  
+                                                                                                                                                                                                                                                                                 
